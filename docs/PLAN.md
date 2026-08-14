@@ -115,14 +115,69 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       toleransi hit-test berbasis piksel-ke-dunia pada jarak kamera.
       `cargo build`/`clippy -D warnings`/`test` semua hijau di seluruh
       workspace (9 test lulus: 3 kamera, 1 undo-core, 5 sketch).
-- [ ] **Sengaja belum ada** (bukan lupa, batas lingkup Fase 1 pertama):
-      Ellipse/spline, fillet 2D, trim/extend, offset, mirror; toleransi
-      snap adaptif mouse-vs-sentuh yang presisi (sementara pakai konstanta
-      generos 14px yang wajar untuk keduanya); interaksi drag-satu-gesture
-      (saat ini dua-klik terpisah — drag-to-draw ala Shapr3D masuk Fase 4).
+- [ ] **Sengaja belum ada di putaran pertama** (lihat "Fase 1 lanjutan" di
+      bawah untuk yang sudah ditambahkan): Ellipse/spline, fillet 2D,
+      trim/extend, offset, mirror; interaksi drag-satu-gesture (saat ini
+      dua-klik terpisah — drag-to-draw ala Shapr3D masuk Fase 4).
 - [ ] Verifikasi visual & UX sketching di device sungguhan (mouse/trackpad
       dan idealnya iPad) — sama seperti Fase 0, belum bisa dicek dari
       sandbox agent.
+
+## Status Fase 1 Lanjutan (dikerjakan)
+
+- [x] `cadraw-sketch`: entitas `Ellipse` (axis-aligned, distance_to via
+      sampling batas — tak ada rumus tertutup titik-ke-ellips), hit-test &
+      snap center ikut otomatis lewat match arm yang sudah ada.
+- [x] `arc_from_three_points(p1, p2, p3)`: bangun Arc lewat circumcenter +
+      penentuan CCW start/end yang benar berdasar posisi `p2`. Dites lulus
+      untuk kasus lurus (`None`, kolinear) dan kasus valid (verifikasi
+      ketiga titik berjarak sama ke center + p2 ada di rentang sudut).
+- [x] `offset_entity(entity, reference_point)`: hasil offset ditentukan
+      langsung dari satu titik klik (jarak + sisi sekaligus) — Line via
+      proyeksi normal bertanda, Circle/Arc via jarak ke center. Ellipse
+      sengaja `None` (parallel-curve ellips sejati bukan ellips lagi,
+      tidak direpresentasikan model axis-aligned kita — didokumentasikan,
+      bukan pendekatan yang salah).
+- [x] `mirror_entity(entity, axis_a, axis_b)`: refleksi titik generik untuk
+      Line/Circle/Ellipse (radius/rx/ry dipertahankan), plus penanganan
+      Arc yang menukar start/end angle karena refleksi membalik arah CCW.
+      Catatan keterbatasan didokumentasikan di kode: Ellipse hasil mirror
+      cuma presisi untuk sumbu cermin horizontal/vertikal (ellips
+      berotasi belum didukung model).
+- [x] `trim_segments`/`project_t`/`line_intersection_params_in_sketch`:
+      Trim Line-vs-Line — klik sub-segmen di antara/di luar titik potong
+      untuk menghapusnya, sisa 0-2 potongan disisipkan lewat command baru
+      `ReplaceEntities` (hapus+sisip sebagai satu langkah undo).
+      16 unit test `cadraw-sketch` lulus total (11 baru di putaran ini).
+- [x] `cadraw-render`: render Ellipse (tessellation parametrik rx/ry
+      independen) dan `removal_preview_lines` (warna peringatan merah
+      untuk pratinjau segmen yang akan terhapus Trim).
+- [x] `cadraw-app`: 5 tool baru — Ellips (E, 2-klik kotak pembatas), Arc
+      (A, 3-klik: awal/akhir/titik-di-busur, preview live begitu 2 titik
+      terisi), Offset (O, klik sumber lalu klik sisi+jarak, preview live),
+      Mirror (M, perlu seleksi non-kosong dari tool Pilih lebih dulu, 2
+      klik sumbu cermin dengan preview ghost semua entitas terpilih),
+      Trim (T, hover menyorot merah sub-segmen yang akan hilang, klik
+      commit). Toolbar dirapikan dengan `horizontal_wrapped` supaya 9
+      tombol tool tidak terpotong. `pending_first: Option<DVec2>` Fase 1
+      digeneralisasi jadi `pending_points: Vec<DVec2>` supaya tool 2-titik
+      dan 3-titik (Arc) berbagi jalur commit yang sama
+      (`on_click_point`/`finish_multipoint`).
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (20
+      test: 3 kamera, 1 undo-core, 16 sketch).
+- [ ] **Sengaja belum ada** (lihat juga daftar Fase 1 pertama di atas):
+      spline, fillet 2D (round corner dengan tangency), extend, offset
+      untuk Ellipse, dynamic input untuk Ellipse/Arc/Offset/Mirror/Trim
+      (baru Line/Rectangle/Circle), toleransi snap adaptif mouse-vs-sentuh
+      presisi, drag-satu-gesture. Trim juga hanya menghitung potongan
+      Line-vs-Line (belum Line-vs-Circle/Arc), dan hit-test tool Trim
+      memfilter hasil `hit_test` global ke Line setelahnya (bukan
+      hit-test khusus per-jenis) — kadang meleset kalau ada entitas
+      non-Line yang lebih dekat dari Line terdekat; jarang terasa dalam
+      pemakaian normal (klik langsung di garis), dicatat sebagai
+      penyederhanaan yang bisa diperbaiki nanti bukan bug tersembunyi.
+- [ ] Verifikasi visual & UX tool-tool baru di device sungguhan — sama
+      seperti sebelumnya, belum bisa dicek dari sandbox agent.
 
 ## Menjalankan
 

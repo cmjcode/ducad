@@ -15,6 +15,7 @@ const COLOR_HOVER: [f32; 4] = [1.0, 0.82, 0.25, 1.0];
 const COLOR_SELECTED: [f32; 4] = [0.30, 0.65, 1.0, 1.0];
 const COLOR_PREVIEW: [f32; 4] = [0.55, 0.90, 0.55, 0.85];
 const COLOR_SNAP: [f32; 4] = [1.0, 0.55, 0.15, 1.0];
+const COLOR_REMOVAL: [f32; 4] = [0.95, 0.25, 0.25, 0.95];
 const ARC_SEGMENTS_FULL: usize = 48;
 
 fn to3(p: DVec2) -> [f32; 3] {
@@ -48,6 +49,21 @@ pub fn preview_lines(entity: &Entity) -> Vec<LineVertex> {
     verts
 }
 
+/// Garis peringatan untuk sub-segmen yang akan dihapus tool Trim — dipakai
+/// sebagai preview hover sebelum klik commit.
+pub fn removal_preview_lines(start: DVec2, end: DVec2) -> Vec<LineVertex> {
+    vec![
+        LineVertex {
+            position: to3(start),
+            color: COLOR_REMOVAL,
+        },
+        LineVertex {
+            position: to3(end),
+            color: COLOR_REMOVAL,
+        },
+    ]
+}
+
 fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4]) {
     match entity {
         Entity::Line { start, end } => {
@@ -69,6 +85,35 @@ fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4]) {
             start_angle,
             end_angle,
         } => push_arc(verts, *center, *radius, *start_angle, *end_angle, color),
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => push_ellipse(verts, *center, *radius_x, *radius_y, color),
+    }
+}
+
+fn push_ellipse(
+    verts: &mut Vec<LineVertex>,
+    center: DVec2,
+    radius_x: f64,
+    radius_y: f64,
+    color: [f32; 4],
+) {
+    let tau = std::f64::consts::TAU;
+    let mut prev = center + DVec2::new(radius_x, 0.0);
+    for i in 1..=ARC_SEGMENTS_FULL {
+        let t = tau * (i as f64 / ARC_SEGMENTS_FULL as f64);
+        let p = center + DVec2::new(radius_x * t.cos(), radius_y * t.sin());
+        verts.push(LineVertex {
+            position: to3(prev),
+            color,
+        });
+        verts.push(LineVertex {
+            position: to3(p),
+            color,
+        });
+        prev = p;
     }
 }
 
