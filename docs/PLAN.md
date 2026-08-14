@@ -50,7 +50,9 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    Chamfer semua tepi, Shell/Hollow, render mesh 3D nyata; Revolve/sweep/
    sketch-on-face ditunda, lihat bawah]**
 4. **UX shell** — toolbar kontekstual, command palette, radial menu iPad,
-   target sentuh ≥44pt, tema.
+   target sentuh ≥44pt, tema. **[status: putaran pertama selesai — command
+   palette, radial menu long-press, toggle tema, target sentuh global,
+   lihat bawah]**
 5. **File I/O** — `.cadraw` native (serde+versioning), STEP, DXF, STL/OBJ.
 6. **Port iPad** — winit iOS + Metal via wgpu, Apple Pencil, Files.app,
    TestFlight.
@@ -375,6 +377,98 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       sungguhan — sama seperti fase-fase sebelumnya, belum bisa dicek
       dari sandbox agent (app dicoba jalan 6 detik tanpa panic startup,
       tapi tidak ada akses WindowServer untuk screenshot).
+
+## Status Fase 4 — UX Shell (dikerjakan, putaran pertama)
+
+- [x] `cadraw-ui` diisi pertama kali (sebelumnya kosong sejak Fase 0):
+      3 modul platform-agnostic (cuma bergantung `egui`, tidak menyentuh
+      state `cadraw-app`) — `theme` (mode terang/gelap + gaya target-sentuh
+      global), `command_palette` (`CommandPalette`, generik atas daftar
+      `(label, hint)` yang disuplai caller tiap frame, return index balik
+      ke daftar yang sama), `radial_menu` (`RadialMenu`, pola sama). Dipilih
+      generik-atas-index (bukan generik atas tipe aksi lewat `Box<dyn Fn>`)
+      supaya crate ini tetap tanpa dependensi ke `cadraw-sketch`/
+      `cadraw_kernel`/dst — cocok dipakai ulang shell iPad Fase 6.
+- [x] **Tema**: `cadraw_ui::apply_theme(ctx, ThemeMode)` — bangun
+      `egui::Style` baru dari `Style::default()` (bukan mutasi style lama
+      context) supaya idempoten dipanggil berkali-kali saat toggle, tidak
+      menumpuk penyesuaian dari panggilan sebelumnya. Default: `Dark`.
+      Tombol toggle ada di menu "⚙ Pengaturan" (lihat bawah) + entri "Ganti
+      Tema" di command palette — BUKAN tombol lepas di toolbar utama lagi
+      (revisi setelah putaran pertama: user minta tema & pembuka command
+      palette dipindah ke satu menu Pengaturan, bukan menumpuk toolbar).
+- [x] **Target sentuh ≥44pt**: `style.spacing.interact_size.y` diset sekali
+      secara global di `apply_theme` — jadi lantai tinggi baris untuk semua
+      widget interaktif standar egui (Button/Checkbox/ComboBox/
+      SelectableLabel/dst) di SELURUH aplikasi (toolbar, panel Constraint,
+      panel Model 3D, command palette), tanpa perlu disentuh manual di
+      tiap situs pemanggilan widget.
+- [x] **Command palette**: `Ctrl/Cmd+K` (dicek langsung di `update()`, bukan
+      di `handle_sketch_input` yang menahan shortcut huruf saat ada widget
+      teks fokus — supaya tetap jalan walau fokus sedang di kotak cari
+      palette sendiri). Filter substring case-insensitive (bukan fuzzy
+      sungguhan — cukup untuk belasan aksi CADRAW saat ini, dicatat sebagai
+      batasan sadar bukan lupa). `CadrawApp::palette_actions` membangun
+      daftar aksi tiap frame (murah) dari `PaletteAction` enum: ganti tool
+      apa pun (termasuk 3 tool titik), Undo/Redo sketch, Undo/Redo Model,
+      Ganti Tema, Hapus Seleksi (muncul kondisional, cuma kalau ada
+      seleksi).
+- [x] **Radial menu** (khusus tool Pilih, ditujukan untuk sentuh/iPad):
+      deteksi long-press ditulis di `cadraw-app::handle_radial_menu` (bukan
+      di `RadialMenu` itu sendiri, yang cuma tahu cara gambar+proses
+      drag-lepas — deteksi butuh akses ke tool aktif & response viewport).
+      Tekan primer diam ≥0.42 detik (toleransi gerak 6px, kalau lewat
+      dianggap drag/orbit biasa dan dibatalkan) → `RadialMenu::open_at` di
+      titik tekan, lalu geser ke salah satu dari 8 slice tool sketch
+      (Garis/Persegi/Lingkaran/Ellips/Arc/Offset/Mirror/Trim) dan lepas
+      untuk pindah tool; lepas di zona mati tengah atau Esc untuk batal.
+      Orbit kamera primer dimatikan selama radial terbuka/sedang dideteksi
+      (`radial_active` flag di `viewport()`) supaya drag-ke-slice tidak
+      ikut memutar kamera. `radial_suppress_click` (dikonsumsi sekali per
+      frame lewat `mem::take` di awal `handle_sketch_input`, sebelum early
+      return apa pun) mencegah `response.clicked()` dari pelepasan pointer
+      yang sama ikut diproses sebagai klik seleksi biasa saat long-press
+      tidak bergerak sama sekali.
+- [x] **Menu "⚙ Pengaturan"** (revisi setelah putaran pertama, user: "Theme
+      dan Keyboard shortcut itu dibuat di dalam menu settings aja"):
+      `CadrawApp::settings_menu` — `menu_button` di ujung kanan toolbar
+      mengumpulkan toggle tema, tombol "⌘K Buka Command Palette" (sama
+      efeknya dengan menekan Ctrl/Cmd+K), dan `egui::CollapsingHeader`
+      "Pintasan Keyboard" berisi `egui::Grid` daftar semua shortcut huruf
+      tunggal + kombinasi Ctrl/Cmd (`KEYBOARD_SHORTCUTS` const, 13 entri) —
+      referensi baca-saja, BUKAN pengaturan yang bisa di-remap. Ketiganya
+      dipindah dari tombol lepas di toolbar utama karena jarang disentuh
+      lebih dari sekali per sesi, beda dengan tool sketch yang dipakai
+      terus-menerus.
+- [x] **Toolbar kontekstual** (perbaikan kecil, bukan rombak total —
+      toolbar linear tetap yang utama untuk mouse/trackpad): 3 tool titik
+      (Coincident/Fixed/Symmetric — dipakai jauh lebih jarang dari 9 tool
+      sketch inti) dikumpulkan dari deretan tombol terpisah jadi satu
+      `menu_button` "Titik ▾" yang labelnya berubah menampilkan tool titik
+      aktif (mis. "● Fixed (titik)") supaya statusnya tetap kelihatan walau
+      menu tertutup.
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (53
+      test — sama seperti akhir Fase 3, Fase 4 murni UI/interaksi jadi
+      tidak menambah unit test baru; diverifikasi manual lewat smoke-run
+      `cargo run -p cadraw-app` 6 detik tanpa panic).
+- [ ] **Sengaja belum ada** (lingkup Fase 4 dipersempit ke inti yang bisa
+      dikirim dalam satu putaran): toolbar kontekstual PENUH (mis.
+      tombol/panel yang benar-benar hilang-muncul mengikuti tool aktif,
+      bukan cuma satu grup dikumpulkan ke menu), radial menu untuk konteks
+      selain ganti tool (mis. aksi Model 3D atau constraint cepat), fuzzy
+      search sungguhan di command palette (baru substring), command
+      palette/radial menu belum extensible dari luar `cadraw-app` (list
+      aksi & tool masih hardcoded di `main.rs`, wajar untuk single-app tapi
+      perlu direvisi kalau shell iPad Fase 6 butuh daftar berbeda), deteksi
+      tema sistem otomatis (cuma toggle manual), radial menu belum dites
+      gesture sentuh sungguhan (long-press lewat mouse-hold di sandbox
+      cuma mensimulasikan, belum tentu berperilaku identik dengan sentuh
+      jari asli — perlu verifikasi device Fase 6).
+- [ ] Verifikasi visual & UX (command palette, radial menu, tema, toolbar
+      "Titik") di device sungguhan — sama seperti fase-fase sebelumnya,
+      belum bisa dicek dari sandbox agent (tidak ada akses WindowServer
+      untuk screenshot, apalagi gesture sentuh sungguhan untuk radial
+      menu).
 
 ## Menjalankan
 

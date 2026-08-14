@@ -42,6 +42,20 @@
 //! `apply_constraint`. Undo/redo Model TERPISAH dari Sketch (dua tombol
 //! sendiri di panel, bukan Ctrl+Z global) — lihat docs/PLAN.md.
 //!
+//! UX shell (Fase 4, `cadraw-ui`): Ctrl/Cmd+K membuka command palette
+//! (cari aksi apa saja — ganti tool, undo/redo, hapus seleksi, toggle
+//! tema — lewat substring, Enter eksekusi). Long-press (tekan tahan ~0.4
+//! detik tanpa bergerak) di viewport saat tool Pilih aktif membuka radial
+//! menu di bawah titik tekan — geser ke slice lalu lepas untuk ganti tool,
+//! lepas di zona mati tengah untuk batal; ini jalur utama ganti tool di
+//! sentuh (iPad), toolbar tetap ada untuk mouse/trackpad. Menu "⚙
+//! Pengaturan" di toolbar mengumpulkan toggle tema (`cadraw_ui::ThemeMode`),
+//! pembuka command palette, dan referensi pintasan keyboard — dikumpulkan
+//! di satu tempat (bukan tombol lepas di toolbar utama) karena jarang
+//! disentuh lebih dari sekali per sesi. Semua widget interaktif punya
+//! tinggi minimum 44pt (target sentuh Apple HIG) lewat
+//! `cadraw_ui::apply_theme` yang dipanggil sekali di `new()`.
+//!
 //! Lingkup yang sengaja belum digarap (bukan lupa — lihat docs/PLAN.md):
 //! spline, fillet 2D, extend, offset untuk Ellipse, toleransi snap adaptif
 //! mouse-vs-sentuh presisi, interaksi drag-satu-gesture, browser/penghapus
@@ -49,7 +63,9 @@
 //! belum mencakupnya), Tangent Line-Line (tak masuk akal secara geometris),
 //! Revolve/sweep/loft, boolean intersect, sketch-on-face, picking body/face
 //! 3D lewat klik viewport (body dipilih dari daftar di panel Model),
-//! fillet/chamfer per-tepi individual (baru "semua tepi sekaligus").
+//! fillet/chamfer per-tepi individual (baru "semua tepi sekaligus"),
+//! radial menu untuk konteks selain ganti tool (mis. aksi Model 3D),
+//! deteksi tema sistem otomatis.
 
 mod model;
 
@@ -63,6 +79,7 @@ use cadraw_sketch::{
     offset_entity, project_t, trim_segments, DeleteEntities, Entity, EntityId, InsertEntities,
     ReplaceEntities, Sketch, SnapHit,
 };
+use cadraw_ui::{CommandPalette, RadialMenu, ThemeMode};
 use eframe::egui;
 use glam::{DVec2, Mat4, Vec3};
 use model::{AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand};
@@ -115,6 +132,55 @@ enum ToolKind {
     /// Perlu 1 entitas Line terpilih dulu (sumbu, dari tool Pilih), lalu
     /// klik 2 titik yang mau dibuat saling cermin — constraint Symmetric.
     SymmetricPick,
+}
+
+/// Tool yang ditawarkan radial menu (Fase 4) saat long-press di viewport
+/// dengan tool Pilih aktif — subset tool sketch yang paling sering dipakai
+/// gaya Shapr3D; tool pemilihan titik (Coincident/Fixed/Symmetric) dan
+/// Pilih sendiri sengaja tidak dimasukkan (Pilih sudah aktif, memutar ke
+/// dirinya sendiri tidak berguna; tool titik tetap lewat toolbar/palette).
+const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
+    (ToolKind::Line, "Garis"),
+    (ToolKind::Rectangle, "Persegi"),
+    (ToolKind::Circle, "Lingkaran"),
+    (ToolKind::Ellipse, "Ellips"),
+    (ToolKind::Arc, "Arc"),
+    (ToolKind::Offset, "Offset"),
+    (ToolKind::Mirror, "Mirror"),
+    (ToolKind::Trim, "Trim"),
+];
+
+/// Referensi pintasan keyboard, ditampilkan apa adanya di menu
+/// "⚙ Pengaturan" — daftar bantuan statis, BUKAN pintasan yang bisa
+/// di-remap (remapping ada di luar lingkup putaran ini).
+const KEYBOARD_SHORTCUTS: [(&str, &str); 13] = [
+    ("L", "Tool Garis"),
+    ("R", "Tool Persegi"),
+    ("C", "Tool Lingkaran"),
+    ("E", "Tool Ellips"),
+    ("A", "Tool Arc"),
+    ("O", "Tool Offset"),
+    ("M", "Tool Mirror"),
+    ("T", "Tool Trim"),
+    ("Esc", "Batal titik pending, atau kembali ke tool Pilih"),
+    ("Delete / Backspace", "Hapus seleksi"),
+    ("Ctrl/Cmd+Z", "Undo sketch"),
+    ("Ctrl/Cmd+Shift+Z atau Ctrl+Y", "Redo sketch"),
+    ("Ctrl/Cmd+K", "Buka/tutup command palette"),
+];
+
+/// Aksi yang bisa dieksekusi lewat command palette (Fase 4) — dipetakan
+/// dari index yang dikembalikan `CommandPalette::show`, lihat
+/// `CadrawApp::palette_actions`.
+#[derive(Debug, Clone, Copy)]
+enum PaletteAction {
+    SetTool(ToolKind),
+    Undo,
+    Redo,
+    ModelUndo,
+    ModelRedo,
+    DeleteSelection,
+    ToggleTheme,
 }
 
 /// Berapa titik yang dibutuhkan tool sebelum di-commit lewat
@@ -178,6 +244,24 @@ struct CadrawApp {
     chamfer_distance_input: String,
     shell_thickness_input: String,
     shell_direction: cadraw_kernel::Direction,
+
+    /// Fase 4 (UX shell). `theme` diterapkan lewat `cadraw_ui::apply_theme`
+    /// tiap kali berubah, bukan cuma dibaca — style egui bukan reaktif
+    /// otomatis terhadap field ini.
+    theme: ThemeMode,
+    palette: CommandPalette,
+    radial_menu: RadialMenu,
+    /// Titik & waktu mulai (detik, `egui::Context::input().time`) tekan
+    /// primer di viewport yang masih berlangsung — dipakai mendeteksi
+    /// long-press (lihat `handle_radial_menu`). `None` berarti tak ada
+    /// tekan primer aktif, atau sudah dibatalkan karena bergerak (jadi
+    /// drag/orbit biasa, bukan long-press).
+    radial_press: Option<(egui::Pos2, f64)>,
+    /// Set `true` saat long-press baru saja membuka radial menu, supaya
+    /// `response.clicked()` dari pelepasan pointer yang sama tidak ikut
+    /// diproses sebagai klik seleksi/tool biasa. Dikonsumsi (di-reset ke
+    /// `false`) sekali oleh `handle_sketch_input` tiap frame.
+    radial_suppress_click: bool,
 }
 
 impl CadrawApp {
@@ -196,6 +280,10 @@ impl CadrawApp {
             .write()
             .callback_resources
             .insert(scene);
+
+        let theme = ThemeMode::default();
+        cadraw_ui::apply_theme(&cc.egui_ctx, theme);
+
         Self {
             camera: OrbitCamera::default(),
             sketch: Sketch::default(),
@@ -221,6 +309,12 @@ impl CadrawApp {
             chamfer_distance_input: "2".to_string(),
             shell_thickness_input: "2".to_string(),
             shell_direction: cadraw_kernel::Direction::PosZ,
+
+            theme,
+            palette: CommandPalette::default(),
+            radial_menu: RadialMenu::default(),
+            radial_press: None,
+            radial_suppress_click: false,
         }
     }
 
@@ -342,6 +436,12 @@ impl CadrawApp {
         self.dynamic_focus_pending = false;
     }
 
+    /// Toolbar kontekstual (Fase 4): tool sketch inti tetap sebagai tombol
+    /// langsung (dipakai tiap sesi), sedangkan tool pemilihan titik —
+    /// dipakai jauh lebih jarang — dikumpulkan di satu `menu_button` "Titik"
+    /// supaya toolbar tidak penuh sesak. Label menu berubah menampilkan
+    /// tool titik yang sedang aktif, jadi statusnya tetap kelihatan walau
+    /// menu tertutup.
     fn tool_buttons(&mut self, ui: &mut egui::Ui) {
         for (kind, label) in [
             (ToolKind::Select, "Pilih"),
@@ -359,14 +459,180 @@ impl CadrawApp {
             }
         }
         ui.separator();
-        for (kind, label) in [
+
+        let point_tools = [
             (ToolKind::CoincidentPick, "Coincident (titik)"),
             (ToolKind::FixedPick, "Fixed (titik)"),
             (ToolKind::SymmetricPick, "Symmetric (titik)"),
-        ] {
-            if ui.selectable_label(self.tool == kind, label).clicked() {
-                self.set_tool(kind);
+        ];
+        let active_label = point_tools
+            .iter()
+            .find(|(kind, _)| *kind == self.tool)
+            .map(|(_, label)| format!("● {label}"))
+            .unwrap_or_else(|| "Titik ▾".to_string());
+        ui.menu_button(active_label, |ui| {
+            for (kind, label) in point_tools {
+                if ui.selectable_label(self.tool == kind, label).clicked() {
+                    self.set_tool(kind);
+                    ui.close();
+                }
             }
+        });
+    }
+
+    /// Menu "⚙ Pengaturan" di toolbar: tema, pembuka command palette, dan
+    /// referensi pintasan keyboard — dikumpulkan di satu dropdown alih-alih
+    /// jadi tombol lepas di toolbar utama, karena ketiganya jarang disentuh
+    /// lebih dari sekali per sesi (beda dengan tool sketch yang dipakai
+    /// terus-menerus).
+    fn settings_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("⚙ Pengaturan", |ui| {
+            ui.label("Tema");
+            if ui.button(self.theme.label()).clicked() {
+                self.theme = self.theme.toggled();
+                cadraw_ui::apply_theme(ui.ctx(), self.theme);
+            }
+
+            ui.separator();
+            if ui.button("⌘K Buka Command Palette").clicked() {
+                self.palette.open();
+                ui.close();
+            }
+
+            ui.separator();
+            ui.collapsing("Pintasan Keyboard", |ui| {
+                egui::Grid::new("settings-keyboard-shortcuts")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (key, desc) in KEYBOARD_SHORTCUTS {
+                            ui.strong(key);
+                            ui.label(desc);
+                            ui.end_row();
+                        }
+                    });
+            });
+        });
+    }
+
+    /// Daftar aksi command palette (Fase 4), dibangun ulang tiap frame
+    /// (murah — belasan entri) supaya "Hapus Seleksi" cuma muncul saat ada
+    /// seleksi, dan label tool selalu sinkron dengan `ToolKind`. Index hasil
+    /// `CommandPalette::show` menunjuk balik ke Vec ini.
+    fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
+        let mut actions = vec![
+            ("Pilih".to_string(), String::new(), PaletteAction::SetTool(ToolKind::Select)),
+            ("Garis".to_string(), "L".to_string(), PaletteAction::SetTool(ToolKind::Line)),
+            ("Persegi".to_string(), "R".to_string(), PaletteAction::SetTool(ToolKind::Rectangle)),
+            ("Lingkaran".to_string(), "C".to_string(), PaletteAction::SetTool(ToolKind::Circle)),
+            ("Ellips".to_string(), "E".to_string(), PaletteAction::SetTool(ToolKind::Ellipse)),
+            ("Arc".to_string(), "A".to_string(), PaletteAction::SetTool(ToolKind::Arc)),
+            ("Offset".to_string(), "O".to_string(), PaletteAction::SetTool(ToolKind::Offset)),
+            ("Mirror".to_string(), "M".to_string(), PaletteAction::SetTool(ToolKind::Mirror)),
+            ("Trim".to_string(), "T".to_string(), PaletteAction::SetTool(ToolKind::Trim)),
+            ("Coincident (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::CoincidentPick)),
+            ("Fixed (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::FixedPick)),
+            ("Symmetric (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::SymmetricPick)),
+            ("Undo Sketch".to_string(), "⌘Z".to_string(), PaletteAction::Undo),
+            ("Redo Sketch".to_string(), "⌘⇧Z".to_string(), PaletteAction::Redo),
+            ("Undo Model".to_string(), String::new(), PaletteAction::ModelUndo),
+            ("Redo Model".to_string(), String::new(), PaletteAction::ModelRedo),
+            (
+                format!("Ganti Tema ({})", self.theme.toggled().label()),
+                String::new(),
+                PaletteAction::ToggleTheme,
+            ),
+        ];
+        if !self.selected.is_empty() {
+            actions.push((
+                format!("Hapus Seleksi ({} entitas)", self.selected.len()),
+                "Del".to_string(),
+                PaletteAction::DeleteSelection,
+            ));
+        }
+        actions
+    }
+
+    /// Eksekusi satu `PaletteAction` — dipanggil dari `update()` saat
+    /// command palette mengembalikan index terpilih.
+    fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
+        match action {
+            PaletteAction::SetTool(kind) => self.set_tool(kind),
+            PaletteAction::Undo => {
+                self.undo.undo(&mut self.sketch);
+            }
+            PaletteAction::Redo => {
+                self.undo.redo(&mut self.sketch);
+            }
+            PaletteAction::ModelUndo => {
+                self.model_undo.undo(&mut self.model);
+                self.selected_bodies.clear();
+            }
+            PaletteAction::ModelRedo => {
+                self.model_undo.redo(&mut self.model);
+                self.selected_bodies.clear();
+            }
+            PaletteAction::DeleteSelection => {
+                if !self.selected.is_empty() {
+                    let ids: Vec<_> = self.selected.drain().collect();
+                    self.undo
+                        .execute(Box::new(DeleteEntities::new(ids)), &mut self.sketch);
+                }
+            }
+            PaletteAction::ToggleTheme => {
+                self.theme = self.theme.toggled();
+                cadraw_ui::apply_theme(ctx, self.theme);
+            }
+        }
+    }
+
+    /// Deteksi long-press primer di viewport (tool Pilih aktif, tekan tahan
+    /// diam ≥ `LONG_PRESS_SECS` tanpa bergerak lebih dari `MOVE_TOLERANCE`
+    /// piksel) dan buka radial menu di titik tekan — jalur ganti tool utama
+    /// untuk sentuh (iPad), pelengkap toolbar/shortcut huruf untuk mouse.
+    /// Kalau menu sudah terbuka, method ini menggambar & memprosesnya
+    /// (drag ke slice, lepas untuk pilih) alih-alih mendeteksi tekan baru.
+    fn handle_radial_menu(&mut self, ui: &egui::Ui, response: &egui::Response) {
+        const LONG_PRESS_SECS: f64 = 0.42;
+        const MOVE_TOLERANCE: f32 = 6.0;
+
+        if self.radial_menu.is_open() {
+            let items: Vec<&str> = RADIAL_TOOLS.iter().map(|(_, label)| *label).collect();
+            if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
+                self.set_tool(RADIAL_TOOLS[idx].0);
+            }
+            return;
+        }
+
+        // Radial cuma dipicu dari tool Pilih -- tool lain sudah punya arti
+        // sendiri untuk klik primer (menempatkan titik), long-press di sana
+        // akan membingungkan (dua gestur bersaing untuk klik yang sama).
+        if self.tool != ToolKind::Select {
+            self.radial_press = None;
+            return;
+        }
+
+        let now = ui.input(|i| i.time);
+        if response.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
+            let pos = response
+                .interact_pointer_pos()
+                .unwrap_or_else(|| ui.input(|i| i.pointer.hover_pos()).unwrap_or_default());
+            match self.radial_press {
+                None => self.radial_press = Some((pos, now)),
+                Some((start_pos, start_time)) => {
+                    if pos.distance(start_pos) > MOVE_TOLERANCE {
+                        // Bergerak cukup jauh -- ini drag/orbit biasa, bukan
+                        // long-press diam. Batalkan deteksi.
+                        self.radial_press = None;
+                    } else if now - start_time >= LONG_PRESS_SECS {
+                        self.radial_menu.open_at(start_pos);
+                        self.radial_suppress_click = true;
+                        self.radial_press = None;
+                    }
+                }
+            }
+        } else {
+            self.radial_press = None;
         }
     }
 
@@ -443,10 +709,16 @@ impl CadrawApp {
             .hover_pos()
             .and_then(|p| screen_to_plane_point(&self.camera, rect, p));
 
-        // Orbit primer hanya untuk tool Pilih — tool lain memakai klik
-        // primer untuk menempatkan titik/memilih entitas. Orbit tetap
-        // tersedia lewat drag tengah / dua jari di semua tool.
-        self.handle_navigation(ui, &response, rect, self.tool == ToolKind::Select);
+        self.handle_radial_menu(ui, &response);
+
+        // Orbit primer hanya untuk tool Pilih, dan cuma saat radial menu
+        // TIDAK terbuka/sedang dideteksi lewat long-press (radial memakai
+        // drag primer yang sama untuk memilih slice — kalau orbit ikut
+        // jalan, kamera akan berputar liar saat pengguna menggeser jari ke
+        // arah slice). Orbit tetap tersedia lewat drag tengah / dua jari di
+        // semua tool & kapanpun.
+        let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
+        self.handle_navigation(ui, &response, rect, self.tool == ToolKind::Select && !radial_active);
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 
         let aspect = rect.width() / rect.height().max(1.0);
@@ -571,6 +843,12 @@ impl CadrawApp {
             }
         }
 
+        // Konsumsi flag radial SEKALI per frame, terlepas dari apakah tool
+        // aktif Select (satu-satunya tool yang bisa memicu radial) --
+        // supaya tidak pernah bocor jadi menempel di frame/klik berikutnya
+        // kalau frame ini kebetulan tidak melewati cabang yang memakainya.
+        let suppress_click_from_radial = std::mem::take(&mut self.radial_suppress_click);
+
         let Some(raw) = raw_cursor else {
             self.hovered = None;
             self.last_snap = None;
@@ -586,7 +864,7 @@ impl CadrawApp {
                     .hovered()
                     .then(|| self.sketch.hit_test(raw, tol))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !suppress_click_from_radial {
                     let shift = ui.input(|i| i.modifiers.shift);
                     match (self.hovered, shift) {
                         (Some(hit), true) => {
@@ -1460,8 +1738,28 @@ impl eframe::App for CadrawApp {
                 {
                     self.undo.redo(&mut self.sketch);
                 }
+                ui.separator();
+                self.settings_menu(ui);
             });
         });
+
+        // Ctrl/Cmd+K: buka/tutup command palette. Dicek di sini (bukan
+        // `handle_sketch_input`, yang menahan shortcut huruf tunggal saat
+        // ada widget teks fokus) supaya tetap jalan walau fokus lagi ada
+        // di kotak cari palette itu sendiri -- pola sama dengan Escape di
+        // dalam `CommandPalette::show`.
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
+            self.palette.toggle();
+        }
+        let palette_actions = self.palette_actions();
+        let palette_entries: Vec<(&str, &str)> = palette_actions
+            .iter()
+            .map(|(label, hint, _)| (label.as_str(), hint.as_str()))
+            .collect();
+        if let Some(idx) = self.palette.show(ctx, &palette_entries) {
+            let action = palette_actions[idx].2;
+            self.run_palette_action(ctx, action);
+        }
 
         self.model_panel(ctx);
         self.constraint_panel(ctx);

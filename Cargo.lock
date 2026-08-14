@@ -570,6 +570,7 @@ dependencies = [
  "cadraw-kernel",
  "cadraw-render",
  "cadraw-sketch",
+ "cadraw-ui",
  "eframe",
  "egui",
  "egui-wgpu",
