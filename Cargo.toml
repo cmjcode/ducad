@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
+
+[workspace.dependencies]
+cadraw-core = { path = "crates/cadraw-core" }
+cadraw-sketch = { path = "crates/cadraw-sketch" }
+cadraw-kernel = { path = "crates/cadraw-kernel" }
+cadraw-render = { path = "crates/cadraw-render" }
+cadraw-io = { path = "crates/cadraw-io" }
+cadraw-ui = { path = "crates/cadraw-ui" }
+
+glam = { version = "0.29", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+eframe = { version = "0.32", features = ["wgpu"] }
+egui = "0.32"
+egui_wgpu = { package = "egui-wgpu", version = "0.32" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+slotmap = "1"
+log = "0.4"
+env_logger = "0.11"
+opencascade = "0.2"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

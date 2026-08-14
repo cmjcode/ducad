@@ -1,0 +1,11 @@
+[package]
+name = "cadraw-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+egui_wgpu = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }

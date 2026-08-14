@@ -1,0 +1,19 @@
+[package]
+name = "cadraw-kernel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+opencascade = { workspace = true }
+# Sengaja TIDAK memakai glam workspace (0.29): opencascade 0.2.0 pin ke
+# glam 0.23 tanpa re-export, jadi tipe DVec3 tidak kompatibel lintas versi.
+# KernelMesh mengonversi ke [f32; 3] mentah agar versi ini tidak bocor ke
+# crate lain (cadraw-render/cadraw-app tetap di glam 0.29 workspace).
+glam = { version = "0.23", features = ["bytemuck"] }
+anyhow = { workspace = true }
+
+[[bin]]
+name = "smoke"
+path = "src/bin/smoke.rs"

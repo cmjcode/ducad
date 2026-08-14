@@ -1,0 +1,14 @@
+//! Viewport 3D CADRAW: kamera, grid, dan pipeline wgpu.
+//!
+//! Konvensi: sumbu Z ke atas (konvensi CAD), satuan milimeter, right-handed.
+
+pub mod camera;
+pub mod grid;
+pub mod scene;
+
+pub use camera::OrbitCamera;
+pub use scene::SceneRenderer;
+
+// Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi
+// wgpu yang sama persis dengan egui (mismatch versi = error tipe misterius).
+pub use egui_wgpu::wgpu;
