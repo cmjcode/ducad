@@ -1,0 +1,9 @@
+[env]
+# occt-sys (dependensi cadraw-kernel) membawa CMakeLists.txt bawaan OCCT
+# yang pakai `cmake_minimum_required` versi lama; CMake >= 4.0 (terinstal di
+# banyak mesin dev sekarang) menghapus dukungan untuk itu dan build gagal di
+# langkah konfigurasi. Override ini bikin CMake tetap menerima project lama
+# tanpa menambal source OCCT sendiri — build script `cmake` crate membaca
+# env var ini otomatis. Kalau OCCT naik versi dan ini sudah tidak perlu,
+# aman dihapus (bukan bagian dari API CADRAW).
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
