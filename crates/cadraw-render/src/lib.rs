@@ -5,8 +5,10 @@
 pub mod camera;
 pub mod grid;
 pub mod scene;
+pub mod sketch;
 
 pub use camera::OrbitCamera;
+pub use grid::LineVertex;
 pub use scene::SceneRenderer;
 
 // Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 cadraw-core = { workspace = true }
+cadraw-sketch = { workspace = true }
 cadraw-render = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }

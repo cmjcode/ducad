@@ -34,38 +34,50 @@ impl Document {
     }
 }
 
-/// Operasi yang bisa di-undo. Semua mutasi dokumen WAJIB lewat trait ini
-/// (ditegakkan sejak Fase 0 — retrofit undo belakangan sangat mahal).
-pub trait Command {
+/// Operasi yang bisa di-undo terhadap target `T` — mis. `Document` (body 3D)
+/// atau `Sketch` di cadraw-sketch (entitas 2D). Generik sejak awal supaya
+/// setiap lapisan dokumen (sketch, body, nanti assembly) dapat undo/redo
+/// yang sama tanpa retrofit; semua mutasi WAJIB lewat trait ini.
+pub trait Command<T> {
     fn name(&self) -> &str;
-    fn apply(&mut self, doc: &mut Document);
-    fn revert(&mut self, doc: &mut Document);
+    fn apply(&mut self, target: &mut T);
+    fn revert(&mut self, target: &mut T);
 }
 
-/// Tumpukan undo/redo klasik.
-#[derive(Default)]
-pub struct UndoStack {
-    undo: Vec<Box<dyn Command>>,
-    redo: Vec<Box<dyn Command>>,
+/// Tumpukan undo/redo klasik, generik atas target `T`.
+pub struct UndoStack<T> {
+    undo: Vec<Box<dyn Command<T>>>,
+    redo: Vec<Box<dyn Command<T>>>,
 }
 
-impl UndoStack {
-    pub fn execute(&mut self, mut cmd: Box<dyn Command>, doc: &mut Document) {
-        cmd.apply(doc);
+// Impl manual (bukan #[derive(Default)]) agar tidak menambahkan bound
+// keliru `T: Default` — Vec::new() tidak butuh itu.
+impl<T> Default for UndoStack<T> {
+    fn default() -> Self {
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+        }
+    }
+}
+
+impl<T> UndoStack<T> {
+    pub fn execute(&mut self, mut cmd: Box<dyn Command<T>>, target: &mut T) {
+        cmd.apply(target);
         self.undo.push(cmd);
         self.redo.clear();
     }
 
-    pub fn undo(&mut self, doc: &mut Document) -> Option<&str> {
+    pub fn undo(&mut self, target: &mut T) -> Option<&str> {
         let mut cmd = self.undo.pop()?;
-        cmd.revert(doc);
+        cmd.revert(target);
         self.redo.push(cmd);
         self.redo.last().map(|c| c.name())
     }
 
-    pub fn redo(&mut self, doc: &mut Document) -> Option<&str> {
+    pub fn redo(&mut self, target: &mut T) -> Option<&str> {
         let mut cmd = self.redo.pop()?;
-        cmd.apply(doc);
+        cmd.apply(target);
         self.undo.push(cmd);
         self.undo.last().map(|c| c.name())
     }
@@ -87,7 +99,7 @@ mod tests {
         id: Option<BodyId>,
     }
 
-    impl Command for AddBox {
+    impl Command<Document> for AddBox {
         fn name(&self) -> &str {
             "Add Box"
         }

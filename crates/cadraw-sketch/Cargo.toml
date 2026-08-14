@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+cadraw-core = { workspace = true }
 glam = { workspace = true }
 slotmap = { workspace = true }
 serde = { workspace = true }

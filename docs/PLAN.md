@@ -87,7 +87,42 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       developer (`cargo run -p cadraw-app`) di sesi desktop interaktif —
       shell agent tidak punya akses WindowServer untuk screenshot.
 - [ ] Spike build iOS (winit iOS + cross-compile OCCT) — belum dimulai,
-      prioritas berikutnya karena ini risiko arsitektur tertinggi.
+      masih prioritas tertinggi berikutnya (risiko arsitektur, lihat
+      status Fase 1 di bawah untuk kenapa ditunda satu putaran).
+
+## Status Fase 1 (dikerjakan)
+
+- [x] `cadraw-core::Command`/`UndoStack` digeneralisasi jadi generik atas
+      target `T` (bukan cuma `Document`), supaya `cadraw-sketch` bisa pakai
+      undo/redo yang sama tanpa retrofit. `Document` (3D) tetap jalan lewat
+      `Command<Document>`.
+- [x] `cadraw-sketch`: entitas Line/Circle/Arc, hit-testing (jarak titik-ke-
+      entitas), snap engine dengan prioritas endpoint > midpoint > center >
+      intersection > grid, command `InsertEntities`/`DeleteEntities`
+      (undo-able). 5 unit test lulus (hit-test, 3 skenario snap,
+      insert/delete roundtrip).
+- [x] `cadraw-render`: modul `sketch` mengonversi entitas + preview + glyph
+      snap (bentuk beda per jenis: kotak endpoint, segitiga midpoint,
+      lingkaran center, diamond intersection, silang grid) jadi
+      `LineVertex`; `SceneRenderer` dapat buffer overlay dinamis yang
+      di-upload ulang tiap frame lewat pipeline garis yang sama dengan grid.
+- [x] `cadraw-app`: tool Pilih/Garis/Persegi/Lingkaran lengkap — klik 2 titik
+      dengan snap otomatis, preview rubber-band, dynamic input (ketik
+      panjang/radius + Enter, gaya AutoCAD), seleksi klik & Shift+klik,
+      hover highlight, Delete/Backspace hapus, Ctrl/Cmd+Z undo, Ctrl/Cmd+
+      Shift+Z atau Ctrl+Y redo, shortcut L/R/C ganti tool, Esc batal/kembali
+      ke Pilih. Ray-plane picking (unproject NDC → intersect Z=0) dan
+      toleransi hit-test berbasis piksel-ke-dunia pada jarak kamera.
+      `cargo build`/`clippy -D warnings`/`test` semua hijau di seluruh
+      workspace (9 test lulus: 3 kamera, 1 undo-core, 5 sketch).
+- [ ] **Sengaja belum ada** (bukan lupa, batas lingkup Fase 1 pertama):
+      Ellipse/spline, fillet 2D, trim/extend, offset, mirror; toleransi
+      snap adaptif mouse-vs-sentuh yang presisi (sementara pakai konstanta
+      generos 14px yang wajar untuk keduanya); interaksi drag-satu-gesture
+      (saat ini dua-klik terpisah — drag-to-draw ala Shapr3D masuk Fase 4).
+- [ ] Verifikasi visual & UX sketching di device sungguhan (mouse/trackpad
+      dan idealnya iPad) — sama seperti Fase 0, belum bisa dicek dari
+      sandbox agent.
 
 ## Menjalankan
 

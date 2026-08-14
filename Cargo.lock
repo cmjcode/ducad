@@ -568,6 +568,7 @@ version = "0.1.0"
 dependencies = [
  "cadraw-core",
  "cadraw-render",
+ "cadraw-sketch",
  "eframe",
  "egui",
  "egui-wgpu",
@@ -608,6 +609,7 @@ name = "cadraw-render"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cadraw-sketch",
  "egui-wgpu",
  "glam 0.29.3",
 ]
@@ -616,6 +618,7 @@ dependencies = [
 name = "cadraw-sketch"
 version = "0.1.0"
 dependencies = [
+ "cadraw-core",
  "glam 0.29.3",
  "serde",
  "slotmap",

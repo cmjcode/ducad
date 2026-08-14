@@ -35,6 +35,11 @@ pub struct SceneRenderer {
     grid_vertex_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
     mesh: Option<GpuMesh>,
+    /// Garis overlay 2D (entitas sketch, preview, glyph snap) — dibangun
+    /// ulang tiap frame lewat `set_overlay_lines`, memakai pipeline garis
+    /// yang sama dengan grid (topology & shader identik).
+    overlay_vbuf: Option<wgpu::Buffer>,
+    overlay_vertex_count: u32,
 }
 
 impl SceneRenderer {
@@ -174,7 +179,30 @@ impl SceneRenderer {
             grid_vertex_count: grid_verts.len() as u32,
             mesh_pipeline,
             mesh: None,
+            overlay_vbuf: None,
+            overlay_vertex_count: 0,
         }
+    }
+
+    /// Upload garis overlay 2D (sketch) untuk frame ini. Dipanggil dari
+    /// `prepare()` callback, jadi `device` tersedia untuk buat buffer baru
+    /// tiap frame — cukup murah untuk skala sketch Fase 1 (ratusan-ribuan
+    /// vertex); dioptimalkan (buffer yang di-resize, bukan dibuat ulang)
+    /// di Fase 7 kalau profiling menunjukkan perlu.
+    pub fn set_overlay_lines(&mut self, device: &wgpu::Device, verts: &[grid::LineVertex]) {
+        use wgpu::util::DeviceExt;
+        if verts.is_empty() {
+            self.overlay_vbuf = None;
+            self.overlay_vertex_count = 0;
+            return;
+        }
+        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("overlay"),
+            contents: bytemuck::cast_slice(verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.overlay_vbuf = Some(buf);
+        self.overlay_vertex_count = verts.len() as u32;
     }
 
     /// Upload mesh body (dari cadraw-kernel) untuk ditampilkan.
@@ -234,5 +262,10 @@ impl SceneRenderer {
         rpass.set_pipeline(&self.grid_pipeline);
         rpass.set_vertex_buffer(0, self.grid_vbuf.slice(..));
         rpass.draw(0..self.grid_vertex_count, 0..1);
+
+        if let Some(buf) = &self.overlay_vbuf {
+            rpass.set_vertex_buffer(0, buf.slice(..));
+            rpass.draw(0..self.overlay_vertex_count, 0..1);
+        }
     }
 }
