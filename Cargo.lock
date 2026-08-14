@@ -567,6 +567,7 @@ name = "cadraw-app"
 version = "0.1.0"
 dependencies = [
  "cadraw-core",
+ "cadraw-kernel",
  "cadraw-render",
  "cadraw-sketch",
  "eframe",
@@ -575,6 +576,7 @@ dependencies = [
  "env_logger",
  "glam 0.29.3",
  "log",
+ "slotmap",
 ]
 
 [[package]]

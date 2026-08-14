@@ -205,7 +205,11 @@ impl SceneRenderer {
         self.overlay_vertex_count = verts.len() as u32;
     }
 
-    /// Upload mesh body (dari cadraw-kernel) untuk ditampilkan.
+    /// Upload mesh body (dari cadraw-kernel) untuk ditampilkan. Body kosong
+    /// (tidak ada body, atau semua tersembunyi) membersihkan mesh yang
+    /// sedang tampil — wgpu menolak buffer berukuran 0, jadi early-return
+    /// ke `self.mesh = None` (sama pola dengan `set_overlay_lines`) alih-
+    /// alih coba bikin buffer kosong.
     pub fn set_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -214,6 +218,10 @@ impl SceneRenderer {
         indices: &[u32],
     ) {
         use wgpu::util::DeviceExt;
+        if indices.is_empty() {
+            self.mesh = None;
+            return;
+        }
         let verts: Vec<MeshVertex> = positions
             .iter()
             .zip(normals)

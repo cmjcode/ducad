@@ -3,13 +3,13 @@
 
 fn main() -> anyhow::Result<()> {
     let shape = cadraw_kernel::make_filleted_box(40.0, 30.0, 20.0, 3.0)?;
-    let mesh = cadraw_kernel::tessellate(&shape)?;
+    let mesh = shape.tessellate();
     println!(
         "OK: box 40x30x20 fillet r3 -> {} verts, {} tris",
         mesh.positions.len(),
         mesh.triangle_count()
     );
-    cadraw_kernel::write_stl(&shape, "target/smoke_box.stl")?;
+    shape.write_stl("target/smoke_box.stl")?;
     println!("OK: STL ditulis ke target/smoke_box.stl");
     Ok(())
 }

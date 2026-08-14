@@ -1,12 +1,14 @@
 //! Sketching 2D CADRAW: entitas, hit-testing, snapping, operasi modify
-//! (offset/mirror/trim), dan command undo/redo. Fase 2 menambah constraint
-//! solver di atas modul ini.
+//! (offset/mirror/trim), constraint solver (lihat modul `constraint`), dan
+//! command undo/redo.
 //!
 //! Lingkup Fase 1 lanjutan (sengaja dibatasi, bukan lupa): Line/Circle/
 //! Arc/Ellipse, snap endpoint/midpoint/center/intersection/grid, offset
 //! (Line/Circle/Arc — Ellipse belum, lihat `offset_entity`), mirror, dan
 //! trim (Line-vs-Line saja). Spline, fillet 2D, dan extend menyusul di
 //! iterasi berikutnya — belum ada di sini.
+
+pub mod constraint;
 
 use cadraw_core::Command;
 use glam::DVec2;
@@ -77,6 +79,29 @@ impl Entity {
         }
     }
 
+    /// Sama seperti `endpoints()`, tapi berpasangan dengan `PointRef`
+    /// sumbernya — dipakai `find_snap` supaya UI bisa membangun constraint
+    /// Coincident/Fixed/Symmetric langsung dari hasil snap, bukan cuma
+    /// titik mentah. Endpoint Arc sengaja tidak muncul di sini: `PointRef`
+    /// belum punya varian untuknya (lihat catatan lingkup di modul
+    /// `constraint`), jadi snap ke endpoint Arc tidak bisa jadi sumber
+    /// constraint titik — akan tetap tampil sebagai snap Endpoint biasa,
+    /// hanya tidak membawa `source`.
+    pub fn endpoint_refs(&self, id: EntityId) -> Vec<(constraint::PointRef, DVec2)> {
+        match self {
+            Entity::Line { start, end } => vec![
+                (constraint::PointRef::LineStart(id), *start),
+                (constraint::PointRef::LineEnd(id), *end),
+            ],
+            _ => vec![],
+        }
+    }
+
+    /// Sama seperti `center()`, berpasangan dengan `PointRef::Center`.
+    pub fn center_ref(&self, id: EntityId) -> Option<(constraint::PointRef, DVec2)> {
+        self.center().map(|c| (constraint::PointRef::Center(id), c))
+    }
+
     /// Jarak titik ke entitas — dipakai hit-testing seleksi & (nanti)
     /// snap "nearest on entity".
     pub fn distance_to(&self, p: DVec2) -> f64 {
@@ -145,9 +170,12 @@ fn angle_in_range(angle: f64, start: f64, end: f64) -> bool {
 }
 
 /// Satu sketch pada sebuah bidang kerja.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Sketch {
     pub entities: slotmap::SlotMap<EntityId, Entity>,
+    /// Constraint aktif (lihat modul `constraint`) — solver menulis balik
+    /// geometri `entities` di atas saat constraint berubah.
+    pub constraints: Vec<constraint::Constraint>,
 }
 
 impl Sketch {
@@ -181,6 +209,13 @@ pub enum SnapKind {
 pub struct SnapHit {
     pub point: DVec2,
     pub kind: SnapKind,
+    /// Rujukan titik sumber (entitas + Start/End/Center) bila snap ini
+    /// berasal dari titik yang benar-benar jadi DOF entitas — dipakai UI
+    /// membangun constraint Coincident/Fixed/Symmetric langsung dari hasil
+    /// snap. `None` untuk Midpoint/Intersection/Grid (bukan DOF tunggal,
+    /// melainkan turunan dari titik lain) dan untuk endpoint Arc
+    /// (`PointRef` belum mencakupnya — lihat `Entity::endpoint_refs`).
+    pub source: Option<constraint::PointRef>,
 }
 
 /// Cari titik snap terbaik di sekitar kursor. Prioritas: endpoint >
@@ -197,12 +232,12 @@ pub fn find_snap(
     grid_step: f64,
     exclude: Option<EntityId>,
 ) -> Option<SnapHit> {
-    let nearest = |kind: SnapKind, pts: Vec<DVec2>| -> Option<SnapHit> {
+    let nearest = |kind: SnapKind, pts: Vec<(DVec2, Option<constraint::PointRef>)>| -> Option<SnapHit> {
         pts.into_iter()
-            .map(|p| (p, (p - cursor).length()))
-            .filter(|(_, d)| *d <= tolerance)
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .map(|(point, _)| SnapHit { point, kind })
+            .map(|(p, src)| (p, src, (p - cursor).length()))
+            .filter(|(_, _, d)| *d <= tolerance)
+            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+            .map(|(point, source, _)| SnapHit { point, kind, source })
     };
 
     let others = || {
@@ -214,23 +249,38 @@ pub fn find_snap(
 
     if let Some(hit) = nearest(
         SnapKind::Endpoint,
-        others().flat_map(|(_, e)| e.endpoints()).collect(),
+        others()
+            .flat_map(|(id, e)| e.endpoint_refs(id))
+            .map(|(r, p)| (p, Some(r)))
+            .collect(),
     ) {
         return Some(hit);
     }
     if let Some(hit) = nearest(
         SnapKind::Midpoint,
-        others().filter_map(|(_, e)| e.midpoint()).collect(),
+        others()
+            .filter_map(|(_, e)| e.midpoint())
+            .map(|p| (p, None))
+            .collect(),
     ) {
         return Some(hit);
     }
     if let Some(hit) = nearest(
         SnapKind::Center,
-        others().filter_map(|(_, e)| e.center()).collect(),
+        others()
+            .filter_map(|(id, e)| e.center_ref(id))
+            .map(|(r, p)| (p, Some(r)))
+            .collect(),
     ) {
         return Some(hit);
     }
-    if let Some(hit) = nearest(SnapKind::Intersection, find_intersections(sketch, exclude)) {
+    if let Some(hit) = nearest(
+        SnapKind::Intersection,
+        find_intersections(sketch, exclude)
+            .into_iter()
+            .map(|p| (p, None))
+            .collect(),
+    ) {
         return Some(hit);
     }
 
@@ -241,6 +291,7 @@ pub fn find_snap(
     ((snapped - cursor).length() <= tolerance).then_some(SnapHit {
         point: snapped,
         kind: SnapKind::Grid,
+        source: None,
     })
 }
 
@@ -395,6 +446,19 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
     }
 }
 
+/// Pantulkan titik `p` melintasi garis tak-hingga melalui `axis_a`-`axis_b`.
+/// Dipakai `mirror_entity` (di bawah) dan `Constraint::Symmetric` di modul
+/// `constraint`. Bila sumbu berdegenerasi (dua titik berimpit), turun
+/// dengan aman jadi refleksi lewat titik `axis_a` (bukan NaN/panic) —
+/// bukan hasil yang bermakna geometris, tapi deterministik & tak crash.
+pub fn reflect_point(p: DVec2, axis_a: DVec2, axis_b: DVec2) -> DVec2 {
+    let axis_dir = (axis_b - axis_a).normalize_or_zero();
+    let rel = p - axis_a;
+    let along = axis_dir * rel.dot(axis_dir);
+    let perp = rel - along;
+    p - perp * 2.0
+}
+
 /// Pantulkan `entity` melintasi garis tak-hingga melalui `axis_a`-`axis_b`.
 /// `None` bila sumbu berdegenerasi (dua titik berimpit).
 ///
@@ -409,12 +473,7 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
     if axis_dir == DVec2::ZERO {
         return None;
     }
-    let reflect = |p: DVec2| -> DVec2 {
-        let rel = p - axis_a;
-        let along = axis_dir * rel.dot(axis_dir);
-        let perp = rel - along;
-        p - perp * 2.0
-    };
+    let reflect = |p: DVec2| reflect_point(p, axis_a, axis_b);
 
     Some(match entity {
         Entity::Line { start, end } => Entity::Line {
@@ -667,6 +726,42 @@ mod tests {
         let hit = find_snap(&sketch, DVec2::new(10.0, 0.0), 2.0, 10.0, None).unwrap();
         assert_eq!(hit.kind, SnapKind::Endpoint);
         assert!((hit.point - DVec2::new(10.2, 0.1)).length() < 1e-9);
+        assert!(hit.source.is_some(), "snap Endpoint harus bawa PointRef sumber");
+    }
+
+    #[test]
+    fn snap_source_is_none_for_derived_points() {
+        let mut sketch = Sketch::default();
+        sketch.entities.insert(Entity::Line {
+            start: DVec2::new(-5.0, 0.0),
+            end: DVec2::new(15.0, 0.0),
+        });
+        sketch.entities.insert(Entity::Line {
+            start: DVec2::new(0.0, -5.0),
+            end: DVec2::new(0.0, 15.0),
+        });
+        // Snap ke intersection: titik turunan, bukan DOF entitas manapun.
+        let hit = find_snap(&sketch, DVec2::new(0.3, 0.3), 1.0, 1000.0, None).unwrap();
+        assert_eq!(hit.kind, SnapKind::Intersection);
+        assert!(hit.source.is_none());
+
+        // Snap ke grid (sketch kosong): juga bukan DOF entitas.
+        let sketch = Sketch::default();
+        let hit = find_snap(&sketch, DVec2::new(19.6, 0.2), 1.0, 10.0, None).unwrap();
+        assert_eq!(hit.kind, SnapKind::Grid);
+        assert!(hit.source.is_none());
+    }
+
+    #[test]
+    fn snap_center_carries_point_ref() {
+        let mut sketch = Sketch::default();
+        let c = sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(5.0, 5.0),
+            radius: 3.0,
+        });
+        let hit = find_snap(&sketch, DVec2::new(5.1, 5.1), 1.0, 1000.0, None).unwrap();
+        assert_eq!(hit.kind, SnapKind::Center);
+        assert_eq!(hit.source, Some(constraint::PointRef::Center(c)));
     }
 
     #[test]

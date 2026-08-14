@@ -15,13 +15,49 @@
 //! membatalkan titik pending / kembali ke Pilih. Delete/Backspace menghapus
 //! seleksi. Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z atau Ctrl+Y redo.
 //!
+//! Panel Constraint (Fase 2, kanan layar): muncul saat tool Pilih aktif
+//! dan ada 1-2 entitas terpilih, menawarkan tombol constraint yang relevan
+//! untuk kombinasi jenis entitas itu (mis. 2 Line terpilih → Sejajar/Tegak
+//! Lurus/Sama Panjang/Sudut/Tangent bila salah satu radial). Constraint
+//! di-solve langsung (dry-run di atas clone sketch dulu, baru dikirim ke
+//! undo stack kalau konvergen — kalau gagal, ditolak dengan pesan status,
+//! sketch tidak berubah).
+//!
+//! Tool pemilihan titik (Fase 2 lanjutan): CoincidentPick — klik 2 titik
+//! (endpoint/center, lewat snap) untuk membuat keduanya berimpit; FixedPick
+//! — klik 1 titik untuk menahannya di posisi sekarang; SymmetricPick —
+//! perlu 1 Line terpilih dulu sebagai sumbu (pola sama dengan Mirror), lalu
+//! klik 2 titik yang mau dibuat saling cermin. Titik yang sudah diklik
+//! ditandai marker silang ungu (beda dari glyph snap oranye).
+//!
+//! Panel Model (Fase 3, kanan layar juga — muncul berdampingan/gantian
+//! dengan panel Constraint tergantung tool aktif): Extrude membangun
+//! `Profile` kernel dari seleksi entitas sketch (1 Circle, atau ≥3
+//! Line/Arc yang membentuk loop tertutup — urutan bebas, lihat
+//! `model::build_profile_from_selection`) lalu memanggil
+//! `cadraw_kernel::extrude_profile`. Union/Subtract butuh 2 body terpilih
+//! di daftar body; Fillet/Chamfer semua tepi & Shell/Hollow butuh 1 body.
+//! Semua operasi model dry-run dulu (gagal → pesan error, `model` tidak
+//! berubah) sebelum masuk `model_undo` — pola yang sama dengan
+//! `apply_constraint`. Undo/redo Model TERPISAH dari Sketch (dua tombol
+//! sendiri di panel, bukan Ctrl+Z global) — lihat docs/PLAN.md.
+//!
 //! Lingkup yang sengaja belum digarap (bukan lupa — lihat docs/PLAN.md):
 //! spline, fillet 2D, extend, offset untuk Ellipse, toleransi snap adaptif
-//! mouse-vs-sentuh presisi, interaksi drag-satu-gesture.
+//! mouse-vs-sentuh presisi, interaksi drag-satu-gesture, browser/penghapus
+//! constraint selain lewat Undo, constraint pada titik ujung Arc (PointRef
+//! belum mencakupnya), Tangent Line-Line (tak masuk akal secara geometris),
+//! Revolve/sweep/loft, boolean intersect, sketch-on-face, picking body/face
+//! 3D lewat klik viewport (body dipilih dari daftar di panel Model),
+//! fillet/chamfer per-tepi individual (baru "semua tepi sekaligus").
+
+mod model;
 
 use std::collections::HashSet;
 
+use cadraw_core::BodyId;
 use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, SceneRenderer};
+use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
 use cadraw_sketch::{
     arc_from_three_points, find_snap, line_intersection_params_in_sketch, mirror_entity,
     offset_entity, project_t, trim_segments, DeleteEntities, Entity, EntityId, InsertEntities,
@@ -29,6 +65,7 @@ use cadraw_sketch::{
 };
 use eframe::egui;
 use glam::{DVec2, Mat4, Vec3};
+use model::{AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand};
 
 fn main() -> eframe::Result {
     env_logger::init();
@@ -67,17 +104,34 @@ enum ToolKind {
     /// Klik segmen Line yang mau dipotong di antara/di luar perpotongan
     /// dengan entitas Line lain.
     Trim,
+    /// Klik 2 titik (endpoint/center, lewat snap) untuk membuat keduanya
+    /// berimpit — constraint Coincident. Bukan tool multi-titik biasa;
+    /// pakai `pending_point_refs`, bukan `pending_points`, karena butuh
+    /// tahu ENTITAS+bagian mana yang diklik, bukan cuma koordinatnya.
+    CoincidentPick,
+    /// Klik 1 titik (endpoint/center) untuk menahannya di posisi sekarang
+    /// — constraint Fixed. Sekali klik langsung commit.
+    FixedPick,
+    /// Perlu 1 entitas Line terpilih dulu (sumbu, dari tool Pilih), lalu
+    /// klik 2 titik yang mau dibuat saling cermin — constraint Symmetric.
+    SymmetricPick,
 }
 
 /// Berapa titik yang dibutuhkan tool sebelum di-commit lewat
-/// `CadrawApp::finish_multipoint`. Offset/Trim ditangani jalur terpisah
-/// (bergantung entitas yang diklik, bukan sekadar titik).
+/// `CadrawApp::finish_multipoint`. Offset/Trim/CoincidentPick/FixedPick/
+/// SymmetricPick ditangani jalur terpisah (bergantung entitas/PointRef
+/// yang diklik, bukan sekadar koordinat titik).
 fn required_points(tool: ToolKind) -> usize {
     match tool {
         ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
         | ToolKind::Mirror => 2,
         ToolKind::Arc => 3,
-        ToolKind::Select | ToolKind::Offset | ToolKind::Trim => 0,
+        ToolKind::Select
+        | ToolKind::Offset
+        | ToolKind::Trim
+        | ToolKind::CoincidentPick
+        | ToolKind::FixedPick
+        | ToolKind::SymmetricPick => 0,
     }
 }
 
@@ -89,6 +143,10 @@ struct CadrawApp {
 
     tool: ToolKind,
     pending_points: Vec<DVec2>,
+    /// Titik (via PointRef) yang sudah diklik untuk CoincidentPick/
+    /// SymmetricPick — terpisah dari `pending_points` karena tool ini
+    /// butuh identitas entitas+bagian, bukan cuma koordinat.
+    pending_point_refs: Vec<constraint::PointRef>,
     /// Entitas sumber untuk tool Offset, di-set pada klik pertama.
     offset_source: Option<EntityId>,
 
@@ -98,6 +156,28 @@ struct CadrawApp {
 
     dynamic_input: String,
     dynamic_focus_pending: bool,
+
+    /// Input teks bebas untuk nilai constraint dimensional (Panjang,
+    /// Radius, Sudut) di panel Constraint.
+    constraint_value_input: String,
+    /// Pesan gagal terakhir (mis. constraint tidak konvergen), ditampilkan
+    /// di panel sampai constraint berikutnya berhasil atau seleksi berubah.
+    constraint_status: Option<String>,
+
+    /// Dokumen 3D (Fase 3): metadata body + geometri kernel, lihat modul
+    /// `model`. Undo/redo-nya terpisah dari `undo` (sketch) — lihat doc
+    /// comment atas file.
+    model: ModelDoc,
+    model_undo: cadraw_core::UndoStack<ModelDoc>,
+    selected_bodies: HashSet<BodyId>,
+    /// Pesan gagal terakhir dari operasi Model (dry-run gagal), sama pola
+    /// dengan `constraint_status`.
+    model_status: Option<String>,
+    extrude_distance_input: String,
+    fillet_radius_input: String,
+    chamfer_distance_input: String,
+    shell_thickness_input: String,
+    shell_direction: cadraw_kernel::Direction,
 }
 
 impl CadrawApp {
@@ -122,18 +202,32 @@ impl CadrawApp {
             undo: cadraw_sketch::UndoStack::default(),
             tool: ToolKind::Select,
             pending_points: Vec::new(),
+            pending_point_refs: Vec::new(),
             offset_source: None,
             hovered: None,
             selected: HashSet::new(),
             last_snap: None,
             dynamic_input: String::new(),
             dynamic_focus_pending: false,
+            constraint_value_input: String::new(),
+            constraint_status: None,
+
+            model: ModelDoc::default(),
+            model_undo: cadraw_core::UndoStack::default(),
+            selected_bodies: HashSet::new(),
+            model_status: None,
+            extrude_distance_input: "10".to_string(),
+            fillet_radius_input: "2".to_string(),
+            chamfer_distance_input: "2".to_string(),
+            shell_thickness_input: "2".to_string(),
+            shell_direction: cadraw_kernel::Direction::PosZ,
         }
     }
 
     fn set_tool(&mut self, tool: ToolKind) {
         self.tool = tool;
         self.pending_points.clear();
+        self.pending_point_refs.clear();
         self.offset_source = None;
         self.last_snap = None;
         self.dynamic_input.clear();
@@ -142,6 +236,16 @@ impl CadrawApp {
 
     fn snapped_or(&self, raw: DVec2) -> DVec2 {
         self.last_snap.map(|s| s.point).unwrap_or(raw)
+    }
+
+    /// Entitas Line pertama dalam seleksi saat ini — dipakai sumbu cermin
+    /// tool SymmetricPick (prasyarat: pilih 1 Line lewat tool Pilih dulu,
+    /// pola yang sama dengan Mirror).
+    fn symmetric_axis(&self) -> Option<EntityId> {
+        self.selected
+            .iter()
+            .copied()
+            .find(|id| matches!(self.sketch.entities.get(*id), Some(Entity::Line { .. })))
     }
 
     /// Terima satu titik klik untuk tool multi-titik aktif; commit otomatis
@@ -224,7 +328,12 @@ impl CadrawApp {
                 (!mirrored.is_empty())
                     .then(|| Box::new(InsertEntities::new("Cerminkan", mirrored)) as _)
             }
-            ToolKind::Select | ToolKind::Offset | ToolKind::Trim => None,
+            ToolKind::Select
+            | ToolKind::Offset
+            | ToolKind::Trim
+            | ToolKind::CoincidentPick
+            | ToolKind::FixedPick
+            | ToolKind::SymmetricPick => None,
         };
         if let Some(cmd) = cmd {
             self.undo.execute(cmd, &mut self.sketch);
@@ -244,6 +353,16 @@ impl CadrawApp {
             (ToolKind::Offset, "Offset (O)"),
             (ToolKind::Mirror, "Mirror (M)"),
             (ToolKind::Trim, "Trim (T)"),
+        ] {
+            if ui.selectable_label(self.tool == kind, label).clicked() {
+                self.set_tool(kind);
+            }
+        }
+        ui.separator();
+        for (kind, label) in [
+            (ToolKind::CoincidentPick, "Coincident (titik)"),
+            (ToolKind::FixedPick, "Fixed (titik)"),
+            (ToolKind::SymmetricPick, "Symmetric (titik)"),
         ] {
             if ui.selectable_label(self.tool == kind, label).clicked() {
                 self.set_tool(kind);
@@ -295,6 +414,20 @@ impl CadrawApp {
                 }
             }
             ToolKind::Trim => "Trim: klik segmen garis yang mau dipotong (T)".to_string(),
+            ToolKind::CoincidentPick => match self.pending_point_refs.len() {
+                0 => "Coincident: klik titik pertama (endpoint/center)".to_string(),
+                _ => "Coincident: klik titik kedua".to_string(),
+            },
+            ToolKind::FixedPick => {
+                "Fixed: klik titik (endpoint/center) untuk menahannya di posisi sekarang".to_string()
+            }
+            ToolKind::SymmetricPick => match self.symmetric_axis() {
+                None => "Symmetric: pilih 1 Line jadi sumbu di tool Pilih dulu".to_string(),
+                Some(_) => match self.pending_point_refs.len() {
+                    0 => "Symmetric: klik titik pertama (endpoint/center)".to_string(),
+                    _ => "Symmetric: klik titik kedua".to_string(),
+                },
+            },
         };
         match &self.last_snap {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),
@@ -318,12 +451,16 @@ impl CadrawApp {
 
         let aspect = rect.width() / rect.height().max(1.0);
         let overlay = self.build_overlay_lines(raw_cursor);
+        let (body_positions, body_normals, body_indices) = self.build_combined_body_mesh();
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
                 view_proj: self.camera.view_proj(aspect),
                 eye: self.camera.eye(),
                 overlay_lines: overlay,
+                body_positions,
+                body_normals,
+                body_indices,
             },
         ));
 
@@ -395,8 +532,12 @@ impl CadrawApp {
                     .execute(Box::new(DeleteEntities::new(ids)), &mut self.sketch);
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                if !self.pending_points.is_empty() || self.offset_source.is_some() {
+                if !self.pending_points.is_empty()
+                    || !self.pending_point_refs.is_empty()
+                    || self.offset_source.is_some()
+                {
                     self.pending_points.clear();
+                    self.pending_point_refs.clear();
                     self.offset_source = None;
                     self.dynamic_input.clear();
                     self.dynamic_focus_pending = false;
@@ -460,6 +601,7 @@ impl CadrawApp {
                         (None, false) => self.selected.clear(),
                         (None, true) => {}
                     }
+                    self.constraint_status = None;
                 }
             }
             ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
@@ -551,6 +693,65 @@ impl CadrawApp {
                     }
                 }
             }
+            ToolKind::CoincidentPick => {
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() {
+                    if let Some(source) = self.last_snap.and_then(|s| s.source) {
+                        self.pending_point_refs.push(source);
+                        if self.pending_point_refs.len() >= 2 {
+                            let refs = std::mem::take(&mut self.pending_point_refs);
+                            self.apply_constraint(Constraint::Coincident { a: refs[0], b: refs[1] });
+                        }
+                    }
+                    // Klik tanpa sumber titik valid (mis. snap ke midpoint/
+                    // intersection/grid, atau tak ada snap sama sekali)
+                    // sengaja diabaikan — bukan crash, cuma tak berefek.
+                }
+            }
+            ToolKind::FixedPick => {
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() {
+                    if let Some(hit) = self.last_snap {
+                        if let Some(source) = hit.source {
+                            self.apply_constraint(Constraint::Fixed {
+                                point: source,
+                                target: hit.point,
+                            });
+                        }
+                    }
+                }
+            }
+            ToolKind::SymmetricPick => {
+                self.hovered = None;
+                self.last_snap = None;
+                if let Some(axis_id) = self.symmetric_axis() {
+                    self.last_snap = response
+                        .hovered()
+                        .then(|| find_snap(&self.sketch, raw, tol, grid_step, Some(axis_id)))
+                        .flatten();
+                    if response.clicked() {
+                        if let Some(source) = self.last_snap.and_then(|s| s.source) {
+                            self.pending_point_refs.push(source);
+                            if self.pending_point_refs.len() >= 2 {
+                                let refs = std::mem::take(&mut self.pending_point_refs);
+                                self.apply_constraint(Constraint::Symmetric {
+                                    a: refs[0],
+                                    b: refs[1],
+                                    axis: axis_id,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -561,6 +762,16 @@ impl CadrawApp {
         if self.tool == ToolKind::Offset {
             if let Some(entity) = self.offset_source.and_then(|id| self.sketch.entities.get(id)) {
                 verts.extend(sketch_render::preview_lines(entity));
+            }
+        }
+
+        // Coincident/Symmetric: tandai titik yang sudah diklik (beda warna
+        // dari glyph snap oranye supaya tak tertukar dengan hover kursor).
+        if matches!(self.tool, ToolKind::CoincidentPick | ToolKind::SymmetricPick) {
+            for pr in &self.pending_point_refs {
+                if let Some(p) = constraint::point_ref_position(&self.sketch, pr) {
+                    verts.extend(sketch_render::picked_point_glyph(p));
+                }
             }
         }
 
@@ -729,6 +940,453 @@ impl CadrawApp {
                 });
             });
     }
+
+    /// Coba terapkan `constraint`: dry-run solve di atas clone sketch dulu
+    /// (termasuk constraint yang sudah ada + yang baru), baru dikirim ke
+    /// undo stack kalau konvergen. Sketch nyata tidak tersentuh sama
+    /// sekali kalau gagal — hanya `constraint_status` terisi pesan error.
+    fn apply_constraint(&mut self, new_constraint: Constraint) {
+        let mut trial = self.sketch.clone();
+        trial.constraints.push(new_constraint.clone());
+        let snapshot = trial.constraints.clone();
+        let result = constraint::solve(&mut trial, &snapshot);
+
+        if result.converged {
+            self.undo
+                .execute(Box::new(AddConstraint::new(new_constraint)), &mut self.sketch);
+            self.constraint_status = None;
+        } else {
+            self.constraint_status = Some(format!(
+                "Constraint gagal diselesaikan (sisa residual {:.4}) — dibatalkan, sketch tidak berubah",
+                result.final_residual_norm
+            ));
+        }
+    }
+
+    /// Panel kontekstual (kanan layar): muncul saat tool Pilih aktif dan
+    /// ada 1-2 entitas terpilih. Coincident/Fixed sengaja tidak ditawarkan
+    /// di sini — keduanya butuh seleksi titik individual (endpoint/center)
+    /// yang belum ada infrastruktur UI-nya (lihat docs/PLAN.md).
+    fn constraint_panel(&mut self, ctx: &egui::Context) {
+        if self.tool != ToolKind::Select || self.selected.is_empty() {
+            return;
+        }
+        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+
+        egui::SidePanel::right("constraints")
+            .resizable(false)
+            .min_width(220.0)
+            .show(ctx, |ui| {
+                ui.heading("Constraint");
+                ui.separator();
+                match ids.as_slice() {
+                    [a] => self.constraint_buttons_single(ui, *a),
+                    [a, b] => self.constraint_buttons_pair(ui, *a, *b),
+                    _ => {
+                        ui.label("Pilih 1 atau 2 entitas untuk memasang constraint.");
+                    }
+                }
+                if let Some(msg) = self.constraint_status.clone() {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 90), msg);
+                }
+            });
+    }
+
+    fn constraint_buttons_single(&mut self, ui: &mut egui::Ui, id: EntityId) {
+        let Some(entity) = self.sketch.entities.get(id).cloned() else {
+            return;
+        };
+        match entity {
+            Entity::Line { .. } => {
+                ui.horizontal(|ui| {
+                    if ui.button("Horizontal").clicked() {
+                        self.apply_constraint(Constraint::Horizontal { line: id });
+                    }
+                    if ui.button("Vertikal").clicked() {
+                        self.apply_constraint(Constraint::Vertical { line: id });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Panjang (mm):");
+                    ui.text_edit_singleline(&mut self.constraint_value_input);
+                    if ui.button("Terapkan").clicked() {
+                        if let Ok(value) = self.constraint_value_input.trim().parse::<f64>() {
+                            self.apply_constraint(Constraint::Distance {
+                                a: constraint::PointRef::LineStart(id),
+                                b: constraint::PointRef::LineEnd(id),
+                                value,
+                            });
+                        }
+                    }
+                });
+            }
+            Entity::Circle { .. } | Entity::Arc { .. } => {
+                ui.horizontal(|ui| {
+                    ui.label("Radius (mm):");
+                    ui.text_edit_singleline(&mut self.constraint_value_input);
+                    if ui.button("Terapkan").clicked() {
+                        if let Ok(value) = self.constraint_value_input.trim().parse::<f64>() {
+                            self.apply_constraint(Constraint::Radius { entity: id, value });
+                        }
+                    }
+                });
+            }
+            Entity::Ellipse { .. } => {
+                ui.label("Constraint untuk Ellips belum didukung.");
+            }
+        }
+    }
+
+    fn constraint_buttons_pair(&mut self, ui: &mut egui::Ui, a: EntityId, b: EntityId) {
+        let (ea, eb) = (
+            self.sketch.entities.get(a).cloned(),
+            self.sketch.entities.get(b).cloned(),
+        );
+        match (ea, eb) {
+            (Some(Entity::Line { .. }), Some(Entity::Line { .. })) => {
+                ui.horizontal(|ui| {
+                    if ui.button("Sejajar").clicked() {
+                        self.apply_constraint(Constraint::Parallel { a, b });
+                    }
+                    if ui.button("Tegak Lurus").clicked() {
+                        self.apply_constraint(Constraint::Perpendicular { a, b });
+                    }
+                });
+                if ui.button("Sama Panjang").clicked() {
+                    self.apply_constraint(Constraint::EqualLength { a, b });
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Sudut (°):");
+                    ui.text_edit_singleline(&mut self.constraint_value_input);
+                    if ui.button("Terapkan").clicked() {
+                        if let Ok(deg) = self.constraint_value_input.trim().parse::<f64>() {
+                            self.apply_constraint(Constraint::Angle {
+                                a,
+                                b,
+                                value: deg.to_radians(),
+                            });
+                        }
+                    }
+                });
+            }
+            (Some(Entity::Circle { .. } | Entity::Arc { .. }), Some(Entity::Circle { .. } | Entity::Arc { .. })) => {
+                ui.horizontal(|ui| {
+                    if ui.button("Sama Radius").clicked() {
+                        self.apply_constraint(Constraint::EqualRadius { a, b });
+                    }
+                    if ui.button("Bersinggungan (Tangent)").clicked() {
+                        self.apply_constraint(Constraint::Tangent { a, b });
+                    }
+                });
+            }
+            (Some(Entity::Line { .. }), Some(Entity::Circle { .. } | Entity::Arc { .. }))
+            | (Some(Entity::Circle { .. } | Entity::Arc { .. }), Some(Entity::Line { .. })) => {
+                if ui.button("Bersinggungan (Tangent)").clicked() {
+                    self.apply_constraint(Constraint::Tangent { a, b });
+                }
+            }
+            _ => {
+                ui.label("Kombinasi entitas ini belum punya constraint yang didukung.");
+            }
+        }
+    }
+
+    // ---- Fase 3: Model 3D ------------------------------------------------
+
+    /// Extrude profil dari seleksi entitas sketch saat ini. Dry-run: kalau
+    /// `build_profile_from_selection` atau `extrude_profile` gagal, cuma
+    /// `model_status` terisi — `model` tidak tersentuh.
+    fn extrude_selected(&mut self) {
+        let distance: f64 = match self.extrude_distance_input.trim().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                self.model_status = Some("Jarak extrude tidak valid".to_string());
+                return;
+            }
+        };
+        let profile = match model::build_profile_from_selection(&self.sketch, &self.selected) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.model_status = Some(msg);
+                return;
+            }
+        };
+        match cadraw_kernel::extrude_profile(&profile, distance) {
+            Ok(shape) => {
+                let geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(AddSolidCommand::new("Extrude", geo)),
+                    &mut self.model,
+                );
+                self.model_status = None;
+            }
+            Err(e) => self.model_status = Some(format!("Extrude gagal: {e}")),
+        }
+    }
+
+    /// Union/Subtract dua body terpilih (butuh persis 2). Seleksi body
+    /// dikosongkan setelah sukses — keduanya lenyap, digantikan 1 body
+    /// hasil dengan `BodyId` baru (lihat catatan `model::BooleanCommand`).
+    fn boolean_selected(&mut self, kind: BooleanKind, label: &'static str, result_name: &str) {
+        let ids: Vec<BodyId> = self.selected_bodies.iter().copied().collect();
+        let [a, b] = ids.as_slice() else {
+            self.model_status = Some("Pilih persis 2 body di daftar untuk operasi ini".to_string());
+            return;
+        };
+        match BooleanCommand::try_new(&self.model, kind, label, result_name, *a, *b) {
+            Ok(cmd) => {
+                self.model_undo.execute(Box::new(cmd), &mut self.model);
+                self.selected_bodies.clear();
+                self.model_status = None;
+            }
+            Err(msg) => self.model_status = Some(msg),
+        }
+    }
+
+    /// Fillet SEMUA tepi 1 body terpilih.
+    fn fillet_selected_body(&mut self) {
+        let Some(&id) = self.selected_bodies.iter().next().filter(|_| self.selected_bodies.len() == 1) else {
+            self.model_status = Some("Pilih persis 1 body untuk Fillet".to_string());
+            return;
+        };
+        let Ok(radius) = self.fillet_radius_input.trim().parse::<f64>() else {
+            self.model_status = Some("Radius fillet tidak valid".to_string());
+            return;
+        };
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+        match cadraw_kernel::fillet_all(&geo.shape, radius) {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Fillet", id, new_geo)),
+                    &mut self.model,
+                );
+                self.model_status = None;
+            }
+            Err(e) => self.model_status = Some(format!("Fillet gagal: {e}")),
+        }
+    }
+
+    /// Chamfer SEMUA tepi 1 body terpilih.
+    fn chamfer_selected_body(&mut self) {
+        let Some(&id) = self.selected_bodies.iter().next().filter(|_| self.selected_bodies.len() == 1) else {
+            self.model_status = Some("Pilih persis 1 body untuk Chamfer".to_string());
+            return;
+        };
+        let Ok(distance) = self.chamfer_distance_input.trim().parse::<f64>() else {
+            self.model_status = Some("Jarak chamfer tidak valid".to_string());
+            return;
+        };
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+        match cadraw_kernel::chamfer_all(&geo.shape, distance) {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Chamfer", id, new_geo)),
+                    &mut self.model,
+                );
+                self.model_status = None;
+            }
+            Err(e) => self.model_status = Some(format!("Chamfer gagal: {e}")),
+        }
+    }
+
+    /// Shell/Hollow 1 body terpilih — buang face terjauh ke arah
+    /// `shell_direction`, sisakan dinding setebal `shell_thickness_input`.
+    fn shell_selected_body(&mut self) {
+        let Some(&id) = self.selected_bodies.iter().next().filter(|_| self.selected_bodies.len() == 1) else {
+            self.model_status = Some("Pilih persis 1 body untuk Shell/Hollow".to_string());
+            return;
+        };
+        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+            self.model_status = Some("Tebal shell tidak valid".to_string());
+            return;
+        };
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+        match cadraw_kernel::shell_hollow(&geo.shape, thickness, self.shell_direction) {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Shell", id, new_geo)),
+                    &mut self.model,
+                );
+                self.model_status = None;
+            }
+            Err(e) => self.model_status = Some(format!("Shell gagal: {e}")),
+        }
+    }
+
+    /// Hapus semua body terpilih (masing-masing 1 command undo-able).
+    fn delete_selected_bodies(&mut self) {
+        for id in std::mem::take(&mut self.selected_bodies) {
+            self.model_undo
+                .execute(Box::new(DeleteBodyCommand::new(id)), &mut self.model);
+        }
+    }
+
+    /// Merge mesh semua body VISIBLE jadi satu buffer gabungan, siap
+    /// diupload lewat `SceneRenderer::set_mesh` (satu draw call). Indeks
+    /// tiap body digeser sebesar jumlah vertex yang sudah terkumpul.
+    fn build_combined_body_mesh(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+        for (id, body) in self.model.doc.bodies.iter() {
+            if !body.visible {
+                continue;
+            }
+            let Some(geo) = self.model.geometry.get(id) else {
+                continue;
+            };
+            let offset = positions.len() as u32;
+            positions.extend_from_slice(&geo.mesh.positions);
+            normals.extend_from_slice(&geo.mesh.normals);
+            indices.extend(geo.mesh.indices.iter().map(|i| i + offset));
+        }
+        (positions, normals, indices)
+    }
+
+    /// Panel Model (kanan layar): daftar body (klik pilih, checkbox
+    /// visible, Ctrl/Cmd+klik multi-pilih) + tombol operasi. Muncul
+    /// kapanpun (tidak bergantung tool sketch aktif) — beda dari panel
+    /// Constraint yang cuma muncul saat tool Pilih + seleksi sketch.
+    fn model_panel(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("model")
+            .resizable(false)
+            .min_width(240.0)
+            .show(ctx, |ui| {
+                ui.heading("Model 3D");
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(self.model_undo.can_undo(), egui::Button::new("↶ Undo Model"))
+                        .clicked()
+                    {
+                        self.model_undo.undo(&mut self.model);
+                        self.selected_bodies.clear();
+                    }
+                    if ui
+                        .add_enabled(self.model_undo.can_redo(), egui::Button::new("↷ Redo Model"))
+                        .clicked()
+                    {
+                        self.model_undo.redo(&mut self.model);
+                        self.selected_bodies.clear();
+                    }
+                });
+                ui.separator();
+
+                ui.label("Body:");
+                egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                    let ids: Vec<BodyId> = self.model.doc.bodies.keys().collect();
+                    for id in ids {
+                        let Some(body) = self.model.doc.bodies.get_mut(id) else {
+                            continue;
+                        };
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut body.visible, "");
+                            let selected = self.selected_bodies.contains(&id);
+                            if ui.selectable_label(selected, &body.name).clicked() {
+                                let extend = ctx.input(|i| i.modifiers.command || i.modifiers.shift);
+                                if !extend {
+                                    self.selected_bodies.clear();
+                                }
+                                if !self.selected_bodies.remove(&id) {
+                                    self.selected_bodies.insert(id);
+                                }
+                                self.model_status = None;
+                            }
+                        });
+                    }
+                    if self.model.doc.bodies.is_empty() {
+                        ui.weak("(belum ada body — Extrude dari seleksi sketch)");
+                    }
+                });
+                ui.separator();
+
+                ui.label("Extrude dari seleksi sketch:");
+                ui.horizontal(|ui| {
+                    ui.label("Jarak (mm):");
+                    ui.text_edit_singleline(&mut self.extrude_distance_input);
+                    if ui.button("Extrude").clicked() {
+                        self.extrude_selected();
+                    }
+                });
+                ui.separator();
+
+                ui.label(format!("Boolean ({} body terpilih):", self.selected_bodies.len()));
+                ui.horizontal(|ui| {
+                    if ui.button("Union").clicked() {
+                        self.boolean_selected(BooleanKind::Union, "Union", "Union");
+                    }
+                    if ui.button("Subtract (A-B)").clicked() {
+                        self.boolean_selected(BooleanKind::Subtract, "Subtract", "Subtract");
+                    }
+                });
+                ui.separator();
+
+                ui.label("Fillet semua tepi:");
+                ui.horizontal(|ui| {
+                    ui.label("Radius (mm):");
+                    ui.text_edit_singleline(&mut self.fillet_radius_input);
+                    if ui.button("Fillet").clicked() {
+                        self.fillet_selected_body();
+                    }
+                });
+                ui.label("Chamfer semua tepi:");
+                ui.horizontal(|ui| {
+                    ui.label("Jarak (mm):");
+                    ui.text_edit_singleline(&mut self.chamfer_distance_input);
+                    if ui.button("Chamfer").clicked() {
+                        self.chamfer_selected_body();
+                    }
+                });
+                ui.separator();
+
+                ui.label("Shell / Hollow (buang face terjauh ke arah ini):");
+                egui::ComboBox::from_id_salt("shell-direction")
+                    .selected_text(format!("{:?}", self.shell_direction))
+                    .show_ui(ui, |ui| {
+                        for dir in [
+                            cadraw_kernel::Direction::PosZ,
+                            cadraw_kernel::Direction::NegZ,
+                            cadraw_kernel::Direction::PosX,
+                            cadraw_kernel::Direction::NegX,
+                            cadraw_kernel::Direction::PosY,
+                            cadraw_kernel::Direction::NegY,
+                        ] {
+                            ui.selectable_value(&mut self.shell_direction, dir, format!("{dir:?}"));
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    ui.label("Tebal (mm):");
+                    ui.text_edit_singleline(&mut self.shell_thickness_input);
+                    if ui.button("Shell").clicked() {
+                        self.shell_selected_body();
+                    }
+                });
+                ui.separator();
+
+                if ui
+                    .add_enabled(!self.selected_bodies.is_empty(), egui::Button::new("Hapus Body Terpilih"))
+                    .clicked()
+                {
+                    self.delete_selected_bodies();
+                }
+
+                if let Some(msg) = self.model_status.clone() {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 90), msg);
+                }
+            });
+    }
 }
 
 /// Untuk tool Trim: segmen (awal,akhir) yang akan terhapus jika `hover`
@@ -805,14 +1463,19 @@ impl eframe::App for CadrawApp {
             });
         });
 
+        self.model_panel(ctx);
+        self.constraint_panel(ctx);
+
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.status_text());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!(
-                        "{} entitas · {} terpilih · kamera {:.0} mm",
+                        "{} entitas · {} constraint · {} terpilih · {} body · kamera {:.0} mm",
                         self.sketch.entities.len(),
+                        self.sketch.constraints.len(),
                         self.selected.len(),
+                        self.model.doc.bodies.len(),
                         self.camera.distance,
                     ));
                 });
@@ -846,6 +1509,12 @@ struct ViewportCallback {
     view_proj: Mat4,
     eye: Vec3,
     overlay_lines: Vec<LineVertex>,
+    /// Mesh body 3D (Fase 3) sudah digabung jadi satu buffer lewat
+    /// `CadrawApp::build_combined_body_mesh` — cuma body `visible` yang
+    /// masuk sini.
+    body_positions: Vec<[f32; 3]>,
+    body_normals: Vec<[f32; 3]>,
+    body_indices: Vec<u32>,
 }
 
 impl egui_wgpu::CallbackTrait for ViewportCallback {
@@ -859,6 +1528,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
             scene.set_overlay_lines(device, &self.overlay_lines);
+            scene.set_mesh(device, &self.body_positions, &self.body_normals, &self.body_indices);
             scene.prepare(queue, self.view_proj, self.eye);
         }
         Vec::new()

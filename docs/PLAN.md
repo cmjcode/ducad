@@ -40,11 +40,15 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    build iOS + spike cross-compile OCCT ke `aarch64-apple-ios`. **[status:
    kerangka jadi, lihat bawah]**
 1. **Sketching 2D + snapping** — line/arc/circle/spline, snap engine,
-   dynamic input.
+   dynamic input. **[status: selesai + iterasi lanjutan, lihat bawah]**
 2. **Constraint solver** — coincident/parallel/tangent/dst, solver numerik
-   Newton/LM ditulis sendiri di `cadraw-sketch`.
+   Newton/LM ditulis sendiri di `cadraw-sketch`. **[status: selesai — 12
+   jenis constraint + UI lengkap termasuk pemilihan titik, lihat bawah]**
 3. **Modeling 3D** — extrude/revolve/sweep, boolean, sketch-on-face, fillet/
    chamfer/shell sebagai fitur inti (bukan "sejauh kemampuan kernel").
+   **[status: putaran pertama selesai — Extrude, Union/Subtract, Fillet/
+   Chamfer semua tepi, Shell/Hollow, render mesh 3D nyata; Revolve/sweep/
+   sketch-on-face ditunda, lihat bawah]**
 4. **UX shell** — toolbar kontekstual, command palette, radial menu iPad,
    target sentuh ≥44pt, tema.
 5. **File I/O** — `.cadraw` native (serde+versioning), STEP, DXF, STL/OBJ.
@@ -179,6 +183,199 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 - [ ] Verifikasi visual & UX tool-tool baru di device sungguhan — sama
       seperti sebelumnya, belum bisa dicek dari sandbox agent.
 
+## Status Fase 2 — Constraint Solver (dikerjakan)
+
+- [x] `cadraw-sketch::constraint`: parametrisasi entitas → vektor unknown
+      f64 (Line 4 DOF, Circle 3, Arc 5, Ellipse 4), 12 jenis constraint
+      (Coincident, Horizontal, Vertical, Parallel, Perpendicular,
+      EqualLength, EqualRadius, Fixed, Distance, Radius, Angle, Tangent,
+      Symmetric) — cukup untuk mayoritas kebutuhan sketch sehari-hari.
+- [x] Solver **Levenberg-Marquardt ditulis sendiri** (bukan library
+      eksternal): Jacobian finite-difference, eliminasi Gauss + pivot
+      parsial untuk normal equations, damping `lambda·I` klasik (bukan
+      diskalakan diagonal JtJ — lihat catatan bug di bawah).
+      13 unit test lulus: satu per jenis constraint (verifikasi hasil
+      solve benar secara geometris, bukan cuma "tidak crash"), kasus
+      Fixed+Horizontal berbarengan, kasus constraint saling bertentangan
+      (dua Fixed ke titik yang sama menuju target berbeda) yang harus
+      gagal konvergen tanpa panic, dan roundtrip undo/redo.
+- [x] **Bug ditemukan & diperbaiki saat testing**: damping Marquardt asli
+      (`lambda × diagonal(JtJ)`) membuat sistem singular setiap kali ada
+      parameter yang sama sekali tak disentuh constraint manapun (mis.
+      center lingkaran saat cuma constraint Radius aktif — arah bebas
+      punya JtJ diagonal persis nol, jadi damping ikut nol, tidak
+      meregularisasi apa-apa). Diperbaiki dengan damping Levenberg klasik
+      (`lambda × I`), yang tetap meregularisasi arah bebas berapa pun
+      nilai JtJ-nya. Baru ketahuan lewat 2 test yang gagal (radius-only
+      dan fixed+horizontal) — bukti nyata kenapa "teruji unit" di rencana
+      awal itu penting, bukan formalitas.
+- [x] Command `AddConstraint`/`RemoveConstraint` (undo-able, snapshot
+      geometri sebelum solve untuk revert persis).
+- [x] `cadraw-app`: panel Constraint kontekstual di kanan layar, muncul
+      saat tool Pilih aktif + 1-2 entitas terpilih. 1 Line → Horizontal/
+      Vertikal/Panjang; 1 Circle/Arc → Radius; 2 Line → Sejajar/Tegak
+      Lurus/Sama Panjang/Sudut; 2 Circle/Arc → Sama Radius. Pola "dry-run
+      dulu": constraint di-solve di atas clone sketch sebelum dikirim ke
+      undo stack — kalau gagal konvergen, sketch nyata TIDAK berubah sama
+      sekali, cuma pesan error tampil di panel (residual sisa ditampilkan).
+      Jumlah constraint aktif ditambahkan ke status bar bawah.
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (33
+      test: 3 kamera, 1 undo-core, 29 sketch termasuk 13 constraint).
+- [x] **Tangent & Symmetric ditambahkan** ("tuntaskan dulu Tangent/
+      Symmetric/UI Coincident-Fixed di Fase 2"). Tangent: Line-Radial
+      (jarak titik-ke-garis-tak-hingga = radius) dan Radial-Radial (jarak
+      antar center = jumlah radius, tangensial eksternal saja); Line-Line
+      no-op karena tak masuk akal secara geometris. Symmetric: titik `a`
+      dan `b` saling cermin lintas garis `axis`, pakai `reflect_point` yang
+      diekstrak jadi fungsi bersama (dipakai juga oleh `mirror_entity` yang
+      sudah ada). Ditambahkan `EntityKind` (Line/Radial) yang di-snapshot
+      SEKALI dari `Sketch` sebelum solve — perlu karena Tangent butuh tahu
+      jenis entitas untuk memilih formula, tapi closure residual tidak
+      boleh meng-capture `&Sketch` (bentrok dengan `&mut Sketch` di
+      `write_back`), jadi kind dibaca duluan lalu dipegang sebagai map
+      biasa. 5 test baru, termasuk verifikasi Arc (5 DOF) tidak merusak
+      pembacaan offset yang dipakai bersama Circle (3 DOF).
+- [x] **UI Coincident/Fixed tuntas**, dengan infrastruktur baru: `SnapHit`
+      sekarang bawa `source: Option<PointRef>` — snap ke Endpoint/Center
+      (bukan Midpoint/Intersection/Grid, yang bukan DOF tunggal) membawa
+      rujukan persis entitas+bagian mana yang di-snap, lewat method baru
+      `Entity::endpoint_refs`/`center_ref`. Tiga tool baru di `cadraw-app`:
+      **CoincidentPick** (klik 2 titik via snap → berimpit), **FixedPick**
+      (klik 1 titik → ditahan di posisi sekarang, tanpa perlu ketik target
+      — pin di tempat adalah pemakaian paling umum), **SymmetricPick**
+      (perlu 1 Line terpilih dulu sbg sumbu, pola sama seperti Mirror,
+      lalu klik 2 titik). Titik yang sudah diklik ditandai marker silang
+      ungu (`picked_point_glyph`, beda warna dari glyph snap oranye
+      supaya "sudah dipilih" tak tertukar "sedang di-hover"). Tombol
+      Tangent juga ditambahkan ke panel Constraint untuk pasangan Line+
+      Radial atau Radial+Radial. `point_ref_position` (baca posisi PointRef
+      langsung dari Sketch, bukan dari vektor parameter solve) jadi utilitas
+      umum dipakai UI merender titik yang sudah dipilih.
+      **Bug ditemukan lewat test, bukan cuma teori** (lagi): test pertama
+      untuk Symmetric gagal karena asumsi keliru — constraint itu cuma
+      menjamin `reflect(a) == b`, TIDAK memaksa titik `a` atau sumbu diam;
+      dengan 2 residual vs 12 unknown (3 entitas × 4 DOF), solver bebas
+      menggeser ketiganya bersamaan. Test diperbaiki untuk memverifikasi
+      invarian yang benar-benar dijamin (reflect terhadap posisi FINAL),
+      pola yang sama dipakai test Parallel/Perpendicular sebelumnya.
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (40
+      test: 3 kamera, 1 undo-core, 36 sketch termasuk 18 constraint).
+- [ ] **Masih sengaja belum ada** (Fase 2 kini lengkap sesuai lingkup yang
+      ditetapkan, sisanya eksplisit Fase 4+): browser/manajer constraint
+      (lihat/hapus daftar selain lewat Undo), indikator visual DOF
+      (biru=bebas, hitam=fully constrained ala Shapr3D), auto-constraint
+      saat menggambar (garis hampir horizontal → otomatis Horizontal),
+      constraint pada titik ujung Arc (`PointRef` belum mencakupnya),
+      point-on-entity (coincident ke kurva, bukan cuma titik-ke-titik),
+      tangensial internal, Tangent Line-Line, dynamic input untuk tool
+      pemilihan titik. Jacobian numerik (bukan analitik) — cukup cepat
+      untuk skala sketch, dipertimbangkan ulang di Fase 7 kalau profiling
+      menunjukkan perlu.
+- [ ] Verifikasi visual & UX panel Constraint + tool pemilihan titik di
+      device sungguhan — sama seperti sebelumnya, belum bisa dicek dari
+      sandbox agent.
+
+## Status Fase 3 — Modeling 3D (dikerjakan, putaran pertama)
+
+- [x] `cadraw-kernel` ditulis ulang: `KernelShape` (pembungkus `Shape` OCCT
+      yang SEPENUHNYA privat — sebelumnya `make_filleted_box`/`tessellate`
+      membocorkan tipe `opencascade::primitives::Shape` langsung ke
+      pemanggil, melanggar aturan arsitektur sendiri; sekarang benar-benar
+      tertutup). API baru: `extrude_profile`, `union`, `subtract`,
+      `fillet_all`, `chamfer_all`, `shell_hollow`, semua fungsional
+      (`&KernelShape` masuk, `KernelShape` baru keluar — tidak memutasi
+      input pemanggil).
+- [x] `Profile`/`ProfileSegment`: profil 2D di bidang XY dalam koordinat
+      mentah `(f64,f64)` (bukan `glam::DVec2`) — pola yang sama dengan
+      `KernelMesh` sebelumnya, supaya glam 0.23 (pin kernel) tidak pernah
+      bocor ke `cadraw-app` (glam 0.29). Mendukung `Circle` (jadi silinder)
+      dan `Loop` tertutup segmen Line/Arc.
+- [x] **Bug ditemukan lewat test, bukan teori** (lagi — pola yang sama
+      persis dengan bug damping LM di Fase 2): `opencascade-rs` 0.2.0
+      TIDAK menyediakan `Clone` untuk `Shape` (cuma `UniquePtr` C++ tanpa
+      binding copy-constructor), padahal `fillet`/`chamfer` memutasi diri
+      sendiri di tempat dan `hollow` mengonsumsi kepemilikan — kalau
+      dipakai langsung, shape ASLI pemanggil akan rusak/hilang, merusak
+      undo. Diperbaiki dengan `deep_clone` internal: roundtrip lewat file
+      STEP sementara (satu-satunya cara publik menyalin B-rep persis di
+      binding ini) sebelum operasi destruktif — didokumentasikan di kode
+      sebagai keputusan sadar, bukan technical debt.
+- [x] **Bug thread-safety ditemukan lewat test**: `cargo test -p
+      cadraw-kernel` (multi-thread default) crash `SIGABRT` /
+      `Interface_InterfaceError` — jalur transfer STEP OCCT (dipakai
+      `deep_clone`) punya state global yang tidak aman dipanggil dari
+      banyak thread sekaligus. Semua 9 test lulus satu-satu; diperbaiki
+      dengan `Mutex` global yang menyerialkan test modul (tidak
+      mempengaruhi `cadraw-app` — kernel selalu dipanggil dari UI thread
+      tunggal).
+- [x] **Blocker environment ditemukan & diperbaiki**: `cargo build -p
+      cadraw-kernel` gagal total di mesin ini — CMake 4.3.4 terinstal
+      menolak `cmake_minimum_required` versi lama di `CMakeLists.txt`
+      bawaan OCCT (dependensi `occt-sys`). Diperbaiki lewat
+      `.cargo/config.toml` (`CMAKE_POLICY_VERSION_MINIMUM = "3.5"`,
+      env var yang dibaca `cmake` crate) — otomatis berlaku untuk semua
+      `cargo build/test/run` di workspace ini, tidak perlu diketik manual.
+      Build OCCT dari source makan waktu ~8 menit sekali (di-cache
+      `target/` setelahnya).
+- [x] `cadraw-app/src/model.rs` (modul baru, pola sama dengan
+      `cadraw-sketch::constraint`): `ModelDoc` menggabungkan
+      `cadraw_core::Document` (metadata body, sengaja tetap bebas
+      dependensi kernel) dengan `SecondaryMap<BodyId, BodyGeometry>`
+      (geometri kernel sungguhan) yang dikunci `BodyId` yang sama.
+      Command undo-able: `AddSolidCommand` (Extrude), `ReplaceGeometryCommand`
+      (Fillet/Chamfer/Shell — `apply`/`revert` identik, cuma menukar
+      geometri lama↔baru), `BooleanCommand` (Union/Subtract — hapus 2 body
+      input, tambah 1 body hasil; `BodyId` body yang di-restore lewat undo
+      BERUBAH, konsisten dengan konvensi `DeleteEntities` di
+      `cadraw-sketch`), `DeleteBodyCommand`.
+- [x] `build_profile_from_selection`: bangun `Profile` kernel dari seleksi
+      entitas sketch — 1 `Circle` langsung, atau ≥3 `Line`/`Arc` yang
+      dirangkai lewat titik-ujungnya (toleransi 1e-6) jadi satu loop
+      tertutup, urutan pemilihan bebas.
+      **Bug ditemukan lewat test**: chain-builder awal cuma tumbuh dari
+      ekor (append) — kalau segmen PERTAMA yang diambil dari `HashSet`
+      (urutan tak terjamin) kebetulan segmen di TENGAH rantai TERBUKA,
+      pencarian sepihak salah melaporkan "tidak tersambung" alih-alih
+      "tidak tertutup". Diperbaiki jadi tumbuh dari DUA ujung (append di
+      ekor, prepend di kepala) — test `build_profile_open_chain_errors`
+      yang awalnya gagal sekarang lulus konsisten (diverifikasi 8x jalan
+      berturut-turut untuk menyingkirkan keberuntungan urutan HashSet).
+- [x] `cadraw-app`: panel "Model 3D" (kiri layar, berdampingan dengan
+      panel Constraint di kanan) — daftar body (checkbox visible, klik
+      pilih/Ctrl+klik multi-pilih), Extrude dari seleksi sketch (input
+      jarak), Union/Subtract (butuh persis 2 body terpilih), Fillet/
+      Chamfer semua tepi & Shell/Hollow (butuh 1 body, dropdown arah
+      untuk Shell), Hapus Body. Pola "dry-run dulu" yang sama dengan
+      Fase 2: operasi dihitung dulu, cuma masuk undo stack kalau sukses;
+      gagal → `model_status` tampil, `model` tak tersentuh. Undo/redo
+      Model SENGAJA terpisah dari undo sketch (tombol sendiri di panel,
+      bukan Ctrl+Z global) — digabung baru kalau ada kebutuhan nyata.
+- [x] Render mesh 3D nyata: `cadraw-render::SceneRenderer` sudah punya
+      pipeline mesh sejak Fase 0 (`set_mesh`) tapi belum pernah dipanggil
+      dari app. Sekarang `CadrawApp::build_combined_body_mesh` menggabung
+      mesh semua body `visible` jadi satu buffer (indeks digeser per body)
+      tiap frame, diupload lewat `ViewportCallback`. `set_mesh` ditambah
+      guard early-return saat kosong (wgpu menolak buffer ukuran 0) — pola
+      yang sama dengan `set_overlay_lines`.
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (53
+      test: 3 kamera, 1 undo-core, 9 kernel, 36 sketch termasuk 18
+      constraint, 4 model chain-builder).
+- [ ] **Sengaja belum ada** (lingkup Fase 3 dipersempit ke inti yang bisa
+      dikirim solid dalam satu putaran — sisanya bukan lupa): Revolve,
+      sweep/loft (API `opencascade-rs` 0.2.0 cuma punya `Solid::loft`
+      lintas-penampang, bukan sweep-sepanjang-jalur sungguhan), boolean
+      intersect/irisan (binding cuma expose union & subtract), sketch-on-
+      face (sketch CADRAW masih selalu di bidang XY — butuh picking face
+      3D + workplane lokal, infrastruktur belum ada), picking body/face
+      lewat klik viewport 3D (body dipilih dari daftar di panel, bukan
+      klik langsung), fillet/chamfer PER-TEPI (baru "semua tepi
+      sekaligus" — perlu UI picking edge 3D), shell multi-face, undo
+      gabungan Sketch+Model dalam satu stack.
+- [ ] Verifikasi visual & UX panel Model + render mesh 3D di device
+      sungguhan — sama seperti fase-fase sebelumnya, belum bisa dicek
+      dari sandbox agent (app dicoba jalan 6 detik tanpa panic startup,
+      tapi tidak ada akses WindowServer untuk screenshot).
+
 ## Menjalankan
 
 ```bash
@@ -191,3 +388,10 @@ cargo run -p cadraw-kernel --bin smoke
 # Unit test
 cargo test --workspace
 ```
+
+Catatan build: `.cargo/config.toml` di root workspace mengatur
+`CMAKE_POLICY_VERSION_MINIMUM=3.5` supaya `occt-sys` (dependensi
+`cadraw-kernel`) tetap bisa dikonfigurasi CMake di mesin dengan CMake ≥
+4.0 (CMakeLists.txt bawaan OCCT pakai `cmake_minimum_required` versi
+lama). Build OCCT dari source pertama kali makan waktu beberapa menit,
+setelahnya di-cache di `target/`.

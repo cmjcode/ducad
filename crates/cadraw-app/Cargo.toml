@@ -12,10 +12,12 @@ path = "src/main.rs"
 [dependencies]
 cadraw-core = { workspace = true }
 cadraw-sketch = { workspace = true }
+cadraw-kernel = { workspace = true }
 cadraw-render = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }
 glam = { workspace = true }
+slotmap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }

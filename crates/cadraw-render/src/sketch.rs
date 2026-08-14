@@ -16,6 +16,7 @@ const COLOR_SELECTED: [f32; 4] = [0.30, 0.65, 1.0, 1.0];
 const COLOR_PREVIEW: [f32; 4] = [0.55, 0.90, 0.55, 0.85];
 const COLOR_SNAP: [f32; 4] = [1.0, 0.55, 0.15, 1.0];
 const COLOR_REMOVAL: [f32; 4] = [0.95, 0.25, 0.25, 0.95];
+const COLOR_PICKED: [f32; 4] = [0.65, 0.35, 0.95, 1.0];
 const ARC_SEGMENTS_FULL: usize = 48;
 
 fn to3(p: DVec2) -> [f32; 3] {
@@ -47,6 +48,32 @@ pub fn preview_lines(entity: &Entity) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     push_entity(&mut verts, entity, COLOR_PREVIEW);
     verts
+}
+
+/// Marker silang ungu di titik yang sudah diklik untuk tool pemilihan
+/// titik (Coincident/Symmetric) — beda warna dari glyph snap oranye
+/// (`snap_glyph`) supaya "titik sudah dipilih" tidak tertukar dengan
+/// "kursor sedang di atas titik".
+pub fn picked_point_glyph(point: DVec2) -> Vec<LineVertex> {
+    const S: f64 = 3.0;
+    vec![
+        LineVertex {
+            position: to3(point + DVec2::new(-S, -S)),
+            color: COLOR_PICKED,
+        },
+        LineVertex {
+            position: to3(point + DVec2::new(S, S)),
+            color: COLOR_PICKED,
+        },
+        LineVertex {
+            position: to3(point + DVec2::new(-S, S)),
+            color: COLOR_PICKED,
+        },
+        LineVertex {
+            position: to3(point + DVec2::new(S, -S)),
+            color: COLOR_PICKED,
+        },
+    ]
 }
 
 /// Garis peringatan untuk sub-segmen yang akan dihapus tool Trim — dipakai
