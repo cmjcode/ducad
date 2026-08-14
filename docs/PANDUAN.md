@@ -1,10 +1,10 @@
 # Panduan Pemakaian CADRAW
 
-Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 4
+Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 5
 (viewport 3D, sketching 2D, constraint solver, modeling 3D, UX shell —
-command palette/radial menu/tema). Untuk status proyek/arsitektur/riwayat
-pengembangan, lihat `docs/PLAN.md` — dokumen ini murni tentang
-mengoperasikan aplikasinya.
+command palette/radial menu/tema, dan file I/O — buka/simpan/import/
+export). Untuk status proyek/arsitektur/riwayat pengembangan, lihat
+`docs/PLAN.md` — dokumen ini murni tentang mengoperasikan aplikasinya.
 
 ## Menjalankan
 
@@ -191,6 +191,51 @@ Semua tombol/checkbox/combo box di seluruh aplikasi (toolbar, panel
 Constraint, panel Model 3D, command palette) punya tinggi minimum 44pt
 mengikuti rekomendasi Apple HIG untuk target sentuh — sengaja dibuat
 lantai global, bukan disetel manual per tombol.
+
+## File I/O — Fase 5
+
+Menu **"📄 File"** di ujung kiri toolbar (sebelah nama "CADRAW"). Semua
+aksi juga ada di command palette (`Ctrl/Cmd+K`, ketik nama aksinya).
+
+### Dokumen native `.cadraw`
+
+| Aksi | Shortcut | Perilaku |
+|---|---|---|
+| Baru | — | Kosongkan sketch+model+kedua undo stack. Kamera & tema TIDAK ikut direset. |
+| Buka… | `Ctrl/Cmd+O` | Dialog pilih file `.cadraw`, mengganti SELURUH dokumen (undo stack ikut direset — undo lintas-dokumen tidak masuk akal). |
+| Simpan | `Ctrl/Cmd+S` | Tulis ke file terakhir dibuka/disimpan; kalau dokumen belum pernah punya file (baru), jatuh ke Simpan Sebagai. |
+| Simpan Sebagai… | `Ctrl/Cmd+Shift+S` | SELALU tampilkan dialog, walau dokumen sudah punya file aktif. |
+
+File `.cadraw` adalah JSON manusiawi-dibaca (bisa dibuka teks editor untuk
+diperiksa) — sketch (entitas+constraint) DAN semua body 3D (geometri
+B-rep lengkap, bukan cuma mesh) tersimpan utuh, termasuk body yang lagi
+disembunyikan (checkbox visible di panel Model 3D).
+
+### Import
+
+| Sumber | Hasil |
+|---|---|
+| STEP (`.step`/`.stp`) | 1 body baru (undo-able) — kalau file berisi beberapa solid, semuanya masuk sebagai SATU body gabungan (belum bisa dipisah otomatis). |
+| DXF (`.dxf`, subset R12) | Entitas Line/Circle/Arc ditambahkan ke sketch aktif (undo-able, satu langkah). Jenis lain (TEXT/SPLINE/dst) dilewati — pesan status melaporkan berapa yang dilewati. |
+
+### Export
+
+| Format | Cakupan | Catatan |
+|---|---|---|
+| STEP | SEMUA body (arsip dokumen penuh) | >1 body digabung jadi satu file, masing-masing tetap solid terpisah (bukan di-union). |
+| STL (biner) | Body **visible** saja | Digabung jadi satu mesh — mewakili hasil cetak/tampilan fisik, sama seperti yang tampak di viewport. |
+| OBJ | Body **visible** saja | Satu blok objek per body (tetap terpisah di tool lain seperti Blender). |
+| DXF | Entitas sketch Line/Circle/Arc | Ellips DILEWATI (DXF R12 tidak punya entitas ELLIPSE) — jumlah yang dilewati dilaporkan di status bar. |
+
+Pesan hasil tiap aksi (sukses maupun gagal) muncul sebentar di status bar
+bawah, di sebelah hint tool aktif.
+
+### Belum didukung di File I/O
+
+Import STL/OBJ (sudah berupa segitiga, tidak ada jalan balik ke B-rep),
+Ellipse/spline/polyline di DXF, memisahkan file STEP multi-solid jadi
+body terpisah saat import, autosave, daftar file terakhir dibuka,
+indikator "belum disimpan" di title bar, drag-and-drop file ke jendela.
 
 ## Contoh alur kerja singkat: kotak dengan tepi membulat
 

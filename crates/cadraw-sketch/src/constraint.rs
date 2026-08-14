@@ -31,6 +31,7 @@ use std::collections::HashMap;
 
 use cadraw_core::Command;
 use glam::DVec2;
+use serde::{Deserialize, Serialize};
 
 use crate::{Entity, EntityId, Sketch};
 
@@ -40,7 +41,7 @@ use crate::{Entity, EntityId, Sketch};
 
 /// Rujukan ke satu titik pada entitas — dipakai constraint yang butuh
 /// titik spesifik (Coincident, Fixed, Distance), bukan seluruh entitas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PointRef {
     LineStart(EntityId),
     LineEnd(EntityId),
@@ -75,7 +76,7 @@ pub fn point_ref_position(sketch: &Sketch, pr: &PointRef) -> Option<DVec2> {
 
 /// Satu constraint geometris/dimensional. Lihat catatan keamanan tipe di
 /// atas modul: pemanggil menjamin entitas yang dirujuk berjenis sesuai.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Constraint {
     Coincident { a: PointRef, b: PointRef },
     Horizontal { line: EntityId },

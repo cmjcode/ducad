@@ -7,5 +7,9 @@ authors.workspace = true
 
 [dependencies]
 cadraw-core = { workspace = true }
+cadraw-sketch = { workspace = true }
+cadraw-kernel = { workspace = true }
+glam = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }

@@ -12,6 +12,7 @@ pub mod constraint;
 
 use cadraw_core::Command;
 use glam::DVec2;
+use serde::{Deserialize, Serialize};
 use std::f64::consts::TAU;
 
 slotmap::new_key_type! {
@@ -20,7 +21,11 @@ slotmap::new_key_type! {
 }
 
 /// Entitas sketch 2D (koordinat lokal bidang sketch, presisi f64).
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Serialize`/`Deserialize` dipakai format native `.cadraw` (Fase 5,
+/// `cadraw-io`) — derive langsung di sini, bukan struct salinan di
+/// `cadraw-io`, supaya tidak ada dua sumber kebenaran untuk bentuk entitas.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Entity {
     Line {
         start: DVec2,
@@ -170,7 +175,14 @@ fn angle_in_range(angle: f64, start: f64, end: f64) -> bool {
 }
 
 /// Satu sketch pada sebuah bidang kerja.
-#[derive(Debug, Default, Clone)]
+///
+/// `Serialize`/`Deserialize` (Fase 5): berkat `slotmap` di-build dengan
+/// fitur "serde", `SlotMap<EntityId, Entity>` di-roundtrip APA ADANYA —
+/// index+versi internal ikut tersimpan, jadi `EntityId` yang dibaca balik
+/// sama persis dengan sebelum disimpan. Itu sebabnya `constraints` (yang
+/// menyimpan `EntityId` mentah lewat `PointRef`) tidak butuh remapping id
+/// manual sama sekali — lihat `cadraw-io::native`.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Sketch {
     pub entities: slotmap::SlotMap<EntityId, Entity>,
     /// Constraint aktif (lihat modul `constraint`) — solver menulis balik

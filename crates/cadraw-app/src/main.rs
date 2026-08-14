@@ -70,8 +70,10 @@
 mod model;
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use cadraw_core::BodyId;
+use cadraw_kernel::{KernelMesh, KernelShape};
 use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, SceneRenderer};
 use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
 use cadraw_sketch::{
@@ -153,7 +155,7 @@ const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 /// Referensi pintasan keyboard, ditampilkan apa adanya di menu
 /// "⚙ Pengaturan" — daftar bantuan statis, BUKAN pintasan yang bisa
 /// di-remap (remapping ada di luar lingkup putaran ini).
-const KEYBOARD_SHORTCUTS: [(&str, &str); 13] = [
+const KEYBOARD_SHORTCUTS: [(&str, &str); 16] = [
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
@@ -166,8 +168,29 @@ const KEYBOARD_SHORTCUTS: [(&str, &str); 13] = [
     ("Delete / Backspace", "Hapus seleksi"),
     ("Ctrl/Cmd+Z", "Undo sketch"),
     ("Ctrl/Cmd+Shift+Z atau Ctrl+Y", "Redo sketch"),
+    ("Ctrl/Cmd+O", "Buka dokumen .cadraw"),
+    ("Ctrl/Cmd+S", "Simpan dokumen"),
+    ("Ctrl/Cmd+Shift+S", "Simpan Sebagai…"),
     ("Ctrl/Cmd+K", "Buka/tutup command palette"),
 ];
+
+/// Operasi file (Fase 5) — satu variant `PaletteAction::File(FileOp)`
+/// alih-alih 10 variant `PaletteAction` terpisah, supaya enum itu tidak
+/// membengkak untuk sesuatu yang semuanya cuma memanggil satu method
+/// `CadrawApp` masing-masing (lihat `run_palette_action`).
+#[derive(Debug, Clone, Copy)]
+enum FileOp {
+    New,
+    Open,
+    Save,
+    SaveAs,
+    ImportStep,
+    ImportDxf,
+    ExportStep,
+    ExportStl,
+    ExportObj,
+    ExportDxf,
+}
 
 /// Aksi yang bisa dieksekusi lewat command palette (Fase 4) — dipetakan
 /// dari index yang dikembalikan `CommandPalette::show`, lihat
@@ -181,6 +204,7 @@ enum PaletteAction {
     ModelRedo,
     DeleteSelection,
     ToggleTheme,
+    File(FileOp),
 }
 
 /// Berapa titik yang dibutuhkan tool sebelum di-commit lewat
@@ -244,6 +268,16 @@ struct CadrawApp {
     chamfer_distance_input: String,
     shell_thickness_input: String,
     shell_direction: cadraw_kernel::Direction,
+
+    /// Fase 5 (File I/O). Path file `.cadraw` aktif — `None` sampai dokumen
+    /// pernah disimpan/dibuka sekali; menentukan apakah "Simpan" (⌘S)
+    /// langsung menulis ke sini atau jatuh ke "Simpan Sebagai" (dialog).
+    current_file_path: Option<PathBuf>,
+    /// Pesan hasil operasi file terakhir (sukses ATAU gagal — beda dari
+    /// `model_status`/`constraint_status` yang cuma terisi saat gagal,
+    /// karena "Tersimpan ke X" juga informasi berguna bagi user).
+    /// Ditampilkan di status bar bawah.
+    file_status: Option<String>,
 
     /// Fase 4 (UX shell). `theme` diterapkan lewat `cadraw_ui::apply_theme`
     /// tiap kali berubah, bukan cuma dibaca — style egui bukan reaktif
@@ -309,6 +343,9 @@ impl CadrawApp {
             chamfer_distance_input: "2".to_string(),
             shell_thickness_input: "2".to_string(),
             shell_direction: cadraw_kernel::Direction::PosZ,
+
+            current_file_path: None,
+            file_status: None,
 
             theme,
             palette: CommandPalette::default(),
@@ -480,6 +517,315 @@ impl CadrawApp {
         });
     }
 
+    /// Reset ke dokumen kosong — sketch, model, KEDUA undo stack, seleksi,
+    /// dan path file aktif semua dibersihkan. Kamera & tema TIDAK direset
+    /// (preferensi tampilan pemakai, bukan bagian dokumen).
+    fn new_document(&mut self) {
+        self.sketch = Sketch::default();
+        self.undo = cadraw_sketch::UndoStack::default();
+        self.model = ModelDoc::default();
+        self.model_undo = cadraw_core::UndoStack::default();
+        self.selected.clear();
+        self.selected_bodies.clear();
+        self.set_tool(ToolKind::Select);
+        self.current_file_path = None;
+        self.file_status = Some("Dokumen baru".to_string());
+    }
+
+    /// Kumpulkan (nama, visible, shape) tiap body yang PUNYA geometri —
+    /// dipakai `native::save` (SEMUA body, terlepas visible atau tidak,
+    /// karena format native harus menyimpan dokumen apa adanya).
+    fn native_body_refs(&self) -> Vec<(&str, bool, &KernelShape)> {
+        self.model
+            .doc
+            .bodies
+            .iter()
+            .filter_map(|(id, body)| {
+                self.model
+                    .geometry
+                    .get(id)
+                    .map(|geo| (body.name.as_str(), body.visible, &geo.shape))
+            })
+            .collect()
+    }
+
+    /// Sama seperti `native_body_refs`, tapi cuma shape (dipakai Export
+    /// STEP — SEMUA body, sama alasan dengan `native_body_refs`).
+    fn all_body_shapes(&self) -> Vec<&KernelShape> {
+        self.model
+            .doc
+            .bodies
+            .keys()
+            .filter_map(|id| self.model.geometry.get(id).map(|geo| &geo.shape))
+            .collect()
+    }
+
+    /// (nama, mesh) body yang `visible` SAJA — dipakai Export STL/OBJ.
+    /// Beda dari `native_body_refs`/`all_body_shapes`: STL/OBJ mewakili
+    /// hasil cetak/tampilan fisik, bukan arsip dokumen, jadi body yang
+    /// disembunyikan pemakai wajar tidak ikut (konsisten dengan
+    /// `build_combined_body_mesh` yang dipakai render viewport).
+    fn visible_body_meshes(&self) -> Vec<(&str, &KernelMesh)> {
+        self.model
+            .doc
+            .bodies
+            .iter()
+            .filter(|(_, body)| body.visible)
+            .filter_map(|(id, body)| self.model.geometry.get(id).map(|geo| (body.name.as_str(), &geo.mesh)))
+            .collect()
+    }
+
+    fn save_native_to(&mut self, path: PathBuf) {
+        let refs = self.native_body_refs();
+        match cadraw_io::native::save(&path, &self.sketch, &refs) {
+            Ok(()) => {
+                self.file_status = Some(format!("Tersimpan: {}", path.display()));
+                self.current_file_path = Some(path);
+            }
+            Err(e) => self.file_status = Some(format!("Gagal menyimpan: {e}")),
+        }
+    }
+
+    /// "Simpan" (⌘S) — tulis ke `current_file_path` kalau sudah pernah
+    /// disimpan/dibuka, atau jatuh ke `save_native_as` (dialog) kalau
+    /// belum pernah sama sekali (dokumen baru).
+    fn save_native(&mut self) {
+        match self.current_file_path.clone() {
+            Some(path) => self.save_native_to(path),
+            None => self.save_native_as(),
+        }
+    }
+
+    /// "Simpan Sebagai…" (⌘⇧S) — SELALU tampilkan dialog, walau dokumen
+    /// sudah punya `current_file_path`.
+    fn save_native_as(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("CADRAW", &["cadraw"])
+            .set_file_name("untitled.cadraw")
+            .save_file()
+        {
+            self.save_native_to(path);
+        }
+    }
+
+    /// "Buka…" (⌘O) — mengganti SELURUH state dokumen (sketch+model),
+    /// mereset kedua undo stack (undo lintas-dokumen tidak masuk akal) dan
+    /// seleksi, sama pola dengan `new_document`.
+    fn open_native(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("CADRAW", &["cadraw"]).pick_file() else {
+            return;
+        };
+        match cadraw_io::native::load(&path) {
+            Ok(loaded) => {
+                self.sketch = loaded.sketch;
+                self.undo = cadraw_sketch::UndoStack::default();
+
+                let mut model = ModelDoc::default();
+                for body in loaded.bodies {
+                    let id = model.doc.add_body(body.name);
+                    if let Some(b) = model.doc.bodies.get_mut(id) {
+                        b.visible = body.visible;
+                    }
+                    model.geometry.insert(id, BodyGeometry::from_shape(body.shape));
+                }
+                self.model = model;
+                self.model_undo = cadraw_core::UndoStack::default();
+
+                self.selected.clear();
+                self.selected_bodies.clear();
+                self.set_tool(ToolKind::Select);
+                self.file_status = Some(format!("Dibuka: {}", path.display()));
+                self.current_file_path = Some(path);
+            }
+            Err(e) => self.file_status = Some(format!("Gagal membuka: {e}")),
+        }
+    }
+
+    /// Export SEMUA body ke satu file STEP (masing-masing tetap solid
+    /// terpisah — lihat `cadraw_io::step_io::export`).
+    fn export_step(&mut self) {
+        let shapes = self.all_body_shapes();
+        if shapes.is_empty() {
+            self.file_status = Some("Tidak ada body untuk diekspor ke STEP".to_string());
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("STEP", &["step", "stp"])
+            .set_file_name("export.step")
+            .save_file()
+        else {
+            return;
+        };
+        match cadraw_io::step_io::export(&shapes, &path) {
+            Ok(()) => self.file_status = Some(format!("STEP diekspor: {}", path.display())),
+            Err(e) => self.file_status = Some(format!("Export STEP gagal: {e}")),
+        }
+    }
+
+    /// Import satu file STEP jadi body baru — undo-able lewat
+    /// `model_undo` (sama seperti Extrude), nama body dari nama file.
+    fn import_step(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("STEP", &["step", "stp"]).pick_file() else {
+            return;
+        };
+        match cadraw_io::step_io::import(&path) {
+            Ok(shape) => {
+                let name = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Import STEP".to_string());
+                let geo = BodyGeometry::from_shape(shape);
+                self.model_undo
+                    .execute(Box::new(AddSolidCommand::new(name, geo)), &mut self.model);
+                self.file_status = Some(format!("STEP diimpor: {}", path.display()));
+            }
+            Err(e) => self.file_status = Some(format!("Import STEP gagal: {e}")),
+        }
+    }
+
+    /// Export body `visible` sebagai satu STL biner (digabung lewat
+    /// `KernelMesh::merge` — sama helper yang dipakai render viewport).
+    fn export_stl(&mut self) {
+        let meshes = self.visible_body_meshes();
+        if meshes.is_empty() {
+            self.file_status = Some("Tidak ada body visible untuk diekspor ke STL".to_string());
+            return;
+        }
+        let mesh_refs: Vec<&KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
+        let merged = KernelMesh::merge(&mesh_refs);
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("STL", &["stl"])
+            .set_file_name("export.stl")
+            .save_file()
+        else {
+            return;
+        };
+        match cadraw_io::mesh_export::write_stl_binary(&merged, &path) {
+            Ok(()) => self.file_status = Some(format!("STL diekspor: {}", path.display())),
+            Err(e) => self.file_status = Some(format!("Export STL gagal: {e}")),
+        }
+    }
+
+    /// Export body `visible` sebagai OBJ (satu blok `o <nama>` per body).
+    fn export_obj(&mut self) {
+        let bodies = self.visible_body_meshes();
+        if bodies.is_empty() {
+            self.file_status = Some("Tidak ada body visible untuk diekspor ke OBJ".to_string());
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("OBJ", &["obj"])
+            .set_file_name("export.obj")
+            .save_file()
+        else {
+            return;
+        };
+        match cadraw_io::mesh_export::write_obj(&bodies, &path) {
+            Ok(()) => self.file_status = Some(format!("OBJ diekspor: {}", path.display())),
+            Err(e) => self.file_status = Some(format!("Export OBJ gagal: {e}")),
+        }
+    }
+
+    /// Export entitas Line/Circle/Arc sketch aktif ke DXF R12. Ellipse
+    /// dilewati (DXF R12 tidak punya entitas ELLIPSE) — dilaporkan lewat
+    /// status, bukan didiamkan.
+    fn export_dxf(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("DXF", &["dxf"])
+            .set_file_name("export.dxf")
+            .save_file()
+        else {
+            return;
+        };
+        match cadraw_io::dxf::export(&self.sketch, &path) {
+            Ok(0) => self.file_status = Some(format!("DXF diekspor: {}", path.display())),
+            Ok(skipped) => {
+                self.file_status = Some(format!(
+                    "DXF diekspor: {} ({skipped} Ellipse dilewati — DXF R12 tidak mendukungnya)",
+                    path.display()
+                ))
+            }
+            Err(e) => self.file_status = Some(format!("Export DXF gagal: {e}")),
+        }
+    }
+
+    /// Import LINE/CIRCLE/ARC dari file DXF ke sketch aktif — undo-able
+    /// lewat `undo` (satu langkah `InsertEntities`, sama pola dengan
+    /// menggambar tool sketch manapun).
+    fn import_dxf(&mut self) {
+        let Some(path) = rfd::FileDialog::new().add_filter("DXF", &["dxf"]).pick_file() else {
+            return;
+        };
+        match cadraw_io::dxf::import(&path) {
+            Ok(result) => {
+                let count = result.entities.len();
+                if count > 0 {
+                    self.undo
+                        .execute(Box::new(InsertEntities::new("Import DXF", result.entities)), &mut self.sketch);
+                }
+                self.file_status = Some(if result.skipped > 0 {
+                    format!("DXF diimpor: {count} entitas ({} dilewati, jenis tak dikenal)", result.skipped)
+                } else {
+                    format!("DXF diimpor: {count} entitas")
+                });
+            }
+            Err(e) => self.file_status = Some(format!("Import DXF gagal: {e}")),
+        }
+    }
+
+    /// Menu "📄 File" di toolbar: dokumen baru, buka/simpan format native
+    /// `.cadraw`, dan submenu Import/Export untuk STEP/DXF/STL/OBJ.
+    fn file_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("📄 File", |ui| {
+            if ui.button("Baru").clicked() {
+                self.new_document();
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Buka… (⌘O)").clicked() {
+                self.open_native();
+                ui.close();
+            }
+            if ui.button("Simpan (⌘S)").clicked() {
+                self.save_native();
+                ui.close();
+            }
+            if ui.button("Simpan Sebagai… (⌘⇧S)").clicked() {
+                self.save_native_as();
+                ui.close();
+            }
+            ui.separator();
+            ui.menu_button("Import", |ui| {
+                if ui.button("STEP…").clicked() {
+                    self.import_step();
+                    ui.close();
+                }
+                if ui.button("DXF…").clicked() {
+                    self.import_dxf();
+                    ui.close();
+                }
+            });
+            ui.menu_button("Export", |ui| {
+                if ui.button("STEP… (semua body)").clicked() {
+                    self.export_step();
+                    ui.close();
+                }
+                if ui.button("STL… (body visible)").clicked() {
+                    self.export_stl();
+                    ui.close();
+                }
+                if ui.button("OBJ… (body visible)").clicked() {
+                    self.export_obj();
+                    ui.close();
+                }
+                if ui.button("DXF… (sketch)").clicked() {
+                    self.export_dxf();
+                    ui.close();
+                }
+            });
+        });
+    }
+
     /// Menu "⚙ Pengaturan" di toolbar: tema, pembuka command palette, dan
     /// referensi pintasan keyboard — dikumpulkan di satu dropdown alih-alih
     /// jadi tombol lepas di toolbar utama, karena ketiganya jarang disentuh
@@ -521,6 +867,16 @@ impl CadrawApp {
     /// `CommandPalette::show` menunjuk balik ke Vec ini.
     fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
         let mut actions = vec![
+            ("Dokumen Baru".to_string(), String::new(), PaletteAction::File(FileOp::New)),
+            ("Buka…".to_string(), "⌘O".to_string(), PaletteAction::File(FileOp::Open)),
+            ("Simpan".to_string(), "⌘S".to_string(), PaletteAction::File(FileOp::Save)),
+            ("Simpan Sebagai…".to_string(), "⌘⇧S".to_string(), PaletteAction::File(FileOp::SaveAs)),
+            ("Import STEP…".to_string(), String::new(), PaletteAction::File(FileOp::ImportStep)),
+            ("Import DXF…".to_string(), String::new(), PaletteAction::File(FileOp::ImportDxf)),
+            ("Export STEP… (semua body)".to_string(), String::new(), PaletteAction::File(FileOp::ExportStep)),
+            ("Export STL… (body visible)".to_string(), String::new(), PaletteAction::File(FileOp::ExportStl)),
+            ("Export OBJ… (body visible)".to_string(), String::new(), PaletteAction::File(FileOp::ExportObj)),
+            ("Export DXF… (sketch)".to_string(), String::new(), PaletteAction::File(FileOp::ExportDxf)),
             ("Pilih".to_string(), String::new(), PaletteAction::SetTool(ToolKind::Select)),
             ("Garis".to_string(), "L".to_string(), PaletteAction::SetTool(ToolKind::Line)),
             ("Persegi".to_string(), "R".to_string(), PaletteAction::SetTool(ToolKind::Rectangle)),
@@ -583,6 +939,18 @@ impl CadrawApp {
                 self.theme = self.theme.toggled();
                 cadraw_ui::apply_theme(ctx, self.theme);
             }
+            PaletteAction::File(op) => match op {
+                FileOp::New => self.new_document(),
+                FileOp::Open => self.open_native(),
+                FileOp::Save => self.save_native(),
+                FileOp::SaveAs => self.save_native_as(),
+                FileOp::ImportStep => self.import_step(),
+                FileOp::ImportDxf => self.import_dxf(),
+                FileOp::ExportStep => self.export_step(),
+                FileOp::ExportStl => self.export_stl(),
+                FileOp::ExportObj => self.export_obj(),
+                FileOp::ExportDxf => self.export_dxf(),
+            },
         }
     }
 
@@ -1513,22 +1881,9 @@ impl CadrawApp {
     /// diupload lewat `SceneRenderer::set_mesh` (satu draw call). Indeks
     /// tiap body digeser sebesar jumlah vertex yang sudah terkumpul.
     fn build_combined_body_mesh(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
-        let mut positions = Vec::new();
-        let mut normals = Vec::new();
-        let mut indices = Vec::new();
-        for (id, body) in self.model.doc.bodies.iter() {
-            if !body.visible {
-                continue;
-            }
-            let Some(geo) = self.model.geometry.get(id) else {
-                continue;
-            };
-            let offset = positions.len() as u32;
-            positions.extend_from_slice(&geo.mesh.positions);
-            normals.extend_from_slice(&geo.mesh.normals);
-            indices.extend(geo.mesh.indices.iter().map(|i| i + offset));
-        }
-        (positions, normals, indices)
+        let meshes: Vec<&KernelMesh> = self.visible_body_meshes().into_iter().map(|(_, mesh)| mesh).collect();
+        let merged = KernelMesh::merge(&meshes);
+        (merged.positions, merged.normals, merged.indices)
     }
 
     /// Panel Model (kanan layar): daftar body (klik pilih, checkbox
@@ -1724,6 +2079,8 @@ impl eframe::App for CadrawApp {
             ui.horizontal_wrapped(|ui| {
                 ui.strong("CADRAW");
                 ui.separator();
+                self.file_menu(ui);
+                ui.separator();
                 self.tool_buttons(ui);
                 ui.separator();
                 if ui
@@ -1767,6 +2124,10 @@ impl eframe::App for CadrawApp {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.status_text());
+                if let Some(msg) = &self.file_status {
+                    ui.separator();
+                    ui.label(msg);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(format!(
                         "{} entitas · {} constraint · {} terpilih · {} body · kamera {:.0} mm",
@@ -1791,6 +2152,23 @@ impl eframe::App for CadrawApp {
         }
         if redo_pressed {
             self.undo.redo(&mut self.sketch);
+        }
+
+        // ⌘S / ⌘⇧S / ⌘O — sama gate `modifiers.command` dengan Undo/Redo di
+        // atas, jadi tidak bentrok dengan huruf s/o yang diketik di kotak
+        // teks (dynamic input, dst).
+        let save_as_pressed =
+            ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::S));
+        let save_pressed =
+            ctx.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::S));
+        let open_pressed = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
+        if save_as_pressed {
+            self.save_native_as();
+        } else if save_pressed {
+            self.save_native();
+        }
+        if open_pressed {
+            self.open_native();
         }
 
         egui::CentralPanel::default()

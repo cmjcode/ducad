@@ -7,7 +7,7 @@
 
 use anyhow::{bail, Context, Result};
 use glam::dvec3;
-use opencascade::primitives::{Direction as OcctDirection, Edge, Face, IntoShape, Shape, Wire};
+use opencascade::primitives::{Compound, Direction as OcctDirection, Edge, Face, IntoShape, Shape, Wire};
 use opencascade::workplane::Workplane;
 
 /// Mesh hasil tessellation, siap di-upload ke GPU (f32, indexed).
@@ -21,6 +21,27 @@ pub struct KernelMesh {
 impl KernelMesh {
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
+    }
+
+    /// Gabungkan beberapa mesh jadi satu buffer, menggeser indeks per mesh
+    /// supaya tetap valid. Dipakai render (satu draw call untuk semua body
+    /// visible) dan export STL/OBJ multi-body (Fase 5, `cadraw-io`) — dua
+    /// pemakai yang sebelumnya menduplikasi logika gabung-mesh ini sendiri.
+    pub fn merge(meshes: &[&KernelMesh]) -> KernelMesh {
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        let mut indices = Vec::new();
+        for mesh in meshes {
+            let offset = positions.len() as u32;
+            positions.extend_from_slice(&mesh.positions);
+            normals.extend_from_slice(&mesh.normals);
+            indices.extend(mesh.indices.iter().map(|i| i + offset));
+        }
+        KernelMesh {
+            positions,
+            normals,
+            indices,
+        }
     }
 }
 
@@ -65,6 +86,57 @@ impl KernelShape {
         self.0.write_step(path)?;
         Ok(())
     }
+
+    /// Baca shape B-rep dari file STEP — kebalikan `write_step`. Dipakai
+    /// Import STEP (Fase 5, `cadraw-io`) dan test/`deep_clone` internal.
+    pub fn read_step(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        Ok(KernelShape(Shape::read_step(path).context("read_step: gagal membaca STEP")?))
+    }
+
+    /// Serialize B-rep ini jadi teks STEP AP214 (bukan mesh — topologi+
+    /// geometri persis, sama presisi dengan file `.step` biasa). Dipakai
+    /// `cadraw-io` (Fase 5) untuk menyematkan body ke dalam SATU file
+    /// native `.cadraw` tanpa pernah menyentuh tipe `opencascade` — cuma
+    /// String, sama seperti `KernelMesh` membungkus mesh sebagai `[f32;3]`
+    /// mentah. Roundtrip lewat file sementara (sama trik dengan
+    /// `deep_clone`) karena binding ini tidak expose serialisasi in-memory.
+    pub fn to_step_string(&self) -> Result<String> {
+        let path = temp_step_path("to-step-string");
+        let result = (|| -> Result<String> {
+            self.0
+                .write_step(&path)
+                .context("to_step_string: gagal menulis STEP sementara")?;
+            std::fs::read_to_string(&path).context("to_step_string: gagal membaca balik STEP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    }
+
+    /// Kebalikan `to_step_string`.
+    pub fn from_step_string(step: &str) -> Result<Self> {
+        let path = temp_step_path("from-step-string");
+        let result = (|| -> Result<Shape> {
+            std::fs::write(&path, step).context("from_step_string: gagal menulis STEP sementara")?;
+            Shape::read_step(&path).context("from_step_string: gagal membaca balik STEP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result.map(KernelShape)
+    }
+}
+
+/// Path file sementara unik (PID + timestamp nanosecond, sama pola dengan
+/// yang dipakai `deep_clone` sebelumnya) — dipusatkan di sini supaya
+/// `deep_clone`/`to_step_string`/`from_step_string` tidak menduplikasi
+/// logika pembuatan nama file.
+fn temp_step_path(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "cadraw-{tag}-{}-{}.step",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ))
 }
 
 /// `opencascade-rs` (0.2.0) tidak menyediakan `Clone` untuk `Shape` — objek
@@ -77,14 +149,7 @@ impl KernelShape {
 /// milik pemanggil tetap utuh untuk keperluan undo — bukan technical debt,
 /// keputusan sadar mengingat batasan binding versi ini.
 fn deep_clone(shape: &Shape) -> Result<Shape> {
-    let path = std::env::temp_dir().join(format!(
-        "cadraw-deep-clone-{}-{}.step",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
+    let path = temp_step_path("deep-clone");
     shape.write_step(&path).context("deep_clone: gagal menulis STEP sementara")?;
     let result = Shape::read_step(&path).context("deep_clone: gagal membaca balik STEP sementara");
     let _ = std::fs::remove_file(&path);
@@ -242,6 +307,22 @@ pub fn shell_hollow(shape: &KernelShape, thickness: f64, remove_face_dir: Direct
     Ok(KernelShape(hollowed))
 }
 
+/// Tulis beberapa shape ke SATU file STEP, masing-masing tetap solid
+/// terpisah (dibungkus `TopoDS_Compound`, BUKAN di-union jadi satu solid).
+/// Dipakai export "semua body" (Fase 5, `cadraw-io`) — tool CAD lain yang
+/// membuka file ini akan melihat N solid terpisah, sesuai isi dokumen
+/// CADRAW aslinya.
+pub fn write_step_compound(shapes: &[&KernelShape], path: impl AsRef<std::path::Path>) -> Result<()> {
+    if shapes.is_empty() {
+        bail!("tidak ada body untuk diekspor");
+    }
+    let refs: Vec<&Shape> = shapes.iter().map(|s| &s.0).collect();
+    let compound = Compound::from_shapes(refs);
+    let combined: Shape = compound.into();
+    combined.write_step(path)?;
+    Ok(())
+}
+
 /// Smoke-test kemampuan kernel: kotak di-extrude dari sketch lalu difillet
 /// — persis alur "sketch → push/pull → fillet" yang jadi inti CADRAW.
 pub fn make_filleted_box(width: f64, depth: f64, height: f64, fillet: f64) -> Result<KernelShape> {
@@ -370,5 +451,64 @@ mod tests {
         let shape = make_filleted_box(40.0, 30.0, 20.0, 3.0).unwrap();
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn step_string_roundtrip_preserves_mesh_vertex_count() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
+        let step = shape.to_step_string().unwrap();
+        assert!(step.contains("ISO-10303"), "STEP harus AP214 ISO-10303");
+        let restored = KernelShape::from_step_string(&step).unwrap();
+        assert_eq!(shape.tessellate().positions.len(), restored.tessellate().positions.len());
+    }
+
+    #[test]
+    fn read_step_roundtrips_write_step() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(10.0, 10.0), 5.0).unwrap();
+        let path = std::env::temp_dir().join(format!("cadraw-test-read-step-{}.step", std::process::id()));
+        shape.write_step(&path).unwrap();
+        let restored = KernelShape::read_step(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(shape.tessellate().positions.len(), restored.tessellate().positions.len());
+    }
+
+    #[test]
+    fn write_step_compound_combines_two_bodies() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let a = extrude_profile(&rect_profile(10.0, 10.0), 5.0).unwrap();
+        let b = extrude_profile(&rect_profile(20.0, 20.0), 5.0).unwrap();
+        let path = std::env::temp_dir().join(format!("cadraw-test-compound-{}.step", std::process::id()));
+        write_step_compound(&[&a, &b], &path).unwrap();
+        let restored = KernelShape::read_step(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        // Compound gabungan dua box terpisah harus punya lebih banyak
+        // vertex dari salah satu box sendirian (bukti keduanya masuk).
+        assert!(restored.tessellate().positions.len() > a.tessellate().positions.len());
+    }
+
+    #[test]
+    fn write_step_compound_empty_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let path = std::env::temp_dir().join("cadraw-test-compound-empty.step");
+        assert!(write_step_compound(&[], &path).is_err());
+    }
+
+    #[test]
+    fn kernel_mesh_merge_shifts_indices() {
+        let a = KernelMesh {
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            indices: vec![0, 1, 2],
+        };
+        let b = KernelMesh {
+            positions: vec![[2.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 1.0, 0.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            indices: vec![0, 1, 2],
+        };
+        let merged = KernelMesh::merge(&[&a, &b]);
+        assert_eq!(merged.positions.len(), 6);
+        assert_eq!(merged.indices, vec![0, 1, 2, 3, 4, 5]);
     }
 }

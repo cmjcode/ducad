@@ -54,6 +54,8 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    palette, radial menu long-press, toggle tema, target sentuh global,
    lihat bawah]**
 5. **File I/O** — `.cadraw` native (serde+versioning), STEP, DXF, STL/OBJ.
+   **[status: putaran pertama selesai — save/load native, import/export
+   STEP & DXF, export STL/OBJ, lihat bawah]**
 6. **Port iPad** — winit iOS + Metal via wgpu, Apple Pencil, Files.app,
    TestFlight.
 7. **Poles & performa** — alat ukur, section view, tessellation di thread
@@ -469,6 +471,127 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       belum bisa dicek dari sandbox agent (tidak ada akses WindowServer
       untuk screenshot, apalagi gesture sentuh sungguhan untuk radial
       menu).
+
+## Status Fase 5 — File I/O (dikerjakan, putaran pertama)
+
+- [x] **`Sketch`/`Entity`/`Constraint`/`PointRef` (di `cadraw-sketch`)
+      di-derive `Serialize`/`Deserialize` LANGSUNG** — bukan struct
+      salinan di `cadraw-io` (satu sumber kebenaran bentuk data). Ini
+      cuma mungkin karena `slotmap` di-build dengan fitur "serde"
+      (ditambahkan di workspace `Cargo.toml`): `EntityId` (hasil
+      `new_key_type!`) otomatis dapat `Serialize`/`Deserialize`, DAN
+      `SlotMap<EntityId, Entity>` di-roundtrip apa adanya (index+versi
+      internal ikut tersimpan) — jadi `EntityId` mentah di dalam
+      `Constraint`/`PointRef` (mis. `Coincident { a, b }`) balik PERSIS
+      sama tanpa remapping id manual sama sekali. `glam` juga dibangun
+      dengan fitur "serde" (cuma di dependensi WORKSPACE 0.29 — pin
+      independen `cadraw-kernel` ke glam 0.23 tidak tersentuh) supaya
+      `DVec2` di dalam `Entity`/`Constraint` ikut serialize.
+- [x] `cadraw-kernel`: `KernelShape::to_step_string`/`from_step_string`
+      (roundtrip lewat file sementara, pola sama dengan `deep_clone`),
+      `KernelShape::read_step` (baca file `.step` sungguhan), dan
+      `write_step_compound` (gabung beberapa shape jadi SATU file STEP
+      lewat `opencascade::primitives::Compound`, masing-masing tetap
+      solid terpisah — bukan di-union). `KernelMesh::merge` ditambahkan
+      sekalian (dipakai render viewport DAN export STL/OBJ multi-body —
+      sebelumnya `cadraw-app::build_combined_body_mesh` menduplikasi
+      logika gabung-mesh ini sendiri, sekarang keduanya pakai fungsi yang
+      sama). 5 test baru (roundtrip STEP string, read_step, compound 2
+      body, compound kosong error, merge menggeser indeks).
+- [x] `cadraw-io` diisi pertama kali (sebelumnya kosong sejak Fase 0), 4
+      modul:
+      - `native`: format `.cadraw` — JSON pretty-printed (sengaja
+        manusiawi-dibaca, bukan biner/kompresi, konsisten dengan
+        `Profile`/`ProfileSegment` yang juga koordinat mentah bisa-baca).
+        `CadrawFile { format_version, sketch, bodies }` — `format_version`
+        (const `FORMAT_VERSION = 1`) ditolak `load` kalau file dibuat versi
+        LEBIH BARU dari yang dikenal build ini (lebih aman daripada diam-
+        diam salah baca; versi lebih lama tetap diterima, belum ada
+        migrasi ditulis karena baru versi 1 yang pernah ada). Tiap
+        `NativeBody` menyimpan `name`/`visible`/`step` (teks STEP lengkap
+        lewat `to_step_string`) — SENGAJA tidak menyimpan `BodyId`: beda
+        dari `EntityId` yang jadi rujukan silang constraint, tidak ada
+        apa pun di file yang merujuk `BodyId` lintas body, jadi body
+        cukup direkonstruksi sebagai daftar baru saat load.
+      - `step_io`: export (1 body langsung, >1 body lewat
+        `write_step_compound`) & import (`KernelShape::read_step`) file
+        `.step` SUNGGUHAN di disk — beda dari `native` yang menyematkan
+        teks STEP yang sama DI DALAM JSON `.cadraw`.
+      - `mesh_export`: STL BINER (ditulis sendiri dari `KernelMesh`,
+        bukan lewat `KernelShape::write_stl` milik kernel — supaya bisa
+        menggabungkan banyak body jadi satu file; normal per-facet
+        dihitung ulang dari cross product segitiga, bukan dipakai dari
+        `mesh.normals` yang per-VERTEX) dan OBJ ASCII (satu blok
+        `o <nama>` per body, indeks `v`/`vn` digeser per body). Sengaja
+        HANYA export — STL/OBJ sudah berupa segitiga, tidak ada jalan
+        balik ke B-rep, import diputuskan di luar lingkup Fase 5.
+      - `dxf`: subset R12 ASCII minimal DITULIS SENDIRI (bukan crate
+        `dxf` pihak ketiga) — LINE/CIRCLE/ARC saja, konsisten dengan
+        filosofi proyek menulis sendiri lapisan tipis yang terkontrol
+        penuh (solver LM, snap engine) alih-alih menarik dependensi besar
+        untuk sebagian kecil kemampuannya. `Entity::Ellipse` dilewati saat
+        export (dihitung, dilaporkan) — DXF R12 tidak punya entitas
+        ELLIPSE. Import mem-parsing group-code minimal, entitas tak
+        dikenal (TEXT/SPLINE/dst) dilewati & dihitung
+        (`ImportResult::skipped`), bukan bikin seluruh import gagal.
+      14 test baru (roundtrip native termasuk verifikasi `EntityId`
+      persis sama setelah load, penolakan versi masa depan, penolakan
+      JSON rusak, roundtrip STEP single & multi-body, header+jumlah
+      segitiga STL, jumlah baris OBJ + offset indeks multi-body,
+      roundtrip DXF Line/Circle/Arc dengan verifikasi sudut Arc, Ellipse
+      dilaporkan skip, section ENTITIES hilang ditangani, entitas tak
+      dikenal dilewati bukan gagal).
+      **Bug ditemukan lewat test, bukan teori** (pola yang sama lagi
+      dengan Fase 2/3): test `native`/`step_io` gagal ACAK dengan
+      exception OCCT `InterfaceModel : AddWithRefs` — ternyata dua lock
+      test TERPISAH (satu per modul) tidak cukup, karena `cargo test`
+      menjalankan SEMUA modul dalam SATU binary test di banyak thread
+      sekaligus, jadi test `native::*` dan `step_io::*` (dua-duanya
+      menyentuh jalur transfer STEP OCCT yang sama) tetap bisa jalan
+      BERSAMAAN lintas modul walau masing-masing sudah dikunci sendiri-
+      sendiri. Diperbaiki dengan SATU lock `pub(crate)` di
+      `cadraw-io::lib` dipakai bersama oleh `native`+`step_io` — beda
+      dari `cadraw-kernel::tests::TEST_LOCK` yang cukup satu per crate
+      karena krat itu cuma satu binary test tanpa modul lain yang ikut
+      menyentuh OCCT.
+- [x] `cadraw-app`: menu "📄 File" di toolbar (Baru, Buka…/Simpan/Simpan
+      Sebagai… native, submenu Import STEP/DXF, submenu Export
+      STEP/STL/OBJ/DXF) + dialog file native lewat `rfd`. Shortcut
+      Ctrl/Cmd+O (Buka), +S (Simpan — jatuh ke Simpan Sebagai kalau
+      dokumen belum pernah disimpan), +Shift+S (Simpan Sebagai, selalu
+      dialog). `current_file_path: Option<PathBuf>` menentukan target
+      "Simpan" langsung vs dialog. Export STEP/native SEMUA body (arsip
+      dokumen penuh, terlepas visible); Export STL/OBJ cuma body
+      `visible` (mewakili hasil cetak/tampilan fisik, konsisten dengan
+      `build_combined_body_mesh` render viewport). Import STEP/DXF
+      undo-able (`AddSolidCommand`/`InsertEntities` lewat undo stack yang
+      sesuai — pola sama dengan Extrude/menggambar tool sketch); Baru/
+      Buka SENGAJA mereset kedua undo stack (undo lintas-dokumen tidak
+      masuk akal). Semua 10 aksi file juga ada di command palette lewat
+      `PaletteAction::File(FileOp)` (satu variant menampung 10 `FileOp`,
+      bukan 10 variant `PaletteAction` terpisah). Status hasil (sukses
+      ATAU gagal — beda dari `model_status`/`constraint_status` yang
+      cuma terisi saat gagal) tampil di status bar bawah.
+      Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (72
+      test: 3 kamera, 1 undo-core, 14 kernel, 36 sketch termasuk 18
+      constraint & 4 model chain-builder, 14 cadraw-io); diverifikasi
+      manual lewat smoke-run `cargo run -p cadraw-app` 6 detik tanpa
+      panic.
+- [ ] **Sengaja belum ada** (lingkup Fase 5 dipersempit ke inti yang bisa
+      dikirim dalam satu putaran): import STL/OBJ (lossy, sudah segitiga,
+      tidak ada jalan balik ke B-rep — keputusan sadar, bukan lupa),
+      Ellipse di DXF (R12 tidak punya entitas itu — perlu upgrade ke
+      subset R14+ kalau dibutuhkan nanti), spline/polyline/layer di DXF,
+      memisahkan file STEP multi-solid jadi body terpisah saat import
+      (baru satu `KernelShape` gabungan — butuh traversal topologi solid
+      yang belum ada), autosave/recent-files/dirty-flag di title bar,
+      drag-and-drop file ke jendela, resolusi konflik saat file dibuka
+      lagi setelah berubah di disk.
+- [ ] Verifikasi visual & UX (menu File, dialog native rfd, pesan status
+      import/export) di device sungguhan — sama seperti fase-fase
+      sebelumnya, belum bisa dicek dari sandbox agent (tidak ada akses
+      WindowServer, dan dialog file native `rfd` butuh interaksi GUI
+      sungguhan yang tidak bisa disimulasikan headless).
 
 ## Menjalankan
 

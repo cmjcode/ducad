@@ -16,7 +16,7 @@ cadraw-render = { path = "crates/cadraw-render" }
 cadraw-io = { path = "crates/cadraw-io" }
 cadraw-ui = { path = "crates/cadraw-ui" }
 
-glam = { version = "0.29", features = ["bytemuck"] }
+glam = { version = "0.29", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 eframe = { version = "0.32", features = ["wgpu"] }
 egui = "0.32"
@@ -24,10 +24,20 @@ egui_wgpu = { package = "egui-wgpu", version = "0.32" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-slotmap = "1"
+serde_json = "1"
+# "serde" di sini mengaktifkan Serialize/Deserialize otomatis untuk tipe key
+# hasil `slotmap::new_key_type!` (EntityId, BodyId) DAN untuk `SlotMap<K, V>`
+# itu sendiri (indeks+versi internal ikut ter-serialize, jadi key yang sama
+# persis didapat balik saat deserialize) — dipakai `cadraw-io` (Fase 5) agar
+# `Constraint`/`PointRef` yang menyimpan `EntityId` mentah bisa
+# di-roundtrip apa adanya tanpa remapping id manual.
+slotmap = { version = "1", features = ["serde"] }
 log = "0.4"
 env_logger = "0.11"
 opencascade = "0.2"
+# Dialog file native (Fase 5) — dipakai `cadraw-app` untuk Buka/Simpan/
+# Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
+rfd = "0.17"
 
 [profile.dev]
 opt-level = 1
