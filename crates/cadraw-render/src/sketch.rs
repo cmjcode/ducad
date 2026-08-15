@@ -112,6 +112,128 @@ pub fn measurement_lines(points: &[DVec2]) -> Vec<LineVertex> {
     verts
 }
 
+/// Garis putus-putus 3D untuk proyeksi dimensi dan sumbu extrude.
+pub fn dashed_line_3d(p1: [f32; 3], p2: [f32; 3], dash_len: f32, color: [f32; 4]) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    let dx = p2[0] - p1[0];
+    let dy = p2[1] - p1[1];
+    let dz = p2[2] - p1[2];
+    let total_len = (dx * dx + dy * dy + dz * dz).sqrt();
+    if total_len < 1e-4 {
+        return verts;
+    }
+
+    let dir = [dx / total_len, dy / total_len, dz / total_len];
+    let mut t = 0.0;
+    let mut drawing = true;
+
+    while t < total_len {
+        let t_next = (t + dash_len).min(total_len);
+        if drawing {
+            verts.push(LineVertex {
+                position: [
+                    p1[0] + dir[0] * t,
+                    p1[1] + dir[1] * t,
+                    p1[2] + dir[2] * t,
+                ],
+                color,
+            });
+            verts.push(LineVertex {
+                position: [
+                    p1[0] + dir[0] * t_next,
+                    p1[1] + dir[1] * t_next,
+                    p1[2] + dir[2] * t_next,
+                ],
+                color,
+            });
+        }
+        t = t_next;
+        drawing = !drawing;
+    }
+    verts
+}
+
+/// Gizmo panah dua sisi (`↕`) mengambang di titik tengah profil sketch (Z-up/down) untuk Direct Extrude.
+pub fn double_arrow_gizmo_lines(center: [f32; 3], height: f32, arrow_size: f32, color: [f32; 4]) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    let top = [center[0], center[1], center[2] + height * 0.5];
+    let bot = [center[0], center[1], center[2] - height * 0.5];
+
+    // Batang poros panah
+    verts.push(LineVertex { position: bot, color });
+    verts.push(LineVertex { position: top, color });
+
+    // Kepala panah atas
+    let s = arrow_size;
+    verts.push(LineVertex { position: top, color });
+    verts.push(LineVertex { position: [top[0] - s, top[1], top[2] - s * 1.4], color });
+
+    verts.push(LineVertex { position: top, color });
+    verts.push(LineVertex { position: [top[0] + s, top[1], top[2] - s * 1.4], color });
+
+    verts.push(LineVertex { position: top, color });
+    verts.push(LineVertex { position: [top[0], top[1] - s, top[2] - s * 1.4], color });
+
+    verts.push(LineVertex { position: top, color });
+    verts.push(LineVertex { position: [top[0], top[1] + s, top[2] - s * 1.4], color });
+
+    // Kepala panah bawah
+    verts.push(LineVertex { position: bot, color });
+    verts.push(LineVertex { position: [bot[0] - s, bot[1], bot[2] + s * 1.4], color });
+
+    verts.push(LineVertex { position: bot, color });
+    verts.push(LineVertex { position: [bot[0] + s, bot[1], bot[2] + s * 1.4], color });
+
+    verts.push(LineVertex { position: bot, color });
+    verts.push(LineVertex { position: [bot[0], bot[1] - s, bot[2] + s * 1.4], color });
+
+    verts.push(LineVertex { position: bot, color });
+    verts.push(LineVertex { position: [bot[0], bot[1] + s, bot[2] + s * 1.4], color });
+
+    verts
+}
+
+/// Garis leader dimensi 2D dengan garis proyeksi putus-putus dan panah pembatas (seperti Screenshot 1).
+pub fn dimension_leader_lines(a: DVec2, b: DVec2, offset_dist: f64) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    let ab = b - a;
+    let len = ab.length();
+    if len < 1e-4 {
+        return verts;
+    }
+
+    let perp = DVec2::new(-ab.y / len, ab.x / len) * offset_dist;
+    let a_ext = a + perp;
+    let b_ext = b + perp;
+    const DIM_COLOR: [f32; 4] = [0.40, 0.45, 0.52, 0.85];
+
+    // Garis proyeksi tegak lurus dari titik asal ke garis dimensi
+    verts.extend(dashed_line_3d(to3(a), to3(a_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
+    verts.extend(dashed_line_3d(to3(b), to3(b_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
+
+    // Garis dimensi paralel putus-putus
+    verts.extend(dashed_line_3d(to3(a_ext), to3(b_ext), 4.0, DIM_COLOR));
+
+    // Tick panah pada ujung garis dimensi
+    let dir = (b_ext - a_ext).normalize();
+    let tick_perp = perp.normalize() * 4.0;
+    let tick_a1 = a_ext + dir * 4.0 + tick_perp;
+    let tick_a2 = a_ext + dir * 4.0 - tick_perp;
+    verts.push(LineVertex { position: to3(a_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(tick_a1), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(a_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(tick_a2), color: DIM_COLOR });
+
+    let tick_b1 = b_ext - dir * 4.0 + tick_perp;
+    let tick_b2 = b_ext - dir * 4.0 - tick_perp;
+    verts.push(LineVertex { position: to3(b_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(tick_b1), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(b_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(tick_b2), color: DIM_COLOR });
+
+    verts
+}
+
 fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4]) {
     match entity {
         Entity::Line { start, end } => {

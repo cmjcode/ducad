@@ -41,17 +41,19 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
     return vec4<f32>(in.color.rgb, in.color.a * fade);
 }
 
-// ---------- Mesh solid (body B-rep ter-tessellasi) ----------
+// ---------- Mesh solid (body B-rep ter-tessellasi & highlight profil 2D) ----------
 
 struct MeshIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
+    @location(2) color: vec4<f32>,
 };
 
 struct MeshOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) normal: vec3<f32>,
     @location(1) world: vec3<f32>,
+    @location(2) color: vec4<f32>,
 };
 
 @vertex
@@ -60,6 +62,7 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
     out.clip = globals.view_proj * vec4<f32>(in.position, 1.0);
     out.normal = in.normal;
     out.world = in.position;
+    out.color = in.color;
     return out;
 }
 
@@ -69,11 +72,11 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     if (clip_side > 0.0) {
         discard;
     }
-    let base = vec3<f32>(0.62, 0.68, 0.76); // baja muda, netral khas CAD
+    let base = in.color.rgb;
     let n = normalize(in.normal);
     let diffuse = max(dot(n, normalize(globals.light_dir.xyz)), 0.0);
     let view_dir = normalize(globals.eye.xyz - in.world);
     let rim = pow(1.0 - max(dot(n, view_dir), 0.0), 3.0) * 0.15;
     let color = base * (0.35 + 0.65 * diffuse) + vec3<f32>(rim);
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(color, in.color.a);
 }

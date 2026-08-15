@@ -4,6 +4,84 @@
 
 use slotmap::SlotMap;
 
+/// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum LengthUnit {
+    #[default]
+    Millimeters,
+    Centimeters,
+    Meters,
+    Inches,
+}
+
+impl LengthUnit {
+    pub fn suffix(self) -> &'static str {
+        match self {
+            LengthUnit::Millimeters => "mm",
+            LengthUnit::Centimeters => "cm",
+            LengthUnit::Meters => "m",
+            LengthUnit::Inches => "in",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LengthUnit::Millimeters => "Milimeter (mm)",
+            LengthUnit::Centimeters => "Sentimeter (cm)",
+            LengthUnit::Meters => "Meter (m)",
+            LengthUnit::Inches => "Inci (in)",
+        }
+    }
+
+    /// Skala faktor dari mm internal ke satuan ini (misal: 10 mm -> 1 cm = factor 0.1).
+    pub fn from_mm_factor(self) -> f64 {
+        match self {
+            LengthUnit::Millimeters => 1.0,
+            LengthUnit::Centimeters => 0.1,
+            LengthUnit::Meters => 0.001,
+            LengthUnit::Inches => 1.0 / 25.4,
+        }
+    }
+
+    /// Skala faktor dari satuan ini ke mm internal (misal: 1 cm -> 10 mm = factor 10.0).
+    pub fn to_mm_factor(self) -> f64 {
+        match self {
+            LengthUnit::Millimeters => 1.0,
+            LengthUnit::Centimeters => 10.0,
+            LengthUnit::Meters => 1000.0,
+            LengthUnit::Inches => 25.4,
+        }
+    }
+
+    /// Konversi nilai internal (mm) ke nilai satuan tampilan.
+    pub fn to_display_val(self, val_in_mm: f64) -> f64 {
+        val_in_mm * self.from_mm_factor()
+    }
+
+    /// Konversi nilai tampilan ke mm internal.
+    pub fn to_internal_mm(self, val_in_unit: f64) -> f64 {
+        val_in_unit * self.to_mm_factor()
+    }
+
+    /// Format angka (dalam mm internal) menjadi string siap tampil dengan suffix satuan (mis. "496.06 mm" atau "49.61 cm").
+    pub fn format(self, val_in_mm: f64) -> String {
+        let disp = self.to_display_val(val_in_mm);
+        if disp.fract().abs() < 1e-4 {
+            format!("{:.0} {}", disp, self.suffix())
+        } else if (disp * 10.0).fract().abs() < 1e-3 {
+            format!("{:.1} {}", disp, self.suffix())
+        } else {
+            format!("{:.2} {}", disp, self.suffix())
+        }
+    }
+
+    /// Format dengan presisi tinggi (mis. 4 desimal seperti pada screenshot: 707.1068 mm).
+    pub fn format_precise(self, val_in_mm: f64) -> String {
+        let disp = self.to_display_val(val_in_mm);
+        format!("{:.4} {}", disp, self.suffix())
+    }
+}
+
 slotmap::new_key_type! {
     /// Identitas stabil sebuah body di dokumen.
     pub struct BodyId;
@@ -22,6 +100,7 @@ pub struct Body {
 pub struct Document {
     pub bodies: SlotMap<BodyId, Body>,
     pub dirty: bool,
+    pub unit: LengthUnit,
 }
 
 impl Document {

@@ -22,9 +22,10 @@ struct Globals {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
-struct MeshVertex {
-    position: [f32; 3],
-    normal: [f32; 3],
+pub struct MeshVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub color: [f32; 4],
 }
 
 struct GpuMesh {
@@ -154,7 +155,7 @@ impl SceneRenderer {
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<MeshVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4],
                 }],
             },
             fragment: Some(wgpu::FragmentState {
@@ -165,7 +166,7 @@ impl SceneRenderer {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil,
@@ -242,6 +243,7 @@ impl SceneRenderer {
         device: &wgpu::Device,
         positions: &[[f32; 3]],
         normals: &[[f32; 3]],
+        colors: Option<&[[f32; 4]]>,
         indices: &[u32],
     ) {
         use wgpu::util::DeviceExt;
@@ -249,12 +251,18 @@ impl SceneRenderer {
             self.mesh = None;
             return;
         }
+        const DEFAULT_CAD_GREY: [f32; 4] = [0.62, 0.68, 0.76, 1.0];
         let verts: Vec<MeshVertex> = positions
             .iter()
-            .zip(normals)
-            .map(|(p, n)| MeshVertex {
-                position: *p,
-                normal: *n,
+            .enumerate()
+            .map(|(i, p)| {
+                let n = normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]);
+                let color = colors.and_then(|c| c.get(i).copied()).unwrap_or(DEFAULT_CAD_GREY);
+                MeshVertex {
+                    position: *p,
+                    normal: n,
+                    color,
+                }
             })
             .collect();
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

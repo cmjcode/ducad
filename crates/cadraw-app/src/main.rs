@@ -111,15 +111,16 @@ mod model;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use cadraw_core::BodyId;
+use cadraw_core::{BodyId, LengthUnit};
 use cadraw_kernel::{KernelMesh, KernelShape, PickRay};
 use cadraw_render::camera::ViewPreset;
 use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, SceneRenderer};
 use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
 use cadraw_sketch::{
-    arc_from_three_points, find_snap, line_intersection_params_in_sketch, mirror_entity,
-    offset_entity, project_t, trim_segments, DeleteEntities, Entity, EntityId, InsertEntities,
-    ReplaceEntities, Sketch, SnapHit, UpdateEntity,
+    arc_from_three_points, find_closed_regions, find_region_at_point, find_region_containing_entity,
+    find_snap, line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t,
+    trim_segments, ClosedRegion, DeleteEntities, Entity, EntityId, InsertEntities, ReplaceEntities,
+    Sketch, SnapHit, UpdateEntity,
 };
 use cadraw_ui::{
     BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, FeatureInspector,
@@ -557,6 +558,19 @@ struct CadrawApp {
     prop_input_val_1: String,
     prop_input_val_2: String,
     last_inspected_entity_id: Option<u64>,
+
+    // State Sketch Mode & Satuan
+    is_sketching: bool,
+    unit: LengthUnit,
+
+    // State Direct Extrude Gizmo & Smart Boolean Cut
+    extruding_from_gizmo: bool,
+    gizmo_distance: f64,
+    gizmo_drag_start_y: f32,
+    gizmo_dimension_editing: bool,
+    gizmo_edit_input: String,
+    gizmo_is_cutting: bool,
+    gizmo_target_body: Option<BodyId>,
 }
 
 impl CadrawApp {
@@ -641,6 +655,17 @@ impl CadrawApp {
             prop_input_val_1: String::new(),
             prop_input_val_2: String::new(),
             last_inspected_entity_id: None,
+
+            is_sketching: true,
+            unit: LengthUnit::Millimeters,
+
+            extruding_from_gizmo: false,
+            gizmo_distance: 20.0,
+            gizmo_drag_start_y: 0.0,
+            gizmo_dimension_editing: false,
+            gizmo_edit_input: "20".to_string(),
+            gizmo_is_cutting: false,
+            gizmo_target_body: None,
         }
     }
 
@@ -1554,18 +1579,15 @@ impl CadrawApp {
         self.handle_radial_menu(ui, &response);
 
         // Orbit primer hanya untuk tool Pilih, dan cuma saat radial menu
-        // TIDAK terbuka/sedang dideteksi lewat long-press (radial memakai
-        // drag primer yang sama untuk memilih slice — kalau orbit ikut
-        // jalan, kamera akan berputar liar saat pengguna menggeser jari ke
-        // arah slice). Orbit tetap tersedia lewat drag tengah / dua jari di
-        // semua tool & kapanpun.
+        // TIDAK terbuka/sedang dideteksi lewat long-press
         let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
         self.handle_navigation(ui, &response, rect, self.tool == ToolKind::Select && !radial_active);
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 
         let aspect = rect.width() / rect.height().max(1.0);
-        let overlay = self.build_overlay_lines(raw_cursor);
-        let (body_positions, body_normals, body_indices) = self.build_combined_body_mesh();
+        let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+        let overlay = self.build_overlay_lines(raw_cursor, world_scale);
+        let (body_positions, body_normals, body_colors, body_indices) = self.build_combined_body_mesh();
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
@@ -1574,12 +1596,13 @@ impl CadrawApp {
                 overlay_lines: overlay,
                 body_positions,
                 body_normals,
+                body_colors,
                 body_indices,
                 clip_plane: self.section_clip_plane(),
             },
         ));
 
-        self.dynamic_input_ui(ui, rect);
+        self.dynamic_input_ui(ui, rect, raw_cursor);
     }
 
     fn handle_navigation(
@@ -1594,10 +1617,12 @@ impl CadrawApp {
 
         let orbiting = (allow_primary_orbit
             && response.dragged_by(egui::PointerButton::Primary)
-            && !modifiers.shift)
+            && !modifiers.shift
+            && !self.extruding_from_gizmo)
             || (response.dragged_by(egui::PointerButton::Middle) && !modifiers.shift);
         let panning = response.dragged_by(egui::PointerButton::Secondary)
             || (modifiers.shift
+                && !self.extruding_from_gizmo
                 && (response.dragged_by(egui::PointerButton::Primary)
                     || response.dragged_by(egui::PointerButton::Middle)));
 
@@ -1608,21 +1633,37 @@ impl CadrawApp {
         }
 
         if response.hovered() {
+            // Trackpad pinch zoom (2 jari pinch in/out)
             let pinch = ui.input(|i| i.zoom_delta());
             if pinch != 1.0 {
                 self.camera.zoom(pinch);
             }
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll != 0.0 {
-                self.camera.zoom((scroll * 0.003).exp());
+
+            // Trackpad 2-finger pan / swipe (Shapr3D trackpad navigator):
+            // - 2 jari geser (pan) tanpa Shift -> Orbit / rotasi kamera
+            // - Shift + 2 jari geser -> Pan / geser posisi kamera
+            let smooth_scroll = ui.input(|i| i.smooth_scroll_delta);
+            if smooth_scroll != egui::Vec2::ZERO {
+                if modifiers.shift {
+                    self.camera.pan(smooth_scroll.x, smooth_scroll.y, rect.height());
+                } else if !modifiers.command && !modifiers.ctrl {
+                    self.camera.orbit(smooth_scroll.x, smooth_scroll.y);
+                }
+            }
+
+            let raw_wheel_y = ui.input(|i| i.raw_scroll_delta.y);
+            if raw_wheel_y != 0.0 && smooth_scroll == egui::Vec2::ZERO {
+                self.camera.zoom((raw_wheel_y * 0.003).exp());
             }
         }
 
-        // Dua jari selalu navigasi, terlepas dari tool aktif (gaya Shapr3D:
-        // satu jari menggambar/memilih, dua jari mengarahkan kamera).
+        // Gesture multi-touch (trackpad / iPad sentuh)
         if let Some(touch) = ui.input(|i| i.multi_touch()) {
-            self.camera
-                .orbit(touch.translation_delta.x, touch.translation_delta.y);
+            if modifiers.shift {
+                self.camera.pan(touch.translation_delta.x, touch.translation_delta.y, rect.height());
+            } else {
+                self.camera.orbit(touch.translation_delta.x, touch.translation_delta.y);
+            }
             self.camera.zoom(touch.zoom_delta);
         }
     }
@@ -1669,43 +1710,54 @@ impl CadrawApp {
                     self.offset_source = None;
                     self.dynamic_input.clear();
                     self.dynamic_focus_pending = false;
+                } else if !self.selected.is_empty() {
+                    self.selected.clear();
+                } else if self.is_sketching {
+                    self.is_sketching = false;
+                    self.left_toolbar.is_sketching = false;
                 } else {
                     self.set_tool(ToolKind::Select);
                 }
             }
-            if ui.input(|i| i.key_pressed(egui::Key::L)) {
-                self.set_tool(ToolKind::Line);
+            if ui.input(|i| i.key_pressed(egui::Key::S)) {
+                if !self.is_sketching {
+                    self.is_sketching = true;
+                    self.left_toolbar.is_sketching = true;
+                    self.camera.orient_to_sketch();
+                }
             }
-            if ui.input(|i| i.key_pressed(egui::Key::R)) {
-                self.set_tool(ToolKind::Rectangle);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::C)) {
-                self.set_tool(ToolKind::Circle);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::E)) {
-                self.set_tool(ToolKind::Ellipse);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::A)) {
-                self.set_tool(ToolKind::Arc);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::O)) {
-                self.set_tool(ToolKind::Offset);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::M)) {
-                self.set_tool(ToolKind::Mirror);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::T)) {
-                self.set_tool(ToolKind::Trim);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::V)) {
-                self.set_tool(ToolKind::Revolve);
+            if self.is_sketching {
+                if ui.input(|i| i.key_pressed(egui::Key::L)) {
+                    self.set_tool(ToolKind::Line);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::R)) {
+                    self.set_tool(ToolKind::Rectangle);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::C)) {
+                    self.set_tool(ToolKind::Circle);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::E)) {
+                    self.set_tool(ToolKind::Ellipse);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::A)) {
+                    self.set_tool(ToolKind::Arc);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::O)) {
+                    self.set_tool(ToolKind::Offset);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::M)) {
+                    self.set_tool(ToolKind::Mirror);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::T)) {
+                    self.set_tool(ToolKind::Trim);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::V)) {
+                    self.set_tool(ToolKind::Revolve);
+                }
             }
         }
 
-        // Konsumsi flag radial SEKALI per frame, terlepas dari apakah tool
-        // aktif Select (satu-satunya tool yang bisa memicu radial) --
-        // supaya tidak pernah bocor jadi menempel di frame/klik berikutnya
-        // kalau frame ini kebetulan tidak melewati cabang yang memakainya.
+        // Konsumsi flag radial SEKALI per frame
         let suppress_click_from_radial = std::mem::take(&mut self.radial_suppress_click);
 
         let Some(raw) = raw_cursor else {
@@ -1719,24 +1771,167 @@ impl CadrawApp {
         match self.tool {
             ToolKind::Select => {
                 self.last_snap = None;
-                self.hovered = response
-                    .hovered()
-                    .then(|| self.sketch.hit_test(raw, tol))
-                    .flatten();
-                if response.clicked() && !suppress_click_from_radial {
-                    let shift = ui.input(|i| i.modifiers.shift);
-                    match (self.hovered, shift) {
-                        (Some(hit), true) => {
-                            if !self.selected.remove(&hit) {
-                                self.selected.insert(hit);
+
+                // 1. Interaksi Drag Gizmo Panah 2 Sisi (↕) jika ada profil tertutup terpilih
+                let closed_regions = find_closed_regions(&self.sketch);
+                let selected_regions: Vec<&ClosedRegion> = closed_regions
+                    .iter()
+                    .filter(|r| r.entity_ids.is_subset(&self.selected))
+                    .collect();
+
+                let active_centroid = if !selected_regions.is_empty() {
+                    let total_area: f64 = selected_regions.iter().map(|r| r.area.max(1e-4)).sum();
+                    let mut cx = 0.0;
+                    let mut cy = 0.0;
+                    for r in &selected_regions {
+                        cx += r.centroid.x * r.area.max(1e-4);
+                        cy += r.centroid.y * r.area.max(1e-4);
+                    }
+                    Some(DVec2::new(cx / total_area, cy / total_area))
+                } else {
+                    None
+                };
+
+                if let Some(centroid) = active_centroid {
+                    let gizmo_3d = Vec3::new(
+                        centroid.x as f32,
+                        centroid.y as f32,
+                        if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 10.0 },
+                    );
+                    let base_3d = Vec3::new(centroid.x as f32, centroid.y as f32, 0.0);
+                    let gizmo_s = world_to_screen_pos(&self.camera, rect, gizmo_3d);
+                    let base_s = world_to_screen_pos(&self.camera, rect, base_3d);
+
+                    if let Some(pos) = response.hover_pos() {
+                        let near_gizmo = gizmo_s.map_or(false, |s| s.distance(pos) < 36.0);
+                        let near_base = base_s.map_or(false, |s| s.distance(pos) < 36.0);
+
+                        if response.drag_started() && (near_gizmo || near_base) {
+                            self.extruding_from_gizmo = true;
+                            self.gizmo_drag_start_y = pos.y;
+                        }
+                    }
+
+                    if self.extruding_from_gizmo {
+                        let delta = response.drag_delta();
+                        let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+                        self.gizmo_distance += (-delta.y as f64) * world_scale * 1.5;
+
+                        // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
+                        if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                            if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                                let mut is_cutting = false;
+                                for (b_id, b_geo) in self.model.geometry.iter() {
+                                    if let Some(body) = self.model.doc.bodies.get(b_id) {
+                                        if body.visible {
+                                            if let Ok(cut_res) = cadraw_kernel::subtract(&b_geo.shape, &swept) {
+                                                let orig_verts = b_geo.mesh.positions.len();
+                                                let cut_verts = cut_res.tessellate().positions.len();
+                                                if cut_verts > 0 && orig_verts > 0 {
+                                                    is_cutting = true;
+                                                    self.gizmo_is_cutting = true;
+                                                    self.gizmo_target_body = Some(b_id);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if !is_cutting {
+                                    self.gizmo_is_cutting = false;
+                                    self.gizmo_target_body = None;
+                                }
                             }
                         }
-                        (Some(hit), false) => {
-                            self.selected.clear();
-                            self.selected.insert(hit);
+
+                        if response.drag_stopped() {
+                            if self.gizmo_distance.abs() > 0.1 {
+                                if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                                    if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                                        if self.gizmo_is_cutting {
+                                            if let Some(target_id) = self.gizmo_target_body {
+                                                if let Some(target_geo) = self.model.geometry.get(target_id) {
+                                                    if let Ok(cut_res) = cadraw_kernel::subtract(&target_geo.shape, &swept) {
+                                                        let new_geo = BodyGeometry::from_shape(cut_res);
+                                                        self.model_undo.execute(
+                                                            Box::new(ReplaceGeometryCommand::new("Cut Extrude", target_id, new_geo)),
+                                                            &mut self.model,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            let geo = BodyGeometry::from_shape(swept);
+                                            let cmd = AddSolidCommand::new("Extrude", geo);
+                                            self.model_undo.execute(Box::new(cmd), &mut self.model);
+                                        }
+                                    }
+                                }
+                            }
+                            self.extruding_from_gizmo = false;
                         }
-                        (None, false) => self.selected.clear(),
-                        (None, true) => {}
+                        return;
+                    }
+                }
+
+                // 2. Closed region & Entity hit testing (Klik garis atau tengah region = pilih 1 kesatuan)
+                let region_hit: Option<ClosedRegion> = if !self.sketch.entities.is_empty() && response.hovered() {
+                    if let Some(r) = find_region_at_point(&self.sketch, raw) {
+                        Some(r)
+                    } else if let Some(hit) = self.sketch.hit_test(raw, tol) {
+                        find_region_containing_entity(&self.sketch, hit)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                self.hovered = if region_hit.is_some() {
+                    None
+                } else {
+                    response
+                        .hovered()
+                        .then(|| self.sketch.hit_test(raw, tol))
+                        .flatten()
+                };
+
+                if response.clicked() && !suppress_click_from_radial {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    if let Some(reg) = region_hit {
+                        if shift {
+                            let already_selected = reg.entity_ids.iter().all(|id| self.selected.contains(id));
+                            if already_selected {
+                                for id in &reg.entity_ids {
+                                    self.selected.remove(id);
+                                }
+                            } else {
+                                for id in &reg.entity_ids {
+                                    self.selected.insert(*id);
+                                }
+                            }
+                        } else {
+                            self.selected.clear();
+                            for id in &reg.entity_ids {
+                                self.selected.insert(*id);
+                            }
+                        }
+                        self.gizmo_distance = 20.0;
+                        self.gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.gizmo_distance));
+                    } else {
+                        match (self.hovered, shift) {
+                            (Some(hit), true) => {
+                                if !self.selected.remove(&hit) {
+                                    self.selected.insert(hit);
+                                }
+                            }
+                            (Some(hit), false) => {
+                                self.selected.clear();
+                                self.selected.insert(hit);
+                            }
+                            (None, false) => self.selected.clear(),
+                            (None, true) => {}
+                        }
                     }
                     self.constraint_status = None;
                 }
@@ -1797,12 +1992,6 @@ impl CadrawApp {
             }
             ToolKind::Trim => {
                 self.last_snap = None;
-                // Dibatasi ke entitas Line saja (Fase 1 lanjutan): hit_test
-                // global bisa saja menemukan entitas non-Line lebih dekat
-                // lalu difilter di sini, jadi kadang tidak memilih Line
-                // terdekat kalau ada entitas jenis lain yang lebih dekat —
-                // batasan kecil yang bisa disempurnakan nanti (hit-test
-                // khusus per-jenis) jika terasa mengganggu.
                 self.hovered = response
                     .hovered()
                     .then(|| self.sketch.hit_test(raw, tol))
@@ -1844,9 +2033,6 @@ impl CadrawApp {
                             self.apply_constraint(Constraint::Coincident { a: refs[0], b: refs[1] });
                         }
                     }
-                    // Klik tanpa sumber titik valid (mis. snap ke midpoint/
-                    // intersection/grid, atau tak ada snap sama sekali)
-                    // sengaja diabaikan — bukan crash, cuma tak berefek.
                 }
             }
             ToolKind::FixedPick => {
@@ -1892,13 +2078,7 @@ impl CadrawApp {
         }
     }
 
-    /// Klik viewport saat `picking_mode` aktif (Fase 8): cast ray dunia
-    /// lewat `screen_to_ray` (BUKAN `screen_to_plane_point` — picking
-    /// butuh ray 3D penuh, bukan proyeksi ke bidang Z=0) terhadap body
-    /// TERPILIH (precondition persis 1 dijamin tombol toggle di
-    /// `model_panel`), tambahkan ke `selected_edges`/`selected_faces`
-    /// kalau kena. v1 SENGAJA cuma menambah (belum toggle-off klik ulang
-    /// di tepi/wajah yang sama) — ada tombol "Reset Pilihan" di panel.
+    /// Klik viewport saat `picking_mode` aktif (Fase 8)
     fn handle_3d_picking(&mut self, response: &egui::Response, rect: egui::Rect) {
         if !response.clicked() {
             return;
@@ -1933,22 +2113,48 @@ impl CadrawApp {
         }
     }
 
-    fn build_overlay_lines(&self, raw_cursor: Option<DVec2>) -> Vec<LineVertex> {
+    fn build_overlay_lines(&self, raw_cursor: Option<DVec2>, world_scale: f64) -> Vec<LineVertex> {
         let mut verts = sketch_render::entity_lines(&self.sketch, self.hovered, &self.selected);
 
-        // Pengukuran (Fase 7) tergambar permanen — beda dari preview
-        // rubber-band tool lain, hasil Ukur/Ukur Sudut yang sudah commit
-        // tetap tampil walau tool aktif berganti.
+        // Gambar Gizmo Panah 2 Sisi (↕) dan garis putus-putus extrude jika profil tertutup terpilih (Screenshot 2, 3, 4)
+        let closed_regions = find_closed_regions(&self.sketch);
+        let selected_regions: Vec<&ClosedRegion> = closed_regions
+            .iter()
+            .filter(|r| r.entity_ids.is_subset(&self.selected))
+            .collect();
+
+        if !selected_regions.is_empty() {
+            let total_area: f64 = selected_regions.iter().map(|r| r.area.max(1e-4)).sum();
+            let mut cx = 0.0;
+            let mut cy = 0.0;
+            for r in &selected_regions {
+                cx += r.centroid.x * r.area.max(1e-4);
+                cy += r.centroid.y * r.area.max(1e-4);
+            }
+            let centroid = DVec2::new(cx / total_area, cy / total_area);
+            let c_base = [centroid.x as f32, centroid.y as f32, 0.02];
+
+            const GIZMO_ARROW_COLOR: [f32; 4] = [0.20, 0.55, 1.0, 1.0];
+
+            if self.extruding_from_gizmo {
+                let c_top = [centroid.x as f32, centroid.y as f32, self.gizmo_distance as f32];
+                // Garis putus-putus dari base ke ketinggian extrude
+                verts.extend(sketch_render::dashed_line_3d(c_base, c_top, 4.0, [0.30, 0.65, 1.0, 0.9]));
+                // Gizmo panah di posisi ujung extrude
+                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top, 14.0, 3.5, GIZMO_ARROW_COLOR));
+            } else {
+                let gizmo_pos = [centroid.x as f32, centroid.y as f32, 10.0];
+                verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.0, [0.30, 0.65, 1.0, 0.6]));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 16.0, 4.0, GIZMO_ARROW_COLOR));
+            }
+        }
+
+        // Pengukuran (Fase 7) tergambar permanen
         for measurement in &self.measurements {
             verts.extend(sketch_render::measurement_lines(&measurement.points()));
         }
 
-        // Fase 8: highlight tepi 3D terpilih via picking (Fillet/Chamfer
-        // per-tepi) — polyline SUDAH di-cache di `PickedEdge` saat pick,
-        // tidak query kernel ulang tiap frame render. Warna beda dari
-        // `COLOR_MEASURE`/glyph 2D supaya jelas ini seleksi 3D, bukan
-        // sketch. Wajah terpilih SENGAJA tidak dapat highlight 3D di v1
-        // (baru hitungan angka di panel) — lihat docs/PLAN.md.
+        // Highlight tepi 3D terpilih via picking
         const EDGE_PICK_COLOR: [f32; 4] = [1.0, 0.55, 0.15, 1.0];
         for picked in &self.selected_edges {
             for pair in picked.polyline.windows(2) {
@@ -1963,15 +2169,14 @@ impl CadrawApp {
             }
         }
 
-        // Offset: sumber tetap ditandai sebagai preview walau hover pindah.
+        // Offset preview
         if self.tool == ToolKind::Offset {
             if let Some(entity) = self.offset_source.and_then(|id| self.sketch.entities.get(id)) {
                 verts.extend(sketch_render::preview_lines(entity));
             }
         }
 
-        // Coincident/Symmetric: tandai titik yang sudah diklik (beda warna
-        // dari glyph snap oranye supaya tak tertukar dengan hover kursor).
+        // Coincident / Symmetric markers
         if matches!(self.tool, ToolKind::CoincidentPick | ToolKind::SymmetricPick) {
             for pr in &self.pending_point_refs {
                 if let Some(p) = constraint::point_ref_position(&self.sketch, pr) {
@@ -1981,13 +2186,14 @@ impl CadrawApp {
         }
 
         if let Some(raw) = raw_cursor {
+            let offset_dist = (14.0 * world_scale).max(8.0);
             match self.tool {
                 ToolKind::Line if self.pending_points.len() == 1 => {
-                    let preview = Entity::Line {
-                        start: self.pending_points[0],
-                        end: self.snapped_or(raw),
-                    };
+                    let start = self.pending_points[0];
+                    let end = self.snapped_or(raw);
+                    let preview = Entity::Line { start, end };
                     verts.extend(sketch_render::preview_lines(&preview));
+                    verts.extend(sketch_render::dimension_leader_lines(start, end, offset_dist));
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
@@ -2007,15 +2213,20 @@ impl CadrawApp {
                         };
                         verts.extend(sketch_render::preview_lines(&preview));
                     }
+                    // Leader lines untuk lebar dan tinggi (Screenshot 1)
+                    verts.extend(sketch_render::dimension_leader_lines(corners[0], corners[1], offset_dist));
+                    verts.extend(sketch_render::dimension_leader_lines(corners[1], corners[2], offset_dist));
                 }
                 ToolKind::Circle if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
                     let effective = self.snapped_or(raw);
+                    let radius = (effective - first).length();
                     let preview = Entity::Circle {
                         center: first,
-                        radius: (effective - first).length(),
+                        radius,
                     };
                     verts.extend(sketch_render::preview_lines(&preview));
+                    verts.extend(sketch_render::dimension_leader_lines(first, effective, offset_dist * 0.5));
                 }
                 ToolKind::Ellipse if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
@@ -2040,6 +2251,7 @@ impl CadrawApp {
                                 end: effective,
                             };
                             verts.extend(sketch_render::preview_lines(&preview));
+                            verts.extend(sketch_render::dimension_leader_lines(self.pending_points[0], effective, offset_dist));
                         }
                         2 => {
                             if let Some(preview) = arc_from_three_points(
@@ -2072,10 +2284,6 @@ impl CadrawApp {
                     }
                 }
                 ToolKind::Revolve if !self.selected.is_empty() && self.pending_points.len() == 1 => {
-                    // Cuma pratinjau garis sumbu — ghost solid hasil revolve
-                    // butuh panggilan kernel live tiap frame, di luar
-                    // lingkup putaran ini (beda dari Mirror yang preview-nya
-                    // murah, transformasi 2D titik-ke-titik).
                     let axis_preview = Entity::Line {
                         start: self.pending_points[0],
                         end: self.snapped_or(raw),
@@ -2099,9 +2307,6 @@ impl CadrawApp {
                     }
                 }
                 ToolKind::Measure | ToolKind::MeasureAngle => {
-                    // `pending_points` + kursor jadi satu polyline preview —
-                    // berlaku untuk 1 titik (Ukur, rubber-band jarak) maupun
-                    // 2 titik (Ukur Sudut, leg kedua) tanpa cabang terpisah.
                     let effective = self.snapped_or(raw);
                     let mut preview_points = self.pending_points.clone();
                     preview_points.push(effective);
@@ -2118,52 +2323,113 @@ impl CadrawApp {
         verts
     }
 
-    /// Kotak input mengambang di dekat kursor untuk mengetik panjang
-    /// (Garis) / radius (Lingkaran) / sisi (Persegi) — dynamic input gaya
-    /// AutoCAD. Belum tersedia untuk Ellips/Arc/Offset/Mirror/Trim (lihat
-    /// keterbatasan Fase 1 lanjutan di docs/PLAN.md).
-    fn dynamic_input_ui(&mut self, ui: &egui::Ui, rect: egui::Rect) {
-        let supports_dynamic_input =
-            matches!(self.tool, ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle);
-        if !supports_dynamic_input || self.pending_points.len() != 1 {
-            return;
-        }
-        let first = self.pending_points[0];
-        let Some(cursor) = ui.input(|i| i.pointer.hover_pos()) else {
-            return;
-        };
+    /// Kotak input mengambang dan badge dimensi in-situ (Screenshot 1, 2, 3, 4)
+    fn dynamic_input_ui(&mut self, ui: &mut egui::Ui, rect: egui::Rect, raw_cursor: Option<DVec2>) {
+        // 1. Floating Dimension Pills saat sedang menggambar (Screenshot 1)
+        if let Some(raw) = raw_cursor {
+            let effective = self.snapped_or(raw);
+            let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+            let offset_dist = (14.0 * world_scale).max(8.0);
 
-        egui::Area::new(egui::Id::new("cadraw-dynamic-input"))
-            .fixed_pos(cursor + egui::vec2(16.0, 16.0))
-            .order(egui::Order::Foreground)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    let label = match self.tool {
-                        ToolKind::Line => "Panjang (mm)",
-                        ToolKind::Circle => "Radius (mm)",
-                        ToolKind::Rectangle => "Sisi (mm)",
-                        _ => "",
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(label);
-                        let resp = ui.text_edit_singleline(&mut self.dynamic_input);
-                        if self.dynamic_focus_pending {
-                            resp.request_focus();
-                            self.dynamic_focus_pending = false;
-                        }
-                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            if let Ok(value) = self.dynamic_input.trim().parse::<f64>() {
-                                if let Some(raw) = screen_to_plane_point(&self.camera, rect, cursor)
-                                {
-                                    let dir = (raw - first).normalize_or_zero();
-                                    let dir = if dir == DVec2::ZERO { DVec2::X } else { dir };
-                                    self.on_click_point(first + dir * value);
-                                }
-                            }
-                        }
-                    });
-                });
-            });
+            match self.tool {
+                ToolKind::Line if self.pending_points.len() == 1 => {
+                    let start = self.pending_points[0];
+                    let len = (effective - start).length();
+                    let mid = (start + effective) * 0.5;
+                    let dir = (effective - start).normalize_or_zero();
+                    let normal = DVec2::new(-dir.y, dir.x);
+                    let label_pos = mid + normal * offset_dist;
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(label_pos.x as f32, label_pos.y as f32, 0.0)) {
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(len), false);
+                    }
+                }
+                ToolKind::Rectangle if self.pending_points.len() == 1 => {
+                    let first = self.pending_points[0];
+                    let min = first.min(effective);
+                    let max = first.max(effective);
+                    let w = (max.x - min.x).abs();
+                    let h = (max.y - min.y).abs();
+
+                    // Pill lebar di sisi bawah
+                    let bot_mid = DVec2::new((min.x + max.x) * 0.5, min.y - offset_dist);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(bot_mid.x as f32, bot_mid.y as f32, 0.0)) {
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(w), false);
+                    }
+                    // Pill tinggi di sisi kanan
+                    let right_mid = DVec2::new(max.x + offset_dist, (min.y + max.y) * 0.5);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(right_mid.x as f32, right_mid.y as f32, 0.0)) {
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(h), false);
+                    }
+                }
+                ToolKind::Circle if self.pending_points.len() == 1 => {
+                    let first = self.pending_points[0];
+                    let radius = (effective - first).length();
+                    let mid = (first + effective) * 0.5;
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(mid.x as f32, mid.y as f32, 0.0)) {
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &format!("R {}", self.unit.format_precise(radius)), false);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 2. Interactive Extrude Dimension Pill di atas Gizmo (Screenshot 2, 3, 4)
+        if self.tool == ToolKind::Select && !self.selected.is_empty() {
+            let closed_regions = find_closed_regions(&self.sketch);
+            let selected_regions: Vec<&ClosedRegion> = closed_regions
+                .iter()
+                .filter(|r| r.entity_ids.is_subset(&self.selected))
+                .collect();
+
+            if !selected_regions.is_empty() {
+                let total_area: f64 = selected_regions.iter().map(|r| r.area.max(1e-4)).sum();
+                let mut cx = 0.0;
+                let mut cy = 0.0;
+                for r in &selected_regions {
+                    cx += r.centroid.x * r.area.max(1e-4);
+                    cy += r.centroid.y * r.area.max(1e-4);
+                }
+                let centroid = DVec2::new(cx / total_area, cy / total_area);
+                let z_pos = if self.extruding_from_gizmo { self.gizmo_distance * 0.5 } else { 12.0 };
+                let pill_3d = Vec3::new(centroid.x as f32, centroid.y as f32, z_pos as f32);
+
+                if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, pill_3d) {
+                    let text = self.unit.format(self.gizmo_distance.abs());
+                    let pill_resp = CanvasHud::render_interactive_dimension_pill(ui, pos_2d, &text, self.gizmo_dimension_editing);
+                    if pill_resp.clicked() {
+                        self.gizmo_dimension_editing = !self.gizmo_dimension_editing;
+                        self.gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.gizmo_distance));
+                    }
+
+                    if self.gizmo_dimension_editing {
+                        let popup_rect = egui::Rect::from_center_size(pos_2d + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                        egui::Area::new(egui::Id::new("cadraw-gizmo-edit-popup"))
+                            .fixed_pos(popup_rect.min)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    let resp = ui.text_edit_singleline(&mut self.gizmo_edit_input);
+                                    resp.request_focus();
+                                    if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        if let Ok(val) = self.gizmo_edit_input.trim().parse::<f64>() {
+                                            self.gizmo_distance = self.unit.to_internal_mm(val);
+                                            // Commit Extrude dengan ukuran presisi
+                                            if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                                                if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                                                    let geo = BodyGeometry::from_shape(swept);
+                                                    let cmd = AddSolidCommand::new("Extrude", geo);
+                                                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                                                }
+                                            }
+                                        }
+                                        self.gizmo_dimension_editing = false;
+                                    }
+                                });
+                            });
+                    }
+                }
+            }
+        }
     }
 
     /// Coba terapkan `constraint`: dry-run solve di atas clone sketch dulu
@@ -2406,13 +2672,95 @@ impl CadrawApp {
         }
     }
 
-    /// Merge mesh semua body VISIBLE jadi satu buffer gabungan, siap
-    /// diupload lewat `SceneRenderer::set_mesh` (satu draw call). Indeks
-    /// tiap body digeser sebesar jumlah vertex yang sudah terkumpul.
-    fn build_combined_body_mesh(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
-        let meshes: Vec<&KernelMesh> = self.visible_body_meshes().into_iter().map(|(_, mesh)| mesh).collect();
-        let merged = KernelMesh::merge(&meshes);
-        (merged.positions, merged.normals, merged.indices)
+    /// Merge mesh semua body VISIBLE + highlight face cyan 2D + preview extrude/boolean
+    /// jadi satu buffer gabungan dengan per-vertex color.
+    fn build_combined_body_mesh(&self) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        let mut colors = Vec::new();
+        let mut indices = Vec::new();
+
+        const CAD_GREY: [f32; 4] = [0.62, 0.68, 0.76, 1.0];
+        const CYAN_FACE_SELECTED: [f32; 4] = [0.0, 0.75, 1.0, 0.85];
+        const CYAN_CUT_PREVIEW: [f32; 4] = [0.0, 0.80, 1.0, 0.90];
+
+        // 1. Solid bodies normal
+        for (id, geo) in self.model.geometry.iter() {
+            if let Some(body) = self.model.doc.bodies.get(id) {
+                if body.visible {
+                    if self.extruding_from_gizmo && self.gizmo_is_cutting && self.gizmo_target_body == Some(id) {
+                        continue;
+                    }
+                    let offset = positions.len() as u32;
+                    positions.extend_from_slice(&geo.mesh.positions);
+                    normals.extend_from_slice(&geo.mesh.normals);
+                    for _ in 0..geo.mesh.positions.len() {
+                        colors.push(CAD_GREY);
+                    }
+                    indices.extend(geo.mesh.indices.iter().map(|i| i + offset));
+                }
+            }
+        }
+
+        // 2. 2D Active Face Highlight untuk profil yang terpilih (Screenshot 2)
+        let closed_regions = find_closed_regions(&self.sketch);
+        for reg in &closed_regions {
+            if reg.entity_ids.is_subset(&self.selected) {
+                let tris = reg.triangulate();
+                for chunk in tris.chunks(3) {
+                    if chunk.len() == 3 {
+                        let offset = positions.len() as u32;
+                        for p in chunk {
+                            positions.push([p.x as f32, p.y as f32, 0.015]);
+                            normals.push([0.0, 0.0, 1.0]);
+                            colors.push(CYAN_FACE_SELECTED);
+                        }
+                        indices.push(offset);
+                        indices.push(offset + 1);
+                        indices.push(offset + 2);
+                    }
+                }
+            }
+        }
+
+        // 3. Live Extrude / Boolean Cut preview jika sedang drag gizmo
+        if self.extruding_from_gizmo && self.gizmo_distance.abs() > 0.01 {
+            if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                if let Ok(extruded_shape) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                    if self.gizmo_is_cutting {
+                        if let Some(target_id) = self.gizmo_target_body {
+                            if let Some(target_geo) = self.model.geometry.get(target_id) {
+                                if let Ok(cut_shape) = cadraw_kernel::subtract(&target_geo.shape, &extruded_shape) {
+                                    let cut_mesh = cut_shape.tessellate();
+                                    let offset = positions.len() as u32;
+                                    positions.extend_from_slice(&cut_mesh.positions);
+                                    normals.extend_from_slice(&cut_mesh.normals);
+                                    for _ in 0..cut_mesh.positions.len() {
+                                        colors.push(CYAN_CUT_PREVIEW);
+                                    }
+                                    indices.extend(cut_mesh.indices.iter().map(|i| i + offset));
+                                }
+                            }
+                        }
+                    } else {
+                        let preview_mesh = extruded_shape.tessellate();
+                        let offset = positions.len() as u32;
+                        positions.extend_from_slice(&preview_mesh.positions);
+                        normals.extend_from_slice(&preview_mesh.normals);
+                        for n in &preview_mesh.normals {
+                            if n[2].abs() > 0.7 {
+                                colors.push(CYAN_FACE_SELECTED);
+                            } else {
+                                colors.push([0.55, 0.62, 0.72, 1.0]);
+                            }
+                        }
+                        indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
+                    }
+                }
+            }
+        }
+
+        (positions, normals, colors, indices)
     }
 
     /// Bidang potong Section View siap kirim ke `SceneRenderer::set_clip_plane`
@@ -2532,6 +2880,19 @@ fn pixel_tolerance_to_world(camera: &OrbitCamera, rect: egui::Rect) -> f64 {
     world_per_pixel as f64
 }
 
+/// Proyeksikan titik 3D dunia ke koordinat piksel layar egui.
+fn world_to_screen_pos(camera: &OrbitCamera, rect: egui::Rect, world_pt: Vec3) -> Option<egui::Pos2> {
+    let aspect = rect.width() / rect.height().max(1.0);
+    let vp = camera.view_proj(aspect);
+    let clip = vp.project_point3(world_pt);
+    if clip.z < 0.0 || clip.z > 1.0 {
+        return None;
+    }
+    let screen_x = rect.min.x + (clip.x + 1.0) * 0.5 * rect.width();
+    let screen_y = rect.min.y + (1.0 - clip.y) * 0.5 * rect.height();
+    Some(egui::pos2(screen_x, screen_y))
+}
+
 impl eframe::App for CadrawApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 1. Polling worker latar belakang Import STEP
@@ -2583,6 +2944,7 @@ impl eframe::App for CadrawApp {
 
         // 4. Left Floating Toolbar (Pojok Kiri Atas)
         self.left_toolbar.section_view_active = self.section_enabled;
+        self.left_toolbar.is_sketching = self.is_sketching;
         egui::Area::new(egui::Id::new("cadraw-left-toolbar-area"))
             .fixed_pos(egui::pos2(12.0, 12.0))
             .order(egui::Order::Foreground)
@@ -2598,7 +2960,14 @@ impl eframe::App for CadrawApp {
                         ToolbarEvent::OpenSearch => {
                             self.palette.open();
                         }
+                        ToolbarEvent::EnterSketching => {
+                            self.is_sketching = true;
+                            self.left_toolbar.is_sketching = true;
+                            self.camera.orient_to_sketch();
+                        }
                         ToolbarEvent::ExitSketching => {
+                            self.is_sketching = false;
+                            self.left_toolbar.is_sketching = false;
                             self.set_tool(ToolKind::Select);
                         }
                         ToolbarEvent::ToggleSectionView => {
@@ -2695,10 +3064,14 @@ impl eframe::App for CadrawApp {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 ui.set_width(topbar_w);
-                if let Some(top_event) = TopBar::show(ui, &doc_name, is_saved) {
+                if let Some(top_event) = TopBar::show(ui, &doc_name, is_saved, self.model.doc.unit) {
                     match top_event {
                         TopBarEvent::HomeClicked => {
                             self.new_document();
+                        }
+                        TopBarEvent::SetUnit(u) => {
+                            self.unit = u;
+                            self.model.doc.unit = u;
                         }
                         TopBarEvent::File(op) => match op {
                             TopBarFileOp::New => self.new_document(),
@@ -3260,11 +3633,9 @@ struct ViewportCallback {
     view_proj: Mat4,
     eye: Vec3,
     overlay_lines: Vec<LineVertex>,
-    /// Mesh body 3D (Fase 3) sudah digabung jadi satu buffer lewat
-    /// `CadrawApp::build_combined_body_mesh` — cuma body `visible` yang
-    /// masuk sini.
     body_positions: Vec<[f32; 3]>,
     body_normals: Vec<[f32; 3]>,
+    body_colors: Vec<[f32; 4]>,
     body_indices: Vec<u32>,
     /// Section View (Fase 7) — lihat `CadrawApp::section_clip_plane`.
     clip_plane: Option<(Vec3, f32)>,
@@ -3281,7 +3652,13 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
             scene.set_overlay_lines(device, &self.overlay_lines);
-            scene.set_mesh(device, &self.body_positions, &self.body_normals, &self.body_indices);
+            scene.set_mesh(
+                device,
+                &self.body_positions,
+                &self.body_normals,
+                Some(&self.body_colors),
+                &self.body_indices,
+            );
             scene.set_clip_plane(self.clip_plane);
             scene.prepare(queue, self.view_proj, self.eye);
         }

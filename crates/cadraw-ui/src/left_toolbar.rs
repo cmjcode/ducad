@@ -36,6 +36,7 @@ pub enum ToolbarEvent {
     SelectTool(ToolbarTool),
     ToggleItemsDrawer,
     OpenSearch,
+    EnterSketching,
     ExitSketching,
     ToggleSectionView,
     ToggleMeasurements,
@@ -81,16 +82,26 @@ impl LeftToolbar {
             ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
             // 1. Mode Badge / Switcher (Shapr3D Style)
-            let _mod_btn = square_btn(
+            let mode_icon = if self.is_sketching { ICON_EDIT } else { ICON_CATEGORY };
+            let mode_title = if self.is_sketching { "Sketch" } else { "3D Mode" };
+            let mode_sub = if self.is_sketching { "Mode Menggambar 2D" } else { "Mode Desain 3D" };
+            let mod_btn = square_btn(
                 ui,
-                ICON_CATEGORY,
+                mode_icon,
                 true,
-                "Modeling",
+                mode_title,
                 None,
-                Some("Mode Desain 3D"),
+                Some(mode_sub),
                 Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
                 Some(ACCENT_BLUE),
             );
+            if mod_btn.clicked() {
+                if self.is_sketching {
+                    event = Some(ToolbarEvent::ExitSketching);
+                } else {
+                    event = Some(ToolbarEvent::EnterSketching);
+                }
+            }
 
             // 2. Items Drawer Toggle
             let folder_icon = if self.items_drawer_open {
@@ -128,7 +139,7 @@ impl LeftToolbar {
                 event = Some(ToolbarEvent::OpenSearch);
             }
 
-            // 4. Exit Sketching Pill (Hanya tampil saat mode sketching aktif)
+            // 4. Exit / Enter Sketching Button
             if self.is_sketching {
                 ui.add_space(2.0);
                 let exit_btn = square_btn(
@@ -145,98 +156,130 @@ impl LeftToolbar {
                     event = Some(ToolbarEvent::ExitSketching);
                 }
                 ui.add_space(2.0);
+            } else {
+                ui.add_space(2.0);
+                let sketch_btn = square_btn(
+                    ui,
+                    ICON_EDIT,
+                    false,
+                    "Start Sketch",
+                    Some("S"),
+                    Some("Mulai menggambar 2D di bidang"),
+                    Some(Color32::from_rgba_premultiplied(18, 55, 35, 220)),
+                    Some(Color32::from_rgb(120, 240, 150)),
+                );
+                if sketch_btn.clicked() {
+                    event = Some(ToolbarEvent::EnterSketching);
+                }
+                ui.add_space(2.0);
             }
 
             ui.add_space(1.0);
             ui.separator();
             ui.add_space(1.0);
 
-            // 5. Sketch & 2D/3D Modeling Tools List (Square Buttons)
-            let tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                (ToolbarTool::Select, ICON_ADS_CLICK, "Pilih", Some("Esc"), Some("Seleksi entitas atau elemen")),
-                (ToolbarTool::Line, ICON_HORIZONTAL_RULE, "Line", Some("L"), Some("Garis lurus 2 titik")),
-                (ToolbarTool::Arc, ICON_CHANGE_HISTORY, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
-                (ToolbarTool::Rectangle, ICON_CROP_16_9, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
-                (ToolbarTool::Circle, ICON_CIRCLE, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
-                (ToolbarTool::Ellipse, ICON_EDIT, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
-                (ToolbarTool::Offset, ICON_OPEN_IN_FULL, "Offset", Some("O"), Some("Geser paralel profil kurva")),
-                (ToolbarTool::Mirror, ICON_FLIP, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
-                (ToolbarTool::Trim, ICON_CONTENT_CUT, "Trim", Some("T"), Some("Potong segmen berpotongan")),
-                (ToolbarTool::Revolve, ICON_REFRESH, "Revolve", Some("V"), Some("Putar profil 360° terhadap sumbu")),
-            ];
+            // 5. Tool List: Selalu ada "Pilih"
+            let select_active = current_tool == ToolbarTool::Select;
+            let sel_btn = square_btn(
+                ui,
+                ICON_ADS_CLICK,
+                select_active,
+                "Pilih",
+                Some("Esc"),
+                Some("Seleksi entitas atau elemen"),
+                None,
+                None,
+            );
+            if sel_btn.clicked() {
+                event = Some(ToolbarEvent::SelectTool(ToolbarTool::Select));
+            }
 
-            for (tool, icon, title, shortcut, subtitle) in tools {
-                let is_active = current_tool == *tool;
-                let btn = square_btn(
+            // 6. Tools 2D (Hanya muncul saat MODE SKETCH aktif)
+            if self.is_sketching {
+                let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (ToolbarTool::Line, ICON_HORIZONTAL_RULE, "Line", Some("L"), Some("Garis lurus 2 titik")),
+                    (ToolbarTool::Arc, ICON_CHANGE_HISTORY, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
+                    (ToolbarTool::Rectangle, ICON_CROP_16_9, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
+                    (ToolbarTool::Circle, ICON_CIRCLE, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
+                    (ToolbarTool::Ellipse, ICON_EDIT, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
+                    (ToolbarTool::Offset, ICON_OPEN_IN_FULL, "Offset", Some("O"), Some("Geser paralel profil kurva")),
+                    (ToolbarTool::Mirror, ICON_FLIP, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
+                    (ToolbarTool::Trim, ICON_CONTENT_CUT, "Trim", Some("T"), Some("Potong segmen berpotongan")),
+                    (ToolbarTool::Revolve, ICON_REFRESH, "Revolve", Some("V"), Some("Putar profil 360° terhadap sumbu")),
+                ];
+
+                for (tool, icon, title, shortcut, subtitle) in sketch_tools {
+                    let is_active = current_tool == *tool;
+                    let btn = square_btn(
+                        ui,
+                        icon,
+                        is_active,
+                        title,
+                        *shortcut,
+                        *subtitle,
+                        None,
+                        None,
+                    );
+                    if btn.clicked() {
+                        event = Some(ToolbarEvent::SelectTool(*tool));
+                    }
+                }
+
+                // Point Constraint Tools
+                let is_point_active = matches!(
+                    current_tool,
+                    ToolbarTool::PointCoincident | ToolbarTool::PointFixed | ToolbarTool::PointSymmetric
+                );
+                let point_title = match current_tool {
+                    ToolbarTool::PointCoincident => "Titik (Coincident)",
+                    ToolbarTool::PointFixed => "Titik (Fixed)",
+                    ToolbarTool::PointSymmetric => "Titik (Symmetric)",
+                    _ => "Titik Constraint",
+                };
+                let pt_btn = square_btn(
                     ui,
-                    icon,
-                    is_active,
-                    title,
-                    *shortcut,
-                    *subtitle,
+                    "●",
+                    is_point_active,
+                    point_title,
+                    None,
+                    Some("Coincident / Fixed / Symmetric"),
                     None,
                     None,
                 );
-                if btn.clicked() {
-                    event = Some(ToolbarEvent::SelectTool(*tool));
+                if pt_btn.clicked() {
+                    self.point_menu_open = !self.point_menu_open;
                 }
-            }
 
-            // 6. Point Constraint Tools
-            let is_point_active = matches!(
-                current_tool,
-                ToolbarTool::PointCoincident | ToolbarTool::PointFixed | ToolbarTool::PointSymmetric
-            );
-            let point_title = match current_tool {
-                ToolbarTool::PointCoincident => "Titik (Coincident)",
-                ToolbarTool::PointFixed => "Titik (Fixed)",
-                ToolbarTool::PointSymmetric => "Titik (Symmetric)",
-                _ => "Titik Constraint",
-            };
-            let pt_btn = square_btn(
-                ui,
-                "●",
-                is_point_active,
-                point_title,
-                None,
-                Some("Coincident / Fixed / Symmetric"),
-                None,
-                None,
-            );
-            if pt_btn.clicked() {
-                self.point_menu_open = !self.point_menu_open;
-            }
+                if self.point_menu_open {
+                    let pt_rect = pt_btn.rect;
+                    let menu_pos = egui::pos2(pt_rect.right() + 6.0, pt_rect.top() - 4.0);
+                    egui::Area::new(egui::Id::new("cadraw-point-tools-popup"))
+                        .fixed_pos(menu_pos)
+                        .order(egui::Order::Tooltip)
+                        .show(ui.ctx(), |ui| {
+                            glass_frame().show(ui, |ui| {
+                                ui.set_width(130.0);
+                                ui.spacing_mut().item_spacing = Vec2::new(2.0, 3.0);
+                                ui.label(RichText::new("Titik Constraint").strong().size(10.5).color(TEXT_SECONDARY));
+                                ui.separator();
 
-            // Popover Menu jika point tool diklik
-            if self.point_menu_open {
-                let pt_rect = pt_btn.rect;
-                let menu_pos = egui::pos2(pt_rect.right() + 6.0, pt_rect.top() - 4.0);
-                egui::Area::new(egui::Id::new("cadraw-point-tools-popup"))
-                    .fixed_pos(menu_pos)
-                    .order(egui::Order::Tooltip)
-                    .show(ui.ctx(), |ui| {
-                        glass_frame().show(ui, |ui| {
-                            ui.set_width(120.0);
-                            ui.spacing_mut().item_spacing = Vec2::new(2.0, 3.0);
-                            ui.label(RichText::new("Titik Constraint").strong().size(10.5).color(TEXT_SECONDARY));
-                            ui.separator();
+                                let pt_options = [
+                                    (ToolbarTool::PointCoincident, "● Coincident", "Berimpit (2 pt)"),
+                                    (ToolbarTool::PointFixed, "🔒 Fixed", "Terkunci (1 pt)"),
+                                    (ToolbarTool::PointSymmetric, "⫿ Symmetric", "Simetris (2 pt)"),
+                                ];
 
-                            let pt_options = [
-                                (ToolbarTool::PointCoincident, "● Coincident", "Berimpit"),
-                                (ToolbarTool::PointFixed, "🔒 Fixed", "Terkunci"),
-                                (ToolbarTool::PointSymmetric, "⫿ Symmetric", "Simetris"),
-                            ];
-
-                            for (t, label, sub) in pt_options {
-                                let selected = current_tool == t;
-                                let btn = ui.selectable_label(selected, RichText::new(label).size(11.5));
-                                if btn.on_hover_text(sub).clicked() {
-                                    event = Some(ToolbarEvent::SelectTool(t));
-                                    self.point_menu_open = false;
+                                for (t, label, sub) in pt_options {
+                                    let selected = current_tool == t;
+                                    let btn = ui.selectable_label(selected, RichText::new(label).size(11.5));
+                                    if btn.on_hover_text(sub).clicked() {
+                                        event = Some(ToolbarEvent::SelectTool(t));
+                                        self.point_menu_open = false;
+                                    }
                                 }
-                            }
+                            });
                         });
-                    });
+                }
             }
 
             ui.add_space(1.0);

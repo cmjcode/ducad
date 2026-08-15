@@ -111,4 +111,41 @@ impl CanvasHud {
         painter.rect_stroke(rect, 10.0, Stroke::new(1.0, Color32::from_gray(180)), StrokeKind::Inside);
         painter.galley(rect.min + Vec2::new(8.0, 4.0), galley, Color32::from_rgb(20, 20, 22));
     }
+
+    /// Render badge dimensi interaktif putih (dengan border biru bila aktif / hover)
+    /// yang dapat diklik untuk memasukkan angka presisi.
+    pub fn render_interactive_dimension_pill(
+        ui: &mut Ui,
+        pos_2d: Pos2,
+        value_text: &str,
+        is_active: bool,
+    ) -> egui::Response {
+        let font = FontId::proportional(11.5);
+        let galley = ui.fonts(|f| f.layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 25)));
+        let size = galley.size() + Vec2::new(18.0, 10.0);
+        let rect = egui::Rect::from_center_size(pos_2d, size);
+
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let is_hovered = response.hovered();
+
+        // Background & border
+        let bg_color = if is_active {
+            Color32::from_rgba_premultiplied(235, 245, 255, 250)
+        } else {
+            Color32::from_rgba_premultiplied(250, 250, 252, 245)
+        };
+        let border_color = if is_active || is_hovered {
+            ACCENT_BLUE
+        } else {
+            Color32::from_gray(185)
+        };
+        let stroke_width = if is_active { 1.8 } else { 1.0 };
+
+        let painter = ui.painter();
+        painter.rect_filled(rect, 8.0, bg_color);
+        painter.rect_stroke(rect, 8.0, Stroke::new(stroke_width, border_color), StrokeKind::Inside);
+        painter.galley(rect.min + Vec2::new(9.0, 5.0), galley, Color32::from_rgb(20, 20, 25));
+
+        response
+    }
 }

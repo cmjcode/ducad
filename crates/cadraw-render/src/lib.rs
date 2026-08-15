@@ -9,7 +9,7 @@ pub mod sketch;
 
 pub use camera::OrbitCamera;
 pub use grid::LineVertex;
-pub use scene::SceneRenderer;
+pub use scene::{MeshVertex, SceneRenderer};
 
 // Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi
 // wgpu yang sama persis dengan egui (mismatch versi = error tipe misterius).

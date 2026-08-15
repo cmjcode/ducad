@@ -10,6 +10,9 @@
 
 pub mod constraint;
 pub mod measure;
+pub mod region;
+
+pub use region::{find_closed_regions, find_region_at_point, find_region_containing_entity, ClosedRegion};
 
 use cadraw_core::Command;
 use glam::DVec2;

@@ -11,6 +11,8 @@ use egui_material_icons::icons::{
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY};
 
+use cadraw_core::LengthUnit;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopBarFileOp {
     New,
@@ -31,6 +33,7 @@ pub enum TopBarEvent {
     File(TopBarFileOp),
     ToggleTheme,
     OpenCommandPalette,
+    SetUnit(LengthUnit),
 }
 
 pub struct TopBar;
@@ -41,6 +44,7 @@ impl TopBar {
         ui: &mut Ui,
         document_name: &str,
         status_saved: bool,
+        current_unit: LengthUnit,
     ) -> Option<TopBarEvent> {
         let mut event = None;
 
@@ -110,6 +114,17 @@ impl TopBar {
                         event = Some(TopBarEvent::OpenCommandPalette);
                         ui.close();
                     }
+                    ui.separator();
+                    ui.menu_button(format!("📏 Satuan ({})", current_unit.suffix()), |ui| {
+                        for unit in [LengthUnit::Millimeters, LengthUnit::Centimeters, LengthUnit::Meters, LengthUnit::Inches] {
+                            let is_sel = current_unit == unit;
+                            let prefix = if is_sel { "✓ " } else { "   " };
+                            if ui.button(format!("{}{}", prefix, unit.label())).clicked() {
+                                event = Some(TopBarEvent::SetUnit(unit));
+                                ui.close();
+                            }
+                        }
+                    });
                 });
 
                 // 5. Right-aligned Export / Share Button (Shapr3D blue accent)

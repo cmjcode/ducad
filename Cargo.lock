@@ -641,6 +641,7 @@ dependencies = [
 name = "cadraw-ui"
 version = "0.1.0"
 dependencies = [
+ "cadraw-core",
  "egui",
  "egui_material_icons",
  "glam 0.29.3",
