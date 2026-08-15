@@ -19,6 +19,7 @@ const COLOR_SNAP: [f32; 4] = [1.0, 0.55, 0.15, 1.0];
 const COLOR_REMOVAL: [f32; 4] = [0.95, 0.25, 0.25, 0.95];
 const COLOR_PICKED: [f32; 4] = [0.65, 0.35, 0.95, 1.0];
 const COLOR_MEASURE: [f32; 4] = [1.0, 0.95, 0.35, 1.0];
+const COLOR_INACTIVE_PLANE: [f32; 4] = [0.65, 0.72, 0.82, 0.85];
 const ARC_SEGMENTS_FULL: usize = 48;
 
 fn to3(plane: &SketchPlane, p: DVec2) -> [f32; 3] {
@@ -43,6 +44,15 @@ pub fn entity_lines(
             COLOR_NORMAL
         };
         push_entity(&mut verts, entity, color, plane);
+    }
+    verts
+}
+
+/// Garis untuk seluruh entitas sketch pada bidang non-aktif, dirender di koordinat 3D aslinya.
+pub fn inactive_entity_lines(sketch: &Sketch, plane: &SketchPlane) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    for (_id, entity) in sketch.entities.iter() {
+        push_entity(&mut verts, entity, COLOR_INACTIVE_PLANE, plane);
     }
     verts
 }
@@ -458,5 +468,30 @@ mod tests {
             &plane,
         );
         assert_eq!(verts.len(), 4);
+    }
+
+    #[test]
+    fn inactive_entity_lines_front_and_right_planes() {
+        let mut sketch = Sketch::default();
+        sketch.entities.insert(Entity::Line {
+            start: DVec2::new(10.0, 20.0),
+            end: DVec2::new(30.0, 40.0),
+        });
+
+        let front_plane = SketchPlane::front();
+        let front_verts = inactive_entity_lines(&sketch, &front_plane);
+        assert_eq!(front_verts.len(), 2);
+        // Front plane: x -> x, y -> z, y_world = -Z_OFFSET
+        assert!((front_verts[0].position[0] - 10.0).abs() < 1e-4);
+        assert!((front_verts[0].position[1] - (-Z_OFFSET)).abs() < 1e-4);
+        assert!((front_verts[0].position[2] - 20.0).abs() < 1e-4);
+
+        let right_plane = SketchPlane::right();
+        let right_verts = inactive_entity_lines(&sketch, &right_plane);
+        assert_eq!(right_verts.len(), 2);
+        // Right plane: x_sketch -> y_world, y_sketch -> z_world, x_world = Z_OFFSET
+        assert!((right_verts[0].position[0] - Z_OFFSET).abs() < 1e-4);
+        assert!((right_verts[0].position[1] - 10.0).abs() < 1e-4);
+        assert!((right_verts[0].position[2] - 20.0).abs() < 1e-4);
     }
 }

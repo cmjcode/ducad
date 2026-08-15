@@ -442,8 +442,10 @@ struct PickedEdge {
 struct CadrawApp {
     camera: OrbitCamera,
 
-    sketch: Sketch,
-    undo: cadraw_sketch::UndoStack,
+    /// Sketsa 2D terisolasi untuk tiap datum plane: index 0 = Top (XY), 1 = Front (XZ), 2 = Right (YZ).
+    sketches: [Sketch; 3],
+    /// Undo stack terisolasi untuk tiap datum plane: index 0 = Top (XY), 1 = Front (XZ), 2 = Right (YZ).
+    undos: [cadraw_sketch::UndoStack; 3],
 
     tool: ToolKind,
     pending_points: Vec<DVec2>,
@@ -597,8 +599,12 @@ impl CadrawApp {
 
         Self {
             camera: OrbitCamera::default(),
-            sketch: Sketch::default(),
-            undo: cadraw_sketch::UndoStack::default(),
+            sketches: [Sketch::default(), Sketch::default(), Sketch::default()],
+            undos: [
+                cadraw_sketch::UndoStack::default(),
+                cadraw_sketch::UndoStack::default(),
+                cadraw_sketch::UndoStack::default(),
+            ],
             tool: ToolKind::Select,
             pending_points: Vec::new(),
             pending_point_refs: Vec::new(),
@@ -672,9 +678,66 @@ impl CadrawApp {
         }
     }
 
+    #[inline]
+    pub fn plane_for_index(idx: usize) -> SketchPlane {
+        match idx {
+            0 => SketchPlane::top(),
+            1 => SketchPlane::front(),
+            2 => SketchPlane::right(),
+            _ => SketchPlane::top(),
+        }
+    }
+
+    #[inline]
+    fn active_plane_index(&self) -> usize {
+        match self.active_plane.kind {
+            PlaneKind::Top => 0,
+            PlaneKind::Front => 1,
+            PlaneKind::Right => 2,
+        }
+    }
+
+    #[inline]
+    fn sketch(&self) -> &Sketch {
+        &self.sketches[self.active_plane_index()]
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    fn sketch_mut(&mut self) -> &mut Sketch {
+        let idx = self.active_plane_index();
+        &mut self.sketches[idx]
+    }
+
+    #[inline]
+    fn execute_sketch_command(&mut self, cmd: Box<dyn cadraw_core::Command<Sketch>>) {
+        let idx = self.active_plane_index();
+        self.undos[idx].execute(cmd, &mut self.sketches[idx]);
+    }
+
+    #[inline]
+    fn undo_active_sketch(&mut self) {
+        let idx = self.active_plane_index();
+        self.undos[idx].undo(&mut self.sketches[idx]);
+    }
+
+    #[inline]
+    fn redo_active_sketch(&mut self) {
+        let idx = self.active_plane_index();
+        self.undos[idx].redo(&mut self.sketches[idx]);
+    }
+
     /// Ubah bidang kerja sketsa aktif (`Top`, `Front`, atau `Right`) dan selaraskan kamera.
     fn set_sketch_plane(&mut self, kind: PlaneKind) {
-        self.active_plane = SketchPlane::from_kind(kind);
+        if self.active_plane.kind != kind {
+            self.selected.clear();
+            self.hovered = None;
+            self.pending_points.clear();
+            self.pending_point_refs.clear();
+            self.offset_source = None;
+            self.last_snap = None;
+            self.active_plane = SketchPlane::from_kind(kind);
+        }
         self.is_sketching = true;
         self.left_toolbar.is_sketching = true;
         self.camera.orient_to_plane(&self.active_plane);
@@ -726,7 +789,7 @@ impl CadrawApp {
         self.selected
             .iter()
             .copied()
-            .find(|id| matches!(self.sketch.entities.get(*id), Some(Entity::Line { .. })))
+            .find(|id| matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. })))
     }
 
     /// Terima satu titik klik untuk tool multi-titik aktif; commit otomatis
@@ -803,7 +866,7 @@ impl CadrawApp {
                 let mirrored: Vec<Entity> = self
                     .selected
                     .iter()
-                    .filter_map(|id| self.sketch.entities.get(*id))
+                    .filter_map(|id| self.sketch().entities.get(*id))
                     .filter_map(|e| mirror_entity(e, axis_a, axis_b))
                     .collect();
                 (!mirrored.is_empty())
@@ -820,7 +883,7 @@ impl CadrawApp {
                 if axis_dir.length() < 1e-6 {
                     self.model_status = Some("Revolve gagal: dua titik axis sama/terlalu dekat".to_string());
                 } else {
-                    match model::build_profile_from_selection(&self.sketch, &self.selected) {
+                    match model::build_profile_from_selection(self.sketch(), &self.selected) {
                         Ok(profile) => match cadraw_kernel::revolve_profile(
                             &profile,
                             (axis_origin.x, axis_origin.y),
@@ -862,7 +925,7 @@ impl CadrawApp {
             | ToolKind::SymmetricPick => None,
         };
         if let Some(cmd) = cmd {
-            self.undo.execute(cmd, &mut self.sketch);
+            self.execute_sketch_command(cmd);
         }
         self.dynamic_input.clear();
         self.dynamic_focus_pending = false;
@@ -936,8 +999,12 @@ impl CadrawApp {
     /// dan path file aktif semua dibersihkan. Kamera & tema TIDAK direset
     /// (preferensi tampilan pemakai, bukan bagian dokumen).
     fn new_document(&mut self) {
-        self.sketch = Sketch::default();
-        self.undo = cadraw_sketch::UndoStack::default();
+        self.sketches = [Sketch::default(), Sketch::default(), Sketch::default()];
+        self.undos = [
+            cadraw_sketch::UndoStack::default(),
+            cadraw_sketch::UndoStack::default(),
+            cadraw_sketch::UndoStack::default(),
+        ];
         self.model = ModelDoc::default();
         self.model_undo = cadraw_core::UndoStack::default();
         self.selected.clear();
@@ -1063,7 +1130,7 @@ impl CadrawApp {
 
     fn save_native_to(&mut self, path: PathBuf) {
         let refs = self.native_body_refs();
-        match cadraw_io::native::save(&path, &self.sketch, &refs) {
+        match cadraw_io::native::save_multi_plane(&path, &self.sketches, &refs) {
             Ok(()) => {
                 self.file_status = Some(format!("Tersimpan: {}", path.display()));
                 self.current_file_path = Some(path);
@@ -1099,11 +1166,21 @@ impl CadrawApp {
         };
         match cadraw_io::native::load(&path) {
             Ok(loaded) => {
-                self.sketch = loaded.sketch;
-                self.undo = cadraw_sketch::UndoStack::default();
+                let cadraw_io::native::LoadedDocument {
+                    sketch,
+                    front_sketch,
+                    right_sketch,
+                    bodies,
+                } = loaded;
+                self.sketches = [sketch, front_sketch, right_sketch];
+                self.undos = [
+                    cadraw_sketch::UndoStack::default(),
+                    cadraw_sketch::UndoStack::default(),
+                    cadraw_sketch::UndoStack::default(),
+                ];
 
                 let mut model = ModelDoc::default();
-                for body in loaded.bodies {
+                for body in bodies {
                     let id = model.doc.add_body(body.name);
                     if let Some(b) = model.doc.bodies.get_mut(id) {
                         b.visible = body.visible;
@@ -1119,7 +1196,7 @@ impl CadrawApp {
                 self.file_status = Some(format!("Dibuka: {}", path.display()));
                 self.current_file_path = Some(path);
             }
-            Err(e) => self.file_status = Some(format!("Gagal membuka: {e}")),
+            Err(e) => self.file_status = Some(format!("Gagal membuka file: {e}")),
         }
     }
 
@@ -1235,7 +1312,7 @@ impl CadrawApp {
         let Some(path) = self.pick_save_path("DXF", &["dxf"], "export.dxf") else {
             return;
         };
-        match cadraw_io::dxf::export(&self.sketch, &path) {
+        match cadraw_io::dxf::export(self.sketch(), &path) {
             Ok(0) => self.file_status = Some(format!("DXF diekspor: {}", path.display())),
             Ok(skipped) => {
                 self.file_status = Some(format!(
@@ -1258,8 +1335,7 @@ impl CadrawApp {
             Ok(result) => {
                 let count = result.entities.len();
                 if count > 0 {
-                    self.undo
-                        .execute(Box::new(InsertEntities::new("Import DXF", result.entities)), &mut self.sketch);
+                    self.execute_sketch_command(Box::new(InsertEntities::new("Import DXF", result.entities)));
                 }
                 self.file_status = Some(if result.skipped > 0 {
                     format!("DXF diimpor: {count} entitas ({} dilewati, jenis tak dikenal)", result.skipped)
@@ -1429,10 +1505,10 @@ impl CadrawApp {
             PaletteAction::SetTool(kind) => self.set_tool(kind),
             PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
             PaletteAction::Undo => {
-                self.undo.undo(&mut self.sketch);
+                self.undo_active_sketch();
             }
             PaletteAction::Redo => {
-                self.undo.redo(&mut self.sketch);
+                self.redo_active_sketch();
             }
             PaletteAction::ModelUndo => {
                 self.model_undo.undo(&mut self.model);
@@ -1445,8 +1521,7 @@ impl CadrawApp {
             PaletteAction::DeleteSelection => {
                 if !self.selected.is_empty() {
                     let ids: Vec<_> = self.selected.drain().collect();
-                    self.undo
-                        .execute(Box::new(DeleteEntities::new(ids)), &mut self.sketch);
+                    self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
                 }
             }
             PaletteAction::ToggleTheme => {
@@ -1613,7 +1688,7 @@ impl CadrawApp {
         if self.tool != ToolKind::Select || self.selected.is_empty() {
             return None;
         }
-        let closed_regions = find_closed_regions(&self.sketch);
+        let closed_regions = find_closed_regions(self.sketch());
         let selected_regions: Vec<&ClosedRegion> = closed_regions
             .iter()
             .filter(|r| r.entity_ids.is_subset(&self.selected))
@@ -1779,8 +1854,7 @@ impl CadrawApp {
                 })
             {
                 let ids: Vec<_> = self.selected.drain().collect();
-                self.undo
-                    .execute(Box::new(DeleteEntities::new(ids)), &mut self.sketch);
+                self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 if !self.pending_points.is_empty()
@@ -1883,7 +1957,7 @@ impl CadrawApp {
                         self.gizmo_distance += (-delta.y as f64) * world_scale * 1.6;
 
                         // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
-                        if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                             if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                 let mut is_cutting = false;
                                 for (b_id, b_geo) in self.model.geometry.iter() {
@@ -1911,7 +1985,7 @@ impl CadrawApp {
 
                         if response.drag_stopped() {
                             if self.gizmo_distance.abs() > 0.1 {
-                                if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                                if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                                     if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                         if self.gizmo_is_cutting {
                                             if let Some(target_id) = self.gizmo_target_body {
@@ -1940,11 +2014,11 @@ impl CadrawApp {
                 }
 
                 // 2. Closed region & Entity hit testing (Klik garis atau tengah region = pilih 1 kesatuan)
-                let region_hit: Option<ClosedRegion> = if !self.sketch.entities.is_empty() && response.hovered() {
-                    if let Some(r) = find_region_at_point(&self.sketch, raw) {
+                let region_hit: Option<ClosedRegion> = if !self.sketch().entities.is_empty() && response.hovered() {
+                    if let Some(r) = find_region_at_point(self.sketch(), raw) {
                         Some(r)
-                    } else if let Some(hit) = self.sketch.hit_test(raw, tol) {
-                        find_region_containing_entity(&self.sketch, hit)
+                    } else if let Some(hit) = self.sketch().hit_test(raw, tol) {
+                        find_region_containing_entity(self.sketch(), hit)
                     } else {
                         None
                     }
@@ -1957,7 +2031,7 @@ impl CadrawApp {
                 } else {
                     response
                         .hovered()
-                        .then(|| self.sketch.hit_test(raw, tol))
+                        .then(|| self.sketch().hit_test(raw, tol))
                         .flatten()
                 };
 
@@ -2006,7 +2080,7 @@ impl CadrawApp {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
-                    .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                     .flatten();
                 if response.clicked() {
                     let effective = self.snapped_or(raw);
@@ -2019,7 +2093,7 @@ impl CadrawApp {
                 if !self.selected.is_empty() {
                     self.last_snap = response
                         .hovered()
-                        .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                        .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                         .flatten();
                     if response.clicked() {
                         let effective = self.snapped_or(raw);
@@ -2033,7 +2107,7 @@ impl CadrawApp {
                     None => {
                         self.hovered = response
                             .hovered()
-                            .then(|| self.sketch.hit_test(raw, tol))
+                            .then(|| self.sketch().hit_test(raw, tol))
                             .flatten();
                         if response.clicked() {
                             self.offset_source = self.hovered;
@@ -2042,11 +2116,10 @@ impl CadrawApp {
                     Some(source_id) => {
                         self.hovered = None;
                         if response.clicked() {
-                            if let Some(entity) = self.sketch.entities.get(source_id) {
+                            if let Some(entity) = self.sketch().entities.get(source_id) {
                                 if let Some(new_entity) = offset_entity(entity, raw) {
-                                    self.undo.execute(
+                                    self.execute_sketch_command(
                                         Box::new(InsertEntities::new("Offset", vec![new_entity])),
-                                        &mut self.sketch,
                                     );
                                 }
                             }
@@ -2059,25 +2132,24 @@ impl CadrawApp {
                 self.last_snap = None;
                 self.hovered = response
                     .hovered()
-                    .then(|| self.sketch.hit_test(raw, tol))
+                    .then(|| self.sketch().hit_test(raw, tol))
                     .flatten()
-                    .filter(|id| matches!(self.sketch.entities.get(*id), Some(Entity::Line { .. })));
+                    .filter(|id| matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. })));
                 if response.clicked() {
                     if let Some(id) = self.hovered {
                         if let Some(Entity::Line { start, end }) =
-                            self.sketch.entities.get(id).cloned()
+                            self.sketch().entities.get(id).cloned()
                         {
                             let click_t = project_t(start, end, raw).clamp(0.0, 1.0);
                             let cuts =
-                                line_intersection_params_in_sketch(&self.sketch, (start, end), id);
+                                line_intersection_params_in_sketch(self.sketch(), (start, end), id);
                             let remaining = trim_segments(start, end, &cuts, click_t);
                             let new_lines = remaining
                                 .into_iter()
                                 .map(|(s, e)| Entity::Line { start: s, end: e })
                                 .collect();
-                            self.undo.execute(
+                            self.execute_sketch_command(
                                 Box::new(ReplaceEntities::new("Trim", vec![id], new_lines)),
-                                &mut self.sketch,
                             );
                             self.hovered = None;
                         }
@@ -2088,7 +2160,7 @@ impl CadrawApp {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
-                    .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                     .flatten();
                 if response.clicked() {
                     if let Some(source) = self.last_snap.and_then(|s| s.source) {
@@ -2104,7 +2176,7 @@ impl CadrawApp {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
-                    .then(|| find_snap(&self.sketch, raw, tol, grid_step, None))
+                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
                     .flatten();
                 if response.clicked() {
                     if let Some(hit) = self.last_snap {
@@ -2123,7 +2195,7 @@ impl CadrawApp {
                 if let Some(axis_id) = self.symmetric_axis() {
                     self.last_snap = response
                         .hovered()
-                        .then(|| find_snap(&self.sketch, raw, tol, grid_step, Some(axis_id)))
+                        .then(|| find_snap(self.sketch(), raw, tol, grid_step, Some(axis_id)))
                         .flatten();
                     if response.clicked() {
                         if let Some(source) = self.last_snap.and_then(|s| s.source) {
@@ -2179,7 +2251,17 @@ impl CadrawApp {
     }
 
     fn build_overlay_lines(&self, raw_cursor: Option<DVec2>, world_scale: f64) -> Vec<LineVertex> {
-        let mut verts = sketch_render::entity_lines(&self.sketch, self.hovered, &self.selected, &self.active_plane);
+        let mut verts = Vec::new();
+
+        // 1. Gambar seluruh entitas sketsa di SEMUA bidang pada posisi 3D masing-masing
+        for idx in 0..3 {
+            let plane = Self::plane_for_index(idx);
+            if idx == self.active_plane_index() {
+                verts.extend(sketch_render::entity_lines(&self.sketches[idx], self.hovered, &self.selected, &plane));
+            } else {
+                verts.extend(sketch_render::inactive_entity_lines(&self.sketches[idx], &plane));
+            }
+        }
 
         // Gambar Gizmo Panah 2 Sisi (↕) dan garis putus-putus extrude jika profil tertutup terpilih (Screenshot 2, 3, 4)
         if let Some(centroid) = self.selected_closed_region_centroid() {
@@ -2224,7 +2306,7 @@ impl CadrawApp {
 
         // Offset preview
         if self.tool == ToolKind::Offset {
-            if let Some(entity) = self.offset_source.and_then(|id| self.sketch.entities.get(id)) {
+            if let Some(entity) = self.offset_source.and_then(|id| self.sketch().entities.get(id)) {
                 verts.extend(sketch_render::preview_lines(entity, &self.active_plane));
             }
         }
@@ -2232,7 +2314,7 @@ impl CadrawApp {
         // Coincident / Symmetric markers
         if matches!(self.tool, ToolKind::CoincidentPick | ToolKind::SymmetricPick) {
             for pr in &self.pending_point_refs {
-                if let Some(p) = constraint::point_ref_position(&self.sketch, pr) {
+                if let Some(p) = constraint::point_ref_position(self.sketch(), pr) {
                     verts.extend(sketch_render::picked_point_glyph(p, &self.active_plane));
                 }
             }
@@ -2329,7 +2411,7 @@ impl CadrawApp {
                     for entity in self
                         .selected
                         .iter()
-                        .filter_map(|id| self.sketch.entities.get(*id))
+                        .filter_map(|id| self.sketch().entities.get(*id))
                     {
                         if let Some(mirrored) = mirror_entity(entity, axis_a, axis_b) {
                             verts.extend(sketch_render::preview_lines(&mirrored, &self.active_plane));
@@ -2345,7 +2427,7 @@ impl CadrawApp {
                 }
                 ToolKind::Offset => {
                     if let Some(entity) =
-                        self.offset_source.and_then(|id| self.sketch.entities.get(id))
+                        self.offset_source.and_then(|id| self.sketch().entities.get(id))
                     {
                         if let Some(preview) = offset_entity(entity, raw) {
                             verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
@@ -2354,7 +2436,7 @@ impl CadrawApp {
                 }
                 ToolKind::Trim => {
                     if let Some(id) = self.hovered {
-                        if let Some((a, b)) = trim_removal_preview(&self.sketch, id, raw) {
+                        if let Some((a, b)) = trim_removal_preview(self.sketch(), id, raw) {
                             verts.extend(sketch_render::removal_preview_lines(a, b, &self.active_plane));
                         }
                     }
@@ -2452,7 +2534,7 @@ impl CadrawApp {
                     self.gizmo_distance += (-handle_resp.drag_delta().y as f64) * world_scale * 1.6;
 
                     // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
-                    if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                    if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                         if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                             let mut is_cutting = false;
                             for (b_id, b_geo) in self.model.geometry.iter() {
@@ -2481,7 +2563,7 @@ impl CadrawApp {
 
                 if handle_resp.drag_stopped() {
                     if self.gizmo_distance.abs() > 0.1 {
-                        if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                             if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                 if self.gizmo_is_cutting {
                                     if let Some(target_id) = self.gizmo_target_body {
@@ -2528,7 +2610,7 @@ impl CadrawApp {
                                     if let Ok(val) = self.gizmo_edit_input.trim().parse::<f64>() {
                                         self.gizmo_distance = self.unit.to_internal_mm(val);
                                         // Commit Extrude dengan ukuran presisi
-                                        if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+                                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                                             if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                                 let geo = BodyGeometry::from_shape(swept);
                                                 let cmd = AddSolidCommand::new("Extrude", geo);
@@ -2550,14 +2632,13 @@ impl CadrawApp {
     /// undo stack kalau konvergen. Sketch nyata tidak tersentuh sama
     /// sekali kalau gagal — hanya `constraint_status` terisi pesan error.
     fn apply_constraint(&mut self, new_constraint: Constraint) {
-        let mut trial = self.sketch.clone();
+        let mut trial = self.sketch().clone();
         trial.constraints.push(new_constraint.clone());
         let snapshot = trial.constraints.clone();
         let result = constraint::solve(&mut trial, &snapshot);
 
         if result.converged {
-            self.undo
-                .execute(Box::new(AddConstraint::new(new_constraint)), &mut self.sketch);
+            self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
             self.constraint_status = None;
         } else {
             self.constraint_status = Some(format!(
@@ -2581,7 +2662,7 @@ impl CadrawApp {
                 return;
             }
         };
-        let profile = match model::build_profile_from_selection(&self.sketch, &self.selected) {
+        let profile = match model::build_profile_from_selection(self.sketch(), &self.selected) {
             Ok(p) => p,
             Err(msg) => {
                 self.model_status = Some(msg);
@@ -2617,7 +2698,7 @@ impl CadrawApp {
                 return;
             }
         };
-        let top = match model::build_profile_from_selection(&self.sketch, &self.selected) {
+        let top = match model::build_profile_from_selection(self.sketch(), &self.selected) {
             Ok(p) => p,
             Err(msg) => {
                 self.model_status = Some(format!("Profil atas: {msg}"));
@@ -2816,7 +2897,7 @@ impl CadrawApp {
         }
 
         // 2. 2D Active Face Highlight untuk profil yang terpilih (Screenshot 2)
-        let closed_regions = find_closed_regions(&self.sketch);
+        let closed_regions = find_closed_regions(self.sketch());
         for reg in &closed_regions {
             if reg.entity_ids.is_subset(&self.selected) {
                 let tris = reg.triangulate();
@@ -2839,7 +2920,7 @@ impl CadrawApp {
 
         // 3. Live Extrude / Boolean Cut preview jika sedang drag gizmo
         if self.extruding_from_gizmo && self.gizmo_distance.abs() > 0.01 {
-            if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
+            if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
                 if let Ok(extruded_shape) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                     if self.gizmo_is_cutting {
                         if let Some(target_id) = self.gizmo_target_body {
@@ -3026,10 +3107,10 @@ impl eframe::App for CadrawApp {
                 && (i.key_pressed(egui::Key::Y) || (i.modifiers.shift && i.key_pressed(egui::Key::Z)))
         });
         if undo_pressed {
-            self.undo.undo(&mut self.sketch);
+            self.undo_active_sketch();
         }
         if redo_pressed {
-            self.undo.redo(&mut self.sketch);
+            self.redo_active_sketch();
         }
 
         let save_as_pressed =
@@ -3102,7 +3183,7 @@ impl eframe::App for CadrawApp {
                         ToolbarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
                                 let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();
-                                self.undo.execute(Box::new(DeleteEntities::new(to_delete)), &mut self.sketch);
+                                self.execute_sketch_command(Box::new(DeleteEntities::new(to_delete)));
                                 self.selected.clear();
                             }
                             if !self.selected_bodies.is_empty() {
@@ -3118,19 +3199,19 @@ impl eframe::App for CadrawApp {
             let sketch_planes = vec![
                 SketchPlaneItemInfo {
                     index: 0,
-                    name: "Plane 01 - Top (XY)".to_string(),
+                    name: format!("Plane 01 - Top (XY) ({})", self.sketches[0].entities.len()),
                     active: self.active_plane.kind == PlaneKind::Top,
                     visible: true,
                 },
                 SketchPlaneItemInfo {
                     index: 1,
-                    name: "Plane 02 - Front (XZ)".to_string(),
+                    name: format!("Plane 02 - Front (XZ) ({})", self.sketches[1].entities.len()),
                     active: self.active_plane.kind == PlaneKind::Front,
                     visible: true,
                 },
                 SketchPlaneItemInfo {
                     index: 2,
-                    name: "Plane 03 - Right (YZ)".to_string(),
+                    name: format!("Plane 03 - Right (YZ) ({})", self.sketches[2].entities.len()),
                     active: self.active_plane.kind == PlaneKind::Right,
                     visible: true,
                 },
@@ -3253,7 +3334,7 @@ impl eframe::App for CadrawApp {
         let inspector_outer_w = 260.0;
         let inspector_x = (screen_rect.max.x - topbar_margin_right - inspector_outer_w).max(180.0);
         let inspector_y = 56.0;
-        let inspector_h = (screen_rect.max.y - inspector_y - 12.0).max(200.0);
+        let _inspector_h = (screen_rect.max.y - inspector_y - 12.0).max(200.0);
 
         // 8. Interactive 3D ViewCube (Otomatis Bergeser ke Kiri Sidebar Saat Sidebar Terbuka)
         let viewcube_y = 102.0;
@@ -3309,10 +3390,11 @@ impl eframe::App for CadrawApp {
         let selected_entity_data = if self.selected.len() == 1 {
             let &id = self.selected.iter().next().unwrap();
             let id_raw = id.data().as_ffi();
-            match self.sketch.entities.get(id) {
+            let entity_opt = self.sketch().entities.get(id).cloned();
+            match entity_opt {
                 Some(Entity::Line { start, end }) => {
-                    let length = (*end - *start).length();
-                    let angle_deg = (*end - *start).y.atan2((*end - *start).x).to_degrees();
+                    let length = (end - start).length();
+                    let angle_deg = (end - start).y.atan2((end - start).x).to_degrees();
                     if self.last_inspected_entity_id != Some(id_raw) {
                         self.prop_input_p1_x = format!("{:.2}", start.x);
                         self.prop_input_p1_y = format!("{:.2}", start.y);
@@ -3333,7 +3415,7 @@ impl eframe::App for CadrawApp {
                     }
                 }
                 Some(Entity::Circle { center, radius }) => {
-                    let diameter = *radius * 2.0;
+                    let diameter = radius * 2.0;
                     if self.last_inspected_entity_id != Some(id_raw) {
                         self.prop_input_p1_x = format!("{:.2}", center.x);
                         self.prop_input_p1_y = format!("{:.2}", center.y);
@@ -3345,7 +3427,7 @@ impl eframe::App for CadrawApp {
                         id_raw,
                         center_x: center.x,
                         center_y: center.y,
-                        radius: *radius,
+                        radius,
                         diameter,
                     }
                 }
@@ -3369,7 +3451,7 @@ impl eframe::App for CadrawApp {
                         id_raw,
                         center_x: center.x,
                         center_y: center.y,
-                        radius: *radius,
+                        radius,
                         start_angle_deg: start_deg,
                         end_angle_deg: end_deg,
                     }
@@ -3390,8 +3472,8 @@ impl eframe::App for CadrawApp {
                         id_raw,
                         center_x: center.x,
                         center_y: center.y,
-                        radius_x: *radius_x,
-                        radius_y: *radius_y,
+                        radius_x,
+                        radius_y,
                     }
                 }
                 None => {
@@ -3455,16 +3537,18 @@ impl eframe::App for CadrawApp {
                 .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right - 88.0, 154.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    if ui
-                        .button(egui::RichText::new("⚙ Properti ◂").size(11.0))
-                        .on_hover_text("Buka Sidebar Properti & Fitur")
-                        .clicked()
-                    {
+                    let btn = egui::Button::new(egui::RichText::new("⚙ Properties").size(12.0).color(egui::Color32::from_rgb(220, 230, 242)))
+                        .fill(egui::Color32::from_rgba_premultiplied(22, 27, 34, 235))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 54, 61)))
+                        .corner_radius(egui::CornerRadius::same(8));
+                    if ui.add(btn).clicked() {
                         self.feature_inspector_open = true;
+                        self.auto_hide_properties = false;
                     }
                 });
         }
 
+        // 7. Right Floating Feature Inspector (Pojok Kanan Atas di bawah ViewCube)
         if show_right_sidebar {
             let mut inspector_state = FeatureInspectorState {
                 auto_hide_enabled: self.auto_hide_properties,
@@ -3473,7 +3557,7 @@ impl eframe::App for CadrawApp {
                 selected_bodies_count: self.selected_bodies.len(),
                 selected_edges_count: self.selected_edges.len(),
                 selected_faces_count: self.selected_faces.len(),
-                total_entities_count: self.sketch.entities.len(),
+                total_entities_count: self.sketch().entities.len(),
                 total_bodies_count: self.model.doc.bodies.len(),
 
                 entity_p1_x: self.prop_input_p1_x.clone(),
@@ -3507,12 +3591,11 @@ impl eframe::App for CadrawApp {
                 section_invert: self.section_invert,
             };
 
-            egui::Area::new(egui::Id::new("cadraw-feature-inspector-area"))
-                .fixed_pos(egui::pos2(inspector_x, inspector_y))
+            egui::Area::new(egui::Id::new("cadraw-inspector-area"))
+                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right - 264.0, 154.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    ui.set_max_height(inspector_h);
-                    if let Some(ev) = FeatureInspector::show(ui, &mut inspector_state) {
+                    if let Some(insp_ev) = FeatureInspector::show(ui, &mut inspector_state) {
                         self.prop_input_p1_x = inspector_state.entity_p1_x;
                         self.prop_input_p1_y = inspector_state.entity_p1_y;
                         self.prop_input_p2_x = inspector_state.entity_p2_x;
@@ -3520,7 +3603,7 @@ impl eframe::App for CadrawApp {
                         self.prop_input_val_1 = inspector_state.entity_val_1;
                         self.prop_input_val_2 = inspector_state.entity_val_2;
 
-                        match ev {
+                        match insp_ev {
                             InspectorEvent::CloseInspector => {
                                 self.feature_inspector_open = false;
                             }
@@ -3539,9 +3622,8 @@ impl eframe::App for CadrawApp {
                                         start: DVec2::new(start_x, start_y),
                                         end: DVec2::new(end_x, end_y),
                                     };
-                                    self.undo.execute(
+                                    self.execute_sketch_command(
                                         Box::new(UpdateEntity::new("Ubah Garis", id, new_entity)),
-                                        &mut self.sketch,
                                     );
                                 }
                             }
@@ -3556,9 +3638,8 @@ impl eframe::App for CadrawApp {
                                         center: DVec2::new(center_x, center_y),
                                         radius,
                                     };
-                                    self.undo.execute(
+                                    self.execute_sketch_command(
                                         Box::new(UpdateEntity::new("Ubah Lingkaran", id, new_entity)),
-                                        &mut self.sketch,
                                     );
                                 }
                             }
@@ -3577,9 +3658,8 @@ impl eframe::App for CadrawApp {
                                         start_angle: start_angle_deg.to_radians(),
                                         end_angle: end_angle_deg.to_radians(),
                                     };
-                                    self.undo.execute(
+                                    self.execute_sketch_command(
                                         Box::new(UpdateEntity::new("Ubah Busur", id, new_entity)),
-                                        &mut self.sketch,
                                     );
                                 }
                             }
@@ -3596,9 +3676,8 @@ impl eframe::App for CadrawApp {
                                         radius_x,
                                         radius_y,
                                     };
-                                    self.undo.execute(
+                                    self.execute_sketch_command(
                                         Box::new(UpdateEntity::new("Ubah Elips", id, new_entity)),
-                                        &mut self.sketch,
                                     );
                                 }
                             }
@@ -3667,7 +3746,7 @@ impl eframe::App for CadrawApp {
                                 self.set_tool(ToolKind::Revolve);
                             }
                             InspectorEvent::StageLoftBottom => {
-                                match model::build_profile_from_selection(&self.sketch, &self.selected) {
+                                match model::build_profile_from_selection(self.sketch(), &self.selected) {
                                     Ok(profile) => {
                                         self.pending_loft_bottom = Some(profile);
                                         self.model_status = None;

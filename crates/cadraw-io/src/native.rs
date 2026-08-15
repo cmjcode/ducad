@@ -46,6 +46,10 @@ pub struct NativeBody {
 pub struct CadrawFile {
     pub format_version: u32,
     pub sketch: Sketch,
+    #[serde(default)]
+    pub front_sketch: Option<Sketch>,
+    #[serde(default)]
+    pub right_sketch: Option<Sketch>,
     pub bodies: Vec<NativeBody>,
 }
 
@@ -58,21 +62,27 @@ pub struct LoadedBody {
     pub shape: KernelShape,
 }
 
-/// Hasil `load`: sketch lengkap + semua body dengan geometri kernel hidup.
+/// Hasil `load`: sketch lengkap dari ketiga bidang (Top, Front, Right) + semua body dengan geometri kernel hidup.
 pub struct LoadedDocument {
     pub sketch: Sketch,
+    pub front_sketch: Sketch,
+    pub right_sketch: Sketch,
     pub bodies: Vec<LoadedBody>,
 }
 
-/// Simpan dokumen ke `path` sebagai JSON (pretty-printed — format native
-/// sengaja dibuat manusiawi-dibaca, bukan dikompresi/biner, konsisten
-/// dengan filosofi proyek "debuggable dulu" yang sama dipakai di tempat
-/// lain, mis. `Profile`/`ProfileSegment` koordinat mentah).
-///
-/// `bodies` berupa referensi (nama, visible, shape) — pemanggil (biasanya
-/// `ModelDoc` di `cadraw-app`) tetap pemilik `KernelShape`-nya, fungsi ini
-/// cuma butuh serialize-nya sekali lewat `to_step_string`.
-pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &KernelShape)]) -> Result<()> {
+impl LoadedDocument {
+    /// Mengembalikan seluruh sketch per bidang sebagai array `[Top, Front, Right]`.
+    pub fn into_sketches(self) -> [Sketch; 3] {
+        [self.sketch, self.front_sketch, self.right_sketch]
+    }
+}
+
+/// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
+pub fn save_multi_plane(
+    path: impl AsRef<Path>,
+    sketches: &[Sketch; 3],
+    bodies: &[(&str, bool, &KernelShape)],
+) -> Result<()> {
     let bodies = bodies
         .iter()
         .map(|(name, visible, shape)| {
@@ -88,12 +98,23 @@ pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &Ker
 
     let file = CadrawFile {
         format_version: FORMAT_VERSION,
-        sketch: sketch.clone(),
+        sketch: sketches[0].clone(),
+        front_sketch: Some(sketches[1].clone()),
+        right_sketch: Some(sketches[2].clone()),
         bodies,
     };
     let json = serde_json::to_string_pretty(&file).context("gagal serialize dokumen ke JSON")?;
     std::fs::write(path, json).context("gagal menulis file .cadraw")?;
     Ok(())
+}
+
+/// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
+pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &KernelShape)]) -> Result<()> {
+    save_multi_plane(
+        path,
+        &[sketch.clone(), Sketch::default(), Sketch::default()],
+        bodies,
+    )
 }
 
 /// Muat dokumen dari `path`. Menolak `format_version` yang lebih baru dari
@@ -123,8 +144,13 @@ pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let front_sketch = file.front_sketch.unwrap_or_default();
+    let right_sketch = file.right_sketch.unwrap_or_default();
+
     Ok(LoadedDocument {
         sketch: file.sketch,
+        front_sketch,
+        right_sketch,
         bodies,
     })
 }
@@ -232,5 +258,32 @@ mod tests {
         let err = load(&path);
         let _ = std::fs::remove_file(&path);
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn save_load_multi_plane_roundtrip() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let mut top = Sketch::default();
+        top.entities.insert(Entity::Circle { center: DVec2::ZERO, radius: 10.0 });
+        let mut front = Sketch::default();
+        front.entities.insert(Entity::Line { start: DVec2::ZERO, end: DVec2::new(10.0, 20.0) });
+        let mut right = Sketch::default();
+        right.entities.insert(Entity::Circle { center: DVec2::new(5.0, 5.0), radius: 3.0 });
+
+        let sketches = [top, front, right];
+        let path = temp_path("multi_plane");
+        save_multi_plane(&path, &sketches, &[]).unwrap();
+
+        let loaded = load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(loaded.sketch.entities.len(), 1);
+        assert_eq!(loaded.front_sketch.entities.len(), 1);
+        assert_eq!(loaded.right_sketch.entities.len(), 1);
+
+        let array = loaded.into_sketches();
+        assert_eq!(array[0].entities.len(), 1);
+        assert_eq!(array[1].entities.len(), 1);
+        assert_eq!(array[2].entities.len(), 1);
     }
 }
