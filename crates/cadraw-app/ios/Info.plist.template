@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template Info.plist untuk paket .app iOS CADRAW (Fase 6).
+
+  BUKAN dipakai otomatis oleh `cargo build` — belum ada langkah build yang
+  mem-package binary `aarch64-apple-ios` jadi bundle .app (butuh Xcode
+  project sungguhan: target App, code signing team, provisioning profile,
+  semuanya interaksi GUI/kredensial Apple Developer yang tak bisa dilakukan
+  dari sandbox agent). File ini disiapkan sebagai referensi supaya langkah
+  itu tinggal "copy nilai-nilai ini ke Info.plist target Xcode", bukan
+  mulai dari nol.
+
+  Referensi: docs/PLAN.md bagian "Status Fase 6".
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>CADRAW</string>
+    <key>CFBundleDisplayName</key>
+    <string>CADRAW</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.cadraw.app</string>
+    <!-- Ganti dengan bundle ID sungguhan yang terdaftar di akun Apple
+         Developer sebelum archive/TestFlight. -->
+    <key>CFBundleExecutable</key>
+    <string>cadraw</string>
+    <!-- HARUS sama dengan nama binary hasil `cargo build --target
+         aarch64-apple-ios --release -p cadraw-app` (lihat [[bin]] name
+         di crates/cadraw-app/Cargo.toml) — winit memanggil
+         UIApplicationMain langsung dari proses ini sendiri (dibuktikan
+         lewat pembacaan source winit 0.30 saat Fase 6: EventLoop::run_app
+         di platform_impl/ios/event_loop.rs membaca argc/argv proses lewat
+         _NSGetArgc/_NSGetArgv lalu manggil UIApplicationMain), JADI tidak
+         perlu main.m/AppDelegate Objective-C terpisah — binary Rust ini
+         LANGSUNG jadi executable .app-nya. -->
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <!-- CAD kerja paling nyaman landscape (kanvas lebar); portrait tetap
+         diizinkan di iPad karena beberapa model iPad/Split View bisa
+         memaksanya. -->
+
+    <!-- Files.app (lihat `CadrawApp::ios_documents_dir` di main.rs):
+         DUA key ini WAJIB supaya folder Documents sandbox app muncul di
+         Files.app ("Di iPad Ini ▸ CADRAW") dan file di dalamnya bisa
+         dibuka "in place" oleh app lain. Tanpa dua ini, `pick_open_path`/
+         `pick_save_path` versi iOS di main.rs baca/tulis ke folder yang
+         TIDAK terlihat user sama sekali. -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+
+    <!-- Apple Pencil (lihat catatan Fase 6 di PLAN.md): tidak ada key
+         Info.plist khusus yang dibutuhkan untuk pointer/touch presisi
+         standar — itu otomatis lewat UITouch begitu app berjalan di
+         perangkat berdukungan Pencil. `UIPencilInteraction`/gesture
+         ganda-ketuk masih di luar lingkup putaran ini (butuh bridging
+         UIKit, lihat main.rs). -->
+</dict>
+</plist>

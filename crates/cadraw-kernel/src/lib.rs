@@ -9,6 +9,37 @@ use anyhow::{bail, Context, Result};
 use glam::dvec3;
 use opencascade::primitives::{Compound, Direction as OcctDirection, Edge, Face, IntoShape, Shape, Wire};
 use opencascade::workplane::Workplane;
+use std::sync::Mutex;
+
+/// Kunci global memaksa SEMUA pemanggilan ke kernel OCCT serial lintas
+/// thread mana pun. OCCT (setidaknya jalur transfer STEP — dibuktikan
+/// lewat crash `SIGABRT`/`Interface_InterfaceError` di test suite Fase 3,
+/// lihat `tests::TEST_LOCK`) TIDAK thread-safe untuk dipanggil BERSAMAAN
+/// dari >1 thread; juga dikonfirmasi lewat compile-time check bahwa
+/// `KernelShape` (dan `opencascade::Shape` di baliknya) TIDAK `Send` —
+/// `UniquePtr<TopoDS_Shape>` milik `cxx` tidak pernah diberi `unsafe impl
+/// Send` di binding ini, konsisten dengan OCCT yang memang tidak
+/// thread-safe. Sampai Fase 6, ini bukan masalah nyata karena
+/// `cadraw-app` cuma pernah memanggil kernel dari UI thread tunggal.
+/// Fase 7 menambah `import_worker` di `cadraw-app` (thread latar belakang
+/// untuk Import STEP, supaya UI tidak beku selama tessellation shape
+/// besar) — begitu ADA thread kedua yang bisa memanggil kernel, lock ini
+/// jadi wajib di setiap fungsi publik supaya tidak pernah ada 2
+/// panggilan OCCT jalan bersamaan, apa pun urutan aksi user (mis. klik
+/// Extrude persis saat import STEP di latar belakang masih berjalan).
+/// Dipegang HANYA di fungsi publik, bukan di helper privat seperti
+/// `deep_clone`/`tessellate_shape` yang selalu dipanggil dari dalam
+/// fungsi publik yang sudah memegang lock — `Mutex` std TIDAK reentrant,
+/// mengunci dua kali dari thread yang sama akan deadlock.
+static KERNEL_LOCK: Mutex<()> = Mutex::new(());
+
+/// Kunci `KERNEL_LOCK`, pulih dari poisoning (panic sebelumnya sambil
+/// memegang lock) alih-alih ikut panic — satu operasi kernel yang gagal
+/// tidak seharusnya mengunci permanen SEMUA operasi kernel berikutnya di
+/// aplikasi UI yang harus tetap responsif.
+fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
+    KERNEL_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
 
 /// Mesh hasil tessellation, siap di-upload ke GPU (f32, indexed).
 #[derive(Debug, Clone, Default)]
@@ -74,22 +105,27 @@ pub struct KernelShape(Shape);
 
 impl KernelShape {
     pub fn tessellate(&self) -> KernelMesh {
+        let _guard = lock_kernel();
         tessellate_shape(&self.0)
     }
 
     pub fn write_stl(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let _guard = lock_kernel();
         self.0.write_stl(path)?;
         Ok(())
     }
 
     pub fn write_step(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let _guard = lock_kernel();
         self.0.write_step(path)?;
         Ok(())
     }
 
     /// Baca shape B-rep dari file STEP — kebalikan `write_step`. Dipakai
-    /// Import STEP (Fase 5, `cadraw-io`) dan test/`deep_clone` internal.
+    /// Import STEP (Fase 5, `cadraw-io`; Fase 7, `cadraw-app::import_worker`)
+    /// dan test/`deep_clone` internal.
     pub fn read_step(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let _guard = lock_kernel();
         Ok(KernelShape(Shape::read_step(path).context("read_step: gagal membaca STEP")?))
     }
 
@@ -101,6 +137,7 @@ impl KernelShape {
     /// mentah. Roundtrip lewat file sementara (sama trik dengan
     /// `deep_clone`) karena binding ini tidak expose serialisasi in-memory.
     pub fn to_step_string(&self) -> Result<String> {
+        let _guard = lock_kernel();
         let path = temp_step_path("to-step-string");
         let result = (|| -> Result<String> {
             self.0
@@ -114,6 +151,7 @@ impl KernelShape {
 
     /// Kebalikan `to_step_string`.
     pub fn from_step_string(step: &str) -> Result<Self> {
+        let _guard = lock_kernel();
         let path = temp_step_path("from-step-string");
         let result = (|| -> Result<Shape> {
             std::fs::write(&path, step).context("from_step_string: gagal menulis STEP sementara")?;
@@ -222,6 +260,7 @@ pub fn extrude_profile(profile: &Profile, distance: f64) -> Result<KernelShape> 
     if distance.abs() < 1e-9 {
         bail!("jarak extrude harus tidak nol");
     }
+    let _guard = lock_kernel();
     let wire = build_wire(profile)?;
     let face = Face::from_wire(&wire);
     let solid = face.extrude(dvec3(0.0, 0.0, distance));
@@ -232,11 +271,13 @@ pub fn extrude_profile(profile: &Profile, distance: f64) -> Result<KernelShape> 
 /// tersedia di `opencascade-rs` 0.2.0 — cuma union & subtract, lihat
 /// docs/PLAN.md.
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
+    let _guard = lock_kernel();
     Ok(KernelShape(a.0.union(&b.0).shape))
 }
 
 /// Subtract (`a` dikurangi `b`).
 pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
+    let _guard = lock_kernel();
     Ok(KernelShape(a.0.subtract(&b.0).shape))
 }
 
@@ -247,6 +288,7 @@ pub fn fillet_all(shape: &KernelShape, radius: f64) -> Result<KernelShape> {
     if radius <= 0.0 {
         bail!("radius fillet harus > 0");
     }
+    let _guard = lock_kernel();
     let mut cloned = deep_clone(&shape.0)?;
     cloned.fillet(radius);
     Ok(KernelShape(cloned))
@@ -258,6 +300,7 @@ pub fn chamfer_all(shape: &KernelShape, distance: f64) -> Result<KernelShape> {
     if distance <= 0.0 {
         bail!("jarak chamfer harus > 0");
     }
+    let _guard = lock_kernel();
     let mut cloned = deep_clone(&shape.0)?;
     cloned.chamfer(distance);
     Ok(KernelShape(cloned))
@@ -297,6 +340,7 @@ pub fn shell_hollow(shape: &KernelShape, thickness: f64, remove_face_dir: Direct
     if thickness <= 0.0 {
         bail!("tebal shell harus > 0");
     }
+    let _guard = lock_kernel();
     let cloned = deep_clone(&shape.0)?;
     let face = cloned
         .faces()
@@ -316,6 +360,7 @@ pub fn write_step_compound(shapes: &[&KernelShape], path: impl AsRef<std::path::
     if shapes.is_empty() {
         bail!("tidak ada body untuk diekspor");
     }
+    let _guard = lock_kernel();
     let refs: Vec<&Shape> = shapes.iter().map(|s| &s.0).collect();
     let compound = Compound::from_shapes(refs);
     let combined: Shape = compound.into();
@@ -326,6 +371,7 @@ pub fn write_step_compound(shapes: &[&KernelShape], path: impl AsRef<std::path::
 /// Smoke-test kemampuan kernel: kotak di-extrude dari sketch lalu difillet
 /// — persis alur "sketch → push/pull → fillet" yang jadi inti CADRAW.
 pub fn make_filleted_box(width: f64, depth: f64, height: f64, fillet: f64) -> Result<KernelShape> {
+    let _guard = lock_kernel();
     let profile = Workplane::xy().rect(width, depth);
     let solid = profile.to_face().extrude(dvec3(0.0, 0.0, height));
     let mut shape = solid.into_shape();

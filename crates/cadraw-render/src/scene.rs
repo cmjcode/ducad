@@ -4,12 +4,20 @@ use glam::{Mat4, Vec3};
 
 use crate::grid;
 
+/// Bidang potong "tidak aktif" — normal nol vektor + offset sangat besar,
+/// jadi `dot(0, world) - w` selalu sangat negatif dan tidak pernah lolos
+/// syarat `> 0.0` di `fs_mesh` (lihat `shader.wgsl`), berapa pun posisi
+/// mesh-nya. Dipakai `SceneRenderer::new`/`set_clip_plane(None)`.
+const CLIP_PLANE_DISABLED: [f32; 4] = [0.0, 0.0, 0.0, 1.0e9];
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Globals {
     view_proj: [[f32; 4]; 4],
     eye: [f32; 4],
     light_dir: [f32; 4],
+    /// Section view (Fase 7) — lihat komentar `clip_plane` di `shader.wgsl`.
+    clip_plane: [f32; 4],
 }
 
 #[repr(C)]
@@ -40,6 +48,8 @@ pub struct SceneRenderer {
     /// yang sama dengan grid (topology & shader identik).
     overlay_vbuf: Option<wgpu::Buffer>,
     overlay_vertex_count: u32,
+    /// Section view (Fase 7) — lihat `set_clip_plane`.
+    clip_plane: [f32; 4],
 }
 
 impl SceneRenderer {
@@ -181,7 +191,24 @@ impl SceneRenderer {
             mesh: None,
             overlay_vbuf: None,
             overlay_vertex_count: 0,
+            clip_plane: CLIP_PLANE_DISABLED,
         }
+    }
+
+    /// Bidang potong section view (Fase 7): `Some((normal, offset))`
+    /// membuang (di-`discard` di `fs_mesh`) fragment mesh di sisi `normal`
+    /// yang JAUH dari origin sepanjang `offset` — cuma memotong tampilan,
+    /// tidak pernah menyentuh geometri B-rep asli (beda dari operasi
+    /// Boolean kernel), jadi aman digeser tiap frame tanpa memanggil OCCT
+    /// sama sekali. `None` menonaktifkan.
+    pub fn set_clip_plane(&mut self, plane: Option<(Vec3, f32)>) {
+        self.clip_plane = match plane {
+            Some((normal, offset)) => {
+                let n = normal.normalize_or_zero();
+                [n.x, n.y, n.z, offset]
+            }
+            None => CLIP_PLANE_DISABLED,
+        };
     }
 
     /// Upload garis overlay 2D (sketch) untuk frame ini. Dipanggil dari
@@ -253,6 +280,7 @@ impl SceneRenderer {
             view_proj: view_proj.to_cols_array_2d(),
             eye: [eye.x, eye.y, eye.z, 1.0],
             light_dir: [light.x, light.y, light.z, 0.0],
+            clip_plane: self.clip_plane,
         };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
     }

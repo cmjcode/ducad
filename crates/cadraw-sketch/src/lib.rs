@@ -9,6 +9,7 @@
 //! iterasi berikutnya — belum ada di sini.
 
 pub mod constraint;
+pub mod measure;
 
 use cadraw_core::Command;
 use glam::DVec2;

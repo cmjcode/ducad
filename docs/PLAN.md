@@ -57,9 +57,15 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    **[status: putaran pertama selesai — save/load native, import/export
    STEP & DXF, export STL/OBJ, lihat bawah]**
 6. **Port iPad** — winit iOS + Metal via wgpu, Apple Pencil, Files.app,
-   TestFlight.
+   TestFlight. **[status: seluruh stack Rust CADRAW + eframe/winit/wgpu
+   terbukti compile bersih untuk `aarch64-apple-ios`; satu blocker upstream
+   tersisa — OCCT (kernel geometri) belum bisa link untuk iOS, lihat
+   bawah]**
 7. **Poles & performa** — alat ukur, section view, tessellation di thread
-   terpisah, packaging.
+   terpisah, packaging. **[status: putaran pertama selesai — tool Ukur
+   Jarak/Sudut, Section View (clip plane shader), worker thread Import
+   STEP + kunci kernel global baru, metadata packaging `cargo-bundle`,
+   lihat bawah]**
 
 Detail penuh tiap fase, tabel risiko, dan estimasi ada di riwayat sesi
 perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
@@ -592,6 +598,270 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       sebelumnya, belum bisa dicek dari sandbox agent (tidak ada akses
       WindowServer, dan dialog file native `rfd` butuh interaksi GUI
       sungguhan yang tidak bisa disimulasikan headless).
+
+## Status Fase 6 — Port iPad (dikerjakan, satu blocker upstream)
+
+- [x] **Spike cross-compile OCCT ke `aarch64-apple-ios` — risiko tertinggi
+      sejak Fase 0, akhirnya dieksekusi di Fase 6**: `occt-sys` (dependensi
+      `cadraw-kernel`) pakai crate `cmake` untuk build OCCT dari source.
+      Ditemukan (via `cargo build --target aarch64-apple-ios`, bukan
+      dugaan) crate `cmake` 0.1.58 SUDAH mengeset `CMAKE_SYSTEM_NAME=iOS`+
+      `CMAKE_SYSTEM_PROCESSOR=arm64` otomatis saat cross-compiling, TAPI
+      TIDAK PERNAH mengeset `CMAKE_OSX_SYSROOT`/`CMAKE_OSX_ARCHITECTURES`
+      untuk target iOS (cabang itu di source cuma jalan untuk target yang
+      mengandung `"darwin"`, bukan `"ios"`) — CMake diam-diam jatuh ke SDK
+      macOS host, hasil kompilasi OCCT jadi object file bertanda platform
+      macOS (`LC_BUILD_VERSION platform=1`, dicek langsung lewat
+      `otool -l`), gagal link terhadap binary yang ditarget iOS
+      (`ld: building for iOS, but linking in object file built for
+      macOS`).
+- [x] Diperbaiki **wiring**-nya (`crates/cadraw-kernel/ios/ios-toolchain.cmake`
+      + env var `CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios` di
+      `.cargo/config.toml`, format nama yang dibaca crate `cmake` lewat
+      `getenv_target_os`) — DIBUKTIKAN bekerja lewat probe CMake project
+      berdiri sendiri (`cmake -DCMAKE_TOOLCHAIN_FILE=...` + `otool -l`
+      hasil `.o` → `platform=2` alias iOS, bukan cuma baca cache).
+- [ ] **TAPI toolchain file yang sama TIDAK cukup untuk occt-sys
+      sungguhan** — dicoba 3 varian (nama SDK pendek `iphoneos`,
+      `execute_process(xcrun...)` resolve PATH, PATH absolut di-hardcode
+      + `CACHE ... FORCE`), ketiganya menghasilkan `CMakeCache.txt` OCCT
+      sungguhan dengan `CMAKE_OSX_SYSROOT:STRING=` tetap KOSONG (dicek
+      langsung tiap kali, bukan dugaan) walau `CMAKE_OSX_ARCHITECTURES`
+      berhasil ter-set. Root cause paling mungkin (didukung bukti, bukan
+      spekulasi murni): OCCT (source yang divendor `occt-sys`) TERNYATA
+      punya jalur build iOS RESMI SENDIRI —
+      `OCCT/adm/scripts/ios_build.sh` — yang meneruskan
+      `-D CMAKE_OSX_SYSROOT:PATH=...` lewat ARGUMEN COMMAND-LINE cmake
+      langsung, BUKAN lewat toolchain file generik. `occt-sys` 0.2.0
+      punya `build.rs` yang HANYA memanggil `cmake::Config::new("OCCT")`
+      generik (didesain untuk Android/Linux/Windows, tidak pernah
+      diadaptasi untuk kebutuhan khusus iOS OCCT) — jadi ini **gap
+      upstream di `occt-sys`/`opencascade-rs` 0.2.0**, bukan sesuatu yang
+      bisa diperbaiki dari sisi CADRAW lewat env var/toolchain file saja.
+      **Dihentikan setelah 4 percobaan rebuild penuh** (tiap percobaan
+      ~20-30 menit) karena hasil identik tiap kali — melanjutkan tebak-
+      tebakan toolchain lebih jauh tidak produktif, lihat "Langkah
+      lanjutan" di bawah.
+- [x] **Ditemukan & diperbaiki bug KEDUA yang independen** (ketemu selagi
+      memverifikasi lewat `cargo check`, bukan `build`, untuk melewati
+      blocker OCCT di atas): `eframe = { features = ["wgpu"] }` tanpa
+      `default-features = false` tetap ikut mengaktifkan fitur DEFAULT
+      eframe termasuk `"glow"` (backend OpenGL lewat `egui_glow`/
+      `glutin`) walau CADRAW SELALU cuma pakai backend wgpu
+      (`eframe::Renderer::Wgpu`, `cadraw-app/src/main.rs`). `glutin`
+      TIDAK mendukung iOS — gagal compile (`match` non-exhaustive di
+      `Surface<T>`, ~39 error). Diperbaiki: `eframe` di-set
+      `default-features = false` + daftar ulang fitur default MINUS
+      `"glow"` (lihat komentar di `Cargo.toml` root — `rwh_06` yang
+      biasa lewat `"winit/default"` ternyata sudah diminta TANPA SYARAT
+      oleh `[dependencies.winit]` eframe sendiri, jadi tidak hilang).
+      Perilaku desktop tidak berubah (`cargo check --workspace` di macOS
+      tetap hijau) — CADRAW memang tidak pernah memakai glow sama sekali.
+- [x] **Files.app — putaran pertama nyata, bukan stub kosong**: `rfd`
+      (dialog file native Fase 5) TERBUKTI TIDAK COMPILE SAMA SEKALI di
+      iOS (tak ada backend UIKit, dibuktikan lewat probe crate terpisah)
+      — digeser jadi target-specific dependency
+      (`[target.'cfg(not(target_os = "ios"))'.dependencies]` di
+      `crates/cadraw-app/Cargo.toml`). Pemanggilnya (8 titik di
+      `main.rs` — Buka/Simpan/Import/Export STEP/STL/OBJ/DXF) dirapikan
+      lewat 2 method baru `pick_open_path`/`pick_save_path` yang punya
+      kembaran `cfg(target_os = "ios")`: BUKAN sekadar "belum didukung",
+      tapi implementasi nyata berbasis folder `Documents` sandbox app
+      (`ios_documents_dir`, dari env var `HOME` — pola standar iOS, tanpa
+      dependensi bridging UIKit tambahan). "Simpan" menulis ke
+      `Documents/<nama_default>` (mis. `untitled.cadraw`), "Buka"/Import
+      mengambil file BERTANGGAL PALING BARU berekstensi cocok di folder
+      itu. Folder ini muncul di Files.app ("Di iPad Ini ▸ CADRAW") HANYA
+      kalau `Info.plist` app final menyematkan `UIFileSharingEnabled` +
+      `LSSupportsOpeningDocumentsInPlace` — sudah didokumentasikan di
+      `crates/cadraw-app/ios/Info.plist.template`. Batasan sadar:
+      BUKAN `UIDocumentPickerViewController` sungguhan (tak ada dialog
+      pilih file bebas) — itu butuh bridging UIKit (`objc2-ui-kit` atau
+      sejenis), ditunda ke putaran berikutnya.
+- [x] **Apple Pencil — diriset, bukan diasumsikan**: dibaca langsung
+      source `winit` 0.30 (`event.rs`: `Touch.force: Option<Force>`,
+      tersedia di iOS 9.0+) dan `egui-winit` 0.32
+      (`on_touch`: `force: match touch.force { ... }` diteruskan apa
+      adanya ke `egui::Event::Touch.force`). Kesimpulan: presisi pointer
+      Apple Pencil (posisi, hover kasar via touch) OTOMATIS jalan lewat
+      pipeline touch→pointer egui yang SUDAH ADA sejak Fase 0/1 — TIDAK
+      ADA kode tambahan yang dibutuhkan untuk itu, dan data tekanan
+      (`force`) SUDAH mengalir sampai ke `egui::Event::Touch` kalau
+      kelak ada fitur yang butuh (mis. lebar garis sensitif-tekanan) —
+      SENGAJA belum ditambahkan kode yang membaca `force` itu karena
+      belum ada fitur nyata yang memakainya (CADRAW itu CAD presisi
+      vektor, bukan app sketsa freehand — instrumentasi tanpa pemakai
+      nyata cuma kode mati). Yang SENGAJA belum ada: gesture ganda-ketuk
+      Pencil 2 (`UIPencilInteraction`) dan hover-sebelum-sentuh (kedua-
+      duanya butuh bridging UIKit, di luar lingkup putaran ini).
+- [x] `crates/cadraw-app/ios/Info.plist.template` — bukan dipakai
+      otomatis (belum ada langkah yang mem-package binary jadi bundle
+      `.app`), tapi referensi lengkap+beranotasi untuk langkah manual
+      Xcode nanti: `CFBundleExecutable=cadraw`, orientasi landscape-utama
+      (iPad tetap izinkan portrait), 2 key Files.app di atas.
+- [x] **Ditemukan (bukan diasumsikan) bahwa tidak perlu shim Objective-C
+      `main.m`/`AppDelegate` terpisah**: dibaca langsung source
+      `winit` 0.30 (`platform_impl/ios/event_loop.rs`) —
+      `EventLoop::run_app` di iOS memanggil `UIApplicationMain` SENDIRI
+      dari proses yang sama, baca `argc`/`argv` proses lewat
+      `_NSGetArgc`/`_NSGetArgv`. Artinya binary `[[bin]] name = "cadraw"`
+      yang sudah ada (`crates/cadraw-app/Cargo.toml`) BISA LANGSUNG jadi
+      executable `.app` iOS begitu OCCT beres — tidak perlu crate
+      `staticlib` terpisah atau project Xcode dengan kode ObjC tambahan.
+- [ ] **Langkah lanjutan untuk blocker OCCT** (belum dikerjakan, di luar
+      lingkup putaran ini karena butuh pendekatan berbeda, bukan lagi
+      sekadar env var): (a) patch `occt-sys`/`opencascade-rs`
+      (fork+tempel lewat `[patch.crates-io]`) supaya `build.rs`-nya
+      meniru `OCCT/adm/scripts/ios_build.sh` — meneruskan
+      `CMAKE_OSX_SYSROOT` dkk. lewat argumen `-D` cmake langsung (bukan
+      toolchain file) plus flag-flag lain yang dipakai skrip itu
+      (`IPHONEOS_DEPLOYMENT_TARGET`, daftar modul aktif); ATAU (b) build
+      OCCT untuk iOS SEKALI secara terpisah lewat `ios_build.sh` resmi di
+      luar Cargo, lalu arahkan `occt-sys` ke hasilnya lewat env var
+      `DEP_OCCT_ROOT` (disebutkan di dokumentasi `opencascade-sys`,
+      belum dicoba). Keduanya pekerjaan baru yang cukup besar untuk sesi
+      terpisah, bukan lanjutan kecil dari sesi ini.
+- [ ] **Sengaja belum ada** (di luar 2 blocker/keputusan di atas): paket
+      `.app` + code signing + provisioning profile + upload TestFlight —
+      SEMUANYA butuh Xcode GUI interaktif + akun Apple Developer
+      berbayar, TIDAK BISA dilakukan dari sandbox agent ini (tidak ada
+      akses WindowServer/kredensial); project Xcode sungguhan belum
+      dibuat (Info.plist masih template, bukan file aktif); testing di
+      perangkat/simulator sungguhan (sama alasan — perlu Xcode GUI).
+- [ ] Verifikasi lewat `cargo check --target aarch64-apple-ios`
+      (type-check, BUKAN link — link final baru mungkin setelah blocker
+      OCCT beres): `cadraw-render`+`cadraw-core`+`cadraw-sketch`+
+      `cadraw-ui` bersih total. `cadraw-app` (seluruh app termasuk
+      eframe/winit/wgpu/egui-winit DAN `cadraw-kernel`/`opencascade`)
+      JUGA bersih total setelah 2 perbaikan di atas — `cargo check
+      --workspace` di macOS host tetap hijau sepanjang perubahan ini
+      (diverifikasi ulang, bukan diasumsikan aman).
+
+## Status Fase 7 — Poles & Performa (dikerjakan, putaran pertama)
+
+- [x] **Alat ukur**: `cadraw_sketch::measure` (murni fungsi baca-saja,
+      TIDAK menyentuh `Sketch`/undo stack) — `distance` (jarak lurus) dan
+      `angle_degrees` (sudut interior 0–180° di titik vertex,
+      `atan2(det, dot)` supaya independen dari urutan klik titik). 6 test
+      baru (segitiga 3-4-5, sudut siku-siku, sudut lurus 180°,
+      order-independence, degenerate saat ray panjang nol).
+      `cadraw-app`: 2 tool baru — **Ukur Jarak** (2 klik snap) dan **Ukur
+      Sudut** (3 klik: awal/vertex/akhir), dikumpulkan di dropdown "📏 Ukur
+      ▾" (pola sama dengan "Titik ▾") — non-destruktif, TIDAK masuk undo
+      stack manapun. Hasil disimpan di `CadrawApp::measurements`,
+      digambar permanen sebagai garis kuning
+      (`cadraw_render::sketch::measurement_lines`, 3 test vertex-count)
+      dan didaftar di jendela mengambang "📏 Pengukuran" (bisa dihapus
+      satu-satu atau semua sekaligus, juga lewat command palette).
+- [x] **Section View**: clip plane di render, BUKAN operasi kernel — sadar
+      dipilih supaya bisa digeser real-time (tiap frame) tanpa memanggil
+      OCCT sama sekali (beda dari Boolean yang benar-benar memotong
+      B-rep). `shader.wgsl`/`SceneRenderer` dapat field `clip_plane:
+      vec4<f32>` (`dot(normal, world) - offset`, fragment dengan hasil > 0
+      di-`discard` di `fs_mesh`); nonaktif = normal nol vektor + offset
+      1e9 (trik menghindari field "enabled" terpisah — selalu sangat
+      negatif, tidak pernah memotong). `cadraw-app`: panel "✂ Section
+      View" di panel Model 3D — checkbox aktif, sumbu X/Y/Z, slider offset
+      (mm), "Balik arah potong" (membalik `(normal, offset)` SEKALIGUS,
+      bukan cuma normal, supaya posisi potong di slider tidak ikut lompat
+      saat cuma membalik sisi yang dibuang — bidang `dot(n,p)=d` dan
+      `dot(-n,p)=-d` adalah bidang geometris yang sama persis).
+- [x] **Temuan arsitektur nyata (dibuktikan lewat compile-time check,
+      bukan dugaan)**: `KernelShape` — dan `opencascade::Shape` di
+      baliknya — TERBUKTI TIDAK `Send` (`UniquePtr<TopoDS_Shape>` milik
+      `cxx` tidak pernah diberi `unsafe impl Send` di binding
+      `opencascade-rs` 0.2.0, konsisten dengan OCCT yang memang tidak
+      thread-safe — akar masalah yang sama dengan bug `SIGABRT` STEP
+      transfer di Fase 3). Ini membatasi arti "tessellation di thread
+      terpisah" dari rencana awal: `KernelShape` TIDAK BISA dikirim ke
+      thread lain sama sekali, jadi background thread cuma bisa dipakai
+      untuk operasi yang bisa dibungkus lewat tipe `Send` murni
+      (`PathBuf`/`String`/`KernelMesh`) di kedua ujungnya — bukan
+      "jalankan operasi kernel apa saja secara paralel" (OCCT memang
+      tidak mendukung itu). Latar belakang penuh untuk SEMUA operasi
+      kernel (Extrude/Fillet/dst, bukan cuma Import) butuh rearsitektur
+      command pipeline jadi async end-to-end — pekerjaan besar tersendiri,
+      SENGAJA ditunda ke putaran lain, bukan dipaksakan setengah jalan di
+      sini (sama semangat dengan blocker OCCT/iOS Fase 6: root-cause dulu,
+      jangan tebak-tebak toolchain).
+- [x] **`cadraw-kernel::KERNEL_LOCK`** (baru, PRODUKSI bukan cuma test):
+      `Mutex<()>` global yang WAJIB dikunci di SETIAP fungsi publik kernel
+      (14 titik: `tessellate`, `write_stl`, `write_step`, `read_step`,
+      `to_step_string`, `from_step_string`, `extrude_profile`, `union`,
+      `subtract`, `fillet_all`, `chamfer_all`, `shell_hollow`,
+      `write_step_compound`, `make_filleted_box`) — dipegang HANYA di
+      fungsi publik, bukan di helper privat (`deep_clone`/
+      `tessellate_shape`) yang selalu dipanggil dari dalam fungsi publik
+      yang sudah memegang lock, supaya tidak deadlock (`Mutex` std tidak
+      reentrant). Sebelum Fase 7 ini tidak perlu — `cadraw-app` cuma
+      pernah memanggil kernel dari UI thread tunggal; sekarang WAJIB
+      karena `import_worker` menambah thread kedua yang bisa memanggil
+      kernel. Menjamin tidak pernah ada 2 panggilan OCCT jalan bersamaan
+      apa pun urutan klik user (mis. Extrude persis saat Import STEP
+      latar belakang masih jalan) — cukup untuk KEBENARAN (tidak crash),
+      BUKAN untuk paralelisme (OCCT tetap serial, itu memang batasannya).
+      14 test `cadraw-kernel` tetap hijau, termasuk jalan multi-thread
+      default (bukan cuma `--test-threads=1`).
+- [x] **`cadraw-app::import_worker`** (baru): satu thread background
+      berumur-panjang, job Import STEP diproses lewat `mpsc` channel.
+      HANYA tipe `Send` murni yang lewat channel — `PathBuf` masuk,
+      `(String teks STEP, KernelMesh)` keluar; `KernelShape` TIDAK PERNAH
+      menyeberang thread (lihat temuan arsitektur di atas). Thread utama
+      membangun `KernelShape` MILIKNYA SENDIRI dari string STEP lewat
+      `from_step_string` untuk disimpan di `ModelDoc` — pola sama dengan
+      "raw types at the kernel boundary" yang sudah dipakai
+      `KernelMesh`/`Profile` sejak Fase 0/3. `import_step()` sekarang
+      cuma `submit()` (non-blocking); `poll_import_worker()` (dipanggil
+      tiap frame dari `update()`) memasang body baru begitu hasil siap,
+      dan `ctx.request_repaint()` dipaksa selama ada job pending supaya
+      hasil muncul secepat worker selesai, bukan menunggu event input
+      (mouse bergerak dsb.) — egui default cuma redraw saat ada event.
+      Import DXF SENGAJA tetap synchronous (murah, tidak menyentuh OCCT
+      sama sekali, tidak butuh threading).
+- [x] **Packaging**: `crates/cadraw-app/Cargo.toml` dapat
+      `[package.metadata.bundle]` untuk `cargo-bundle` (nama, identifier,
+      kategori, deskripsi) — metadata pasif, tidak mempengaruhi
+      `cargo build`/`run`/`test` biasa sama sekali (diverifikasi: build
+      tetap hijau setelah ditambahkan). `docs/PACKAGING.md` baru:
+      langkah `cargo bundle --release` untuk `.app` macOS, catatan
+      Windows/Linux (`cargo build --release` langsung jalan, belum ada
+      installer/AppImage), dan daftar eksplisit di luar lingkup (code
+      signing/notarization macOS, installer Windows, AppImage Linux,
+      ikon `.icns` — semua butuh sertifikat berbayar/aset visual/GUI
+      interaktif di luar sandbox agent, sama alasan dengan TestFlight iOS
+      Fase 6). `cargo bundle --release` sendiri SENGAJA tidak dijalankan
+      di sesi ini — release profile akan memicu build ulang OCCT dari
+      nol (~8-40 menit, target dir profile terpisah dari debug), biaya
+      besar cuma untuk verifikasi sintaks metadata; field yang dipakai
+      (`name`/`identifier`/`icon`/`version`/`copyright`/`category`/
+      `short_description`/`long_description`) sudah dicocokkan manual ke
+      skema `cargo-bundle` yang terdokumentasi.
+- [ ] **Sengaja belum ada** (lingkup Fase 7 putaran pertama dipersempit ke
+      yang bisa diverifikasi tanpa rearsitektur besar atau build ulang
+      OCCT berkali-kali, lihat catatan biaya sesi Fase 6): background
+      thread untuk operasi kernel LAIN selain Import STEP (Extrude/
+      Fillet/Chamfer/Boolean/Shell tetap synchronous di UI thread — lihat
+      "Temuan arsitektur" di atas untuk kenapa ini pekerjaan besar
+      tersendiri, bukan tambahan kecil); kontrol kualitas tessellation
+      (`opencascade` 0.2.0 hardcode deflection 0.01 di `Mesher::new`,
+      tidak ada API publik untuk mengubahnya tanpa memanggil
+      `opencascade_sys::ffi` level rendah — di luar lingkup putaran ini);
+      pengukuran 3D sungguhan (jarak/sudut antar titik body 3D, bukan
+      cuma titik sketch 2D — butuh picking face/edge 3D yang belum ada,
+      sama batasan dengan "Sengaja belum ada" Fase 3); label angka
+      mengambang di titik 3D pengukuran (belum ada pipeline render teks
+      di wgpu scene, hasil ditampilkan di panel "📏 Pengukuran" bukan
+      di titik 3D-nya); code signing/notarization/installer (lihat
+      `docs/PACKAGING.md`); actual run `cargo bundle` untuk memverifikasi
+      `.app` hasil jadi.
+- [ ] Verifikasi visual & UX (tool Ukur, panel Section View, notifikasi
+      Import STEP latar belakang) di device sungguhan — sama seperti
+      fase-fase sebelumnya, belum bisa dicek dari sandbox agent (tidak
+      ada akses WindowServer). `cargo build`/`clippy -D warnings`/`test`
+      seluruh workspace hijau (81 test: 4 kamera, 1 undo-core, 14 kernel,
+      14 io, 6 render termasuk 3 measurement_lines baru, 42 sketch
+      termasuk 6 measure baru), plus smoke-run `cargo run -p cadraw-app`
+      tanpa panic startup.
 
 ## Menjalankan
 

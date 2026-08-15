@@ -2,6 +2,11 @@ struct Globals {
     view_proj: mat4x4<f32>,
     eye: vec4<f32>,
     light_dir: vec4<f32>,
+    // Section view (Fase 7): bidang potong `dot(xyz, world) - w`, fragment
+    // mesh dengan hasil > 0 dibuang. Nonaktif = `xyz` nol vektor + `w`
+    // sangat besar, jadi hasilnya selalu sangat negatif (tidak pernah
+    // memotong apa pun) — menghindari field "enabled" terpisah.
+    clip_plane: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -60,6 +65,10 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
 
 @fragment
 fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
+    let clip_side = dot(globals.clip_plane.xyz, in.world) - globals.clip_plane.w;
+    if (clip_side > 0.0) {
+        discard;
+    }
     let base = vec3<f32>(0.62, 0.68, 0.76); // baja muda, netral khas CAD
     let n = normalize(in.normal);
     let diffuse = max(dot(n, normalize(globals.light_dir.xyz)), 0.0);

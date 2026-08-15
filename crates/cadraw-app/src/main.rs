@@ -56,6 +56,23 @@
 //! tinggi minimum 44pt (target sentuh Apple HIG) lewat
 //! `cadraw_ui::apply_theme` yang dipanggil sekali di `new()`.
 //!
+//! Poles & performa (Fase 7): tool "📏 Ukur ▾" — Ukur Jarak (2 klik) & Ukur
+//! Sudut (3 klik) — non-destruktif (`cadraw_sketch::measure`, tidak masuk
+//! undo stack manapun), hasil digambar permanen (garis kuning) dan
+//! didaftar di jendela "📏 Pengukuran". Panel "✂ Section View" di panel
+//! Model 3D — bidang potong murni efek shader (`SceneRenderer::
+//! set_clip_plane`), aman digeser real-time karena TIDAK memanggil kernel
+//! OCCT sama sekali (beda dari Boolean). Import STEP sekarang lewat
+//! `import_worker` (thread latar belakang, `poll_import_worker` tiap
+//! frame di `update()`) supaya UI tidak beku untuk file besar —
+//! `KernelShape` sendiri TERBUKTI TIDAK `Send` (dibuktikan lewat
+//! compile-time check), jadi worker cuma mengirim `String`/`KernelMesh`
+//! lewat channel, dan `cadraw-kernel::KERNEL_LOCK` (baru, produksi bukan
+//! cuma test) menyerialkan semua panggilan OCCT lintas thread supaya
+//! tidak crash kalau Extrude diklik persis saat import masih jalan —
+//! lihat "Status Fase 7" di docs/PLAN.md untuk kenapa background thread
+//! BELUM diperluas ke operasi kernel lain (Extrude/Fillet/dst).
+//!
 //! Lingkup yang sengaja belum digarap (bukan lupa — lihat docs/PLAN.md):
 //! spline, fillet 2D, extend, offset untuk Ellipse, toleransi snap adaptif
 //! mouse-vs-sentuh presisi, interaksi drag-satu-gesture, browser/penghapus
@@ -65,8 +82,10 @@
 //! 3D lewat klik viewport (body dipilih dari daftar di panel Model),
 //! fillet/chamfer per-tepi individual (baru "semua tepi sekaligus"),
 //! radial menu untuk konteks selain ganti tool (mis. aksi Model 3D),
-//! deteksi tema sistem otomatis.
+//! deteksi tema sistem otomatis, pengukuran 3D sungguhan (baru titik
+//! sketch 2D), kontrol kualitas tessellation.
 
+mod import_worker;
 mod model;
 
 use std::collections::HashSet;
@@ -84,7 +103,22 @@ use cadraw_sketch::{
 use cadraw_ui::{CommandPalette, RadialMenu, ThemeMode};
 use eframe::egui;
 use glam::{DVec2, Mat4, Vec3};
+use import_worker::{ImportJob, ImportWorker};
 use model::{AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand};
+
+/// Folder yang terlihat lewat Files.app (Fase 6) — bukan lewat API UIKit
+/// resmi (`NSSearchPathForDirectoriesInDomains`, yang butuh dependensi
+/// bridging tambahan), tapi lewat env var `HOME` yang di iOS ATURAN OS-nya
+/// sendiri diarahkan ke root sandbox container app; subfolder "Documents"
+/// di dalamnya adalah SATU-SATUNYA folder yang Files.app tampilkan untuk
+/// app ini, dan HANYA kalau `Info.plist` app punya
+/// `UIFileSharingEnabled=true` + `LSSupportsOpeningDocumentsInPlace=true`
+/// (lihat `ios/Info.plist.template` — belum otomatis aktif sampai project
+/// Xcode sungguhan menyematkannya, agen tak punya akses Xcode GUI).
+#[cfg(target_os = "ios")]
+fn ios_documents_dir() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())).join("Documents")
+}
 
 fn main() -> eframe::Result {
     env_logger::init();
@@ -134,6 +168,14 @@ enum ToolKind {
     /// Perlu 1 entitas Line terpilih dulu (sumbu, dari tool Pilih), lalu
     /// klik 2 titik yang mau dibuat saling cermin — constraint Symmetric.
     SymmetricPick,
+    /// Klik 2 titik (snap) → jarak lurus di antaranya, ditambahkan ke
+    /// `CadrawApp::measurements` (Fase 7). Non-destruktif: TIDAK membuat
+    /// entitas atau menyentuh undo stack sama sekali, beda dari tool
+    /// menggambar — lihat `cadraw_sketch::measure`.
+    Measure,
+    /// Klik 3 titik (awal, titik-sudut/vertex, akhir) → sudut interior di
+    /// vertex, sama pola non-destruktif dengan `Measure`.
+    MeasureAngle,
 }
 
 /// Tool yang ditawarkan radial menu (Fase 4) saat long-press di viewport
@@ -205,6 +247,9 @@ enum PaletteAction {
     DeleteSelection,
     ToggleTheme,
     File(FileOp),
+    /// Kosongkan `CadrawApp::measurements` (Fase 7) — cuma muncul di
+    /// palette saat ada isinya, sama pola dengan `DeleteSelection`.
+    ClearMeasurements,
 }
 
 /// Berapa titik yang dibutuhkan tool sebelum di-commit lewat
@@ -214,14 +259,76 @@ enum PaletteAction {
 fn required_points(tool: ToolKind) -> usize {
     match tool {
         ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
-        | ToolKind::Mirror => 2,
-        ToolKind::Arc => 3,
+        | ToolKind::Mirror | ToolKind::Measure => 2,
+        ToolKind::Arc | ToolKind::MeasureAngle => 3,
         ToolKind::Select
         | ToolKind::Offset
         | ToolKind::Trim
         | ToolKind::CoincidentPick
         | ToolKind::FixedPick
         | ToolKind::SymmetricPick => 0,
+    }
+}
+
+/// Satu hasil pengukuran non-destruktif (Fase 7, tool Ukur/Ukur Sudut) —
+/// disimpan mentah-mentah (titik, bukan cuma angka) supaya overlay bisa
+/// menggambar ulang garis penghubungnya lewat
+/// `cadraw_render::sketch::measurement_lines` tanpa perhitungan ulang.
+enum Measurement {
+    Distance { a: DVec2, b: DVec2 },
+    Angle { a: DVec2, vertex: DVec2, b: DVec2 },
+}
+
+impl Measurement {
+    /// Label siap tampil di panel Pengukuran — `None` untuk sudut degenerate
+    /// (dua titik berimpit dengan vertex, lihat `cadraw_sketch::measure`).
+    fn label(&self) -> String {
+        match self {
+            Measurement::Distance { a, b } => {
+                format!("Jarak: {:.3} mm", cadraw_sketch::measure::distance(*a, *b))
+            }
+            Measurement::Angle { a, vertex, b } => match cadraw_sketch::measure::angle_degrees(*a, *vertex, *b) {
+                Some(angle) => format!("Sudut: {angle:.2}°"),
+                None => "Sudut: tidak terdefinisi (titik berimpit)".to_string(),
+            },
+        }
+    }
+
+    /// Titik-titik untuk digambar ulang lewat `measurement_lines` — urutan
+    /// SENGAJA a→vertex→b untuk Angle (vertex di tengah, sama urutan yang
+    /// dipakai `finish_multipoint` saat commit).
+    fn points(&self) -> Vec<DVec2> {
+        match self {
+            Measurement::Distance { a, b } => vec![*a, *b],
+            Measurement::Angle { a, vertex, b } => vec![*a, *vertex, *b],
+        }
+    }
+}
+
+/// Sumbu bidang potong Section View (Fase 7) — normal sejajar sumbu dunia,
+/// sisi mana yang dibuang ditentukan `CadrawApp::section_invert`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SectionAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl SectionAxis {
+    fn normal(self) -> Vec3 {
+        match self {
+            SectionAxis::X => Vec3::X,
+            SectionAxis::Y => Vec3::Y,
+            SectionAxis::Z => Vec3::Z,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            SectionAxis::X => "X",
+            SectionAxis::Y => "Y",
+            SectionAxis::Z => "Z",
+        }
     }
 }
 
@@ -296,6 +403,31 @@ struct CadrawApp {
     /// diproses sebagai klik seleksi/tool biasa. Dikonsumsi (di-reset ke
     /// `false`) sekali oleh `handle_sketch_input` tiap frame.
     radial_suppress_click: bool,
+
+    /// Hasil tool Ukur/Ukur Sudut (Fase 7), terkumpul sampai "Hapus Semua"
+    /// ditekan atau dokumen baru dibuat — TIDAK ikut undo stack manapun
+    /// (non-destruktif, lihat `Measurement`).
+    measurements: Vec<Measurement>,
+
+    /// Section view (Fase 7): bidang potong viewport 3D, murni efek render
+    /// (`SceneRenderer::set_clip_plane`) — tidak pernah memanggil kernel
+    /// OCCT, jadi aman digeser real-time. Lihat header komentar modul.
+    section_enabled: bool,
+    section_axis: SectionAxis,
+    /// Jarak bidang potong dari origin di sepanjang `section_axis` (mm).
+    section_offset: f32,
+    /// `false` (default): buang sisi POSITIF sumbu (mis. X → sisakan
+    /// x ≤ offset). `true`: balik, buang sisi negatif.
+    section_invert: bool,
+
+    /// Worker latar belakang Import STEP (Fase 7) — lihat modul
+    /// `import_worker`. Di-poll tiap frame di `update()`.
+    import_worker: ImportWorker,
+    /// Jumlah job import yang sudah di-`submit` tapi belum kembali lewat
+    /// `poll`. `> 0` memaksa `update()` minta repaint terus-menerus (egui
+    /// biasanya cuma redraw saat ada input) supaya hasil worker langsung
+    /// muncul begitu selesai, bukan menunggu user menggerakkan mouse.
+    pending_imports: u32,
 }
 
 impl CadrawApp {
@@ -352,6 +484,16 @@ impl CadrawApp {
             radial_menu: RadialMenu::default(),
             radial_press: None,
             radial_suppress_click: false,
+
+            measurements: Vec::new(),
+
+            section_enabled: false,
+            section_axis: SectionAxis::Z,
+            section_offset: 0.0,
+            section_invert: false,
+
+            import_worker: ImportWorker::spawn(),
+            pending_imports: 0,
         }
     }
 
@@ -459,6 +601,18 @@ impl CadrawApp {
                 (!mirrored.is_empty())
                     .then(|| Box::new(InsertEntities::new("Cerminkan", mirrored)) as _)
             }
+            ToolKind::Measure => {
+                self.measurements.push(Measurement::Distance { a: pts[0], b: pts[1] });
+                None
+            }
+            ToolKind::MeasureAngle => {
+                self.measurements.push(Measurement::Angle {
+                    a: pts[0],
+                    vertex: pts[1],
+                    b: pts[2],
+                });
+                None
+            }
             ToolKind::Select
             | ToolKind::Offset
             | ToolKind::Trim
@@ -515,6 +669,24 @@ impl CadrawApp {
                 }
             }
         });
+
+        let measure_tools = [
+            (ToolKind::Measure, "Ukur Jarak"),
+            (ToolKind::MeasureAngle, "Ukur Sudut"),
+        ];
+        let measure_active_label = measure_tools
+            .iter()
+            .find(|(kind, _)| *kind == self.tool)
+            .map(|(_, label)| format!("● {label}"))
+            .unwrap_or_else(|| "📏 Ukur ▾".to_string());
+        ui.menu_button(measure_active_label, |ui| {
+            for (kind, label) in measure_tools {
+                if ui.selectable_label(self.tool == kind, label).clicked() {
+                    self.set_tool(kind);
+                    ui.close();
+                }
+            }
+        });
     }
 
     /// Reset ke dokumen kosong — sketch, model, KEDUA undo stack, seleksi,
@@ -527,6 +699,7 @@ impl CadrawApp {
         self.model_undo = cadraw_core::UndoStack::default();
         self.selected.clear();
         self.selected_bodies.clear();
+        self.measurements.clear();
         self.set_tool(ToolKind::Select);
         self.current_file_path = None;
         self.file_status = Some("Dokumen baru".to_string());
@@ -575,6 +748,76 @@ impl CadrawApp {
             .collect()
     }
 
+    /// Dialog "Buka" lintas platform — desktop lewat `rfd` (native picker
+    /// OS), path native. Di iOS `rfd` bahkan tidak COMPILE (tidak ada
+    /// backend UIKit sama sekali — dibuktikan lewat probe crate terpisah
+    /// saat Fase 6, bukan cuma dugaan), jadi dependensinya digeser jadi
+    /// target-specific di `Cargo.toml` (`cfg(not(target_os = "ios"))`) dan
+    /// fungsi ini dapat kembaran `cfg(target_os = "ios")` — lihat
+    /// `ios_documents_dir` untuk pendekatan Files.app-nya (BUKAN
+    /// `UIDocumentPickerViewController` — itu masih ditunda, butuh
+    /// bridging UIKit; ini pendekatan lebih sederhana yang tidak butuh
+    /// dependensi tambahan sama sekali).
+    #[cfg(not(target_os = "ios"))]
+    fn pick_open_path(&mut self, filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
+        rfd::FileDialog::new().add_filter(filter_name, extensions).pick_file()
+    }
+
+    /// iOS: TIDAK ADA picker — ambil file BERTANGGAL PALING BARU berekstensi
+    /// cocok dari folder `Documents` app (lihat `ios_documents_dir`). User
+    /// menaruh file di sana lewat Files.app (AirDrop/salin ke "Di iPad Ini
+    /// ▸ CADRAW", muncul karena `UIFileSharingEnabled` + `LSSupports
+    /// OpeningDocumentsInPlace` di `ios/Info.plist.template` — TIDAK
+    /// otomatis aktif sampai project Xcode sungguhan dibuat & dipasang
+    /// key itu, lihat catatan Fase 6 di PLAN.md). Heuristik "file terbaru"
+    /// sengaja dipilih dibanding "satu nama tetap" supaya tetap berguna
+    /// walau ada beberapa file — bukan solusi permanen, cuma jembatan
+    /// sampai `UIDocumentPickerViewController` sungguhan ada.
+    #[cfg(target_os = "ios")]
+    fn pick_open_path(&mut self, filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
+        let dir = ios_documents_dir();
+        let newest = std::fs::read_dir(&dir)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| extensions.iter().any(|want| want.eq_ignore_ascii_case(ext)))
+            })
+            .max_by_key(|path| std::fs::metadata(path).and_then(|meta| meta.modified()).ok());
+        if newest.is_none() {
+            self.file_status = Some(format!(
+                "Tidak ada file {filter_name} di folder Documents app (Files.app ▸ Di iPad Ini ▸ CADRAW) — salin file ke sana dulu"
+            ));
+        }
+        newest
+    }
+
+    /// Dialog "Simpan"/"Ekspor" lintas platform — pasangan `pick_open_path`
+    /// di atas, alasan sama.
+    #[cfg(not(target_os = "ios"))]
+    fn pick_save_path(&mut self, filter_name: &str, extensions: &[&str], default_name: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .add_filter(filter_name, extensions)
+            .set_file_name(default_name)
+            .save_file()
+    }
+
+    /// iOS: tulis ke `Documents/<default_name>` (mis. "untitled.cadraw",
+    /// "export.step") — TANPA dialog nama/lokasi (belum ada picker), file
+    /// lama dengan nama sama tertimpa. Terlihat & bisa di-share keluar
+    /// lewat Files.app karena folder yang sama dengan `pick_open_path`.
+    #[cfg(target_os = "ios")]
+    fn pick_save_path(&mut self, _filter_name: &str, _extensions: &[&str], default_name: &str) -> Option<PathBuf> {
+        let dir = ios_documents_dir();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            self.file_status = Some(format!("Gagal mengakses folder Documents iOS: {e}"));
+            return None;
+        }
+        Some(dir.join(default_name))
+    }
+
     fn save_native_to(&mut self, path: PathBuf) {
         let refs = self.native_body_refs();
         match cadraw_io::native::save(&path, &self.sketch, &refs) {
@@ -599,11 +842,7 @@ impl CadrawApp {
     /// "Simpan Sebagai…" (⌘⇧S) — SELALU tampilkan dialog, walau dokumen
     /// sudah punya `current_file_path`.
     fn save_native_as(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("CADRAW", &["cadraw"])
-            .set_file_name("untitled.cadraw")
-            .save_file()
-        {
+        if let Some(path) = self.pick_save_path("CADRAW", &["cadraw"], "untitled.cadraw") {
             self.save_native_to(path);
         }
     }
@@ -612,7 +851,7 @@ impl CadrawApp {
     /// mereset kedua undo stack (undo lintas-dokumen tidak masuk akal) dan
     /// seleksi, sama pola dengan `new_document`.
     fn open_native(&mut self) {
-        let Some(path) = rfd::FileDialog::new().add_filter("CADRAW", &["cadraw"]).pick_file() else {
+        let Some(path) = self.pick_open_path("CADRAW", &["cadraw"]) else {
             return;
         };
         match cadraw_io::native::load(&path) {
@@ -644,18 +883,17 @@ impl CadrawApp {
     /// Export SEMUA body ke satu file STEP (masing-masing tetap solid
     /// terpisah — lihat `cadraw_io::step_io::export`).
     fn export_step(&mut self) {
-        let shapes = self.all_body_shapes();
-        if shapes.is_empty() {
+        if self.all_body_shapes().is_empty() {
             self.file_status = Some("Tidak ada body untuk diekspor ke STEP".to_string());
             return;
         }
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("STEP", &["step", "stp"])
-            .set_file_name("export.step")
-            .save_file()
-        else {
+        // `pick_save_path` butuh `&mut self`, jadi `shapes` (berisi &referensi
+        // ke self.model) tidak boleh masih hidup melintasi panggilan itu —
+        // dihitung ulang SESUDAH path dipilih (murah, cuma iterasi+collect).
+        let Some(path) = self.pick_save_path("STEP", &["step", "stp"], "export.step") else {
             return;
         };
+        let shapes = self.all_body_shapes();
         match cadraw_io::step_io::export(&shapes, &path) {
             Ok(()) => self.file_status = Some(format!("STEP diekspor: {}", path.display())),
             Err(e) => self.file_status = Some(format!("Export STEP gagal: {e}")),
@@ -664,22 +902,49 @@ impl CadrawApp {
 
     /// Import satu file STEP jadi body baru — undo-able lewat
     /// `model_undo` (sama seperti Extrude), nama body dari nama file.
+    /// Submit ke `import_worker` (Fase 7) — TIDAK lagi blocking UI selama
+    /// `read_step`+tessellate. Body baru baru benar-benar masuk `model_undo`
+    /// belakangan, saat `poll_import_worker` (dipanggil tiap frame dari
+    /// `update()`) menerima hasilnya lewat channel.
     fn import_step(&mut self) {
-        let Some(path) = rfd::FileDialog::new().add_filter("STEP", &["step", "stp"]).pick_file() else {
+        let Some(path) = self.pick_open_path("STEP", &["step", "stp"]) else {
             return;
         };
-        match cadraw_io::step_io::import(&path) {
-            Ok(shape) => {
-                let name = path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Import STEP".to_string());
-                let geo = BodyGeometry::from_shape(shape);
-                self.model_undo
-                    .execute(Box::new(AddSolidCommand::new(name, geo)), &mut self.model);
-                self.file_status = Some(format!("STEP diimpor: {}", path.display()));
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Import STEP".to_string());
+        self.file_status = Some(format!("Mengimpor STEP di latar belakang: {}", path.display()));
+        self.import_worker.submit(ImportJob { name, path });
+        self.pending_imports += 1;
+    }
+
+    /// Non-blocking, dipanggil tiap frame dari `update()`: pasang body baru
+    /// untuk setiap `ImportResult` yang sudah siap dari `import_worker`.
+    /// `KernelShape::from_step_string` di sini membangun shape MILIK UI
+    /// thread sendiri dari teks STEP yang dikirim worker (bukan shape asli
+    /// worker — itu tidak pernah menyeberang thread, lihat komentar modul
+    /// `import_worker`); mesh dipakai apa adanya (sudah dihitung worker,
+    /// tidak perlu tessellate ulang).
+    fn poll_import_worker(&mut self) {
+        for result in self.import_worker.poll() {
+            self.pending_imports = self.pending_imports.saturating_sub(1);
+            match result.outcome {
+                Ok((step, mesh)) => match KernelShape::from_step_string(&step) {
+                    Ok(shape) => {
+                        let geo = BodyGeometry { shape, mesh };
+                        self.model_undo.execute(
+                            Box::new(AddSolidCommand::new(result.name.clone(), geo)),
+                            &mut self.model,
+                        );
+                        self.file_status = Some(format!("STEP diimpor: {}", result.name));
+                    }
+                    Err(e) => {
+                        self.file_status = Some(format!("Import STEP gagal ({}): {e}", result.name))
+                    }
+                },
+                Err(e) => self.file_status = Some(format!("Import STEP gagal ({}): {e}", result.name)),
             }
-            Err(e) => self.file_status = Some(format!("Import STEP gagal: {e}")),
         }
     }
 
@@ -693,11 +958,7 @@ impl CadrawApp {
         }
         let mesh_refs: Vec<&KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
         let merged = KernelMesh::merge(&mesh_refs);
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("STL", &["stl"])
-            .set_file_name("export.stl")
-            .save_file()
-        else {
+        let Some(path) = self.pick_save_path("STL", &["stl"], "export.stl") else {
             return;
         };
         match cadraw_io::mesh_export::write_stl_binary(&merged, &path) {
@@ -708,18 +969,16 @@ impl CadrawApp {
 
     /// Export body `visible` sebagai OBJ (satu blok `o <nama>` per body).
     fn export_obj(&mut self) {
-        let bodies = self.visible_body_meshes();
-        if bodies.is_empty() {
+        if self.visible_body_meshes().is_empty() {
             self.file_status = Some("Tidak ada body visible untuk diekspor ke OBJ".to_string());
             return;
         }
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("OBJ", &["obj"])
-            .set_file_name("export.obj")
-            .save_file()
-        else {
+        // Sama alasan dengan `export_step`: `bodies` dihitung ulang sesudah
+        // path dipilih supaya tidak melintasi panggilan `&mut self`.
+        let Some(path) = self.pick_save_path("OBJ", &["obj"], "export.obj") else {
             return;
         };
+        let bodies = self.visible_body_meshes();
         match cadraw_io::mesh_export::write_obj(&bodies, &path) {
             Ok(()) => self.file_status = Some(format!("OBJ diekspor: {}", path.display())),
             Err(e) => self.file_status = Some(format!("Export OBJ gagal: {e}")),
@@ -730,11 +989,7 @@ impl CadrawApp {
     /// dilewati (DXF R12 tidak punya entitas ELLIPSE) — dilaporkan lewat
     /// status, bukan didiamkan.
     fn export_dxf(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("DXF", &["dxf"])
-            .set_file_name("export.dxf")
-            .save_file()
-        else {
+        let Some(path) = self.pick_save_path("DXF", &["dxf"], "export.dxf") else {
             return;
         };
         match cadraw_io::dxf::export(&self.sketch, &path) {
@@ -753,7 +1008,7 @@ impl CadrawApp {
     /// lewat `undo` (satu langkah `InsertEntities`, sama pola dengan
     /// menggambar tool sketch manapun).
     fn import_dxf(&mut self) {
-        let Some(path) = rfd::FileDialog::new().add_filter("DXF", &["dxf"]).pick_file() else {
+        let Some(path) = self.pick_open_path("DXF", &["dxf"]) else {
             return;
         };
         match cadraw_io::dxf::import(&path) {
@@ -889,6 +1144,8 @@ impl CadrawApp {
             ("Coincident (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::CoincidentPick)),
             ("Fixed (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::FixedPick)),
             ("Symmetric (titik)".to_string(), String::new(), PaletteAction::SetTool(ToolKind::SymmetricPick)),
+            ("Ukur Jarak".to_string(), String::new(), PaletteAction::SetTool(ToolKind::Measure)),
+            ("Ukur Sudut".to_string(), String::new(), PaletteAction::SetTool(ToolKind::MeasureAngle)),
             ("Undo Sketch".to_string(), "⌘Z".to_string(), PaletteAction::Undo),
             ("Redo Sketch".to_string(), "⌘⇧Z".to_string(), PaletteAction::Redo),
             ("Undo Model".to_string(), String::new(), PaletteAction::ModelUndo),
@@ -904,6 +1161,13 @@ impl CadrawApp {
                 format!("Hapus Seleksi ({} entitas)", self.selected.len()),
                 "Del".to_string(),
                 PaletteAction::DeleteSelection,
+            ));
+        }
+        if !self.measurements.is_empty() {
+            actions.push((
+                format!("Hapus Semua Pengukuran ({})", self.measurements.len()),
+                String::new(),
+                PaletteAction::ClearMeasurements,
             ));
         }
         actions
@@ -938,6 +1202,9 @@ impl CadrawApp {
             PaletteAction::ToggleTheme => {
                 self.theme = self.theme.toggled();
                 cadraw_ui::apply_theme(ctx, self.theme);
+            }
+            PaletteAction::ClearMeasurements => {
+                self.measurements.clear();
             }
             PaletteAction::File(op) => match op {
                 FileOp::New => self.new_document(),
@@ -1062,6 +1329,15 @@ impl CadrawApp {
                     _ => "Symmetric: klik titik kedua".to_string(),
                 },
             },
+            ToolKind::Measure => match self.pending_points.len() {
+                0 => "Ukur: klik titik pertama".to_string(),
+                _ => "Ukur: klik titik kedua".to_string(),
+            },
+            ToolKind::MeasureAngle => match self.pending_points.len() {
+                0 => "Ukur Sudut: klik titik awal".to_string(),
+                1 => "Ukur Sudut: klik titik sudut (vertex)".to_string(),
+                _ => "Ukur Sudut: klik titik akhir".to_string(),
+            },
         };
         match &self.last_snap {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),
@@ -1101,6 +1377,7 @@ impl CadrawApp {
                 body_positions,
                 body_normals,
                 body_indices,
+                clip_plane: self.section_clip_plane(),
             },
         ));
 
@@ -1251,7 +1528,7 @@ impl CadrawApp {
                 }
             }
             ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
-            | ToolKind::Arc => {
+            | ToolKind::Arc | ToolKind::Measure | ToolKind::MeasureAngle => {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
@@ -1404,6 +1681,13 @@ impl CadrawApp {
     fn build_overlay_lines(&self, raw_cursor: Option<DVec2>) -> Vec<LineVertex> {
         let mut verts = sketch_render::entity_lines(&self.sketch, self.hovered, &self.selected);
 
+        // Pengukuran (Fase 7) tergambar permanen — beda dari preview
+        // rubber-band tool lain, hasil Ukur/Ukur Sudut yang sudah commit
+        // tetap tampil walau tool aktif berganti.
+        for measurement in &self.measurements {
+            verts.extend(sketch_render::measurement_lines(&measurement.points()));
+        }
+
         // Offset: sumber tetap ditandai sebagai preview walau hover pindah.
         if self.tool == ToolKind::Offset {
             if let Some(entity) = self.offset_source.and_then(|id| self.sketch.entities.get(id)) {
@@ -1527,6 +1811,15 @@ impl CadrawApp {
                             verts.extend(sketch_render::removal_preview_lines(a, b));
                         }
                     }
+                }
+                ToolKind::Measure | ToolKind::MeasureAngle => {
+                    // `pending_points` + kursor jadi satu polyline preview —
+                    // berlaku untuk 1 titik (Ukur, rubber-band jarak) maupun
+                    // 2 titik (Ukur Sudut, leg kedua) tanpa cabang terpisah.
+                    let effective = self.snapped_or(raw);
+                    let mut preview_points = self.pending_points.clone();
+                    preview_points.push(effective);
+                    verts.extend(sketch_render::measurement_lines(&preview_points));
                 }
                 _ => {}
             }
@@ -1886,6 +2179,23 @@ impl CadrawApp {
         (merged.positions, merged.normals, merged.indices)
     }
 
+    /// Bidang potong Section View siap kirim ke `SceneRenderer::set_clip_plane`
+    /// — `None` kalau nonaktif. `section_invert` membalik `(normal, offset)`
+    /// SEKALIGUS (bukan cuma normal) — plane `dot(n,p)=offset` dan
+    /// `dot(-n,p)=-offset` adalah bidang yang SAMA persis secara geometris,
+    /// jadi posisi potong di slider tidak ikut lompat saat cuma membalik
+    /// sisi mana yang dibuang.
+    fn section_clip_plane(&self) -> Option<(Vec3, f32)> {
+        self.section_enabled.then(|| {
+            let normal = self.section_axis.normal();
+            if self.section_invert {
+                (-normal, -self.section_offset)
+            } else {
+                (normal, self.section_offset)
+            }
+        })
+    }
+
     /// Panel Model (kanan layar): daftar body (klik pilih, checkbox
     /// visible, Ctrl/Cmd+klik multi-pilih) + tombol operasi. Muncul
     /// kapanpun (tidak bergantung tool sketch aktif) — beda dari panel
@@ -1913,6 +2223,29 @@ impl CadrawApp {
                         self.model_undo.redo(&mut self.model);
                         self.selected_bodies.clear();
                     }
+                });
+                ui.separator();
+
+                // Section View (Fase 7): murni potongan tampilan (fragment
+                // discard di shader) — TIDAK memanggil kernel OCCT sama
+                // sekali, jadi slider offset aman digeser real-time tiap
+                // frame tanpa biaya rebuild geometri. Beda dari operasi
+                // Boolean yang benar-benar memotong B-rep.
+                ui.collapsing("✂ Section View", |ui| {
+                    ui.checkbox(&mut self.section_enabled, "Aktifkan");
+                    ui.add_enabled_ui(self.section_enabled, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Sumbu:");
+                            for axis in [SectionAxis::X, SectionAxis::Y, SectionAxis::Z] {
+                                ui.selectable_value(&mut self.section_axis, axis, axis.label());
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Offset (mm):");
+                            ui.add(egui::Slider::new(&mut self.section_offset, -500.0..=500.0));
+                        });
+                        ui.checkbox(&mut self.section_invert, "Balik arah potong");
+                    });
                 });
                 ui.separator();
 
@@ -2020,6 +2353,45 @@ impl CadrawApp {
                 }
             });
     }
+
+    /// Panel "📏 Pengukuran" (Fase 7) — jendela mengambang kecil, cuma
+    /// tampil kalau ada isinya ATAU tool Ukur/Ukur Sudut sedang aktif
+    /// (supaya tidak menambah dua panel sisi permanen lagi di layar yang
+    /// sudah punya panel Model + Constraint). Daftar bisa dihapus satu-satu
+    /// (✕) atau semua sekaligus — non-destruktif, tidak menyentuh undo
+    /// stack manapun (lihat `Measurement`).
+    fn measurement_panel(&mut self, ctx: &egui::Context) {
+        let tool_active = matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
+        if self.measurements.is_empty() && !tool_active {
+            return;
+        }
+        egui::Window::new("📏 Pengukuran")
+            .default_pos(egui::pos2(260.0, 80.0))
+            .resizable(false)
+            .show(ctx, |ui| {
+                if self.measurements.is_empty() {
+                    ui.weak("(belum ada — klik 2 titik untuk jarak, 3 titik untuk sudut)");
+                }
+                let mut remove_at: Option<usize> = None;
+                for (i, m) in self.measurements.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(m.label());
+                        if ui.small_button("✕").clicked() {
+                            remove_at = Some(i);
+                        }
+                    });
+                }
+                if let Some(i) = remove_at {
+                    self.measurements.remove(i);
+                }
+                if !self.measurements.is_empty() {
+                    ui.separator();
+                    if ui.button("Hapus Semua").clicked() {
+                        self.measurements.clear();
+                    }
+                }
+            });
+    }
 }
 
 /// Untuk tool Trim: segmen (awal,akhir) yang akan terhapus jika `hover`
@@ -2118,8 +2490,16 @@ impl eframe::App for CadrawApp {
             self.run_palette_action(ctx, action);
         }
 
+        self.poll_import_worker();
+        if self.pending_imports > 0 {
+            // Import STEP masih jalan di `import_worker` — minta repaint
+            // segera (bukan menunggu event input) supaya hasilnya kelihatan
+            // secepat worker selesai, bukan baru muncul saat mouse bergerak.
+            ctx.request_repaint();
+        }
         self.model_panel(ctx);
         self.constraint_panel(ctx);
+        self.measurement_panel(ctx);
 
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -2191,6 +2571,8 @@ struct ViewportCallback {
     body_positions: Vec<[f32; 3]>,
     body_normals: Vec<[f32; 3]>,
     body_indices: Vec<u32>,
+    /// Section View (Fase 7) — lihat `CadrawApp::section_clip_plane`.
+    clip_plane: Option<(Vec3, f32)>,
 }
 
 impl egui_wgpu::CallbackTrait for ViewportCallback {
@@ -2205,6 +2587,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
             scene.set_overlay_lines(device, &self.overlay_lines);
             scene.set_mesh(device, &self.body_positions, &self.body_normals, &self.body_indices);
+            scene.set_clip_plane(self.clip_plane);
             scene.prepare(queue, self.view_proj, self.eye);
         }
         Vec::new()

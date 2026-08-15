@@ -23,4 +23,34 @@ glam = { workspace = true }
 slotmap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+
+# `rfd` (dialog file native) TIDAK COMPILE di iOS — tidak ada backend
+# UIKit sama sekali (dibuktikan lewat probe crate terpisah saat Fase 6).
+# Digeser jadi target-specific supaya `cargo build --target aarch64-apple-
+# ios` tidak gagal di dependensi ini; pemanggilnya (`CadrawApp::
+# pick_open_path`/`pick_save_path` di `main.rs`) sudah punya kembaran
+# `cfg(target_os = "ios")` yang melaporkan status "belum didukung" alih-
+# alih memanggil `rfd` sama sekali.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
 rfd = { workspace = true }
+
+# Packaging desktop (Fase 7) lewat `cargo-bundle` (`cargo install cargo-
+# bundle && cargo bundle --release -p cadraw-app`) — dibaca `cargo-bundle`
+# dari sini, TIDAK berpengaruh ke `cargo build`/`cargo run` biasa sama
+# sekali (cuma metadata pasif). Lihat docs/PACKAGING.md untuk apa yang
+# dihasilkan vs apa yang SENGAJA di luar lingkup (code signing/
+# notarization/installer Windows/AppImage Linux — semua butuh sertifikat/
+# GUI yang tidak tersedia di sandbox agent).
+[package.metadata.bundle]
+name = "CADRAW"
+identifier = "id.jayuda.cadraw"
+icon = []
+version = "0.1.0"
+copyright = "Copyright (c) 2026 Yulius Jayuda"
+category = "public.app-category.developer-tools"
+short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel OpenCASCADE"
+long_description = """
+CADRAW adalah aplikasi CAD gaya AutoCAD (drafting 2D presisi) yang \
+berevolusi ke pemodelan 3D gaya Shapr3D (sketch -> extrude, direct \
+modeling), dibangun di atas kernel geometri OpenCASCADE.
+"""

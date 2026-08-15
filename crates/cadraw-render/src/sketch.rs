@@ -17,6 +17,7 @@ const COLOR_PREVIEW: [f32; 4] = [0.55, 0.90, 0.55, 0.85];
 const COLOR_SNAP: [f32; 4] = [1.0, 0.55, 0.15, 1.0];
 const COLOR_REMOVAL: [f32; 4] = [0.95, 0.25, 0.25, 0.95];
 const COLOR_PICKED: [f32; 4] = [0.65, 0.35, 0.95, 1.0];
+const COLOR_MEASURE: [f32; 4] = [1.0, 0.95, 0.35, 1.0];
 const ARC_SEGMENTS_FULL: usize = 48;
 
 fn to3(p: DVec2) -> [f32; 3] {
@@ -89,6 +90,26 @@ pub fn removal_preview_lines(start: DVec2, end: DVec2) -> Vec<LineVertex> {
             color: COLOR_REMOVAL,
         },
     ]
+}
+
+/// Garis kuning penghubung titik-titik tool "Ukur" (Fase 7) — 2 titik untuk
+/// jarak, 3 titik (dengan `vertex` di tengah) untuk sudut. Sengaja terima
+/// `&[DVec2]` generik (bukan `Measurement` dari `cadraw-app`) supaya crate
+/// ini tetap tidak bergantung pada tipe app-level, sama pola dengan seluruh
+/// modul render lain.
+pub fn measurement_lines(points: &[DVec2]) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    for pair in points.windows(2) {
+        verts.push(LineVertex {
+            position: to3(pair[0]),
+            color: COLOR_MEASURE,
+        });
+        verts.push(LineVertex {
+            position: to3(pair[1]),
+            color: COLOR_MEASURE,
+        });
+    }
+    verts
 }
 
 fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4]) {
@@ -237,4 +258,33 @@ pub fn snap_glyph(hit: &SnapHit) -> Vec<LineVertex> {
         }
     }
     verts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn measurement_lines_empty_for_single_point() {
+        // 1 titik belum ada segmen untuk digambar (dipakai saat tool Ukur
+        // baru dapat titik pertama, sebelum titik kedua diklik).
+        assert!(measurement_lines(&[DVec2::new(0.0, 0.0)]).is_empty());
+    }
+
+    #[test]
+    fn measurement_lines_one_segment_for_two_points() {
+        let verts = measurement_lines(&[DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)]);
+        assert_eq!(verts.len(), 2);
+    }
+
+    #[test]
+    fn measurement_lines_two_segments_for_three_points() {
+        // Tool Ukur Sudut: 2 segmen (a→vertex, vertex→b) dari 3 titik.
+        let verts = measurement_lines(&[
+            DVec2::new(0.0, 0.0),
+            DVec2::new(1.0, 1.0),
+            DVec2::new(2.0, 0.0),
+        ]);
+        assert_eq!(verts.len(), 4);
+    }
 }
