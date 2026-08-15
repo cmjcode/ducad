@@ -135,6 +135,9 @@ impl Command<ModelDoc> for ReplaceGeometryCommand {
 pub enum BooleanKind {
     Union,
     Subtract,
+    /// Irisan (cuma volume yang tumpang tindih) — Fase 8, lewat
+    /// `cadraw_kernel::intersect`.
+    Intersect,
 }
 
 /// Sebelum di-apply: hasil sudah dihitung (dry-run), siap dipasang.
@@ -151,9 +154,8 @@ enum BooleanState {
     },
 }
 
-/// Union/Subtract dua body jadi satu body hasil — A & B dihapus, hasil
-/// masuk sebagai body baru. Boolean intersect (irisan) tidak tersedia,
-/// lihat `cadraw_kernel::union`/`subtract` dan docs/PLAN.md.
+/// Union/Subtract/Intersect dua body jadi satu body hasil — A & B dihapus,
+/// hasil masuk sebagai body baru.
 pub struct BooleanCommand {
     label: &'static str,
     result_name: String,
@@ -179,6 +181,7 @@ impl BooleanCommand {
         let result_shape = match kind {
             BooleanKind::Union => cadraw_kernel::union(&geo_a.shape, &geo_b.shape),
             BooleanKind::Subtract => cadraw_kernel::subtract(&geo_a.shape, &geo_b.shape),
+            BooleanKind::Intersect => cadraw_kernel::intersect(&geo_a.shape, &geo_b.shape),
         }
         .map_err(|e| format!("{label} gagal: {e}"))?;
         Ok(Self {

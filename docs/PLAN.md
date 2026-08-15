@@ -47,8 +47,9 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 3. **Modeling 3D** — extrude/revolve/sweep, boolean, sketch-on-face, fillet/
    chamfer/shell sebagai fitur inti (bukan "sejauh kemampuan kernel").
    **[status: putaran pertama selesai — Extrude, Union/Subtract, Fillet/
-   Chamfer semua tepi, Shell/Hollow, render mesh 3D nyata; Revolve/sweep/
-   sketch-on-face ditunda, lihat bawah]**
+   Chamfer semua tepi, Shell/Hollow, render mesh 3D nyata; Revolve/loft/
+   intersect/fillet-chamfer-per-tepi/shell-multi-face DITUNTASKAN Fase 8;
+   sweep & sketch-on-face masih ditunda, lihat status Fase 8 di bawah]**
 4. **UX shell** — toolbar kontekstual, command palette, radial menu iPad,
    target sentuh ≥44pt, tema. **[status: putaran pertama selesai — command
    palette, radial menu long-press, toggle tema, target sentuh global,
@@ -66,6 +67,13 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    Jarak/Sudut, Section View (clip plane shader), worker thread Import
    STEP + kunci kernel global baru, metadata packaging `cargo-bundle`,
    lihat bawah]**
+8. **Modeling 3D lanjutan** — Revolve, loft, boolean intersect, picking
+   edge/face 3D di viewport untuk fillet/chamfer per-tepi & shell
+   multi-face (kekurangan terbesar yang ditunda sejak Fase 3).
+   **[status: putaran pertama selesai — Revolve 360°, Loft 2-profil,
+   Boolean Intersect, infrastruktur picking edge/face berbasis ray-dunia
+   (bukan index — lihat desain kunci di bawah), Fillet/Chamfer per-tepi,
+   Shell multi-face; sweep & sketch-on-face ditunda, lihat bawah]**
 
 Detail penuh tiap fase, tabel risiko, dan estimasi ada di riwayat sesi
 perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
@@ -862,6 +870,172 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       14 io, 6 render termasuk 3 measurement_lines baru, 42 sketch
       termasuk 6 measure baru), plus smoke-run `cargo run -p cadraw-app`
       tanpa panic startup.
+
+## Status Fase 8 — Modeling 3D Lanjutan (dikerjakan, putaran pertama)
+
+Riset API `opencascade-rs` 0.2.0 sebelum implementasi mengubah beberapa
+dugaan lama di dokumen ini:
+
+- **Revolve TERNYATA sudah ada** di binding (`Face::revolve`, 360° default)
+  — Fase 3 dulu salah menyimpulkan ini belum tersedia (yang benar-benar
+  tidak ada cuma sweep).
+- **Sweep sepanjang jalur TIDAK ADA** sama sekali (tidak ada binding
+  `BRepOffsetAPI_MakePipe`/`MakePipeShell` di `opencascade-sys`) — gap
+  upstream sekelas blocker OCCT-iOS Fase 6, butuh menambal binding cxx
+  sendiri. **Tetap didefer**, bukan dipaksakan.
+- **Boolean intersect** ada level FFI (`BRepAlgoAPI_Common`, dipakai
+  `AdHocShape::intersect`) tapi tidak diekspos di `Shape` publik seperti
+  union/subtract — diimplementasi lewat `AdHocShape` sekali pakai.
+- **Face-ray-cast SUDAH ADA** (`Shape::faces_along_ray`, exact level B-rep)
+  — pas untuk face-picking. **Edge-ray-cast TIDAK ADA** — ditulis sendiri
+  (closest-point ray-vs-segmen 3D, pola project yang sama dengan solver LM/
+  snap engine/DXF writer: tulis lapisan tipis sendiri, bukan dependensi
+  besar untuk sebagian kecil kemampuannya).
+
+- [x] **`revolve_profile(profile, axis_origin, axis_dir, angle_degrees)`**
+      (`cadraw-kernel`): `build_wire` (sudah ada) → `Face::from_wire` →
+      `face.revolve(...)`. Validasi `axis_dir` non-degenerate SEBELUM
+      panggil OCCT (dir nol → `Err`, bukan panic). `angle_degrees: None` =
+      360° penuh (default binding); `Some(derajat)` didukung kernel tapi
+      BELUM ada UI-nya (defer, lihat bawah). 2 test baru: revolve persegi
+      yang TIDAK menyentuh axis → verifikasi geometris nyata (radius dalam
+      >5, radius luar dalam rentang 15-25, tinggi dalam rentang y profil —
+      bukan cuma "tidak panic"); axis degenerate → `Err`.
+      `cadraw-app`: `ToolKind::Revolve` (shortcut **V**) — UX MENIRU PERSIS
+      pola Mirror yang sudah ada: pilih profil dulu di tool Pilih (non-
+      kosong), lalu 2 klik (snap aktif) jadi sumbu 2D di bidang XY. Hasil
+      langsung `AddSolidCommand` (tipe existing, tidak perlu Command baru)
+      kalau sukses.
+- [x] **`build_wire_at_z(profile, z)`** (`cadraw-kernel`, refactor
+      `build_wire` lama supaya terima parameter Z opsional — `build_wire`
+      lama jadi wrapper tipis `build_wire_at_z(profile, 0.0)`) +
+      **`loft_profiles(bottom, top, height)`** → `Solid::loft([bottom_wire,
+      top_wire_at_z(height)])`. BUKAN loft lintas-workplane sungguhan
+      (sketch CADRAW masih satu bidang XY, tidak ada konsep workplane sama
+      sekali — dikonfirmasi lewat grep nol match) — profil ATAS cuma
+      diangkat lewat translasi Z murni. 2 test: loft persegi→lingkaran
+      verifikasi dasar tepat di Z=0 & puncak tepat di Z=height (sampling
+      posisi vertex, bukan cuma triangle_count); tinggi nol → `Err`.
+      `cadraw-app`: section baru di panel Model 3D (bukan tool viewport,
+      panel-driven seperti Extrude) — tombol "Set Profil Bawah dari
+      Seleksi" men-stage `pending_loft_bottom: Option<Profile>`, field
+      Tinggi + tombol "Loft" pakai profil bawah ter-stage + seleksi sketch
+      SAAT DIKLIK sebagai profil atas.
+- [x] **`intersect(a, b)`** (`cadraw-kernel`) — `Shape` publik tidak
+      expose `.intersect()` seperti union/subtract (cuma `AdHocShape`,
+      wrapper tipis `BRepAlgoAPI_Common`) — `deep_clone` dulu (pola sama
+      dengan fillet/chamfer, `a`/`b` asli pemanggil tidak tersentuh), lalu
+      dibungkus `AdHocShape` sekali pakai. Hasil kosong (tidak
+      bersinggungan) DIDETEKSI (`triangle_count() == 0` via helper privat
+      `tessellate_shape`, BUKAN `KernelShape::tessellate()` publik — itu
+      akan `lock_kernel()` lagi selagi guard `intersect` sendiri masih
+      dipegang, `Mutex` std tidak reentrant, deadlock; ditemukan &
+      diperbaiki sebelum sempat jadi bug produksi, bukan lewat teori) →
+      `Err` rapi. 2 test: 2 box overlap → hasil lebih kecil dari union
+      (bukti nyata "cuma irisan"); 2 box tidak overlap → `Err`.
+      `cadraw-app`: `model::BooleanKind::Intersect` (varian baru,
+      `BooleanCommand`/`try_new` existing dipakai apa adanya — tidak perlu
+      Command baru) + tombol "Intersect" di baris Union/Subtract.
+- [x] **Desain kunci: picking edge/face TANPA index yang rapuh lintas
+      `deep_clone`.** `fillet_all`/`chamfer_all`/`shell_hollow` yang sudah
+      ada semua memutasi lewat `deep_clone` (roundtrip STEP) — Face/Edge
+      yang dipilih SEBELUM clone bukan sub-shape valid dari shape HASIL
+      clone, dan index posisi di `shape.edges()`/`faces()` tidak terjamin
+      stabil lintas roundtrip STEP (tidak pernah diverifikasi — jadi tidak
+      boleh diasumsikan). **Solusi**: simpan **ray dunia** (`PickRay {
+      origin, dir }`) yang dipakai klik, bukan index/handle. Saat apply,
+      `deep_clone` dulu, lalu cast ULANG ray yang SAMA terhadap shape hasil
+      clone (`faces_along_ray` untuk face; pencarian jarak-ray-ke-polyline
+      custom untuk edge, TIDAK ADA primitif OCCT untuk ini) — karena
+      `deep_clone` tidak memindah geometri di ruang dunia, ray yang sama
+      selalu kena permukaan/tepi yang SAMA secara geometris. Menghindari
+      SELURUH masalah index-stability/handle-identity lewat operasi
+      geometris yang robust by construction, bukan asumsi yang butuh
+      diverifikasi.
+      **Divalidasi lewat test WAJIB** (dijalankan SEBELUM lanjut ke
+      fillet/chamfer/shell per-tepi, pola root-cause-dulu yang sama dengan
+      blocker OCCT/iOS Fase 6): `pick_face_consistent_across_deep_clone`/
+      `pick_edge_consistent_across_deep_clone` — ray yang sama di-cast ke
+      shape asli DAN ke hasil `deep_clone`-nya, titik hit HARUS sama dalam
+      toleransi numerik kecil. Keduanya lulus — asumsi terbukti valid,
+      bukan cuma masuk akal secara teori.
+- [x] **`pick_face(shape, ray)`** / **`pick_edge(shape, ray, tolerance)`**
+      (`cadraw-kernel`, publik — dipakai UI utk feedback interaktif) +
+      helper privat `resolve_face_along_ray`/`resolve_edge_along_ray`
+      (dipakai ULANG oleh fillet/chamfer/shell per-tepi di bawah, supaya
+      tidak `lock_kernel()` dua kali dari dalam fungsi publik yang sama).
+      `closest_point_ray_segment`: closest-point ray-vs-segmen 3D ditulis
+      sendiri (pendekatan dua-langkah standar utk hit-testing interaktif,
+      BUKAN solusi jarak-minimum-tersertifikasi — didokumentasikan sebagai
+      batasan sadar). 1 test tambahan: ray meleset jauh dari shape →
+      `pick_face` `None` (bukan salah nangkep sesuatu).
+- [x] **`fillet_edges(shape, radius, rays, tolerance)`** /
+      **`chamfer_edges(shape, distance, rays, tolerance)`** /
+      **`shell_hollow_faces(shape, thickness, rays)`** (`cadraw-kernel`,
+      fungsi TERPISAH dari `fillet_all`/`chamfer_all`/`shell_hollow` lama
+      — perilaku lama TIDAK berubah sama sekali, backward-compatible
+      penuh). `Shape::fillet_edges`/`chamfer_edges` TERNYATA sudah ada
+      sebagai primitif publik di binding (`fillet_all` yang sudah ada
+      sejak Fase 3 ternyata cuma `fillet_edges(radius, self.edges())` di
+      baliknya) — tidak perlu menambal apa pun di binding.
+      `Shape::hollow` TERNYATA SUDAH generic multi-face sejak awal
+      (`shell_hollow` lama membatasi ke 1 face lewat `try_farthest`
+      sendiri, bukan batasan binding). Semua 3 fungsi menolak `rays`
+      kosong (error mengarahkan ke varian "semua tepi/arah otomatis").
+      3 test geometris nyata: fillet 1 tepi spesifik pada box → jumlah
+      vertex hasil LEBIH SEDIKIT dari `fillet_all` (bukti cuma 1 tepi yang
+      kena, bukan semua 12); shell 2 face (top+bottom) → **jumlah FACE
+      B-rep asli DAN jumlah triangle beda nyata dari shell 1-face** —
+      ditemukan lewat test yang awalnya GAGAL (jumlah VERTEX tessellation
+      kebetulan sama persis, 48==48, di box simetris ini) bahwa vertex
+      count BUKAN proxy topologi yang reliabel untuk kasus ini, diperbaiki
+      pakai face count + triangle count yang terbukti beda (10 vs 11 face,
+      32 vs 28 triangle, dicek langsung); plus 2 test error (rays kosong,
+      ray meleset dari shape mana pun).
+      `cadraw-app`: `fillet_selected_body`/`chamfer_selected_body`/
+      `shell_selected_body` (existing) dicabang — `selected_edges`/
+      `selected_faces` tidak kosong → panggil varian `_edges`/`_faces`
+      baru; kosong → perilaku LAMA (fungsi `_all`/`shell_hollow`) tidak
+      berubah. `screen_to_plane_point` di-refactor: logika unprojection
+      near/far diekstrak jadi `screen_to_ray` (dipakai bersama, perilaku
+      sketch Z=0 TIDAK berubah). `handle_3d_picking` (baru) — diintersep
+      di awal `handle_sketch_input` saat `PickMode` aktif (ortogonal
+      terhadap `ToolKind`, dipicu tombol toggle "Pilih Tepi/Wajah Manual"
+      di panel Model 3D, butuh PERSIS 1 body terpilih). `PickedEdge`
+      menyimpan ray + polyline hasil pick (di-cache, highlight overlay
+      garis oranye tidak query kernel ulang tiap frame render). Tombol
+      "Reset Pilihan" mengosongkan seleksi picking.
+- [ ] **Sengaja belum ada** (lingkup Fase 8 putaran pertama dipersempit ke
+      yang bisa dibangun di atas API `opencascade-rs` 0.2.0 yang sudah ada
+      + terverifikasi robust, sisanya bukan lupa): sweep sepanjang jalur
+      (gap upstream `opencascade-sys`, butuh menambal binding cxx sendiri
+      — pekerjaan besar terpisah, sekelas blocker OCCT-iOS Fase 6, bukan
+      tambahan kecil); Revolve sudut PARSIAL (kernel sudah mendukung lewat
+      `angle_degrees: Some(..)`, UI-nya belum — cuma 360° penuh); loft
+      lintas-workplane sungguhan & sketch-on-face (butuh konsep workplane
+      baru yang cross-cutting — menyentuh `screen_to_plane_point`, semua
+      tempat DVec2→3D dipromosikan, DXF import/export — SETARA besarnya
+      dengan async kernel pipeline yang didefer Fase 7, root-cause dulu
+      sebelum dibangun di atas asumsi belum terverifikasi, bukan
+      dipaksakan setengah jalan); picking BODY lewat klik viewport (baru
+      face/edge pada body yang SUDAH terpilih dari daftar panel — klik
+      viewport untuk GANTI seleksi body masih ditunda); toggle-off klik
+      ulang tepi/wajah yang sama (v1 cuma menambah, ada tombol "Reset
+      Pilihan" sebagai jalan keluar); highlight 3D wajah terpilih (baru
+      hitungan angka di panel — butuh ekstraksi sub-mesh per-face yang
+      tidak dibangun putaran ini); toleransi re-resolusi ray saat apply
+      pakai konstanta tetap (`EDGE_REAPPLY_TOLERANCE_MM = 5.0`), bukan
+      dihitung dari kamera (dipanggil dari tombol panel, bukan dari dalam
+      `viewport()` yang punya akses `rect` layar — cukup karena ray/
+      geometri tidak berubah antara pick dan apply, didokumentasikan di
+      kode).
+- [ ] Verifikasi visual & UX (tool Revolve, panel Loft/Intersect/picking
+      edge-wajah, highlight tepi oranye) di device sungguhan — sama
+      seperti fase-fase sebelumnya, belum bisa dicek dari sandbox agent
+      (tidak ada akses WindowServer). `cargo build`/`clippy -D warnings`/
+      `test` seluruh workspace hijau (96 test: 4 kamera, 1 undo-core, 29
+      kernel termasuk 15 baru Fase 8, 14 io, 6 render, 42 sketch), plus
+      smoke-run `cargo run -p cadraw-app` tanpa panic startup.
 
 ## Menjalankan
 

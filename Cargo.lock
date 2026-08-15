@@ -578,6 +578,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
+ "egui_material_icons",
  "env_logger",
  "glam 0.29.3",
  "log",
@@ -641,6 +642,8 @@ name = "cadraw-ui"
 version = "0.1.0"
 dependencies = [
  "egui",
+ "egui_material_icons",
+ "glam 0.29.3",
 ]
 
 [[package]]
@@ -1158,6 +1161,15 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "winit",
+]
+
+[[package]]
+name = "egui_material_icons"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edaf2524c06db70ec9154db2de26b43ea278cd304547c0ee9339d5a46a4d6a04"
+dependencies = [
+ "egui",
 ]
 
 [[package]]

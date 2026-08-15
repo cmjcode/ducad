@@ -1,10 +1,11 @@
 # Panduan Pemakaian CADRAW
 
-Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 5
-(viewport 3D, sketching 2D, constraint solver, modeling 3D, UX shell —
-command palette/radial menu/tema, dan file I/O — buka/simpan/import/
-export). Untuk status proyek/arsitektur/riwayat pengembangan, lihat
-`docs/PLAN.md` — dokumen ini murni tentang mengoperasikan aplikasinya.
+Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 8
+(viewport 3D, sketching 2D, constraint solver, modeling 3D — termasuk
+Revolve/Loft/Intersect/picking edge-wajah Fase 8, UX shell — command
+palette/radial menu/tema, dan file I/O — buka/simpan/import/export). Untuk
+status proyek/arsitektur/riwayat pengembangan, lihat `docs/PLAN.md` —
+dokumen ini murni tentang mengoperasikan aplikasinya.
 
 ## Menjalankan
 
@@ -115,26 +116,69 @@ Body yang sudah ada muncul di daftar tengah panel:
 - **Ctrl/Cmd+klik atau Shift+klik** = tambah/kurangi dari seleksi
   (multi-pilih, dibutuhkan Union/Subtract).
 
-### Union / Subtract — gabung/potong 2 body
+### Revolve — putar profil 360° mengelilingi sumbu (Fase 8)
 
-Pilih **persis 2 body** di daftar, lalu klik **Union** (gabung jadi satu)
-atau **Subtract (A-B)** (potong). Hasilnya 1 body baru; 2 body asal
-lenyap (bisa di-undo). ⚠️ Urutan A/B untuk Subtract belum bisa dipilih
-manual di putaran pertama ini — kalau hasilnya kebalik (body yang
-harusnya jadi "pengurang" malah jadi dasar), Undo lalu coba pilih body
+1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil (sama
+   aturan dengan Extrude — 1 Lingkaran, atau ≥3 Line/Arc loop tertutup).
+2. Tekan **V** (atau pilih "Revolve" di toolbar/command palette).
+3. Klik **2 titik** (snap aktif) menentukan garis sumbu — profil diputar
+   360° penuh mengelilingi garis itu. Hasil langsung muncul sebagai body
+   baru.
+4. Kalau gagal (profil tidak valid, atau 2 titik sumbu sama/terlalu
+   dekat), pesan error muncul di panel Model 3D.
+
+⚠️ Baru revolve **360° penuh** — sudut parsial (mis. cuma 180°) belum ada
+UI-nya di putaran pertama ini.
+
+### Loft — solid antara 2 profil beda bentuk (Fase 8)
+
+Bukan loft lintas-bidang sungguhan (sketch CADRAW masih satu bidang XY) —
+profil ATAS diangkat lewat translasi Z murni, bukan digambar di bidang
+lain.
+
+1. Di tool **Pilih**, pilih profil BAWAH (sama aturan Extrude), klik **Set
+   Profil Bawah dari Seleksi** di panel Model 3D — tersimpan sementara
+   ("✓ ter-set").
+2. Ganti seleksi ke profil ATAS (boleh bentuk beda, mis. persegi ke
+   lingkaran), isi **Tinggi (mm)**, klik **Loft**. Profil bawah tetap di
+   Z=0, profil atas ditempatkan di Z=tinggi, solid disambung di antaranya.
+
+### Union / Subtract / Intersect — gabung/potong/irisan 2 body
+
+Pilih **persis 2 body** di daftar, lalu klik **Union** (gabung jadi satu),
+**Subtract (A-B)** (potong), atau **Intersect** (Fase 8 — cuma sisakan
+volume yang tumpang-tindih; kalau 2 body tidak bersinggungan sama sekali,
+gagal dengan pesan error). Hasilnya 1 body baru; 2 body asal lenyap (bisa
+di-undo). ⚠️ Urutan A/B untuk Subtract belum bisa dipilih manual di
+putaran pertama ini — kalau hasilnya kebalik, Undo lalu coba pilih body
 satu-satu ulang (urutan seleksi internal kadang berubah).
 
-### Fillet / Chamfer semua tepi
+### Fillet / Chamfer — semua tepi, ATAU tepi tertentu (Fase 8)
 
 Pilih **persis 1 body**, isi Radius (Fillet) atau Jarak (Chamfer), klik
-tombolnya. Berlaku ke SEMUA tepi body sekaligus — belum bisa pilih tepi
-tertentu saja (butuh picking 3D yang belum ada).
+tombolnya — berlaku ke **semua tepi** body sekaligus (perilaku lama, tetap
+jalan apa adanya).
 
-### Shell / Hollow — kosongkan jadi cangkang
+Untuk memilih tepi TERTENTU saja (Fase 8): klik **☐ Pilih Tepi Manual**
+(butuh persis 1 body terpilih dulu) — tombol berubah jadi **■ Pilih Tepi
+Manual (aktif)**, lalu klik langsung tepi-tepi yang mau kena di viewport
+3D (ter-highlight garis oranye, hitungan "N tepi dipilih" bertambah tiap
+klik). Klik lagi tombol untuk keluar mode, atau langsung klik **Fillet**/
+**Chamfer** — akan berlaku HANYA ke tepi yang dipilih. **Reset Pilihan**
+mengosongkan seleksi tanpa keluar mode. ⚠️ Belum bisa klik ulang tepi yang
+sama untuk membatalkannya (cuma bisa reset semua).
+
+### Shell / Hollow — kosongkan jadi cangkang, 1 wajah ATAU beberapa (Fase 8)
 
 Pilih **persis 1 body**, pilih arah di dropdown (mis. `PosZ` = buang face
-paling atas, jadi wadah terbuka ke atas), isi Tebal (mm), klik **Shell**.
-Cuma 1 face yang dibuang per operasi.
+paling atas), isi Tebal (mm), klik **Shell** — perilaku lama, buang 1 face
+terjauh ke arah itu.
+
+Untuk membuang BEBERAPA wajah sekaligus (mis. tabung terbuka 2 sisi):
+klik **☐ Pilih Wajah Manual**, klik wajah-wajah yang mau dibuang di
+viewport 3D (hitungan "N wajah dipilih" bertambah — ⚠️ belum ada
+highlight visual 3D untuk wajah, baru angka di panel), lalu klik **Shell**
+— akan membuang HANYA wajah yang dipilih, mengabaikan dropdown arah.
 
 ### Hapus & Undo/Redo Model
 
@@ -145,10 +189,12 @@ Cuma 1 face yang dibuang per operasi.
 
 ### Belum didukung di Model 3D
 
-Revolve, sweep/loft, boolean intersect (irisan), sketch-on-face (sketch
-selalu di bidang XY), klik langsung di viewport 3D untuk pilih body/face
-(pakai daftar di panel), fillet/chamfer per-tepi individual, shell
-multi-face.
+Sweep sepanjang jalur (gap upstream binding OCCT, bukan CADRAW), Revolve
+sudut parsial (baru 360°), loft lintas-bidang sungguhan & sketch-on-face
+(sketch selalu di bidang XY), klik langsung di viewport 3D untuk GANTI
+seleksi BODY (pakai daftar di panel — picking viewport baru untuk
+edge/face pada body yang sudah terpilih), toggle-off klik ulang tepi/wajah
+terpilih, highlight 3D wajah terpilih.
 
 ## UX shell — Fase 4
 

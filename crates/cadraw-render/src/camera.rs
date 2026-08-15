@@ -1,5 +1,17 @@
 use glam::{Mat4, Vec3};
 
+/// Preset sudut pandang kamera standar CAD.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewPreset {
+    Top,
+    Bottom,
+    Front,
+    Back,
+    Right,
+    Left,
+    Isometric,
+}
+
 /// Kamera orbit gaya turntable (CAD): berputar mengelilingi `target`,
 /// sumbu Z dunia selalu "atas" — tidak pernah roll, sesuai ekspektasi
 /// pengguna AutoCAD/Shapr3D.
@@ -72,6 +84,45 @@ impl OrbitCamera {
             self.distance = (self.distance / factor).clamp(1.0, 100_000.0);
         }
     }
+
+    /// Terapkan preset orientasi kamera standar CAD.
+    pub fn set_preset(&mut self, preset: ViewPreset) {
+        match preset {
+            ViewPreset::Top => {
+                self.yaw = -90f32.to_radians();
+                self.pitch = 89f32.to_radians();
+            }
+            ViewPreset::Bottom => {
+                self.yaw = -90f32.to_radians();
+                self.pitch = -89f32.to_radians();
+            }
+            ViewPreset::Front => {
+                self.yaw = -90f32.to_radians();
+                self.pitch = 0.0;
+            }
+            ViewPreset::Back => {
+                self.yaw = 90f32.to_radians();
+                self.pitch = 0.0;
+            }
+            ViewPreset::Right => {
+                self.yaw = 0.0;
+                self.pitch = 0.0;
+            }
+            ViewPreset::Left => {
+                self.yaw = 180f32.to_radians();
+                self.pitch = 0.0;
+            }
+            ViewPreset::Isometric => {
+                self.yaw = -45f32.to_radians();
+                self.pitch = 35.264f32.to_radians();
+            }
+        }
+    }
+
+    /// Selaraskan pandangan tegak lurus ke bidang gambar sketch (XY Z-up).
+    pub fn orient_to_sketch(&mut self) {
+        self.set_preset(ViewPreset::Top);
+    }
 }
 
 #[cfg(test)]
@@ -98,5 +149,19 @@ mod tests {
             cam.zoom(10.0);
         }
         assert!(cam.distance >= 1.0);
+    }
+
+    #[test]
+    fn presets_apply_correctly() {
+        let mut cam = OrbitCamera::default();
+        cam.set_preset(ViewPreset::Top);
+        assert!((cam.pitch - 89f32.to_radians()).abs() < 1e-4);
+
+        cam.set_preset(ViewPreset::Front);
+        assert!(cam.pitch.abs() < 1e-4);
+        assert!((cam.yaw - (-90f32.to_radians())).abs() < 1e-4);
+
+        cam.orient_to_sketch();
+        assert!((cam.pitch - 89f32.to_radians()).abs() < 1e-4);
     }
 }

@@ -6,8 +6,10 @@
 //! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
 
 use anyhow::{bail, Context, Result};
-use glam::dvec3;
-use opencascade::primitives::{Compound, Direction as OcctDirection, Edge, Face, IntoShape, Shape, Wire};
+use glam::{dvec3, DVec3};
+use opencascade::adhoc::AdHocShape;
+use opencascade::angle::Angle;
+use opencascade::primitives::{Compound, Direction as OcctDirection, Edge, Face, IntoShape, Shape, Solid, Wire};
 use opencascade::workplane::Workplane;
 use std::sync::Mutex;
 
@@ -222,12 +224,20 @@ pub enum Profile {
 }
 
 fn build_wire(profile: &Profile) -> Result<Wire> {
+    build_wire_at_z(profile, 0.0)
+}
+
+/// Sama seperti `build_wire`, tapi diangkat ke ketinggian `z` — dipakai
+/// `loft_profiles` untuk menempatkan profil ATAS di `z = height` sementara
+/// profil BAWAH tetap di `z = 0` (sketch CADRAW cuma satu bidang XY, lihat
+/// docs/PLAN.md — ini bukan workplane sungguhan, cuma translasi Z).
+fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
     match profile {
         Profile::Circle { center, radius } => {
             if *radius <= 0.0 {
                 bail!("radius lingkaran profil harus > 0");
             }
-            let edge = Edge::circle(dvec3(center.0, center.1, 0.0), dvec3(0.0, 0.0, 1.0), *radius);
+            let edge = Edge::circle(dvec3(center.0, center.1, z), dvec3(0.0, 0.0, 1.0), *radius);
             Ok(Wire::from_edges([&edge]))
         }
         Profile::Loop(segments) => {
@@ -238,12 +248,12 @@ fn build_wire(profile: &Profile) -> Result<Wire> {
                 .iter()
                 .map(|s| match s {
                     ProfileSegment::Line { start, end } => {
-                        Edge::segment(dvec3(start.0, start.1, 0.0), dvec3(end.0, end.1, 0.0))
+                        Edge::segment(dvec3(start.0, start.1, z), dvec3(end.0, end.1, z))
                     }
                     ProfileSegment::Arc { start, via, end } => Edge::arc(
-                        dvec3(start.0, start.1, 0.0),
-                        dvec3(via.0, via.1, 0.0),
-                        dvec3(end.0, end.1, 0.0),
+                        dvec3(start.0, start.1, z),
+                        dvec3(via.0, via.1, z),
+                        dvec3(end.0, end.1, z),
                     ),
                 })
                 .collect();
@@ -267,9 +277,49 @@ pub fn extrude_profile(profile: &Profile, distance: f64) -> Result<KernelShape> 
     Ok(KernelShape(solid.into_shape()))
 }
 
-/// Union (gabung material) dua shape. Boolean intersect (irisan) tidak
-/// tersedia di `opencascade-rs` 0.2.0 — cuma union & subtract, lihat
-/// docs/PLAN.md.
+/// Revolve profil di bidang XY mengelilingi sumbu 2D (`axis_origin`+
+/// `axis_dir`, keduanya diangkat ke Z=0 — axis yang dipakai selalu di
+/// bidang XY sama seperti sketch-nya, konsisten dengan `build_wire`).
+/// `angle_degrees: None` = revolve penuh 360° (default binding
+/// `Face::revolve`); revolve parsial (sudut kustom) DIDUKUNG lewat
+/// `Some(derajat)` tapi belum ada UI-nya di Fase 8 putaran pertama —
+/// lihat docs/PLAN.md.
+pub fn revolve_profile(
+    profile: &Profile,
+    axis_origin: (f64, f64),
+    axis_dir: (f64, f64),
+    angle_degrees: Option<f64>,
+) -> Result<KernelShape> {
+    let dir_len = (axis_dir.0 * axis_dir.0 + axis_dir.1 * axis_dir.1).sqrt();
+    if dir_len < 1e-9 {
+        bail!("sumbu revolve tidak valid (dua titik axis sama/terlalu dekat)");
+    }
+    let _guard = lock_kernel();
+    let wire = build_wire(profile)?;
+    let face = Face::from_wire(&wire);
+    let origin = dvec3(axis_origin.0, axis_origin.1, 0.0);
+    let axis = dvec3(axis_dir.0, axis_dir.1, 0.0);
+    let angle = angle_degrees.map(Angle::Degrees);
+    let solid: Solid = face.revolve(origin, axis, angle);
+    Ok(KernelShape(solid.into_shape()))
+}
+
+/// Loft antara 2 profil: `bottom` di `z = 0`, `top` diangkat ke
+/// `z = height`. BUKAN loft lintas-workplane sungguhan (sketch CADRAW
+/// cuma satu bidang XY) — cara paling jujur untuk "loft" tanpa
+/// infrastruktur workplane yang belum ada, lihat docs/PLAN.md.
+pub fn loft_profiles(bottom: &Profile, top: &Profile, height: f64) -> Result<KernelShape> {
+    if height.abs() < 1e-9 {
+        bail!("tinggi loft harus tidak nol");
+    }
+    let _guard = lock_kernel();
+    let bottom_wire = build_wire_at_z(bottom, 0.0)?;
+    let top_wire = build_wire_at_z(top, height)?;
+    let solid = Solid::loft([&bottom_wire, &top_wire]);
+    Ok(KernelShape(solid.into_shape()))
+}
+
+/// Union (gabung material) dua shape.
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
     Ok(KernelShape(a.0.union(&b.0).shape))
@@ -279,6 +329,27 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
 pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
     Ok(KernelShape(a.0.subtract(&b.0).shape))
+}
+
+/// Boolean intersect (irisan) dua shape — cuma sisakan volume yang
+/// tumpang-tindih. `opencascade-rs` 0.2.0 tidak expose `.intersect()` di
+/// `Shape` publik seperti union/subtract (cuma di `AdHocShape`, wrapper
+/// tipis di atas `BRepAlgoAPI_Common`) — di-deep_clone dulu (pola sama
+/// dengan fillet/chamfer) supaya `a`/`b` asli pemanggil tidak tersentuh,
+/// lalu dibungkus `AdHocShape` sekali pakai untuk akses `.intersect()`.
+pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let cloned = deep_clone(&a.0)?;
+    let mut adhoc = AdHocShape(cloned);
+    adhoc.intersect(&b.0);
+    // Pakai `tessellate_shape` (helper privat, TIDAK mengunci sendiri) —
+    // bukan `KernelShape::tessellate()` publik, yang akan mencoba
+    // `lock_kernel()` lagi selagi `_guard` di atas masih dipegang (Mutex
+    // std tidak reentrant, akan deadlock).
+    if tessellate_shape(&adhoc.0).triangle_count() == 0 {
+        bail!("intersect: kedua shape tidak bersinggungan (hasil kosong)");
+    }
+    Ok(KernelShape(adhoc.0))
 }
 
 /// Fillet SEMUA tepi shape dengan `radius` yang sama. Pemilihan tepi
@@ -303,6 +374,196 @@ pub fn chamfer_all(shape: &KernelShape, distance: f64) -> Result<KernelShape> {
     let _guard = lock_kernel();
     let mut cloned = deep_clone(&shape.0)?;
     cloned.chamfer(distance);
+    Ok(KernelShape(cloned))
+}
+
+/// Ray dunia (titik asal + arah, tidak harus dinormalisasi) dipakai untuk
+/// picking edge/face 3D di viewport.
+///
+/// SENGAJA disimpan APA ADANYA oleh pemanggil (`cadraw-app`) — BUKAN
+/// index posisi di `shape.edges()`/`shape.faces()` atau handle OCCT
+/// mentah. `fillet_edges`/`chamfer_edges`/`shell_hollow_faces` semua
+/// harus `deep_clone` shape dulu sebelum memutasi (pola sama dengan
+/// `fillet_all`/`chamfer_all`/`shell_hollow`, supaya shape asli pemanggil
+/// tetap utuh untuk undo) — Face/Edge yang dipilih SEBELUM clone bukan
+/// sub-shape yang valid dari shape HASIL clone, dan index posisi di
+/// iterator `edges()`/`faces()` juga tidak terjamin stabil lintas
+/// roundtrip STEP (belum pernah diverifikasi, jadi tidak boleh
+/// diasumsikan). Ray dunia tidak kena masalah ini: `deep_clone` tidak
+/// memindah/mengubah geometri di ruang dunia sama sekali, jadi ray yang
+/// SAMA di-cast ULANG terhadap shape hasil clone akan selalu kena
+/// permukaan/tepi yang SAMA secara geometris — robust lewat operasi
+/// geometris nyata, bukan lewat asumsi index/handle yang tak teruji.
+#[derive(Debug, Clone, Copy)]
+pub struct PickRay {
+    pub origin: (f64, f64, f64),
+    pub dir: (f64, f64, f64),
+}
+
+impl PickRay {
+    fn origin_vec(self) -> DVec3 {
+        dvec3(self.origin.0, self.origin.1, self.origin.2)
+    }
+
+    fn dir_vec(self) -> DVec3 {
+        dvec3(self.dir.0, self.dir.1, self.dir.2)
+    }
+}
+
+/// Titik terdekat (ke `seg_a`/`seg_b`) di sepanjang segmen `seg_a..seg_b`
+/// terhadap ray `ray_origin + t*ray_dir`, plus jaraknya ke ray. Bukan
+/// solusi jarak-minimum-tersertifikasi antar 2 garis skew (itu perlu
+/// clamp bersama di kedua parameter dalam loop iteratif) — pendekatan
+/// dua-langkah standar yang cukup untuk hit-testing interaktif: cari `s`
+/// (parameter di segmen) dari closest-point line-line lalu clamp ke
+/// [0,1], baru proyeksikan balik ke ray. `opencascade-rs` tidak punya
+/// primitif ray-vs-edge (beda dari `faces_along_ray` yang sudah ada untuk
+/// face) — ditulis sendiri, konsisten dengan pola project (solver LM,
+/// snap engine, DXF writer semua ditulis sendiri).
+fn closest_point_ray_segment(ray_origin: DVec3, ray_dir: DVec3, seg_a: DVec3, seg_b: DVec3) -> (f64, DVec3) {
+    let d1 = ray_dir;
+    let d2 = seg_b - seg_a;
+    let r = ray_origin - seg_a;
+    let a = d1.dot(d1);
+    let e = d2.dot(d2);
+    let f = d2.dot(r);
+
+    if e < 1e-12 {
+        // Segmen degenerate (dua titik approximation sama) — jarak ke
+        // titik tunggal `seg_a`.
+        let t = if a > 1e-12 { d1.dot(seg_a - ray_origin) / a } else { 0.0 };
+        let closest_on_ray = ray_origin + d1 * t;
+        return ((closest_on_ray - seg_a).length(), seg_a);
+    }
+
+    let s = if a < 1e-12 {
+        (f / e).clamp(0.0, 1.0)
+    } else {
+        let c = d1.dot(r);
+        let b = d1.dot(d2);
+        let denom = a * e - b * b;
+        let t_unclamped = if denom.abs() > 1e-12 { (b * f - c * e) / denom } else { 0.0 };
+        ((b * t_unclamped + f) / e).clamp(0.0, 1.0)
+    };
+
+    let point_on_seg = seg_a + d2 * s;
+    let t_ray = if a > 1e-12 { d1.dot(point_on_seg - ray_origin) / a } else { 0.0 };
+    let closest_on_ray = ray_origin + d1 * t_ray;
+    ((closest_on_ray - point_on_seg).length(), point_on_seg)
+}
+
+/// Face terdekat (dari `ray.origin`) yang kena `ray` — dibangun langsung
+/// di atas `Shape::faces_along_ray` yang sudah ada di `opencascade-rs`
+/// (exact, level B-rep — bukan approksimasi lewat mesh tessellation).
+fn resolve_face_along_ray(shape: &Shape, ray: PickRay) -> Option<(Face, DVec3)> {
+    let origin = ray.origin_vec();
+    let dir = ray.dir_vec();
+    shape.faces_along_ray(origin, dir).into_iter().min_by(|(_, p1), (_, p2)| {
+        (*p1 - origin)
+            .length_squared()
+            .partial_cmp(&(*p2 - origin).length_squared())
+            .expect("titik hit faces_along_ray tidak boleh NaN")
+    })
+}
+
+/// Edge terdekat ke `ray` (dalam `tolerance` mm), plus titik terdekatnya
+/// dan polyline approksimasi (buat highlight render) — tidak ada primitif
+/// ray-vs-edge di `opencascade-rs`, iterasi manual tiap edge lewat
+/// `approximation_segments()` + `closest_point_ray_segment` di atas.
+fn resolve_edge_along_ray(shape: &Shape, ray: PickRay, tolerance: f64) -> Option<(Edge, DVec3, Vec<DVec3>)> {
+    let origin = ray.origin_vec();
+    let dir = ray.dir_vec();
+    let mut best: Option<(f64, Edge, DVec3, Vec<DVec3>)> = None;
+    for edge in shape.edges() {
+        let polyline: Vec<DVec3> = edge.approximation_segments().collect();
+        if polyline.len() < 2 {
+            continue;
+        }
+        let mut edge_best: Option<(f64, DVec3)> = None;
+        for pair in polyline.windows(2) {
+            let (dist, point) = closest_point_ray_segment(origin, dir, pair[0], pair[1]);
+            if edge_best.is_none_or(|(d, _)| dist < d) {
+                edge_best = Some((dist, point));
+            }
+        }
+        let Some((dist, point)) = edge_best else { continue };
+        if dist <= tolerance && best.as_ref().is_none_or(|(d, ..)| dist < *d) {
+            best = Some((dist, edge, point, polyline));
+        }
+    }
+    best.map(|(_, edge, point, polyline)| (edge, point, polyline))
+}
+
+/// Cast `ray` ke `shape`, kembalikan titik hit face TERDEKAT (kalau ada).
+/// Dipakai UI utk face-picking interaktif (Shell multi-face); resolusi
+/// ULANG di apply-time (`shell_hollow_faces`) pakai `resolve_face_along_ray`
+/// privat langsung, bukan fungsi publik ini (biar tidak lock_kernel dua
+/// kali — lihat catatan reentrant di `KERNEL_LOCK`).
+pub fn pick_face(shape: &KernelShape, ray: PickRay) -> Option<(f64, f64, f64)> {
+    let _guard = lock_kernel();
+    resolve_face_along_ray(&shape.0, ray).map(|(_, p)| (p.x, p.y, p.z))
+}
+
+/// (titik hit terdekat di edge, polyline approksimasi edge itu utk
+/// highlight render) — hasil `pick_edge`.
+pub type EdgePickHit = ((f64, f64, f64), Vec<(f64, f64, f64)>);
+
+/// Cast `ray` ke `shape`, kembalikan (titik hit terdekat di edge, polyline
+/// approksimasi edge itu utk highlight) kalau ada edge dalam `tolerance`
+/// mm dari ray. Dipakai UI utk edge-picking interaktif (Fillet/Chamfer
+/// per-tepi).
+pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<EdgePickHit> {
+    let _guard = lock_kernel();
+    resolve_edge_along_ray(&shape.0, ray, tolerance).map(|(_, point, polyline)| {
+        (
+            (point.x, point.y, point.z),
+            polyline.into_iter().map(|p| (p.x, p.y, p.z)).collect(),
+        )
+    })
+}
+
+/// Fillet HANYA tepi yang di-pick lewat `rays` (bukan semua tepi seperti
+/// `fillet_all`) — tiap ray di-cast ULANG terhadap shape hasil
+/// `deep_clone` (lihat desain di `PickRay`) buat resolusi Edge yang valid
+/// dipakai `Shape::fillet_edges`.
+pub fn fillet_edges(shape: &KernelShape, radius: f64, rays: &[PickRay], tolerance: f64) -> Result<KernelShape> {
+    if radius <= 0.0 {
+        bail!("radius fillet harus > 0");
+    }
+    if rays.is_empty() {
+        bail!("pilih minimal 1 tepi (atau pakai fillet_all untuk semua tepi sekaligus)");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    let mut edges = Vec::with_capacity(rays.len());
+    for ray in rays {
+        let Some((edge, _, _)) = resolve_edge_along_ray(&cloned, *ray, tolerance) else {
+            bail!("salah satu tepi terpilih tidak ditemukan lagi pada shape");
+        };
+        edges.push(edge);
+    }
+    cloned.fillet_edges(radius, &edges);
+    Ok(KernelShape(cloned))
+}
+
+/// Chamfer HANYA tepi yang di-pick lewat `rays` (lihat `fillet_edges`).
+pub fn chamfer_edges(shape: &KernelShape, distance: f64, rays: &[PickRay], tolerance: f64) -> Result<KernelShape> {
+    if distance <= 0.0 {
+        bail!("jarak chamfer harus > 0");
+    }
+    if rays.is_empty() {
+        bail!("pilih minimal 1 tepi (atau pakai chamfer_all untuk semua tepi sekaligus)");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    let mut edges = Vec::with_capacity(rays.len());
+    for ray in rays {
+        let Some((edge, _, _)) = resolve_edge_along_ray(&cloned, *ray, tolerance) else {
+            bail!("salah satu tepi terpilih tidak ditemukan lagi pada shape");
+        };
+        edges.push(edge);
+    }
+    cloned.chamfer_edges(distance, &edges);
     Ok(KernelShape(cloned))
 }
 
@@ -348,6 +609,32 @@ pub fn shell_hollow(shape: &KernelShape, thickness: f64, remove_face_dir: Direct
         .ok_or_else(|| anyhow::anyhow!("shape tidak punya face untuk dihilangkan"))?;
     // Offset negatif = dinding tumbuh ke DALAM (cangkang), bukan keluar.
     let hollowed = cloned.hollow(-thickness.abs(), [face]);
+    Ok(KernelShape(hollowed))
+}
+
+/// Sama seperti `shell_hollow`, tapi wajah yang dibuang ditentukan lewat
+/// picking (`rays`, bisa >1 — mis. buka 2 sisi sekaligus) alih-alih
+/// "face terjauh ke satu arah". `Shape::hollow` di `opencascade-rs` SUDAH
+/// generic multi-face sejak awal — `shell_hollow` yang membatasi ke 1
+/// face lewat `try_farthest` itu sendiri, fungsi ini terpisah supaya
+/// perilaku `shell_hollow` lama tidak berubah.
+pub fn shell_hollow_faces(shape: &KernelShape, thickness: f64, rays: &[PickRay]) -> Result<KernelShape> {
+    if thickness <= 0.0 {
+        bail!("tebal shell harus > 0");
+    }
+    if rays.is_empty() {
+        bail!("pilih minimal 1 wajah (atau pakai shell_hollow untuk arah otomatis)");
+    }
+    let _guard = lock_kernel();
+    let cloned = deep_clone(&shape.0)?;
+    let mut faces = Vec::with_capacity(rays.len());
+    for ray in rays {
+        let Some((face, _)) = resolve_face_along_ray(&cloned, *ray) else {
+            bail!("salah satu wajah terpilih tidak ditemukan lagi pada shape");
+        };
+        faces.push(face);
+    }
+    let hollowed = cloned.hollow(-thickness.abs(), faces);
     Ok(KernelShape(hollowed))
 }
 
@@ -412,6 +699,30 @@ mod tests {
             ProfileSegment::Line {
                 start: (0.0, h),
                 end: (0.0, 0.0),
+            },
+        ])
+    }
+
+    /// Sama seperti `rect_profile`, tapi sudut kiri-bawah di `(x0,y0)`
+    /// bukan `(0,0)` — dipakai test yang butuh profil TIDAK menyentuh
+    /// origin/axis (mis. revolve, intersect dua box tidak overlap).
+    fn offset_rect_profile(x0: f64, y0: f64, x1: f64, y1: f64) -> Profile {
+        Profile::Loop(vec![
+            ProfileSegment::Line {
+                start: (x0, y0),
+                end: (x1, y0),
+            },
+            ProfileSegment::Line {
+                start: (x1, y0),
+                end: (x1, y1),
+            },
+            ProfileSegment::Line {
+                start: (x1, y1),
+                end: (x0, y1),
+            },
+            ProfileSegment::Line {
+                start: (x0, y1),
+                end: (x0, y0),
             },
         ])
     }
@@ -556,5 +867,236 @@ mod tests {
         let merged = KernelMesh::merge(&[&a, &b]);
         assert_eq!(merged.positions.len(), 6);
         assert_eq!(merged.indices, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    // ---- Fase 8: Revolve ----
+
+    #[test]
+    fn revolve_profile_produces_ring_solid() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Rectangle x∈[10,20], y∈[0,5] direvolve mengelilingi sumbu Y
+        // (garis x=0) — profil TIDAK menyentuh axis, jadi hasilnya solid
+        // ring/tube berlubang (bukan cakram penuh dari radius 0).
+        let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
+        let shape = revolve_profile(&profile, (0.0, 0.0), (0.0, 1.0), None).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+        let mut max_radius: f32 = 0.0;
+        let mut min_radius: f32 = f32::MAX;
+        let mut min_y: f32 = f32::MAX;
+        let mut max_y: f32 = f32::MIN;
+        for p in &mesh.positions {
+            let radius = (p[0] * p[0] + p[2] * p[2]).sqrt();
+            max_radius = max_radius.max(radius);
+            min_radius = min_radius.min(radius);
+            min_y = min_y.min(p[1]);
+            max_y = max_y.max(p[1]);
+        }
+        assert!(min_radius > 5.0, "radius dalam {min_radius} seharusnya mendekati 10 (profil tidak menyentuh axis)");
+        assert!(max_radius > 15.0 && max_radius < 25.0, "radius luar {max_radius} seharusnya mendekati 20");
+        assert!(min_y >= -0.5 && max_y <= 5.5, "tinggi hasil harus dalam rentang y profil asli [0,5], dapat [{min_y},{max_y}]");
+    }
+
+    #[test]
+    fn revolve_profile_degenerate_axis_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
+        assert!(revolve_profile(&profile, (0.0, 0.0), (0.0, 0.0), None).is_err());
+    }
+
+    // ---- Fase 8: Loft ----
+
+    #[test]
+    fn loft_between_rectangles_spans_requested_height() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let bottom = rect_profile(20.0, 20.0);
+        let top = rect_profile(10.0, 10.0);
+        let shape = loft_profiles(&bottom, &top, 15.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+        let mut min_z: f32 = f32::MAX;
+        let mut max_z: f32 = f32::MIN;
+        for p in &mesh.positions {
+            min_z = min_z.min(p[2]);
+            max_z = max_z.max(p[2]);
+        }
+        assert!((-0.5..=0.5).contains(&min_z), "dasar loft harus di z=0, dapat {min_z}");
+        assert!((14.5..=15.5).contains(&max_z), "puncak loft harus di z=15, dapat {max_z}");
+    }
+
+    #[test]
+    fn loft_zero_height_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let bottom = rect_profile(20.0, 20.0);
+        let top = rect_profile(10.0, 10.0);
+        assert!(loft_profiles(&bottom, &top, 0.0).is_err());
+    }
+
+    // ---- Fase 8: Boolean intersect ----
+
+    #[test]
+    fn intersect_overlapping_boxes_smaller_than_union() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let a = extrude_profile(&rect_profile(40.0, 40.0), 10.0).unwrap();
+        let b = extrude_profile(&offset_rect_profile(20.0, 20.0, 60.0, 60.0), 10.0).unwrap();
+        let intersected = intersect(&a, &b).unwrap();
+        let unioned = union(&a, &b).unwrap();
+        // Irisan HARUS lebih kecil dari union (bukti nyata "cuma yang
+        // tumpang tindih", bukan cuma "tidak panic") — jumlah vertex
+        // tessellation dipakai sbg proxy volume kasar.
+        assert!(intersected.tessellate().positions.len() < unioned.tessellate().positions.len());
+        assert!(intersected.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn intersect_non_overlapping_boxes_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+        let b = extrude_profile(&offset_rect_profile(100.0, 100.0, 110.0, 110.0), 10.0).unwrap();
+        assert!(intersect(&a, &b).is_err());
+    }
+
+    // ---- Fase 8: Picking 3D (edge/face) ----
+
+    /// Validasi arsitektur WAJIB (lihat docs/PLAN.md desain kunci Fase 8):
+    /// ray dunia yang SAMA harus kena face yang SAMA baik di shape asli
+    /// maupun di hasil `deep_clone`-nya — dasar kenapa `PickRay` disimpan
+    /// (bukan index/handle) aman dipakai lintas roundtrip STEP.
+    #[test]
+    fn pick_face_consistent_across_deep_clone() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Box x∈[0,30], y∈[0,20], z∈[0,15]; ray lurus ke bawah dari atas
+        // menuju tengah face TOP (z=15).
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (15.0, 10.0, 100.0),
+            dir: (0.0, 0.0, -1.0),
+        };
+        let hit_original = pick_face(&shape, ray).expect("harus kena face top shape asli");
+        let cloned = deep_clone(&shape.0).unwrap();
+        let hit_cloned = resolve_face_along_ray(&cloned, ray)
+            .map(|(_, p)| (p.x, p.y, p.z))
+            .expect("harus kena face top shape hasil deep_clone");
+        assert!((hit_original.0 - hit_cloned.0).abs() < 1e-6);
+        assert!((hit_original.1 - hit_cloned.1).abs() < 1e-6);
+        assert!((hit_original.2 - hit_cloned.2).abs() < 1e-6);
+    }
+
+    /// Validasi arsitektur WAJIB versi edge (lihat catatan test di atas).
+    #[test]
+    fn pick_edge_consistent_across_deep_clone() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        // Ray diagonal menuju rusuk vertikal box di (x=0,y=0).
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let tolerance = 1.0;
+        let (hit_original, _) = pick_edge(&shape, ray, tolerance).expect("harus kena rusuk shape asli");
+        let cloned = deep_clone(&shape.0).unwrap();
+        let (_, hit_cloned, _) =
+            resolve_edge_along_ray(&cloned, ray, tolerance).expect("harus kena rusuk shape hasil deep_clone");
+        assert!((hit_original.0 - hit_cloned.x).abs() < 1e-3);
+        assert!((hit_original.1 - hit_cloned.y).abs() < 1e-3);
+        assert!((hit_original.2 - hit_cloned.z).abs() < 1e-3);
+    }
+
+    #[test]
+    fn pick_face_miss_returns_none() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (1000.0, 1000.0, 1000.0),
+            dir: (0.0, 0.0, 1.0),
+        };
+        assert!(pick_face(&shape, ray).is_none());
+    }
+
+    // ---- Fase 8: Fillet/Chamfer per-tepi, Shell multi-face ----
+
+    #[test]
+    fn fillet_edges_affects_only_picked_edge() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let filleted_one = fillet_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+        let filleted_all = fillet_all(&shape, 2.0).unwrap();
+        let original_verts = shape.tessellate().positions.len();
+        let one_verts = filleted_one.tessellate().positions.len();
+        let all_verts = filleted_all.tessellate().positions.len();
+        assert!(one_verts > original_verts, "fillet 1 tepi harus mengubah mesh (tambah vertex bulat)");
+        assert!(
+            one_verts < all_verts,
+            "fillet 1 tepi HARUS lebih sedikit vertex baru dibanding fillet SEMUA 12 tepi box — bukti hanya 1 tepi yang kena"
+        );
+    }
+
+    #[test]
+    fn fillet_edges_empty_rays_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        assert!(fillet_edges(&shape, 2.0, &[], 1.0).is_err());
+    }
+
+    #[test]
+    fn fillet_edges_no_match_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (1000.0, 1000.0, 1000.0),
+            dir: (0.0, 0.0, 1.0),
+        };
+        assert!(fillet_edges(&shape, 2.0, &[ray], 1.0).is_err());
+    }
+
+    #[test]
+    fn chamfer_edges_smoke() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let chamfered = chamfer_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+        assert!(chamfered.tessellate().triangle_count() > 0);
+        // Shape asli tidak boleh ikut termutasi (pola sama dgn fillet_all).
+        assert!(shape.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn shell_hollow_faces_multi_face_differs_from_single() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
+        let ray_top = PickRay {
+            origin: (15.0, 15.0, 100.0),
+            dir: (0.0, 0.0, -1.0),
+        };
+        let ray_bottom = PickRay {
+            origin: (15.0, 15.0, -100.0),
+            dir: (0.0, 0.0, 1.0),
+        };
+        let hollow_two = shell_hollow_faces(&shape, 2.0, &[ray_top, ray_bottom]).unwrap();
+        let hollow_one = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
+        assert!(hollow_two.tessellate().triangle_count() > 0);
+        // 2 wajah dibuang (tabung terbuka 2 sisi, 4 dinding) HARUS beda
+        // topologi dari 1 wajah dibuang (wadah terbuka 1 sisi, 5 dinding)
+        // — dibuktikan lewat JUMLAH FACE B-rep asli (10 vs 11, dicek
+        // langsung sekali ketika menulis test ini) dan jumlah triangle
+        // (32 vs 28) — bukan jumlah vertex tessellation, yang KEBETULAN
+        // sama (48==48) di box simetris ini walau topologinya beda nyata
+        // (ditemukan lewat test yang gagal, bukan diasumsikan aman).
+        assert_ne!(hollow_two.0.faces().count(), hollow_one.0.faces().count());
+        assert_ne!(hollow_two.tessellate().triangle_count(), hollow_one.tessellate().triangle_count());
+    }
+
+    #[test]
+    fn shell_hollow_faces_empty_rays_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
+        assert!(shell_hollow_faces(&shape, 2.0, &[]).is_err());
     }
 }
