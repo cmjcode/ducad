@@ -148,4 +148,90 @@ impl CanvasHud {
 
         response
     }
+
+    /// Render handle icon panah 2 sisi (`↕`) tebal dan draggable (Screenshot 2, 3, 4)
+    /// yang dapat langsung di-drag untuk mengubah ketebalan extrude/cut secara instan.
+    pub fn render_draggable_double_arrow_handle(
+        ui: &mut Ui,
+        pos_2d: Pos2,
+        is_dragging: bool,
+    ) -> egui::Response {
+        let handle_radius = if is_dragging { 18.0 } else { 16.0 };
+        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 8.0));
+        let response = ui.allocate_rect(rect, egui::Sense::drag());
+        let is_hovered = response.hovered();
+
+        if is_hovered || is_dragging {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+
+        let painter = ui.painter();
+
+        // 1. Drop shadow & outer glow ring saat hover/drag
+        if is_hovered || is_dragging {
+            painter.circle_filled(
+                pos_2d,
+                handle_radius + 5.0,
+                Color32::from_rgba_premultiplied(0, 160, 255, 70),
+            );
+        } else {
+            painter.circle_filled(
+                pos_2d,
+                handle_radius + 3.0,
+                Color32::from_rgba_premultiplied(0, 0, 0, 40),
+            );
+        }
+
+        // 2. Lingkaran background utama handle (Cyan / Putih mengkilap)
+        let bg_color = if is_dragging {
+            Color32::from_rgb(0, 120, 235)
+        } else if is_hovered {
+            Color32::from_rgb(0, 150, 255)
+        } else {
+            Color32::from_rgb(0, 140, 240)
+        };
+        painter.circle_filled(pos_2d, handle_radius, bg_color);
+        painter.circle_stroke(
+            pos_2d,
+            handle_radius,
+            Stroke::new(2.0, Color32::WHITE),
+        );
+
+        // 3. Icon panah 2 arah (`▲ - ▼`) tebal dan tajam di dalam handle
+        let icon_color = Color32::WHITE;
+        let cx = pos_2d.x;
+        let cy = pos_2d.y;
+
+        // Segitiga panah atas (Filled)
+        let top_tri = [
+            Pos2::new(cx, cy - 9.5),
+            Pos2::new(cx - 5.0, cy - 3.5),
+            Pos2::new(cx + 5.0, cy - 3.5),
+        ];
+        painter.add(egui::epaint::Shape::convex_polygon(
+            top_tri.to_vec(),
+            icon_color,
+            Stroke::NONE,
+        ));
+
+        // Batang poros panah (Thick bar)
+        painter.line_segment(
+            [Pos2::new(cx, cy - 3.5), Pos2::new(cx, cy + 3.5)],
+            Stroke::new(3.0, icon_color),
+        );
+
+        // Segitiga panah bawah (Filled)
+        let bot_tri = [
+            Pos2::new(cx, cy + 9.5),
+            Pos2::new(cx - 5.0, cy + 3.5),
+            Pos2::new(cx + 5.0, cy + 3.5),
+        ];
+        painter.add(egui::epaint::Shape::convex_polygon(
+            bot_tri.to_vec(),
+            icon_color,
+            Stroke::NONE,
+        ));
+
+        response
+    }
 }

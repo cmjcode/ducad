@@ -159,36 +159,80 @@ pub fn double_arrow_gizmo_lines(center: [f32; 3], height: f32, arrow_size: f32, 
     let top = [center[0], center[1], center[2] + height * 0.5];
     let bot = [center[0], center[1], center[2] - height * 0.5];
 
-    // Batang poros panah
-    verts.push(LineVertex { position: bot, color });
-    verts.push(LineVertex { position: top, color });
-
-    // Kepala panah atas
+    let shaft_radius = arrow_size * 0.25;
     let s = arrow_size;
-    verts.push(LineVertex { position: top, color });
-    verts.push(LineVertex { position: [top[0] - s, top[1], top[2] - s * 1.4], color });
+    let segs = 8;
+    let tau = std::f32::consts::TAU;
 
-    verts.push(LineVertex { position: top, color });
-    verts.push(LineVertex { position: [top[0] + s, top[1], top[2] - s * 1.4], color });
+    // 1. Batang silinder multi-rib (tebal)
+    for i in 0..segs {
+        let angle = tau * (i as f32 / segs as f32);
+        let dx = shaft_radius * angle.cos();
+        let dy = shaft_radius * angle.sin();
+        let p_bot = [center[0] + dx, center[1] + dy, bot[2] + s * 1.0];
+        let p_top = [center[0] + dx, center[1] + dy, top[2] - s * 1.0];
 
-    verts.push(LineVertex { position: top, color });
-    verts.push(LineVertex { position: [top[0], top[1] - s, top[2] - s * 1.4], color });
+        verts.push(LineVertex { position: p_bot, color });
+        verts.push(LineVertex { position: p_top, color });
 
-    verts.push(LineVertex { position: top, color });
-    verts.push(LineVertex { position: [top[0], top[1] + s, top[2] - s * 1.4], color });
+        // Ring batang di tengah
+        let next_angle = tau * ((i + 1) as f32 / segs as f32);
+        let ndx = shaft_radius * next_angle.cos();
+        let ndy = shaft_radius * next_angle.sin();
+        let p_mid1 = [center[0] + dx, center[1] + dy, center[2]];
+        let p_mid2 = [center[0] + ndx, center[1] + ndy, center[2]];
+        verts.push(LineVertex { position: p_mid1, color });
+        verts.push(LineVertex { position: p_mid2, color });
+    }
 
-    // Kepala panah bawah
-    verts.push(LineVertex { position: bot, color });
-    verts.push(LineVertex { position: [bot[0] - s, bot[1], bot[2] + s * 1.4], color });
+    // Poros utama tengah putih/terang
+    const BRIGHT_WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    verts.push(LineVertex { position: bot, color: BRIGHT_WHITE });
+    verts.push(LineVertex { position: top, color: BRIGHT_WHITE });
 
-    verts.push(LineVertex { position: bot, color });
-    verts.push(LineVertex { position: [bot[0] + s, bot[1], bot[2] + s * 1.4], color });
+    // 2. Kepala panah atas (Kerucut 8 sisi + ring dasar)
+    let top_base_z = top[2] - s * 1.3;
+    for i in 0..segs {
+        let angle = tau * (i as f32 / segs as f32);
+        let next_angle = tau * ((i + 1) as f32 / segs as f32);
+        let b1 = [center[0] + s * angle.cos(), center[1] + s * angle.sin(), top_base_z];
+        let b2 = [center[0] + s * next_angle.cos(), center[1] + s * next_angle.sin(), top_base_z];
 
-    verts.push(LineVertex { position: bot, color });
-    verts.push(LineVertex { position: [bot[0], bot[1] - s, bot[2] + s * 1.4], color });
+        // Spina dari puncak ke dasar
+        verts.push(LineVertex { position: top, color });
+        verts.push(LineVertex { position: b1, color });
 
-    verts.push(LineVertex { position: bot, color });
-    verts.push(LineVertex { position: [bot[0], bot[1] + s, bot[2] + s * 1.4], color });
+        // Ring dasar kerucut
+        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: b2, color });
+
+        // Jari-jari dasar ke pusat batang
+        let shaft_pt = [center[0], center[1], top_base_z];
+        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: shaft_pt, color });
+    }
+
+    // 3. Kepala panah bawah (Kerucut 8 sisi + ring dasar)
+    let bot_base_z = bot[2] + s * 1.3;
+    for i in 0..segs {
+        let angle = tau * (i as f32 / segs as f32);
+        let next_angle = tau * ((i + 1) as f32 / segs as f32);
+        let b1 = [center[0] + s * angle.cos(), center[1] + s * angle.sin(), bot_base_z];
+        let b2 = [center[0] + s * next_angle.cos(), center[1] + s * next_angle.sin(), bot_base_z];
+
+        // Spina dari ujung bawah ke dasar
+        verts.push(LineVertex { position: bot, color });
+        verts.push(LineVertex { position: b1, color });
+
+        // Ring dasar kerucut
+        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: b2, color });
+
+        // Jari-jari dasar ke pusat batang
+        let shaft_pt = [center[0], center[1], bot_base_z];
+        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: shaft_pt, color });
+    }
 
     verts
 }
