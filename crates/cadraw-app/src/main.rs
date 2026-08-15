@@ -119,14 +119,14 @@ use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
 use cadraw_sketch::{
     arc_from_three_points, find_snap, line_intersection_params_in_sketch, mirror_entity,
     offset_entity, project_t, trim_segments, DeleteEntities, Entity, EntityId, InsertEntities,
-    ReplaceEntities, Sketch, SnapHit,
+    ReplaceEntities, Sketch, SnapHit, UpdateEntity,
 };
 use cadraw_ui::{
-    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, ConstraintAction, ConstraintStrip,
-    FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorEvent,
-    InspectorPickMode, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu, SketchPlaneItemInfo,
-    ThemeMode, ToolbarEvent, ToolbarTool, TopBar, TopBarEvent, TopBarFileOp, ViewCube,
-    ViewCubeAction,
+    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, FeatureInspector,
+    FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction, InspectorEvent,
+    InspectorPickMode, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu,
+    SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode, ToolbarEvent,
+    ToolbarTool, TopBar, TopBarEvent, TopBarFileOp, ViewCube, ViewCubeAction,
 };
 use eframe::egui;
 use glam::{DVec2, Mat4, Vec3};
@@ -547,9 +547,16 @@ struct CadrawApp {
     // Komponen UI Floating Shapr3D
     left_toolbar: LeftToolbar,
     items_drawer: ItemsDrawer,
-    constraint_strip: ConstraintStrip,
     viewcube: ViewCube,
     feature_inspector_open: bool,
+    auto_hide_properties: bool,
+    prop_input_p1_x: String,
+    prop_input_p1_y: String,
+    prop_input_p2_x: String,
+    prop_input_p2_y: String,
+    prop_input_val_1: String,
+    prop_input_val_2: String,
+    last_inspected_entity_id: Option<u64>,
 }
 
 impl CadrawApp {
@@ -624,9 +631,16 @@ impl CadrawApp {
 
             left_toolbar: LeftToolbar::default(),
             items_drawer: ItemsDrawer::default(),
-            constraint_strip: ConstraintStrip::default(),
             viewcube: ViewCube::default(),
             feature_inspector_open: true,
+            auto_hide_properties: true,
+            prop_input_p1_x: String::new(),
+            prop_input_p1_y: String::new(),
+            prop_input_p2_x: String::new(),
+            prop_input_p2_y: String::new(),
+            prop_input_val_1: String::new(),
+            prop_input_val_2: String::new(),
+            last_inspected_entity_id: None,
         }
     }
 
@@ -2663,9 +2677,10 @@ impl eframe::App for CadrawApp {
                 });
         }
 
-        // 6. Modern Top Bar (Header Mengambang di antara Toolbar dan ViewCube)
+        // 6. Modern Top Bar (Header Full Sampai Kanan)
+        let topbar_margin_right = 12.0;
         let topbar_x = if self.left_toolbar.items_drawer_open { 312.0 } else { 70.0 };
-        let topbar_max_w = (screen_rect.width() - topbar_x - 110.0).max(200.0);
+        let topbar_w = (screen_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
         let doc_name = self
             .current_file_path
             .as_ref()
@@ -2676,10 +2691,10 @@ impl eframe::App for CadrawApp {
         let is_saved = self.current_file_path.is_some();
 
         egui::Area::new(egui::Id::new("cadraw-topbar-floating"))
-            .fixed_pos(egui::pos2(topbar_x, 12.0))
+            .fixed_pos(egui::pos2(topbar_x, 8.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                ui.set_width(topbar_max_w);
+                ui.set_width(topbar_w);
                 if let Some(top_event) = TopBar::show(ui, &doc_name, is_saved) {
                     match top_event {
                         TopBarEvent::HomeClicked => {
@@ -2708,10 +2723,29 @@ impl eframe::App for CadrawApp {
                 }
             });
 
-        // 7. Interactive 3D ViewCube (Pojok Kanan Atas Bebas)
-        let viewcube_pos = egui::pos2(screen_rect.max.x - 48.0, 48.0);
+        // 7. Right Properties & Features Inspector (Fixed di Kanan Kanvas, Sejajar Tepi Kanan dg Header)
+        let is_editing_or_drawing = self.tool != ToolKind::Select;
+        let has_active_selection = !self.selected.is_empty() || !self.selected_bodies.is_empty();
+        let show_right_sidebar = if self.auto_hide_properties {
+            !is_editing_or_drawing && has_active_selection && self.feature_inspector_open
+        } else {
+            self.feature_inspector_open
+        };
+
+        let inspector_outer_w = 260.0;
+        let inspector_x = (screen_rect.max.x - topbar_margin_right - inspector_outer_w).max(180.0);
+        let inspector_y = 56.0;
+        let inspector_h = (screen_rect.max.y - inspector_y - 12.0).max(200.0);
+
+        // 8. Interactive 3D ViewCube (Otomatis Bergeser ke Kiri Sidebar Saat Sidebar Terbuka)
+        let viewcube_y = 102.0;
+        let viewcube_pos = if show_right_sidebar {
+            egui::pos2(inspector_x - 52.0, viewcube_y)
+        } else {
+            egui::pos2(screen_rect.max.x - topbar_margin_right - 42.0, viewcube_y)
+        };
         egui::Area::new(egui::Id::new("cadraw-viewcube-area"))
-            .fixed_pos(viewcube_pos - egui::vec2(34.0, 34.0))
+            .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 if let Some(action) = self.viewcube.show(ui, viewcube_pos, self.camera.yaw, self.camera.pitch) {
@@ -2727,7 +2761,7 @@ impl eframe::App for CadrawApp {
                 }
             });
 
-        // 8. In-Canvas HUD: Top Center Normal to Sketch Button & Section Banner
+        // In-Canvas HUD: Top Center Normal to Sketch Button & Section Banner
         if self.tool != ToolKind::Select {
             egui::Area::new(egui::Id::new("cadraw-hud-normal-to-sketch"))
                 .fixed_pos(egui::pos2(screen_center_x - 75.0, 56.0))
@@ -2753,35 +2787,190 @@ impl eframe::App for CadrawApp {
                 });
         }
 
-        // 9. Right Feature Inspector (Pohon Fitur Parametrik 3D) & Constraint Strip
-        let inspector_w = 235.0;
-        let inspector_margin_right = 12.0;
-        let inspector_x = (screen_rect.max.x - inspector_w - inspector_margin_right).max(180.0);
-        let inspector_y = 96.0;
+        // Populate SelectedEntityData
+        let selected_entity_data = if self.selected.len() == 1 {
+            let &id = self.selected.iter().next().unwrap();
+            let id_raw = id.data().as_ffi();
+            match self.sketch.entities.get(id) {
+                Some(Entity::Line { start, end }) => {
+                    let length = (*end - *start).length();
+                    let angle_deg = (*end - *start).y.atan2((*end - *start).x).to_degrees();
+                    if self.last_inspected_entity_id != Some(id_raw) {
+                        self.prop_input_p1_x = format!("{:.2}", start.x);
+                        self.prop_input_p1_y = format!("{:.2}", start.y);
+                        self.prop_input_p2_x = format!("{:.2}", end.x);
+                        self.prop_input_p2_y = format!("{:.2}", end.y);
+                        self.prop_input_val_1 = format!("{:.2}", length);
+                        self.prop_input_val_2 = format!("{:.1}", angle_deg);
+                        self.last_inspected_entity_id = Some(id_raw);
+                    }
+                    SelectedEntityData::Line {
+                        id_raw,
+                        start_x: start.x,
+                        start_y: start.y,
+                        end_x: end.x,
+                        end_y: end.y,
+                        length,
+                        angle_deg,
+                    }
+                }
+                Some(Entity::Circle { center, radius }) => {
+                    let diameter = *radius * 2.0;
+                    if self.last_inspected_entity_id != Some(id_raw) {
+                        self.prop_input_p1_x = format!("{:.2}", center.x);
+                        self.prop_input_p1_y = format!("{:.2}", center.y);
+                        self.prop_input_val_1 = format!("{:.2}", radius);
+                        self.prop_input_val_2 = format!("{:.2}", diameter);
+                        self.last_inspected_entity_id = Some(id_raw);
+                    }
+                    SelectedEntityData::Circle {
+                        id_raw,
+                        center_x: center.x,
+                        center_y: center.y,
+                        radius: *radius,
+                        diameter,
+                    }
+                }
+                Some(Entity::Arc {
+                    center,
+                    radius,
+                    start_angle,
+                    end_angle,
+                }) => {
+                    let start_deg = start_angle.to_degrees();
+                    let end_deg = end_angle.to_degrees();
+                    if self.last_inspected_entity_id != Some(id_raw) {
+                        self.prop_input_p1_x = format!("{:.2}", center.x);
+                        self.prop_input_p1_y = format!("{:.2}", center.y);
+                        self.prop_input_val_1 = format!("{:.2}", radius);
+                        self.prop_input_val_2 = format!("{:.1}", start_deg);
+                        self.prop_input_p2_x = format!("{:.1}", end_deg);
+                        self.last_inspected_entity_id = Some(id_raw);
+                    }
+                    SelectedEntityData::Arc {
+                        id_raw,
+                        center_x: center.x,
+                        center_y: center.y,
+                        radius: *radius,
+                        start_angle_deg: start_deg,
+                        end_angle_deg: end_deg,
+                    }
+                }
+                Some(Entity::Ellipse {
+                    center,
+                    radius_x,
+                    radius_y,
+                }) => {
+                    if self.last_inspected_entity_id != Some(id_raw) {
+                        self.prop_input_p1_x = format!("{:.2}", center.x);
+                        self.prop_input_p1_y = format!("{:.2}", center.y);
+                        self.prop_input_val_1 = format!("{:.2}", radius_x);
+                        self.prop_input_val_2 = format!("{:.2}", radius_y);
+                        self.last_inspected_entity_id = Some(id_raw);
+                    }
+                    SelectedEntityData::Ellipse {
+                        id_raw,
+                        center_x: center.x,
+                        center_y: center.y,
+                        radius_x: *radius_x,
+                        radius_y: *radius_y,
+                    }
+                }
+                None => {
+                    self.last_inspected_entity_id = None;
+                    SelectedEntityData::None
+                }
+            }
+        } else if self.selected.len() > 1 {
+            self.last_inspected_entity_id = None;
+            SelectedEntityData::MultipleEntities {
+                count: self.selected.len(),
+            }
+        } else {
+            self.last_inspected_entity_id = None;
+            SelectedEntityData::None
+        };
 
-        // Tombol Toggle Buka Feature Inspector (jika sedang ditutup)
-        if !self.feature_inspector_open {
+        // Populate SelectedBodyData
+        let selected_body_data = if self.selected_bodies.len() == 1 {
+            let &bid = self.selected_bodies.iter().next().unwrap();
+            let body_name = self
+                .model
+                .doc
+                .bodies
+                .get(bid)
+                .map(|b| b.name.clone())
+                .unwrap_or_else(|| "Solid Body".to_string());
+            if let Some(geo) = self.model.geometry.get(bid) {
+                let v_count = geo.mesh.positions.len();
+                let t_count = geo.mesh.indices.len() / 3;
+                let mut min_p = [f32::INFINITY; 3];
+                let mut max_p = [f32::NEG_INFINITY; 3];
+                for pos in &geo.mesh.positions {
+                    for i in 0..3 {
+                        min_p[i] = min_p[i].min(pos[i]);
+                        max_p[i] = max_p[i].max(pos[i]);
+                    }
+                }
+                let bbox_size = [
+                    (max_p[0] - min_p[0]).abs().max(0.0),
+                    (max_p[1] - min_p[1]).abs().max(0.0),
+                    (max_p[2] - min_p[2]).abs().max(0.0),
+                ];
+                Some(SelectedBodyData {
+                    id_raw: bid.data().as_ffi(),
+                    name: body_name,
+                    vertices_count: v_count,
+                    triangles_count: t_count,
+                    bbox_size,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Tombol Toggle Buka Sidebar Kanan jika sedang tertutup/tersembunyi (ditempatkan rapi di bawah ViewCube)
+        if !show_right_sidebar {
             egui::Area::new(egui::Id::new("cadraw-inspector-toggle-area"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - 95.0, inspector_y))
+                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right - 88.0, 154.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    if ui.button(egui::RichText::new("⚙ 3D Panel ◂").size(11.0)).clicked() {
+                    if ui
+                        .button(egui::RichText::new("⚙ Properti ◂").size(11.0))
+                        .on_hover_text("Buka Sidebar Properti & Fitur")
+                        .clicked()
+                    {
                         self.feature_inspector_open = true;
                     }
                 });
         }
 
-        if self.feature_inspector_open {
+        if show_right_sidebar {
             let mut inspector_state = FeatureInspectorState {
+                auto_hide_enabled: self.auto_hide_properties,
+                selected_entity: selected_entity_data,
+                selected_body: selected_body_data,
+                selected_bodies_count: self.selected_bodies.len(),
+                selected_edges_count: self.selected_edges.len(),
+                selected_faces_count: self.selected_faces.len(),
+                total_entities_count: self.sketch.entities.len(),
+                total_bodies_count: self.model.doc.bodies.len(),
+
+                entity_p1_x: self.prop_input_p1_x.clone(),
+                entity_p1_y: self.prop_input_p1_y.clone(),
+                entity_p2_x: self.prop_input_p2_x.clone(),
+                entity_p2_y: self.prop_input_p2_y.clone(),
+                entity_val_1: self.prop_input_val_1.clone(),
+                entity_val_2: self.prop_input_val_2.clone(),
+
                 extrude_input: self.extrude_distance_input.clone(),
                 loft_height_input: self.loft_height_input.clone(),
                 loft_bottom_staged: self.pending_loft_bottom.is_some(),
                 fillet_input: self.fillet_radius_input.clone(),
                 chamfer_input: self.chamfer_distance_input.clone(),
                 shell_input: self.shell_thickness_input.clone(),
-                selected_bodies_count: self.selected_bodies.len(),
-                selected_edges_count: self.selected_edges.len(),
-                selected_faces_count: self.selected_faces.len(),
                 picking_mode: match self.picking_mode {
                     PickMode::None => InspectorPickMode::None,
                     PickMode::Edge => InspectorPickMode::Edge,
@@ -2804,10 +2993,145 @@ impl eframe::App for CadrawApp {
                 .fixed_pos(egui::pos2(inspector_x, inspector_y))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
+                    ui.set_max_height(inspector_h);
                     if let Some(ev) = FeatureInspector::show(ui, &mut inspector_state) {
+                        self.prop_input_p1_x = inspector_state.entity_p1_x;
+                        self.prop_input_p1_y = inspector_state.entity_p1_y;
+                        self.prop_input_p2_x = inspector_state.entity_p2_x;
+                        self.prop_input_p2_y = inspector_state.entity_p2_y;
+                        self.prop_input_val_1 = inspector_state.entity_val_1;
+                        self.prop_input_val_2 = inspector_state.entity_val_2;
+
                         match ev {
                             InspectorEvent::CloseInspector => {
                                 self.feature_inspector_open = false;
+                            }
+                            InspectorEvent::ToggleAutoHide => {
+                                self.auto_hide_properties = !self.auto_hide_properties;
+                            }
+                            InspectorEvent::UpdateEntityLine {
+                                id_raw,
+                                start_x,
+                                start_y,
+                                end_x,
+                                end_y,
+                            } => {
+                                if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                                    let new_entity = Entity::Line {
+                                        start: DVec2::new(start_x, start_y),
+                                        end: DVec2::new(end_x, end_y),
+                                    };
+                                    self.undo.execute(
+                                        Box::new(UpdateEntity::new("Ubah Garis", id, new_entity)),
+                                        &mut self.sketch,
+                                    );
+                                }
+                            }
+                            InspectorEvent::UpdateEntityCircle {
+                                id_raw,
+                                center_x,
+                                center_y,
+                                radius,
+                            } => {
+                                if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                                    let new_entity = Entity::Circle {
+                                        center: DVec2::new(center_x, center_y),
+                                        radius,
+                                    };
+                                    self.undo.execute(
+                                        Box::new(UpdateEntity::new("Ubah Lingkaran", id, new_entity)),
+                                        &mut self.sketch,
+                                    );
+                                }
+                            }
+                            InspectorEvent::UpdateEntityArc {
+                                id_raw,
+                                center_x,
+                                center_y,
+                                radius,
+                                start_angle_deg,
+                                end_angle_deg,
+                            } => {
+                                if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                                    let new_entity = Entity::Arc {
+                                        center: DVec2::new(center_x, center_y),
+                                        radius,
+                                        start_angle: start_angle_deg.to_radians(),
+                                        end_angle: end_angle_deg.to_radians(),
+                                    };
+                                    self.undo.execute(
+                                        Box::new(UpdateEntity::new("Ubah Busur", id, new_entity)),
+                                        &mut self.sketch,
+                                    );
+                                }
+                            }
+                            InspectorEvent::UpdateEntityEllipse {
+                                id_raw,
+                                center_x,
+                                center_y,
+                                radius_x,
+                                radius_y,
+                            } => {
+                                if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                                    let new_entity = Entity::Ellipse {
+                                        center: DVec2::new(center_x, center_y),
+                                        radius_x,
+                                        radius_y,
+                                    };
+                                    self.undo.execute(
+                                        Box::new(UpdateEntity::new("Ubah Elips", id, new_entity)),
+                                        &mut self.sketch,
+                                    );
+                                }
+                            }
+                            InspectorEvent::ApplyConstraint(act) => {
+                                let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                                match act {
+                                    InspectorConstraintAction::Horizontal => {
+                                        if let [id] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::Horizontal { line: *id });
+                                        }
+                                    }
+                                    InspectorConstraintAction::Vertical => {
+                                        if let [id] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::Vertical { line: *id });
+                                        }
+                                    }
+                                    InspectorConstraintAction::Parallel => {
+                                        if let [a, b] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::Parallel { a: *a, b: *b });
+                                        }
+                                    }
+                                    InspectorConstraintAction::Perpendicular => {
+                                        if let [a, b] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::Perpendicular { a: *a, b: *b });
+                                        }
+                                    }
+                                    InspectorConstraintAction::EqualLength => {
+                                        if let [a, b] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::EqualLength { a: *a, b: *b });
+                                        }
+                                    }
+                                    InspectorConstraintAction::EqualRadius => {
+                                        if let [a, b] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::EqualRadius { a: *a, b: *b });
+                                        }
+                                    }
+                                    InspectorConstraintAction::Tangent => {
+                                        if let [a, b] = ids.as_slice() {
+                                            self.apply_constraint(Constraint::Tangent { a: *a, b: *b });
+                                        }
+                                    }
+                                    InspectorConstraintAction::Coincident => {
+                                        self.set_tool(ToolKind::CoincidentPick);
+                                    }
+                                    InspectorConstraintAction::Fixed => {
+                                        self.set_tool(ToolKind::FixedPick);
+                                    }
+                                    InspectorConstraintAction::Symmetric => {
+                                        self.set_tool(ToolKind::SymmetricPick);
+                                    }
+                                }
                             }
                             InspectorEvent::UndoModel => {
                                 self.model_undo.undo(&mut self.model);
@@ -2891,73 +3215,6 @@ impl eframe::App for CadrawApp {
                     }
                 });
         }
-
-        // 10. Constraint Strip (Terletak rapi di samping kiri FeatureInspector atau di tepi kanan)
-        let strip_x = if self.feature_inspector_open {
-            inspector_x - 52.0
-        } else {
-            screen_rect.max.x - 48.0
-        };
-        let strip_y = if self.feature_inspector_open {
-            inspector_y
-        } else {
-            inspector_y + 36.0
-        };
-        egui::Area::new(egui::Id::new("cadraw-constraint-strip-area"))
-            .fixed_pos(egui::pos2(strip_x, strip_y))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                if let Some(act) = self.constraint_strip.show(ui, self.selected.len()) {
-                    let ids: Vec<EntityId> = self.selected.iter().copied().collect();
-                    match act {
-                        ConstraintAction::ToggleSnap => {}
-                        ConstraintAction::ApplyHorizontal => {
-                            if let [id] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Horizontal { line: *id });
-                            }
-                        }
-                        ConstraintAction::ApplyVertical => {
-                            if let [id] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Vertical { line: *id });
-                            }
-                        }
-                        ConstraintAction::ApplyParallel => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Parallel { a: *a, b: *b });
-                            }
-                        }
-                        ConstraintAction::ApplyPerpendicular => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Perpendicular { a: *a, b: *b });
-                            }
-                        }
-                        ConstraintAction::ApplyEqualLength => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::EqualLength { a: *a, b: *b });
-                            }
-                        }
-                        ConstraintAction::ApplyEqualRadius => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::EqualRadius { a: *a, b: *b });
-                            }
-                        }
-                        ConstraintAction::ApplyTangent => {
-                            if let [a, b] = ids.as_slice() {
-                                self.apply_constraint(Constraint::Tangent { a: *a, b: *b });
-                            }
-                        }
-                        ConstraintAction::ApplyCoincident => {
-                            self.set_tool(ToolKind::CoincidentPick);
-                        }
-                        ConstraintAction::ApplyFixed => {
-                            self.set_tool(ToolKind::FixedPick);
-                        }
-                        ConstraintAction::ApplySymmetric => {
-                            self.set_tool(ToolKind::SymmetricPick);
-                        }
-                    }
-                }
-            });
 
         // 11. Bottom Floating Status Pill
         let bottom_center = egui::pos2(screen_center_x, screen_rect.max.y);

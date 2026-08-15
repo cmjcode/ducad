@@ -712,6 +712,46 @@ impl Command<Sketch> for ReplaceEntities {
     }
 }
 
+/// Command untuk memodifikasi satu entitas di tempat (in-place) dengan
+/// mempertahankan `EntityId` yang sama — dipakai oleh panel Properti saat
+/// pengguna mengubah koordinat/dimensi entitas secara langsung.
+pub struct UpdateEntity {
+    label: &'static str,
+    id: EntityId,
+    old_entity: Option<Entity>,
+    new_entity: Entity,
+}
+
+impl UpdateEntity {
+    pub fn new(label: &'static str, id: EntityId, new_entity: Entity) -> Self {
+        Self {
+            label,
+            id,
+            old_entity: None,
+            new_entity,
+        }
+    }
+}
+
+impl Command<Sketch> for UpdateEntity {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        if let Some(e) = sketch.entities.get_mut(self.id) {
+            self.old_entity = Some(e.clone());
+            *e = self.new_entity.clone();
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        if let Some(old) = &self.old_entity {
+            if let Some(e) = sketch.entities.get_mut(self.id) {
+                *e = old.clone();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -996,6 +1036,56 @@ mod tests {
             &Entity::Line {
                 start: DVec2::ZERO,
                 end: DVec2::new(10.0, 0.0),
+            }
+        );
+    }
+
+    #[test]
+    fn update_entity_preserves_id_and_undo_roundtrip() {
+        let mut sketch = Sketch::default();
+        let mut undo = UndoStack::default();
+        let id = sketch.entities.insert(Entity::Circle {
+            center: DVec2::ZERO,
+            radius: 10.0,
+        });
+
+        undo.execute(
+            Box::new(UpdateEntity::new(
+                "Ubah Radius",
+                id,
+                Entity::Circle {
+                    center: DVec2::ZERO,
+                    radius: 25.0,
+                },
+            )),
+            &mut sketch,
+        );
+
+        assert_eq!(sketch.entities.len(), 1);
+        assert!(sketch.entities.contains_key(id));
+        assert_eq!(
+            sketch.entities.get(id).unwrap(),
+            &Entity::Circle {
+                center: DVec2::ZERO,
+                radius: 25.0,
+            }
+        );
+
+        undo.undo(&mut sketch);
+        assert_eq!(
+            sketch.entities.get(id).unwrap(),
+            &Entity::Circle {
+                center: DVec2::ZERO,
+                radius: 10.0,
+            }
+        );
+
+        undo.redo(&mut sketch);
+        assert_eq!(
+            sketch.entities.get(id).unwrap(),
+            &Entity::Circle {
+                center: DVec2::ZERO,
+                radius: 25.0,
             }
         );
     }
