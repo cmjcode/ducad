@@ -2629,7 +2629,7 @@ impl eframe::App for CadrawApp {
                 .collect();
 
             egui::Area::new(egui::Id::new("cadraw-items-drawer-area"))
-                .fixed_pos(egui::pos2(150.0, 12.0))
+                .fixed_pos(egui::pos2(68.0, 12.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies) {
@@ -2664,7 +2664,7 @@ impl eframe::App for CadrawApp {
         }
 
         // 6. Modern Top Bar (Header Mengambang di antara Toolbar dan ViewCube)
-        let topbar_x = if self.left_toolbar.items_drawer_open { 382.0 } else { 152.0 };
+        let topbar_x = if self.left_toolbar.items_drawer_open { 312.0 } else { 70.0 };
         let topbar_max_w = (screen_rect.width() - topbar_x - 110.0).max(200.0);
         let doc_name = self
             .current_file_path
