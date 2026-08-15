@@ -24,6 +24,7 @@ glam = { workspace = true }
 slotmap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+anyhow = { workspace = true }
 
 # `rfd` (dialog file native) TIDAK COMPILE di iOS — tidak ada backend
 # UIKit sama sekali (dibuktikan lewat probe crate terpisah saat Fase 6).

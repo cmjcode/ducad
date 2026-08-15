@@ -233,6 +233,18 @@ impl SceneRenderer {
         self.overlay_vertex_count = verts.len() as u32;
     }
 
+    /// Perbarui buffer grid untuk bidang sketsa tertentu (`Top`, `Front`, `Right`).
+    pub fn set_grid_plane(&mut self, device: &wgpu::Device, plane: &crate::plane::SketchPlane) {
+        use wgpu::util::DeviceExt;
+        let grid_verts = grid::generate_grid_for_plane(plane, 500.0, 10.0);
+        self.grid_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("grid"),
+            contents: bytemuck::cast_slice(&grid_verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.grid_vertex_count = grid_verts.len() as u32;
+    }
+
     /// Upload mesh body (dari cadraw-kernel) untuk ditampilkan. Body kosong
     /// (tidak ada body, atau semua tersembunyi) membersihkan mesh yang
     /// sedang tampil — wgpu menolak buffer berukuran 0, jadi early-return

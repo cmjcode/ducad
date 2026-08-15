@@ -114,7 +114,7 @@ use std::path::PathBuf;
 use cadraw_core::{BodyId, LengthUnit};
 use cadraw_kernel::{KernelMesh, KernelShape, PickRay};
 use cadraw_render::camera::ViewPreset;
-use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, SceneRenderer};
+use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane};
 use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
 use cadraw_sketch::{
     arc_from_three_points, find_closed_regions, find_region_at_point, find_region_containing_entity,
@@ -326,6 +326,7 @@ enum PaletteAction {
     ModelRedo,
     DeleteSelection,
     ToggleTheme,
+    SetSketchPlane(PlaneKind),
     File(FileOp),
     /// Kosongkan `CadrawApp::measurements` (Fase 7) — cuma muncul di
     /// palette saat ada isinya, sama pola dengan `DeleteSelection`.
@@ -561,6 +562,7 @@ struct CadrawApp {
 
     // State Sketch Mode & Satuan
     is_sketching: bool,
+    active_plane: SketchPlane,
     unit: LengthUnit,
 
     // State Direct Extrude Gizmo & Smart Boolean Cut
@@ -657,6 +659,7 @@ impl CadrawApp {
             last_inspected_entity_id: None,
 
             is_sketching: true,
+            active_plane: SketchPlane::top(),
             unit: LengthUnit::Millimeters,
 
             extruding_from_gizmo: false,
@@ -667,6 +670,39 @@ impl CadrawApp {
             gizmo_is_cutting: false,
             gizmo_target_body: None,
         }
+    }
+
+    /// Ubah bidang kerja sketsa aktif (`Top`, `Front`, atau `Right`) dan selaraskan kamera.
+    fn set_sketch_plane(&mut self, kind: PlaneKind) {
+        self.active_plane = SketchPlane::from_kind(kind);
+        self.is_sketching = true;
+        self.left_toolbar.is_sketching = true;
+        self.camera.orient_to_plane(&self.active_plane);
+    }
+
+    /// Extrude profil pada bidang sketsa aktif sepanjang `distance`.
+    fn extrude_profile_active_plane(
+        &self,
+        profile: &cadraw_kernel::Profile,
+        distance: f64,
+    ) -> anyhow::Result<cadraw_kernel::KernelShape> {
+        let orig = self.active_plane.to_world_f64((0.0, 0.0), 0.0);
+        let u_ax = [
+            self.active_plane.u_axis.x as f64,
+            self.active_plane.u_axis.y as f64,
+            self.active_plane.u_axis.z as f64,
+        ];
+        let v_ax = [
+            self.active_plane.v_axis.x as f64,
+            self.active_plane.v_axis.y as f64,
+            self.active_plane.v_axis.z as f64,
+        ];
+        let n_ax = [
+            self.active_plane.normal.x as f64,
+            self.active_plane.normal.y as f64,
+            self.active_plane.normal.z as f64,
+        ];
+        cadraw_kernel::extrude_profile_on_plane(profile, orig, u_ax, v_ax, n_ax, distance)
     }
 
     fn set_tool(&mut self, tool: ToolKind) {
@@ -1360,6 +1396,9 @@ impl CadrawApp {
             ("Redo Sketch".to_string(), "⌘⇧Z".to_string(), PaletteAction::Redo),
             ("Undo Model".to_string(), String::new(), PaletteAction::ModelUndo),
             ("Redo Model".to_string(), String::new(), PaletteAction::ModelRedo),
+            ("Sketch: Bidang Top (XY)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Top)),
+            ("Sketch: Bidang Vertikal Front (XZ)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Front)),
+            ("Sketch: Bidang Vertikal Right (YZ)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Right)),
             (
                 format!("Ganti Tema ({})", self.theme.toggled().label()),
                 String::new(),
@@ -1388,6 +1427,7 @@ impl CadrawApp {
     fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
         match action {
             PaletteAction::SetTool(kind) => self.set_tool(kind),
+            PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
             PaletteAction::Undo => {
                 self.undo.undo(&mut self.sketch);
             }
@@ -1596,8 +1636,8 @@ impl CadrawApp {
         let Some(pos) = hover_pos else { return false; };
         let Some(c) = self.selected_closed_region_centroid() else { return false; };
         let z_top = if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 16.0 };
-        let top_3d = Vec3::new(c.x as f32, c.y as f32, z_top);
-        let bot_3d = Vec3::new(c.x as f32, c.y as f32, 0.0);
+        let top_3d = self.active_plane.to_world(c, z_top);
+        let bot_3d = self.active_plane.to_world(c, 0.0);
         let near_top = world_to_screen_pos(&self.camera, rect, top_3d).map_or(false, |s| s.distance(pos) < 32.0);
         let near_bot = world_to_screen_pos(&self.camera, rect, bot_3d).map_or(false, |s| s.distance(pos) < 32.0);
         near_top || near_bot
@@ -1609,7 +1649,7 @@ impl CadrawApp {
 
         let raw_cursor = response
             .hover_pos()
-            .and_then(|p| screen_to_plane_point(&self.camera, rect, p));
+            .and_then(|p| screen_to_plane_point(&self.camera, rect, p, &self.active_plane));
 
         self.handle_radial_menu(ui, &response);
 
@@ -1634,6 +1674,7 @@ impl CadrawApp {
             ViewportCallback {
                 view_proj: self.camera.view_proj(aspect),
                 eye: self.camera.eye(),
+                sketch_plane: self.active_plane,
                 overlay_lines: overlay,
                 body_positions,
                 body_normals,
@@ -1815,12 +1856,11 @@ impl CadrawApp {
 
                 // 1. Interaksi Drag Gizmo Panah 2 Sisi (↕) jika ada profil tertutup terpilih
                 if let Some(centroid) = self.selected_closed_region_centroid() {
-                    let gizmo_3d = Vec3::new(
-                        centroid.x as f32,
-                        centroid.y as f32,
+                    let gizmo_3d = self.active_plane.to_world(
+                        centroid,
                         if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 18.0 },
                     );
-                    let base_3d = Vec3::new(centroid.x as f32, centroid.y as f32, 0.0);
+                    let base_3d = self.active_plane.to_world(centroid, 0.0);
                     let gizmo_s = world_to_screen_pos(&self.camera, rect, gizmo_3d);
                     let base_s = world_to_screen_pos(&self.camera, rect, base_3d);
 
@@ -1844,7 +1884,7 @@ impl CadrawApp {
 
                         // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
                         if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                            if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                 let mut is_cutting = false;
                                 for (b_id, b_geo) in self.model.geometry.iter() {
                                     if let Some(body) = self.model.doc.bodies.get(b_id) {
@@ -1872,7 +1912,7 @@ impl CadrawApp {
                         if response.drag_stopped() {
                             if self.gizmo_distance.abs() > 0.1 {
                                 if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                                    if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                                    if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                         if self.gizmo_is_cutting {
                                             if let Some(target_id) = self.gizmo_target_body {
                                                 if let Some(target_geo) = self.model.geometry.get(target_id) {
@@ -2139,29 +2179,32 @@ impl CadrawApp {
     }
 
     fn build_overlay_lines(&self, raw_cursor: Option<DVec2>, world_scale: f64) -> Vec<LineVertex> {
-        let mut verts = sketch_render::entity_lines(&self.sketch, self.hovered, &self.selected);
+        let mut verts = sketch_render::entity_lines(&self.sketch, self.hovered, &self.selected, &self.active_plane);
 
         // Gambar Gizmo Panah 2 Sisi (↕) dan garis putus-putus extrude jika profil tertutup terpilih (Screenshot 2, 3, 4)
         if let Some(centroid) = self.selected_closed_region_centroid() {
-            let c_base = [centroid.x as f32, centroid.y as f32, 0.02];
+            let c_base_pt = self.active_plane.to_world(centroid, 0.02);
+            let c_base = [c_base_pt.x, c_base_pt.y, c_base_pt.z];
             const GIZMO_ARROW_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
 
             if self.extruding_from_gizmo {
-                let c_top = [centroid.x as f32, centroid.y as f32, self.gizmo_distance as f32];
+                let c_top_pt = self.active_plane.to_world(centroid, self.gizmo_distance as f32);
+                let c_top = [c_top_pt.x, c_top_pt.y, c_top_pt.z];
                 // Garis putus-putus dari base ke ketinggian extrude
                 verts.extend(sketch_render::dashed_line_3d(c_base, c_top, 4.0, [0.15, 0.70, 1.0, 0.95]));
                 // Gizmo panah tebal di posisi ujung extrude
-                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top, 22.0, 5.0, GIZMO_ARROW_COLOR));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
             } else {
-                let gizmo_pos = [centroid.x as f32, centroid.y as f32, 18.0];
+                let gizmo_pt = self.active_plane.to_world(centroid, 18.0);
+                let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.70, 1.0, 0.75]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 22.0, 5.0, GIZMO_ARROW_COLOR));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
             }
         }
 
         // Pengukuran (Fase 7) tergambar permanen
         for measurement in &self.measurements {
-            verts.extend(sketch_render::measurement_lines(&measurement.points()));
+            verts.extend(sketch_render::measurement_lines(&measurement.points(), &self.active_plane));
         }
 
         // Highlight tepi 3D terpilih via picking
@@ -2182,7 +2225,7 @@ impl CadrawApp {
         // Offset preview
         if self.tool == ToolKind::Offset {
             if let Some(entity) = self.offset_source.and_then(|id| self.sketch.entities.get(id)) {
-                verts.extend(sketch_render::preview_lines(entity));
+                verts.extend(sketch_render::preview_lines(entity, &self.active_plane));
             }
         }
 
@@ -2190,7 +2233,7 @@ impl CadrawApp {
         if matches!(self.tool, ToolKind::CoincidentPick | ToolKind::SymmetricPick) {
             for pr in &self.pending_point_refs {
                 if let Some(p) = constraint::point_ref_position(&self.sketch, pr) {
-                    verts.extend(sketch_render::picked_point_glyph(p));
+                    verts.extend(sketch_render::picked_point_glyph(p, &self.active_plane));
                 }
             }
         }
@@ -2202,8 +2245,8 @@ impl CadrawApp {
                     let start = self.pending_points[0];
                     let end = self.snapped_or(raw);
                     let preview = Entity::Line { start, end };
-                    verts.extend(sketch_render::preview_lines(&preview));
-                    verts.extend(sketch_render::dimension_leader_lines(start, end, offset_dist));
+                    verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+                    verts.extend(sketch_render::dimension_leader_lines(start, end, offset_dist, &self.active_plane));
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
@@ -2221,11 +2264,11 @@ impl CadrawApp {
                             start: corners[i],
                             end: corners[(i + 1) % 4],
                         };
-                        verts.extend(sketch_render::preview_lines(&preview));
+                        verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                     // Leader lines untuk lebar dan tinggi (Screenshot 1)
-                    verts.extend(sketch_render::dimension_leader_lines(corners[0], corners[1], offset_dist));
-                    verts.extend(sketch_render::dimension_leader_lines(corners[1], corners[2], offset_dist));
+                    verts.extend(sketch_render::dimension_leader_lines(corners[0], corners[1], offset_dist, &self.active_plane));
+                    verts.extend(sketch_render::dimension_leader_lines(corners[1], corners[2], offset_dist, &self.active_plane));
                 }
                 ToolKind::Circle if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
@@ -2235,8 +2278,8 @@ impl CadrawApp {
                         center: first,
                         radius,
                     };
-                    verts.extend(sketch_render::preview_lines(&preview));
-                    verts.extend(sketch_render::dimension_leader_lines(first, effective, offset_dist * 0.5));
+                    verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+                    verts.extend(sketch_render::dimension_leader_lines(first, effective, offset_dist * 0.5, &self.active_plane));
                 }
                 ToolKind::Ellipse if self.pending_points.len() == 1 => {
                     let first = self.pending_points[0];
@@ -2249,7 +2292,7 @@ impl CadrawApp {
                             radius_x,
                             radius_y,
                         };
-                        verts.extend(sketch_render::preview_lines(&preview));
+                        verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
                 ToolKind::Arc => {
@@ -2260,8 +2303,8 @@ impl CadrawApp {
                                 start: self.pending_points[0],
                                 end: effective,
                             };
-                            verts.extend(sketch_render::preview_lines(&preview));
-                            verts.extend(sketch_render::dimension_leader_lines(self.pending_points[0], effective, offset_dist));
+                            verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+                            verts.extend(sketch_render::dimension_leader_lines(self.pending_points[0], effective, offset_dist, &self.active_plane));
                         }
                         2 => {
                             if let Some(preview) = arc_from_three_points(
@@ -2269,7 +2312,7 @@ impl CadrawApp {
                                 self.pending_points[1],
                                 effective,
                             ) {
-                                verts.extend(sketch_render::preview_lines(&preview));
+                                verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                             }
                         }
                         _ => {}
@@ -2282,14 +2325,14 @@ impl CadrawApp {
                         start: axis_a,
                         end: axis_b,
                     };
-                    verts.extend(sketch_render::preview_lines(&axis_preview));
+                    verts.extend(sketch_render::preview_lines(&axis_preview, &self.active_plane));
                     for entity in self
                         .selected
                         .iter()
                         .filter_map(|id| self.sketch.entities.get(*id))
                     {
                         if let Some(mirrored) = mirror_entity(entity, axis_a, axis_b) {
-                            verts.extend(sketch_render::preview_lines(&mirrored));
+                            verts.extend(sketch_render::preview_lines(&mirrored, &self.active_plane));
                         }
                     }
                 }
@@ -2298,21 +2341,21 @@ impl CadrawApp {
                         start: self.pending_points[0],
                         end: self.snapped_or(raw),
                     };
-                    verts.extend(sketch_render::preview_lines(&axis_preview));
+                    verts.extend(sketch_render::preview_lines(&axis_preview, &self.active_plane));
                 }
                 ToolKind::Offset => {
                     if let Some(entity) =
                         self.offset_source.and_then(|id| self.sketch.entities.get(id))
                     {
                         if let Some(preview) = offset_entity(entity, raw) {
-                            verts.extend(sketch_render::preview_lines(&preview));
+                            verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                         }
                     }
                 }
                 ToolKind::Trim => {
                     if let Some(id) = self.hovered {
                         if let Some((a, b)) = trim_removal_preview(&self.sketch, id, raw) {
-                            verts.extend(sketch_render::removal_preview_lines(a, b));
+                            verts.extend(sketch_render::removal_preview_lines(a, b, &self.active_plane));
                         }
                     }
                 }
@@ -2320,14 +2363,14 @@ impl CadrawApp {
                     let effective = self.snapped_or(raw);
                     let mut preview_points = self.pending_points.clone();
                     preview_points.push(effective);
-                    verts.extend(sketch_render::measurement_lines(&preview_points));
+                    verts.extend(sketch_render::measurement_lines(&preview_points, &self.active_plane));
                 }
                 _ => {}
             }
         }
 
         if let Some(hit) = &self.last_snap {
-            verts.extend(sketch_render::snap_glyph(hit));
+            verts.extend(sketch_render::snap_glyph(hit, &self.active_plane));
         }
 
         verts
@@ -2349,7 +2392,8 @@ impl CadrawApp {
                     let dir = (effective - start).normalize_or_zero();
                     let normal = DVec2::new(-dir.y, dir.x);
                     let label_pos = mid + normal * offset_dist;
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(label_pos.x as f32, label_pos.y as f32, 0.0)) {
+                    let label_3d = self.active_plane.to_world(label_pos, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(len), false);
                     }
                 }
@@ -2362,12 +2406,14 @@ impl CadrawApp {
 
                     // Pill lebar di sisi bawah
                     let bot_mid = DVec2::new((min.x + max.x) * 0.5, min.y - offset_dist);
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(bot_mid.x as f32, bot_mid.y as f32, 0.0)) {
+                    let bot_3d = self.active_plane.to_world(bot_mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, bot_3d) {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(w), false);
                     }
                     // Pill tinggi di sisi kanan
                     let right_mid = DVec2::new(max.x + offset_dist, (min.y + max.y) * 0.5);
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(right_mid.x as f32, right_mid.y as f32, 0.0)) {
+                    let right_3d = self.active_plane.to_world(right_mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, right_3d) {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(h), false);
                     }
                 }
@@ -2375,7 +2421,8 @@ impl CadrawApp {
                     let first = self.pending_points[0];
                     let radius = (effective - first).length();
                     let mid = (first + effective) * 0.5;
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, Vec3::new(mid.x as f32, mid.y as f32, 0.0)) {
+                    let mid_3d = self.active_plane.to_world(mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid_3d) {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &format!("R {}", self.unit.format_precise(radius)), false);
                     }
                 }
@@ -2386,7 +2433,7 @@ impl CadrawApp {
         // 2. Interactive Draggable Double Arrow Handle & Dimension Pill di atas Gizmo (Screenshot 2, 3, 4)
         if let Some(centroid) = self.selected_closed_region_centroid() {
             let z_pos = if self.extruding_from_gizmo { self.gizmo_distance } else { 18.0 };
-            let handle_3d = Vec3::new(centroid.x as f32, centroid.y as f32, z_pos as f32);
+            let handle_3d = self.active_plane.to_world(centroid, z_pos as f32);
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
                 // Handle panah 2 sisi tebal dan draggable
@@ -2406,7 +2453,7 @@ impl CadrawApp {
 
                     // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
                     if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                        if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                        if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                             let mut is_cutting = false;
                             for (b_id, b_geo) in self.model.geometry.iter() {
                                 if let Some(body) = self.model.doc.bodies.get(b_id) {
@@ -2435,7 +2482,7 @@ impl CadrawApp {
                 if handle_resp.drag_stopped() {
                     if self.gizmo_distance.abs() > 0.1 {
                         if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                            if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                 if self.gizmo_is_cutting {
                                     if let Some(target_id) = self.gizmo_target_body {
                                         if let Some(target_geo) = self.model.geometry.get(target_id) {
@@ -2482,7 +2529,7 @@ impl CadrawApp {
                                         self.gizmo_distance = self.unit.to_internal_mm(val);
                                         // Commit Extrude dengan ukuran presisi
                                         if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                                            if let Ok(swept) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                                                 let geo = BodyGeometry::from_shape(swept);
                                                 let cmd = AddSolidCommand::new("Extrude", geo);
                                                 self.model_undo.execute(Box::new(cmd), &mut self.model);
@@ -2541,7 +2588,7 @@ impl CadrawApp {
                 return;
             }
         };
-        match cadraw_kernel::extrude_profile(&profile, distance) {
+        match self.extrude_profile_active_plane(&profile, distance) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
                 self.model_undo.execute(
@@ -2777,8 +2824,9 @@ impl CadrawApp {
                     if chunk.len() == 3 {
                         let offset = positions.len() as u32;
                         for p in chunk {
-                            positions.push([p.x as f32, p.y as f32, 0.015]);
-                            normals.push([0.0, 0.0, 1.0]);
+                            let p_3d = self.active_plane.to_world(*p, 0.015);
+                            positions.push([p_3d.x, p_3d.y, p_3d.z]);
+                            normals.push([self.active_plane.normal.x, self.active_plane.normal.y, self.active_plane.normal.z]);
                             colors.push(CYAN_FACE_SELECTED);
                         }
                         indices.push(offset);
@@ -2792,7 +2840,7 @@ impl CadrawApp {
         // 3. Live Extrude / Boolean Cut preview jika sedang drag gizmo
         if self.extruding_from_gizmo && self.gizmo_distance.abs() > 0.01 {
             if let Ok(profile) = model::build_profile_from_selection(&self.sketch, &self.selected) {
-                if let Ok(extruded_shape) = cadraw_kernel::extrude_profile(&profile, self.gizmo_distance) {
+                if let Ok(extruded_shape) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
                     if self.gizmo_is_cutting {
                         if let Some(target_id) = self.gizmo_target_body {
                             if let Some(target_geo) = self.model.geometry.get(target_id) {
@@ -2925,16 +2973,16 @@ fn screen_to_ray(camera: &OrbitCamera, rect: egui::Rect, pos: egui::Pos2) -> (Ve
     (p_near, p_far - p_near)
 }
 
-/// Konversi posisi kursor layar → titik di bidang sketch (Z=0), lewat
-/// unprojection ray kamera dan interseksi ray-bidang.
-fn screen_to_plane_point(camera: &OrbitCamera, rect: egui::Rect, pos: egui::Pos2) -> Option<DVec2> {
+/// Konversi posisi kursor layar → titik di bidang sketch aktif (`Top`, `Front`, `Right`),
+/// lewat unprojection ray kamera dan interseksi ray-bidang.
+fn screen_to_plane_point(
+    camera: &OrbitCamera,
+    rect: egui::Rect,
+    pos: egui::Pos2,
+    plane: &SketchPlane,
+) -> Option<DVec2> {
     let (p_near, dir) = screen_to_ray(camera, rect, pos);
-    if dir.z.abs() < 1e-6 {
-        return None; // ray sejajar bidang XY — tidak ada perpotongan berguna
-    }
-    let t = -p_near.z / dir.z;
-    let hit = p_near + dir * t;
-    Some(DVec2::new(hit.x as f64, hit.y as f64))
+    plane.ray_intersection(p_near, dir)
 }
 
 /// Perkiraan unit-dunia per piksel layar pada kedalaman target kamera —
@@ -3015,7 +3063,7 @@ impl eframe::App for CadrawApp {
             .fixed_pos(egui::pos2(12.0, 12.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool(), "Sketch plane 01") {
+                if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool(), self.active_plane.name()) {
                     match tb_ev {
                         ToolbarEvent::SelectTool(t) => {
                             self.set_tool(ToolKind::from_toolbar_tool(t));
@@ -3026,10 +3074,19 @@ impl eframe::App for CadrawApp {
                         ToolbarEvent::OpenSearch => {
                             self.palette.open();
                         }
+                        ToolbarEvent::SelectSketchPlane(idx) => {
+                            let kind = match idx {
+                                0 => PlaneKind::Top,
+                                1 => PlaneKind::Front,
+                                2 => PlaneKind::Right,
+                                _ => PlaneKind::Top,
+                            };
+                            self.set_sketch_plane(kind);
+                        }
                         ToolbarEvent::EnterSketching => {
                             self.is_sketching = true;
                             self.left_toolbar.is_sketching = true;
-                            self.camera.orient_to_sketch();
+                            self.camera.orient_to_plane(&self.active_plane);
                         }
                         ToolbarEvent::ExitSketching => {
                             self.is_sketching = false;
@@ -3058,12 +3115,26 @@ impl eframe::App for CadrawApp {
 
         // 5. Items Tree Drawer (Muncul di sebelah kanan toolbar saat dibuka)
         if self.left_toolbar.items_drawer_open {
-            let sketch_planes = vec![SketchPlaneItemInfo {
-                index: 0,
-                name: "Sketch plane 01".to_string(),
-                active: true,
-                visible: true,
-            }];
+            let sketch_planes = vec![
+                SketchPlaneItemInfo {
+                    index: 0,
+                    name: "Plane 01 - Top (XY)".to_string(),
+                    active: self.active_plane.kind == PlaneKind::Top,
+                    visible: true,
+                },
+                SketchPlaneItemInfo {
+                    index: 1,
+                    name: "Plane 02 - Front (XZ)".to_string(),
+                    active: self.active_plane.kind == PlaneKind::Front,
+                    visible: true,
+                },
+                SketchPlaneItemInfo {
+                    index: 2,
+                    name: "Plane 03 - Right (YZ)".to_string(),
+                    active: self.active_plane.kind == PlaneKind::Right,
+                    visible: true,
+                },
+            ];
             let bodies: Vec<BodyItemInfo> = self
                 .model
                 .doc
@@ -3106,7 +3177,15 @@ impl eframe::App for CadrawApp {
                                 }
                             }
                             ItemsDrawerEvent::ToggleSketchVisibility(_) => {}
-                            ItemsDrawerEvent::SelectSketchPlane(_) => {}
+                            ItemsDrawerEvent::SelectSketchPlane(idx) => {
+                                let kind = match idx {
+                                    0 => PlaneKind::Top,
+                                    1 => PlaneKind::Front,
+                                    2 => PlaneKind::Right,
+                                    _ => PlaneKind::Top,
+                                };
+                                self.set_sketch_plane(kind);
+                            }
                         }
                     }
                 });
@@ -3208,7 +3287,7 @@ impl eframe::App for CadrawApp {
                 .show(ctx, |ui| {
                     if let Some(hud_ev) = CanvasHud::show_normal_to_sketch_btn(ui) {
                         if hud_ev == CanvasHudEvent::OrientNormalToSketch {
-                            self.camera.orient_to_sketch();
+                            self.camera.orient_to_plane(&self.active_plane);
                         }
                     }
                 });
@@ -3698,6 +3777,7 @@ impl eframe::App for CadrawApp {
 struct ViewportCallback {
     view_proj: Mat4,
     eye: Vec3,
+    sketch_plane: SketchPlane,
     overlay_lines: Vec<LineVertex>,
     body_positions: Vec<[f32; 3]>,
     body_normals: Vec<[f32; 3]>,
@@ -3717,6 +3797,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
+            scene.set_grid_plane(device, &self.sketch_plane);
             scene.set_overlay_lines(device, &self.overlay_lines);
             scene.set_mesh(
                 device,

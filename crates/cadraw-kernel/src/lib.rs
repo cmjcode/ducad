@@ -227,6 +227,51 @@ fn build_wire(profile: &Profile) -> Result<Wire> {
     build_wire_at_z(profile, 0.0)
 }
 
+fn build_wire_on_plane(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+) -> Result<Wire> {
+    let to_3d = |p: (f64, f64)| -> glam::DVec3 {
+        dvec3(
+            origin[0] + u_axis[0] * p.0 + v_axis[0] * p.1,
+            origin[1] + u_axis[1] * p.0 + v_axis[1] * p.1,
+            origin[2] + u_axis[2] * p.0 + v_axis[2] * p.1,
+        )
+    };
+    let norm = dvec3(normal[0], normal[1], normal[2]).normalize();
+
+    match profile {
+        Profile::Circle { center, radius } => {
+            if *radius <= 0.0 {
+                bail!("radius lingkaran profil harus > 0");
+            }
+            let c3 = to_3d(*center);
+            let edge = Edge::circle(c3, norm, *radius);
+            Ok(Wire::from_edges([&edge]))
+        }
+        Profile::Loop(segments) => {
+            if segments.is_empty() {
+                bail!("profil loop kosong");
+            }
+            let edges: Vec<Edge> = segments
+                .iter()
+                .map(|s| match s {
+                    ProfileSegment::Line { start, end } => {
+                        Edge::segment(to_3d(*start), to_3d(*end))
+                    }
+                    ProfileSegment::Arc { start, via, end } => {
+                        Edge::arc(to_3d(*start), to_3d(*via), to_3d(*end))
+                    }
+                })
+                .collect();
+            Ok(Wire::from_edges(edges.iter()))
+        }
+    }
+}
+
 /// Sama seperti `build_wire`, tapi diangkat ke ketinggian `z` — dipakai
 /// `loft_profiles` untuk menempatkan profil ATAS di `z = height` sementara
 /// profil BAWAH tetap di `z = 0` (sketch CADRAW cuma satu bidang XY, lihat
@@ -262,19 +307,46 @@ fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
     }
 }
 
-/// Extrude profil di bidang XY sepanjang `distance` mm di sumbu Z (arah
-/// negatif kalau `distance` negatif). Workplane lain (sketch-on-face)
-/// belum didukung — sketch di CADRAW saat ini selalu di bidang XY, lihat
-/// docs/PLAN.md.
-pub fn extrude_profile(profile: &Profile, distance: f64) -> Result<KernelShape> {
+/// Extrude profil pada bidang 3D sembarang (origin, u_axis, v_axis, normal) sepanjang `distance` mm
+/// searah normal bidang.
+pub fn extrude_profile_on_plane(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+    distance: f64,
+) -> Result<KernelShape> {
     if distance.abs() < 1e-9 {
         bail!("jarak extrude harus tidak nol");
     }
     let _guard = lock_kernel();
-    let wire = build_wire(profile)?;
+    let wire = build_wire_on_plane(profile, origin, u_axis, v_axis, normal)?;
     let face = Face::from_wire(&wire);
-    let solid = face.extrude(dvec3(0.0, 0.0, distance));
+    let norm_len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    let extrude_dir = if norm_len > 1e-6 {
+        dvec3(
+            (normal[0] / norm_len) * distance,
+            (normal[1] / norm_len) * distance,
+            (normal[2] / norm_len) * distance,
+        )
+    } else {
+        dvec3(0.0, 0.0, distance)
+    };
+    let solid = face.extrude(extrude_dir);
     Ok(KernelShape(solid.into_shape()))
+}
+
+/// Extrude profil di bidang XY sepanjang `distance` mm di sumbu Z.
+pub fn extrude_profile(profile: &Profile, distance: f64) -> Result<KernelShape> {
+    extrude_profile_on_plane(
+        profile,
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        distance,
+    )
 }
 
 /// Revolve profil di bidang XY mengelilingi sumbu 2D (`axis_origin`+
@@ -1098,5 +1170,39 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap();
         let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
         assert!(shell_hollow_faces(&shape, 2.0, &[]).is_err());
+    }
+
+    #[test]
+    fn extrude_vertical_front_xz_produces_solid() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile_on_plane(
+            &rect_profile(30.0, 20.0),
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, -1.0, 0.0],
+            15.0,
+        )
+        .unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+        assert!(!mesh.positions.is_empty());
+    }
+
+    #[test]
+    fn extrude_vertical_right_yz_produces_solid() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile_on_plane(
+            &rect_profile(25.0, 35.0),
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            10.0,
+        )
+        .unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+        assert!(!mesh.positions.is_empty());
     }
 }

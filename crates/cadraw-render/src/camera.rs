@@ -123,6 +123,11 @@ impl OrbitCamera {
     pub fn orient_to_sketch(&mut self) {
         self.set_preset(ViewPreset::Top);
     }
+
+    /// Selaraskan pandangan tegak lurus ke bidang sketsa tertentu (`Top`, `Front`, atau `Right`).
+    pub fn orient_to_plane(&mut self, plane: &crate::plane::SketchPlane) {
+        self.set_preset(plane.camera_preset());
+    }
 }
 
 #[cfg(test)]

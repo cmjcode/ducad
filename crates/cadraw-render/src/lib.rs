@@ -4,11 +4,13 @@
 
 pub mod camera;
 pub mod grid;
+pub mod plane;
 pub mod scene;
 pub mod sketch;
 
 pub use camera::OrbitCamera;
 pub use grid::LineVertex;
+pub use plane::{PlaneKind, SketchPlane};
 pub use scene::{MeshVertex, SceneRenderer};
 
 // Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi

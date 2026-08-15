@@ -1,13 +1,14 @@
 //! Konversi entitas `cadraw-sketch` + indikator snap menjadi `LineVertex`
-//! untuk viewport. Digambar di bidang XY dengan sedikit offset Z agar
-//! tidak z-fighting dengan garis grid yang ada persis di Z=0.
+//! untuk viewport. Digambar pada bidang `SketchPlane` aktif dengan sedikit offset normal
+//! agar tidak z-fighting dengan garis grid yang ada persis di bidang.
 
 use std::collections::HashSet;
 
 use cadraw_sketch::{Entity, EntityId, Sketch, SnapHit, SnapKind};
-use glam::DVec2;
+use glam::{DVec2, Vec3};
 
 use crate::grid::LineVertex;
+use crate::plane::SketchPlane;
 
 const Z_OFFSET: f32 = 0.02;
 const COLOR_NORMAL: [f32; 4] = [0.86, 0.87, 0.90, 1.0];
@@ -20,15 +21,17 @@ const COLOR_PICKED: [f32; 4] = [0.65, 0.35, 0.95, 1.0];
 const COLOR_MEASURE: [f32; 4] = [1.0, 0.95, 0.35, 1.0];
 const ARC_SEGMENTS_FULL: usize = 48;
 
-fn to3(p: DVec2) -> [f32; 3] {
-    [p.x as f32, p.y as f32, Z_OFFSET]
+fn to3(plane: &SketchPlane, p: DVec2) -> [f32; 3] {
+    let w = plane.to_world(p, Z_OFFSET);
+    [w.x, w.y, w.z]
 }
 
-/// Garis untuk seluruh entitas sketch, diwarnai menurut status hover/pilih.
+/// Garis untuk seluruh entitas sketch pada bidang tertentu, diwarnai menurut status hover/pilih.
 pub fn entity_lines(
     sketch: &Sketch,
     hovered: Option<EntityId>,
     selected: &HashSet<EntityId>,
+    plane: &SketchPlane,
 ) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     for (id, entity) in sketch.entities.iter() {
@@ -39,73 +42,65 @@ pub fn entity_lines(
         } else {
             COLOR_NORMAL
         };
-        push_entity(&mut verts, entity, color);
+        push_entity(&mut verts, entity, color, plane);
     }
     verts
 }
 
-/// Garis rubber-band untuk entitas yang sedang digambar (belum dicommit).
-pub fn preview_lines(entity: &Entity) -> Vec<LineVertex> {
+/// Garis rubber-band untuk entitas yang sedang digambar (belum dicommit) pada bidang aktif.
+pub fn preview_lines(entity: &Entity, plane: &SketchPlane) -> Vec<LineVertex> {
     let mut verts = Vec::new();
-    push_entity(&mut verts, entity, COLOR_PREVIEW);
+    push_entity(&mut verts, entity, COLOR_PREVIEW, plane);
     verts
 }
 
-/// Marker silang ungu di titik yang sudah diklik untuk tool pemilihan
-/// titik (Coincident/Symmetric) — beda warna dari glyph snap oranye
-/// (`snap_glyph`) supaya "titik sudah dipilih" tidak tertukar dengan
-/// "kursor sedang di atas titik".
-pub fn picked_point_glyph(point: DVec2) -> Vec<LineVertex> {
+/// Marker silang ungu di titik yang sudah diklik untuk tool pemilihan titik pada bidang aktif.
+pub fn picked_point_glyph(point: DVec2, plane: &SketchPlane) -> Vec<LineVertex> {
     const S: f64 = 3.0;
     vec![
         LineVertex {
-            position: to3(point + DVec2::new(-S, -S)),
+            position: to3(plane, point + DVec2::new(-S, -S)),
             color: COLOR_PICKED,
         },
         LineVertex {
-            position: to3(point + DVec2::new(S, S)),
+            position: to3(plane, point + DVec2::new(S, S)),
             color: COLOR_PICKED,
         },
         LineVertex {
-            position: to3(point + DVec2::new(-S, S)),
+            position: to3(plane, point + DVec2::new(-S, S)),
             color: COLOR_PICKED,
         },
         LineVertex {
-            position: to3(point + DVec2::new(S, -S)),
+            position: to3(plane, point + DVec2::new(S, -S)),
             color: COLOR_PICKED,
         },
     ]
 }
 
-/// Garis peringatan untuk sub-segmen yang akan dihapus tool Trim — dipakai
-/// sebagai preview hover sebelum klik commit.
-pub fn removal_preview_lines(start: DVec2, end: DVec2) -> Vec<LineVertex> {
+/// Garis peringatan untuk sub-segmen yang akan dihapus tool Trim.
+pub fn removal_preview_lines(start: DVec2, end: DVec2, plane: &SketchPlane) -> Vec<LineVertex> {
     vec![
         LineVertex {
-            position: to3(start),
+            position: to3(plane, start),
             color: COLOR_REMOVAL,
         },
         LineVertex {
-            position: to3(end),
+            position: to3(plane, end),
             color: COLOR_REMOVAL,
         },
     ]
 }
 
-/// Garis kuning penghubung titik-titik tool "Ukur" (Fase 7) — 2 titik untuk
-/// jarak, 3 titik (dengan `vertex` di tengah) untuk sudut. Sengaja terima
-/// `&[DVec2]` generik (bukan `Measurement` dari `cadraw-app`) supaya crate
-/// ini tetap tidak bergantung pada tipe app-level, sama pola dengan seluruh
-/// modul render lain.
-pub fn measurement_lines(points: &[DVec2]) -> Vec<LineVertex> {
+/// Garis kuning penghubung titik-titik tool "Ukur" (Fase 7) pada bidang aktif.
+pub fn measurement_lines(points: &[DVec2], plane: &SketchPlane) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     for pair in points.windows(2) {
         verts.push(LineVertex {
-            position: to3(pair[0]),
+            position: to3(plane, pair[0]),
             color: COLOR_MEASURE,
         });
         verts.push(LineVertex {
-            position: to3(pair[1]),
+            position: to3(plane, pair[1]),
             color: COLOR_MEASURE,
         });
     }
@@ -153,11 +148,29 @@ pub fn dashed_line_3d(p1: [f32; 3], p2: [f32; 3], dash_len: f32, color: [f32; 4]
     verts
 }
 
-/// Gizmo panah dua sisi (`↕`) mengambang di titik tengah profil sketch (Z-up/down) untuk Direct Extrude.
-pub fn double_arrow_gizmo_lines(center: [f32; 3], height: f32, arrow_size: f32, color: [f32; 4]) -> Vec<LineVertex> {
+/// Gizmo panah dua sisi (`↕`) mengambang di titik tengah profil sketch berorientasi normal untuk Direct Extrude.
+pub fn double_arrow_gizmo_lines(
+    center: [f32; 3],
+    height: f32,
+    arrow_size: f32,
+    color: [f32; 4],
+    normal: Vec3,
+) -> Vec<LineVertex> {
     let mut verts = Vec::new();
-    let top = [center[0], center[1], center[2] + height * 0.5];
-    let bot = [center[0], center[1], center[2] - height * 0.5];
+    let n = normal.normalize_or_zero();
+    let c = Vec3::from(center);
+    let top = c + n * (height * 0.5);
+    let bot = c - n * (height * 0.5);
+
+    let (t1, t2) = if n.z.abs() < 0.95 {
+        let t1 = n.cross(Vec3::Z).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    } else {
+        let t1 = n.cross(Vec3::Y).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    };
 
     let shaft_radius = arrow_size * 0.25;
     let s = arrow_size;
@@ -167,78 +180,68 @@ pub fn double_arrow_gizmo_lines(center: [f32; 3], height: f32, arrow_size: f32, 
     // 1. Batang silinder multi-rib (tebal)
     for i in 0..segs {
         let angle = tau * (i as f32 / segs as f32);
-        let dx = shaft_radius * angle.cos();
-        let dy = shaft_radius * angle.sin();
-        let p_bot = [center[0] + dx, center[1] + dy, bot[2] + s * 1.0];
-        let p_top = [center[0] + dx, center[1] + dy, top[2] - s * 1.0];
+        let radial = t1 * (shaft_radius * angle.cos()) + t2 * (shaft_radius * angle.sin());
+        let p_bot = (bot + n * (s * 1.0)) + radial;
+        let p_top = (top - n * (s * 1.0)) + radial;
 
-        verts.push(LineVertex { position: p_bot, color });
-        verts.push(LineVertex { position: p_top, color });
+        verts.push(LineVertex { position: [p_bot.x, p_bot.y, p_bot.z], color });
+        verts.push(LineVertex { position: [p_top.x, p_top.y, p_top.z], color });
 
         // Ring batang di tengah
         let next_angle = tau * ((i + 1) as f32 / segs as f32);
-        let ndx = shaft_radius * next_angle.cos();
-        let ndy = shaft_radius * next_angle.sin();
-        let p_mid1 = [center[0] + dx, center[1] + dy, center[2]];
-        let p_mid2 = [center[0] + ndx, center[1] + ndy, center[2]];
-        verts.push(LineVertex { position: p_mid1, color });
-        verts.push(LineVertex { position: p_mid2, color });
+        let next_radial = t1 * (shaft_radius * next_angle.cos()) + t2 * (shaft_radius * next_angle.sin());
+        let p_mid1 = c + radial;
+        let p_mid2 = c + next_radial;
+        verts.push(LineVertex { position: [p_mid1.x, p_mid1.y, p_mid1.z], color });
+        verts.push(LineVertex { position: [p_mid2.x, p_mid2.y, p_mid2.z], color });
     }
 
     // Poros utama tengah putih/terang
     const BRIGHT_WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    verts.push(LineVertex { position: bot, color: BRIGHT_WHITE });
-    verts.push(LineVertex { position: top, color: BRIGHT_WHITE });
+    verts.push(LineVertex { position: [bot.x, bot.y, bot.z], color: BRIGHT_WHITE });
+    verts.push(LineVertex { position: [top.x, top.y, top.z], color: BRIGHT_WHITE });
 
     // 2. Kepala panah atas (Kerucut 8 sisi + ring dasar)
-    let top_base_z = top[2] - s * 1.3;
+    let top_base = top - n * (s * 1.3);
     for i in 0..segs {
         let angle = tau * (i as f32 / segs as f32);
         let next_angle = tau * ((i + 1) as f32 / segs as f32);
-        let b1 = [center[0] + s * angle.cos(), center[1] + s * angle.sin(), top_base_z];
-        let b2 = [center[0] + s * next_angle.cos(), center[1] + s * next_angle.sin(), top_base_z];
+        let b1 = top_base + t1 * (s * angle.cos()) + t2 * (s * angle.sin());
+        let b2 = top_base + t1 * (s * next_angle.cos()) + t2 * (s * next_angle.sin());
 
-        // Spina dari puncak ke dasar
-        verts.push(LineVertex { position: top, color });
-        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: [top.x, top.y, top.z], color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
 
-        // Ring dasar kerucut
-        verts.push(LineVertex { position: b1, color });
-        verts.push(LineVertex { position: b2, color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
+        verts.push(LineVertex { position: [b2.x, b2.y, b2.z], color });
 
-        // Jari-jari dasar ke pusat batang
-        let shaft_pt = [center[0], center[1], top_base_z];
-        verts.push(LineVertex { position: b1, color });
-        verts.push(LineVertex { position: shaft_pt, color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
+        verts.push(LineVertex { position: [top_base.x, top_base.y, top_base.z], color });
     }
 
     // 3. Kepala panah bawah (Kerucut 8 sisi + ring dasar)
-    let bot_base_z = bot[2] + s * 1.3;
+    let bot_base = bot + n * (s * 1.3);
     for i in 0..segs {
         let angle = tau * (i as f32 / segs as f32);
         let next_angle = tau * ((i + 1) as f32 / segs as f32);
-        let b1 = [center[0] + s * angle.cos(), center[1] + s * angle.sin(), bot_base_z];
-        let b2 = [center[0] + s * next_angle.cos(), center[1] + s * next_angle.sin(), bot_base_z];
+        let b1 = bot_base + t1 * (s * angle.cos()) + t2 * (s * angle.sin());
+        let b2 = bot_base + t1 * (s * next_angle.cos()) + t2 * (s * next_angle.sin());
 
-        // Spina dari ujung bawah ke dasar
-        verts.push(LineVertex { position: bot, color });
-        verts.push(LineVertex { position: b1, color });
+        verts.push(LineVertex { position: [bot.x, bot.y, bot.z], color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
 
-        // Ring dasar kerucut
-        verts.push(LineVertex { position: b1, color });
-        verts.push(LineVertex { position: b2, color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
+        verts.push(LineVertex { position: [b2.x, b2.y, b2.z], color });
 
-        // Jari-jari dasar ke pusat batang
-        let shaft_pt = [center[0], center[1], bot_base_z];
-        verts.push(LineVertex { position: b1, color });
-        verts.push(LineVertex { position: shaft_pt, color });
+        verts.push(LineVertex { position: [b1.x, b1.y, b1.z], color });
+        verts.push(LineVertex { position: [bot_base.x, bot_base.y, bot_base.z], color });
     }
 
     verts
 }
 
-/// Garis leader dimensi 2D dengan garis proyeksi putus-putus dan panah pembatas (seperti Screenshot 1).
-pub fn dimension_leader_lines(a: DVec2, b: DVec2, offset_dist: f64) -> Vec<LineVertex> {
+/// Garis leader dimensi 2D dengan garis proyeksi putus-putus dan panah pembatas pada bidang aktif.
+pub fn dimension_leader_lines(a: DVec2, b: DVec2, offset_dist: f64, plane: &SketchPlane) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     let ab = b - a;
     let len = ab.length();
@@ -252,58 +255,58 @@ pub fn dimension_leader_lines(a: DVec2, b: DVec2, offset_dist: f64) -> Vec<LineV
     const DIM_COLOR: [f32; 4] = [0.40, 0.45, 0.52, 0.85];
 
     // Garis proyeksi tegak lurus dari titik asal ke garis dimensi
-    verts.extend(dashed_line_3d(to3(a), to3(a_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
-    verts.extend(dashed_line_3d(to3(b), to3(b_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
+    verts.extend(dashed_line_3d(to3(plane, a), to3(plane, a_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
+    verts.extend(dashed_line_3d(to3(plane, b), to3(plane, b_ext + perp.normalize() * 3.0), 3.0, DIM_COLOR));
 
     // Garis dimensi paralel putus-putus
-    verts.extend(dashed_line_3d(to3(a_ext), to3(b_ext), 4.0, DIM_COLOR));
+    verts.extend(dashed_line_3d(to3(plane, a_ext), to3(plane, b_ext), 4.0, DIM_COLOR));
 
     // Tick panah pada ujung garis dimensi
     let dir = (b_ext - a_ext).normalize();
     let tick_perp = perp.normalize() * 4.0;
     let tick_a1 = a_ext + dir * 4.0 + tick_perp;
     let tick_a2 = a_ext + dir * 4.0 - tick_perp;
-    verts.push(LineVertex { position: to3(a_ext), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(tick_a1), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(a_ext), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(tick_a2), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, a_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, tick_a1), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, a_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, tick_a2), color: DIM_COLOR });
 
     let tick_b1 = b_ext - dir * 4.0 + tick_perp;
     let tick_b2 = b_ext - dir * 4.0 - tick_perp;
-    verts.push(LineVertex { position: to3(b_ext), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(tick_b1), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(b_ext), color: DIM_COLOR });
-    verts.push(LineVertex { position: to3(tick_b2), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, b_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, tick_b1), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, b_ext), color: DIM_COLOR });
+    verts.push(LineVertex { position: to3(plane, tick_b2), color: DIM_COLOR });
 
     verts
 }
 
-fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4]) {
+fn push_entity(verts: &mut Vec<LineVertex>, entity: &Entity, color: [f32; 4], plane: &SketchPlane) {
     match entity {
         Entity::Line { start, end } => {
             verts.push(LineVertex {
-                position: to3(*start),
+                position: to3(plane, *start),
                 color,
             });
             verts.push(LineVertex {
-                position: to3(*end),
+                position: to3(plane, *end),
                 color,
             });
         }
         Entity::Circle { center, radius } => {
-            push_arc(verts, *center, *radius, 0.0, std::f64::consts::TAU, color)
+            push_arc(verts, *center, *radius, 0.0, std::f64::consts::TAU, color, plane)
         }
         Entity::Arc {
             center,
             radius,
             start_angle,
             end_angle,
-        } => push_arc(verts, *center, *radius, *start_angle, *end_angle, color),
+        } => push_arc(verts, *center, *radius, *start_angle, *end_angle, color, plane),
         Entity::Ellipse {
             center,
             radius_x,
             radius_y,
-        } => push_ellipse(verts, *center, *radius_x, *radius_y, color),
+        } => push_ellipse(verts, *center, *radius_x, *radius_y, color, plane),
     }
 }
 
@@ -313,6 +316,7 @@ fn push_ellipse(
     radius_x: f64,
     radius_y: f64,
     color: [f32; 4],
+    plane: &SketchPlane,
 ) {
     let tau = std::f64::consts::TAU;
     let mut prev = center + DVec2::new(radius_x, 0.0);
@@ -320,11 +324,11 @@ fn push_ellipse(
         let t = tau * (i as f64 / ARC_SEGMENTS_FULL as f64);
         let p = center + DVec2::new(radius_x * t.cos(), radius_y * t.sin());
         verts.push(LineVertex {
-            position: to3(prev),
+            position: to3(plane, prev),
             color,
         });
         verts.push(LineVertex {
-            position: to3(p),
+            position: to3(plane, p),
             color,
         });
         prev = p;
@@ -338,6 +342,7 @@ fn push_arc(
     start: f64,
     end: f64,
     color: [f32; 4],
+    plane: &SketchPlane,
 ) {
     let tau = std::f64::consts::TAU;
     let span = {
@@ -354,21 +359,19 @@ fn push_arc(
         let t = start + span * (i as f64 / steps as f64);
         let p = center + DVec2::new(radius * t.cos(), radius * t.sin());
         verts.push(LineVertex {
-            position: to3(prev),
+            position: to3(plane, prev),
             color,
         });
         verts.push(LineVertex {
-            position: to3(p),
+            position: to3(plane, p),
             color,
         });
         prev = p;
     }
 }
 
-/// Glyph indikator snap: bentuk berbeda per jenis, ukuran tetap dalam unit
-/// dunia (cukup untuk skala sketch Fase 1; disempurnakan jadi ukuran
-/// konstan-piksel di Fase 4).
-pub fn snap_glyph(hit: &SnapHit) -> Vec<LineVertex> {
+/// Glyph indikator snap pada bidang aktif.
+pub fn snap_glyph(hit: &SnapHit, plane: &SketchPlane) -> Vec<LineVertex> {
     const S: f64 = 3.0;
     let c = hit.point;
     let mut verts = Vec::new();
@@ -377,11 +380,11 @@ pub fn snap_glyph(hit: &SnapHit) -> Vec<LineVertex> {
             let a = pts[i];
             let b = pts[(i + 1) % pts.len()];
             verts.push(LineVertex {
-                position: to3(a),
+                position: to3(plane, a),
                 color: COLOR_SNAP,
             });
             verts.push(LineVertex {
-                position: to3(b),
+                position: to3(plane, b),
                 color: COLOR_SNAP,
             });
         }
@@ -399,7 +402,7 @@ pub fn snap_glyph(hit: &SnapHit) -> Vec<LineVertex> {
             c + DVec2::new(S, -S),
             c + DVec2::new(-S, -S),
         ]),
-        SnapKind::Center => push_arc(&mut verts, c, S, 0.0, std::f64::consts::TAU, COLOR_SNAP),
+        SnapKind::Center => push_arc(&mut verts, c, S, 0.0, std::f64::consts::TAU, COLOR_SNAP, plane),
         SnapKind::Intersection => push_loop(&[
             c + DVec2::new(-S, 0.0),
             c + DVec2::new(0.0, -S),
@@ -413,11 +416,11 @@ pub fn snap_glyph(hit: &SnapHit) -> Vec<LineVertex> {
             ];
             for (a, b) in cross {
                 verts.push(LineVertex {
-                    position: to3(a),
+                    position: to3(plane, a),
                     color: COLOR_SNAP,
                 });
                 verts.push(LineVertex {
-                    position: to3(b),
+                    position: to3(plane, b),
                     color: COLOR_SNAP,
                 });
             }
@@ -432,25 +435,28 @@ mod tests {
 
     #[test]
     fn measurement_lines_empty_for_single_point() {
-        // 1 titik belum ada segmen untuk digambar (dipakai saat tool Ukur
-        // baru dapat titik pertama, sebelum titik kedua diklik).
-        assert!(measurement_lines(&[DVec2::new(0.0, 0.0)]).is_empty());
+        let plane = SketchPlane::top();
+        assert!(measurement_lines(&[DVec2::new(0.0, 0.0)], &plane).is_empty());
     }
 
     #[test]
     fn measurement_lines_one_segment_for_two_points() {
-        let verts = measurement_lines(&[DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)]);
+        let plane = SketchPlane::top();
+        let verts = measurement_lines(&[DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)], &plane);
         assert_eq!(verts.len(), 2);
     }
 
     #[test]
     fn measurement_lines_two_segments_for_three_points() {
-        // Tool Ukur Sudut: 2 segmen (a→vertex, vertex→b) dari 3 titik.
-        let verts = measurement_lines(&[
-            DVec2::new(0.0, 0.0),
-            DVec2::new(1.0, 1.0),
-            DVec2::new(2.0, 0.0),
-        ]);
+        let plane = SketchPlane::top();
+        let verts = measurement_lines(
+            &[
+                DVec2::new(0.0, 0.0),
+                DVec2::new(1.0, 1.0),
+                DVec2::new(2.0, 0.0),
+            ],
+            &plane,
+        );
         assert_eq!(verts.len(), 4);
     }
 }

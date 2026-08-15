@@ -8,7 +8,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, U
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_CATEGORY, ICON_CHANGE_HISTORY, ICON_CIRCLE, ICON_CLOSE, ICON_CONTENT_CUT,
     ICON_CROP_16_9, ICON_DELETE, ICON_EDIT, ICON_FLIP, ICON_FOLDER, ICON_FOLDER_OPEN,
-    ICON_HORIZONTAL_RULE, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
+    ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, ACCENT_ORANGE, BORDER_SUBTLE, BG_HOVER_DARK, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -38,6 +38,7 @@ pub enum ToolbarEvent {
     OpenSearch,
     EnterSketching,
     ExitSketching,
+    SelectSketchPlane(usize),
     ToggleSectionView,
     ToggleMeasurements,
     DeleteSelection,
@@ -49,6 +50,7 @@ pub struct LeftToolbar {
     pub section_view_active: bool,
     pub measurement_active: bool,
     pub point_menu_open: bool,
+    pub plane_menu_open: bool,
 }
 
 impl Default for LeftToolbar {
@@ -59,6 +61,7 @@ impl Default for LeftToolbar {
             section_view_active: false,
             measurement_active: false,
             point_menu_open: false,
+            plane_menu_open: false,
         }
     }
 }
@@ -139,7 +142,7 @@ impl LeftToolbar {
                 event = Some(ToolbarEvent::OpenSearch);
             }
 
-            // 4. Exit / Enter Sketching Button
+            // 4. Exit / Enter Sketching & Plane Selector Button
             if self.is_sketching {
                 ui.add_space(2.0);
                 let exit_btn = square_btn(
@@ -148,12 +151,58 @@ impl LeftToolbar {
                     false,
                     "Exit Sketching",
                     Some("Esc"),
-                    Some(active_plane_name),
+                    Some("Keluar dari mode sketch"),
                     Some(Color32::from_rgba_premultiplied(65, 22, 22, 220)),
                     Some(Color32::from_rgb(255, 130, 130)),
                 );
                 if exit_btn.clicked() {
                     event = Some(ToolbarEvent::ExitSketching);
+                }
+
+                // Tombol Pemilih Bidang Sketsa (Top / Front / Right)
+                let plane_btn = square_btn(
+                    ui,
+                    ICON_LAYERS,
+                    self.plane_menu_open,
+                    "Sketch Plane",
+                    None,
+                    Some(active_plane_name),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
+                    Some(ACCENT_BLUE),
+                );
+                if plane_btn.clicked() {
+                    self.plane_menu_open = !self.plane_menu_open;
+                }
+
+                if self.plane_menu_open {
+                    let p_rect = plane_btn.rect;
+                    let menu_pos = egui::pos2(p_rect.right() + 6.0, p_rect.top() - 4.0);
+                    egui::Area::new(egui::Id::new("cadraw-plane-select-popup"))
+                        .fixed_pos(menu_pos)
+                        .order(egui::Order::Tooltip)
+                        .show(ui.ctx(), |ui| {
+                            glass_frame().show(ui, |ui| {
+                                ui.set_width(170.0);
+                                ui.spacing_mut().item_spacing = Vec2::new(2.0, 4.0);
+                                ui.label(RichText::new("PILIH BIDANG SKETSA").strong().size(10.0).color(TEXT_SECONDARY));
+                                ui.separator();
+
+                                let planes = [
+                                    (0, "Top Plane (XY)", "Bidang Horizontal"),
+                                    (1, "Front Plane (XZ)", "Bidang Vertikal Depan"),
+                                    (2, "Right Plane (YZ)", "Bidang Vertikal Samping"),
+                                ];
+
+                                for (idx, label, sub) in planes {
+                                    let active = active_plane_name.contains(&label[..5]);
+                                    let btn = ui.selectable_label(active, RichText::new(format!("{} {}", ICON_LAYERS, label)).size(11.5));
+                                    if btn.on_hover_text(sub).clicked() {
+                                        event = Some(ToolbarEvent::SelectSketchPlane(idx));
+                                        self.plane_menu_open = false;
+                                    }
+                                }
+                            });
+                        });
                 }
                 ui.add_space(2.0);
             } else {

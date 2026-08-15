@@ -10,3 +10,4 @@ cadraw-sketch = { workspace = true }
 egui_wgpu = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
+serde = { workspace = true }

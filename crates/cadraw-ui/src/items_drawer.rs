@@ -109,12 +109,29 @@ impl ItemsDrawer {
 
                 // Section: Planes (Konstruksi)
                 ui.label(RichText::new("PLANES").size(10.0).color(TEXT_SECONDARY).strong());
-                card_frame().show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(ICON_VISIBILITY).color(TEXT_SECONDARY));
-                        ui.label(RichText::new(format!("{} Plane 01 (XY)", ICON_LAYERS)).color(TEXT_PRIMARY));
+                let planes = [
+                    (0, "Plane 01 - Top (XY)"),
+                    (1, "Plane 02 - Front (XZ)"),
+                    (2, "Plane 03 - Right (YZ)"),
+                ];
+                for (idx, name) in planes {
+                    if !query.is_empty() && !name.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    let is_active = sketch_planes.iter().find(|sp| sp.index == idx).map_or(false, |sp| sp.active);
+                    card_frame().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let label_text = if is_active {
+                                RichText::new(format!("{} {} (Aktif)", ICON_LAYERS, name)).strong().color(ACCENT_BLUE)
+                            } else {
+                                RichText::new(format!("{} {}", ICON_LAYERS, name)).color(TEXT_PRIMARY)
+                            };
+                            if ui.selectable_label(is_active, label_text).clicked() {
+                                event = Some(ItemsDrawerEvent::SelectSketchPlane(idx));
+                            }
+                        });
                     });
-                });
+                }
 
                 ui.add_space(6.0);
 

@@ -3,3 +3,4 @@
 .DS_Store
 *.stl
 .agent
+.claude
