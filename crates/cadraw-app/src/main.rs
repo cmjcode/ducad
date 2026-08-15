@@ -327,6 +327,8 @@ enum PaletteAction {
     DeleteSelection,
     ToggleTheme,
     SetSketchPlane(PlaneKind),
+    EnterSketching,
+    ExitSketching,
     File(FileOp),
     /// Kosongkan `CadrawApp::measurements` (Fase 7) — cuma muncul di
     /// palette saat ada isinya, sama pola dengan `DeleteSelection`.
@@ -1475,6 +1477,8 @@ impl CadrawApp {
             ("Sketch: Bidang Top (XY)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Top)),
             ("Sketch: Bidang Vertikal Front (XZ)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Front)),
             ("Sketch: Bidang Vertikal Right (YZ)".to_string(), String::new(), PaletteAction::SetSketchPlane(PlaneKind::Right)),
+            ("Mode Sketch (2D)".to_string(), "⌘⇧2".to_string(), PaletteAction::EnterSketching),
+            ("Mode 3D".to_string(), "⌘⇧3".to_string(), PaletteAction::ExitSketching),
             (
                 format!("Ganti Tema ({})", self.theme.toggled().label()),
                 String::new(),
@@ -1504,6 +1508,16 @@ impl CadrawApp {
         match action {
             PaletteAction::SetTool(kind) => self.set_tool(kind),
             PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
+            PaletteAction::EnterSketching => {
+                self.is_sketching = true;
+                self.left_toolbar.is_sketching = true;
+                self.camera.orient_to_plane(&self.active_plane);
+            }
+            PaletteAction::ExitSketching => {
+                self.is_sketching = false;
+                self.left_toolbar.is_sketching = false;
+                self.set_tool(ToolKind::Select);
+            }
             PaletteAction::Undo => {
                 self.undo_active_sketch();
             }
@@ -1879,7 +1893,7 @@ impl CadrawApp {
                 if !self.is_sketching {
                     self.is_sketching = true;
                     self.left_toolbar.is_sketching = true;
-                    self.camera.orient_to_sketch();
+                    self.camera.orient_to_plane(&self.active_plane);
                 }
             }
             if self.is_sketching {
@@ -3096,10 +3110,29 @@ impl eframe::App for CadrawApp {
             ctx.request_repaint();
         }
 
-        // 2. Keyboard shortcuts global (⌘Z / ⌘⇧Z / ⌘S / ⌘O / ⌘K)
+        // 2. Keyboard shortcuts global (⌘Z / ⌘⇧Z / ⌘S / ⌘O / ⌘K / ⌘⇧2 / ⌘⇧3)
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
             self.palette.toggle();
         }
+        let mode_sketch_pressed =
+            ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num2));
+        let mode_3d_pressed =
+            ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num3));
+        if mode_sketch_pressed {
+            if !self.is_sketching {
+                self.is_sketching = true;
+                self.left_toolbar.is_sketching = true;
+                self.camera.orient_to_plane(&self.active_plane);
+            }
+        }
+        if mode_3d_pressed {
+            if self.is_sketching {
+                self.is_sketching = false;
+                self.left_toolbar.is_sketching = false;
+                self.set_tool(ToolKind::Select);
+            }
+        }
+
         let undo_pressed =
             ctx.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z));
         let redo_pressed = ctx.input(|i| {

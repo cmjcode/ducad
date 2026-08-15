@@ -6,7 +6,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_CATEGORY, ICON_CHANGE_HISTORY, ICON_CIRCLE, ICON_CLOSE, ICON_CONTENT_CUT,
+    ICON_ADS_CLICK, ICON_CATEGORY, ICON_CHANGE_HISTORY, ICON_CIRCLE, ICON_CONTENT_CUT,
     ICON_CROP_16_9, ICON_DELETE, ICON_EDIT, ICON_FLIP, ICON_FOLDER, ICON_FOLDER_OPEN,
     ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
 };
@@ -85,15 +85,27 @@ impl LeftToolbar {
             ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
             // 1. Mode Badge / Switcher (Shapr3D Style)
-            let mode_icon = if self.is_sketching { ICON_EDIT } else { ICON_CATEGORY };
-            let mode_title = if self.is_sketching { "Sketch" } else { "3D Mode" };
-            let mode_sub = if self.is_sketching { "Mode Menggambar 2D" } else { "Mode Desain 3D" };
+            let (mode_icon, mode_title, mode_shortcut, mode_sub) = if self.is_sketching {
+                (
+                    ICON_EDIT,
+                    "Sketch Mode",
+                    "⌘⇧3",
+                    "Klik atau ⌘⇧3 untuk ke Mode 3D",
+                )
+            } else {
+                (
+                    ICON_CATEGORY,
+                    "3D Mode",
+                    "⌘⇧2",
+                    "Klik atau ⌘⇧2 untuk ke Mode Sketch",
+                )
+            };
             let mod_btn = square_btn(
                 ui,
                 mode_icon,
                 true,
                 mode_title,
-                None,
+                Some(mode_shortcut),
                 Some(mode_sub),
                 Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
                 Some(ACCENT_BLUE),
@@ -142,23 +154,9 @@ impl LeftToolbar {
                 event = Some(ToolbarEvent::OpenSearch);
             }
 
-            // 4. Exit / Enter Sketching & Plane Selector Button
+            // 4. Sketch Plane Selector Button (saat mode sketch aktif)
             if self.is_sketching {
                 ui.add_space(2.0);
-                let exit_btn = square_btn(
-                    ui,
-                    ICON_CLOSE,
-                    false,
-                    "Exit Sketching",
-                    Some("Esc"),
-                    Some("Keluar dari mode sketch"),
-                    Some(Color32::from_rgba_premultiplied(65, 22, 22, 220)),
-                    Some(Color32::from_rgb(255, 130, 130)),
-                );
-                if exit_btn.clicked() {
-                    event = Some(ToolbarEvent::ExitSketching);
-                }
-
                 // Tombol Pemilih Bidang Sketsa (Top / Front / Right)
                 let plane_btn = square_btn(
                     ui,
@@ -203,22 +201,6 @@ impl LeftToolbar {
                                 }
                             });
                         });
-                }
-                ui.add_space(2.0);
-            } else {
-                ui.add_space(2.0);
-                let sketch_btn = square_btn(
-                    ui,
-                    ICON_EDIT,
-                    false,
-                    "Start Sketch",
-                    Some("S"),
-                    Some("Mulai menggambar 2D di bidang"),
-                    Some(Color32::from_rgba_premultiplied(18, 55, 35, 220)),
-                    Some(Color32::from_rgb(120, 240, 150)),
-                );
-                if sketch_btn.clicked() {
-                    event = Some(ToolbarEvent::EnterSketching);
                 }
                 ui.add_space(2.0);
             }
