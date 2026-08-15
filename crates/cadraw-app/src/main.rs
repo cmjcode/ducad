@@ -572,7 +572,6 @@ struct CadrawApp {
     // State Direct Extrude Gizmo & Smart Boolean Cut
     extruding_from_gizmo: bool,
     gizmo_distance: f64,
-    gizmo_drag_start_y: f32,
     gizmo_dimension_editing: bool,
     gizmo_edit_input: String,
     gizmo_is_cutting: bool,
@@ -672,7 +671,6 @@ impl CadrawApp {
 
             extruding_from_gizmo: false,
             gizmo_distance: 20.0,
-            gizmo_drag_start_y: 0.0,
             gizmo_dimension_editing: false,
             gizmo_edit_input: "20".to_string(),
             gizmo_is_cutting: false,
@@ -1720,6 +1718,101 @@ impl CadrawApp {
         Some(DVec2::new(cx / total_area, cy / total_area))
     }
 
+    /// Hitung delta pergeseran (dalam mm dunia) dari pergeseran mouse layar (egui `Vec2`),
+    /// diproyeksikan langsung ke sumbu normal bidang sketsa aktif di layar.
+    fn project_screen_drag_to_extrude_axis(
+        &self,
+        rect: egui::Rect,
+        centroid: DVec2,
+        drag_delta: egui::Vec2,
+    ) -> (f64, Option<egui::Vec2>) {
+        let normal = self.active_plane.normal;
+        let p_base = self.active_plane.to_world(centroid, 0.0);
+        // Titik acuan 10 mm sepanjang vektor normal
+        let p_ref = p_base + normal * 10.0;
+        let s_base = world_to_screen_pos(&self.camera, rect, p_base);
+        let s_ref = world_to_screen_pos(&self.camera, rect, p_ref);
+
+        if let (Some(sb), Some(sr)) = (s_base, s_ref) {
+            let arrow_vec = sr - sb; // Vektor 2D pada layar untuk 10 mm dunia
+            let len_sq = arrow_vec.length_sq();
+            if len_sq > 1e-4 {
+                // Dot product delta mouse dengan vektor panah
+                let dot = drag_delta.x * arrow_vec.x + drag_delta.y * arrow_vec.y;
+                let delta_mm = (dot / len_sq) * 10.0;
+                return (delta_mm as f64, Some(arrow_vec));
+            }
+        }
+
+        // Fallback jika proyeksi kamera singular:
+        let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+        ((-drag_delta.y as f64) * world_scale * 1.6, None)
+    }
+
+    /// Deteksi live apakah extrude saat ini memotong solid yang ada (Smart Boolean Cut)
+    fn update_gizmo_boolean_detection(&mut self) {
+        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
+            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
+                let mut is_cutting = false;
+                for (b_id, b_geo) in self.model.geometry.iter() {
+                    if let Some(body) = self.model.doc.bodies.get(b_id) {
+                        if body.visible {
+                            // Cek apakah ada irisan fisik nyata (volumetric overlap) antara body dan swept
+                            if let Ok(intersect_shape) = cadraw_kernel::intersect(&b_geo.shape, &swept) {
+                                let tri_count = intersect_shape.tessellate().triangle_count();
+                                if tri_count > 0 {
+                                    if let Ok(_cut_res) = cadraw_kernel::subtract(&b_geo.shape, &swept) {
+                                        is_cutting = true;
+                                        self.gizmo_is_cutting = true;
+                                        self.gizmo_target_body = Some(b_id);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !is_cutting {
+                    self.gizmo_is_cutting = false;
+                    self.gizmo_target_body = None;
+                }
+            }
+        }
+    }
+
+    /// Eksekusi commit extrude/cut saat drag gizmo selesai atau nilai presisi di-enter
+    fn commit_gizmo_extrusion(&mut self) {
+        if self.gizmo_distance.abs() > 0.1 {
+            if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
+                if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
+                    if self.gizmo_is_cutting {
+                        if let Some(target_id) = self.gizmo_target_body {
+                            if let Some(target_geo) = self.model.geometry.get(target_id) {
+                                if let Ok(cut_res) = cadraw_kernel::subtract(&target_geo.shape, &swept) {
+                                    let new_geo = BodyGeometry::from_shape(cut_res);
+                                    self.model_undo.execute(
+                                        Box::new(ReplaceGeometryCommand::new("Cut Extrude", target_id, new_geo)),
+                                        &mut self.model,
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        let geo = BodyGeometry::from_shape(swept);
+                        let cmd = AddSolidCommand::new("Extrude", geo);
+                        self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    }
+                    self.selected.clear();
+                }
+            }
+        }
+        self.extruding_from_gizmo = false;
+        self.gizmo_is_cutting = false;
+        self.gizmo_target_body = None;
+        self.gizmo_distance = 20.0;
+        self.gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.gizmo_distance));
+    }
+
     /// Cek apakah posisi mouse saat ini berada dekat dengan gizmo panah atau dasar profil
     fn check_near_gizmo(&self, rect: egui::Rect, hover_pos: Option<egui::Pos2>) -> bool {
         let Some(pos) = hover_pos else { return false; };
@@ -1744,7 +1837,26 @@ impl CadrawApp {
 
         let is_near_gizmo = self.check_near_gizmo(rect, response.hover_pos());
         if is_near_gizmo || self.extruding_from_gizmo {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            if let Some(c) = self.selected_closed_region_centroid() {
+                let (_, arrow_opt) = self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
+                if let Some(dir) = arrow_opt {
+                    let u = dir.normalized();
+                    let cursor = if u.x.abs() > u.y.abs() * 2.0 {
+                        egui::CursorIcon::ResizeHorizontal
+                    } else if u.y.abs() > u.x.abs() * 2.0 {
+                        egui::CursorIcon::ResizeVertical
+                    } else if u.x * u.y < 0.0 {
+                        egui::CursorIcon::ResizeNeSw
+                    } else {
+                        egui::CursorIcon::ResizeNwSe
+                    };
+                    ui.ctx().set_cursor_icon(cursor);
+                } else {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+            } else {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            }
         }
 
         // Orbit primer hanya untuk tool Pilih, dan cuma saat radial menu
@@ -1942,89 +2054,8 @@ impl CadrawApp {
             ToolKind::Select => {
                 self.last_snap = None;
 
-                // 1. Interaksi Drag Gizmo Panah 2 Sisi (↕) jika ada profil tertutup terpilih
-                if let Some(centroid) = self.selected_closed_region_centroid() {
-                    let gizmo_3d = self.active_plane.to_world(
-                        centroid,
-                        if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 18.0 },
-                    );
-                    let base_3d = self.active_plane.to_world(centroid, 0.0);
-                    let gizmo_s = world_to_screen_pos(&self.camera, rect, gizmo_3d);
-                    let base_s = world_to_screen_pos(&self.camera, rect, base_3d);
-
-                    if let Some(pos) = response.hover_pos() {
-                        let near_gizmo = gizmo_s.map_or(false, |s| s.distance(pos) < 36.0);
-                        let near_base = base_s.map_or(false, |s| s.distance(pos) < 36.0);
-
-                        if response.drag_started() && (near_gizmo || near_base) {
-                            self.extruding_from_gizmo = true;
-                            self.gizmo_drag_start_y = pos.y;
-                            if self.gizmo_distance == 0.0 {
-                                self.gizmo_distance = 20.0;
-                            }
-                        }
-                    }
-
-                    if self.extruding_from_gizmo {
-                        let delta = response.drag_delta();
-                        let world_scale = pixel_tolerance_to_world(&self.camera, rect);
-                        self.gizmo_distance += (-delta.y as f64) * world_scale * 1.6;
-
-                        // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
-                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
-                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
-                                let mut is_cutting = false;
-                                for (b_id, b_geo) in self.model.geometry.iter() {
-                                    if let Some(body) = self.model.doc.bodies.get(b_id) {
-                                        if body.visible {
-                                            if let Ok(cut_res) = cadraw_kernel::subtract(&b_geo.shape, &swept) {
-                                                let orig_verts = b_geo.mesh.positions.len();
-                                                let cut_verts = cut_res.tessellate().positions.len();
-                                                if cut_verts > 0 && orig_verts > 0 {
-                                                    is_cutting = true;
-                                                    self.gizmo_is_cutting = true;
-                                                    self.gizmo_target_body = Some(b_id);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                if !is_cutting {
-                                    self.gizmo_is_cutting = false;
-                                    self.gizmo_target_body = None;
-                                }
-                            }
-                        }
-
-                        if response.drag_stopped() {
-                            if self.gizmo_distance.abs() > 0.1 {
-                                if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
-                                    if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
-                                        if self.gizmo_is_cutting {
-                                            if let Some(target_id) = self.gizmo_target_body {
-                                                if let Some(target_geo) = self.model.geometry.get(target_id) {
-                                                    if let Ok(cut_res) = cadraw_kernel::subtract(&target_geo.shape, &swept) {
-                                                        let new_geo = BodyGeometry::from_shape(cut_res);
-                                                        self.model_undo.execute(
-                                                            Box::new(ReplaceGeometryCommand::new("Cut Extrude", target_id, new_geo)),
-                                                            &mut self.model,
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            let geo = BodyGeometry::from_shape(swept);
-                                            let cmd = AddSolidCommand::new("Extrude", geo);
-                                            self.model_undo.execute(Box::new(cmd), &mut self.model);
-                                        }
-                                    }
-                                }
-                            }
-                            self.extruding_from_gizmo = false;
-                        }
-                        return;
-                    }
+                if self.extruding_from_gizmo {
+                    return;
                 }
 
                 // 2. Closed region & Entity hit testing (Klik garis atau tengah region = pilih 1 kesatuan)
@@ -2532,8 +2563,15 @@ impl CadrawApp {
             let handle_3d = self.active_plane.to_world(centroid, z_pos as f32);
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
-                // Handle panah 2 sisi tebal dan draggable
-                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(ui, handle_2d, self.extruding_from_gizmo);
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_extrude_axis(rect, centroid, egui::Vec2::ZERO);
+
+                // Handle panah 2 sisi tebal dan draggable (rotasi otomatis sesuai sudut proyeksi 3D)
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
+                    ui,
+                    handle_2d,
+                    self.extruding_from_gizmo,
+                    arrow_vec_opt,
+                );
 
                 if handle_resp.drag_started() {
                     self.extruding_from_gizmo = true;
@@ -2544,62 +2582,13 @@ impl CadrawApp {
 
                 if handle_resp.dragged() {
                     self.extruding_from_gizmo = true;
-                    let world_scale = pixel_tolerance_to_world(&self.camera, rect);
-                    self.gizmo_distance += (-handle_resp.drag_delta().y as f64) * world_scale * 1.6;
-
-                    // Smart Boolean Cut vs Extrude Detection (Screenshot 3 & 4)
-                    if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
-                        if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
-                            let mut is_cutting = false;
-                            for (b_id, b_geo) in self.model.geometry.iter() {
-                                if let Some(body) = self.model.doc.bodies.get(b_id) {
-                                    if body.visible {
-                                        if let Ok(cut_res) = cadraw_kernel::subtract(&b_geo.shape, &swept) {
-                                            let orig_verts = b_geo.mesh.positions.len();
-                                            let cut_verts = cut_res.tessellate().positions.len();
-                                            if cut_verts > 0 && orig_verts > 0 {
-                                                is_cutting = true;
-                                                self.gizmo_is_cutting = true;
-                                                self.gizmo_target_body = Some(b_id);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if !is_cutting {
-                                self.gizmo_is_cutting = false;
-                                self.gizmo_target_body = None;
-                            }
-                        }
-                    }
+                    let (delta_mm, _) = self.project_screen_drag_to_extrude_axis(rect, centroid, handle_resp.drag_delta());
+                    self.gizmo_distance += delta_mm;
+                    self.update_gizmo_boolean_detection();
                 }
 
                 if handle_resp.drag_stopped() {
-                    if self.gizmo_distance.abs() > 0.1 {
-                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
-                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
-                                if self.gizmo_is_cutting {
-                                    if let Some(target_id) = self.gizmo_target_body {
-                                        if let Some(target_geo) = self.model.geometry.get(target_id) {
-                                            if let Ok(cut_res) = cadraw_kernel::subtract(&target_geo.shape, &swept) {
-                                                let new_geo = BodyGeometry::from_shape(cut_res);
-                                                self.model_undo.execute(
-                                                    Box::new(ReplaceGeometryCommand::new("Cut Extrude", target_id, new_geo)),
-                                                    &mut self.model,
-                                                );
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    let geo = BodyGeometry::from_shape(swept);
-                                    let cmd = AddSolidCommand::new("Extrude", geo);
-                                    self.model_undo.execute(Box::new(cmd), &mut self.model);
-                                }
-                            }
-                        }
-                    }
-                    self.extruding_from_gizmo = false;
+                    self.commit_gizmo_extrusion();
                 }
 
                 // Interactive Dimension Pill diletakkan di atas handle panah
@@ -2624,13 +2613,7 @@ impl CadrawApp {
                                     if let Ok(val) = self.gizmo_edit_input.trim().parse::<f64>() {
                                         self.gizmo_distance = self.unit.to_internal_mm(val);
                                         // Commit Extrude dengan ukuran presisi
-                                        if let Ok(profile) = model::build_profile_from_selection(self.sketch(), &self.selected) {
-                                            if let Ok(swept) = self.extrude_profile_active_plane(&profile, self.gizmo_distance) {
-                                                let geo = BodyGeometry::from_shape(swept);
-                                                let cmd = AddSolidCommand::new("Extrude", geo);
-                                                self.model_undo.execute(Box::new(cmd), &mut self.model);
-                                            }
-                                        }
+                                        self.commit_gizmo_extrusion();
                                     }
                                     self.gizmo_dimension_editing = false;
                                 }

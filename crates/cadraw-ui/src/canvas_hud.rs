@@ -155,14 +155,37 @@ impl CanvasHud {
         ui: &mut Ui,
         pos_2d: Pos2,
         is_dragging: bool,
+        dir_2d: Option<Vec2>,
     ) -> egui::Response {
         let handle_radius = if is_dragging { 18.0 } else { 16.0 };
         let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 8.0));
         let response = ui.allocate_rect(rect, egui::Sense::drag());
         let is_hovered = response.hovered();
 
+        let (dir_u, dir_v) = if let Some(d) = dir_2d {
+            let len = d.length();
+            if len > 1e-4 {
+                let u = d / len;
+                let v = Vec2::new(-u.y, u.x);
+                (u, v)
+            } else {
+                (Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0))
+            }
+        } else {
+            (Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0))
+        };
+
         if is_hovered || is_dragging {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            let cursor = if dir_u.x.abs() > dir_u.y.abs() * 2.0 {
+                egui::CursorIcon::ResizeHorizontal
+            } else if dir_u.y.abs() > dir_u.x.abs() * 2.0 {
+                egui::CursorIcon::ResizeVertical
+            } else if dir_u.x * dir_u.y < 0.0 {
+                egui::CursorIcon::ResizeNeSw
+            } else {
+                egui::CursorIcon::ResizeNwSe
+            };
+            ui.ctx().set_cursor_icon(cursor);
         }
 
         let painter = ui.painter();
@@ -197,16 +220,14 @@ impl CanvasHud {
             Stroke::new(2.0, Color32::WHITE),
         );
 
-        // 3. Icon panah 2 arah (`▲ - ▼`) tebal dan tajam di dalam handle
+        // 3. Icon panah 2 arah (`▲ - ▼`) tebal dan tajam di dalam handle (berputar sesuai arah proyeksi 3D)
         let icon_color = Color32::WHITE;
-        let cx = pos_2d.x;
-        let cy = pos_2d.y;
 
-        // Segitiga panah atas (Filled)
+        // Segitiga panah forward (Filled)
         let top_tri = [
-            Pos2::new(cx, cy - 9.5),
-            Pos2::new(cx - 5.0, cy - 3.5),
-            Pos2::new(cx + 5.0, cy - 3.5),
+            pos_2d + dir_u * 9.5,
+            pos_2d + dir_u * 3.5 - dir_v * 5.0,
+            pos_2d + dir_u * 3.5 + dir_v * 5.0,
         ];
         painter.add(egui::epaint::Shape::convex_polygon(
             top_tri.to_vec(),
@@ -216,15 +237,15 @@ impl CanvasHud {
 
         // Batang poros panah (Thick bar)
         painter.line_segment(
-            [Pos2::new(cx, cy - 3.5), Pos2::new(cx, cy + 3.5)],
+            [pos_2d - dir_u * 3.5, pos_2d + dir_u * 3.5],
             Stroke::new(3.0, icon_color),
         );
 
-        // Segitiga panah bawah (Filled)
+        // Segitiga panah backward (Filled)
         let bot_tri = [
-            Pos2::new(cx, cy + 9.5),
-            Pos2::new(cx - 5.0, cy + 3.5),
-            Pos2::new(cx + 5.0, cy + 3.5),
+            pos_2d - dir_u * 9.5,
+            pos_2d - dir_u * 3.5 - dir_v * 5.0,
+            pos_2d - dir_u * 3.5 + dir_v * 5.0,
         ];
         painter.add(egui::epaint::Shape::convex_polygon(
             bot_tri.to_vec(),
