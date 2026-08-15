@@ -76,13 +76,13 @@ impl LeftToolbar {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
-            ui.set_width(160.0);
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+            ui.set_width(132.0);
+            ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
 
             // 1. Mode Badge / Switcher (Shapr3D Style)
             ui.horizontal(|ui| {
-                ui.label(RichText::new(ICON_CATEGORY).size(16.0).color(ACCENT_BLUE));
-                ui.label(RichText::new("Modeling").strong().size(13.0).color(TEXT_PRIMARY));
+                ui.label(RichText::new(ICON_CATEGORY).size(14.0).color(ACCENT_BLUE));
+                ui.label(RichText::new("Modeling").strong().size(12.0).color(TEXT_PRIMARY));
             });
 
             ui.add_space(2.0);
@@ -92,32 +92,42 @@ impl LeftToolbar {
             // 2. Navigation & Drawer Controls
             let folder_icon = if self.items_drawer_open { ICON_FOLDER_OPEN } else { ICON_FOLDER };
             let items_text = format!("{} Items", folder_icon);
-            if ui.selectable_label(self.items_drawer_open, items_text).clicked() {
+            let items_btn = ui.selectable_label(
+                self.items_drawer_open,
+                RichText::new(items_text).size(11.5).color(TEXT_PRIMARY),
+            );
+            if items_btn.clicked() {
                 self.items_drawer_open = !self.items_drawer_open;
                 event = Some(ToolbarEvent::ToggleItemsDrawer);
             }
 
-            let search_btn = ui.button(RichText::new(format!("{} Search (⌘K)", ICON_SEARCH)));
+            let search_btn = ui.button(
+                RichText::new(format!("{} Search", ICON_SEARCH))
+                    .size(11.5)
+                    .color(TEXT_PRIMARY),
+            );
             if search_btn.clicked() {
                 event = Some(ToolbarEvent::OpenSearch);
             }
 
             // 3. Exit Sketching Pill (hanya tampil jika sedang dalam mode sketch)
             if self.is_sketching {
-                ui.add_space(3.0);
-                let exit_btn = ui.add(
+                ui.add_space(2.0);
+                let exit_btn = ui.add_sized(
+                    Vec2::new(ui.available_width(), 28.0),
                     egui::Button::new(
-                        RichText::new(format!("{} Exit Sketching\n   {}", ICON_CLOSE, active_plane_name))
+                        RichText::new(format!("{} Exit Sketching", ICON_CLOSE))
                             .size(10.5)
-                            .color(Color32::from_rgb(255, 130, 130)),
+                            .strong()
+                            .color(Color32::from_rgb(255, 140, 140)),
                     )
-                    .fill(Color32::from_rgba_premultiplied(50, 20, 20, 220))
+                    .fill(Color32::from_rgba_premultiplied(55, 25, 25, 220))
                     .stroke(Stroke::new(1.0, Color32::from_rgb(180, 50, 50))),
                 );
-                if exit_btn.clicked() {
+                if exit_btn.on_hover_text(format!("Bidang: {}", active_plane_name)).clicked() {
                     event = Some(ToolbarEvent::ExitSketching);
                 }
-                ui.add_space(3.0);
+                ui.add_space(2.0);
             }
 
             ui.separator();
@@ -139,12 +149,12 @@ impl LeftToolbar {
 
             for (tool, icon, label, shortcut) in tools {
                 let is_active = current_tool == tool;
-                ui.horizontal(|ui| {
+                let row_resp = ui.horizontal(|ui| {
                     let formatted = format!("{} {}", icon, label);
                     let text = if is_active {
-                        RichText::new(formatted).strong().color(ACCENT_BLUE)
+                        RichText::new(formatted).strong().size(11.5).color(Color32::WHITE)
                     } else {
-                        RichText::new(formatted).color(TEXT_PRIMARY)
+                        RichText::new(formatted).size(11.5).color(TEXT_PRIMARY)
                     };
                     let btn = ui.selectable_label(is_active, text);
                     if btn.clicked() {
@@ -152,27 +162,31 @@ impl LeftToolbar {
                     }
                     if !shortcut.is_empty() {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(shortcut).size(10.0).color(TEXT_SECONDARY));
+                            let sc_color = if is_active { Color32::WHITE } else { TEXT_SECONDARY };
+                            ui.label(RichText::new(shortcut).size(9.5).color(sc_color));
                         });
                     }
                 });
+                if row_resp.response.clicked() {
+                    event = Some(ToolbarEvent::SelectTool(tool));
+                }
             }
 
             ui.separator();
 
             // 5. Tool Titik Constraint Pick
             let point_tools = [
-                (ToolbarTool::PointCoincident, "Coincident (titik)"),
-                (ToolbarTool::PointFixed, "Fixed (titik)"),
-                (ToolbarTool::PointSymmetric, "Symmetric (titik)"),
+                (ToolbarTool::PointCoincident, "Coincident"),
+                (ToolbarTool::PointFixed, "Fixed"),
+                (ToolbarTool::PointSymmetric, "Symmetric"),
             ];
             let active_point_label = point_tools
                 .iter()
                 .find(|(t, _)| *t == current_tool)
                 .map(|(_, l)| format!("● {}", l))
-                .unwrap_or_else(|| "Titik".to_string());
+                .unwrap_or_else(|| "Titik ▾".to_string());
 
-            ui.menu_button(active_point_label, |ui| {
+            ui.menu_button(RichText::new(active_point_label).size(11.0).color(TEXT_PRIMARY), |ui| {
                 for (tool, label) in point_tools {
                     if ui.selectable_label(current_tool == tool, label).clicked() {
                         event = Some(ToolbarEvent::SelectTool(tool));
@@ -187,19 +201,19 @@ impl LeftToolbar {
             let sec_label = if self.section_view_active {
                 format!("{} Section (ON)", ICON_CONTENT_CUT)
             } else {
-                format!("{} Section View", ICON_CONTENT_CUT)
+                format!("{} Section", ICON_CONTENT_CUT)
             };
-            if ui.selectable_label(self.section_view_active, sec_label).clicked() {
+            if ui.selectable_label(self.section_view_active, RichText::new(sec_label).size(11.0)).clicked() {
                 event = Some(ToolbarEvent::ToggleSectionView);
             }
 
             let meas_label = format!("{} Measure", ICON_STRAIGHTEN);
-            if ui.button(meas_label).clicked() {
+            if ui.button(RichText::new(meas_label).size(11.0)).clicked() {
                 event = Some(ToolbarEvent::ToggleMeasurements);
             }
 
             let del_label = format!("{} Delete", ICON_DELETE);
-            if ui.button(RichText::new(del_label).color(Color32::from_rgb(240, 100, 100))).clicked() {
+            if ui.button(RichText::new(del_label).size(11.0).color(Color32::from_rgb(240, 100, 100))).clicked() {
                 event = Some(ToolbarEvent::DeleteSelection);
             }
         });

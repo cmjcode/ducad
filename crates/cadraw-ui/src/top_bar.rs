@@ -45,10 +45,10 @@ impl TopBar {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
-            ui.set_height(32.0);
+            ui.set_height(28.0);
             ui.horizontal(|ui| {
                 // 1. Home Button
-                if ui.button(RichText::new(ICON_HOME).size(16.0)).on_hover_text("Dokumen Baru").clicked() {
+                if ui.button(RichText::new(ICON_HOME).size(14.0)).on_hover_text("Dokumen Baru").clicked() {
                     event = Some(TopBarEvent::HomeClicked);
                 }
 
@@ -58,21 +58,21 @@ impl TopBar {
                 let cloud_color = if status_saved { ACCENT_BLUE } else { Color32::from_rgb(255, 180, 50) };
                 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(ICON_CLOUD).size(15.0).color(cloud_color));
+                    ui.label(RichText::new(ICON_CLOUD).size(14.0).color(cloud_color));
                     ui.label(
                         RichText::new(document_name)
                             .strong()
-                            .size(12.5)
+                            .size(12.0)
                             .color(TEXT_PRIMARY),
                     );
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(4.0);
                 ui.separator();
-                ui.add_space(6.0);
+                ui.add_space(4.0);
 
                 // 3. File Menu
-                ui.menu_button("Berkas", |ui| {
+                ui.menu_button(RichText::new("Berkas").size(11.5), |ui| {
                     if ui.button(format!("{} Dokumen Baru", ICON_NOTE_ADD)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::New));
                         ui.close();
@@ -101,7 +101,7 @@ impl TopBar {
                 });
 
                 // 4. Settings Menu
-                ui.menu_button(format!("{} Pengaturan", ICON_SETTINGS), |ui| {
+                ui.menu_button(RichText::new(format!("{} Pengaturan", ICON_SETTINGS)).size(11.5), |ui| {
                     if ui.button(format!("{} Ganti Tema (Terang/Gelap)", ICON_PALETTE)).clicked() {
                         event = Some(TopBarEvent::ToggleTheme);
                         ui.close();
@@ -112,10 +112,10 @@ impl TopBar {
                     }
                 });
 
-                // 5. Right-aligned Export / Share Button
+                // 5. Right-aligned Export / Share Button (Shapr3D blue accent)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button(
-                        RichText::new(format!("{} Export / Share", ICON_SHARE))
+                        RichText::new(format!("{} Share", ICON_SHARE))
                             .strong()
                             .size(11.5)
                             .color(Color32::WHITE),

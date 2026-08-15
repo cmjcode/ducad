@@ -42,12 +42,15 @@ impl ConstraintStrip {
         let mut action = None;
 
         glass_frame().show(ui, |ui| {
-            ui.set_width(38.0);
-            ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
+            ui.set_width(32.0);
+            ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.0);
 
             // 1. Magnet / Pin Snap Toggle
             let snap_color = if self.snap_enabled { ACCENT_BLUE } else { TEXT_SECONDARY };
-            let snap_btn = ui.button(RichText::new(ICON_LINK).size(16.0).color(snap_color));
+            let snap_btn = ui.add_sized(
+                Vec2::new(28.0, 26.0),
+                egui::Button::new(RichText::new(ICON_LINK).size(15.0).color(snap_color)),
+            );
             if snap_btn.on_hover_text("Toggle Snapping (Grid & Endpoint)").clicked() {
                 self.snap_enabled = !self.snap_enabled;
                 action = Some(ConstraintAction::ToggleSnap);
@@ -72,11 +75,11 @@ impl ConstraintStrip {
             ];
 
             for (act, icon, tooltip) in constraints {
-                let btn = ui.add_enabled(
-                    enabled,
-                    egui::Button::new(RichText::new(icon).size(12.0).strong().color(TEXT_PRIMARY)),
+                let btn = ui.add_sized(
+                    Vec2::new(28.0, 24.0),
+                    egui::Button::new(RichText::new(icon).size(11.0).strong().color(if enabled { TEXT_PRIMARY } else { TEXT_SECONDARY })),
                 );
-                if btn.on_hover_text(tooltip).clicked() {
+                if enabled && btn.on_hover_text(tooltip).clicked() {
                     action = Some(act);
                 }
             }

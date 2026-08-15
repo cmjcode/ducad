@@ -2629,7 +2629,7 @@ impl eframe::App for CadrawApp {
                 .collect();
 
             egui::Area::new(egui::Id::new("cadraw-items-drawer-area"))
-                .fixed_pos(egui::pos2(175.0, 12.0))
+                .fixed_pos(egui::pos2(150.0, 12.0))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies) {
@@ -2664,8 +2664,8 @@ impl eframe::App for CadrawApp {
         }
 
         // 6. Modern Top Bar (Header Mengambang di antara Toolbar dan ViewCube)
-        let topbar_x = if self.left_toolbar.items_drawer_open { 425.0 } else { 180.0 };
-        let topbar_max_w = (screen_rect.width() - topbar_x - 140.0).max(220.0);
+        let topbar_x = if self.left_toolbar.items_drawer_open { 382.0 } else { 152.0 };
+        let topbar_max_w = (screen_rect.width() - topbar_x - 110.0).max(200.0);
         let doc_name = self
             .current_file_path
             .as_ref()
@@ -2709,7 +2709,7 @@ impl eframe::App for CadrawApp {
             });
 
         // 7. Interactive 3D ViewCube (Pojok Kanan Atas Bebas)
-        let viewcube_pos = egui::pos2(screen_rect.max.x - 55.0, 52.0);
+        let viewcube_pos = egui::pos2(screen_rect.max.x - 48.0, 48.0);
         egui::Area::new(egui::Id::new("cadraw-viewcube-area"))
             .fixed_pos(viewcube_pos - egui::vec2(34.0, 34.0))
             .order(egui::Order::Foreground)
@@ -2754,19 +2754,22 @@ impl eframe::App for CadrawApp {
         }
 
         // 9. Right Feature Inspector (Pohon Fitur Parametrik 3D) & Constraint Strip
-        let inspector_w = 245.0;
-        let inspector_x = (screen_rect.max.x - inspector_w - 12.0).max(200.0);
+        let inspector_w = 235.0;
+        let inspector_margin_right = 12.0;
+        let inspector_x = (screen_rect.max.x - inspector_w - inspector_margin_right).max(180.0);
+        let inspector_y = 96.0;
 
-        // Tombol Toggle Buka/Tutup Feature Inspector
-        egui::Area::new(egui::Id::new("cadraw-inspector-toggle-area"))
-            .fixed_pos(egui::pos2(screen_rect.max.x - 110.0, 96.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                let label = if self.feature_inspector_open { "⚙ 3D Panel ▾" } else { "⚙ 3D Panel ◂" };
-                if ui.button(label).clicked() {
-                    self.feature_inspector_open = !self.feature_inspector_open;
-                }
-            });
+        // Tombol Toggle Buka Feature Inspector (jika sedang ditutup)
+        if !self.feature_inspector_open {
+            egui::Area::new(egui::Id::new("cadraw-inspector-toggle-area"))
+                .fixed_pos(egui::pos2(screen_rect.max.x - 95.0, inspector_y))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    if ui.button(egui::RichText::new("⚙ 3D Panel ◂").size(11.0)).clicked() {
+                        self.feature_inspector_open = true;
+                    }
+                });
+        }
 
         if self.feature_inspector_open {
             let mut inspector_state = FeatureInspectorState {
@@ -2798,11 +2801,14 @@ impl eframe::App for CadrawApp {
             };
 
             egui::Area::new(egui::Id::new("cadraw-feature-inspector-area"))
-                .fixed_pos(egui::pos2(inspector_x, 126.0))
+                .fixed_pos(egui::pos2(inspector_x, inspector_y))
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     if let Some(ev) = FeatureInspector::show(ui, &mut inspector_state) {
                         match ev {
+                            InspectorEvent::CloseInspector => {
+                                self.feature_inspector_open = false;
+                            }
                             InspectorEvent::UndoModel => {
                                 self.model_undo.undo(&mut self.model);
                                 self.selected_bodies.clear();
@@ -2888,12 +2894,17 @@ impl eframe::App for CadrawApp {
 
         // 10. Constraint Strip (Terletak rapi di samping kiri FeatureInspector atau di tepi kanan)
         let strip_x = if self.feature_inspector_open {
-            inspector_x - 48.0
+            inspector_x - 52.0
         } else {
             screen_rect.max.x - 48.0
         };
+        let strip_y = if self.feature_inspector_open {
+            inspector_y
+        } else {
+            inspector_y + 36.0
+        };
         egui::Area::new(egui::Id::new("cadraw-constraint-strip-area"))
-            .fixed_pos(egui::pos2(strip_x, 126.0))
+            .fixed_pos(egui::pos2(strip_x, strip_y))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 if let Some(act) = self.constraint_strip.show(ui, self.selected.len()) {

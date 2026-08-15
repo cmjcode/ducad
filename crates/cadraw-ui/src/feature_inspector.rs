@@ -6,7 +6,7 @@
 
 use egui::{Color32, RichText, ScrollArea, Slider, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CALL_MERGE, ICON_CATEGORY, ICON_CONTENT_CUT, ICON_DELETE,
+    ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_OPEN_IN_FULL, ICON_REDO, ICON_REFRESH, ICON_SETTINGS, ICON_UNDO,
 };
 use crate::theme::{card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -27,6 +27,7 @@ pub enum InspectorPickMode {
 
 #[derive(Debug, Clone)]
 pub enum InspectorEvent {
+    CloseInspector,
     UndoModel,
     RedoModel,
     ApplyExtrude { distance: f64 },
@@ -99,22 +100,27 @@ impl FeatureInspector {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
-            ui.set_width(245.0);
+            ui.set_width(235.0);
             ui.set_max_height(580.0);
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 5.0);
+            ui.spacing_mut().item_spacing = Vec2::new(3.0, 4.0);
 
             // 1. Header & Model History Controls
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{} Features & Modeling", ICON_SETTINGS)).strong().size(12.5).color(TEXT_PRIMARY));
+                ui.label(RichText::new(format!("{} Features", ICON_SETTINGS)).strong().size(12.0).color(TEXT_PRIMARY));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(RichText::new(ICON_CLOSE).size(12.0).color(TEXT_SECONDARY)).clicked() {
+                        event = Some(InspectorEvent::CloseInspector);
+                    }
+                });
             });
 
             ui.horizontal(|ui| {
                 let undo_label = format!("{} Undo", ICON_UNDO);
-                if ui.add_enabled(state.can_undo_model, egui::Button::new(undo_label)).clicked() {
+                if ui.add_enabled(state.can_undo_model, egui::Button::new(RichText::new(undo_label).size(11.0))).clicked() {
                     event = Some(InspectorEvent::UndoModel);
                 }
                 let redo_label = format!("{} Redo", ICON_REDO);
-                if ui.add_enabled(state.can_redo_model, egui::Button::new(redo_label)).clicked() {
+                if ui.add_enabled(state.can_redo_model, egui::Button::new(RichText::new(redo_label).size(11.0))).clicked() {
                     event = Some(InspectorEvent::RedoModel);
                 }
             });
@@ -124,12 +130,12 @@ impl FeatureInspector {
             ScrollArea::vertical().show(ui, |ui| {
                 // 2. Extrude Card
                 card_frame().show(ui, |ui| {
-                    ui.label(RichText::new(format!("{} Extrude (3D)", ICON_OPEN_IN_FULL)).strong().color(ACCENT_BLUE));
+                    ui.label(RichText::new(format!("{} Extrude (3D)", ICON_OPEN_IN_FULL)).strong().size(11.5).color(ACCENT_BLUE));
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Jarak (mm):").size(11.0).color(TEXT_SECONDARY));
+                        ui.label(RichText::new("Jarak (mm):").size(10.5).color(TEXT_SECONDARY));
                         ui.text_edit_singleline(&mut state.extrude_input);
                     });
-                    if ui.button("Eksekusi Extrude").clicked() {
+                    if ui.button(RichText::new("Eksekusi Extrude").size(11.0)).clicked() {
                         if let Ok(dist) = state.extrude_input.trim().parse::<f64>() {
                             event = Some(InspectorEvent::ApplyExtrude { distance: dist });
                         }
