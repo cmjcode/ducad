@@ -391,16 +391,25 @@ pub fn loft_profiles(bottom: &Profile, top: &Profile, height: f64) -> Result<Ker
     Ok(KernelShape(solid.into_shape()))
 }
 
-/// Union (gabung material) dua shape.
+/// Union (gabung material) dua shape. `.clean()` (`ShapeUpgrade_
+/// UnifySameDomain` OCCT) di-panggil sesudahnya supaya face/edge yang
+/// koplanar persis di sambungan boolean (mis. sisi kubus yang di-extrude
+/// lurus keluar dari sisi lama) DIGABUNG jadi satu face, bukan tertinggal
+/// sebagai dua face terpisah yang cuma bertemu di satu garis (terlihat
+/// seperti "jahitan"/seam ganda di viewport walau geometrinya valid).
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    Ok(KernelShape(a.0.union(&b.0).shape))
+    let mut merged = a.0.union(&b.0).shape;
+    merged.clean();
+    Ok(KernelShape(merged))
 }
 
-/// Subtract (`a` dikurangi `b`).
+/// Subtract (`a` dikurangi `b`) — lihat catatan `.clean()` di `union`.
 pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    Ok(KernelShape(a.0.subtract(&b.0).shape))
+    let mut result = a.0.subtract(&b.0).shape;
+    result.clean();
+    Ok(KernelShape(result))
 }
 
 /// Boolean intersect (irisan) dua shape — cuma sisakan volume yang
@@ -869,12 +878,17 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
     // `lock_kernel()` sendiri, dan `_guard` di atas masih dipegang selagi
     // thread yang sama (Mutex std TIDAK reentrant) -> deadlock permanen
     // begitu tombol drag gizmo dilepas (freeze total, tanpa panic/error
-    // di terminal). Replikasi langsung isi `union`/`subtract` di sini,
-    // pola sama dengan komentar `intersect` di atas.
+    // di terminal). Replikasi langsung isi `union`/`subtract` (termasuk
+    // `.clean()`-nya, lihat catatan di `union`) di sini, pola sama dengan
+    // komentar `intersect` di atas.
     if distance > 0.0 {
-        Ok(KernelShape(cloned.union(&swept_shape).shape))
+        let mut merged = cloned.union(&swept_shape).shape;
+        merged.clean();
+        Ok(KernelShape(merged))
     } else {
-        Ok(KernelShape(cloned.subtract(&swept_shape).shape))
+        let mut result = cloned.subtract(&swept_shape).shape;
+        result.clean();
+        Ok(KernelShape(result))
     }
 }
 
