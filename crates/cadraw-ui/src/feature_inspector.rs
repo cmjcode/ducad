@@ -126,6 +126,8 @@ pub enum InspectorEvent {
     },
     ApplyConstraint(InspectorConstraintAction),
     ApplyExtrude { distance: f64 },
+    ApplyFaceExtrude { distance: f64 },
+    SketchOnFace,
     ApplyRevolve,
     StageLoftBottom,
     ApplyLoft { height: f64 },
@@ -160,6 +162,8 @@ pub struct FeatureInspectorState {
 
     // Inputs for 3D operations
     pub extrude_input: String,
+    pub active_face_selected: bool,
+    pub face_extrude_input: String,
     pub loft_height_input: String,
     pub loft_bottom_staged: bool,
     pub fillet_input: String,
@@ -195,6 +199,8 @@ impl Default for FeatureInspectorState {
             entity_val_2: String::new(),
 
             extrude_input: "20.0".to_string(),
+            active_face_selected: false,
+            face_extrude_input: "15.0".to_string(),
             loft_height_input: "30.0".to_string(),
             loft_bottom_staged: false,
             fillet_input: "5.0".to_string(),
@@ -584,6 +590,28 @@ impl FeatureInspector {
                         );
                         ui.label(RichText::new(format!("Mesh: {} vert, {} tri", body.vertices_count, body.triangles_count)).size(10.0).color(TEXT_SECONDARY));
                         ui.label(RichText::new(format!("BBox: {:.1}×{:.1}×{:.1} mm", body.bbox_size[0], body.bbox_size[1], body.bbox_size[2])).size(10.0).color(TEXT_SECONDARY));
+                    });
+                    ui.add_space(3.0);
+                }
+
+                // 3b. Face Extrude / Push-Pull Card (jika sisi 3D dipilih)
+                if state.active_face_selected {
+                    card_frame().show(ui, |ui| {
+                        ui.label(RichText::new(format!("{} Extrude Sisi (Face)", ICON_OPEN_IN_FULL)).strong().size(11.5).color(ACCENT_BLUE));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Jarak (mm):").size(10.5).color(TEXT_SECONDARY));
+                            ui.add_sized(Vec2::new(70.0, 18.0), egui::TextEdit::singleline(&mut state.face_extrude_input));
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button(RichText::new("Tarik Extrude (+ / -)").size(11.0)).clicked() {
+                                if let Ok(dist) = state.face_extrude_input.trim().parse::<f64>() {
+                                    event = Some(InspectorEvent::ApplyFaceExtrude { distance: dist });
+                                }
+                            }
+                            if ui.button(RichText::new("✏ Sketsa pada Sisi Ini").size(11.0)).clicked() {
+                                event = Some(InspectorEvent::SketchOnFace);
+                            }
+                        });
                     });
                     ui.add_space(3.0);
                 }

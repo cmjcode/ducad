@@ -524,18 +524,154 @@ fn closest_point_ray_segment(ray_origin: DVec3, ray_dir: DVec3, seg_a: DVec3, se
     ((closest_on_ray - point_on_seg).length(), point_on_seg)
 }
 
-/// Face terdekat (dari `ray.origin`) yang kena `ray` — dibangun langsung
-/// di atas `Shape::faces_along_ray` yang sudah ada di `opencascade-rs`
-/// (exact, level B-rep — bukan approksimasi lewat mesh tessellation).
+/// Toleransi geometris `BRepIntCurveSurface_Inter` untuk face-picking
+/// interaktif — lebih longgar dari default upstream (`0.0001`, lihat
+/// `vendor/README.md`). TERBUKTI (test terisolasi) TIDAK CUKUP sendirian
+/// utk kasus ray oblique pada wajah sweep/samping (root cause BUKAN
+/// toleransi — lihat `resolve_planar_face_along_ray_fallback` di bawah)
+/// tapi tetap dipertahankan sebagai margin aman kecil, tidak merugikan.
+const FACE_PICK_TOLERANCE_MM: f64 = 0.01;
+
+/// Face terdekat (dari `ray.origin`) yang kena `ray`.
+///
+/// **Root cause OCCT yang ditemukan** (5+ test terisolasi di modul test
+/// bawah, direproduksi 1:1 dari laporan user): `BRepIntCurveSurface_Inter`
+/// upstream (`Shape::faces_along_ray`/`_with_tolerance`) SELALU gagal
+/// mendeteksi ray OBLIQUE (sudut apa pun selain tegak lurus persis)
+/// mengenai wajah SAMPING hasil sweep/extrude — di TOLERANSI BERAPA PUN
+/// (dibuktikan: 0.0001 gagal, 0.01 gagal juga). Wajah CAP (atas/bawah,
+/// dibangun dari wire) TIDAK terpengaruh — tetap benar walau oblique. Ray
+/// tegak lurus persis pada wajah samping JUGA tetap benar (itulah kenapa
+/// test kernel Fase 8 yang lama "lolos" — semua pakai ray axis-aligned,
+/// tidak pernah menguji sudut kamera 3D sungguhan).
+///
+/// **Strategi**: coba jalur OCCT dulu (benar utk wajah melengkung/cap/hit
+/// tegak lurus — jangan dibuang, cuma py punya SATU celah spesifik).
+/// Kalau OCCT kosong (`faces_along_ray` gagal total), baru fallback ke
+/// [`resolve_planar_face_along_ray_fallback`] — ray-vs-poligon planar
+/// murni Rust yang ditulis sendiri (pola sama dgn `closest_point_ray_segment`
+/// utk edge — tulis lapisan tipis sendiri saat OCCT/binding-nya punya gap,
+/// bukan dependensi besar), HANYA berlaku utk wajah datar (titik tepi
+/// koplanar) — wajah melengkung dilewati (sudah benar via OCCT di atas).
 fn resolve_face_along_ray(shape: &Shape, ray: PickRay) -> Option<(Face, DVec3)> {
     let origin = ray.origin_vec();
     let dir = ray.dir_vec();
-    shape.faces_along_ray(origin, dir).into_iter().min_by(|(_, p1), (_, p2)| {
-        (*p1 - origin)
-            .length_squared()
-            .partial_cmp(&(*p2 - origin).length_squared())
-            .expect("titik hit faces_along_ray tidak boleh NaN")
-    })
+    let occt_hit = shape
+        .faces_along_ray_with_tolerance(origin, dir, FACE_PICK_TOLERANCE_MM)
+        .into_iter()
+        .min_by(|(_, p1), (_, p2)| {
+            (*p1 - origin)
+                .length_squared()
+                .partial_cmp(&(*p2 - origin).length_squared())
+                .expect("titik hit faces_along_ray tidak boleh NaN")
+        });
+    if occt_hit.is_some() {
+        return occt_hit;
+    }
+    resolve_planar_face_along_ray_fallback(shape, ray)
+}
+
+/// Test titik 2D di dalam poligon (algoritma ray-casting/even-odd standar)
+/// — dipakai [`resolve_planar_face_along_ray_fallback`] setelah proyeksi
+/// titik hit 3D ke basis 2D bidang wajah.
+fn point_in_polygon_2d(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = poly[i];
+        let (xj, yj) = poly[j];
+        if (yi > p.1) != (yj > p.1) && p.0 < (xj - xi) * (p.1 - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Fallback ray-vs-poligon planar murni Rust — dipanggil HANYA saat jalur
+/// OCCT (`faces_along_ray_with_tolerance`) di atas kosong (lihat dokumentasi
+/// root-cause di `resolve_face_along_ray`). Iterasi SEMUA wajah shape;
+/// untuk tiap wajah, kumpulkan titik tepi (`face.edges()` + Newell's method
+/// — POLA SAMA dgn `compute_face_normal_and_centroid`, urutan loop tepi
+/// sudah terbukti benar dari situ), cek KOPLANAR (wajah melengkung —
+/// silinder/revolve — dilewati, deviasi dari bidang best-fit akan besar),
+/// baru ray-plane intersection + point-in-polygon (proyeksi ke basis 2D
+/// bidang wajah via `u_axis`/`v_axis` tegak lurus normal).
+fn resolve_planar_face_along_ray_fallback(shape: &Shape, ray: PickRay) -> Option<(Face, DVec3)> {
+    let origin = ray.origin_vec();
+    let dir = ray.dir_vec();
+    if dir.length_squared() < 1e-18 {
+        return None;
+    }
+
+    let mut best: Option<(Face, DVec3, f64)> = None;
+    for face in shape.faces() {
+        let pts = chain_face_boundary_points(&face);
+        if pts.len() < 3 {
+            continue;
+        }
+        let centroid = pts.iter().fold(DVec3::ZERO, |acc, p| acc + *p) / (pts.len() as f64);
+
+        // Newell's method — SAMA persis dgn `compute_face_normal_and_centroid`.
+        let mut normal = DVec3::ZERO;
+        for i in 0..pts.len() {
+            let j = (i + 1) % pts.len();
+            normal.x += (pts[i].y - pts[j].y) * (pts[i].z + pts[j].z);
+            normal.y += (pts[i].z - pts[j].z) * (pts[i].x + pts[j].x);
+            normal.z += (pts[i].x - pts[j].x) * (pts[i].y + pts[j].y);
+        }
+        let normal_len = normal.length();
+        if normal_len < 1e-9 {
+            continue;
+        }
+        let unit_normal = normal / normal_len;
+
+        // Cek koplanar — wajah melengkung (silinder/revolve) deviasinya
+        // BESAR dari bidang best-fit, dilewati (sudah benar via OCCT).
+        let max_deviation = pts
+            .iter()
+            .map(|p| (*p - centroid).dot(unit_normal).abs())
+            .fold(0.0_f64, f64::max);
+        if max_deviation > 1e-3 {
+            continue;
+        }
+
+        // Ray-plane intersection.
+        let denom = dir.dot(unit_normal);
+        if denom.abs() < 1e-9 {
+            continue; // ray sejajar bidang wajah
+        }
+        let t = (centroid - origin).dot(unit_normal) / denom;
+        if t <= 0.0 {
+            continue; // perpotongan di belakang origin ray
+        }
+        let hit_point = origin + dir * t;
+
+        // Point-in-polygon: proyeksi ke basis 2D bidang wajah.
+        let u_axis = (pts[0] - centroid).normalize_or_zero();
+        if u_axis == DVec3::ZERO {
+            continue;
+        }
+        let v_axis = unit_normal.cross(u_axis).normalize_or_zero();
+        let to_2d = |p: DVec3| -> (f64, f64) {
+            let d = p - centroid;
+            (d.dot(u_axis), d.dot(v_axis))
+        };
+        let poly2d: Vec<(f64, f64)> = pts.iter().map(|p| to_2d(*p)).collect();
+        if !point_in_polygon_2d(to_2d(hit_point), &poly2d) {
+            continue;
+        }
+
+        let dist_sq = (hit_point - origin).length_squared();
+        if best.as_ref().is_none_or(|(_, _, d)| dist_sq < *d) {
+            best = Some((face, hit_point, dist_sq));
+        }
+    }
+    best.map(|(face, point, _)| (face, point))
 }
 
 /// Edge terdekat ke `ray` (dalam `tolerance` mm), plus titik terdekatnya
@@ -566,6 +702,140 @@ fn resolve_edge_along_ray(shape: &Shape, ray: PickRay, tolerance: f64) -> Option
     best.map(|(_, edge, point, polyline)| (edge, point, polyline))
 }
 
+/// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, dan normal satuan keluar).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceHit {
+    /// Titik hit langsung pada permukaan face (x, y, z)
+    pub hit_point: (f64, f64, f64),
+    /// Titik pusat / centroid aproksimasi face (x, y, z)
+    pub centroid: (f64, f64, f64),
+    /// Vektor normal satuan yang mengarah ke luar (outward normal) (x, y, z)
+    pub normal: (f64, f64, f64),
+}
+
+/// Susun titik tepi sebuah `Face` jadi LOOP TERSAMBUNG berdasarkan
+/// konektivitas titik ujung — **root cause SEBENARNYA** dari bug face-pick
+/// yang awalnya diduga soal ray oblique/toleransi OCCT: `face.edges()`
+/// TERBUKTI (debug trace langsung) tidak menjamin urutan keliling
+/// berurutan sama sekali — untuk wajah samping hasil sweep/extrude,
+/// urutannya bisa "vertikal-kiri, vertikal-kanan, horizontal-bawah,
+/// horizontal-atas" (2 pasang tepi sejajar berurutan) alih-alih keliling
+/// sebenarnya. Newell's method dijalankan di atas urutan "zig-zag" begini
+/// menjumlahkan ke VEKTOR NOL persis (dibuktikan lewat kasus real:
+/// box 194.468x77.195x51.933, wajah Y=0 — `normal_raw = (0,0,0)` exact).
+/// Algoritma: mulai dari segmen tepi pertama, rantai tepi lain yang titik
+/// ujungnya (toleransi kecil) cocok dengan ujung rantai saat ini, sampai
+/// semua tepi terpakai. Tepi yang tidak nyambung (longgar dari asumsi
+/// loop tertutup sederhana — semua wajah CADRAW yang didukung planar
+/// SELALU begini) → fallback ke urutan mentah asli, lebih aman drpd
+/// infinite loop.
+fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
+    // SELURUH titik tiap tepi disimpan (bukan cuma titik awal/akhir) —
+    // wajib utk tepi lengkung (mis. lingkaran penuh tutup silinder, HANYA
+    // 1 tepi): ambil cuma 2 titik ujung akan runtuh jadi 2 titik nyaris
+    // identik (lingkaran tertutup, awal≈akhir), menghilangkan seluruh
+    // bentuk lingkaran (ditemukan lewat regresi test silinder — root fix
+    // pertama SALAH ambil cuma first/last per tepi).
+    let edge_pointlists: Vec<Vec<DVec3>> = face
+        .edges()
+        .map(|edge| edge.approximation_segments().collect::<Vec<DVec3>>())
+        .filter(|pts| pts.len() >= 2)
+        .collect();
+    if edge_pointlists.is_empty() {
+        return Vec::new();
+    }
+    if edge_pointlists.len() == 1 {
+        // Cuma 1 tepi (mis. lingkaran penuh) — urutan internal tepi itu
+        // sendiri SUDAH benar menyusuri kurva, tidak ada ambiguitas
+        // urutan ANTAR-tepi sama sekali (itu satu-satunya yang diperbaiki
+        // fungsi ini).
+        return edge_pointlists.into_iter().next().expect("sudah dicek len()==1");
+    }
+
+    const EPS: f64 = 1e-6;
+    let mut used = vec![false; edge_pointlists.len()];
+    let mut chain = edge_pointlists[0].clone();
+    used[0] = true;
+    let mut remaining = edge_pointlists.len() - 1;
+    while remaining > 0 {
+        let tail = *chain.last().expect("chain tidak pernah kosong setelah inisialisasi");
+        let mut found = false;
+        for (i, pts) in edge_pointlists.iter().enumerate() {
+            if used[i] {
+                continue;
+            }
+            let start = pts[0];
+            let end = *pts.last().expect("edge_pointlists sudah difilter len()>=2");
+            if (start - tail).length_squared() < EPS {
+                // Sambung searah — buang titik pertama (duplikat sambungan).
+                chain.extend(pts.iter().skip(1).copied());
+                used[i] = true;
+                found = true;
+                remaining -= 1;
+                break;
+            }
+            if (end - tail).length_squared() < EPS {
+                // Sambung terbalik — buang titik TERAKHIR (duplikat sambungan).
+                chain.extend(pts.iter().rev().skip(1).copied());
+                used[i] = true;
+                found = true;
+                remaining -= 1;
+                break;
+            }
+        }
+        if !found {
+            // Tidak nyambung sbg loop sederhana — kembalikan urutan mentah
+            // asli sbg fallback (lebih baik drpd infinite loop/panic).
+            return edge_pointlists.into_iter().flatten().collect();
+        }
+    }
+    // Buang titik penutup terakhir kalau sama dgn titik awal (loop tertutup)
+    if chain.len() > 1 && (chain[0] - *chain.last().expect("chain tidak kosong")).length_squared() < EPS {
+        chain.pop();
+    }
+    chain
+}
+
+/// Hitung vektor normal satuan ke arah luar (*outward normal*) dan titik pusat (*centroid*) dari sebuah `Face`.
+fn compute_face_normal_and_centroid(face: &Face, ray_dir: DVec3) -> Option<(DVec3, DVec3)> {
+    let pts = chain_face_boundary_points(face);
+    if pts.is_empty() {
+        return None;
+    }
+    let centroid = pts.iter().fold(DVec3::ZERO, |acc, p| acc + *p) / (pts.len() as f64);
+
+    // Newell's method untuk kalkulasi normal poligon 3D sembarang
+    let mut normal = DVec3::ZERO;
+    for i in 0..pts.len() {
+        let j = (i + 1) % pts.len();
+        normal.x += (pts[i].y - pts[j].y) * (pts[i].z + pts[j].z);
+        normal.y += (pts[i].z - pts[j].z) * (pts[i].x + pts[j].x);
+        normal.z += (pts[i].x - pts[j].x) * (pts[i].y + pts[j].y);
+    }
+    let norm_len = normal.length();
+    if norm_len < 1e-9 {
+        return None;
+    }
+    let mut unit_normal = normal / norm_len;
+    // Pastikan normal mengarah ke luar (berlawanan dengan arah ray datang dari kamera)
+    if unit_normal.dot(ray_dir) > 0.0 {
+        unit_normal = -unit_normal;
+    }
+    Some((unit_normal, centroid))
+}
+
+/// Cast `ray` ke `shape`, kembalikan detail face (hit point, centroid, normal keluar) terdekat.
+pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
+    let _guard = lock_kernel();
+    let (face, hit) = resolve_face_along_ray(&shape.0, ray)?;
+    let (normal, centroid) = compute_face_normal_and_centroid(&face, ray.dir_vec())?;
+    Some(FaceHit {
+        hit_point: (hit.x, hit.y, hit.z),
+        centroid: (centroid.x, centroid.y, centroid.z),
+        normal: (normal.x, normal.y, normal.z),
+    })
+}
+
 /// Cast `ray` ke `shape`, kembalikan titik hit face TERDEKAT (kalau ada).
 /// Dipakai UI utk face-picking interaktif (Shell multi-face); resolusi
 /// ULANG di apply-time (`shell_hollow_faces`) pakai `resolve_face_along_ray`
@@ -574,6 +844,38 @@ fn resolve_edge_along_ray(shape: &Shape, ray: PickRay, tolerance: f64) -> Option
 pub fn pick_face(shape: &KernelShape, ray: PickRay) -> Option<(f64, f64, f64)> {
     let _guard = lock_kernel();
     resolve_face_along_ray(&shape.0, ray).map(|(_, p)| (p.x, p.y, p.z))
+}
+
+/// Extrude satu sisi (face) solid sepanjang `distance` mm searah normal keluar.
+/// Jika `distance > 0`, volume baru digabung (*Union*).
+/// Jika `distance < 0`, volume dipotong (*Subtract* / Pocket Cut).
+pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<KernelShape> {
+    if distance.abs() < 1e-9 {
+        bail!("jarak extrude face harus tidak nol");
+    }
+    let _guard = lock_kernel();
+    let cloned = deep_clone(&shape.0)?;
+    let Some((face, _)) = resolve_face_along_ray(&cloned, ray) else {
+        bail!("wajah terpilih tidak ditemukan pada shape");
+    };
+    let Some((normal, _)) = compute_face_normal_and_centroid(&face, ray.dir_vec()) else {
+        bail!("tidak dapat menghitung normal untuk wajah terpilih");
+    };
+    let extrude_vec = normal * distance;
+    let swept = face.extrude(extrude_vec);
+    let swept_shape = swept.into_shape();
+
+    // TIDAK panggil `union`/`subtract` publik di sini — keduanya
+    // `lock_kernel()` sendiri, dan `_guard` di atas masih dipegang selagi
+    // thread yang sama (Mutex std TIDAK reentrant) -> deadlock permanen
+    // begitu tombol drag gizmo dilepas (freeze total, tanpa panic/error
+    // di terminal). Replikasi langsung isi `union`/`subtract` di sini,
+    // pola sama dengan komentar `intersect` di atas.
+    if distance > 0.0 {
+        Ok(KernelShape(cloned.union(&swept_shape).shape))
+    } else {
+        Ok(KernelShape(cloned.subtract(&swept_shape).shape))
+    }
 }
 
 /// (titik hit terdekat di edge, polyline approksimasi edge itu utk
@@ -1204,5 +1506,208 @@ mod tests {
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
         assert!(!mesh.positions.is_empty());
+    }
+
+    #[test]
+    fn test_pick_face_huge_magnitude_direction_matches_unit_direction() {
+        // DIAGNOSTIK: ray dunia-nyata dari `screen_to_ray` (unprojection kamera)
+        // punya magnitude arah SANGAT besar (~17000-24700, dibanding origin yang
+        // hanya berskala ~200) — jauh beda dari ray unit-length yang dipakai test
+        // kernel lain. Tes ini isolasi murni: SAMA arah ternormalisasi, SAMA
+        // origin, BEDA cuma magnitude `dir` — buktikan apakah OCCT `gp_Dir`
+        // (yang seharusnya menormalisasi otomatis) benar-benar tidak peduli skala.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(200.0, 200.0), 20.0).unwrap();
+
+        let unit_dir = (0.0_f64, 0.0, -1.0);
+        let huge_dir = (0.0_f64, 0.0, -20000.0); // arah sama (lurus -Z), magnitude 20000x
+
+        let ray_unit = PickRay { origin: (100.0, 100.0, 500.0), dir: unit_dir };
+        let ray_huge = PickRay { origin: (100.0, 100.0, 500.0), dir: huge_dir };
+
+        let hit_unit = pick_face_details(&shape, ray_unit);
+        let hit_huge = pick_face_details(&shape, ray_huge);
+
+        eprintln!("[DIAGNOSTIK] hit_unit = {hit_unit:?}");
+        eprintln!("[DIAGNOSTIK] hit_huge = {hit_huge:?}");
+
+        assert!(hit_unit.is_some(), "ray unit-length harus kena top face");
+        assert!(hit_huge.is_some(), "ray magnitude besar (20000x) HARUS tetap kena face yang sama kalau gp_Dir menormalisasi dengan benar");
+    }
+
+    #[test]
+    fn test_pick_face_real_world_oblique_ray_reproduction() {
+        // DIAGNOSTIK: reproduksi PERSIS 1:1 laporan user — ray nyata dari
+        // `screen_to_ray` (origin + dir sungguhan disalin dari log terminal)
+        // TERBUKTI secara analitik (ray-slab AABB test manual) menembus
+        // bounding box mesh body real (min=(-120,-20,0) max=(74.47,57.19,
+        // 51.93), masuk tepat di titik (36.42,-20.0,30.94) — pas di
+        // permukaan Y=min) TAPI `pick_face_details` melaporkan MISS. Box
+        // test di sini punya dimensi PERSIS SAMA (w=194.468 h=77.195
+        // d=51.933, `extrude_profile` selalu mulai dari (0,0,0)) — ray
+        // ditranslasi ikut supaya posisi RELATIF terhadap box identik
+        // dengan kasus nyata (translasi origin box dari (-120,-20,0) ke
+        // (0,0,0): geser ray.origin +120 di X, +20 di Y, +0 di Z; arah
+        // TIDAK berubah karena translasi tidak mengubah vektor arah).
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
+
+        let ray = PickRay {
+            origin: (152.94723510742188 + 120.0, -152.9267120361328 + 20.0, 124.88241577148438),
+            dir: (-14566.6611328125, 16616.1640625, -11743.1689453125),
+        };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK real-world ray] hit = {hit:?}");
+        assert!(hit.is_some(), "ray nyata TERBUKTI (ray-slab AABB manual) menembus box, tapi pick_face_details melaporkan MISS — bug OCCT/binding pada ray oblique?");
+    }
+
+    #[test]
+    fn test_pick_face_same_oblique_direction_unit_length_isolation() {
+        // Isolasi lanjutan dari `test_pick_face_real_world_oblique_ray_reproduction`:
+        // SAMA PERSIS arah oblique (dinormalisasi ke unit length), SAMA
+        // origin & box — HANYA magnitude `dir` yang beda (unit vs ~25024).
+        // Kalau tes ini LULUS sementara yang huge-magnitude GAGAL, terbukti
+        // magnitude besar + oblique (BUKAN oblique sendirian) akar masalahnya.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
+
+        let ray = PickRay {
+            origin: (152.94723510742188 + 120.0, -152.9267120361328 + 20.0, 124.88241577148438),
+            dir: (-0.5821141452051053, 0.664016554764354, -0.4692815114097371),
+        };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK unit-length oblique] hit = {hit:?}");
+        assert!(hit.is_some(), "arah oblique SAMA tapi unit-length harus tetap kena kalau masalahnya murni di magnitude");
+    }
+
+    #[test]
+    fn test_pick_face_simple_clean_oblique_ray_baseline() {
+        // KOREKSI dari percobaan pertama: (-1,-1,-1) dari (200,200,200)
+        // ternyata mengenai KORNER box (100,100,100) persis — x=y=z
+        // berkurang sama rata sepanjang ray, jadi itu kasus degenerate 3
+        // wajah sekaligus, bukan tes oblique yang bersih. Di sini dipakai
+        // arah oblique ASIMETRIS yang terverifikasi manual (ray-slab test)
+        // masuk jelas di TENGAH wajah atas Z=100 (titik masuk (65.625,
+        // 65.625, 100.0) — jarak ke tepi terdekat ~34 unit, jauh dari
+        // ambigu).
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(100.0, 100.0), 100.0).unwrap();
+
+        let origin = (300.0_f64, 150.0, 250.0);
+        let target = (50.0_f64, 60.0, 90.0); // di dalam box, jauh dari semua tepi
+        let dir = (target.0 - origin.0, target.1 - origin.1, target.2 - origin.2);
+
+        let ray = PickRay { origin, dir };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK baseline oblique bersih] hit = {hit:?}");
+        assert!(hit.is_some(), "ray oblique asimetris menuju tengah wajah atas HARUS kena — kalau gagal, oblique ray rusak secara umum");
+        if let Some(h) = hit {
+            assert!((h.hit_point.2 - 100.0).abs() < 1e-3, "harus kena wajah Z=100 (atas), bukan wajah lain");
+        }
+    }
+
+    #[test]
+    fn test_pick_face_min_bound_face_same_box_dims_as_real_case() {
+        // Isolasi lebih jauh: box PERSIS dimensi kasus nyata (194.468 x
+        // 77.195 x 51.933), tapi ray BERSIH (angka bulat, bukan hasil
+        // unprojection kamera) yang diverifikasi manual (ray-slab) masuk
+        // pas di wajah Y=MIN (y=0) — sama axis/sisi dengan kasus nyata
+        // (yang juga masuk di Y=min), titik masuk (115.38, 0.0, 27.31)
+        // jauh dari semua tepi. Kalau ini GAGAL juga, berarti spesifik ke
+        // wajah MIN-bound pada box dimensi ini — bukan noise angka kamera.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
+
+        let ray = PickRay { origin: (100.0, -100.0, 25.0), dir: (20.0, 130.0, 3.0) };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK min-face box dims real] hit = {hit:?}");
+        assert!(hit.is_some(), "ray bersih menuju wajah Y=min box dimensi real HARUS kena");
+    }
+
+    #[test]
+    fn test_pick_face_max_bound_side_face_oblique() {
+        // Konfirmasi terakhir: sisi X=MAX (bukan min), ray oblique bersih,
+        // box dims sama. Kalau ini JUGA gagal, terbukti pola sebenarnya
+        // "SISI SAMPING (swept side face) yang kena miring/oblique" — BUKAN
+        // spesifik ke wajah min-bound. Cap face (atas/bawah, dari wire)
+        // sudah terbukti OK walau oblique di test sebelumnya.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
+
+        let ray = PickRay { origin: (300.0, 20.0, 25.0), dir: (-150.0, 20.0, 5.0) };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK max-face side oblique] hit = {hit:?}");
+        assert!(hit.is_some(), "ray bersih menuju wajah X=max HARUS kena");
+    }
+
+    #[test]
+    fn test_pick_face_cap_face_real_box_dims_isolation() {
+        // Pemisah variabel terakhir: box dimensi PERSIS real (194.468 x
+        // 77.195 x 51.933) TAPI kena CAP face (Z=max, dari wire) bukan sisi
+        // samping. Kalau ini LULUS sementara Y=min/X=max GAGAL (box SAMA),
+        // terbukti variabelnya JENIS WAJAH (cap vs sisi samping/swept),
+        // BUKAN dimensi box.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
+
+        let ray = PickRay { origin: (100.0, 30.0, 300.0), dir: (20.0, 5.0, -255.0) };
+        let hit = pick_face_details(&shape, ray);
+        eprintln!("[DIAGNOSTIK cap-face box dims real] hit = {hit:?}");
+        assert!(hit.is_some(), "ray oblique ke cap face Z=max HARUS kena walau box dims sama dgn kasus yg gagal");
+    }
+
+    #[test]
+    fn test_pick_face_details_and_extrude_box_faces() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+
+        // 1. Pick Top face (+Z)
+        let ray_top = PickRay {
+            origin: (15.0, 10.0, 100.0),
+            dir: (0.0, 0.0, -1.0),
+        };
+        let hit_top = pick_face_details(&shape, ray_top).expect("harus kena top face");
+        assert!((hit_top.normal.0 - 0.0).abs() < 1e-5);
+        assert!((hit_top.normal.1 - 0.0).abs() < 1e-5);
+        assert!((hit_top.normal.2 - 1.0).abs() < 1e-5);
+        assert!((hit_top.centroid.2 - 15.0).abs() < 1e-5);
+
+        // Extrude Top face +Z by 10mm
+        let extruded_top = extrude_face(&shape, ray_top, 10.0).expect("extrude top face berhasil");
+        assert!(extruded_top.tessellate().triangle_count() > 0);
+
+        // 2. Pick Right/Side face (+X)
+        let ray_right = PickRay {
+            origin: (100.0, 10.0, 7.5),
+            dir: (-1.0, 0.0, 0.0),
+        };
+        let hit_right = pick_face_details(&shape, ray_right).expect("harus kena side face");
+        assert!((hit_right.normal.0 - 1.0).abs() < 1e-5);
+        assert!((hit_right.normal.1 - 0.0).abs() < 1e-5);
+        assert!((hit_right.normal.2 - 0.0).abs() < 1e-5);
+
+        // Extrude Side face +X by 5mm
+        let extruded_right = extrude_face(&shape, ray_right, 5.0).expect("extrude side face berhasil");
+        assert!(extruded_right.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_extrude_face_cylinder_top() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let circle_profile = Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 12.0,
+        };
+        let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
+        let ray_top = PickRay {
+            origin: (0.0, 0.0, 100.0),
+            dir: (0.0, 0.0, -1.0),
+        };
+        let hit_top = pick_face_details(&cylinder, ray_top).expect("harus kena top cap silinder");
+        assert!((hit_top.normal.2 - 1.0).abs() < 1e-5);
+        assert!((hit_top.centroid.2 - 25.0).abs() < 1e-5);
+
+        let taller_cylinder = extrude_face(&cylinder, ray_top, 15.0).expect("extrude top cap silinder berhasil");
+        assert!(taller_cylinder.tessellate().triangle_count() > 0);
     }
 }

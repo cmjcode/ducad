@@ -34,7 +34,7 @@ bytemuck = { version = "1", features = ["derive"] }
 # opsional apa pun). Satu-satunya yang hilang dibanding default penuh:
 # "wayland-dlopen"/"wayland-csd-adwaita" (kosmetik Linux/Wayland saja,
 # tak menyentuh macOS/iOS yang jadi target pengembangan saat ini).
-eframe = { version = "0.32", default-features = false, features = [
+eframe = { version = "0.33", default-features = false, features = [
     "accesskit",
     "default_fonts",
     "wayland",
@@ -42,9 +42,9 @@ eframe = { version = "0.32", default-features = false, features = [
     "x11",
     "wgpu",
 ] }
-egui = "0.32"
-egui_wgpu = { package = "egui-wgpu", version = "0.32" }
-egui_material_icons = "0.4"
+egui = "0.33"
+egui_wgpu = { package = "egui-wgpu", version = "0.33" }
+egui_material_icons = "0.5"
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -56,6 +56,7 @@ serde_json = "1"
 # `Constraint`/`PointRef` yang menyimpan `EntityId` mentah bisa
 # di-roundtrip apa adanya tanpa remapping id manual.
 slotmap = { version = "1", features = ["serde"] }
+image = "0.24"
 log = "0.4"
 env_logger = "0.11"
 opencascade = "0.2"
@@ -68,3 +69,12 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# `faces_along_ray` upstream meng-hardcode toleransi geometris OCCT ke
+# 0.0001 — terlalu ketat utk ray oblique kamera 3D nyata, bikin face-pick
+# selalu None utk sisi samping. `Shape`/`Face` upstream simpan handle FFI
+# `pub(crate)` (tidak bisa ditembus dari luar crate), jadi satu-satunya
+# jalan adalah vendor + patch minimal (tambah method baru bertoleransi
+# custom, TIDAK mengubah method lama) — lihat vendor/README.md.
+[patch.crates-io]
+opencascade = { path = "vendor/opencascade-0.2.0" }

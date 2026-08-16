@@ -91,6 +91,26 @@ impl SketchPlane {
         }
     }
 
+    /// Bangun `SketchPlane` pada posisi sembarang dari `origin` dan `normal`.
+    pub fn from_origin_normal(origin: Vec3, normal: Vec3) -> Self {
+        let norm = normal.normalize_or_zero();
+        let normal = if norm.length_squared() > 1e-6 { norm } else { Vec3::Z };
+        let arbitrary = if normal.x.abs() < 0.8 && normal.y.abs() < 0.8 {
+            Vec3::Z
+        } else {
+            Vec3::Y
+        };
+        let u_axis = normal.cross(arbitrary).normalize();
+        let v_axis = normal.cross(u_axis).normalize();
+        Self {
+            kind: PlaneKind::Top,
+            origin,
+            u_axis,
+            v_axis,
+            normal,
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         self.kind.name()
     }

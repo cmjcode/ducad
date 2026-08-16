@@ -112,7 +112,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cadraw_core::{BodyId, LengthUnit};
-use cadraw_kernel::{KernelMesh, KernelShape, PickRay};
+use cadraw_kernel::{FaceHit, KernelMesh, KernelShape, PickRay};
 use cadraw_render::camera::ViewPreset;
 use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane};
 use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
@@ -129,7 +129,20 @@ use cadraw_ui::{
     SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode, ToolbarEvent,
     ToolbarTool, TopBar, TopBarEvent, TopBarFileOp, ViewCube, ViewCubeAction,
 };
+// Import egui IconData directly
 use eframe::egui;
+use egui::IconData;
+// Image crate for PNG/ICO fallback
+use image;
+// usvg for SVG parsing
+use usvg::{Tree, Options, TreeParsing};
+// resvg for converting usvg Tree to renderable tree, dan re-export tiny-skia
+// miliknya sendiri (BUKAN dependency `tiny-skia` terpisah — versinya harus
+// sama persis dengan yang dipakai resvg internal, kalau tidak `PixmapMut`/
+// `Transform` jadi 2 tipe beda secara nominal walau strukturnya identik).
+use resvg::Tree as ResvgTree;
+use resvg::tiny_skia::{Pixmap, Transform};
+use std::fs;
 use glam::{DVec2, Mat4, Vec3};
 use import_worker::{ImportJob, ImportWorker};
 use model::{AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand};
@@ -151,12 +164,67 @@ fn ios_documents_dir() -> PathBuf {
 
 fn main() -> eframe::Result {
     env_logger::init();
+
+    fn load_icon() -> IconData {
+        // Asset paths relative to the project root (working directory)
+        let svg_path = "images/logo.svg";
+        let png_path = "images/logo.png";
+        let ico_path = "images/logo_polos.ico";
+
+        // Attempt to load SVG and rasterize it. `tree.size` adalah ukuran
+        // INTRINSIK dari `viewBox` SVG (utk logo.svg ini 36184x36184 —
+        // artwork vector resolusi tinggi, BUKAN ukuran icon target) —
+        // memakainya langsung sebagai ukuran `Pixmap` pernah membuat buffer
+        // raster ~5.2 GB dan resvg merender ke kanvas sebesar itu di build
+        // debug (butuh ~2 menit sebelum window sempat tampil, ditemukan
+        // lewat isolasi: proses `cadraw` tetap hidup & tidak error, cuma
+        // lambat — root cause di sini, BUKAN di wgpu). Icon window OS cukup
+        // puluhan-ratusan piksel — render langsung ke ukuran target lewat
+        // scale transform, jangan pernah rasterisasi di resolusi intrinsik
+        // artwork vector.
+        const ICON_TARGET_PX: u32 = 256;
+        if let Ok(svg_bytes) = fs::read(svg_path) {
+            if let Ok(tree) = Tree::from_data(&svg_bytes, &Options::default()) {
+                let intrinsic = tree.size;
+                let width = ICON_TARGET_PX;
+                let height = ICON_TARGET_PX;
+                if let Some(mut pixmap) = Pixmap::new(width, height) {
+                    let scale_x = width as f32 / intrinsic.width() as f32;
+                    let scale_y = height as f32 / intrinsic.height() as f32;
+                    let rtree = ResvgTree::from_usvg(&tree);
+                    rtree.render(Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
+                    let rgba = pixmap.data().to_vec();
+                    return IconData { rgba, width, height };
+                }
+            }
+        }
+        // Fallback to PNG
+        if let Ok(png_bytes) = fs::read(png_path) {
+            if let Ok(img) = image::load_from_memory(&png_bytes) {
+                let rgba = img.to_rgba8();
+                let (width, height) = rgba.dimensions();
+                return IconData { rgba: rgba.into_raw(), width, height };
+            }
+        }
+        // Fallback to ICO
+        if let Ok(ico_bytes) = fs::read(ico_path) {
+            if let Ok(img) = image::load_from_memory(&ico_bytes) {
+                let rgba = img.to_rgba8();
+                let (width, height) = rgba.dimensions();
+                return IconData { rgba: rgba.into_raw(), width, height };
+            }
+        }
+        // Return empty icon on failure
+        IconData { rgba: Vec::new(), width: 0, height: 0 }
+    }
+
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         depth_buffer: 32,
         viewport: egui::ViewportBuilder::default()
             .with_title("CADRAW")
-            .with_inner_size([1440.0, 900.0]),
+            .with_inner_size([1440.0, 900.0])
+            .with_icon(load_icon()),
         ..Default::default()
     };
     eframe::run_native(
@@ -496,6 +564,8 @@ struct CadrawApp {
     picking_mode: PickMode,
     selected_edges: Vec<PickedEdge>,
     selected_faces: Vec<PickRay>,
+    active_face: Option<(BodyId, PickRay, FaceHit)>,
+    face_extrude_distance_input: String,
 
     /// Fase 5 (File I/O). Path file `.cadraw` aktif — `None` sampai dokumen
     /// pernah disimpan/dibuka sekali; menentukan apakah "Simpan" (⌘S)
@@ -576,6 +646,12 @@ struct CadrawApp {
     gizmo_edit_input: String,
     gizmo_is_cutting: bool,
     gizmo_target_body: Option<BodyId>,
+
+    // State 3D Face Extrude Gizmo
+    extruding_face_from_gizmo: bool,
+    face_gizmo_distance: f64,
+    face_gizmo_dimension_editing: bool,
+    face_gizmo_edit_input: String,
 }
 
 impl CadrawApp {
@@ -632,6 +708,8 @@ impl CadrawApp {
             picking_mode: PickMode::default(),
             selected_edges: Vec::new(),
             selected_faces: Vec::new(),
+            active_face: None,
+            face_extrude_distance_input: "15".to_string(),
 
             current_file_path: None,
             file_status: None,
@@ -675,6 +753,11 @@ impl CadrawApp {
             gizmo_edit_input: "20".to_string(),
             gizmo_is_cutting: false,
             gizmo_target_body: None,
+
+            extruding_face_from_gizmo: false,
+            face_gizmo_distance: 15.0,
+            face_gizmo_dimension_editing: false,
+            face_gizmo_edit_input: "15".to_string(),
         }
     }
 
@@ -1719,15 +1802,16 @@ impl CadrawApp {
     }
 
     /// Hitung delta pergeseran (dalam mm dunia) dari pergeseran mouse layar (egui `Vec2`),
-    /// diproyeksikan langsung ke sumbu normal bidang sketsa aktif di layar.
-    fn project_screen_drag_to_extrude_axis(
+    /// diproyeksikan langsung ke sumbu normal 3D sembarang di layar.
+    fn project_screen_drag_to_world_axis(
         &self,
         rect: egui::Rect,
-        centroid: DVec2,
+        origin_3d: Vec3,
+        normal_3d: Vec3,
         drag_delta: egui::Vec2,
     ) -> (f64, Option<egui::Vec2>) {
-        let normal = self.active_plane.normal;
-        let p_base = self.active_plane.to_world(centroid, 0.0);
+        let normal = normal_3d.normalize_or_zero();
+        let p_base = origin_3d;
         // Titik acuan 10 mm sepanjang vektor normal
         let p_ref = p_base + normal * 10.0;
         let s_base = world_to_screen_pos(&self.camera, rect, p_base);
@@ -1747,6 +1831,18 @@ impl CadrawApp {
         // Fallback jika proyeksi kamera singular:
         let world_scale = pixel_tolerance_to_world(&self.camera, rect);
         ((-drag_delta.y as f64) * world_scale * 1.6, None)
+    }
+
+    /// Hitung delta pergeseran (dalam mm dunia) dari pergeseran mouse layar (egui `Vec2`),
+    /// diproyeksikan langsung ke sumbu normal bidang sketsa aktif di layar.
+    fn project_screen_drag_to_extrude_axis(
+        &self,
+        rect: egui::Rect,
+        centroid: DVec2,
+        drag_delta: egui::Vec2,
+    ) -> (f64, Option<egui::Vec2>) {
+        let p_base = self.active_plane.to_world(centroid, 0.0);
+        self.project_screen_drag_to_world_axis(rect, p_base, self.active_plane.normal, drag_delta)
     }
 
     /// Deteksi live apakah extrude saat ini memotong solid yang ada (Smart Boolean Cut)
@@ -1816,13 +1912,35 @@ impl CadrawApp {
     /// Cek apakah posisi mouse saat ini berada dekat dengan gizmo panah atau dasar profil
     fn check_near_gizmo(&self, rect: egui::Rect, hover_pos: Option<egui::Pos2>) -> bool {
         let Some(pos) = hover_pos else { return false; };
-        let Some(c) = self.selected_closed_region_centroid() else { return false; };
-        let z_top = if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 16.0 };
-        let top_3d = self.active_plane.to_world(c, z_top);
-        let bot_3d = self.active_plane.to_world(c, 0.0);
-        let near_top = world_to_screen_pos(&self.camera, rect, top_3d).map_or(false, |s| s.distance(pos) < 32.0);
-        let near_bot = world_to_screen_pos(&self.camera, rect, bot_3d).map_or(false, |s| s.distance(pos) < 32.0);
-        near_top || near_bot
+
+        // 1. Cek gizmo sketsa 2D
+        if let Some(c) = self.selected_closed_region_centroid() {
+            let z_top = if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 16.0 };
+            let top_3d = self.active_plane.to_world(c, z_top);
+            let bot_3d = self.active_plane.to_world(c, 0.0);
+            let near_top = world_to_screen_pos(&self.camera, rect, top_3d).map_or(false, |s| s.distance(pos) < 36.0);
+            let near_bot = world_to_screen_pos(&self.camera, rect, bot_3d).map_or(false, |s| s.distance(pos) < 36.0);
+            if near_top || near_bot {
+                return true;
+            }
+        }
+
+        // 2. Cek gizmo face 3D
+        if let Some((_, _, hit)) = &self.active_face {
+            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            let dist = if self.extruding_face_from_gizmo { self.face_gizmo_distance as f32 } else { 18.0 };
+            let top_3d = c_base + normal * dist;
+            let mid_3d = (c_base + top_3d) * 0.5;
+            let near_top = world_to_screen_pos(&self.camera, rect, top_3d).map_or(false, |s| s.distance(pos) < 40.0);
+            let near_bot = world_to_screen_pos(&self.camera, rect, c_base).map_or(false, |s| s.distance(pos) < 40.0);
+            let near_mid = world_to_screen_pos(&self.camera, rect, mid_3d).map_or(false, |s| s.distance(pos) < 40.0);
+            if near_top || near_bot || near_mid {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn viewport(&mut self, ui: &mut egui::Ui) {
@@ -1836,33 +1954,91 @@ impl CadrawApp {
         self.handle_radial_menu(ui, &response);
 
         let is_near_gizmo = self.check_near_gizmo(rect, response.hover_pos());
-        if is_near_gizmo || self.extruding_from_gizmo {
-            if let Some(c) = self.selected_closed_region_centroid() {
-                let (_, arrow_opt) = self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
-                if let Some(dir) = arrow_opt {
-                    let u = dir.normalized();
-                    let cursor = if u.x.abs() > u.y.abs() * 2.0 {
-                        egui::CursorIcon::ResizeHorizontal
-                    } else if u.y.abs() > u.x.abs() * 2.0 {
-                        egui::CursorIcon::ResizeVertical
-                    } else if u.x * u.y < 0.0 {
-                        egui::CursorIcon::ResizeNeSw
-                    } else {
-                        egui::CursorIcon::ResizeNwSe
-                    };
-                    ui.ctx().set_cursor_icon(cursor);
+        if is_near_gizmo || self.extruding_from_gizmo || self.extruding_face_from_gizmo {
+            let arrow_opt = if let Some(c) = self.selected_closed_region_centroid() {
+                let (_, arrow) = self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
+                arrow
+            } else if let Some((_, _, hit)) = &self.active_face {
+                let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+                let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+                let (_, arrow) = self.project_screen_drag_to_world_axis(rect, c_base, normal, egui::Vec2::ZERO);
+                arrow
+            } else {
+                None
+            };
+            if let Some(dir) = arrow_opt {
+                let u = dir.normalized();
+                let cursor = if u.x.abs() > u.y.abs() * 2.0 {
+                    egui::CursorIcon::ResizeHorizontal
+                } else if u.y.abs() > u.x.abs() * 2.0 {
+                    egui::CursorIcon::ResizeVertical
+                } else if u.x * u.y < 0.0 {
+                    egui::CursorIcon::ResizeNeSw
                 } else {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-                }
+                    egui::CursorIcon::ResizeNwSe
+                };
+                ui.ctx().set_cursor_icon(cursor);
             } else {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            }
+        }
+
+        // Direct Drag Handler untuk 3D Face Extrude Gizmo
+        if let Some((_, _, hit)) = &self.active_face {
+            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+
+            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
+                self.extruding_face_from_gizmo = true;
+                if self.face_gizmo_distance == 0.0 {
+                    self.face_gizmo_distance = 15.0;
+                }
+            }
+
+            if self.extruding_face_from_gizmo && response.dragged_by(egui::PointerButton::Primary) {
+                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, normal, response.drag_delta());
+                self.face_gizmo_distance += delta_mm;
+                self.face_gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.face_gizmo_distance));
+            }
+
+            if self.extruding_face_from_gizmo && response.drag_stopped() {
+                if self.face_gizmo_distance.abs() > 0.1 {
+                    self.extrude_active_face(self.face_gizmo_distance);
+                }
+                self.extruding_face_from_gizmo = false;
+                self.face_gizmo_distance = 15.0;
+                self.face_gizmo_edit_input = "15".to_string();
+            }
+        }
+
+        // Direct Drag Handler untuk 2D Sketch Extrude Gizmo
+        if let Some(c) = self.selected_closed_region_centroid() {
+            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
+                self.extruding_from_gizmo = true;
+                if self.gizmo_distance == 0.0 {
+                    self.gizmo_distance = 20.0;
+                }
+            }
+
+            if self.extruding_from_gizmo && response.dragged_by(egui::PointerButton::Primary) {
+                let (delta_mm, _) = self.project_screen_drag_to_extrude_axis(rect, c, response.drag_delta());
+                self.gizmo_distance += delta_mm;
+                self.update_gizmo_boolean_detection();
+            }
+
+            if self.extruding_from_gizmo && response.drag_stopped() {
+                self.commit_gizmo_extrusion();
             }
         }
 
         // Orbit primer hanya untuk tool Pilih, dan cuma saat radial menu
         // TIDAK terbuka/sedang dideteksi lewat long-press dan mouse TIDAK di atas gizmo
         let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
-        let allow_primary_orbit = self.tool == ToolKind::Select && !radial_active && !is_near_gizmo && !self.extruding_from_gizmo;
+        let allow_primary_orbit = self.tool == ToolKind::Select
+            && !radial_active
+            && !is_near_gizmo
+            && !self.extruding_from_gizmo
+            && !self.extruding_face_from_gizmo;
         self.handle_navigation(ui, &response, rect, allow_primary_orbit);
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 
@@ -1901,11 +2077,13 @@ impl CadrawApp {
         let orbiting = (allow_primary_orbit
             && response.dragged_by(egui::PointerButton::Primary)
             && !modifiers.shift
-            && !self.extruding_from_gizmo)
+            && !self.extruding_from_gizmo
+            && !self.extruding_face_from_gizmo)
             || (response.dragged_by(egui::PointerButton::Middle) && !modifiers.shift);
         let panning = response.dragged_by(egui::PointerButton::Secondary)
             || (modifiers.shift
                 && !self.extruding_from_gizmo
+                && !self.extruding_face_from_gizmo
                 && (response.dragged_by(egui::PointerButton::Primary)
                     || response.dragged_by(egui::PointerButton::Middle)));
 
@@ -2080,9 +2258,52 @@ impl CadrawApp {
                         .flatten()
                 };
 
+                if response.clicked() {
+                    eprintln!(
+                        "[DEBUG click] response.clicked()=true, suppress_click_from_radial={}",
+                        suppress_click_from_radial
+                    );
+                }
                 if response.clicked() && !suppress_click_from_radial {
                     let shift = ui.input(|i| i.modifiers.shift);
-                    if let Some(reg) = region_hit {
+                    let click_pos = response.hover_pos()
+                        .or_else(|| ui.input(|i| i.pointer.latest_pos()))
+                        .or_else(|| ui.input(|i| i.pointer.interact_pos()));
+
+                    eprintln!(
+                        "[DEBUG click] tool={:?} is_sketching={} shift={} click_pos={:?} region_hit={} hovered={:?}",
+                        self.tool, self.is_sketching, shift, click_pos, region_hit.is_some(), self.hovered
+                    );
+
+                    // Di mode 3D (bukan sketching), utamakan pick sisi (face) solid
+                    // DULU — proyeksi kursor ke bidang sketsa dasar sering "kena"
+                    // region 2D yang sudah ter-extrude jadi solid (sketsa dasar
+                    // tidak dihapus setelah extrude), padahal user mengklik untuk
+                    // memilih face 3D-nya. Tanpa ini gizmo panah face tidak pernah
+                    // muncul karena cabang region_hit di bawah selalu menang duluan.
+                    let face_pick_3d = if !self.is_sketching && !shift {
+                        eprintln!("[DEBUG click] mencoba face_pick_3d (mode 3D, tanpa shift)...");
+                        click_pos.and_then(|pos| self.pick_body_face_at_cursor(rect, pos))
+                    } else {
+                        eprintln!(
+                            "[DEBUG click] SKIP face_pick_3d karena is_sketching={} atau shift={}",
+                            self.is_sketching, shift
+                        );
+                        None
+                    };
+
+                    if let Some((b_id, ray, hit)) = face_pick_3d {
+                        eprintln!("[DEBUG click] -> cabang FACE_PICK_3D diambil, body={b_id:?}");
+                        self.selected.clear();
+                        self.selected_bodies.clear();
+                        self.selected_bodies.insert(b_id);
+                        self.active_face = Some((b_id, ray, hit));
+                        self.face_gizmo_distance = 15.0;
+                        self.face_gizmo_edit_input = "15".to_string();
+                        self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
+                    } else if let Some(reg) = region_hit {
+                        eprintln!("[DEBUG click] -> cabang REGION_HIT diambil (sketsa 2D menang)");
+                        self.active_face = None;
                         if shift {
                             let already_selected = reg.entity_ids.iter().all(|id| self.selected.contains(id));
                             if already_selected {
@@ -2103,6 +2324,7 @@ impl CadrawApp {
                         self.gizmo_distance = 20.0;
                         self.gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.gizmo_distance));
                     } else {
+                        eprintln!("[DEBUG click] -> cabang HOVERED/FALLBACK, self.hovered={:?} shift={}", self.hovered, shift);
                         match (self.hovered, shift) {
                             (Some(hit), true) => {
                                 if !self.selected.remove(&hit) {
@@ -2111,9 +2333,28 @@ impl CadrawApp {
                             }
                             (Some(hit), false) => {
                                 self.selected.clear();
+                                self.active_face = None;
                                 self.selected.insert(hit);
                             }
-                            (None, false) => self.selected.clear(),
+                            (None, false) => {
+                                self.selected.clear();
+                                eprintln!("[DEBUG click]    fallback (None,false) -> coba pick_body_face_at_cursor lagi");
+                                if let Some(pos) = click_pos {
+                                    if let Some((b_id, ray, hit)) = self.pick_body_face_at_cursor(rect, pos) {
+                                        self.selected_bodies.clear();
+                                        self.selected_bodies.insert(b_id);
+                                        self.active_face = Some((b_id, ray, hit));
+                                        self.face_gizmo_distance = 15.0;
+                                        self.face_gizmo_edit_input = "15".to_string();
+                                        self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
+                                    } else {
+                                        eprintln!("[DEBUG click]    fallback pick_body_face_at_cursor JUGA None -> active_face di-clear");
+                                        self.active_face = None;
+                                    }
+                                } else {
+                                    eprintln!("[DEBUG click]    fallback: click_pos None sama sekali (hover_pos/pointer semua None)");
+                                }
+                            }
                             (None, true) => {}
                         }
                     }
@@ -2288,8 +2529,9 @@ impl CadrawApp {
                 }
             }
             PickMode::Face => {
-                if cadraw_kernel::pick_face(&geo.shape, ray).is_some() {
+                if let Some(hit) = cadraw_kernel::pick_face_details(&geo.shape, ray) {
                     self.selected_faces.push(ray);
+                    self.active_face = Some((id, ray, hit));
                 }
             }
         }
@@ -2326,6 +2568,26 @@ impl CadrawApp {
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.70, 1.0, 0.75]));
                 verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
+            }
+        }
+
+        // Gambar Gizmo Panah 3D jika ada sisi (face) solid terpilih
+        if let Some((_, _, hit)) = &self.active_face {
+            let c_base = [hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32];
+            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
+
+            if self.extruding_face_from_gizmo {
+                let dist = self.face_gizmo_distance as f32;
+                let c_top = Vec3::from(c_base) + normal * dist;
+                let c_top_arr = [c_top.x, c_top.y, c_top.z];
+                verts.extend(sketch_render::dashed_line_3d(c_base, c_top_arr, 4.0, [0.15, 0.80, 1.0, 0.95]));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top_arr, 24.0, 5.5, FACE_GIZMO_COLOR, normal));
+            } else {
+                let gizmo_pt = Vec3::from(c_base) + normal * 18.0;
+                let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
+                verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.80, 1.0, 0.85]));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 24.0, 5.5, FACE_GIZMO_COLOR, normal));
             }
         }
 
@@ -2622,6 +2884,79 @@ impl CadrawApp {
                 }
             }
         }
+
+        // 3. Interactive Draggable Double Arrow Handle & Dimension Pill untuk 3D Face Extrude Gizmo
+        if let Some((_, _, hit)) = &self.active_face {
+            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            let z_pos = if self.extruding_face_from_gizmo { self.face_gizmo_distance as f32 } else { 18.0 };
+            let handle_3d = c_base + normal * z_pos;
+
+            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, c_base, normal, egui::Vec2::ZERO);
+
+                // Handle panah 2 sisi tebal dan draggable (rotasi otomatis sesuai sudut normal 3D)
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
+                    ui,
+                    handle_2d,
+                    self.extruding_face_from_gizmo,
+                    arrow_vec_opt,
+                );
+
+                if handle_resp.drag_started() {
+                    self.extruding_face_from_gizmo = true;
+                    if self.face_gizmo_distance == 0.0 {
+                        self.face_gizmo_distance = 15.0;
+                    }
+                }
+
+                if handle_resp.dragged() {
+                    self.extruding_face_from_gizmo = true;
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, normal, handle_resp.drag_delta());
+                    self.face_gizmo_distance += delta_mm;
+                    self.face_gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.face_gizmo_distance));
+                }
+
+                if handle_resp.drag_stopped() {
+                    if self.face_gizmo_distance.abs() > 0.1 {
+                        self.extrude_active_face(self.face_gizmo_distance);
+                    }
+                    self.extruding_face_from_gizmo = false;
+                    self.face_gizmo_distance = 15.0;
+                    self.face_gizmo_edit_input = "15".to_string();
+                }
+
+                // Interactive Dimension Pill diletakkan di atas handle panah
+                let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
+                let text = self.unit.format(self.face_gizmo_distance);
+                let pill_resp = CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &text, self.face_gizmo_dimension_editing);
+                if pill_resp.clicked() {
+                    self.face_gizmo_dimension_editing = !self.face_gizmo_dimension_editing;
+                    self.face_gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.face_gizmo_distance));
+                }
+
+                if self.face_gizmo_dimension_editing {
+                    let popup_rect = egui::Rect::from_center_size(pill_pos + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                    egui::Area::new(egui::Id::new("cadraw-face-gizmo-edit-popup"))
+                        .fixed_pos(popup_rect.min)
+                        .order(egui::Order::Foreground)
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                let resp = ui.text_edit_singleline(&mut self.face_gizmo_edit_input);
+                                resp.request_focus();
+                                if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                    if let Ok(val) = self.face_gizmo_edit_input.trim().parse::<f64>() {
+                                        let dist = self.unit.to_internal_mm(val);
+                                        self.face_gizmo_distance = dist;
+                                        self.extrude_active_face(dist);
+                                    }
+                                    self.face_gizmo_dimension_editing = false;
+                                }
+                            });
+                        });
+                }
+            }
+        }
     }
 
     /// Coba terapkan `constraint`: dry-run solve di atas clone sketch dulu
@@ -2854,6 +3189,98 @@ impl CadrawApp {
     /// toleransi "cukup longgar" — nilai tetap dalam mm, bukan berbasis
     /// piksel/kamera, cukup untuk itu.
     const EDGE_REAPPLY_TOLERANCE_MM: f64 = 5.0;
+
+    /// Raycast terhadap semua body solid 3D yang visible, mencari face terdekat yang terkena kursor mouse.
+    fn pick_body_face_at_cursor(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<(BodyId, PickRay, FaceHit)> {
+        let (origin, dir) = screen_to_ray(&self.camera, rect, pos);
+        let ray = PickRay {
+            origin: (origin.x as f64, origin.y as f64, origin.z as f64),
+            dir: (dir.x as f64, dir.y as f64, dir.z as f64),
+        };
+        eprintln!(
+            "[DEBUG pick_body_face_at_cursor] pos={pos:?} ray.origin={:?} ray.dir={:?} total_geometry={} total_bodies={}",
+            ray.origin, ray.dir, self.model.geometry.len(), self.model.doc.bodies.len()
+        );
+        let mut closest: Option<(BodyId, PickRay, FaceHit, f64)> = None;
+        for (id, geo) in self.model.geometry.iter() {
+            match self.model.doc.bodies.get(id) {
+                Some(body) => {
+                    let mut min = [f32::INFINITY; 3];
+                    let mut max = [f32::NEG_INFINITY; 3];
+                    for p in &geo.mesh.positions {
+                        for k in 0..3 {
+                            min[k] = min[k].min(p[k]);
+                            max[k] = max[k].max(p[k]);
+                        }
+                    }
+                    eprintln!(
+                        "[DEBUG pick_body_face_at_cursor]   body id={id:?} visible={} mesh_aabb_min={min:?} mesh_aabb_max={max:?} vertex_count={}",
+                        body.visible, geo.mesh.positions.len()
+                    );
+                    if body.visible {
+                        match cadraw_kernel::pick_face_details(&geo.shape, ray) {
+                            Some(hit) => {
+                                eprintln!("[DEBUG pick_body_face_at_cursor]     HIT hit_point={:?} normal={:?}", hit.hit_point, hit.normal);
+                                let hit_vec = glam::DVec3::new(hit.hit_point.0, hit.hit_point.1, hit.hit_point.2);
+                                let orig_vec = glam::DVec3::new(ray.origin.0, ray.origin.1, ray.origin.2);
+                                let dist_sq = (hit_vec - orig_vec).length_squared();
+                                if closest.as_ref().is_none_or(|(_, _, _, d)| dist_sq < *d) {
+                                    closest = Some((id, ray, hit, dist_sq));
+                                }
+                            }
+                            None => eprintln!("[DEBUG pick_body_face_at_cursor]     MISS (pick_face_details None)"),
+                        }
+                    }
+                }
+                None => eprintln!("[DEBUG pick_body_face_at_cursor]   body id={id:?} TIDAK ADA di doc.bodies (geometry yatim?)"),
+            }
+        }
+        eprintln!("[DEBUG pick_body_face_at_cursor] result = {}", if closest.is_some() { "Some" } else { "None" });
+        closest.map(|(id, ray, hit, _)| (id, ray, hit))
+    }
+
+    /// Extrude sisi/face 3D yang sedang aktif sepanjang `distance` mm.
+    fn extrude_active_face(&mut self, distance: f64) {
+        let Some((target_id, ray, _hit)) = self.active_face else {
+            self.model_status = Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
+            return;
+        };
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            self.model_status = Some("Body terpilih tidak ditemukan".to_string());
+            return;
+        };
+        match cadraw_kernel::extrude_face(&target_geo.shape, ray, distance) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                let label = if distance > 0.0 { "Extrude Face" } else { "Cut Face" };
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new(label, target_id, new_geo)),
+                    &mut self.model,
+                );
+                self.active_face = None;
+                self.model_status = Some(format!("Extrude face {:.1} mm sukses", distance));
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Extrude face gagal: {e}"));
+            }
+        }
+    }
+
+    /// Jadikan permukaan sisi (face) 3D yang sedang aktif sebagai bidang sketsa baru (Sketch on Face).
+    fn sketch_on_active_face(&mut self) {
+        let Some((_target_id, _ray, hit)) = self.active_face else {
+            self.model_status = Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
+            return;
+        };
+        let origin = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+        let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+        self.active_plane = SketchPlane::from_origin_normal(origin, normal);
+        self.is_sketching = true;
+        self.left_toolbar.is_sketching = true;
+        self.camera.orient_to_plane(&self.active_plane);
+        self.active_face = None;
+        self.model_status = Some("Sketsa aktif pada permukaan sisi objek".to_string());
+    }
 
     /// Hapus semua body terpilih (masing-masing 1 command undo-able).
     fn delete_selected_bodies(&mut self) {
@@ -3150,7 +3577,7 @@ impl eframe::App for CadrawApp {
                 self.viewport(ui);
             });
 
-        let screen_rect = ctx.screen_rect();
+        let screen_rect = ctx.content_rect();
         let screen_center_x = screen_rect.center().x;
 
         // 4. Left Floating Toolbar (Pojok Kiri Atas)
@@ -3584,6 +4011,8 @@ impl eframe::App for CadrawApp {
                 entity_val_2: self.prop_input_val_2.clone(),
 
                 extrude_input: self.extrude_distance_input.clone(),
+                active_face_selected: self.active_face.is_some(),
+                face_extrude_input: self.face_extrude_distance_input.clone(),
                 loft_height_input: self.loft_height_input.clone(),
                 loft_bottom_staged: self.pending_loft_bottom.is_some(),
                 fillet_input: self.fillet_radius_input.clone(),
@@ -3618,6 +4047,7 @@ impl eframe::App for CadrawApp {
                         self.prop_input_p2_y = inspector_state.entity_p2_y;
                         self.prop_input_val_1 = inspector_state.entity_val_1;
                         self.prop_input_val_2 = inspector_state.entity_val_2;
+                        self.face_extrude_distance_input = inspector_state.face_extrude_input;
 
                         match insp_ev {
                             InspectorEvent::CloseInspector => {
@@ -3757,6 +4187,13 @@ impl eframe::App for CadrawApp {
                             InspectorEvent::ApplyExtrude { distance } => {
                                 self.extrude_distance_input = distance.to_string();
                                 self.extrude_selected();
+                            }
+                            InspectorEvent::ApplyFaceExtrude { distance } => {
+                                self.face_extrude_distance_input = distance.to_string();
+                                self.extrude_active_face(distance);
+                            }
+                            InspectorEvent::SketchOnFace => {
+                                self.sketch_on_active_face();
                             }
                             InspectorEvent::ApplyRevolve => {
                                 self.set_tool(ToolKind::Revolve);

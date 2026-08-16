@@ -116,6 +116,27 @@ Body yang sudah ada muncul di daftar tengah panel:
 - **Ctrl/Cmd+klik atau Shift+klik** = tambah/kurangi dari seleksi
   (multi-pilih, dibutuhkan Union/Subtract).
 
+### Mode Sketsa vs Mode 3D, dan Push/Pull sisi (face) langsung
+
+Tombol paling atas toolbar kiri (ikon berubah) beralih antara **Sketch
+Mode** (`⌘⇧3` dari Mode 3D) dan **3D Mode** (`⌘⇧2` dari Mode Sketsa) —
+klik tombolnya atau pakai shortcut, badge di toolbar menunjukkan mode
+aktif.
+
+Di **Mode 3D** dengan tool **Pilih**, klik langsung salah satu sisi
+(face) body yang sudah ada di viewport (kubus, silinder, hasil Revolve/
+Loft/Boolean — bebas bentuknya) — body itu otomatis terpilih dan panah
+gizmo biru muncul tegak lurus di tengah sisi tsb. **Tarik panah** (drag)
+untuk push/pull: tarik **keluar** menambah volume (union — nempel ke
+body), dorong **ke dalam** memotong volume (cut/pocket). Lepas mouse
+untuk commit. Panel kanan "Extrude Sisi (Face)" juga muncul untuk isi
+jarak presisi via keyboard alih-alih drag manual.
+
+⚠️ Klik di area yang masih berupa sketsa 2D BELUM di-extrude (mis. profil
+dasar yang belum jadi solid) tetap memilih region sketsa itu (gizmo
+extrude 2D biasa) — push/pull sisi 3D cuma aktif kalau klik benar-benar
+kena permukaan solid yang sudah ada.
+
 ### Revolve — putar profil 360° mengelilingi sumbu (Fase 8)
 
 1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil (sama

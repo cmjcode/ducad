@@ -1037,6 +1037,60 @@ dugaan lama di dokumen ini:
       kernel termasuk 15 baru Fase 8, 14 io, 6 render, 42 sketch), plus
       smoke-run `cargo run -p cadraw-app` tanpa panic startup.
 
+## Status Fase 8 Lanjutan — Direct Face Push/Pull (dikerjakan)
+
+Di atas infrastruktur picking face berbasis ray-dunia (bagian di atas),
+ditambahkan interaksi **push/pull langsung**: klik sisi (face) mana pun
+dari solid apa pun (bukan cuma kubus — bekerja generik untuk hasil
+Extrude/Revolve/Loft/Boolean apa saja, karena beroperasi di level B-rep
+`Face`, bukan bentuk primitif tertentu) memunculkan gizmo panah 3D yang
+bisa di-drag untuk menambah/memotong volume, meniru UX Shapr3D/Fusion.
+
+- [x] **`extrude_face(shape, ray, distance)`** (`cadraw-kernel`) — cast
+      ulang `ray` (pola `PickRay` yang sama dengan fillet/chamfer/shell
+      per-tepi) ke `deep_clone` shape untuk resolusi `Face` yang valid,
+      hitung normal keluar via `compute_face_normal_and_centroid`
+      (Newell's method + flip berlawanan arah ray kamera), extrude face
+      itu sepanjang `normal * distance` jadi volume sapuan. `distance >
+      0` → `union` (nempel ke body asli); `distance < 0` → `subtract`
+      (potong/pocket). 2 test geometris: extrude sisi atas & samping
+      kubus, extrude tutup silinder — volume hasil diverifikasi lebih
+      besar dari asli (bukti nyata union terjadi, bukan cuma "tidak
+      panic").
+      `pick_face_details(shape, ray)` (`FaceHit { hit_point, centroid,
+      normal }`, publik) — dipakai UI utk gizmo interaktif; beda dari
+      `pick_face` lama (cuma titik hit) yang tetap dipertahankan untuk
+      pemanggil lain (Shell multi-face).
+      `cadraw-app`: `active_face: Option<(BodyId, PickRay, FaceHit)>` —
+      klik viewport di tool Pilih (Mode 3D) → `pick_body_face_at_cursor`
+      ray-cast ke SEMUA body visible, ambil hit terdekat ke kamera.
+      Gizmo panah digambar di `hit.centroid` sepanjang `hit.normal`
+      (`build_overlay_lines`); drag diproyeksikan screen-space ke sumbu
+      normal 3D lewat `project_screen_drag_to_world_axis` (generalisasi
+      `project_screen_drag_to_extrude_axis` 2D lama, sekarang wrapper
+      tipis di atasnya) → `face_gizmo_distance`; `drag_stopped()` commit
+      lewat `extrude_active_face`. Panel kanan (`feature_inspector`)
+      tampilkan card "Extrude Sisi (Face)" saat `active_face_selected`
+      untuk input jarak presisi via keyboard.
+- [x] **Bugfix: face push/pull tidak pernah muncul saat klik sisi solid
+      di Mode 3D.** Root cause: handler klik tool Pilih menge-tes hit
+      region sketsa 2D (proyeksi kursor ke `active_plane`) LEBIH DULU
+      dari face-pick 3D. Sketsa dasar (mis. persegi sumber Extrude) tidak
+      dihapus setelah di-extrude jadi solid — jadi proyeksi klik ke sisi
+      mana pun kubus di Mode 3D hampir selalu jatuh di DALAM region
+      sketsa dasar itu (masih ada, cuma tertanam di dalam solid & tak
+      terlihat), region-hit selalu menang duluan, `pick_body_face_at_cursor`
+      tidak pernah dipanggil. **Fix**: di Mode 3D (`!is_sketching`) dan
+      klik tanpa Shift, coba `pick_body_face_at_cursor` PALING AWAL —
+      kena solid → set `active_face` langsung (skip region/entity-hit
+      sama sekali); meleset → fallback ke urutan lama (region → entity →
+      face-pick lagi sebagai fallback terakhir), supaya extrude profil 2D
+      dari Mode 3D tetap jalan. Ditambah eksklusi mutual eksplisit
+      (`active_face = None` saat region/entity terpilih, `selected.clear()`
+      saat face terpilih) — mencegah gizmo 2D dan gizmo face 3D aktif
+      bersamaan. Mode Sketsa (`is_sketching == true`) dan klik+Shift tidak
+      berubah perilakunya sama sekali.
+
 ## Menjalankan
 
 ```bash

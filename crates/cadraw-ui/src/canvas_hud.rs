@@ -121,7 +121,7 @@ impl CanvasHud {
         is_active: bool,
     ) -> egui::Response {
         let font = FontId::proportional(11.5);
-        let galley = ui.fonts(|f| f.layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 25)));
+        let galley = ui.painter().layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 25));
         let size = galley.size() + Vec2::new(18.0, 10.0);
         let rect = egui::Rect::from_center_size(pos_2d, size);
 
