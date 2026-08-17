@@ -824,6 +824,16 @@ impl CadrawApp {
         let theme = ThemeMode::default();
         cadraw_ui::apply_theme(&cc.egui_ctx, theme);
 
+        // egui default: SHIFT dianggap "horizontal_scroll_modifier", jadi
+        // event MouseWheel dengan Shift ditekan otomatis diratakan jadi
+        // vec2(dx+dy, 0.0) SEBELUM sampai ke handle_navigation() (lihat
+        // egui input_state::process_events). Ini bikin gesture Shift + 2
+        // jari trackpad (pan bebas segala arah) cuma bisa geser kiri-kanan,
+        // padahal camera.pan() sendiri sudah benar menangani dx & dy.
+        // Matikan remap bawaan itu supaya delta 2D utuh sampai ke pan().
+        cc.egui_ctx
+            .options_mut(|o| o.input_options.horizontal_scroll_modifier = egui::Modifiers::NONE);
+
         Self {
             camera: OrbitCamera::default(),
             sketches: [Sketch::default(), Sketch::default(), Sketch::default()],
