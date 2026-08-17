@@ -66,6 +66,20 @@ impl AdHocShape {
         Self::from_inner(inner)
     }
 
+    /// Make a sphere of radius r, centered at the origin.
+    //
+    // PATCH (CADRAW, lihat vendor/README.md): method baru, TIDAK menyentuh
+    // `opencascade-sys` sama sekali — `BRepPrimAPI_MakeSphere_ctor`/`Shape`
+    // SUDAH ADA di FFI upstream, cuma belum ada wrapper Rust publiknya di
+    // sini (beda dengan `make_box`/`make_cylinder` di atas yang sudah ada).
+    // Dibutuhkan sebagai fixture test utk `Face::surface_kind()`.
+    pub fn make_sphere(r: f64) -> Self {
+        let mut sphere = ffi::BRepPrimAPI_MakeSphere_ctor(r);
+        let inner = ffi::TopoDS_Shape_to_owned(sphere.pin_mut().Shape());
+
+        Self::from_inner(inner)
+    }
+
     /// Purposefully underpowered for now, this simply takes a list of points,
     /// creates a face out of them, and then extrudes it by h in the positive Z
     /// direction.

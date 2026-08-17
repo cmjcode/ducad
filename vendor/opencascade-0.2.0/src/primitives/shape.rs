@@ -345,4 +345,79 @@ impl Shape {
         let faces_to_remove: [Face; 0] = [];
         self.hollow(offset, faces_to_remove)
     }
+
+    /// Volume solid ini (mm³), lewat `BRepGProp_VolumeProperties`/`Mass()`
+    /// — FFI-nya SUDAH ADA di `opencascade-sys` (dipakai internal utk
+    /// operasi lain), cuma belum ada wrapper Rust publik di `Shape`.
+    //
+    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3, offset shell
+    // per-face): method baru, TIDAK menyentuh `opencascade-sys` sama
+    // sekali. Dipakai `cadraw-kernel` utk regresi volume `extrude_face`
+    // jalur offset (non-planar) — cara paling langsung memverifikasi
+    // radius silinder/kerucut/bola benar-benar berubah sesuai `distance`.
+    pub fn volume(&self) -> f64 {
+        let mut props = ffi::GProp_GProps_ctor();
+        ffi::BRepGProp_VolumeProperties(&self.inner, props.pin_mut());
+        props.Mass()
+    }
+
+    /// Offset SATU `face` pada solid ini sejauh `offset` mm sepanjang
+    /// normal OCCT-nya sendiri (`BRepOffset_MakeOffset::SetOffsetOnFace`),
+    /// wajah lain pada solid TIDAK bergerak (base offset diinisialisasi
+    /// `0.0`). Beda dengan `extrude`+`union`/`subtract` (jalur wajah
+    /// datar) — permukaan lengkung (silinder/kerucut/bola/torus) TIDAK
+    /// bisa direpresentasikan sebagai hasil extrude+boolean yang match
+    /// geometri lengkung aslinya (extrude wajah lengkung menghasilkan
+    /// swept surface baru, bukan silinder/bola dengan radius berbeda),
+    /// jadi hasilnya di sini LANGSUNG solid baru dari satu operasi offset,
+    /// bukan dua langkah extrude lalu digabung/dipotong.
+    //
+    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3): method baru,
+    // menyusun binding `BRepOffset_MakeOffset` yang ditambahkan ke
+    // `opencascade-sys` di CADRAW Fase 2 (lihat vendor/README.md §
+    // `opencascade-sys-0.2.0`) — TIDAK ada perubahan lagi di
+    // `opencascade-sys` di fase ini, murni pemakaian FFI yang sudah ada.
+    // Mode `BRepOffset_Skin` + join `GeomAbs_Intersection` + `intersection
+    // = true` dipilih supaya face-face tetangga (yang offset-nya 0)
+    // dibangun ulang menyambung rapi dengan face yang di-offset (tanpa
+    // `intersection`, sambungan antar-face pada solid tertutup sering
+    // gagal rekonstruksi — pola sama dengan `make_offset_shape_happy_path`
+    // di `opencascade-sys/tests/surface_and_offset.rs`).
+    pub fn offset_on_face(&self, face: &Face, offset: f64) -> Result<Self, crate::Error> {
+        const OFFSET_TOLERANCE: f64 = 1e-4;
+
+        let to_error = |e: cxx::Exception| crate::Error::OffsetOnFaceFailed(e.what().to_string());
+
+        let mut make_offset = ffi::BRepOffset_MakeOffset_ctor();
+        ffi::BRepOffset_MakeOffset_Initialize(
+            make_offset.pin_mut(),
+            &self.inner,
+            0.0,
+            OFFSET_TOLERANCE,
+            ffi::BRepOffset_Mode::BRepOffset_Skin,
+            true,
+            false,
+            ffi::GeomAbs_JoinType::GeomAbs_Intersection,
+            false,
+            false,
+        )
+        .map_err(to_error)?;
+
+        ffi::BRepOffset_MakeOffset_SetOffsetOnFace(make_offset.pin_mut(), &face.inner, offset)
+            .map_err(to_error)?;
+
+        ffi::BRepOffset_MakeOffset_MakeOffsetShape(make_offset.pin_mut()).map_err(to_error)?;
+
+        if !make_offset.IsDone() {
+            return Err(crate::Error::OffsetOnFaceFailed(
+                "MakeOffsetShape selesai tanpa error tapi IsDone() == false (geometri hasil offset tidak valid)"
+                    .to_string(),
+            ));
+        }
+
+        let result_shape = ffi::BRepOffset_MakeOffset_Shape(&make_offset).map_err(to_error)?;
+        let inner = ffi::TopoDS_Shape_to_owned(result_shape);
+
+        Ok(Self { inner })
+    }
 }

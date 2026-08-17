@@ -9,7 +9,9 @@ use anyhow::{bail, Context, Result};
 use glam::{dvec3, DVec3};
 use opencascade::adhoc::AdHocShape;
 use opencascade::angle::Angle;
-use opencascade::primitives::{Compound, Direction as OcctDirection, Edge, Face, IntoShape, Shape, Solid, Wire};
+use opencascade::primitives::{
+    Compound, Direction as OcctDirection, Edge, Face, FaceOrientation, IntoShape, Shape, Solid, Wire,
+};
 use opencascade::workplane::Workplane;
 use std::sync::Mutex;
 
@@ -720,6 +722,79 @@ pub struct FaceHit {
     pub centroid: (f64, f64, f64),
     /// Vektor normal satuan yang mengarah ke luar (outward normal) (x, y, z)
     pub normal: (f64, f64, f64),
+    /// Tipe permukaan geometris analitik di balik face yang terpilih.
+    pub surface_kind: SurfaceKind,
+    /// Arah satuan yang dipakai gizmo push/pull (CADRAW Fase 4) — TIDAK
+    /// selalu sama dengan `normal`:
+    /// - `Plane`: identik dengan `normal` (normal Newell, perilaku lama).
+    /// - `Cylinder`/`Cone`: arah RADIAL di `hit_point`, yaitu
+    ///   `(hit_point − proyeksi hit_point ke garis sumbu).normalize()` —
+    ///   inilah arah geometris yang benar-benar mengubah radius saat
+    ///   di-drag (lihat dispatch `extrude_face`/`offset_on_face`), bukan
+    ///   normal permukaan lokal di titik itu (yang juga radial tapi
+    ///   Newell's method di atas boundary loop TIDAK menghitungnya per
+    ///   titik — nilainya konstan per-face, salah untuk radial drag).
+    /// - `Sphere`: `(hit_point − centroid).normalize()` — `centroid` bola
+    ///   penuh (`Face::center_of_mass`) SECARA MATEMATIS persis pusat bola
+    ///   (centroid luas permukaan bola simetris = pusatnya).
+    /// - `Torus`/`Other`: fallback ke `normal` (belum ada rumus arah
+    ///   push/pull khusus utk tipe ini).
+    pub pull_dir: (f64, f64, f64),
+}
+
+impl FaceHit {
+    /// Titik anchor gizmo push/pull (CADRAW Fase 8 lanjutan) — TIDAK selalu
+    /// `centroid`:
+    /// - `Plane`: `centroid`, sama seperti perilaku lama (face datar
+    ///   biasanya punya region kecil, centroid tetap dekat permukaan).
+    /// - selain `Plane` (`Cylinder`/`Cone`/`Sphere`/`Torus`/`Other`):
+    ///   `hit_point` — utk selimut silinder/bola penuh, `centroid` Newell
+    ///   jatuh di SUMBU (silinder) atau PUSAT bola (bola), yaitu di DALAM
+    ///   material. Handle gizmo yg diletakkan di `centroid + pull_dir·18`
+    ///   pun ikut terkubur utk radius > 18 mm — tak terlihat & tak bisa
+    ///   di-drag. `hit_point` selalu ada DI PERMUKAAN, jadi anchor aman
+    ///   utk semua radius.
+    pub fn gizmo_anchor(&self) -> (f64, f64, f64) {
+        if self.surface_kind == SurfaceKind::Plane {
+            self.centroid
+        } else {
+            self.hit_point
+        }
+    }
+}
+
+/// Tipe permukaan geometris analitik OCCT di balik sebuah `Face`, hasil
+/// klasifikasi `Face::surface_kind()` (nama kelas dinamis C++ `Geom_*`).
+/// Fase 1: sekadar deteksi/label — belum dipakai fitur apa pun, disiapkan
+/// utk fitur mendatang yang berperilaku beda tergantung tipe face (mis.
+/// deteksi smart boolean, hint UI khusus silinder/bola).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceKind {
+    Plane,
+    Cylinder,
+    Cone,
+    Sphere,
+    Torus,
+    /// Permukaan analitik lain (mis. torus non-standar) atau permukaan
+    /// bebas/non-analitik (mis. B-Spline, hasil loft/sweep).
+    Other,
+}
+
+impl From<&str> for SurfaceKind {
+    /// Petakan nama kelas dinamis OCCT (keluaran `Face::surface_kind()`)
+    /// ke varian enum. Nama yang tidak dikenali (termasuk permukaan
+    /// bebas/non-analitik) jatuh ke `Other`, bukan error — klasifikasi ini
+    /// sifatnya informasional, tidak boleh gagal.
+    fn from(dynamic_type_name: &str) -> Self {
+        match dynamic_type_name {
+            "Geom_Plane" => SurfaceKind::Plane,
+            "Geom_CylindricalSurface" => SurfaceKind::Cylinder,
+            "Geom_ConicalSurface" => SurfaceKind::Cone,
+            "Geom_SphericalSurface" => SurfaceKind::Sphere,
+            "Geom_ToroidalSurface" => SurfaceKind::Torus,
+            _ => SurfaceKind::Other,
+        }
+    }
 }
 
 /// Susun titik tepi sebuah `Face` jadi LOOP TERSAMBUNG berdasarkan
@@ -833,15 +908,100 @@ fn compute_face_normal_and_centroid(face: &Face, ray_dir: DVec3) -> Option<(DVec
     Some((unit_normal, centroid))
 }
 
-/// Cast `ray` ke `shape`, kembalikan detail face (hit point, centroid, normal keluar) terdekat.
+/// Hitung arah satuan push/pull gizmo (`FaceHit::pull_dir`, CADRAW Fase 4)
+/// utk `surface_kind` di titik `hit` — lihat dokumentasi field `pull_dir`
+/// utk rumus per tipe. `normal` dipakai sbg fallback aman kalau rumus
+/// radial tidak terdefinisi (mis. `hit` persis di garis sumbu, atau axis
+/// tidak terbaca dari kernel). `ray_dir` dipakai utk koreksi tanda pada
+/// kasus Sphere (lihat catatan di bawah).
+fn compute_pull_dir(
+    face: &Face,
+    surface_kind: SurfaceKind,
+    hit: DVec3,
+    normal: DVec3,
+    ray_dir: DVec3,
+) -> DVec3 {
+    const EPS: f64 = 1e-9;
+    match surface_kind {
+        SurfaceKind::Plane => normal,
+        SurfaceKind::Cylinder | SurfaceKind::Cone => face
+            .cylinder_or_cone_axis()
+            .and_then(|(axis_location, axis_direction)| {
+                let axis_direction = axis_direction.normalize();
+                let proj_len = (hit - axis_location).dot(axis_direction);
+                let proj_point = axis_location + axis_direction * proj_len;
+                let radial = hit - proj_point;
+                (radial.length() > EPS).then(|| radial.normalize())
+            })
+            .unwrap_or(normal),
+        SurfaceKind::Sphere => {
+            // `hit - centroid` HANYA benar utk bola PENUH, di mana centroid
+            // Newell (rata-rata boundary loop tepi, lihat
+            // `compute_face_normal_and_centroid`) kebetulan berimpit dgn
+            // pusat bola. Utk face bola PARSIAL (sudut hasil fillet bola,
+            // bola terpotong boolean) centroid adalah rata-rata boundary
+            // loop FACE ITU — BUKAN pusat bola — sehingga `hit - centroid`
+            // melenceng dari arah radial sebenarnya. Normal permukaan bola
+            // SELALU radial dari pusat, baik penuh maupun parsial (properti
+            // geometris bola), jadi pakai `face.normal_at(hit)` langsung
+            // tanpa perlu binding gp_Sphere. Tanda dikoreksi spy mengarah
+            // keluar dari kamera, sama seperti fallback GProp di
+            // `pick_face_details`.
+            let mut radial = face.normal_at(hit);
+            if radial.length() > EPS {
+                radial = radial.normalize();
+                if radial.dot(ray_dir) > 0.0 {
+                    radial = -radial;
+                }
+                radial
+            } else {
+                normal
+            }
+        }
+        SurfaceKind::Torus | SurfaceKind::Other => normal,
+    }
+}
+
+/// Cast `ray` ke `shape`, kembalikan detail face (hit point, centroid, normal keluar, arah push/pull) terdekat.
 pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
     let _guard = lock_kernel();
     let (face, hit) = resolve_face_along_ray(&shape.0, ray)?;
-    let (normal, centroid) = compute_face_normal_and_centroid(&face, ray.dir_vec())?;
+    let surface_kind = SurfaceKind::from(face.surface_kind().as_str());
+    // Newell's method di atas boundary loop tepi (`compute_face_normal_and_
+    // centroid`) SELALU gagal (`None`) utk permukaan tertutup tanpa loop
+    // tepi sederhana — kasus nyata: bola PENUH (1 face, seam + 2 pole
+    // degenerate, BUKAN loop tepi biasa; lihat catatan panjang di
+    // `extrude_face_sphere_grows_radius_when_pulled_out`). Sebelum Fase 4,
+    // ini artinya bola tidak bisa DIPILIH sama sekali di viewport (`None`
+    // menembus sampai `pick_face_details`) — Fase 4 butuh FaceHit yang
+    // valid utk bola (utk `pull_dir` radial), jadi fallback ke GProp-based
+    // `center_of_mass`/`normal_at` yang robust utk SEMUA tipe permukaan
+    // (tidak bergantung topologi loop tepi) dipakai kalau Newell gagal.
+    let (normal, centroid) = compute_face_normal_and_centroid(&face, ray.dir_vec()).unwrap_or_else(|| {
+        let centroid = face.center_of_mass();
+        // PENTING: proyeksikan `hit` (titik yang TERBUKTI ada di permukaan,
+        // hasil ray-face intersection), BUKAN `centroid` — utk bola penuh
+        // `centroid` adalah PUSAT bola, dan memproyeksikan pusat bola ke
+        // permukaannya sendiri adalah kasus degenerate (berjarak sama ke
+        // SEMUA titik permukaan): `GeomAPI_ProjectPointOnSurf` gagal
+        // menemukan solusi tunggal, dan `LowerDistanceParameters` OCCT
+        // melempar `Standard_OutOfRange` yang TIDAK tertangkap cxx (abort
+        // proses via `std::terminate`, dibuktikan lewat crash nyata saat
+        // pengembangan Fase 4) — proyeksi di `hit` selalu well-defined
+        // karena `hit` memang titik pada permukaan itu sendiri.
+        let mut normal = face.normal_at(hit);
+        if normal.dot(ray.dir_vec()) > 0.0 {
+            normal = -normal;
+        }
+        (normal, centroid)
+    });
+    let pull_dir = compute_pull_dir(&face, surface_kind, hit, normal, ray.dir_vec());
     Some(FaceHit {
         hit_point: (hit.x, hit.y, hit.z),
         centroid: (centroid.x, centroid.y, centroid.z),
         normal: (normal.x, normal.y, normal.z),
+        surface_kind,
+        pull_dir: (pull_dir.x, pull_dir.y, pull_dir.z),
     })
 }
 
@@ -858,6 +1018,18 @@ pub fn pick_face(shape: &KernelShape, ray: PickRay) -> Option<(f64, f64, f64)> {
 /// Extrude satu sisi (face) solid sepanjang `distance` mm searah normal keluar.
 /// Jika `distance > 0`, volume baru digabung (*Union*).
 /// Jika `distance < 0`, volume dipotong (*Subtract* / Pocket Cut).
+///
+/// Dispatch per tipe permukaan (`SurfaceKind`, CADRAW Fase 3):
+/// - **`Plane`**: jalur ASLI (extrude+union/subtract) — TIDAK disentuh sama
+///   sekali, sudah teruji (termasuk catatan deadlock `KERNEL_LOCK` di
+///   bawah).
+/// - **`Cylinder`/`Cone`/`Sphere`/`Torus`/`Other`**: jalur baru,
+///   `Shape::offset_on_face` (`BRepOffset_MakeOffset::SetOffsetOnFace`
+///   langsung pada face terpilih). Extrude+boolean TIDAK cocok untuk wajah
+///   lengkung — hasil extrude wajah lengkung adalah *swept surface* baru
+///   (bukan silinder/kerucut/bola dengan radius berbeda), jadi geometri
+///   hasil union/subtract-nya tidak akan tetap analitik/lengkung. Offset
+///   per-face menghasilkan LANGSUNG solid baru (bukan dua langkah).
 pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<KernelShape> {
     if distance.abs() < 1e-9 {
         bail!("jarak extrude face harus tidak nol");
@@ -867,6 +1039,44 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
     let Some((face, _)) = resolve_face_along_ray(&cloned, ray) else {
         bail!("wajah terpilih tidak ditemukan pada shape");
     };
+
+    if SurfaceKind::from(face.surface_kind().as_str()) != SurfaceKind::Plane {
+        // Validasi batas SEBELUM memanggil OCCT — cuma bisa presisi untuk
+        // Cylinder/Cone (`cylinder_or_cone_radius`, lihat catatan di sana
+        // soal Sphere/Torus/Other belum ada binding radius-nya). Untuk
+        // tipe yang tidak bisa di-precheck, `offset_on_face` sendiri akan
+        // `bail!` lewat `Result::Err`/`IsDone()==false` OCCT kalau offset
+        // membuat geometri kolaps (mis. radius efektif ≤ 0).
+        if let Some(current_radius) = face.cylinder_or_cone_radius() {
+            // Arah pengaruh `distance` terhadap radius BALIK tergantung
+            // orientasi face: pada wajah CEMBUNG normal-keluar (Forward,
+            // mis. selimut luar silinder) `distance` positif MENAMBAH
+            // radius (R+d). Pada wajah CEKUNG (Reversed, mis. dinding
+            // lubang hasil subtract) normal-keluar-dari-material mengarah
+            // ke sumbu, jadi `distance` positif MENGECILKAN radius (R-d)
+            // — dibuktikan test `extrude_face_hollow_cylinder_inner_wall_
+            // shrinks_hole_when_pushed_radially_inward` (R=8 → 6 saat
+            // distance=+2). Pakai tanda yang salah (selalu R+d) membuat
+            // precheck ini menolak operasi VALID (memperbesar lubang lewat
+            // distance negatif) dan meloloskan operasi yang harusnya
+            // ditolak (lubang menutup penuh), persis kebalikan dari
+            // tujuannya.
+            let new_radius = match face.orientation() {
+                FaceOrientation::Reversed => current_radius - distance,
+                _ => current_radius + distance,
+            };
+            if new_radius <= 0.0 {
+                bail!(
+                    "jarak drag ({distance:.3} mm) akan membuat radius permukaan ≤ 0 (radius saat ini {current_radius:.3} mm)"
+                );
+            }
+        }
+        let offset_shape = cloned
+            .offset_on_face(&face, distance)
+            .context("gagal melakukan offset pada permukaan lengkung terpilih")?;
+        return Ok(KernelShape(offset_shape));
+    }
+
     let Some((normal, _)) = compute_face_normal_and_centroid(&face, ray.dir_vec()) else {
         bail!("tidak dapat menghitung normal untuk wajah terpilih");
     };
@@ -1723,5 +1933,398 @@ mod tests {
 
         let taller_cylinder = extrude_face(&cylinder, ray_top, 15.0).expect("extrude top cap silinder berhasil");
         assert!(taller_cylinder.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn surface_kind_detects_plane_faces_on_cube() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let cube = AdHocShape::make_box(10.0, 10.0, 10.0);
+        let faces: Vec<_> = cube.faces().collect();
+        assert_eq!(faces.len(), 6, "kubus harus punya 6 face");
+        for face in &faces {
+            assert_eq!(SurfaceKind::from(face.surface_kind().as_str()), SurfaceKind::Plane);
+        }
+    }
+
+    #[test]
+    fn surface_kind_detects_plane_and_cylinder_faces_on_cylinder() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let cylinder = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), 5.0, 12.0);
+        let mut plane_count = 0;
+        let mut cylinder_count = 0;
+        for face in cylinder.faces() {
+            match SurfaceKind::from(face.surface_kind().as_str()) {
+                SurfaceKind::Plane => plane_count += 1,
+                SurfaceKind::Cylinder => cylinder_count += 1,
+                other => panic!("face silinder tak terduga: {other:?}"),
+            }
+        }
+        assert_eq!(plane_count, 2, "silinder harus punya 2 face Plane (tutup atas & bawah)");
+        assert_eq!(cylinder_count, 1, "silinder harus punya 1 face Cylinder (selimut)");
+    }
+
+    #[test]
+    fn surface_kind_detects_sphere_face() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let sphere = AdHocShape::make_sphere(7.0);
+        let faces: Vec<_> = sphere.faces().collect();
+        assert_eq!(faces.len(), 1, "bola harus punya 1 face");
+        assert_eq!(SurfaceKind::from(faces[0].surface_kind().as_str()), SurfaceKind::Sphere);
+    }
+
+    // ---- CADRAW Fase 3: extrude_face dispatch per SurfaceKind ----
+    //
+    // Toleransi volume `1e-6` (relatif) dipakai di seluruh test volume di
+    // bawah ini — bukan asal longgar, tapi hasil OCCT utk kasus Cylinder/
+    // Sphere/dinding lubang TERBUKTI cocok exact (bit-level dekat) dengan
+    // formula analitik saat diverifikasi manual, jadi toleransi ketat di
+    // sini justru pembuktian jalur offset per-face benar-benar presisi,
+    // bukan "kira-kira".
+
+    fn assert_close(actual: f64, expected: f64, label: &str) {
+        let rel_diff = (actual - expected).abs() / expected.abs().max(1e-9);
+        assert!(
+            rel_diff < 1e-6,
+            "{label}: actual={actual}, expected={expected}, rel_diff={rel_diff}"
+        );
+    }
+
+    #[test]
+    fn extrude_face_cylinder_outer_wall_grows_radius_when_pulled_out() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 10.0;
+        const H: f64 = 20.0;
+        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+        // Ray dari luar, tegak lurus menuju selimut silinder (bukan tutup).
+        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&cylinder, ray).expect("harus kena selimut silinder");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+
+        let grown = extrude_face(&cylinder, ray, 2.0).expect("pull +2 pada selimut silinder harus berhasil");
+        assert_close(grown.0.volume(), std::f64::consts::PI * 12.0 * 12.0 * H, "volume silinder R=12,h=20");
+    }
+
+    #[test]
+    fn extrude_face_cylinder_outer_wall_shrinks_radius_when_pulled_in() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 10.0;
+        const H: f64 = 20.0;
+        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+
+        let shrunk = extrude_face(&cylinder, ray, -3.0).expect("push -3 pada selimut silinder harus berhasil");
+        assert_close(shrunk.0.volume(), std::f64::consts::PI * 7.0 * 7.0 * H, "volume silinder R=7,h=20");
+    }
+
+    #[test]
+    fn extrude_face_cylinder_outer_wall_rejects_offset_making_radius_non_positive() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 10.0;
+        const H: f64 = 20.0;
+        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+
+        // -10 persis membuat radius baru = 0 — harus ditolak jelas (bail!),
+        // BUKAN diteruskan ke OCCT dan gagal telat/ambigu. `KernelShape`
+        // sengaja tidak `Debug` (lihat dokumentasi struct), jadi pakai
+        // `match` manual alih-alih `expect_err`.
+        match extrude_face(&cylinder, ray, -10.0) {
+            Ok(_) => panic!("radius jadi 0 harus ditolak"),
+            Err(err) => assert!(err.to_string().contains("radius"), "pesan error harus jelas soal radius: {err}"),
+        }
+    }
+
+    #[test]
+    fn extrude_face_hollow_cylinder_inner_wall_shrinks_hole_when_pushed_radially_inward() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R_OUT: f64 = 20.0;
+        const R_IN: f64 = 8.0;
+        const H: f64 = 20.0;
+        // Tabung (outer minus inner, inner sedikit lebih tinggi utk potongan
+        // bersih di kedua tutup) — dinding DALAM (lubang) adalah face
+        // Cylinder terpisah dari dinding luar.
+        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        tube_shape.clean();
+        let tube = KernelShape(tube_shape);
+
+        // Ray dari sumbu (di dalam lubang) menuju radial keluar — hit
+        // terdekat HARUS dinding dalam, bukan dinding luar.
+        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+
+        // Dorong dinding lubang radial ke dalam (`distance` positif, sama
+        // arah dengan "drag keluar" pada wajah cembung) — utk wajah CEKUNG
+        // (dinding lubang), normal-keluar-dari-material OCCT mengarah ke
+        // sumbu, jadi ini MENGECILKAN lubang (radius 8 → 6), menambah
+        // volume material.
+        let shrunk_hole = extrude_face(&tube, hole_ray, 2.0).expect("offset dinding lubang harus berhasil");
+        let expect_vol = std::f64::consts::PI * (R_OUT * R_OUT - 6.0 * 6.0) * H;
+        assert_close(shrunk_hole.0.volume(), expect_vol, "volume tabung dgn lubang R=6 (mengecil dari R=8)");
+    }
+
+    /// Regresi: precheck radius dinding lubang sebelum ini selalu memakai
+    /// `current_radius + distance`, sama seperti wajah cembung. Untuk wajah
+    /// CEKUNG (Reversed) rumus yang benar adalah `current_radius -
+    /// distance` (lihat komentar di `extrude_face`) — jadi `distance`
+    /// NEGATIF pada dinding lubang justru MEMBESARKAN lubang. Dengan tanda
+    /// lama, kasus ini (radius baru 13 > radius awal 8, jelas valid)
+    /// ditolak keliru dengan pesan "radius ≤ 0" yang menyesatkan.
+    #[test]
+    fn extrude_face_hollow_cylinder_inner_wall_enlarges_past_original_radius_when_pulled_radially_outward() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R_OUT: f64 = 20.0;
+        const R_IN: f64 = 8.0;
+        const H: f64 = 20.0;
+        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        tube_shape.clean();
+        let tube = KernelShape(tube_shape);
+
+        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+
+        // `distance` NEGATIF pada dinding lubang menarik dinding menjauh
+        // dari sumbu -> lubang membesar (radius 8 -> 13), MELEBIHI radius
+        // awal. Operasi ini valid selama radius baru < R_OUT dan harus
+        // berhasil, bukan ditolak precheck.
+        let enlarged_hole =
+            extrude_face(&tube, hole_ray, -5.0).expect("offset dinding lubang (memperbesar) harus berhasil");
+        let expect_vol = std::f64::consts::PI * (R_OUT * R_OUT - 13.0 * 13.0) * H;
+        assert_close(enlarged_hole.0.volume(), expect_vol, "volume tabung dgn lubang R=13 (membesar dari R=8)");
+    }
+
+    /// Regresi pasangan test di atas: dinding lubang didorong PERSIS
+    /// sejauh radiusnya sendiri (`distance == current_radius`) sehingga
+    /// radius baru = R - d = 0 -> lubang menutup penuh (geometri kolaps).
+    /// Precheck harus menolak ini dengan pesan jelas soal radius, BUKAN
+    /// meloloskannya ke OCCT (yang sebelum perbaikan ini terjadi, karena
+    /// tanda lama `R + d` mengevaluasi 8 + 8 = 16 > 0, lolos precheck).
+    #[test]
+    fn extrude_face_hollow_cylinder_inner_wall_rejects_offset_that_closes_hole_completely() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R_OUT: f64 = 20.0;
+        const R_IN: f64 = 8.0;
+        const H: f64 = 20.0;
+        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        tube_shape.clean();
+        let tube = KernelShape(tube_shape);
+
+        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+        pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+
+        match extrude_face(&tube, hole_ray, R_IN) {
+            Ok(_) => panic!("lubang menutup penuh (radius jadi 0) harus ditolak"),
+            Err(err) => assert!(err.to_string().contains("radius"), "pesan error harus jelas soal radius: {err}"),
+        }
+    }
+
+    #[test]
+    fn extrude_face_sphere_grows_radius_when_pulled_out() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 7.0;
+        let sphere = KernelShape(AdHocShape::make_sphere(R).0);
+        let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+
+        // Verifikasi tipe permukaan lewat resolver privat yang sama dgn
+        // yang dipakai `extrude_face` sendiri — `extrude_face` jalur
+        // non-planar (di bawah) tidak butuh `pick_face_details` sama
+        // sekali. (Sebelum Fase 4, `pick_face_details` juga TIDAK BISA
+        // dipakai di sini: `compute_face_normal_and_centroid`, Newell's
+        // method di atas boundary face, gagal `None` khusus utk bola
+        // PENUH — 1 face tertutup dgn seam+2 pole degenerate, bukan loop
+        // tepi sederhana. Fase 4 menambah fallback GProp-based di
+        // `pick_face_details`, lihat test `pick_face_details_works_on_full_sphere`
+        // di bawah utk pembuktian jalur itu sekarang berhasil.)
+        let (face, _) = resolve_face_along_ray(&sphere.0, ray).expect("harus kena permukaan bola");
+        assert_eq!(SurfaceKind::from(face.surface_kind().as_str()), SurfaceKind::Sphere);
+
+        let grown = extrude_face(&sphere, ray, 1.5).expect("pull +1.5 pada bola harus berhasil");
+        let expect_vol = 4.0 / 3.0 * std::f64::consts::PI * (R + 1.5) * (R + 1.5) * (R + 1.5);
+        assert_close(grown.0.volume(), expect_vol, "volume bola R=8.5");
+    }
+
+    #[test]
+    fn extrude_face_cone_lateral_face_changes_volume_in_pull_direction() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Kerucut lewat `revolve_profile`: segitiga siku (0,0)-(R,0)-(0,H)
+        // di XY direvolve mengelilingi sumbu Y (pola sama dgn
+        // `revolve_profile_produces_ring_solid`) — `BRepPrimAPI_MakeCone`
+        // sendiri TIDAK ada binding-nya di `opencascade-sys` (di luar
+        // cakupan CADRAW Fase 2), jadi kerucut fixture test dibangun dari
+        // primitif yang SUDAH ADA, bukan nambah FFI baru cuma utk test.
+        const CONE_R: f64 = 6.0;
+        const CONE_H: f64 = 14.0;
+        let cone_profile = Profile::Loop(vec![
+            ProfileSegment::Line { start: (0.0, 0.0), end: (CONE_R, 0.0) },
+            ProfileSegment::Line { start: (CONE_R, 0.0), end: (0.0, CONE_H) },
+            ProfileSegment::Line { start: (0.0, CONE_H), end: (0.0, 0.0) },
+        ]);
+        let cone = revolve_profile(&cone_profile, (0.0, 0.0), (0.0, 1.0), None).unwrap();
+        let base_vol = cone.0.volume();
+        assert_close(base_vol, std::f64::consts::PI * CONE_R * CONE_R * CONE_H / 3.0, "volume kerucut awal");
+
+        let ray = PickRay { origin: (50.0, CONE_H / 2.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&cone, ray).expect("harus kena selimut kerucut");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cone);
+
+        // Kerucut BUKAN silinder — offset selimut kerucut menggeser sudut
+        // puncak sepanjang sumbu (properti "cone sejajar" standar), jadi
+        // volume TIDAK berubah proporsional-sederhana seperti silinder.
+        // Yang divalidasi di sini murni ARAH perubahan (tarik keluar =
+        // volume naik, tekan masuk = volume turun) + hasil tetap solid
+        // valid — bukan formula tertutup.
+        let grown = extrude_face(&cone, ray, 1.0).expect("pull +1.0 pada selimut kerucut harus berhasil");
+        assert!(grown.0.volume() > base_vol, "menarik selimut kerucut keluar harus menambah volume");
+        assert!(grown.tessellate().triangle_count() > 0);
+
+        let shrunk = extrude_face(&cone, ray, -1.0).expect("push -1.0 pada selimut kerucut harus berhasil");
+        assert!(shrunk.0.volume() < base_vol, "menekan selimut kerucut masuk harus mengurangi volume");
+        assert!(shrunk.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn extrude_face_planar_regression_still_uses_extrude_and_boolean_path() {
+        // Regresi murni: wajah datar (Plane) tetap lewat jalur lama
+        // extrude+union/subtract, tidak tersentuh dispatch tipe permukaan
+        // baru — memakai skenario yang sama dgn `test_extrude_face_cylinder_top`
+        // (tutup datar silinder), harus tetap identik perilakunya.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 12.0 };
+        let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
+        let ray_top = PickRay { origin: (0.0, 0.0, 100.0), dir: (0.0, 0.0, -1.0) };
+        let hit_top = pick_face_details(&cylinder, ray_top).expect("harus kena top cap silinder");
+        assert_eq!(hit_top.surface_kind, SurfaceKind::Plane);
+
+        let taller = extrude_face(&cylinder, ray_top, 15.0).expect("extrude top cap silinder berhasil");
+        let expect_vol = std::f64::consts::PI * 12.0 * 12.0 * 40.0;
+        assert_close(taller.0.volume(), expect_vol, "volume silinder tinggi 40 (25+15) hasil jalur planar lama");
+    }
+
+    // ---- CADRAW Fase 4: `FaceHit::pull_dir` per `SurfaceKind` ----
+
+    #[test]
+    fn pull_dir_equals_normal_on_planar_face() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 12.0 };
+        let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
+        let ray_top = PickRay { origin: (0.0, 0.0, 100.0), dir: (0.0, 0.0, -1.0) };
+        let hit_top = pick_face_details(&cylinder, ray_top).expect("harus kena top cap silinder");
+        assert_eq!(hit_top.surface_kind, SurfaceKind::Plane);
+        assert_eq!(hit_top.pull_dir, hit_top.normal, "Plane: pull_dir harus identik dgn normal Newell (perilaku lama)");
+    }
+
+    #[test]
+    fn pull_dir_is_radial_on_cylinder_wall() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 10.0;
+        const H: f64 = 20.0;
+        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+        // Ray radial murni (bidang simetri y=0) — titik hit persis (R, 0, H/2),
+        // proyeksi ke sumbu Z persis (0, 0, H/2), jadi pull_dir radial harus
+        // persis (1, 0, 0), BUKAN sekadar "condong ke +x".
+        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&cylinder, ray).expect("harus kena selimut silinder");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.1.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.2.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+    }
+
+    #[test]
+    fn pull_dir_is_radial_on_cone_lateral_face() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Fixture sama dgn `extrude_face_cone_lateral_face_changes_volume_in_pull_direction`
+        // — kerucut lewat `revolve_profile` mengelilingi sumbu Y.
+        const CONE_R: f64 = 6.0;
+        const CONE_H: f64 = 14.0;
+        let cone_profile = Profile::Loop(vec![
+            ProfileSegment::Line { start: (0.0, 0.0), end: (CONE_R, 0.0) },
+            ProfileSegment::Line { start: (CONE_R, 0.0), end: (0.0, CONE_H) },
+            ProfileSegment::Line { start: (0.0, CONE_H), end: (0.0, 0.0) },
+        ]);
+        let cone = revolve_profile(&cone_profile, (0.0, 0.0), (0.0, 1.0), None).unwrap();
+        // Ray radial murni pada bidang simetri z=0 — titik hit dan proyeksi
+        // sumbu Y sama-sama punya z=0, jadi pull_dir radial harus persis
+        // (1, 0, 0) walau radius kerucut menyempit sepanjang sumbu.
+        let ray = PickRay { origin: (50.0, CONE_H / 2.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&cone, ray).expect("harus kena selimut kerucut");
+        assert_eq!(hit.surface_kind, SurfaceKind::Cone);
+        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.1.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.2.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+    }
+
+    #[test]
+    fn pick_face_details_works_on_full_sphere_with_radial_pull_dir() {
+        // Regresi Fase 4: sebelum fallback GProp di `pick_face_details`,
+        // fungsi ini SELALU `None` utk bola penuh (lihat catatan panjang di
+        // `extrude_face_sphere_grows_radius_when_pulled_out`) — artinya
+        // bola tidak bisa dipilih sama sekali di viewport. Test ini
+        // membuktikan jalur itu sekarang berhasil DAN `pull_dir`-nya benar
+        // radial dari pusat bola.
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 7.0;
+        let sphere = KernelShape(AdHocShape::make_sphere(R).0);
+        let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&sphere, ray)
+            .expect("Fase 4: pick_face_details harus berhasil utk bola penuh (fallback GProp)");
+        assert_eq!(hit.surface_kind, SurfaceKind::Sphere);
+        assert!(
+            hit.centroid.0.abs() < 1e-4 && hit.centroid.1.abs() < 1e-4 && hit.centroid.2.abs() < 1e-4,
+            "centroid GProp bola penuh berpusat di origin, actual={:?}",
+            hit.centroid
+        );
+        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.1.abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.2.abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+    }
+
+    #[test]
+    fn pull_dir_is_radial_on_partial_sphere_octant_face() {
+        // Regresi utk bug `compute_pull_dir` Sphere: face bola PARSIAL (mis.
+        // sudut hasil fillet bola / bola terpotong boolean) di mana jalur
+        // Newell (`compute_face_normal_and_centroid`) BERHASIL, dan
+        // centroid-nya = rata-rata boundary loop FACE ITU (bukan pusat
+        // bola). Fixture: irisan bola dgn box oktan (0,0,0)-(R+5,R+5,R+5)
+        // menyisakan 1/8 permukaan bola dibatasi 3 busur seperempat
+        // lingkaran — beda dgn test full-sphere di atas (yg lewat fallback
+        // GProp krn Newell SELALU gagal utk bola penuh), test ini sengaja
+        // menguji jalur Newell yg berhasil dgn centroid loop condong ke
+        // oktan (+,+,+), BUKAN origin.
+        let _guard = TEST_LOCK.lock().unwrap();
+        const R: f64 = 10.0;
+        let sphere = AdHocShape::make_sphere(R);
+        let octant_box =
+            AdHocShape::make_box_point_point(dvec3(0.0, 0.0, 0.0), dvec3(R + 5.0, R + 5.0, R + 5.0));
+        let octant = intersect(&KernelShape(sphere.0), &KernelShape(octant_box.0))
+            .expect("irisan bola dgn box oktan harus berhasil");
+
+        // Ray radial murni menuju (R, ~0, ~0) — sedikit digeser dari sumbu
+        // y/z supaya pasti kena permukaan bola melengkung, bukan salah satu
+        // dari 3 face datar potongan box (yg terletak persis di bidang
+        // x=0/y=0/z=0).
+        let ray = PickRay { origin: (R + 50.0, 0.001, 0.001), dir: (-1.0, 0.0, 0.0) };
+        let hit = pick_face_details(&octant, ray).expect("harus kena permukaan bola oktan");
+        assert_eq!(hit.surface_kind, SurfaceKind::Sphere);
+        // Buktikan test ini betul2 menguji jalur bug: centroid loop face
+        // oktan HARUS condong ke (+,+,+), bukan pusat bola (0,0,0).
+        assert!(
+            hit.centroid.0 > 1.0 && hit.centroid.1 > 1.0 && hit.centroid.2 > 1.0,
+            "fixture salah: centroid loop harus condong ke oktan (+,+,+), BUKAN pusat bola: {:?}",
+            hit.centroid
+        );
+        // pull_dir harus tetap radial dari PUSAT bola (0,0,0) — bukan dari
+        // centroid loop yg melenceng ke oktan. Titik hit ≈ (R,0,0) →
+        // radial ≈ (1,0,0).
+        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.1.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
+        assert!(hit.pull_dir.2.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
     }
 }

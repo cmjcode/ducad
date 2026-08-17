@@ -76,5 +76,14 @@ opt-level = 2
 # `pub(crate)` (tidak bisa ditembus dari luar crate), jadi satu-satunya
 # jalan adalah vendor + patch minimal (tambah method baru bertoleransi
 # custom, TIDAK mengubah method lama) — lihat vendor/README.md.
+#
+# `opencascade-sys` (CADRAW Fase 2) di-vendor terpisah dari `opencascade`
+# di atas: binding baru (BRepAdaptor_Surface, BRepOffset_MakeOffset) butuh
+# akses langsung ke cxx bridge mentah (src/lib.rs + include/wrapper.hxx) —
+# level yang berada SATU LAPIS DI BAWAH `opencascade`, dan `opencascade`
+# vendored di sini otomatis memakai copy lokal ini lewat resolusi
+# `[patch.crates-io]` yang sama (dependensinya "opencascade-sys = \"0.2\""
+# tak berubah). Lihat vendor/README.md.
 [patch.crates-io]
 opencascade = { path = "vendor/opencascade-0.2.0" }
+opencascade-sys = { path = "vendor/opencascade-sys-0.2.0" }

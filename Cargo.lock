@@ -2732,8 +2732,6 @@ dependencies = [
 [[package]]
 name = "opencascade-sys"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5363b69779640dfb178c061f0ec6f26a7799a5e79982b95f1e4e5c4be96fd9c"
 dependencies = [
  "cmake",
  "cxx",

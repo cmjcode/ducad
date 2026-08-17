@@ -124,13 +124,21 @@ klik tombolnya atau pakai shortcut, badge di toolbar menunjukkan mode
 aktif.
 
 Di **Mode 3D** dengan tool **Pilih**, klik langsung salah satu sisi
-(face) body yang sudah ada di viewport (kubus, silinder, hasil Revolve/
-Loft/Boolean — bebas bentuknya) — body itu otomatis terpilih dan panah
-gizmo biru muncul tegak lurus di tengah sisi tsb. **Tarik panah** (drag)
+(face) body yang sudah ada di viewport (kubus, silinder, bola, kerucut,
+hasil Revolve/Loft/Boolean — bebas bentuknya) — body itu otomatis terpilih
+dan panah gizmo biru muncul di tengah sisi tsb. **Tarik panah** (drag)
 untuk push/pull: tarik **keluar** menambah volume (union — nempel ke
 body), dorong **ke dalam** memotong volume (cut/pocket). Lepas mouse
 untuk commit. Panel kanan "Extrude Sisi (Face)" juga muncul untuk isi
 jarak presisi via keyboard alih-alih drag manual.
+
+**Sisi lengkung (silinder/kerucut/bola) — panah RADIAL, bukan lurus.** Di
+wajah datar panah gizmo tegak lurus permukaan seperti biasa; di selimut
+silinder/kerucut atau permukaan bola, panah mengarah **radial** (menjauh
+dari sumbu/pusat) — menarik keluar MEMBESARKAN radius, mendorong ke dalam
+MENGECILKAN radius, bukan menggeser bidang datar. HUD di atas panah
+menandainya dengan label **"ΔR"** (mis. `ΔR +2.0 mm`) alih-alih jarak
+polos, supaya jelas ini perubahan radius, bukan jarak linear.
 
 ⚠️ Klik di area yang masih berupa sketsa 2D BELUM di-extrude (mis. profil
 dasar yang belum jadi solid) tetap memilih region sketsa itu (gizmo

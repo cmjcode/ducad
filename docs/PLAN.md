@@ -73,7 +73,10 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    **[status: putaran pertama selesai — Revolve 360°, Loft 2-profil,
    Boolean Intersect, infrastruktur picking edge/face berbasis ray-dunia
    (bukan index — lihat desain kunci di bawah), Fillet/Chamfer per-tepi,
-   Shell multi-face; sweep & sketch-on-face ditunda, lihat bawah]**
+   Shell multi-face; extrude/push-pull per `SurfaceKind` (Plane/Cylinder/
+   Cone/Sphere) + gizmo & HUD radial (`pull_dir`, "ΔR ± mm") ditambahkan
+   lewat 4 sub-putaran lanjutan setelahnya (lihat "Status Fase 8 Lanjutan
+   1–5" di bawah); sweep & sketch-on-face ditunda, lihat bawah]**
 
 Detail penuh tiap fase, tabel risiko, dan estimasi ada di riwayat sesi
 perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
@@ -1090,6 +1093,299 @@ bisa di-drag untuk menambah/memotong volume, meniru UX Shapr3D/Fusion.
       saat face terpilih) — mencegah gizmo 2D dan gizmo face 3D aktif
       bersamaan. Mode Sketsa (`is_sketching == true`) dan klik+Shift tidak
       berubah perilakunya sama sekali.
+
+## Status Fase 8 Lanjutan 2 — Deteksi Tipe Surface (dikerjakan, Fase 1)
+
+Langkah pertama menuju klasifikasi face yang lebih kaya (dipakai fitur
+mendatang seperti smart-boolean-cutting yang lebih presisi, atau hint UI
+khusus per tipe permukaan) — sekadar deteksi/label tipe permukaan
+geometris di balik sebuah `Face`, belum dipakai fitur apa pun.
+
+- [x] **`Face::surface_kind() -> String`** (vendor `opencascade-0.2.0`,
+      `src/primitives/face.rs`) — kembalikan nama kelas dinamis C++/OCCT
+      dari permukaan di balik face (mis. `"Geom_Plane"`,
+      `"Geom_CylindricalSurface"`, `"Geom_SphericalSurface"`). Disusun
+      MURNI dari binding FFI yang sudah ada di `opencascade-sys` 0.2.0
+      (`BRep_Tool_Surface` + `DynamicType` + `type_name`) — **tanpa
+      menyentuh `opencascade-sys` sama sekali**, pola identik dengan patch
+      `faces_along_ray_with_tolerance` yang sudah ada (lihat
+      `vendor/README.md`).
+      Fixture test tambahan: `AdHocShape::make_sphere(r)` (patch vendor
+      baru juga, sama-sama tanpa sentuh `-sys` — cuma bungkus
+      `BRepPrimAPI_MakeSphere_ctor` yang FFI-nya sudah ada tapi belum
+      punya wrapper Rust publik).
+- [x] **`SurfaceKind` enum** (`cadraw-kernel`) — `Plane | Cylinder | Cone |
+      Sphere | Torus | Other`, `From<&str>` mem-parse keluaran
+      `surface_kind()` (nama tak dikenal jatuh ke `Other`, bukan error —
+      klasifikasi ini informasional). Field baru `FaceHit.surface_kind`
+      diisi otomatis di `pick_face_details`. 3 test geometris: kubus → 6
+      face semuanya `Plane`; silinder → 2 `Plane` (tutup) + 1 `Cylinder`
+      (selimut); bola → 1 face `Sphere`.
+
+## Status Fase 8 Lanjutan 3 — Vendor `opencascade-sys` + Binding Baru (dikerjakan, Fase 2)
+
+Lanjutan langsung dari "Fase 8 Lanjutan 2" di atas: deteksi tipe surface
+(Fase 1, `surface_kind()`) cukup dari FFI yang SUDAH ADA; giliran ini butuh
+FFI yang BELUM ADA sama sekali (arah gizmo radial silinder/kerucut presisi
++ offset shell per-face) — dua kelas OCCT yang belum ada binding-nya di
+`opencascade-sys` 0.2.0 upstream, jadi crate itu sendiri (bukan cuma
+`opencascade`) sekarang juga di-vendor. Detail lengkap alasan & pola di
+`vendor/README.md` (§ `opencascade-sys-0.2.0`) — ringkasan di sini:
+
+- [x] **Vendor `opencascade-sys-0.2.0`** ke `vendor/`, terdaftar di
+      `[patch.crates-io]` root `Cargo.toml` bersebelahan dengan
+      `opencascade-0.2.0` yang sudah ada. `opencascade-0.2.0` vendored
+      otomatis ikut memakai copy lokal ini (dependensinya
+      `opencascade-sys = "0.2"` tak berubah, resolusi patch yang
+      mengarahkan).
+- [x] **Binding `BRepAdaptor_Surface`** (`include/wrapper.hxx` +
+      `src/lib.rs`) — ctor dari `TopoDS_Face`, `GetType()` (enum
+      `GeomAbs_SurfaceType`), dan accessor `gp_Cylinder`/`gp_Cone` (titik
+      axis, arah axis, radius, semi-angle) — dasar utk arah gizmo radial
+      & validasi tipe surface sebelum drag.
+- [x] **Binding `BRepOffset_MakeOffset`** (offset shell per-face) —
+      `Initialize(shape, offset, tol, mode, intersection, self_inter,
+      join, thickening, remove_int_edges)`, `SetOffsetOnFace(face, d)`,
+      `MakeOffsetShape()`, `IsDone()`, `Shape()`.
+- [x] **Semua langkah yang bisa gagal secara geometris di OCCT
+      dideklarasikan `Result<>`** di cxx bridge, dibungkus manual
+      `try/catch(Standard_Failure) → throw std::runtime_error` di
+      `wrapper.hxx` — `Standard_Failure` OCCT TERNYATA turunan
+      `Standard_Transient`, BUKAN `std::exception` (diverifikasi dari
+      header OCCT vendored), jadi mekanisme auto-catch cxx (yang cuma
+      nangkep `std::exception`) tidak cukup; tanpa wrapper manual ini,
+      exception OCCT tembus jadi `std::terminate` (abort proses), bukan
+      `Result::Err`. Dibuktikan lewat 5 test baru,
+      `vendor/opencascade-sys-0.2.0/tests/surface_and_offset.rs` (mis.
+      `plane_face_reports_plane_type_and_rejects_cylinder_accessor` —
+      manggil `Cylinder()` di face datar, harus `Err` rapi bukan crash
+      test binary).
+- [x] **Pola dobel-deklarasi enum ditemukan & didokumentasikan**: enum
+      baru (`GeomAbs_SurfaceType`, `BRepOffset_Mode`, `GeomAbs_JoinType`)
+      yang namanya bentrok dengan `enum` C++ asli OCCT (sudah
+      di-`#include`) WAJIB juga dideklarasikan `type X;` di dalam blok
+      `unsafe extern "C++"` cxx bridge — kalau tidak, cxx generate `enum
+      class` sendiri dan gagal kompilasi C++ ("enumeration previously
+      declared as unscoped"). Pola ini sudah lama dipakai diam-diam oleh
+      `TopAbs_ShapeEnum`/`BOPAlgo_GlueEnum`/`IFSelect_ReturnStatus` di
+      binding upstream — baru ketauan & didokumentasikan eksplisit pas
+      nambah enum baru pertama kali sejak vendor dibuat.
+- [x] 43 test `cadraw-kernel` + 5 test baru `opencascade-sys` lulus,
+      seluruh workspace (`cargo test --workspace`) hijau.
+- [ ] **Sengaja belum ada di putaran ini**: belum ada API level
+      `cadraw-kernel`/`opencascade` yang memanggil `BRepAdaptor_Surface`/
+      `BRepOffset_MakeOffset` baru ini — Fase 2 murni nambah FFI mentah di
+      `opencascade-sys`, integrasi ke gizmo radial & fitur offset shell
+      di level kernel/UI CADRAW ditunda ke putaran berikutnya.
+
+## Status Fase 8 Lanjutan 4 — `extrude_face` Dispatch per Tipe Surface (dikerjakan, Fase 3)
+
+Integrasi FFI mentah dari "Fase 8 Lanjutan 3" (`BRepOffset_MakeOffset`,
+`BRepAdaptor_Surface`) ke level `cadraw-kernel`: `extrude_face` sekarang
+dispatch berdasarkan `SurfaceKind` face yang di-pick, bukan selalu
+extrude+boolean.
+
+- [x] **`Shape::volume()` + `Shape::offset_on_face()`** (vendor
+      `opencascade-0.2.0`, `src/primitives/shape.rs`) — `volume()` lewat
+      `BRepGProp_VolumeProperties`/`Mass()` (FFI sudah ada, cuma belum ada
+      wrapper publik); `offset_on_face(face, offset)` menyusun
+      `BRepOffset_MakeOffset` (base offset `0.0` semua face,
+      `SetOffsetOnFace` cuma di face terpilih, mode `BRepOffset_Skin` +
+      `intersection=true` + join `GeomAbs_Intersection`) — TIDAK ada
+      perubahan lagi di `opencascade-sys`, murni pemakaian FFI Fase 2 yang
+      sebelumnya belum dipakai siapa pun. Varian error baru
+      `Error::OffsetOnFaceFailed(String)` di `src/lib.rs` utk
+      membungkus pesan `cxx::Exception`-nya. Detail lengkap di
+      `vendor/README.md` (Perubahan #4, #6).
+- [x] **`Face::cylinder_or_cone_radius()`** (vendor `opencascade-0.2.0`,
+      `src/primitives/face.rs`) — coba `BRepAdaptor_Surface_cylinder`/
+      `_cone` berantai, `None` kalau bukan keduanya (Sphere/Torus sengaja
+      tidak tercakup — `opencascade-sys` belum ada binding
+      `gp_Sphere`/`gp_Torus`, di luar cakupan Fase 2). Detail di
+      `vendor/README.md` (Perubahan #5).
+- [x] **`extrude_face` jadi dispatch per `SurfaceKind`** (`cadraw-kernel`):
+      - `Plane` → jalur ASLI (extrude+union/subtract) **tidak disentuh
+        sama sekali** — termasuk catatan deadlock `KERNEL_LOCK` yang sudah
+        ada, tetap berlaku persis seperti sebelumnya.
+      - `Cylinder`/`Cone`/`Sphere`/`Torus`/`Other` → jalur baru:
+        `Shape::offset_on_face` langsung pada solid hasil `deep_clone`,
+        `SetOffsetOnFace(face_terpilih, distance)`, hasilnya LANGSUNG
+        solid baru (bukan dua langkah extrude+boolean seperti wajah
+        datar — extrude wajah lengkung menghasilkan *swept surface* baru,
+        bukan silinder/kerucut/bola dengan radius berbeda, jadi tidak
+        cocok untuk union/subtract). Validasi batas SEBELUM memanggil
+        OCCT: utk Cylinder/Cone, `radius + distance <= 0` → `bail!` jelas
+        (pesan sebut radius saat ini & jarak drag); utk Sphere/Torus/Other
+        (tidak ada pre-check radius presisi), `offset_on_face` sendiri
+        `bail!` lewat `Result::Err`/`IsDone()==false` dari OCCT kalau
+        geometri kolaps.
+      - **Konvensi tanda tervalidasi empiris** (bukan asumsi): `distance`
+        diteruskan APA ADANYA ke `SetOffsetOnFace` — utk wajah cembung
+        (selimut luar silinder/bola), `distance > 0` membesarkan radius
+        (drag keluar); utk wajah cekung (dinding lubang/interior),
+        `distance > 0` justru MENGECILKAN radius (karena normal-keluar-
+        dari-material OCCT di wajah itu mengarah ke sumbu) — perilaku
+        OCCT standar, bukan bug, dibuktikan lewat test volume presisi di
+        bawah.
+- [x] **6 test baru volume** (`cadraw-kernel`, total sekarang 50 test,
+      seluruh workspace `cargo test --workspace` hijau):
+      - Silinder R=10,h=20 di-pull selimut +2 mm → volume persis
+        `π·12²·20` (radius membesar).
+      - Sama, push -3 mm → volume persis `π·7²·20` (radius mengecil).
+      - Push -10 mm (radius jadi persis 0) → `bail!` jelas (pesan sebut
+        "radius"), bukan gagal telat di OCCT.
+      - Tabung berlubang (R_out=20, R_in=8), dinding lubang didorong
+        radial ke dalam +2 mm → volume persis cocok dgn lubang mengecil
+        ke R_in=6 (`π·(20²−6²)·20`).
+      - Bola R=7 di-pull +1.5 mm → volume persis `4/3·π·8.5³` (offset satu
+        face penuh = offset seragam seluruh bola, exact secara analitik).
+      - Kerucut (fixture via `revolve_profile`, `BRepPrimAPI_MakeCone`
+        sendiri tidak ada binding-nya — di luar cakupan Fase 2, sengaja
+        tidak nambah FFI baru cuma utk test) — offset selimut kerucut
+        TIDAK proporsional-sederhana ke volume (properti "cone sejajar":
+        offset menggeser posisi puncak sepanjang sumbu), jadi test ini
+        cuma validasi ARAH (tarik keluar = volume naik, tekan masuk =
+        volume turun) + hasil tetap solid valid, bukan formula tertutup.
+      - Regresi planar (tutup datar silinder) tetap pakai jalur lama,
+        volume hasil extrude tetap tepat.
+- [x] **Ditemukan & didokumentasikan saat menulis test**: `pick_face_details`
+      TIDAK bisa dipakai utk verifikasi pick pada bola PENUH (1 face
+      tertutup) — dia juga memanggil `compute_face_normal_and_centroid`
+      (Newell's method di atas rantai boundary face), yang mengembalikan
+      `None` utk boundary bola yang seam+2 pole degenerate (bukan loop
+      tepi sederhana seperti kubus/silinder). Ini keterbatasan Newell's
+      method yang SUDAH ADA sebelum Fase 3, tidak terkait dispatch offset
+      — `extrude_face` jalur non-planar SENGAJA tidak butuh normal itu
+      sama sekali jadi tidak kena masalah ini, tapi test yang butuh
+      verifikasi tipe permukaan pada bola harus lewat resolver privat
+      (`resolve_face_along_ray` + `Face::surface_kind()`) langsung,
+      bukan `pick_face_details`. **Diperbaiki di Fase 4 di bawah.**
+
+## Status Fase 8 Lanjutan 5 — Gizmo & UI per Tipe Surface (dikerjakan, Fase 4)
+
+`FaceHit` (`cadraw-kernel`) sekarang membawa `pull_dir`: arah satuan yang
+benar-benar dipakai gizmo push/pull, terpisah dari `normal` — untuk wajah
+lengkung (Cylinder/Cone/Sphere), arah yang mengubah radius saat di-drag
+BUKAN normal permukaan lokal (yang konstan per-face lewat Newell's method),
+melainkan arah radial di titik hit itu sendiri.
+
+- [x] **`FaceHit::pull_dir: (f64, f64, f64)`** (`cadraw-kernel`) — field
+      baru di samping `normal`, dihitung `compute_pull_dir` per
+      `SurfaceKind`:
+      - `Plane` → identik `normal` (normal Newell, perilaku lama, TIDAK
+        berubah).
+      - `Cylinder`/`Cone` → radial di titik hit:
+        `(hit_point − proyeksi hit_point ke garis sumbu).normalize()`.
+        Proyeksi pakai axis params baru `Face::cylinder_or_cone_axis()`
+        (lihat di bawah); fallback ke `normal` kalau axis tidak terbaca
+        atau hit tepat di garis sumbu (radial nol).
+      - `Sphere` → `(hit_point − centroid).normalize()`, `centroid` bola
+        penuh (`Face::center_of_mass()`, GProp-based) SECARA MATEMATIS
+        persis pusat bola (centroid luas permukaan bola simetris = pusat).
+      - `Torus`/`Other` → fallback ke `normal` (belum ada rumus radial
+        khusus utk tipe ini).
+- [x] **`Face::cylinder_or_cone_axis()`** (vendor `opencascade-0.2.0`,
+      `src/primitives/face.rs`) — method baru, `Option<(DVec3, DVec3)>`
+      (titik acuan + arah satuan sumbu), pola identik
+      `cylinder_or_cone_radius` (Fase 3): coba `BRepAdaptor_Surface_cylinder`/
+      `_cone` berantai. Menyusun ulang binding `gp_Cylinder_location`/
+      `_direction`/`gp_Cone_location`/`_direction` yang SUDAH ADA di
+      `opencascade-sys` sejak Fase 2 (dulu cuma dipakai radius) — TIDAK ada
+      perubahan lagi di `opencascade-sys` di fase ini. Detail di
+      `vendor/README.md` (Perubahan #7).
+- [x] **Bug ditemukan & diperbaiki sekaligus: `pick_face_details` kini
+      berhasil utk bola PENUH.** Newell's method (`compute_face_normal_and_
+      centroid`) tetap gagal `None` utk boundary bola (seam+2 pole
+      degenerate, keterbatasan lama, tidak disentuh) — `pick_face_details`
+      sekarang fallback ke `Face::center_of_mass()`/`Face::normal_at(hit)`
+      (GProp-based, robust ke topologi apa pun) kalau Newell gagal, jadi
+      bola bisa DIPILIH di viewport sama sekali (sebelumnya `None` tembus
+      sampai UI — gap yang didokumentasikan di Fase 3 di atas). **Jebakan
+      nyata yang ditemukan & diperbaiki saat implementasi**: fallback awal
+      memproyeksikan `centroid` (pusat bola) ke permukaannya sendiri —
+      kasus *degenerate* (berjarak sama ke SEMUA titik permukaan),
+      `GeomAPI_ProjectPointOnSurf` gagal dapat solusi tunggal dan OCCT
+      melempar `Standard_OutOfRange` yang TIDAK tertangkap cxx (abort
+      proses via `std::terminate`, dibuktikan lewat crash nyata saat
+      `cargo test -p cadraw-kernel`). Diperbaiki dgn memproyeksikan
+      `hit_point` (titik yang TERBUKTI ada di permukaan, hasil ray-face
+      intersection) — selalu well-defined.
+- [x] **Gizmo (`cadraw-app`) pakai `pull_dir`, bukan `normal`** — 5 titik:
+      hit-test gizmo (`check_near_gizmo`), kalkulasi kursor resize, direct
+      drag handler layar penuh, render panah 3D visual, dan handle+pill
+      HUD interaktif. Mekanik drag itu sendiri
+      (`project_screen_drag_to_world_axis`, screen-space projection)
+      **TIDAK berubah** — cuma sumbu arahnya sekarang bisa radial.
+      `hit.normal` di `sketch_on_active_face` (orientasi bidang sketsa)
+      SENGAJA tidak disentuh — bukan bagian mekanik push/pull.
+- [x] **HUD dimension pill baru `format_face_gizmo_dimension_text`**
+      (`cadraw-app`) — permukaan radial (`Cylinder`/`Cone`/`Sphere`) tampil
+      `"ΔR +2.0 mm"` (prefix `ΔR` + tanda eksplisit, drag mengubah RADIUS);
+      permukaan lain (`Plane`, dan fallback `Torus`/`Other`) tetap `"2.0
+      mm"` polos, perilaku lama.
+- [x] **4 test baru `pull_dir`** (`cadraw-kernel`, total sekarang 54 test,
+      seluruh workspace `cargo test --workspace` hijau): `pull_dir` sama
+      dgn `normal` di wajah datar; `pull_dir` radial persis (silinder &
+      kerucut, titik hit di bidang simetri sehingga hasil bisa divalidasi
+      exact, bukan cuma "condong ke arah X"); `pick_face_details` berhasil
+      utk bola penuh dgn `pull_dir` radial dari pusat.
+- [x] **Bug ditemukan & diperbaiki: precheck radius `extrude_face` salah
+      arah utk dinding lubang (face CEKUNG/`Reversed`).** Precheck lama
+      selalu memakai `current_radius + distance <= 0`, sama seperti wajah
+      cembung (`Forward`) — tapi utk dinding lubang, normal-keluar-dari-
+      material OCCT mengarah ke sumbu, jadi rumus radius barunya TERBALIK
+      (`R − distance`, dibuktikan test `..._shrinks_hole_when_pushed_
+      radially_inward` yg sudah ada: R=8 → 6 saat distance=+2). Akibat
+      tanda salah: (1) memperbesar lubang lewat `distance` negatif —
+      operasi VALID — ditolak keliru dgn pesan "radius ≤ 0"; (2)
+      `distance` yang menutup lubang penuh (radius jadi 0) malah LOLOS
+      precheck lalu gagal telat & generik di OCCT — persis yang ingin
+      dicegah precheck ini. Diperbaiki dgn `Face::orientation()` (sudah
+      ada di vendor, `face.rs:345`): `Forward` → `R + d`, `Reversed` →
+      `R − d`. 2 test baru menyusul (total sekarang 56 test
+      `cadraw-kernel`): lubang membesar MELEBIHI radius awal via distance
+      negatif harus berhasil; lubang didorong persis sejauh radiusnya
+      sendiri (menutup penuh) harus ditolak dgn pesan jelas soal radius.
+- [x] **Bug ditemukan & diperbaiki: gizmo ter-anchor DI DALAM material utk
+      face lengkung berukuran besar.** Sebelum perbaikan ini, ke-5 titik
+      gizmo (lihat bullet "Gizmo pakai `pull_dir`" di atas) selalu anchor
+      di `hit.centroid`. Utk selimut silinder/bola PENUH, `centroid`
+      bukan titik di permukaan: Newell's method rata-rata dua lingkaran
+      tepi → titik di SUMBU silinder; GProp `center_of_mass()` bola →
+      PUSAT bola. Handle idle (`centroid + pull_dir·18`) pun ikut terkubur
+      di dalam material utk radius > 18 mm — tak terlihat, tak bisa
+      di-drag. (Sudah begitu sejak Fase 4 sebelumnya, tapi baru terasa
+      sekarang karena face lengkung jadi fitur utama.) Diperbaiki dgn
+      method baru **`FaceHit::gizmo_anchor()`** (`cadraw-kernel`):
+      `Plane` → tetap `centroid` (perilaku lama, region datar biasanya
+      kecil); selain `Plane` → `hit_point`, yang SELALU di permukaan
+      (hasil ray-face intersection). Ke-5 titik gizmo di `cadraw-app`
+      diganti dari `hit.centroid` mentah ke `hit.gizmo_anchor()`; mekanik
+      `project_screen_drag_to_world_axis` TIDAK berubah. `hit.centroid` di
+      `sketch_on_active_face` (orientasi bidang sketsa, bukan gizmo)
+      SENGAJA tidak disentuh.
+- [x] **Bug ditemukan & diperbaiki: `pull_dir` bola PARSIAL tidak radial
+      dari pusat bola.** `compute_pull_dir` utk `Sphere` sebelumnya
+      memakai `(hit − centroid).normalize()`. Utk bola PENUH itu benar
+      krn `centroid` (GProp `center_of_mass()`, dipakai via fallback
+      krn Newell SELALU gagal utk bola penuh) persis pusat bola. Tapi
+      utk face bola PARSIAL (sudut hasil fillet bola, bola terpotong
+      boolean) jalur Newell (`compute_face_normal_and_centroid`)
+      BERHASIL, dan `centroid`-nya = rata-rata boundary loop FACE ITU —
+      BUKAN pusat bola — jadi arah gizmo melenceng jauh (dibuktikan di
+      test baru: sebelum perbaikan `pull_dir` di titik `(R,0,0)` jadi
+      `(0.58, −0.58, −0.58)`, seharusnya `(1,0,0)`). Diperbaiki tanpa
+      binding `gp_Sphere` baru: pakai `face.normal_at(hit)` langsung
+      (normal permukaan bola SELALU radial dari pusat, valid utk
+      penuh maupun parsial — properti geometris bola), dgn koreksi
+      tanda thd `ray_dir` sama seperti fallback GProp di
+      `pick_face_details`. Parameter `centroid` yg jadi tak terpakai di
+      `compute_pull_dir` sekalian dibuang dari signature. 1 test baru
+      `pull_dir_is_radial_on_partial_sphere_octant_face` (fixture:
+      irisan bola dgn box oktan, 1/8 permukaan bola dibatasi 3 busur
+      seperempat lingkaran — sengaja BUKAN full-sphere spy lewat jalur
+      Newell, bukan fallback GProp) — total sekarang 57 test
+      `cadraw-kernel`, `cargo test --workspace` hijau.
 
 ## Menjalankan
 

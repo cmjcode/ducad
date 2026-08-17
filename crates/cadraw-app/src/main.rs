@@ -112,7 +112,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cadraw_core::{BodyId, LengthUnit};
-use cadraw_kernel::{FaceHit, KernelMesh, KernelShape, PickRay};
+use cadraw_kernel::{FaceHit, KernelMesh, KernelShape, PickRay, SurfaceKind};
 use cadraw_render::camera::ViewPreset;
 use cadraw_render::{sketch as sketch_render, LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane};
 use cadraw_sketch::constraint::{self, AddConstraint, Constraint};
@@ -1927,10 +1927,16 @@ impl CadrawApp {
 
         // 2. Cek gizmo face 3D
         if let Some((_, _, hit)) = &self.active_face {
-            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
-            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            // Fase 8 lanjutan: anchor gizmo pakai `gizmo_anchor()` (bukan
+            // `centroid` mentah) — utk face lengkung `centroid` bisa jatuh
+            // di dalam material (lihat dokumentasi `FaceHit::gizmo_anchor`).
+            let anchor = hit.gizmo_anchor();
+            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+            // Fase 4: arah gizmo pakai `pull_dir` (radial di Cylinder/Cone/
+            // Sphere), bukan `normal` — lihat dokumentasi `FaceHit::pull_dir`.
+            let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
             let dist = if self.extruding_face_from_gizmo { self.face_gizmo_distance as f32 } else { 18.0 };
-            let top_3d = c_base + normal * dist;
+            let top_3d = c_base + pull_dir * dist;
             let mid_3d = (c_base + top_3d) * 0.5;
             let near_top = world_to_screen_pos(&self.camera, rect, top_3d).map_or(false, |s| s.distance(pos) < 40.0);
             let near_bot = world_to_screen_pos(&self.camera, rect, c_base).map_or(false, |s| s.distance(pos) < 40.0);
@@ -1959,9 +1965,10 @@ impl CadrawApp {
                 let (_, arrow) = self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
                 arrow
             } else if let Some((_, _, hit)) = &self.active_face {
-                let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
-                let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
-                let (_, arrow) = self.project_screen_drag_to_world_axis(rect, c_base, normal, egui::Vec2::ZERO);
+                let anchor = hit.gizmo_anchor();
+                let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+                let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
+                let (_, arrow) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, egui::Vec2::ZERO);
                 arrow
             } else {
                 None
@@ -1985,8 +1992,12 @@ impl CadrawApp {
 
         // Direct Drag Handler untuk 3D Face Extrude Gizmo
         if let Some((_, _, hit)) = &self.active_face {
-            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
-            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            let anchor = hit.gizmo_anchor();
+            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+            // Fase 4: proyeksi screen-space drag pakai `pull_dir` — mekanik
+            // drag itu sendiri (`project_screen_drag_to_world_axis`) TIDAK
+            // berubah, cuma sumbu arahnya yang sekarang bisa radial.
+            let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
 
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
                 self.extruding_face_from_gizmo = true;
@@ -1996,7 +2007,7 @@ impl CadrawApp {
             }
 
             if self.extruding_face_from_gizmo && response.dragged_by(egui::PointerButton::Primary) {
-                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, normal, response.drag_delta());
+                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, response.drag_delta());
                 self.face_gizmo_distance += delta_mm;
                 self.face_gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.face_gizmo_distance));
             }
@@ -2573,21 +2584,26 @@ impl CadrawApp {
 
         // Gambar Gizmo Panah 3D jika ada sisi (face) solid terpilih
         if let Some((_, _, hit)) = &self.active_face {
-            let c_base = [hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32];
-            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            let anchor = hit.gizmo_anchor();
+            let c_base = [anchor.0 as f32, anchor.1 as f32, anchor.2 as f32];
+            // Fase 4: panah gizmo mengikuti `pull_dir` (radial di
+            // Cylinder/Cone/Sphere, sama seperti `normal` di Plane) —
+            // supaya panah visual menunjuk arah yang benar-benar mengubah
+            // radius, bukan normal permukaan lokal yang konstan per-face.
+            let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
             const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
 
             if self.extruding_face_from_gizmo {
                 let dist = self.face_gizmo_distance as f32;
-                let c_top = Vec3::from(c_base) + normal * dist;
+                let c_top = Vec3::from(c_base) + pull_dir * dist;
                 let c_top_arr = [c_top.x, c_top.y, c_top.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, c_top_arr, 4.0, [0.15, 0.80, 1.0, 0.95]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top_arr, 24.0, 5.5, FACE_GIZMO_COLOR, normal));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top_arr, 24.0, 5.5, FACE_GIZMO_COLOR, pull_dir));
             } else {
-                let gizmo_pt = Vec3::from(c_base) + normal * 18.0;
+                let gizmo_pt = Vec3::from(c_base) + pull_dir * 18.0;
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.80, 1.0, 0.85]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 24.0, 5.5, FACE_GIZMO_COLOR, normal));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 24.0, 5.5, FACE_GIZMO_COLOR, pull_dir));
             }
         }
 
@@ -2887,15 +2903,23 @@ impl CadrawApp {
 
         // 3. Interactive Draggable Double Arrow Handle & Dimension Pill untuk 3D Face Extrude Gizmo
         if let Some((_, _, hit)) = &self.active_face {
-            let c_base = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
-            let normal = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+            let anchor = hit.gizmo_anchor();
+            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+            // Fase 4: handle & proyeksi drag pill pakai `pull_dir`.
+            let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
+            // `surface_kind` disalin lepas dari `hit` (bukan `&hit.surface_kind`
+            // di bawah) supaya pinjaman `&self.active_face` tidak "tembus"
+            // sampai teks pill dibentuk — di antaranya ada pemanggilan
+            // `&mut self` (mis. `self.extrude_active_face(..)`), yang bakal
+            // ditolak borrow checker kalau `hit` masih dipinjam sampai situ.
+            let surface_kind = hit.surface_kind;
             let z_pos = if self.extruding_face_from_gizmo { self.face_gizmo_distance as f32 } else { 18.0 };
-            let handle_3d = c_base + normal * z_pos;
+            let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
-                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, c_base, normal, egui::Vec2::ZERO);
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, egui::Vec2::ZERO);
 
-                // Handle panah 2 sisi tebal dan draggable (rotasi otomatis sesuai sudut normal 3D)
+                // Handle panah 2 sisi tebal dan draggable (rotasi otomatis sesuai sudut pull_dir 3D)
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
                     handle_2d,
@@ -2912,7 +2936,7 @@ impl CadrawApp {
 
                 if handle_resp.dragged() {
                     self.extruding_face_from_gizmo = true;
-                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, normal, handle_resp.drag_delta());
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, handle_resp.drag_delta());
                     self.face_gizmo_distance += delta_mm;
                     self.face_gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.face_gizmo_distance));
                 }
@@ -2926,9 +2950,12 @@ impl CadrawApp {
                     self.face_gizmo_edit_input = "15".to_string();
                 }
 
-                // Interactive Dimension Pill diletakkan di atas handle panah
+                // Interactive Dimension Pill diletakkan di atas handle panah.
+                // Fase 4: permukaan radial (Cylinder/Cone/Sphere) tampilkan
+                // "ΔR ±<jarak>" (delta radius) alih-alih jarak polos —
+                // drag di sini mengubah RADIUS, bukan menggeser bidang.
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = self.unit.format(self.face_gizmo_distance);
+                let text = self.format_face_gizmo_dimension_text(surface_kind, self.face_gizmo_distance);
                 let pill_resp = CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &text, self.face_gizmo_dimension_editing);
                 if pill_resp.clicked() {
                     self.face_gizmo_dimension_editing = !self.face_gizmo_dimension_editing;
@@ -3237,6 +3264,27 @@ impl CadrawApp {
         }
         eprintln!("[DEBUG pick_body_face_at_cursor] result = {}", if closest.is_some() { "Some" } else { "None" });
         closest.map(|(id, ray, hit, _)| (id, ray, hit))
+    }
+
+    /// Teks HUD pill gizmo face (CADRAW Fase 4): permukaan radial
+    /// (Cylinder/Cone/Sphere — di mana `FaceHit::pull_dir` benar-benar
+    /// arah radial, lihat dokumentasinya) diberi label "ΔR" + tanda eksplisit
+    /// (mis. "ΔR +2.0 mm") karena drag di situ mengubah RADIUS, bukan
+    /// menggeser bidang datar; permukaan lain (Plane, dan fallback
+    /// Torus/Other yang masih memakai `normal` sbg `pull_dir`) tetap tampil
+    /// sebagai jarak polos (mis. "2.0 mm"), perilaku lama.
+    fn format_face_gizmo_dimension_text(&self, surface_kind: SurfaceKind, distance: f64) -> String {
+        let formatted = self.unit.format(distance);
+        if matches!(surface_kind, SurfaceKind::Cylinder | SurfaceKind::Cone | SurfaceKind::Sphere) {
+            if distance >= 0.0 {
+                format!("ΔR +{formatted}")
+            } else {
+                // `formatted` sudah mengandung tanda minus dari format float Rust.
+                format!("ΔR {formatted}")
+            }
+        } else {
+            formatted
+        }
     }
 
     /// Extrude sisi/face 3D yang sedang aktif sepanjang `distance` mm.

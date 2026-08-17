@@ -226,6 +226,90 @@ impl Face {
         self.normal_at(center)
     }
 
+    /// Nama kelas dinamis (C++/OCCT) dari permukaan geometris di balik face
+    /// ini, mis. `"Geom_Plane"`, `"Geom_CylindricalSurface"`,
+    /// `"Geom_ConicalSurface"`, `"Geom_SphericalSurface"`,
+    /// `"Geom_ToroidalSurface"`, atau tipe lain (mis. `"Geom_BSplineSurface"`)
+    /// untuk permukaan bebas/non-analitik. Dipakai `cadraw-kernel` untuk
+    /// klasifikasi tipe face (lihat `cadraw_kernel::SurfaceKind`).
+    //
+    // PATCH (CADRAW, lihat vendor/README.md): method baru, TIDAK menyentuh
+    // `opencascade-sys` sama sekali — cuma menyusun ulang binding FFI yang
+    // SUDAH ADA di sana (`BRep_Tool_Surface`, `DynamicType`, `type_name`),
+    // pola identik dengan `faces_along_ray_with_tolerance` di atas.
+    pub fn surface_kind(&self) -> String {
+        let surface = ffi::BRep_Tool_Surface(&self.inner);
+        let dynamic_type = ffi::DynamicType(&surface);
+
+        ffi::type_name(dynamic_type)
+    }
+
+    /// Radius silinder ini (kalau `surface_kind()` == `"Geom_CylindricalSurface"`),
+    /// atau radius referensi kerucut (kalau `"Geom_ConicalSurface"`) — `None`
+    /// untuk tipe permukaan lain. Dipakai `cadraw-kernel::extrude_face`
+    /// untuk validasi batas SEBELUM memanggil `Shape::offset_on_face`
+    /// (offset yang membuat radius ≤ 0 ditolak lebih awal dengan pesan
+    /// jelas, bukan dibiarkan gagal telat/aneh di OCCT).
+    //
+    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3): method baru,
+    // menyusun binding `BRepAdaptor_Surface`/`gp_Cylinder`/`gp_Cone` yang
+    // ditambahkan ke `opencascade-sys` di CADRAW Fase 2 — TIDAK ada
+    // perubahan lagi di `opencascade-sys` di fase ini. Coba `Cylinder()`
+    // dulu lalu `Cone()` — keduanya melempar `Standard_Failure` (dibungkus
+    // `Result::Err` oleh `opencascade-sys`, lihat vendor/README.md) kalau
+    // surface bukan tipe yang diminta, jadi cukup `.ok()` berantai tanpa
+    // perlu cek `GetType()` dulu. Sengaja TIDAK menutupi Sphere/Torus —
+    // `opencascade-sys` belum punya binding `gp_Sphere`/`gp_Torus`
+    // (di luar cakupan Fase 2), jadi tipe itu tidak dapat pre-check radius
+    // presisi di sisi CADRAW; `Shape::offset_on_face` tetap memvalidasi
+    // lewat `IsDone()`/`Result::Err` OCCT sendiri untuk tipe-tipe itu.
+    pub fn cylinder_or_cone_radius(&self) -> Option<f64> {
+        let adaptor = ffi::BRepAdaptor_Surface_ctor(&self.inner, true);
+
+        if let Ok(cylinder) = ffi::BRepAdaptor_Surface_cylinder(&adaptor) {
+            return Some(ffi::gp_Cylinder_radius(&cylinder));
+        }
+        if let Ok(cone) = ffi::BRepAdaptor_Surface_cone(&adaptor) {
+            return Some(ffi::gp_Cone_radius(&cone));
+        }
+        None
+    }
+
+    /// Titik acuan (`location`) dan arah satuan sumbu silinder/kerucut ini
+    /// (kalau `surface_kind()` == `"Geom_CylindricalSurface"` atau
+    /// `"Geom_ConicalSurface"`) — `None` untuk tipe permukaan lain. Dipakai
+    /// `cadraw-kernel` untuk menghitung `FaceHit::pull_dir` (arah radial di
+    /// titik hit, CADRAW Fase 4): proyeksikan titik hit ke garis sumbu lalu
+    /// ambil vektor (hit − proyeksi).
+    //
+    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 4): method baru,
+    // sekadar menyusun ulang binding `gp_Cylinder_location`/
+    // `gp_Cylinder_direction`/`gp_Cone_location`/`gp_Cone_direction` yang
+    // SUDAH ADA di `opencascade-sys` sejak CADRAW Fase 2 (dulu cuma dipakai
+    // `cylinder_or_cone_radius` untuk radius) — TIDAK ada perubahan lagi di
+    // `opencascade-sys` di fase ini.
+    pub fn cylinder_or_cone_axis(&self) -> Option<(DVec3, DVec3)> {
+        let adaptor = ffi::BRepAdaptor_Surface_ctor(&self.inner, true);
+
+        if let Ok(cylinder) = ffi::BRepAdaptor_Surface_cylinder(&adaptor) {
+            let location = ffi::gp_Cylinder_location(&cylinder);
+            let direction = ffi::gp_Cylinder_direction(&cylinder);
+            return Some((
+                dvec3(location.X(), location.Y(), location.Z()),
+                dvec3(direction.X(), direction.Y(), direction.Z()),
+            ));
+        }
+        if let Ok(cone) = ffi::BRepAdaptor_Surface_cone(&adaptor) {
+            let location = ffi::gp_Cone_location(&cone);
+            let direction = ffi::gp_Cone_direction(&cone);
+            return Some((
+                dvec3(location.X(), location.Y(), location.Z()),
+                dvec3(direction.X(), direction.Y(), direction.Z()),
+            ));
+        }
+        None
+    }
+
     pub fn workplane(&self) -> Workplane {
         const NORMAL_DIFF_TOLERANCE: f64 = 0.0001;
 
