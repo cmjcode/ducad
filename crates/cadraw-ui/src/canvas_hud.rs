@@ -15,6 +15,32 @@ pub enum CanvasHudEvent {
     OpenMeasurements,
 }
 
+/// Titik-titik poligon konveks rounded-rect berpusat di origin (belum
+/// diputar/digeser) — dipakai `render_dimension_pill_aligned` karena
+/// `Painter::rect_filled` (rounded-rect bawaan egui) tidak punya varian
+/// berotasi. `segments_per_corner` mengatur kehalusan lengkungan tiap sudut
+/// (6 sudah cukup mulus untuk ukuran pill sekecil ini).
+fn rounded_rect_local_points(half: Vec2, radius: f32, segments_per_corner: usize) -> Vec<Pos2> {
+    let r = radius.min(half.x).min(half.y).max(0.0);
+    let centers_and_angles = [
+        (Vec2::new(-half.x + r, -half.y + r), std::f32::consts::PI, 1.5 * std::f32::consts::PI), // kiri-atas
+        (Vec2::new(half.x - r, -half.y + r), 1.5 * std::f32::consts::PI, 2.0 * std::f32::consts::PI), // kanan-atas
+        (Vec2::new(half.x - r, half.y - r), 0.0, 0.5 * std::f32::consts::PI), // kanan-bawah
+        (Vec2::new(-half.x + r, half.y - r), 0.5 * std::f32::consts::PI, std::f32::consts::PI), // kiri-bawah
+    ];
+
+    let mut points = Vec::with_capacity((segments_per_corner + 1) * 4);
+    for (center, start_angle, end_angle) in centers_and_angles {
+        for i in 0..=segments_per_corner {
+            let t = i as f32 / segments_per_corner as f32;
+            let angle = start_angle + (end_angle - start_angle) * t;
+            let p = center + Vec2::new(angle.cos(), angle.sin()) * r;
+            points.push(Pos2::new(p.x, p.y));
+        }
+    }
+    points
+}
+
 pub struct CanvasHud;
 
 impl CanvasHud {
@@ -126,23 +152,21 @@ impl CanvasHud {
         let half = (galley.size() + Vec2::new(16.0, 8.0)) * 0.5;
         let rot = egui::emath::Rot2::from_angle(angle_rad);
 
-        // 4 sudut pill relatif ke pusat SEBELUM dirotasi, lalu diputar & digeser
-        // ke `center_2d` — dipakai polygon konveks karena rounded-rect bawaan
-        // egui tidak punya varian berotasi.
-        let corners: Vec<Pos2> = [
-            Vec2::new(-half.x, -half.y),
-            Vec2::new(half.x, -half.y),
-            Vec2::new(half.x, half.y),
-            Vec2::new(-half.x, half.y),
-        ]
-        .into_iter()
-        .map(|c| center_2d + rot * c)
-        .collect();
+        // Sudut membulat (radius 10, sama seperti `render_dimension_pill` yang
+        // tidak diputar) diaproksimasi jadi polygon konveks — rounded-rect
+        // bawaan egui (`rect_filled`) tidak punya varian berotasi — lalu semua
+        // titiknya diputar & digeser ke `center_2d`.
+        let corners: Vec<Pos2> = rounded_rect_local_points(half, 10.0, 6)
+            .into_iter()
+            .map(|c| center_2d + rot * c.to_vec2())
+            .collect();
 
+        // Agak transparan (dari solid 245 -> 210) supaya garis kuning di
+        // baliknya tetap samar kelihatan, bukan ketutup penuh sama pill-nya.
         painter.add(egui::epaint::PathShape::convex_polygon(
             corners,
-            Color32::from_rgba_premultiplied(245, 246, 250, 245),
-            Stroke::new(1.0, Color32::from_gray(180)),
+            Color32::from_rgba_premultiplied(245, 246, 250, 210),
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(170, 170, 175, 210)),
         ));
 
         // `TextShape::pos` adalah pojok kiri-atas galley SEBELUM rotasi, dengan

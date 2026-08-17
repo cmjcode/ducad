@@ -792,9 +792,13 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       Select (deactivate), bukan cuma reset ke Measure terus-menerus.
       Pill nominalnya sekarang juga DIPUTAR sejajar arah garisnya sendiri
       (bukan selalu horizontal) lewat `CanvasHud::render_dimension_pill_aligned`
-      (fungsi baru di `cadraw-ui`: rounded-pill diganti convex polygon 4 titik
-      + `epaint::TextShape` yang punya field `angle`, keduanya diputar pakai
-      `emath::Rot2` di sekitar titik tengah pill) supaya label tidak numpuk
+      (fungsi baru di `cadraw-ui`: polygon konveks 4-sudut awalnya, lalu
+      diganti `rounded_rect_local_points` — aproksimasi rounded-rect radius 10
+      pakai 4 busur seperempat lingkaran per sudut, biar tetap membulat sama
+      seperti `render_dimension_pill` yang tidak diputar — + `epaint::TextShape`
+      yang punya field `angle`, keduanya diputar pakai `emath::Rot2` di sekitar
+      titik tengah pill; fill dibikin agak transparan, alpha 245→210, supaya
+      garis kuning di baliknya tetap samar kelihatan) supaya label tidak numpuk
       dengan garis pengukuran lain yang miring. Sudutnya dihitung dari selisih
       proyeksi layar kedua ujung garis (`CadrawApp::screen_line_angle`, helper
       baru) dan dinormalisasi ke -90°..90° supaya teksnya tidak pernah terbaca
