@@ -2030,6 +2030,41 @@ batasnya sekarang murni keputusan OCCT.
 --test-threads=1` 153 test hijau (69 cadraw-kernel, neto -2 dari
 sebelumnya — 4 test lama dihapus, 2 test baru ditambah).
 
+**Perbaikan susulan 5 — klik sudut LAIN utk rounding baru malah tidak
+memunculkan gizmo:** user melaporkan — setelah sukses rounding sudut
+pertama sampai radius besar (dekat batas objek, sesuai "Perbaikan
+susulan 4"), klik sudut LAIN sama sekali tidak memunculkan gizmo apa pun.
+Root cause ketemu lewat log debug yang user tempel: klik jatuh di
+`cabang ROUND_EDIT` (mengedit fitur rounding #0 yang SUDAH ADA), padahal
+titik klik ada di wajah DATAR (`normal=(0,1,0)`) jauh dari lengkungan
+sudut pertama.
+
+`find_round_feature_near` (dipanggil sebelum vertex/edge pick baru,
+prioritas PALING AWAL — lihat komentar urutan pick di `handle_sketch_
+input`) memutuskan "klik ini editing fitur X" murni dari
+`jarak(hit_point, anchor_fitur) <= radius_fitur * 1.5 + tol` — reach
+IKUT MEMBESAR seiring radius rounding. Sejak "Perbaikan susulan 4"
+menghapus formula precheck (radius sekarang bisa mendekati ukuran
+objeknya sendiri, itu tujuannya), reach `radius * 1.5` bisa jauh lebih
+besar dari objek — titik di wajah DATAR manapun jadi "terjangkau"
+walau jelas bukan bagian permukaan lengkung rounding-nya, MENELAN
+prioritas pick vertex/edge BARU di sudut lain (yang dicoba SETELAH
+`round_edit`, cuma jalan kalau `round_edit.is_none()`).
+
+Perbaikan (`find_round_feature_near`): tambah parameter `surface_kind:
+SurfaceKind` (dari `FaceHit` hasil `face_pick_3d`, sudah dihitung
+pemanggil), gate PALING AWAL — wajah `Plane` (datar) langsung `None`
+SEBELUM tes jarak `reach` sama sekali, karena permukaan blend rounding
+mana pun SELALU melengkung (`Sphere` utk vertex fillet 3-arah,
+`Cylinder` utk sweep 1 tepi) — wajah datar TIDAK PERNAH bisa jadi bagian
+rounding manapun, independen dari seberapa besar `reach`-nya. Klik di
+wajah lengkung TETAP dites jarak seperti biasa (perilaku "klik ulang
+rounding yang sudah ada utk edit radius" tidak berubah).
+
+`cargo build --workspace` bersih, `cargo test --workspace --
+--test-threads=1` tetap 153 test hijau (perubahan murni di jalur klik
+`cadraw-app`, tidak menyentuh kernel).
+
 ## Menjalankan
 
 ```bash

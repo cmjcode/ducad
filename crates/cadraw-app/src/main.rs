@@ -2530,7 +2530,7 @@ impl CadrawApp {
                     };
 
                     let round_edit = face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
-                        self.find_round_feature_near(*b_id, hit.hit_point, rect)
+                        self.find_round_feature_near(*b_id, hit.hit_point, hit.surface_kind, rect)
                             .map(|idx| (*b_id, idx))
                     });
 
@@ -4138,7 +4138,29 @@ impl CadrawApp {
     /// anchor fitur, atau — utk fitur rusuk — dari polyline rusuk aslinya
     /// (supaya klik DI SEPANJANG rusuk bulat juga kena, bukan cuma di titik
     /// klik semula). Dipakai intersepsi klik "edit rounding".
-    fn find_round_feature_near(&self, body_id: BodyId, hit_point: (f64, f64, f64), rect: egui::Rect) -> Option<usize> {
+    fn find_round_feature_near(
+        &self,
+        body_id: BodyId,
+        hit_point: (f64, f64, f64),
+        surface_kind: SurfaceKind,
+        rect: egui::Rect,
+    ) -> Option<usize> {
+        // Wajah DATAR (`Plane`) tidak PERNAH bagian dari permukaan blend
+        // rounding manapun — fillet SELALU menghasilkan permukaan
+        // melengkung (Sphere utk blend 3-arah vertex, Cylinder utk sweep 1
+        // tepi). Cek ini WAJIB di depan, SEBELUM tes jarak `reach` di
+        // bawah: `reach = radius * 1.5` ikut membesar begitu radius
+        // rounding mendekati ukuran objek (persis yang sekarang bisa
+        // dicapai sejak fix formula geometris dihapus) — tanpa gate ini,
+        // klik di wajah DATAR yang jauh dari lengkungan (dibuktikan lewat
+        // log debug user: `normal=(0,1,0)`, jelas rata) masih bisa
+        // "terjangkau" radius besar dan salah dikira klik ULANG rounding
+        // yang SUDAH ADA, alih-alih sudut/rusuk BARU yang mau di-rounding
+        // — bikin gizmo di sudut lain tidak pernah muncul (dilaporkan
+        // user).
+        if surface_kind == SurfaceKind::Plane {
+            return None;
+        }
         let hist = self.round_history.get(&body_id)?;
         let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
         let hp = glam::DVec3::new(hit_point.0, hit_point.1, hit_point.2);
