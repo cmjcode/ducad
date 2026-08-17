@@ -783,7 +783,22 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       permanen di tengah garis (bukan cuma selagi ditarik) lewat pill
       baru di `dynamic_input_ui` yang membaca `Measurement::inline_value`
       (nilai pendek tanpa prefix "Jarak:"/"Sudut:", beda dari `label()`
-      yang dipakai kartu panel Properties).
+      yang dipakai kartu panel Properties). Pill nominalnya lalu digeser
+      dari offset di samping garis (gaya pill tool Line) supaya PAS DI
+      ATAS garis kuningnya sendiri (posisi label = titik tengah garis
+      langsung, tanpa offset normal). Tombol "📏 Ukur" di top bar
+      (`TopBarEvent::ToggleMeasurements`) sekarang toggle sungguhan —
+      klik lagi saat tool Ukur Jarak/Ukur Sudut sudah aktif balik ke
+      Select (deactivate), bukan cuma reset ke Measure terus-menerus.
+      Pill nominalnya sekarang juga DIPUTAR sejajar arah garisnya sendiri
+      (bukan selalu horizontal) lewat `CanvasHud::render_dimension_pill_aligned`
+      (fungsi baru di `cadraw-ui`: rounded-pill diganti convex polygon 4 titik
+      + `epaint::TextShape` yang punya field `angle`, keduanya diputar pakai
+      `emath::Rot2` di sekitar titik tengah pill) supaya label tidak numpuk
+      dengan garis pengukuran lain yang miring. Sudutnya dihitung dari selisih
+      proyeksi layar kedua ujung garis (`CadrawApp::screen_line_angle`, helper
+      baru) dan dinormalisasi ke -90°..90° supaya teksnya tidak pernah terbaca
+      terbalik/kebalik walau garisnya miring ke kiri.
 - [x] **Section View**: clip plane di render, BUKAN operasi kernel — sadar
       dipilih supaya bisa digeser real-time (tiap frame) tanpa memanggil
       OCCT sama sekali (beda dari Boolean yang benar-benar memotong

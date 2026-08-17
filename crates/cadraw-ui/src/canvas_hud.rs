@@ -112,6 +112,48 @@ impl CanvasHud {
         painter.galley(rect.min + Vec2::new(8.0, 4.0), galley, Color32::from_rgb(20, 20, 22));
     }
 
+    /// Render badge dimensi mengambang yang DIPUTAR sejajar arah garis pengukuran
+    /// (bukan selalu horizontal seperti `render_dimension_pill`) — dipakai label
+    /// nominal jarak/sudut supaya menempel rapi di garisnya sendiri dan tidak
+    /// numpuk visual dengan garis pengukuran lain yang miring. `angle_rad` harus
+    /// SUDAH dinormalisasi pemanggil ke rentang -90°..90° (mis. lewat
+    /// `Vec2::angle()` lalu di-`±π` kalau di luar rentang itu) supaya teksnya
+    /// tidak pernah kebalik/terbaca dari bawah ke atas.
+    pub fn render_dimension_pill_aligned(ui: &mut Ui, center_2d: Pos2, angle_rad: f32, value_text: &str) {
+        let painter = ui.painter();
+        let font = FontId::proportional(11.0);
+        let galley = painter.layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 22));
+        let half = (galley.size() + Vec2::new(16.0, 8.0)) * 0.5;
+        let rot = egui::emath::Rot2::from_angle(angle_rad);
+
+        // 4 sudut pill relatif ke pusat SEBELUM dirotasi, lalu diputar & digeser
+        // ke `center_2d` — dipakai polygon konveks karena rounded-rect bawaan
+        // egui tidak punya varian berotasi.
+        let corners: Vec<Pos2> = [
+            Vec2::new(-half.x, -half.y),
+            Vec2::new(half.x, -half.y),
+            Vec2::new(half.x, half.y),
+            Vec2::new(-half.x, half.y),
+        ]
+        .into_iter()
+        .map(|c| center_2d + rot * c)
+        .collect();
+
+        painter.add(egui::epaint::PathShape::convex_polygon(
+            corners,
+            Color32::from_rgba_premultiplied(245, 246, 250, 245),
+            Stroke::new(1.0, Color32::from_gray(180)),
+        ));
+
+        // `TextShape::pos` adalah pojok kiri-atas galley SEBELUM rotasi, dengan
+        // pivot rotasi di titik itu juga — jadi dihitung mundur dari pusat
+        // supaya, setelah diputar `rot`, teksnya jatuh center di `center_2d`.
+        let text_pos = center_2d + rot * (Vec2::new(-half.x, -half.y) + Vec2::new(8.0, 4.0));
+        let mut text_shape = egui::epaint::TextShape::new(text_pos, galley, Color32::from_rgb(20, 20, 22));
+        text_shape.angle = angle_rad;
+        painter.add(text_shape);
+    }
+
     /// Render badge dimensi interaktif putih (dengan border biru bila aktif / hover)
     /// yang dapat diklik untuk memasukkan angka presisi.
     pub fn render_interactive_dimension_pill(

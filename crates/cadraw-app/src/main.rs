@@ -3148,26 +3148,51 @@ impl CadrawApp {
         verts
     }
 
+    /// Sudut layar (radian, dinormalisasi ke -90°..90°) garis dunia `a`→`b`
+    /// pada bidang aktif — dipakai memutar pill nominal pengukuran
+    /// (`CanvasHud::render_dimension_pill_aligned`) supaya sejajar garisnya
+    /// sendiri alih-alih selalu horizontal, biar tidak numpuk dengan garis
+    /// pengukuran lain yang miring. Dinormalisasi (bukan angle mentah
+    /// `Vec2::angle()`) supaya teksnya tidak pernah kebalik/terbaca dari
+    /// bawah ke atas kalau garisnya miring "ke kiri". Fallback 0.0 (horizontal)
+    /// kalau salah satu ujung gagal diproyeksikan ke layar (di belakang kamera).
+    fn screen_line_angle(&self, rect: egui::Rect, a: DVec2, b: DVec2) -> f32 {
+        let a_3d = self.active_plane.to_world(a, 0.0);
+        let b_3d = self.active_plane.to_world(b, 0.0);
+        match (
+            world_to_screen_pos(&self.camera, rect, a_3d),
+            world_to_screen_pos(&self.camera, rect, b_3d),
+        ) {
+            (Some(pa), Some(pb)) => {
+                let mut angle = (pb - pa).angle();
+                if angle > std::f32::consts::FRAC_PI_2 {
+                    angle -= std::f32::consts::PI;
+                } else if angle < -std::f32::consts::FRAC_PI_2 {
+                    angle += std::f32::consts::PI;
+                }
+                angle
+            }
+            _ => 0.0,
+        }
+    }
+
     /// Kotak input mengambang dan badge dimensi in-situ (Screenshot 1, 2, 3, 4)
     fn dynamic_input_ui(&mut self, ui: &mut egui::Ui, rect: egui::Rect, raw_cursor: Option<DVec2>) {
         // 0. Nilai pengukuran yang SUDAH di-commit (bukan lagi sedang ditarik) —
-        // pill ditaruh di tengah (median) garis kuningnya, sama gaya dengan pill
-        // panjang tool Line, supaya nominalnya kebaca langsung di garisnya (bukan
-        // cuma di kartu "📏 Pengukuran" panel Properties kanan).
+        // pill ditaruh TEPAT DI ATAS garis kuningnya sendiri (bukan digeser ke
+        // samping seperti pill tool Line/Rectangle/Circle), supaya nominalnya
+        // kebaca langsung menempel di garisnya (bukan cuma di kartu "📏
+        // Pengukuran" panel Properties kanan).
         if !self.measurements.is_empty() {
-            let world_scale = pixel_tolerance_to_world(&self.camera, rect);
-            let offset_dist = (14.0 * world_scale).max(8.0);
             for m in &self.measurements {
                 let Some(value) = m.inline_value(self.unit) else { continue };
                 let pts = m.points();
                 let (Some(&a), Some(&b)) = (pts.first(), pts.last()) else { continue };
                 let mid = (a + b) * 0.5;
-                let dir = (b - a).normalize_or_zero();
-                let normal = DVec2::new(-dir.y, dir.x);
-                let label_pos = mid + normal * offset_dist;
-                let label_3d = self.active_plane.to_world(label_pos, 0.0);
+                let label_3d = self.active_plane.to_world(mid, 0.0);
                 if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                    CanvasHud::render_dimension_pill(ui, pos_2d, &value, false);
+                    let angle = self.screen_line_angle(rect, a, b);
+                    CanvasHud::render_dimension_pill_aligned(ui, pos_2d, angle, &value);
                 }
             }
         }
@@ -3221,18 +3246,17 @@ impl CadrawApp {
                     }
                 }
                 ToolKind::Measure if self.pending_points.len() == 1 => {
-                    // Tool Ukur Jarak: sama seperti pill panjang di tool Line —
-                    // tampil di tengah (median) garis pengukuran selagi ditarik,
-                    // sebelum klik kedua meng-commit ke `self.measurements`.
+                    // Tool Ukur Jarak: pill ditaruh TEPAT DI ATAS garis kuning
+                    // pengukurannya sendiri, DIPUTAR sejajar arah garisnya
+                    // (`render_dimension_pill_aligned`) selagi ditarik, sebelum
+                    // klik kedua meng-commit ke `self.measurements`.
                     let start = self.pending_points[0];
                     let len = (effective - start).length();
                     let mid = (start + effective) * 0.5;
-                    let dir = (effective - start).normalize_or_zero();
-                    let normal = DVec2::new(-dir.y, dir.x);
-                    let label_pos = mid + normal * offset_dist;
-                    let label_3d = self.active_plane.to_world(label_pos, 0.0);
+                    let label_3d = self.active_plane.to_world(mid, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(len), false);
+                        let angle = self.screen_line_angle(rect, start, effective);
+                        CanvasHud::render_dimension_pill_aligned(ui, pos_2d, angle, &self.unit.format_precise(len));
                     }
                 }
                 _ => {}
@@ -4610,7 +4634,12 @@ impl eframe::App for CadrawApp {
                             self.section_enabled = !self.section_enabled;
                         }
                         TopBarEvent::ToggleMeasurements => {
-                            self.set_tool(ToolKind::Measure);
+                            // Klik lagi tombol "📏 Ukur" saat tool Ukur Jarak/Ukur
+                            // Sudut sudah aktif -> deactivate (balik ke Select),
+                            // bukan cuma reset ke Measure lagi.
+                            let already_active =
+                                matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
+                            self.set_tool(if already_active { ToolKind::Select } else { ToolKind::Measure });
                         }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
