@@ -26,16 +26,30 @@ use slotmap::SecondaryMap;
 
 /// Geometri kernel satu body — pasangan shape B-rep + mesh hasil
 /// tessellation-nya (mesh di-cache di sini, bukan dihitung ulang tiap
-/// frame render).
+/// frame render). `edge_dims` (fitur "Tampilkan Semua Ukuran", checkbox
+/// ruler properties) di-cache dengan pola yang sama: dihitung SEKALI saat
+/// geometri body dibuat/berubah, bukan tiap frame render viewport.
 pub struct BodyGeometry {
     pub shape: KernelShape,
     pub mesh: KernelMesh,
+    pub edge_dims: Vec<cadraw_kernel::EdgeDimension>,
 }
 
 impl BodyGeometry {
     pub fn from_shape(shape: KernelShape) -> Self {
         let mesh = shape.tessellate();
-        Self { shape, mesh }
+        Self::from_shape_with_mesh(shape, mesh)
+    }
+
+    /// Sama seperti `from_shape`, tapi `mesh` SUDAH dihitung sebelumnya
+    /// (dipakai `import_worker` di cadraw-app: mesh dihitung di thread
+    /// latar belakang supaya UI tidak beku, lalu shape dibangun ulang di
+    /// UI thread dari teks STEP — lihat pemanggilnya). `edge_dims` tetap
+    /// dihitung di sini karena hanya `shape` yang dikirim balik dari
+    /// worker, bukan dimensi rusuknya.
+    pub fn from_shape_with_mesh(shape: KernelShape, mesh: KernelMesh) -> Self {
+        let edge_dims = cadraw_kernel::edge_dimensions(&shape);
+        Self { shape, mesh, edge_dims }
     }
 }
 

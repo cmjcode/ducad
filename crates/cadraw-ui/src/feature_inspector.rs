@@ -94,6 +94,7 @@ pub struct SelectedBodyData {
 pub enum InspectorEvent {
     CloseInspector,
     ToggleAutoHide,
+    ToggleShowAllDimensions,
     UndoModel,
     RedoModel,
     UpdateEntityLine {
@@ -186,6 +187,13 @@ pub struct FeatureInspectorState {
     /// True kalau tool Ukur/Ukur Sudut sedang aktif — dipakai untuk menampilkan
     /// kartu Pengukuran walau daftarnya masih kosong (hint klik titik).
     pub measurement_tool_active: bool,
+    /// Checkbox "Tampilkan Semua Ukuran" di kartu Pengukuran (ruler
+    /// properties): saat true, canvas melabeli nominal panjang/radius
+    /// SEMUA entitas sketsa 2D di bidang aktif DAN semua rusuk 3D dari
+    /// semua body visible — bukan cuma hasil tool "Ukur" eksplisit. Cuma
+    /// disimpan sebagai flag di sini; render label sesungguhnya dilakukan
+    /// `cadraw-app` (lihat `CadrawApp::render_all_element_dimensions`).
+    pub show_all_dimensions: bool,
 
     /// Batas tinggi maksimum panel (dari bawah ViewCube sampai bawah layar).
     /// Panel akan menyusut mengikuti isi kontennya jika lebih pendek dari batas ini.
@@ -230,6 +238,7 @@ impl Default for FeatureInspectorState {
 
             measurements: Vec::new(),
             measurement_tool_active: false,
+            show_all_dimensions: false,
 
             max_panel_height: 600.0,
         }
@@ -310,10 +319,13 @@ impl FeatureInspector {
                 .auto_shrink([false, true])
                 .max_height(state.max_panel_height)
                 .show(ui, |ui| {
-                // 1b. Pengukuran Card (dulu jendela mengambang terpisah — dipindah ke
-                // sini biar konsisten dengan panel Properties lain). Tampil kalau tool
-                // Ukur/Ukur Sudut aktif ATAU masih ada hasil pengukuran tersimpan.
-                if state.measurement_tool_active || !state.measurements.is_empty() {
+                // 1b. Pengukuran Card / Ruler Properties (dulu jendela mengambang
+                // terpisah — dipindah ke sini biar konsisten dengan panel Properties
+                // lain). SELALU tampil (bukan lagi kondisional ke tool Ukur/hasil
+                // pengukuran) supaya checkbox "Tampilkan Semua Ukuran" di bawah ini
+                // selalu bisa ditemukan user, terlepas dari sedang pakai tool Ukur
+                // atau tidak.
+                {
                     card_frame().show(ui, |ui| {
                         ui.label(
                             RichText::new(format!("{} Pengukuran", ICON_STRAIGHTEN))
@@ -321,7 +333,22 @@ impl FeatureInspector {
                                 .size(11.5)
                                 .color(ACCENT_ORANGE),
                         );
-                        if state.measurements.is_empty() {
+
+                        // Checkbox global: label nominal panjang/radius SEMUA entitas
+                        // sketsa 2D di bidang aktif + SEMUA rusuk 3D body visible,
+                        // bukan cuma hasil tool "Ukur" eksplisit di bawah ini.
+                        if ui
+                            .checkbox(&mut state.show_all_dimensions, "Tampilkan Semua Ukuran")
+                            .on_hover_text("Tampilkan nominal ukuran tiap garis/rusuk elemen di kanvas")
+                            .changed()
+                        {
+                            event = Some(InspectorEvent::ToggleShowAllDimensions);
+                        }
+
+                        if state.measurement_tool_active || !state.measurements.is_empty() {
+                            ui.separator();
+                        }
+                        if state.measurement_tool_active && state.measurements.is_empty() {
                             ui.label(
                                 RichText::new("Klik 2 titik untuk jarak, 3 titik untuk sudut")
                                     .size(10.0)

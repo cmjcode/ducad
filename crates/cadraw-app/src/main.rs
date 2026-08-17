@@ -696,6 +696,13 @@ struct CadrawApp {
     /// x ≤ offset). `true`: balik, buang sisi negatif.
     section_invert: bool,
 
+    /// Checkbox "Tampilkan Semua Ukuran" di kartu Pengukuran (ruler
+    /// properties, panel Properties kanan): saat true, `dynamic_input_ui`
+    /// melabeli nominal panjang/radius SEMUA entitas sketsa 2D di bidang
+    /// aktif DAN semua rusuk 3D dari semua body visible — lihat
+    /// `render_all_element_dimensions`.
+    show_all_dimensions: bool,
+
     /// Worker latar belakang Import STEP (Fase 7) — lihat modul
     /// `import_worker`. Di-poll tiap frame di `update()`.
     import_worker: ImportWorker,
@@ -870,6 +877,7 @@ impl CadrawApp {
             section_axis: SectionAxis::Z,
             section_offset: 0.0,
             section_invert: false,
+            show_all_dimensions: false,
 
             import_worker: ImportWorker::spawn(),
             pending_imports: 0,
@@ -1498,7 +1506,7 @@ impl CadrawApp {
             match result.outcome {
                 Ok((step, mesh)) => match KernelShape::from_step_string(&step) {
                     Ok(shape) => {
-                        let geo = BodyGeometry { shape, mesh };
+                        let geo = BodyGeometry::from_shape_with_mesh(shape, mesh);
                         self.model_undo.execute(
                             Box::new(AddSolidCommand::new(result.name.clone(), geo)),
                             &mut self.model,
@@ -3176,6 +3184,103 @@ impl CadrawApp {
         }
     }
 
+    /// Label nominal ukuran SEMUA elemen — dipanggil `dynamic_input_ui` saat
+    /// checkbox "Tampilkan Semua Ukuran" (kartu Pengukuran, ruler properties
+    /// panel Properties kanan) aktif. Dua sumber independen digambar
+    /// bersamaan karena kanvas CADRAW selalu menumpuk sketsa bidang aktif +
+    /// body 3D sekaligus (tidak ada toggle mode 2D/3D terpisah):
+    /// - Sketsa 2D: SEMUA entitas (Line/Circle/Arc/Ellipse) di bidang aktif,
+    ///   dihitung ulang tiap frame (murah — cuma aritmatika DVec2, sama
+    ///   biayanya dengan preview pill tool Line/Rectangle/Circle di bawah).
+    /// - 3D: SEMUA rusuk dari SEMUA body yang visible, dari `edge_dims` yang
+    ///   sudah di-cache SEKALI per body (lihat `BodyGeometry::from_shape`)
+    ///   — bukan panggilan kernel OCCT tiap frame.
+    ///
+    /// Body hasil Extrude/Loft/Revolve dibangun DARI profil sketsa bidang
+    /// aktif, dan entitasnya TETAP ada di `self.sketch()` sesudahnya (biar
+    /// bisa diedit ulang) — jadi rusuk DASAR body sering berimpit PERSIS
+    /// dgn entitas Line 2D di atas: tanpa dedup, nominalnya dobel tepat di
+    /// titik "sumber sketsa jadi 3D" itu (satu pill sejajar garis dari loop
+    /// 2D, satu lagi pill datar dari loop rusuk 3D, di posisi dunia yang
+    /// sama). `line_anchors_2d` merekam posisi dunia + panjang tiap Line 2D
+    /// yang sudah dilabeli, supaya loop rusuk 3D di bawah bisa melewati
+    /// rusuk yang cocok alih-alih melabeli ulang.
+    fn render_all_element_dimensions(&self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let mut line_anchors_2d: Vec<(Vec3, f64)> = Vec::new();
+
+        for (_, entity) in self.sketch().entities.iter() {
+            match entity {
+                Entity::Line { start, end } => {
+                    let len = (*end - *start).length();
+                    let mid = (*start + *end) * 0.5;
+                    let label_3d = self.active_plane.to_world(mid, 0.0);
+                    line_anchors_2d.push((label_3d, len));
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let angle = self.screen_line_angle(rect, *start, *end);
+                        CanvasHud::render_dimension_pill_aligned(ui, pos_2d, angle, &self.unit.format_precise(len));
+                    }
+                }
+                Entity::Circle { center, radius } => {
+                    let edge_pt = *center + DVec2::new(*radius, 0.0);
+                    let label_3d = self.active_plane.to_world(edge_pt, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = format!("R {}", self.unit.format_precise(*radius));
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+                    }
+                }
+                Entity::Arc { center, radius, start_angle, end_angle } => {
+                    let mid_angle = (start_angle + end_angle) * 0.5;
+                    let mid_pt = *center + DVec2::new(radius * mid_angle.cos(), radius * mid_angle.sin());
+                    let label_3d = self.active_plane.to_world(mid_pt, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = format!("R {}", self.unit.format_precise(*radius));
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+                    }
+                }
+                Entity::Ellipse { center, radius_x, radius_y } => {
+                    let label_3d = self.active_plane.to_world(*center, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = format!(
+                            "Rx {} Ry {}",
+                            self.unit.format_precise(*radius_x),
+                            self.unit.format_precise(*radius_y)
+                        );
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+                    }
+                }
+            }
+        }
+
+        // Toleransi kombinasi jarak posisi (mm dunia) + panjang (mm) untuk
+        // anggap satu rusuk 3D "sama" dengan satu Line 2D di atas — cukup
+        // ketat (rusuk yang genuinely berbeda tapi kebetulan mirip ukuran
+        // & lokasi itu sangat tidak mungkin) tapi longgar dari epsilon
+        // float murni supaya tetap match walau lewat 2 jalur precision
+        // berbeda (DVec2 sketsa f64 vs edge_dimensions kernel f64 -> Vec3
+        // f32 saat proyeksi).
+        const COINCIDENCE_POS_EPS: f32 = 1e-3;
+        const COINCIDENCE_LEN_EPS: f64 = 1e-3;
+
+        for (id, geo) in self.model.geometry.iter() {
+            let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
+            if !visible {
+                continue;
+            }
+            for (mid, length) in &geo.edge_dims {
+                let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
+                let already_shown_by_sketch = line_anchors_2d.iter().any(|(anchor, len)| {
+                    (world_pt - *anchor).length() < COINCIDENCE_POS_EPS && (length - len).abs() < COINCIDENCE_LEN_EPS
+                });
+                if already_shown_by_sketch {
+                    continue;
+                }
+                if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
+                    CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(*length), false);
+                }
+            }
+        }
+    }
+
     /// Kotak input mengambang dan badge dimensi in-situ (Screenshot 1, 2, 3, 4)
     fn dynamic_input_ui(&mut self, ui: &mut egui::Ui, rect: egui::Rect, raw_cursor: Option<DVec2>) {
         // 0. Nilai pengukuran yang SUDAH di-commit (bukan lagi sedang ditarik) —
@@ -3195,6 +3300,13 @@ impl CadrawApp {
                     CanvasHud::render_dimension_pill_aligned(ui, pos_2d, angle, &value);
                 }
             }
+        }
+
+        // 0b. Checkbox "Tampilkan Semua Ukuran" (ruler properties, panel
+        // Properties kanan) — label nominal SEMUA entitas sketsa 2D + SEMUA
+        // rusuk 3D body visible, independen dari hasil tool "Ukur" di atas.
+        if self.show_all_dimensions {
+            self.render_all_element_dimensions(ui, rect);
         }
 
         // 1. Floating Dimension Pills saat sedang menggambar (Screenshot 1)
@@ -5060,6 +5172,7 @@ impl eframe::App for CadrawApp {
 
                 measurements: self.measurements.iter().map(|m| m.label()).collect(),
                 measurement_tool_active: measure_tool_active,
+                show_all_dimensions: self.show_all_dimensions,
 
                 max_panel_height: inspector_max_h,
             };
@@ -5090,6 +5203,9 @@ impl eframe::App for CadrawApp {
                             }
                             InspectorEvent::ToggleAutoHide => {
                                 self.auto_hide_properties = !self.auto_hide_properties;
+                            }
+                            InspectorEvent::ToggleShowAllDimensions => {
+                                self.show_all_dimensions = !self.show_all_dimensions;
                             }
                             InspectorEvent::UpdateEntityLine {
                                 id_raw,

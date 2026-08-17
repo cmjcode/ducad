@@ -1591,6 +1591,82 @@ gizmo extrude → `offset_on_face` malah MEMBESARKAN objek.
   diserialisasi); undo (`ReplaceGeometryCommand`) tetap jalan, edit
   sesudah undo rebuild deterministik dari base yang sama.
 
+## Status Ruler Properties — Checkbox "Tampilkan Semua Ukuran" (dikerjakan)
+
+Permintaan user: di kartu "📏 Pengukuran" (ruler properties, panel
+Properties kanan), tambah checkbox yang kalau aktif melabeli nominal
+ukuran SEMUA elemen di kanvas — bukan cuma hasil tool "Ukur" eksplisit —
+supaya user langsung tahu ukuran tiap elemen tanpa harus mengukur satu-satu.
+Kanvas CADRAW tidak punya toggle mode 2D/3D terpisah (sketsa bidang aktif +
+body 3D selalu ditumpuk render bersamaan), jadi satu checkbox menangani
+kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
+
+- `cadraw-kernel`: fungsi publik baru `edge_dimensions(shape) ->
+  Vec<EdgeDimension>` (`EdgeDimension = ((f64,f64,f64), f64)`, titik
+  tengah arc-length + panjang). Traversal `shape.edges()` yang sama dengan
+  `resolve_edge_along_ray`/`collect_vertices`, TAPI di-dedup pakai epsilon
+  jarak endpoint (seperti `collect_vertices`) — `shape.edges()` memuat tiap
+  rusuk 2x (sekali per wajah yang memakainya) untuk padatan tertutup, tanpa
+  dedup box sederhana melapor 24 rusuk alih-alih 12. Test
+  `edge_dimensions_reports_all_box_edges` (extrude rect 30×20 tinggi 15,
+  assert 12 rusuk + multiset panjang `{15×4, 20×4, 30×4}`). 64 test kernel.
+- `cadraw-app::model`: `BodyGeometry` dapat field `edge_dims`, dihitung
+  SEKALI saat geometri body dibuat/berubah (constructor
+  `from_shape`/`from_shape_with_mesh`, pola sama dengan cache `mesh`) —
+  bukan tiap frame render, supaya toggle checkbox tidak memicu traversal
+  OCCT berulang. `from_shape_with_mesh` juga dipakai jalur Import STEP
+  (`poll_import_worker`) yang sebelumnya membangun `BodyGeometry` lewat
+  struct literal langsung (bypass `from_shape`) — sekarang tetap dapat
+  `edge_dims` walau mesh-nya sudah dihitung worker di thread lain.
+- `cadraw-ui::feature_inspector`: `FeatureInspectorState.show_all_dimensions`
+  + `InspectorEvent::ToggleShowAllDimensions`. Kartu Pengukuran diubah dari
+  kondisional (dulu cuma tampil kalau tool Ukur aktif/ada hasil) jadi SELALU
+  render, supaya checkbox-nya selalu bisa ditemukan.
+- `cadraw-app::main`: `CadrawApp::show_all_dimensions`, disinkronkan ke/dari
+  inspector state seperti `auto_hide_properties`. Method baru
+  `render_all_element_dimensions` dipanggil dari `dynamic_input_ui` saat
+  checkbox aktif:
+  - 2D: iterasi `self.sketch().entities` bidang aktif — Line dapat pill
+    sejajar garis (`render_dimension_pill_aligned`, pola sama dgn pill
+    pengukuran/preview tool Line), Circle/Arc dapat pill "R …", Ellipse
+    dapat pill "Rx … Ry …".
+  - 3D: iterasi `self.model.geometry`, lewati body yang `!visible` (pola
+    sama dgn marker vertex), label tiap `edge_dims` lewat
+    `world_to_screen_pos` + `render_dimension_pill` non-aligned (radius
+    scope 3D dikonfirmasi ke user: SEMUA body visible, bukan cuma body
+    terseleksi).
+  - Tidak ada perubahan pada tool "Ukur" eksplisit (`self.measurements`) —
+    checkbox ini independen, murni tambahan label pasif.
+
+`cargo build --workspace` bersih, `cargo test --workspace -- --test-threads=1`
+148 test hijau (64 cadraw-kernel, 45 cadraw-sketch, sisanya cadraw-core/
+cadraw-io/cadraw-render/cadraw-ui).
+
+**Perbaikan susulan — nominal dobel di rusuk dasar body:** user melaporkan
+banyak label dobel, "terutama bagian bawah, dimana sumber sketch menjadi
+3d". Sebab: body hasil Extrude/Loft/Revolve dibangun DARI profil sketsa
+bidang aktif, dan entitas profilnya TETAP ada di `self.sketch()` sesudahnya
+(biar bisa diedit ulang) — jadi rusuk-rusuk pada wajah body yang berimpit
+dengan bidang sketsa itu dilabeli DUA KALI: sekali oleh loop 2D (pill
+sejajar garis, `render_dimension_pill_aligned`), sekali lagi oleh loop
+rusuk 3D (pill datar, `render_dimension_pill`) — di posisi dunia yang
+identik. Untuk rusuk yang sejajar layar (mendekati horizontal), sudut pill
+2D kebetulan ≈ 0° sehingga kedua pill bertumpuk sempurna dan TERLIHAT cuma
+satu; untuk rusuk yang miring di layar, pill 2D (miring) dan pill 3D
+(selalu datar) terlihat jelas terpisah jadi dua label — persis pola yang
+dilaporkan user (label kelihatan dobel di sisi miring, kelihatan tunggal
+di sisi datar, padahal sebenarnya dobel di semua sisi yang berimpit
+sketsa).
+
+Perbaikan: `render_all_element_dimensions` merekam `line_anchors_2d`
+(posisi dunia + panjang tiap Line 2D yang sudah dilabeli) selagi loop 2D
+jalan, lalu loop rusuk 3D melewati (skip) rusuk mana pun yang posisi
+tengah + panjangnya cocok (toleransi 1e-3 mm posisi, 1e-3 mm panjang)
+dengan salah satu anchor itu — jadi tiap rusuk cuma dapat SATU label,
+diprioritaskan yang dari sketsa 2D (lebih presisi, sejajar garisnya).
+`cargo test --workspace -- --test-threads=1` tetap 148 test hijau (fix
+murni logika render, tidak menyentuh kernel/model).
+
 ## Menjalankan
 
 ```bash
