@@ -177,6 +177,10 @@ pub struct FeatureInspectorState {
     pub section_axis: u8, // 0 = X, 1 = Y, 2 = Z
     pub section_offset: f32,
     pub section_invert: bool,
+
+    /// Batas tinggi maksimum panel (dari bawah ViewCube sampai bawah layar).
+    /// Panel akan menyusut mengikuti isi kontennya jika lebih pendek dari batas ini.
+    pub max_panel_height: f32,
 }
 
 impl Default for FeatureInspectorState {
@@ -214,6 +218,8 @@ impl Default for FeatureInspectorState {
             section_axis: 2, // Z
             section_offset: 0.0,
             section_invert: false,
+
+            max_panel_height: 600.0,
         }
     }
 }
@@ -285,7 +291,13 @@ impl FeatureInspector {
 
             ui.separator();
 
-            ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            // auto_shrink([false, true]): lebar tetap mengikuti ui, tapi tinggi menyusut
+            // mengikuti isi konten (responsif) dan hanya membatasi sampai max_panel_height
+            // (dari bawah ViewCube sampai bawah layar) saat konten lebih panjang dari itu.
+            ScrollArea::vertical()
+                .auto_shrink([false, true])
+                .max_height(state.max_panel_height)
+                .show(ui, |ui| {
                 // 2. Tampilkan Konten Sesuai Status Seleksi
                 match &state.selected_entity {
                     SelectedEntityData::Line {

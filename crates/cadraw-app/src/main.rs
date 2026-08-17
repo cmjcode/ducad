@@ -499,6 +499,25 @@ enum PickMode {
     Face,
 }
 
+/// "Sidik jari" ringkas dari seluruh state yang memengaruhi tinggi konten Panel
+/// Properti. egui meng-cache tinggi `Area` dari frame sebelumnya sebagai patokan
+/// "ruang tersedia" frame berikutnya — jika kontennya membesar (mis. ganti seleksi
+/// dari kosong ke body dengan banyak fitur), tinggi lama yang sudah ter-clip oleh
+/// ScrollArea akan terjebak permanen di ukuran kecil itu. Membandingkan sig ini
+/// tiap frame membiarkan kita memaksa `Area::sizing_pass(true)` (ukur ulang dari
+/// nol) tepat pada frame kontennya berubah, lalu diam lagi di frame-frame stabil.
+type InspectorContentSig = (
+    std::mem::Discriminant<SelectedEntityData>,
+    bool,
+    usize,
+    usize,
+    usize,
+    bool,
+    bool,
+    bool,
+    PickMode,
+);
+
 /// Satu tepi 3D terpilih lewat picking (Fase 8): `ray` dunia yang dipakai
 /// klik (di-cast ULANG terhadap shape hasil `deep_clone` saat apply — lihat
 /// desain `cadraw_kernel::PickRay`), plus `polyline` hasil pick SEKARANG
@@ -673,6 +692,9 @@ struct CadrawApp {
     viewcube: ViewCube,
     feature_inspector_open: bool,
     auto_hide_properties: bool,
+    /// Sig konten Panel Properti dari frame terakhir dipakai untuk memutuskan
+    /// apakah `Area`-nya perlu `sizing_pass` ulang frame ini (lihat `InspectorContentSig`).
+    inspector_content_sig: Option<InspectorContentSig>,
     prop_input_p1_x: String,
     prop_input_p1_y: String,
     prop_input_p2_x: String,
@@ -825,6 +847,7 @@ impl CadrawApp {
             viewcube: ViewCube::default(),
             feature_inspector_open: true,
             auto_hide_properties: true,
+            inspector_content_sig: None,
             prop_input_p1_x: String::new(),
             prop_input_p1_y: String::new(),
             prop_input_p2_x: String::new(),
@@ -4650,18 +4673,10 @@ impl eframe::App for CadrawApp {
             self.feature_inspector_open
         };
 
-        let inspector_outer_w = 260.0;
-        let inspector_x = (screen_rect.max.x - topbar_margin_right - inspector_outer_w).max(180.0);
-        let inspector_y = 56.0;
-        let _inspector_h = (screen_rect.max.y - inspector_y - 12.0).max(200.0);
-
-        // 8. Interactive 3D ViewCube (Otomatis Bergeser ke Kiri Sidebar Saat Sidebar Terbuka)
+        // 8. Interactive 3D ViewCube (Selalu di Pojok Kanan Atas, Tidak Bergeser Lagi
+        // Karena Panel Properti Sekarang Ada di Tengah Vertikal, Bukan di Pojok yang Sama)
         let viewcube_y = 102.0;
-        let viewcube_pos = if show_right_sidebar {
-            egui::pos2(inspector_x - 52.0, viewcube_y)
-        } else {
-            egui::pos2(screen_rect.max.x - topbar_margin_right - 42.0, viewcube_y)
-        };
+        let viewcube_pos = egui::pos2(screen_rect.max.x - topbar_margin_right - 42.0, viewcube_y);
         egui::Area::new(egui::Id::new("cadraw-viewcube-area"))
             .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
             .order(egui::Order::Foreground)
@@ -4850,10 +4865,12 @@ impl eframe::App for CadrawApp {
             None
         };
 
-        // Tombol Toggle Buka Sidebar Kanan jika sedang tertutup/tersembunyi (ditempatkan rapi di bawah ViewCube)
+        // Tombol Toggle Buka Sidebar Kanan jika sedang tertutup/tersembunyi
+        // (ditempatkan di tengah vertikal, sejajar dengan posisi panel saat terbuka)
         if !show_right_sidebar {
             egui::Area::new(egui::Id::new("cadraw-inspector-toggle-area"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right - 88.0, 154.0))
+                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right, screen_rect.center().y))
+                .pivot(egui::Align2::RIGHT_CENTER)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     let btn = egui::Button::new(egui::RichText::new("⚙ Properties").size(12.0).color(egui::Color32::from_rgb(220, 230, 242)))
@@ -4867,8 +4884,29 @@ impl eframe::App for CadrawApp {
                 });
         }
 
-        // 7. Right Floating Feature Inspector (Pojok Kanan Atas di bawah ViewCube)
+        // 7. Right Floating Feature Inspector (Tengah Vertikal, Tinggi Maksimum
+        // Dibatasi dari Bawah ViewCube sampai Bawah Layar — Menyusut Jika Isi Sedikit)
+        let inspector_top_bound = viewcube_y + 52.0;
+        let inspector_bottom_margin = 12.0;
+        let inspector_max_h = (screen_rect.max.y - inspector_top_bound - inspector_bottom_margin).max(120.0);
         if show_right_sidebar {
+            let inspector_sig: InspectorContentSig = (
+                std::mem::discriminant(&selected_entity_data),
+                selected_body_data.is_some(),
+                self.selected_bodies.len(),
+                self.selected_edges.len(),
+                self.selected_faces.len(),
+                self.active_face.is_some(),
+                self.pending_loft_bottom.is_some(),
+                self.section_enabled,
+                self.picking_mode,
+            );
+            // Konten berubah dari frame sebelumnya (mis. ganti seleksi) -> paksa Area
+            // mengukur ulang tingginya dari nol, alih-alih terjebak di tinggi lama
+            // yang sudah ter-clip ScrollArea (lihat dok `InspectorContentSig`).
+            let inspector_force_resize = self.inspector_content_sig != Some(inspector_sig);
+            self.inspector_content_sig = Some(inspector_sig);
+
             let mut inspector_state = FeatureInspectorState {
                 auto_hide_enabled: self.auto_hide_properties,
                 selected_entity: selected_entity_data,
@@ -4910,10 +4948,19 @@ impl eframe::App for CadrawApp {
                 },
                 section_offset: self.section_offset,
                 section_invert: self.section_invert,
+
+                max_panel_height: inspector_max_h,
             };
 
             egui::Area::new(egui::Id::new("cadraw-inspector-area"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right - 264.0, 154.0))
+                .fixed_pos(egui::pos2(screen_rect.max.x - topbar_margin_right, screen_rect.center().y))
+                .pivot(egui::Align2::RIGHT_CENTER)
+                .constrain_to(screen_rect)
+                // Beri batas ukur yang cukup lega (setinggi inspector_max_h) supaya
+                // sizing_pass di atas benar-benar bisa mengukur konten sampai
+                // setinggi itu, bukan cuma sampai 400px bawaan egui.
+                .default_size(egui::vec2(264.0, inspector_max_h))
+                .sizing_pass(inspector_force_resize)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     if let Some(insp_ev) = FeatureInspector::show(ui, &mut inspector_state) {
