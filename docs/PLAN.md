@@ -762,8 +762,28 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       stack manapun. Hasil disimpan di `CadrawApp::measurements`,
       digambar permanen sebagai garis kuning
       (`cadraw_render::sketch::measurement_lines`, 3 test vertex-count)
-      dan didaftar di jendela mengambang "📏 Pengukuran" (bisa dihapus
-      satu-satu atau semua sekaligus, juga lewat command palette).
+      dan didaftar di kartu "📏 Pengukuran" (bisa dihapus satu-satu atau
+      semua sekaligus, juga lewat command palette) — awalnya jendela
+      mengambang terpisah, **dipindah ke panel Properties kanan**
+      (`FeatureInspector`, kartu selalu tampil non-selection-dependent
+      seperti "Section View") supaya konsisten dengan lokasi panel tool
+      lain; panel dipaksa tetap tampil (bypass auto-hide) selama tool
+      Ukur/Ukur Sudut aktif ATAU masih ada hasil pengukuran tersimpan.
+      Tool Ukur Jarak juga dapat dimension pill in-situ di tengah (median)
+      garis selagi ditarik (klik pertama sudah, sebelum klik kedua
+      commit) — pola sama persis dengan pill panjang tool Line di
+      `dynamic_input_ui` (`ToolKind::Measure if pending_points.len() == 1`).
+      Garis kuning-nya sendiri (baik masih preview ditarik MAUPUN sudah
+      di-commit ke `CadrawApp::measurements`) sekarang bergaya dimension
+      line CAD standar `↔`: kepala panah bentuk V di KEDUA ujung lewat
+      `cadraw_render::sketch::measurement_arrowheads` (fungsi baru,
+      terpisah dari `measurement_lines` supaya vertex tengah tool Ukur
+      Sudut — 3 titik, 2 segmen — TIDAK ikut dapat panah, cuma titik
+      pertama & terakhir; 4 test baru), dan nominal jaraknya ditaruh
+      permanen di tengah garis (bukan cuma selagi ditarik) lewat pill
+      baru di `dynamic_input_ui` yang membaca `Measurement::inline_value`
+      (nilai pendek tanpa prefix "Jarak:"/"Sudut:", beda dari `label()`
+      yang dipakai kartu panel Properties).
 - [x] **Section View**: clip plane di render, BUKAN operasi kernel — sadar
       dipilih supaya bisa digeser real-time (tiap frame) tanpa memanggil
       OCCT sama sekali (beda dari Boolean yang benar-benar memotong

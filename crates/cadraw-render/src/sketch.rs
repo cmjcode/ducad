@@ -117,6 +117,49 @@ pub fn measurement_lines(points: &[DVec2], plane: &SketchPlane) -> Vec<LineVerte
     verts
 }
 
+/// Kepala panah kecil bentuk V di kedua ujung garis pengukuran (bergaya
+/// dimension line CAD standar `↔`), TIDAK di vertex tengah untuk kasus
+/// Ukur Sudut (3 titik, 2 segmen) — cuma titik pertama & terakhir dari
+/// urutan `Measurement::points()` yang dapat kepala panah, supaya vertex
+/// sudut tidak kelihatan bercabang tiga. Dipisah dari `measurement_lines`
+/// (garis penghubung polos) supaya keduanya bisa dipakai independen.
+pub fn measurement_arrowheads(points: &[DVec2], plane: &SketchPlane) -> Vec<LineVertex> {
+    const HEAD_LEN: f64 = 4.0;
+    const HEAD_ANGLE: f64 = 0.45; // ~26 derajat dari sumbu garis
+
+    let mut verts = Vec::new();
+    if points.len() < 2 {
+        return verts;
+    }
+
+    let push_head = |verts: &mut Vec<LineVertex>, tip: DVec2, dir_out: DVec2| {
+        for sign in [-1.0_f64, 1.0] {
+            let angle = HEAD_ANGLE * sign;
+            let (s, c) = angle.sin_cos();
+            let rotated = DVec2::new(dir_out.x * c - dir_out.y * s, dir_out.x * s + dir_out.y * c);
+            let wing = tip - rotated * HEAD_LEN;
+            verts.push(LineVertex { position: to3(plane, tip), color: COLOR_MEASURE });
+            verts.push(LineVertex { position: to3(plane, wing), color: COLOR_MEASURE });
+        }
+    };
+
+    let first = points[0];
+    let second = points[1];
+    let dir_start = (first - second).normalize_or_zero();
+    if dir_start != DVec2::ZERO {
+        push_head(&mut verts, first, dir_start);
+    }
+
+    let last = points[points.len() - 1];
+    let before_last = points[points.len() - 2];
+    let dir_end = (last - before_last).normalize_or_zero();
+    if dir_end != DVec2::ZERO {
+        push_head(&mut verts, last, dir_end);
+    }
+
+    verts
+}
+
 /// Garis putus-putus 3D untuk proyeksi dimensi dan sumbu extrude.
 pub fn dashed_line_3d(p1: [f32; 3], p2: [f32; 3], dash_len: f32, color: [f32; 4]) -> Vec<LineVertex> {
     let mut verts = Vec::new();
@@ -576,6 +619,42 @@ mod tests {
             &plane,
         );
         assert_eq!(verts.len(), 4);
+    }
+
+    #[test]
+    fn measurement_arrowheads_empty_for_single_point() {
+        let plane = SketchPlane::top();
+        assert!(measurement_arrowheads(&[DVec2::new(0.0, 0.0)], &plane).is_empty());
+    }
+
+    #[test]
+    fn measurement_arrowheads_both_ends_for_two_points() {
+        // 2 titik -> 1 segmen -> kepala panah di KEDUA ujung (kiri & kanan),
+        // masing-masing 2 wing (V shape) x 2 vertex/garis = 4 vertex per ujung.
+        let plane = SketchPlane::top();
+        let verts = measurement_arrowheads(&[DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)], &plane);
+        assert_eq!(verts.len(), 8);
+    }
+
+    #[test]
+    fn measurement_arrowheads_skip_shared_vertex_for_three_points() {
+        // 3 titik (Ukur Sudut: a, vertex, b) -> tetap cuma 2 ujung yang dapat
+        // panah (titik pertama & terakhir), vertex tengah TIDAK dapat panah.
+        let plane = SketchPlane::top();
+        let verts = measurement_arrowheads(
+            &[DVec2::new(0.0, 0.0), DVec2::new(1.0, 1.0), DVec2::new(2.0, 0.0)],
+            &plane,
+        );
+        assert_eq!(verts.len(), 8);
+    }
+
+    #[test]
+    fn measurement_arrowheads_degenerate_coincident_points_no_panic() {
+        // Titik awal berimpit dengan titik kedua -> arah kepala panah nol ->
+        // tidak boleh panic (division oleh nol dsb), cukup skip kepala itu.
+        let plane = SketchPlane::top();
+        let verts = measurement_arrowheads(&[DVec2::new(3.0, 3.0), DVec2::new(3.0, 3.0)], &plane);
+        assert!(verts.is_empty());
     }
 
     #[test]

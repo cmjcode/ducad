@@ -10,7 +10,7 @@ use egui::{Color32, RichText, ScrollArea, Slider, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_EDIT, ICON_LOCK, ICON_OPEN_IN_FULL, ICON_PUSH_PIN, ICON_REDO,
-    ICON_REFRESH, ICON_TUNE, ICON_UNDO,
+    ICON_REFRESH, ICON_STRAIGHTEN, ICON_TUNE, ICON_UNDO,
 };
 use crate::theme::{card_frame, glass_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -140,6 +140,8 @@ pub enum InspectorEvent {
     ApplyShell { thickness: f64 },
     DeleteSelectedBodies,
     SectionViewChanged,
+    RemoveMeasurement(usize),
+    ClearMeasurements,
 }
 
 pub struct FeatureInspectorState {
@@ -177,6 +179,13 @@ pub struct FeatureInspectorState {
     pub section_axis: u8, // 0 = X, 1 = Y, 2 = Z
     pub section_offset: f32,
     pub section_invert: bool,
+
+    /// Label siap tampil untuk tiap pengukuran aktif (lihat `Measurement::label`
+    /// di `cadraw-app`). Panel ini cuma menampilkan string, non-destruktif.
+    pub measurements: Vec<String>,
+    /// True kalau tool Ukur/Ukur Sudut sedang aktif — dipakai untuk menampilkan
+    /// kartu Pengukuran walau daftarnya masih kosong (hint klik titik).
+    pub measurement_tool_active: bool,
 
     /// Batas tinggi maksimum panel (dari bawah ViewCube sampai bawah layar).
     /// Panel akan menyusut mengikuti isi kontennya jika lebih pendek dari batas ini.
@@ -218,6 +227,9 @@ impl Default for FeatureInspectorState {
             section_axis: 2, // Z
             section_offset: 0.0,
             section_invert: false,
+
+            measurements: Vec::new(),
+            measurement_tool_active: false,
 
             max_panel_height: 600.0,
         }
@@ -298,6 +310,46 @@ impl FeatureInspector {
                 .auto_shrink([false, true])
                 .max_height(state.max_panel_height)
                 .show(ui, |ui| {
+                // 1b. Pengukuran Card (dulu jendela mengambang terpisah — dipindah ke
+                // sini biar konsisten dengan panel Properties lain). Tampil kalau tool
+                // Ukur/Ukur Sudut aktif ATAU masih ada hasil pengukuran tersimpan.
+                if state.measurement_tool_active || !state.measurements.is_empty() {
+                    card_frame().show(ui, |ui| {
+                        ui.label(
+                            RichText::new(format!("{} Pengukuran", ICON_STRAIGHTEN))
+                                .strong()
+                                .size(11.5)
+                                .color(ACCENT_ORANGE),
+                        );
+                        if state.measurements.is_empty() {
+                            ui.label(
+                                RichText::new("Klik 2 titik untuk jarak, 3 titik untuk sudut")
+                                    .size(10.0)
+                                    .color(TEXT_SECONDARY),
+                            );
+                        }
+                        let mut remove_at: Option<usize> = None;
+                        for (i, label) in state.measurements.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(label).size(10.5).color(TEXT_SECONDARY));
+                                if ui.small_button(RichText::new(ICON_CLOSE).size(10.0)).clicked() {
+                                    remove_at = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = remove_at {
+                            event = Some(InspectorEvent::RemoveMeasurement(i));
+                        }
+                        if !state.measurements.is_empty() {
+                            ui.separator();
+                            if ui.button(RichText::new("Hapus Semua").size(10.5)).clicked() {
+                                event = Some(InspectorEvent::ClearMeasurements);
+                            }
+                        }
+                    });
+                    ui.add_space(3.0);
+                }
+
                 // 2. Tampilkan Konten Sesuai Status Seleksi
                 match &state.selected_entity {
                     SelectedEntityData::Line {

@@ -59,7 +59,9 @@
 //! Poles & performa (Fase 7): tool "📏 Ukur ▾" — Ukur Jarak (2 klik) & Ukur
 //! Sudut (3 klik) — non-destruktif (`cadraw_sketch::measure`, tidak masuk
 //! undo stack manapun), hasil digambar permanen (garis kuning) dan
-//! didaftar di jendela "📏 Pengukuran". Panel "✂ Section View" di panel
+//! didaftar di kartu "📏 Pengukuran" pada panel Properties kanan (sama
+//! seperti panel properti lain, bukan jendela mengambang terpisah lagi).
+//! Panel "✂ Section View" di panel
 //! Model 3D — bidang potong murni efek shader (`SceneRenderer::
 //! set_clip_plane`), aman digeser real-time karena TIDAK memanggil kernel
 //! OCCT sama sekali (beda dari Boolean). Import STEP sekarang lewat
@@ -454,6 +456,21 @@ impl Measurement {
             Measurement::Angle { a, vertex, b } => vec![*a, *vertex, *b],
         }
     }
+
+    /// Nilai pendek untuk badge dimensi in-situ langsung di atas garisnya
+    /// (`dynamic_input_ui`) — beda dari `label()` yang punya prefix
+    /// "Jarak:"/"Sudut:" untuk konteks daftar di panel Properties kanan.
+    /// `None` untuk sudut degenerate (dua titik berimpit dengan vertex).
+    fn inline_value(&self, unit: LengthUnit) -> Option<String> {
+        match self {
+            Measurement::Distance { a, b } => {
+                Some(unit.format_precise(cadraw_sketch::measure::distance(*a, *b)))
+            }
+            Measurement::Angle { a, vertex, b } => {
+                cadraw_sketch::measure::angle_degrees(*a, *vertex, *b).map(|deg| format!("{deg:.1}°"))
+            }
+        }
+    }
 }
 
 /// Sumbu bidang potong Section View (Fase 7) — normal sejajar sumbu dunia,
@@ -516,6 +533,8 @@ type InspectorContentSig = (
     bool,
     bool,
     PickMode,
+    usize,
+    bool,
 );
 
 /// Satu tepi 3D terpilih lewat picking (Fase 8): `ray` dunia yang dipakai
@@ -2950,9 +2969,13 @@ impl CadrawApp {
             }
         }
 
-        // Pengukuran (Fase 7) tergambar permanen
+        // Pengukuran (Fase 7) tergambar permanen — garis + kepala panah kedua
+        // ujung bergaya dimension line (↔), nilai jaraknya ditampilkan langsung
+        // di atas garis lewat pill di `dynamic_input_ui` (lihat `inline_value`).
         for measurement in &self.measurements {
-            verts.extend(sketch_render::measurement_lines(&measurement.points(), &self.active_plane));
+            let pts = measurement.points();
+            verts.extend(sketch_render::measurement_lines(&pts, &self.active_plane));
+            verts.extend(sketch_render::measurement_arrowheads(&pts, &self.active_plane));
         }
 
         // Highlight tepi 3D terpilih via picking
@@ -3112,6 +3135,7 @@ impl CadrawApp {
                     let mut preview_points = self.pending_points.clone();
                     preview_points.push(effective);
                     verts.extend(sketch_render::measurement_lines(&preview_points, &self.active_plane));
+                    verts.extend(sketch_render::measurement_arrowheads(&preview_points, &self.active_plane));
                 }
                 _ => {}
             }
@@ -3126,6 +3150,28 @@ impl CadrawApp {
 
     /// Kotak input mengambang dan badge dimensi in-situ (Screenshot 1, 2, 3, 4)
     fn dynamic_input_ui(&mut self, ui: &mut egui::Ui, rect: egui::Rect, raw_cursor: Option<DVec2>) {
+        // 0. Nilai pengukuran yang SUDAH di-commit (bukan lagi sedang ditarik) —
+        // pill ditaruh di tengah (median) garis kuningnya, sama gaya dengan pill
+        // panjang tool Line, supaya nominalnya kebaca langsung di garisnya (bukan
+        // cuma di kartu "📏 Pengukuran" panel Properties kanan).
+        if !self.measurements.is_empty() {
+            let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+            let offset_dist = (14.0 * world_scale).max(8.0);
+            for m in &self.measurements {
+                let Some(value) = m.inline_value(self.unit) else { continue };
+                let pts = m.points();
+                let (Some(&a), Some(&b)) = (pts.first(), pts.last()) else { continue };
+                let mid = (a + b) * 0.5;
+                let dir = (b - a).normalize_or_zero();
+                let normal = DVec2::new(-dir.y, dir.x);
+                let label_pos = mid + normal * offset_dist;
+                let label_3d = self.active_plane.to_world(label_pos, 0.0);
+                if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                    CanvasHud::render_dimension_pill(ui, pos_2d, &value, false);
+                }
+            }
+        }
+
         // 1. Floating Dimension Pills saat sedang menggambar (Screenshot 1)
         if let Some(raw) = raw_cursor {
             let effective = self.snapped_or(raw);
@@ -3172,6 +3218,21 @@ impl CadrawApp {
                     let mid_3d = self.active_plane.to_world(mid, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid_3d) {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &format!("R {}", self.unit.format_precise(radius)), false);
+                    }
+                }
+                ToolKind::Measure if self.pending_points.len() == 1 => {
+                    // Tool Ukur Jarak: sama seperti pill panjang di tool Line —
+                    // tampil di tengah (median) garis pengukuran selagi ditarik,
+                    // sebelum klik kedua meng-commit ke `self.measurements`.
+                    let start = self.pending_points[0];
+                    let len = (effective - start).length();
+                    let mid = (start + effective) * 0.5;
+                    let dir = (effective - start).normalize_or_zero();
+                    let normal = DVec2::new(-dir.y, dir.x);
+                    let label_pos = mid + normal * offset_dist;
+                    let label_3d = self.active_plane.to_world(label_pos, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(len), false);
                     }
                 }
                 _ => {}
@@ -4314,44 +4375,6 @@ impl CadrawApp {
         })
     }
 
-    /// Panel "📏 Pengukuran" (Fase 7) — jendela mengambang kecil, cuma
-    /// tampil kalau ada isinya ATAU tool Ukur/Ukur Sudut sedang aktif
-    /// (supaya tidak menambah dua panel sisi permanen lagi di layar yang
-    /// sudah punya panel Model + Constraint). Daftar bisa dihapus satu-satu
-    /// (✕) atau semua sekaligus — non-destruktif, tidak menyentuh undo
-    /// stack manapun (lihat `Measurement`).
-    fn measurement_panel(&mut self, ctx: &egui::Context) {
-        let tool_active = matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
-        if self.measurements.is_empty() && !tool_active {
-            return;
-        }
-        egui::Window::new("📏 Pengukuran")
-            .default_pos(egui::pos2(260.0, 80.0))
-            .resizable(false)
-            .show(ctx, |ui| {
-                if self.measurements.is_empty() {
-                    ui.weak("(belum ada — klik 2 titik untuk jarak, 3 titik untuk sudut)");
-                }
-                let mut remove_at: Option<usize> = None;
-                for (i, m) in self.measurements.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        ui.label(m.label());
-                        if ui.small_button("✕").clicked() {
-                            remove_at = Some(i);
-                        }
-                    });
-                }
-                if let Some(i) = remove_at {
-                    self.measurements.remove(i);
-                }
-                if !self.measurements.is_empty() {
-                    ui.separator();
-                    if ui.button("Hapus Semua").clicked() {
-                        self.measurements.clear();
-                    }
-                }
-            });
-    }
 }
 
 /// Untuk tool Trim: segmen (awal,akhir) yang akan terhapus jika `hover`
@@ -4715,8 +4738,15 @@ impl eframe::App for CadrawApp {
         // 7. Right Properties & Features Inspector (Fixed di Kanan Kanvas, Sejajar Tepi Kanan dg Header)
         let is_editing_or_drawing = self.tool != ToolKind::Select;
         let has_active_selection = !self.selected.is_empty() || !self.selected_bodies.is_empty();
+        // Tool Ukur/Ukur Sudut aktif, atau masih ada hasil pengukuran tersimpan,
+        // memaksa panel tetap tampil (kartu "📏 Pengukuran" di dalamnya) —
+        // dulu ini kondisi yang sama dipakai jendela mengambang terpisah,
+        // sekarang panel yang sama dipakai supaya konsisten dengan panel lain.
+        let measure_tool_active = matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
+        let has_measurements = !self.measurements.is_empty();
         let show_right_sidebar = if self.auto_hide_properties {
-            !is_editing_or_drawing && has_active_selection && self.feature_inspector_open
+            ((!is_editing_or_drawing && has_active_selection) || measure_tool_active || has_measurements)
+                && self.feature_inspector_open
         } else {
             self.feature_inspector_open
         };
@@ -4948,6 +4978,8 @@ impl eframe::App for CadrawApp {
                 self.pending_loft_bottom.is_some(),
                 self.section_enabled,
                 self.picking_mode,
+                self.measurements.len(),
+                measure_tool_active,
             );
             // Konten berubah dari frame sebelumnya (mis. ganti seleksi) -> paksa Area
             // mengukur ulang tingginya dari nol, alih-alih terjebak di tinggi lama
@@ -4996,6 +5028,9 @@ impl eframe::App for CadrawApp {
                 },
                 section_offset: self.section_offset,
                 section_invert: self.section_invert,
+
+                measurements: self.measurements.iter().map(|m| m.label()).collect(),
+                measurement_tool_active: measure_tool_active,
 
                 max_panel_height: inspector_max_h,
             };
@@ -5232,6 +5267,14 @@ impl eframe::App for CadrawApp {
                                 self.section_offset = inspector_state.section_offset;
                                 self.section_invert = inspector_state.section_invert;
                             }
+                            InspectorEvent::RemoveMeasurement(i) => {
+                                if i < self.measurements.len() {
+                                    self.measurements.remove(i);
+                                }
+                            }
+                            InspectorEvent::ClearMeasurements => {
+                                self.measurements.clear();
+                            }
                         }
                     }
                 });
@@ -5258,9 +5301,6 @@ impl eframe::App for CadrawApp {
                     }
                 }
             });
-
-        // 12. Floating Measurement Window (jika ada pengukuran aktif)
-        self.measurement_panel(ctx);
 
         // 13. Command Palette Overlay
         let palette_actions = self.palette_actions();
