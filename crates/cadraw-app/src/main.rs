@@ -3167,6 +3167,17 @@ impl CadrawApp {
     fn screen_line_angle(&self, rect: egui::Rect, a: DVec2, b: DVec2) -> f32 {
         let a_3d = self.active_plane.to_world(a, 0.0);
         let b_3d = self.active_plane.to_world(b, 0.0);
+        self.screen_angle_between_world_points(rect, a_3d, b_3d)
+    }
+
+    /// Sama seperti `screen_line_angle`, tapi menerima titik DUNIA langsung
+    /// (bukan koordinat 2D bidang sketsa aktif) — dipakai rusuk 3D body
+    /// (`render_all_element_dimensions`) yang endpoint-nya sudah dalam
+    /// world space (`EdgeDimension::start`/`end`, lihat `cadraw-kernel`),
+    /// tidak lewat `active_plane.to_world`. Dihitung ULANG dari proyeksi
+    /// kamera TIAP FRAME (bukan sekali saat body dibuat) — makanya label
+    /// tetap sejajar rusuknya masing-masing walau kamera diputar-putar.
+    fn screen_angle_between_world_points(&self, rect: egui::Rect, a_3d: Vec3, b_3d: Vec3) -> f32 {
         match (
             world_to_screen_pos(&self.camera, rect, a_3d),
             world_to_screen_pos(&self.camera, rect, b_3d),
@@ -3266,7 +3277,7 @@ impl CadrawApp {
             if !visible {
                 continue;
             }
-            for (mid, length) in &geo.edge_dims {
+            for (mid, start, end, length) in &geo.edge_dims {
                 let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
                 let already_shown_by_sketch = line_anchors_2d.iter().any(|(anchor, len)| {
                     (world_pt - *anchor).length() < COINCIDENCE_POS_EPS && (length - len).abs() < COINCIDENCE_LEN_EPS
@@ -3275,7 +3286,14 @@ impl CadrawApp {
                     continue;
                 }
                 if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
-                    CanvasHud::render_dimension_pill(ui, pos_2d, &self.unit.format_precise(*length), false);
+                    // Sejajar arah rusuk di layar (bukan selalu datar) —
+                    // dihitung ulang dari proyeksi kamera SEKARANG, jadi
+                    // ikut berputar bersama kamera, sama seperti pill
+                    // dimensi sketsa 2D.
+                    let start_pt = Vec3::new(start.0 as f32, start.1 as f32, start.2 as f32);
+                    let end_pt = Vec3::new(end.0 as f32, end.1 as f32, end.2 as f32);
+                    let angle = self.screen_angle_between_world_points(rect, start_pt, end_pt);
+                    CanvasHud::render_dimension_pill_aligned(ui, pos_2d, angle, &self.unit.format_precise(*length));
                 }
             }
         }

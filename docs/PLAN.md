@@ -1667,6 +1667,32 @@ diprioritaskan yang dari sketsa 2D (lebih presisi, sejajar garisnya).
 `cargo test --workspace -- --test-threads=1` tetap 148 test hijau (fix
 murni logika render, tidak menyentuh kernel/model).
 
+**Perbaikan susulan 2 — label rusuk 3D disejajarkan ke garisnya:** user
+minta nominal ukuran SELALU sejajar arah garis/rusuknya masing-masing,
+tetap sejajar walau kamera diputar — sebelumnya label rusuk 3D memakai
+`render_dimension_pill` (selalu datar horizontal), beda dari label sketsa
+2D yang sudah pakai `render_dimension_pill_aligned` (ikut arah garis).
+Perlu titik AWAL+AKHIR tiap rusuk (bukan cuma titik tengah) supaya sudut
+layarnya bisa dihitung dari proyeksi kamera SEKARANG, sama seperti
+`screen_line_angle` yang dipakai sketsa 2D:
+
+- `cadraw-kernel::EdgeDimension` diperluas dari `(mid, length)` jadi
+  `(mid, start, end, length)` — `edge_dimensions` mengembalikan endpoint
+  dunia tiap rusuk juga, bukan cuma titik tengah arc-length-nya. Test
+  `edge_dimensions_reports_all_box_edges` diperluas: validasi korda
+  start↔end sama dengan `length` (rusuk box selalu lurus) dan `mid` persis
+  di tengah start↔end. 64 test kernel tetap hijau.
+- `cadraw-app::main`: `screen_line_angle` (2D) di-refactor, bagian inti
+  "proyeksi 2 titik dunia → sudut layar dinormalisasi -90°..90°" dipecah
+  jadi `screen_angle_between_world_points` yang menerima `Vec3` dunia
+  langsung — dipakai ULANG oleh loop rusuk 3D di
+  `render_all_element_dimensions` (ganti `render_dimension_pill` jadi
+  `render_dimension_pill_aligned`, sudut dihitung dari `start`/`end` rusuk
+  TIAP FRAME, bukan sekali saat body dibuat) — jadi label rusuk 3D ikut
+  berputar sejajar rusuknya persis seperti label sketsa 2D, real-time
+  mengikuti orbit kamera. `cargo test --workspace -- --test-threads=1`
+  tetap 148 test hijau.
+
 ## Menjalankan
 
 ```bash

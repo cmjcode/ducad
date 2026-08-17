@@ -1186,9 +1186,14 @@ pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<Ed
     })
 }
 
-/// (titik tengah dunia edge di arc-length setengah panjangnya, panjang
-/// total edge) — satu entri per edge topologi shape.
-pub type EdgeDimension = ((f64, f64, f64), f64);
+/// (titik tengah dunia edge di arc-length setengah panjangnya, titik AWAL
+/// dan AKHIR edge, panjang total edge) — satu entri per edge topologi
+/// shape. `start`/`end` disertakan (bukan cuma titik tengah) supaya
+/// pemanggil (cadraw-app) bisa menghitung sudut layar rusuknya SETELAH
+/// diproyeksikan kamera — label dimensi dengan begitu bisa disejajarkan ke
+/// arah rusuknya sendiri, ikut berubah sudut saat kamera diputar, sama
+/// seperti pill dimensi entitas sketsa 2D.
+pub type EdgeDimension = ((f64, f64, f64), (f64, f64, f64), (f64, f64, f64), f64);
 
 /// Panjang + titik tengah SEMUA edge shape, dipakai fitur "Tampilkan
 /// Semua Ukuran" (checkbox ruler properties, cadraw-app) untuk melabeli
@@ -1249,7 +1254,12 @@ pub fn edge_dimensions(shape: &KernelShape) -> Vec<EdgeDimension> {
             acc += seg_len;
             mid = w[1];
         }
-        out.push(((mid.x, mid.y, mid.z), length));
+        out.push((
+            (mid.x, mid.y, mid.z),
+            (start.x, start.y, start.z),
+            (end.x, end.y, end.z),
+            length,
+        ));
     }
     out
 }
@@ -1815,19 +1825,30 @@ mod tests {
         let dims = edge_dimensions(&shape);
         assert_eq!(dims.len(), 12, "box punya 12 rusuk topologi");
 
-        let mut lengths: Vec<f64> = dims.iter().map(|(_, len)| *len).collect();
+        let mut lengths: Vec<f64> = dims.iter().map(|(_, _, _, len)| *len).collect();
         lengths.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let expected: [f64; 12] = [15.0, 15.0, 15.0, 15.0, 20.0, 20.0, 20.0, 20.0, 30.0, 30.0, 30.0, 30.0];
         for (got, want) in lengths.iter().zip(expected.iter()) {
             assert!((got - want).abs() < 1e-3, "panjang rusuk {} tidak cocok dgn {}", got, want);
         }
 
-        // Titik tengah tiap rusuk harus jatuh di dalam/pada bounding box
-        // shape (0..30, 0..20, 0..15) — bukan di luar jangkauan geometri.
-        for ((mx, my, mz), _) in &dims {
+        for ((mx, my, mz), start, end, length) in &dims {
+            // Titik tengah, start, dan end tiap rusuk harus jatuh di
+            // dalam/pada bounding box shape (0..30, 0..20, 0..15) — bukan
+            // di luar jangkauan geometri.
             assert!((-1e-3..=30.0 + 1e-3).contains(mx));
             assert!((-1e-3..=20.0 + 1e-3).contains(my));
             assert!((-1e-3..=15.0 + 1e-3).contains(mz));
+
+            // Rusuk box selalu lurus — jarak start↔end (korda) harus sama
+            // dgn `length` (arc-length polyline), dan `mid` harus persis
+            // di tengah start↔end. Ini validasi utama field baru
+            // `start`/`end` (dipakai app menghitung sudut layar rusuk).
+            let chord = ((end.0 - start.0).powi(2) + (end.1 - start.1).powi(2) + (end.2 - start.2).powi(2)).sqrt();
+            assert!((chord - length).abs() < 1e-3, "korda {} vs panjang {} beda jauh utk rusuk lurus", chord, length);
+            assert!((mx - (start.0 + end.0) * 0.5).abs() < 1e-3);
+            assert!((my - (start.1 + end.1) * 0.5).abs() < 1e-3);
+            assert!((mz - (start.2 + end.2) * 0.5).abs() < 1e-3);
         }
     }
 
