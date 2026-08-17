@@ -509,6 +509,42 @@ struct PickedEdge {
     polyline: Vec<(f64, f64, f64)>,
 }
 
+/// Jenis target satu fitur rounding parametrik: titik sudut (blend semua
+/// rusuk yang bertemu di vertex, via `fillet_vertex`) atau satu rusuk
+/// (via `fillet_edges` 1 ray).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RoundKind {
+    Vertex,
+    Edge,
+}
+
+/// Satu fitur rounding parametrik pada sebuah body. `ray` di-resolve ULANG
+/// terhadap shape dasar tiap rebuild (pola ray-based yang sama dengan
+/// `active_face`), `anchor` = titik klik semula (jangkar gizmo + tes
+/// kedekatan saat user mengklik sudut yang SUDAH bulat untuk mengeditnya).
+#[derive(Clone)]
+struct RoundFeature {
+    kind: RoundKind,
+    ray: PickRay,
+    anchor: (f64, f64, f64),
+    radius: f64,
+    /// Polyline rusuk asli (kosong utk `RoundKind::Vertex`) — dipakai tes
+    /// kedekatan klik SEPANJANG rusuk yang sudah bulat, bukan cuma di
+    /// sekitar titik klik semula (`anchor`).
+    polyline: Vec<(f64, f64, f64)>,
+}
+
+/// Riwayat rounding satu body: shape dasar SEBELUM rounding pertama +
+/// daftar fitur yang di-apply berurutan di atasnya. Mengubah radius (atau
+/// menghapus fitur, radius→0 = kembali menyiku) = rebuild dari `base`,
+/// BUKAN memfillet ulang shape yang sudah difillet — inilah yang membuat
+/// gizmo rounding bisa dua arah (pull membesarkan radius, push mengecilkan
+/// sampai siku), bukan hanya menumpuk fillet baru.
+struct RoundHistory {
+    base: KernelShape,
+    features: Vec<RoundFeature>,
+}
+
 struct CadrawApp {
     camera: OrbitCamera,
 
@@ -566,6 +602,17 @@ struct CadrawApp {
     selected_faces: Vec<PickRay>,
     active_face: Option<(BodyId, PickRay, FaceHit)>,
     face_extrude_distance_input: String,
+
+    /// Vertex fillet gizmo (Fase 2 — Rounded Sudut 3D): sudut (vertex) 3D
+    /// yang sedang aktif. Simpan `ray` yang dipakai saat pick (bukan cuma
+    /// titik hasil) supaya resolusi ULANG vertex saat fillet sungguhan
+    /// dieksekusi tetap konsisten dgn body hasil `deep_clone` — pola sama
+    /// persis dgn `active_face`/`PickRay`. Di klik viewport mode 3D, pick
+    /// vertex dicoba DULUAN dan menang atas pick face (lihat
+    /// `handle_sketch_input`) karena target vertex jauh lebih kecil secara
+    /// visual dan gampang "ketutup" face di baliknya kalau tidak
+    /// diutamakan.
+    active_vertex: Option<(BodyId, PickRay, (f64, f64, f64))>,
 
     /// Fase 5 (File I/O). Path file `.cadraw` aktif — `None` sampai dokumen
     /// pernah disimpan/dibuka sekali; menentukan apakah "Simpan" (⌘S)
@@ -652,6 +699,48 @@ struct CadrawApp {
     face_gizmo_distance: f64,
     face_gizmo_dimension_editing: bool,
     face_gizmo_edit_input: String,
+
+    // State Vertex Fillet Gizmo (Fase 2: Rounded Sudut 3D)
+    filleting_vertex_from_gizmo: bool,
+    vertex_gizmo_radius: f64,
+    vertex_gizmo_dimension_editing: bool,
+    vertex_gizmo_edit_input: String,
+
+    /// Vertex TERDEKAT ke kursor SEKARANG (bukan hasil klik) dalam
+    /// toleransi pick — dihitung ULANG tiap frame di `handle_sketch_input`
+    /// saat mode 3D & tool Select, dipakai `build_overlay_lines` buat
+    /// highlight marker vertex yang bakal kena kalau diklik. Terpisah dari
+    /// `active_vertex` (yang cuma terisi SETELAH klik) supaya user dapat
+    /// feedback SEBELUM klik — keluhan awal fitur ini persis "tanpa
+    /// feedback hover, praktis mustahil dikenai".
+    hovered_vertex_marker: Option<(BodyId, (f64, f64, f64))>,
+
+    /// Rusuk (edge) 3D yang sedang aktif lewat gizmo rounding — cermin
+    /// `active_vertex` tapi menyasar RUSUK, bukan sudut. Dipakai untuk
+    /// kasus "klik rusuk pojok kubus" (mis. sisi tegak sudut box) yang
+    /// secara visual sering kena duluan sebelum titik vertex-nya sendiri
+    /// (lihat komentar di `pick_body_edge_at_cursor`). Titik yang disimpan
+    /// adalah titik klik PADA rusuk (dipakai sbg jangkar gizmo), `ray`
+    /// dipakai resolusi ULANG rusuk saat commit (pola sama dgn
+    /// `active_face`/`active_vertex`).
+    active_edge: Option<(BodyId, PickRay, (f64, f64, f64))>,
+
+    // State Edge Fillet Gizmo ("klik rusuk pojok -> rusuk membulat")
+    filleting_edge_from_gizmo: bool,
+    edge_gizmo_radius: f64,
+    edge_gizmo_dimension_editing: bool,
+    edge_gizmo_edit_input: String,
+
+    /// Riwayat rounding parametrik per body (lihat `RoundHistory`).
+    /// HANYA hidup selama sesi — tidak diserialisasi ke dokumen. Entri
+    /// body di-invalidate (fitur "dibake") begitu geometri body diubah
+    /// operasi lain (extrude face, boolean, fillet/chamfer/shell panel),
+    /// karena `base`-nya tidak lagi merepresentasikan shape saat ini.
+    round_history: std::collections::HashMap<BodyId, RoundHistory>,
+    /// `Some((body, index fitur))` saat gizmo rounding sedang MENGEDIT
+    /// fitur yang sudah ada (klik sudut yang sudah bulat), bukan membuat
+    /// fitur baru — commit mengubah/menghapus fitur itu lalu rebuild.
+    editing_round: Option<(BodyId, usize)>,
 }
 
 impl CadrawApp {
@@ -710,6 +799,7 @@ impl CadrawApp {
             selected_faces: Vec::new(),
             active_face: None,
             face_extrude_distance_input: "15".to_string(),
+            active_vertex: None,
 
             current_file_path: None,
             file_status: None,
@@ -758,6 +848,21 @@ impl CadrawApp {
             face_gizmo_distance: 15.0,
             face_gizmo_dimension_editing: false,
             face_gizmo_edit_input: "15".to_string(),
+
+            filleting_vertex_from_gizmo: false,
+            vertex_gizmo_radius: 3.0,
+            vertex_gizmo_dimension_editing: false,
+            vertex_gizmo_edit_input: "3".to_string(),
+
+            hovered_vertex_marker: None,
+            active_edge: None,
+            filleting_edge_from_gizmo: false,
+            edge_gizmo_radius: 3.0,
+            edge_gizmo_dimension_editing: false,
+            edge_gizmo_edit_input: "3".to_string(),
+
+            round_history: std::collections::HashMap::new(),
+            editing_round: None,
         }
     }
 
@@ -1890,6 +1995,9 @@ impl CadrawApp {
                                         Box::new(ReplaceGeometryCommand::new("Cut Extrude", target_id, new_geo)),
                                         &mut self.model,
                                     );
+                                    // Riwayat rounding basi begitu geometri
+                                    // diubah operasi non-rounding.
+                                    self.round_history.remove(&target_id);
                                 }
                             }
                         }
@@ -2172,7 +2280,11 @@ impl CadrawApp {
                 self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                if !self.pending_points.is_empty()
+                if self.active_vertex.is_some() || self.active_edge.is_some() {
+                    self.active_vertex = None;
+                    self.active_edge = None;
+                    self.editing_round = None;
+                } else if !self.pending_points.is_empty()
                     || !self.pending_point_refs.is_empty()
                     || self.offset_source.is_some()
                 {
@@ -2269,6 +2381,26 @@ impl CadrawApp {
                         .flatten()
                 };
 
+                // Hover highlight vertex 3D (mode 3D, tool Select) — dihitung
+                // TIAP FRAME kursor ada di viewport, terpisah dari klik, supaya
+                // `build_overlay_lines` bisa menyorot sudut yang bakal kena
+                // SEBELUM diklik (lihat `hovered_vertex_marker`). Dilewati
+                // selagi drag gizmo apa pun supaya tidak query kernel percuma
+                // tiap frame drag.
+                self.hovered_vertex_marker = if !self.is_sketching
+                    && response.hovered()
+                    && !self.filleting_vertex_from_gizmo
+                    && !self.filleting_edge_from_gizmo
+                    && !self.extruding_face_from_gizmo
+                {
+                    response
+                        .hover_pos()
+                        .and_then(|pos| self.pick_body_vertex_at_cursor(rect, pos))
+                        .map(|(id, _, vhit)| (id, vhit))
+                } else {
+                    None
+                };
+
                 if response.clicked() {
                     eprintln!(
                         "[DEBUG click] response.clicked()=true, suppress_click_from_radial={}",
@@ -2292,6 +2424,24 @@ impl CadrawApp {
                     // tidak dihapus setelah extrude), padahal user mengklik untuk
                     // memilih face 3D-nya. Tanpa ini gizmo panah face tidak pernah
                     // muncul karena cabang region_hit di bawah selalu menang duluan.
+                    // Vertex fillet gizmo (Fase 2): pick vertex (sudut) DULUAN,
+                    // sebelum edge/face_pick_3d — target vertex kecil secara
+                    // visual dan sering "ketutup" face di baliknya, jadi harus
+                    // menang prioritas kalau kena keduanya. Edge fillet gizmo
+                    // ("klik rusuk pojok kubus"): dicoba SETELAH vertex meleset,
+                    // SEBELUM face — kasus "klik sudut kubus" yang sebenarnya
+                    // jatuh di rusuk vertikal pojok (bukan titik vertex-nya)
+                    // harus tetap kena gizmo rounding, bukan langsung jatuh ke
+                    // face di baliknya (lihat `pick_body_edge_at_cursor`).
+                    // Face pick dihitung PALING AWAL (walau prioritas
+                    // pilihnya paling akhir) karena titik hit face dipakai
+                    // tes intersepsi "edit rounding": klik pada sudut/rusuk
+                    // yang SUDAH dibulatkan harus membuka KEMBALI gizmo
+                    // rounding untuk mengubah radius fitur itu (termasuk
+                    // push sampai 0 = kembali menyiku), BUKAN jatuh ke
+                    // vertex/edge pick baru di patch fillet (menumpuk
+                    // fillet di atas fillet) apalagi ke gizmo extrude face
+                    // (yang malah membesarkan objek).
                     let face_pick_3d = if !self.is_sketching && !shift {
                         eprintln!("[DEBUG click] mencoba face_pick_3d (mode 3D, tanpa shift)...");
                         click_pos.and_then(|pos| self.pick_body_face_at_cursor(rect, pos))
@@ -2303,18 +2453,94 @@ impl CadrawApp {
                         None
                     };
 
-                    if let Some((b_id, ray, hit)) = face_pick_3d {
+                    let round_edit = face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
+                        self.find_round_feature_near(*b_id, hit.hit_point, rect)
+                            .map(|idx| (*b_id, idx))
+                    });
+
+                    let vertex_pick_3d = if round_edit.is_none() && !self.is_sketching && !shift {
+                        eprintln!("[DEBUG click] mencoba vertex_pick_3d (mode 3D, tanpa shift)...");
+                        click_pos.and_then(|pos| self.pick_body_vertex_at_cursor(rect, pos))
+                    } else {
+                        None
+                    };
+
+                    let edge_pick_3d = if round_edit.is_none() && vertex_pick_3d.is_none() && !self.is_sketching && !shift {
+                        eprintln!("[DEBUG click] mencoba edge_pick_3d (mode 3D, tanpa shift)...");
+                        click_pos.and_then(|pos| self.pick_body_edge_at_cursor(rect, pos))
+                    } else {
+                        None
+                    };
+
+                    if let Some((b_id, idx)) = round_edit {
+                        eprintln!("[DEBUG click] -> cabang ROUND_EDIT diambil, body={b_id:?} fitur #{idx}");
+                        let feature = self.round_history[&b_id].features[idx].clone();
+                        self.selected.clear();
+                        self.selected_bodies.clear();
+                        self.selected_bodies.insert(b_id);
+                        self.editing_round = Some((b_id, idx));
+                        self.active_face = None;
+                        match feature.kind {
+                            RoundKind::Vertex => {
+                                self.active_vertex = Some((b_id, feature.ray, feature.anchor));
+                                self.active_edge = None;
+                                self.vertex_gizmo_radius = feature.radius;
+                                self.vertex_gizmo_edit_input =
+                                    format!("{:.1}", self.unit.to_display_val(feature.radius));
+                            }
+                            RoundKind::Edge => {
+                                self.active_edge = Some((b_id, feature.ray, feature.anchor));
+                                self.active_vertex = None;
+                                self.edge_gizmo_radius = feature.radius;
+                                self.edge_gizmo_edit_input =
+                                    format!("{:.1}", self.unit.to_display_val(feature.radius));
+                            }
+                        }
+                        self.model_status = Some(
+                            "Rounding terpilih — tarik/dorong handle utk ubah radius, dorong sampai 0 utk kembali menyiku".to_string(),
+                        );
+                    } else if let Some((b_id, ray, vhit)) = vertex_pick_3d {
+                        eprintln!("[DEBUG click] -> cabang VERTEX_PICK_3D diambil, body={b_id:?}");
+                        self.selected.clear();
+                        self.selected_bodies.clear();
+                        self.selected_bodies.insert(b_id);
+                        self.active_vertex = Some((b_id, ray, vhit));
+                        self.active_face = None;
+                        self.active_edge = None;
+                        self.editing_round = None;
+                        self.vertex_gizmo_radius = 3.0;
+                        self.vertex_gizmo_edit_input = "3".to_string();
+                        self.model_status = Some("Sudut (vertex) 3D terpilih — masukkan radius fillet".to_string());
+                    } else if let Some((b_id, ray, point)) = edge_pick_3d {
+                        eprintln!("[DEBUG click] -> cabang EDGE_PICK_3D diambil, body={b_id:?}");
+                        self.selected.clear();
+                        self.selected_bodies.clear();
+                        self.selected_bodies.insert(b_id);
+                        self.active_edge = Some((b_id, ray, point));
+                        self.active_face = None;
+                        self.active_vertex = None;
+                        self.editing_round = None;
+                        self.edge_gizmo_radius = 3.0;
+                        self.edge_gizmo_edit_input = "3".to_string();
+                        self.model_status = Some("Rusuk (edge) 3D terpilih — masukkan radius fillet".to_string());
+                    } else if let Some((b_id, ray, hit)) = face_pick_3d {
                         eprintln!("[DEBUG click] -> cabang FACE_PICK_3D diambil, body={b_id:?}");
                         self.selected.clear();
                         self.selected_bodies.clear();
                         self.selected_bodies.insert(b_id);
                         self.active_face = Some((b_id, ray, hit));
+                        self.active_vertex = None;
+                        self.active_edge = None;
+                        self.editing_round = None;
                         self.face_gizmo_distance = 15.0;
                         self.face_gizmo_edit_input = "15".to_string();
                         self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
                     } else if let Some(reg) = region_hit {
                         eprintln!("[DEBUG click] -> cabang REGION_HIT diambil (sketsa 2D menang)");
                         self.active_face = None;
+                        self.active_vertex = None;
+                        self.active_edge = None;
+                        self.editing_round = None;
                         if shift {
                             let already_selected = reg.entity_ids.iter().all(|id| self.selected.contains(id));
                             if already_selected {
@@ -2345,6 +2571,8 @@ impl CadrawApp {
                             (Some(hit), false) => {
                                 self.selected.clear();
                                 self.active_face = None;
+                                self.active_vertex = None;
+                                self.active_edge = None;
                                 self.selected.insert(hit);
                             }
                             (None, false) => {
@@ -2355,12 +2583,16 @@ impl CadrawApp {
                                         self.selected_bodies.clear();
                                         self.selected_bodies.insert(b_id);
                                         self.active_face = Some((b_id, ray, hit));
+                                        self.active_vertex = None;
+                                        self.active_edge = None;
                                         self.face_gizmo_distance = 15.0;
                                         self.face_gizmo_edit_input = "15".to_string();
                                         self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
                                     } else {
-                                        eprintln!("[DEBUG click]    fallback pick_body_face_at_cursor JUGA None -> active_face di-clear");
+                                        eprintln!("[DEBUG click]    fallback pick_body_face_at_cursor JUGA None -> active_face/active_vertex di-clear");
                                         self.active_face = None;
+                                        self.active_vertex = None;
+                                        self.active_edge = None;
                                     }
                                 } else {
                                     eprintln!("[DEBUG click]    fallback: click_pos None sama sekali (hover_pos/pointer semua None)");
@@ -2604,6 +2836,78 @@ impl CadrawApp {
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.80, 1.0, 0.85]));
                 verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 24.0, 5.5, FACE_GIZMO_COLOR, pull_dir));
+            }
+        }
+
+        // Gambar Gizmo Vertex Fillet (Fase 3 — Rounded Sudut) jika ada
+        // sudut (vertex) solid terpilih: kotak kawat kecil di vertex +
+        // garis putus-putus ke handle + ikon kuadran lingkaran, warna
+        // dibedakan dari `FACE_GIZMO_COLOR` supaya tidak tertukar visual.
+        if let Some((vertex, out_dir)) = self.active_vertex_gizmo_dir() {
+            const VERTEX_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+            let handle_dist = if self.filleting_vertex_from_gizmo {
+                self.vertex_gizmo_radius.max(0.1) as f32
+            } else {
+                12.0
+            };
+            verts.extend(sketch_render::vertex_fillet_marker_lines(
+                [vertex.x, vertex.y, vertex.z],
+                out_dir,
+                handle_dist,
+                VERTEX_GIZMO_COLOR,
+            ));
+        }
+
+        // Gambar Gizmo Edge Fillet ("klik rusuk pojok kubus" -> rusuk
+        // membulat) — visual SAMA dgn gizmo vertex fillet di atas
+        // (ikon+garis putus-putus+kuadran), warna sama juga supaya
+        // keduanya jelas satu keluarga "gizmo rounding", cuma berlabuh di
+        // titik KLIK pada rusuk (bukan titik vertex resmi B-rep), lihat
+        // `active_edge_gizmo_dir`.
+        if let Some((point, out_dir)) = self.active_edge_gizmo_dir() {
+            const EDGE_ROUND_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+            let handle_dist = if self.filleting_edge_from_gizmo {
+                self.edge_gizmo_radius.max(0.1) as f32
+            } else {
+                12.0
+            };
+            verts.extend(sketch_render::vertex_fillet_marker_lines(
+                [point.x, point.y, point.z],
+                out_dir,
+                handle_dist,
+                EDGE_ROUND_GIZMO_COLOR,
+            ));
+        }
+
+        // Marker vertex 3D (sudut yang bisa diklik utk gizmo rounding) —
+        // digambar di SEMUA sudut body visible saat mode 3D, supaya user
+        // tahu ke mana harus klik (keluhan awal fitur ini: target vertex
+        // tanpa feedback visual, "praktis mustahil dikenai"). Sudut yang
+        // sedang di-hover kursor SEKARANG (`hovered_vertex_marker`,
+        // dihitung tiap frame di `handle_sketch_input`) digambar lebih
+        // besar + warna beda supaya jelas mana yang bakal kena kalau
+        // diklik.
+        if !self.is_sketching {
+            const VERTEX_MARKER_COLOR: [f32; 4] = [0.85, 0.85, 0.92, 0.55];
+            const VERTEX_MARKER_HOVER_COLOR: [f32; 4] = [1.0, 0.85, 0.15, 1.0];
+            for (id, geo) in self.model.geometry.iter() {
+                let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
+                if !visible {
+                    continue;
+                }
+                let vertices: Vec<[f32; 3]> = cadraw_kernel::shape_vertices(&geo.shape)
+                    .into_iter()
+                    .map(|(x, y, z)| [x as f32, y as f32, z as f32])
+                    .collect();
+                let hover_point = self
+                    .hovered_vertex_marker
+                    .and_then(|(hid, hv)| (hid == id).then_some([hv.0 as f32, hv.1 as f32, hv.2 as f32]));
+                verts.extend(sketch_render::vertex_dot_markers(
+                    &vertices,
+                    hover_point,
+                    VERTEX_MARKER_COLOR,
+                    VERTEX_MARKER_HOVER_COLOR,
+                ));
             }
         }
 
@@ -2984,6 +3288,178 @@ impl CadrawApp {
                 }
             }
         }
+
+        // 4. Interactive Draggable Double Arrow Handle & Dimension Pill
+        // untuk Gizmo Vertex Fillet 3D (Fase 3 — Rounded Sudut). Cermin
+        // blok gizmo face di atas: `vertex`/`out_dir` diambil sbg nilai
+        // `Vec3` MILIK SENDIRI (bukan pinjaman `&self.active_vertex`)
+        // lewat `active_vertex_gizmo_dir()` SEBELUM panggilan `&mut self`
+        // (mis. `self.commit_vertex_fillet()`) di bawah — pola sama dgn
+        // kenapa `hit.gizmo_anchor()`/`surface_kind` disalin lepas di blok
+        // face, supaya borrow checker tidak menolak.
+        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
+            let z_pos = if self.filleting_vertex_from_gizmo {
+                self.vertex_gizmo_radius.max(0.1) as f32
+            } else {
+                12.0
+            };
+            let handle_3d = c_base + pull_dir * z_pos;
+
+            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, egui::Vec2::ZERO);
+
+                // Handle panah 2 sisi tebal dan draggable (styling handle itu
+                // sendiri sama dgn gizmo lain; pembeda warna vertex-fillet
+                // vs face ada di overlay garis `VERTEX_GIZMO_COLOR`, lihat
+                // `build_overlay_lines`).
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
+                    ui,
+                    handle_2d,
+                    self.filleting_vertex_from_gizmo,
+                    arrow_vec_opt,
+                );
+
+                if handle_resp.drag_started() {
+                    self.filleting_vertex_from_gizmo = true;
+                    if self.vertex_gizmo_radius <= 0.0 {
+                        self.vertex_gizmo_radius = 3.0;
+                    }
+                }
+
+                if handle_resp.dragged() {
+                    self.filleting_vertex_from_gizmo = true;
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, handle_resp.drag_delta());
+                    // Boleh sampai 0 (bukan clamp 0.1): dorong ke dalam =
+                    // kecilkan radius sampai siku, commit menerjemahkan
+                    // radius < ROUND_SHARP_MM jadi hapus/skip fitur.
+                    self.vertex_gizmo_radius = (self.vertex_gizmo_radius + delta_mm).max(0.0);
+                    self.vertex_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.vertex_gizmo_radius));
+                }
+
+                if handle_resp.drag_stopped() {
+                    // Reset nilai gizmo TIDAK dilakukan di sini — commit
+                    // sukses me-reset lewat `clear_round_gizmo`; commit
+                    // gagal membiarkan nilai supaya bisa dikoreksi user.
+                    self.commit_vertex_fillet();
+                    self.filleting_vertex_from_gizmo = false;
+                }
+
+                // Interactive Dimension Pill "R <nilai><unit>" di atas handle panah.
+                let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
+                let text = if self.vertex_gizmo_radius < Self::ROUND_SHARP_MM {
+                    "R 0 (siku)".to_string()
+                } else {
+                    format!("R {}", self.unit.format(self.vertex_gizmo_radius))
+                };
+                let pill_resp = CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &text, self.vertex_gizmo_dimension_editing);
+                if pill_resp.clicked() {
+                    self.vertex_gizmo_dimension_editing = !self.vertex_gizmo_dimension_editing;
+                    self.vertex_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.vertex_gizmo_radius));
+                }
+
+                if self.vertex_gizmo_dimension_editing {
+                    let popup_rect = egui::Rect::from_center_size(pill_pos + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                    egui::Area::new(egui::Id::new("cadraw-vertex-gizmo-edit-popup"))
+                        .fixed_pos(popup_rect.min)
+                        .order(egui::Order::Foreground)
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                let resp = ui.text_edit_singleline(&mut self.vertex_gizmo_edit_input);
+                                resp.request_focus();
+                                if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                    if let Ok(val) = self.vertex_gizmo_edit_input.trim().parse::<f64>() {
+                                        // 0 valid: berarti hapus rounding (siku).
+                                        self.vertex_gizmo_radius = self.unit.to_internal_mm(val).max(0.0);
+                                        self.commit_vertex_fillet();
+                                    }
+                                    self.vertex_gizmo_dimension_editing = false;
+                                }
+                            });
+                        });
+                }
+            }
+        }
+
+        // 5. Interactive Draggable Double Arrow Handle & Dimension Pill
+        // untuk Gizmo Edge Fillet 3D ("klik rusuk pojok kubus" -> rusuk
+        // membulat). Cermin PERSIS blok gizmo vertex fillet di atas — ikon,
+        // pill "R", popup input — cuma jangkarnya titik klik pada rusuk
+        // (`active_edge_gizmo_dir`) dan commit-nya `commit_edge_fillet_single`
+        // (`fillet_edges` 1 ray) alih-alih `fillet_vertex`.
+        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
+            let z_pos = if self.filleting_edge_from_gizmo {
+                self.edge_gizmo_radius.max(0.1) as f32
+            } else {
+                12.0
+            };
+            let handle_3d = c_base + pull_dir * z_pos;
+
+            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, egui::Vec2::ZERO);
+
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
+                    ui,
+                    handle_2d,
+                    self.filleting_edge_from_gizmo,
+                    arrow_vec_opt,
+                );
+
+                if handle_resp.drag_started() {
+                    self.filleting_edge_from_gizmo = true;
+                    if self.edge_gizmo_radius <= 0.0 {
+                        self.edge_gizmo_radius = 3.0;
+                    }
+                }
+
+                if handle_resp.dragged() {
+                    self.filleting_edge_from_gizmo = true;
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, handle_resp.drag_delta());
+                    // Boleh sampai 0 — lihat komentar di gizmo vertex.
+                    self.edge_gizmo_radius = (self.edge_gizmo_radius + delta_mm).max(0.0);
+                    self.edge_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.edge_gizmo_radius));
+                }
+
+                if handle_resp.drag_stopped() {
+                    // Reset TIDAK di sini — lihat komentar di gizmo vertex.
+                    self.commit_edge_fillet_single();
+                    self.filleting_edge_from_gizmo = false;
+                }
+
+                // Interactive Dimension Pill "R <nilai><unit>" di atas handle panah.
+                let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
+                let text = if self.edge_gizmo_radius < Self::ROUND_SHARP_MM {
+                    "R 0 (siku)".to_string()
+                } else {
+                    format!("R {}", self.unit.format(self.edge_gizmo_radius))
+                };
+                let pill_resp = CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &text, self.edge_gizmo_dimension_editing);
+                if pill_resp.clicked() {
+                    self.edge_gizmo_dimension_editing = !self.edge_gizmo_dimension_editing;
+                    self.edge_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.edge_gizmo_radius));
+                }
+
+                if self.edge_gizmo_dimension_editing {
+                    let popup_rect = egui::Rect::from_center_size(pill_pos + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                    egui::Area::new(egui::Id::new("cadraw-edge-gizmo-edit-popup"))
+                        .fixed_pos(popup_rect.min)
+                        .order(egui::Order::Foreground)
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                let resp = ui.text_edit_singleline(&mut self.edge_gizmo_edit_input);
+                                resp.request_focus();
+                                if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                    if let Ok(val) = self.edge_gizmo_edit_input.trim().parse::<f64>() {
+                                        // 0 valid: berarti hapus rounding (siku).
+                                        self.edge_gizmo_radius = self.unit.to_internal_mm(val).max(0.0);
+                                        self.commit_edge_fillet_single();
+                                    }
+                                    self.edge_gizmo_dimension_editing = false;
+                                }
+                            });
+                        });
+                }
+            }
+        }
     }
 
     /// Coba terapkan `constraint`: dry-run solve di atas clone sketch dulu
@@ -3084,10 +3560,14 @@ impl CadrawApp {
             self.model_status = Some("Pilih persis 2 body di daftar untuk operasi ini".to_string());
             return;
         };
-        match BooleanCommand::try_new(&self.model, kind, label, result_name, *a, *b) {
+        let (a_id, b_id) = (*a, *b);
+        match BooleanCommand::try_new(&self.model, kind, label, result_name, a_id, b_id) {
             Ok(cmd) => {
                 self.model_undo.execute(Box::new(cmd), &mut self.model);
                 self.selected_bodies.clear();
+                // Kedua body sumber lenyap — riwayat rounding-nya ikut.
+                self.round_history.remove(&a_id);
+                self.round_history.remove(&b_id);
                 self.model_status = None;
             }
             Err(msg) => self.model_status = Some(msg),
@@ -3125,12 +3605,209 @@ impl CadrawApp {
                     Box::new(ReplaceGeometryCommand::new("Fillet", id, new_geo)),
                     &mut self.model,
                 );
+                self.round_history.remove(&id);
                 self.selected_edges.clear();
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
             Err(e) => self.model_status = Some(format!("Fillet gagal: {e}")),
         }
+    }
+
+    /// Fillet sudut (vertex) 3D yang sedang aktif lewat gizmo (Fase 3),
+    /// radius `self.vertex_gizmo_radius` (di-clamp minimal 0.1 mm supaya
+    /// tidak pernah dikirim 0/negatif ke `cadraw_kernel::fillet_vertex`,
+    /// yang menolaknya). Jalur undo SAMA dengan `fillet_selected_body`
+    /// (`ReplaceGeometryCommand`) — dipanggil dari drag-stop handle gizmo
+    /// dan dari Enter/lost-focus popup input pill di `dynamic_input_ui`.
+    /// Gagal (mis. radius kebesaran, OCCT menolak) → `model_status` terisi
+    /// pesan error, shape body ASLI tidak tersentuh (`fillet_vertex`
+    /// bekerja di atas clone, lihat dokumentasinya di cadraw-kernel).
+    fn commit_vertex_fillet(&mut self) {
+        self.commit_round(RoundKind::Vertex);
+    }
+
+    /// Fillet 1 rusuk (edge) 3D yang sedang aktif lewat gizmo rounding
+    /// ("klik rusuk pojok kubus" — cermin `commit_vertex_fillet`). Keduanya
+    /// sekarang delegasi ke `commit_round` (rounding parametrik).
+    fn commit_edge_fillet_single(&mut self) {
+        self.commit_round(RoundKind::Edge);
+    }
+
+    /// Batas radius di bawah mana rounding dianggap "siku": commit dengan
+    /// radius < ini MENGHAPUS fitur (saat mengedit) atau tidak membuat
+    /// fitur sama sekali (saat membuat baru) — dorongan handle gizmo ke
+    /// dalam sampai (mendekati) 0 berarti kembali ke sudut tajam.
+    const ROUND_SHARP_MM: f64 = 0.2;
+
+    /// Rebuild shape dari `base` + daftar fitur rounding, diterapkan
+    /// berurutan (tiap ray di-resolve ulang terhadap shape hasil langkah
+    /// sebelumnya — fillet sudut A tidak menghilangkan rusuk/vertex sudut
+    /// B, jadi resolusi ray-based tetap menemukan targetnya).
+    fn build_rounded_shape(base: &KernelShape, features: &[RoundFeature]) -> Result<KernelShape, String> {
+        let mut shape = cadraw_kernel::clone_shape(base).map_err(|e| e.to_string())?;
+        for f in features {
+            shape = match f.kind {
+                RoundKind::Vertex => {
+                    cadraw_kernel::fillet_vertex(&shape, f.radius, f.ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                }
+                RoundKind::Edge => {
+                    cadraw_kernel::fillet_edges(&shape, f.radius, &[f.ray], Self::EDGE_REAPPLY_TOLERANCE_MM)
+                }
+            }
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(shape)
+    }
+
+    /// Reset state gizmo rounding (dipanggil setelah commit sukses / batal
+    /// eksplisit) — TIDAK dipanggil saat commit gagal, supaya user masih
+    /// bisa mengoreksi radius tanpa memilih ulang sudut/rusuknya.
+    fn clear_round_gizmo(&mut self, kind: RoundKind) {
+        self.editing_round = None;
+        match kind {
+            RoundKind::Vertex => {
+                self.active_vertex = None;
+                self.vertex_gizmo_radius = 3.0;
+                self.vertex_gizmo_edit_input = "3".to_string();
+            }
+            RoundKind::Edge => {
+                self.active_edge = None;
+                self.edge_gizmo_radius = 3.0;
+                self.edge_gizmo_edit_input = "3".to_string();
+            }
+        }
+    }
+
+    /// Commit rounding PARAMETRIK: alih-alih memfillet shape yang sudah
+    /// difillet (destruktif — radius tidak bisa dikecilkan lagi, dan klik
+    /// berikutnya di sudut bulat jatuh ke gizmo extrude yang membesarkan
+    /// objek), riwayat per body menyimpan shape DASAR + daftar fitur; tiap
+    /// commit (baru maupun edit lewat intersepsi `find_round_feature_near`)
+    /// menyusun daftar fitur baru lalu rebuild dari dasar. Radius <
+    /// `ROUND_SHARP_MM` = fitur dihapus (sudut kembali menyiku). Gagal
+    /// (mis. radius kebesaran, OCCT menolak) → riwayat & geometry TIDAK
+    /// tersentuh, cuma `model_status` terisi.
+    fn commit_round(&mut self, kind: RoundKind) {
+        let (body_id, ray, anchor, radius) = match kind {
+            RoundKind::Vertex => {
+                let Some((b, r, a)) = self.active_vertex else { return };
+                (b, r, a, self.vertex_gizmo_radius)
+            }
+            RoundKind::Edge => {
+                let Some((b, r, a)) = self.active_edge else { return };
+                (b, r, a, self.edge_gizmo_radius)
+            }
+        };
+        let sharp = radius < Self::ROUND_SHARP_MM;
+        let Some(geo) = self.model.geometry.get(body_id) else {
+            self.model_status = Some("Body terpilih tidak ditemukan".to_string());
+            return;
+        };
+
+        // Susun daftar fitur BARU dulu di salinan — riwayat asli baru
+        // disentuh kalau rebuild-nya sukses (pola dry-run yang sama dengan
+        // `apply_constraint`).
+        let mut features: Vec<RoundFeature> = self
+            .round_history
+            .get(&body_id)
+            .map(|h| h.features.clone())
+            .unwrap_or_default();
+        match self.editing_round {
+            Some((b, idx)) if b == body_id && idx < features.len() => {
+                if sharp {
+                    features.remove(idx);
+                } else {
+                    features[idx].radius = radius;
+                }
+            }
+            _ => {
+                if sharp {
+                    self.model_status = Some("Radius 0 — sudut dibiarkan menyiku".to_string());
+                    self.clear_round_gizmo(kind);
+                    return;
+                }
+                let polyline = if kind == RoundKind::Edge {
+                    cadraw_kernel::pick_edge(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                        .map(|(_, pl)| pl)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                features.push(RoundFeature { kind, ray, anchor, radius, polyline });
+            }
+        }
+
+        // Base rebuild: dari riwayat kalau sudah ada; kalau ini rounding
+        // PERTAMA body tsb, clone shape saat ini (sekaligus kandidat base
+        // riwayat baru — di-clone SEBELUM geometry diganti).
+        let (build, new_base) = if let Some(h) = self.round_history.get(&body_id) {
+            (Self::build_rounded_shape(&h.base, &features), None)
+        } else {
+            match cadraw_kernel::clone_shape(&geo.shape) {
+                Ok(base) => (Self::build_rounded_shape(&base, &features), Some(base)),
+                Err(e) => {
+                    self.model_status = Some(format!("Gagal menyimpan shape dasar rounding: {e}"));
+                    return;
+                }
+            }
+        };
+
+        match build {
+            Ok(shape) => {
+                if let Some(base) = new_base {
+                    self.round_history.insert(body_id, RoundHistory { base, features: Vec::new() });
+                }
+                if features.is_empty() {
+                    self.round_history.remove(&body_id);
+                } else if let Some(h) = self.round_history.get_mut(&body_id) {
+                    h.features = features;
+                }
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Rounding", body_id, new_geo)),
+                    &mut self.model,
+                );
+                self.model_status = Some(if sharp {
+                    "Rounding dihapus — sudut kembali menyiku".to_string()
+                } else {
+                    format!("Rounding {:.1} mm sukses — klik sudutnya lagi utk mengubah/menghapus", radius)
+                });
+                self.clear_round_gizmo(kind);
+            }
+            Err(e) => self.model_status = Some(format!("Rounding gagal: {e}")),
+        }
+    }
+
+    /// Cari fitur rounding milik `body_id` yang dekat `hit_point` (titik
+    /// klik pada permukaan body): dalam `radius·1.5 + toleransi layar` dari
+    /// anchor fitur, atau — utk fitur rusuk — dari polyline rusuk aslinya
+    /// (supaya klik DI SEPANJANG rusuk bulat juga kena, bukan cuma di titik
+    /// klik semula). Dipakai intersepsi klik "edit rounding".
+    fn find_round_feature_near(&self, body_id: BodyId, hit_point: (f64, f64, f64), rect: egui::Rect) -> Option<usize> {
+        let hist = self.round_history.get(&body_id)?;
+        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        let hp = glam::DVec3::new(hit_point.0, hit_point.1, hit_point.2);
+        let mut best: Option<(usize, f64)> = None;
+        for (idx, f) in hist.features.iter().enumerate() {
+            let mut d = (hp - glam::DVec3::new(f.anchor.0, f.anchor.1, f.anchor.2)).length();
+            for pair in f.polyline.windows(2) {
+                let a = glam::DVec3::new(pair[0].0, pair[0].1, pair[0].2);
+                let b = glam::DVec3::new(pair[1].0, pair[1].1, pair[1].2);
+                let ab = b - a;
+                let t = if ab.length_squared() > 1e-12 {
+                    ((hp - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                d = d.min((a + ab * t - hp).length());
+            }
+            let reach = f.radius * 1.5 + tol;
+            if d <= reach && best.as_ref().is_none_or(|(_, bd)| d < *bd) {
+                best = Some((idx, d));
+            }
+        }
+        best.map(|(idx, _)| idx)
     }
 
     /// Chamfer — lihat `fillet_selected_body`, pola identik.
@@ -3159,6 +3836,7 @@ impl CadrawApp {
                     Box::new(ReplaceGeometryCommand::new("Chamfer", id, new_geo)),
                     &mut self.model,
                 );
+                self.round_history.remove(&id);
                 self.selected_edges.clear();
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
@@ -3197,6 +3875,7 @@ impl CadrawApp {
                     Box::new(ReplaceGeometryCommand::new("Shell", id, new_geo)),
                     &mut self.model,
                 );
+                self.round_history.remove(&id);
                 self.selected_faces.clear();
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
@@ -3266,6 +3945,153 @@ impl CadrawApp {
         closest.map(|(id, ray, hit, _)| (id, ray, hit))
     }
 
+    /// Raycast terhadap semua body solid 3D yang visible, mencari VERTEX
+    /// (sudut) terdekat yang terkena kursor mouse — dipakai gizmo vertex
+    /// fillet (Fase 2). Toleransi piksel dibuat LEBIH LONGGAR (~18x, vs
+    /// ~14x buat face/edge di `pick_body_face_at_cursor`/
+    /// `pick_body_edge_at_cursor`, dan dikalikan lagi ke
+    /// `pixel_tolerance_to_world` yang sudah dalam mm) karena target vertex
+    /// jauh lebih kecil secara visual daripada face ATAU edge — dicoba
+    /// klik SEBELUM `pick_body_edge_at_cursor`/`pick_body_face_at_cursor`
+    /// di `handle_sketch_input` supaya menang prioritas dan sudut tetap
+    /// bisa dipilih walau ketutup face. Nilai lama (12x, ≈2.76mm/12px di
+    /// zoom umum) ternyata LEBIH KETAT dari yang dimaksud komentar ini —
+    /// klik di rusuk (edge) pojok box, cuma ~2.5cm dari vertex-nya, masih
+    /// meleset; 18x mendekati diameter marker vertex yang digambar
+    /// `build_overlay_lines` supaya "yang terlihat" dan "yang bisa diklik"
+    /// konsisten.
+    fn pick_body_vertex_at_cursor(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<(BodyId, PickRay, (f64, f64, f64))> {
+        let (origin, dir) = screen_to_ray(&self.camera, rect, pos);
+        let ray = PickRay {
+            origin: (origin.x as f64, origin.y as f64, origin.z as f64),
+            dir: (dir.x as f64, dir.y as f64, dir.z as f64),
+        };
+        let tolerance = pixel_tolerance_to_world(&self.camera, rect) * 18.0;
+        let mut closest: Option<(BodyId, PickRay, (f64, f64, f64), f64)> = None;
+        for (id, geo) in self.model.geometry.iter() {
+            let Some(body) = self.model.doc.bodies.get(id) else {
+                continue;
+            };
+            if !body.visible {
+                continue;
+            }
+            if let Some(hit) = cadraw_kernel::pick_vertex(&geo.shape, ray, tolerance) {
+                let hit_vec = glam::DVec3::new(hit.0, hit.1, hit.2);
+                let orig_vec = glam::DVec3::new(ray.origin.0, ray.origin.1, ray.origin.2);
+                let dist_sq = (hit_vec - orig_vec).length_squared();
+                if closest.as_ref().is_none_or(|(_, _, _, d)| dist_sq < *d) {
+                    closest = Some((id, ray, hit, dist_sq));
+                }
+            } else if let Some(nearest) = cadraw_kernel::pick_vertex(&geo.shape, ray, f64::INFINITY) {
+                let v = glam::DVec3::new(nearest.0, nearest.1, nearest.2);
+                let o = glam::DVec3::new(ray.origin.0, ray.origin.1, ray.origin.2);
+                let d = glam::DVec3::new(ray.dir.0, ray.dir.1, ray.dir.2);
+                let t = d.dot(v - o) / d.length_squared();
+                let dist = (o + d * t - v).length();
+                eprintln!(
+                    "[DEBUG pick_vertex] body={id:?} MISS: vertex terdekat=({:.1}, {:.1}, {:.1}) jarak_ke_ray={dist:.2}mm > tolerance={tolerance:.2}mm",
+                    nearest.0, nearest.1, nearest.2
+                );
+            }
+        }
+        closest.map(|(id, ray, hit, _)| (id, ray, hit))
+    }
+
+    /// Raycast terhadap semua body solid 3D yang visible, mencari RUSUK
+    /// (edge) terdekat yang terkena kursor mouse — dicoba SETELAH
+    /// `pick_body_vertex_at_cursor` meleset, SEBELUM `pick_body_face_at_cursor`,
+    /// buat kasus "klik sudut kubus" yang sebenarnya jatuh di rusuk
+    /// vertikal pojok (seperti sudut tembok ruangan), bukan di titik
+    /// vertex kecilnya (lihat laporan bug: klik konsisten ~22mm dari
+    /// vertex B-rep terdekat, tapi tepat di tengah rusuk vertikal). Kalau
+    /// kena, `handle_sketch_input` menampilkan gizmo rounding (sama
+    /// persis dgn gizmo vertex, cuma commit-nya `fillet_edges` 1 rusuk
+    /// alih-alih `fillet_vertex`) berlabuh di titik klik pada rusuk itu.
+    /// Toleransi 14x — SAMA dgn `pick_body_face_at_cursor` dan pick edge
+    /// manual di `PickMode::Edge` (`handle_3d_picking`) — sudah cukup
+    /// longgar utk rusuk tipis secara visual tanpa menelan face di
+    /// sekitarnya.
+    fn pick_body_edge_at_cursor(&self, rect: egui::Rect, pos: egui::Pos2) -> Option<(BodyId, PickRay, (f64, f64, f64))> {
+        let (origin, dir) = screen_to_ray(&self.camera, rect, pos);
+        let ray = PickRay {
+            origin: (origin.x as f64, origin.y as f64, origin.z as f64),
+            dir: (dir.x as f64, dir.y as f64, dir.z as f64),
+        };
+        let tolerance = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        let mut closest: Option<(BodyId, PickRay, (f64, f64, f64), f64)> = None;
+        for (id, geo) in self.model.geometry.iter() {
+            let Some(body) = self.model.doc.bodies.get(id) else {
+                continue;
+            };
+            if !body.visible {
+                continue;
+            }
+            if let Some((point, _polyline)) = cadraw_kernel::pick_edge(&geo.shape, ray, tolerance) {
+                let hit_vec = glam::DVec3::new(point.0, point.1, point.2);
+                let orig_vec = glam::DVec3::new(ray.origin.0, ray.origin.1, ray.origin.2);
+                let dist_sq = (hit_vec - orig_vec).length_squared();
+                if closest.as_ref().is_none_or(|(_, _, _, d)| dist_sq < *d) {
+                    closest = Some((id, ray, point, dist_sq));
+                }
+            }
+        }
+        closest.map(|(id, ray, point, _)| (id, ray, point))
+    }
+
+    /// Posisi 3D `active_vertex` saat ini + arah "keluar" gizmo
+    /// (`normalize(vertex − pusat bbox body)`) — dipakai bareng oleh overlay
+    /// garis (`build_overlay_lines`) dan HUD interaktif (`dynamic_input_ui`)
+    /// gizmo vertex fillet (Fase 3), supaya keduanya selalu sepakat soal ke
+    /// mana gizmo mengarah. Pusat bbox dihitung dari AABB mesh tessellasi
+    /// body (pola sama dengan `pick_body_face_at_cursor`) — bukan pusat
+    /// solid B-rep yang presisi, tapi cukup untuk arah kasar "menjauhi
+    /// body" dan jauh lebih murah daripada query kernel. Fallback ke
+    /// `Vec3::Z` kalau vertex kebetulan persis di pusat bbox (arah nol).
+    fn active_vertex_gizmo_dir(&self) -> Option<(Vec3, Vec3)> {
+        let (body_id, _, vhit) = self.active_vertex?;
+        let vertex = Vec3::new(vhit.0 as f32, vhit.1 as f32, vhit.2 as f32);
+        let geo = self.model.geometry.get(body_id)?;
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &geo.mesh.positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        let center = Vec3::new((min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5, (min[2] + max[2]) * 0.5);
+        let mut dir = (vertex - center).normalize_or_zero();
+        if dir == Vec3::ZERO {
+            dir = Vec3::Z;
+        }
+        Some((vertex, dir))
+    }
+
+    /// Cermin `active_vertex_gizmo_dir`, tapi utk `active_edge`: jangkar
+    /// gizmo adalah titik KLIK pada rusuk (bukan titik vertex resmi B-rep)
+    /// supaya gizmo rounding "berlabuh di titik klik pada edge" persis
+    /// seperti diminta — arah "keluar" tetap dihitung sama, relatif ke
+    /// pusat AABB body.
+    fn active_edge_gizmo_dir(&self) -> Option<(Vec3, Vec3)> {
+        let (body_id, _, point) = self.active_edge?;
+        let anchor = Vec3::new(point.0 as f32, point.1 as f32, point.2 as f32);
+        let geo = self.model.geometry.get(body_id)?;
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &geo.mesh.positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        let center = Vec3::new((min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5, (min[2] + max[2]) * 0.5);
+        let mut dir = (anchor - center).normalize_or_zero();
+        if dir == Vec3::ZERO {
+            dir = Vec3::Z;
+        }
+        Some((anchor, dir))
+    }
+
     /// Teks HUD pill gizmo face (CADRAW Fase 4): permukaan radial
     /// (Cylinder/Cone/Sphere — di mana `FaceHit::pull_dir` benar-benar
     /// arah radial, lihat dokumentasinya) diberi label "ΔR" + tanda eksplisit
@@ -3305,6 +4131,7 @@ impl CadrawApp {
                     Box::new(ReplaceGeometryCommand::new(label, target_id, new_geo)),
                     &mut self.model,
                 );
+                self.round_history.remove(&target_id);
                 self.active_face = None;
                 self.model_status = Some(format!("Extrude face {:.1} mm sukses", distance));
             }
@@ -3335,6 +4162,7 @@ impl CadrawApp {
         for id in std::mem::take(&mut self.selected_bodies) {
             self.model_undo
                 .execute(Box::new(DeleteBodyCommand::new(id)), &mut self.model);
+            self.round_history.remove(&id);
         }
     }
 

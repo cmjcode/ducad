@@ -1387,6 +1387,171 @@ melainkan arah radial di titik hit itu sendiri.
       Newell, bukan fallback GProp) — total sekarang 57 test
       `cadraw-kernel`, `cargo test --workspace` hijau.
 
+## Status Vertex Fillet Gizmo — Rounded Sudut 3D (dikerjakan bertahap)
+
+Fitur baru: fillet SUDUT (vertex) 3D lewat gizmo, beda dari fillet TEPI
+(edge) yang sudah ada sejak Fase 8 — user klik langsung di sudut body,
+masukkan radius, semua tepi yang bertemu di sudut itu di-fillet sekaligus
+jadi sudut membulat (spherical corner).
+
+- [x] **Fase 1 — Kernel (`cadraw-kernel`).**
+      `resolve_vertex_along_ray(shape, ray, tolerance) -> Option<DVec3>`:
+      vertex bukan warga topologi tersendiri di query kernel (beda dari
+      face/edge), jadi dikumpulkan sendiri dari endpoint SEMUA edge shape
+      (banyak edge berbagi 1 vertex B-rep yang sama, di-dedup lewat
+      epsilon 1e-6 mm), lalu dipilih yang jaraknya ke ray paling kecil dan
+      masih dalam `tolerance`. **`pick_vertex(shape, ray, tolerance) ->
+      Option<(f64,f64,f64)>`** — wrapper publik buat UI hover/klik.
+      **`fillet_vertex(shape, radius, ray, tolerance) -> Result<KernelShape>`**
+      — `ray` di-cast ULANG ke shape hasil `deep_clone` (pola sama dgn
+      `fillet_edges`/`PickRay`), tepi-tepi yang endpoint-nya berimpit
+      (epsilon SAMA, 1e-6 mm) dgn vertex terpilih dikumpulkan lalu
+      di-fillet SEKALIGUS lewat `Shape::fillet_edges` — OCCT sendiri yang
+      menghasilkan sudut membulat saat >1 tepi bertemu di 1 titik difillet
+      bareng dgn radius sama. 5 test baru (`cadraw-kernel` sekarang 62
+      test, `cargo test --workspace` — 142 test total — hijau).
+- [x] **Fase 2 — State & Klik (`cadraw-app`).** State baru di `CadrawApp`:
+      `active_vertex: Option<(BodyId, PickRay, (f64,f64,f64))>` (pola
+      persis `active_face`, simpan `ray` bukan cuma titik supaya resolusi
+      ULANG saat fillet sungguhan konsisten dgn body hasil `deep_clone`),
+      `filleting_vertex_from_gizmo: bool`, `vertex_gizmo_radius: f64`
+      (default 3.0), `vertex_gizmo_dimension_editing: bool`,
+      `vertex_gizmo_edit_input: String`. Helper baru
+      **`pick_body_vertex_at_cursor`** (pola sama `pick_body_face_at_cursor`,
+      raycast semua body visible & ambil hit terdekat) pakai toleransi
+      `pixel_tolerance_to_world * 12` (vs `* 14` buat face). Di handler
+      klik mode 3D (`handle_sketch_input`): pick vertex dicoba DULUAN,
+      SEBELUM `pick_body_face_at_cursor` — target vertex kecil secara
+      visual dan gampang "ketutup" face di baliknya, jadi harus menang
+      prioritas kalau kena keduanya. Hit → set `active_vertex` +
+      `selected_bodies` + `model_status`, clear `active_face`. Klik di
+      tempat lain (region 2D, face lain, entity sketch, klik kosong) atau
+      Escape → `active_vertex` di-clear (Escape diberi prioritas tertinggi
+      di chain-nya, sebelum clear pending-points/selected, supaya 1x
+      Escape cukup buat batalkan gizmo vertex tanpa efek samping lain).
+      `filleting_vertex_from_gizmo`/`vertex_gizmo_dimension_editing` masih
+      belum dipakai di fase ini (warning dead-code wajar) — akan dipakai
+      Fase 3 (render gizmo + HUD interaktif + eksekusi `fillet_vertex`).
+- [x] **Fase 3 — Gizmo Visual & HUD (`cadraw-app`/`cadraw-render`).**
+      Digabung 1 fase (render + interaksi + commit) alih-alih dipecah
+      Fase 3/4 seperti draft awal di atas, sama kompleksitasnya dgn 1
+      blok gizmo face yang sudah ada. **Overlay 3D**
+      (`sketch_render::vertex_fillet_marker_lines`, `cadraw-render`):
+      kotak kawat kecil TEPAT di vertex + garis putus-putus ke posisi
+      handle + ikon kuadran lingkaran kecil (melambangkan "rounding") di
+      dekat handle, semua di sepanjang `out_dir` — warna magenta
+      `[1.0, 0.35, 0.85, 1.0]` sengaja beda dari cyan gizmo face
+      (`FACE_GIZMO_COLOR`) supaya tidak tertukar visual saat sudut & sisi
+      berdekatan di layar. Dipanggil dari `build_overlay_lines` lewat
+      helper baru **`active_vertex_gizmo_dir(&self) -> Option<(Vec3, Vec3)>`**
+      — posisi vertex + `out_dir = normalize(vertex − pusat AABB mesh
+      body)` (AABB tessellasi, pola sama `pick_body_face_at_cursor`, BUKAN
+      pusat solid B-rep presisi — cukup buat arah kasar "menjauhi body"),
+      fallback `Vec3::Z` kalau vertex kebetulan di pusat AABB persis
+      (arah nol). Dipakai bareng oleh overlay DAN HUD interaktif supaya
+      keduanya selalu sepakat soal arah gizmo. **HUD interaktif**
+      (`dynamic_input_ui`) — blok ke-4, cermin persis blok gizmo face:
+      handle panah 2 sisi draggable (`CanvasHud::render_draggable_double_arrow_handle`)
+      mengubah `vertex_gizmo_radius` via `project_screen_drag_to_world_axis`
+      sepanjang `out_dir`, di-clamp `.max(0.1)` tiap update drag (jaga2
+      kernel `fillet_vertex` menolak radius <= 0); pill teks "R
+      <nilai><unit>" (`self.unit.format(...)`, BUKAN label "ΔR" spesial
+      punya face gizmo radial — vertex fillet selalu radius polos); klik
+      pill → toggle popup input teks; Enter/lost-focus → parse +
+      `unit.to_internal_mm` + clamp `.max(0.1)` → commit. **Commit**
+      (fungsi baru `commit_vertex_fillet`, dipanggil dari drag-stop DAN
+      dari popup Enter/lost-focus): panggil `cadraw_kernel::fillet_vertex`
+      dgn `Self::EDGE_REAPPLY_TOLERANCE_MM` (sama dgn `fillet_edges`,
+      bukan toleransi piksel — tidak ada akses `rect` layar di titik
+      commit ini) — sukses → `ReplaceGeometryCommand` lewat
+      `self.model_undo.execute` (jalur undo SAMA dgn `fillet_selected_body`),
+      `active_vertex` di-clear; gagal (mis. radius kebesaran, OCCT
+      menolak) → `model_status` pesan error, shape body ASLI tidak
+      tersentuh (`fillet_vertex` bekerja di atas `deep_clone`). Tidak ada
+      test baru (murni UI/rendering — sama alasan dgn catatan "Fase
+      3"/"Fase 4" akhir modeling 3D lain di dokumen ini) — `cargo test
+      --workspace` tetap 142 test hijau (62 di `cadraw-kernel`, tidak
+      berubah dari Fase 1).
+
+- [x] **Fase 4 — Perbaikan UX picking sudut ("klik sudut kubus meleset").**
+      Bug report: 5 klik berturut-turut di "sudut kubus" konsisten jatuh di
+      pixel yang sama, ray tembus tepat di RUSUK vertikal pojok box (mis.
+      `(70, -39.98, 48)`), 22.5mm dari vertex B-rep terdekat — jauh di atas
+      toleransi lama. Akar masalah: user secara visual mengklik rusuk
+      tegak pojok (seperti sudut tembok), bukan titik vertex kecilnya;
+      `pick_vertex` bekerja benar sesuai desain, tapi (a) toleransinya
+      malah lebih ketat dari face padahal komentarnya bilang "lebih
+      longgar", (b) tidak ada fallback ke edge, (c) vertex sama sekali
+      tidak digambar jadi tidak ada feedback visual sebelum klik. 3
+      perbaikan, tidak ada perubahan skema data tersimpan:
+      1. **Toleransi vertex 12px → 18px** (`pick_body_vertex_at_cursor`,
+         `cadraw-app`) — dulu malah lebih ketat dari face/edge (14px),
+         padahal komentarnya sendiri bilang "lebih longgar"; sekarang
+         benar-benar melebihi keduanya sesuai maksud aslinya.
+      2. **Edge fillet gizmo baru** — kernel sudah punya `pick_edge`
+         (dipakai `PickMode::Edge` manual sejak Fase 8), sekarang dipakai
+         juga sbg fallback klik OTOMATIS: di `handle_sketch_input`,
+         urutan coba jadi vertex → **edge (baru)** → face. Helper baru
+         **`pick_body_edge_at_cursor`** (cermin `pick_body_face_at_cursor`,
+         toleransi 14px). State baru `active_edge: Option<(BodyId,
+         PickRay, (f64,f64,f64))>` (titik KLIK pada rusuk, dipakai
+         langsung sbg jangkar gizmo — beda dari `active_vertex` yang
+         menyimpan titik vertex resmi) + `filleting_edge_from_gizmo`,
+         `edge_gizmo_radius` (default 3.0), `edge_gizmo_dimension_editing`,
+         `edge_gizmo_edit_input`. Gizmo visual & HUD **identik** dgn gizmo
+         vertex fillet (`active_edge_gizmo_dir` cermin
+         `active_vertex_gizmo_dir`, overlay pakai
+         `vertex_fillet_marker_lines` warna magenta yang sama, blok ke-5 di
+         `dynamic_input_ui` cermin blok ke-4) — cuma commit-nya fungsi baru
+         **`commit_edge_fillet_single`**: `cadraw_kernel::fillet_edges`
+         dgn 1 ray (bukan `fillet_vertex`). Semua tempat yang meng-clear
+         `active_face`/`active_vertex` (klik region 2D, klik entity sketch,
+         klik kosong, Escape) diperbarui ikut clear `active_edge`.
+      3. **Marker vertex terlihat + hover highlight** — fungsi baru
+         **`shape_vertices(shape) -> Vec<(f64,f64,f64)>`** di
+         `cadraw-kernel` (endpoint semua edge, dedup sama seperti dipakai
+         `pick_vertex`/`fillet_vertex`, diekstrak jadi helper privat
+         `collect_vertices` supaya logikanya cuma 1 tempat) + fungsi
+         render baru **`sketch_render::vertex_dot_markers`** (silang 3
+         sumbu kecil per vertex, abu-abu redup normal / kuning besar saat
+         di-hover). `build_overlay_lines` menggambar marker ini di SEMUA
+         vertex tiap body visible saat mode 3D (`!is_sketching`). State
+         baru `hovered_vertex_marker: Option<(BodyId, (f64,f64,f64))>`
+         dihitung ULANG tiap frame kursor ada di viewport
+         (`handle_sketch_input`, lewat `pick_body_vertex_at_cursor` yang
+         sama dipakai klik) — dilewati selagi drag gizmo mana pun biar
+         tidak query kernel percuma tiap frame drag. Tidak ada test baru
+         (murni UX/rendering, sama alasan dgn fase gizmo lain) —
+         `cargo test -p cadraw-kernel` tetap 62 test hijau.
+
+### Rounding Parametrik (lanjutan gizmo rounding — dua arah & bisa dibatalkan)
+
+Perbaikan atas dua keluhan gizmo rounding vertex/edge: (1) drag ke dalam
+tidak bisa (radius di-clamp min 0.1, commit destruktif — sekali bulat tak
+bisa siku lagi), (2) klik sudut yang SUDAH bulat jatuh ke face-pick →
+gizmo extrude → `offset_on_face` malah MEMBESARKAN objek.
+
+- `cadraw-kernel`: fungsi publik baru `clone_shape` (deep-clone snapshot
+  B-rep utk app; test `clone_shape_independent_of_original`). 63 test.
+- `cadraw-app`: rounding jadi PARAMETRIK — `RoundHistory` per body
+  (`round_history: HashMap<BodyId, RoundHistory>`) menyimpan shape DASAR
+  sebelum rounding pertama + daftar `RoundFeature` (kind Vertex/Edge, ray,
+  anchor, radius, polyline rusuk). Commit (`commit_round`) menyusun daftar
+  fitur baru lalu REBUILD dari dasar (`build_rounded_shape`, ray di-resolve
+  ulang berurutan), bukan memfillet hasil fillet. Radius < `ROUND_SHARP_MM`
+  (0.2) = fitur dihapus → sudut kembali menyiku. Klik pada sudut/rusuk yang
+  sudah bulat diintersep `find_round_feature_near` (jarak hit-point face ke
+  anchor fitur ATAU polyline rusuk asli ≤ radius·1.5 + toleransi layar) →
+  buka kembali gizmo dgn radius fitur (`editing_round`), pill menampilkan
+  "R 0 (siku)" di bawah ambang. Drag handler kedua gizmo kini clamp 0.0
+  (bukan 0.1) dan TIDAK me-reset nilai saat commit gagal. Riwayat
+  di-invalidate (`round_history.remove`) begitu body diubah operasi lain:
+  Cut Extrude, boolean (kedua sumber), Fillet/Chamfer panel, Shell,
+  Extrude/Cut Face, Delete body — karena base-nya tidak lagi
+  merepresentasikan shape berjalan. Riwayat hidup per sesi (tidak
+  diserialisasi); undo (`ReplaceGeometryCommand`) tetap jalan, edit
+  sesudah undo rebuild deterministik dari base yang sama.
+
 ## Menjalankan
 
 ```bash

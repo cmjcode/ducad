@@ -250,6 +250,114 @@ pub fn double_arrow_gizmo_lines(
     verts
 }
 
+/// Marker gizmo vertex fillet 3D (CADRAW Fase 3 — Rounded Sudut): kotak
+/// kawat kecil TEPAT di `vertex`, garis putus-putus dari `vertex` ke posisi
+/// handle sejauh `handle_dist` di sepanjang `out_dir` (arah "keluar" body,
+/// lihat `App::active_vertex_gizmo_dir`), dan ikon kuadran lingkaran kecil
+/// (melambangkan "rounding") digambar pada bidang tangent thd `out_dir` di
+/// dekat handle. `out_dir` TIDAK perlu sudah ternormalisasi. Warna sengaja
+/// dibedakan dari `FACE_GIZMO_COLOR` (cyan, dipakai gizmo extrude/push-pull
+/// face) supaya kedua gizmo tidak tertukar secara visual saat sudut & sisi
+/// body berdekatan di layar.
+pub fn vertex_fillet_marker_lines(
+    vertex: [f32; 3],
+    out_dir: Vec3,
+    handle_dist: f32,
+    color: [f32; 4],
+) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    let v = Vec3::from(vertex);
+    let n = out_dir.normalize_or_zero();
+
+    // 1. Marker kotak kawat kecil persis di titik vertex.
+    const S: f32 = 1.2;
+    let corners = [
+        Vec3::new(-S, -S, -S), Vec3::new(S, -S, -S), Vec3::new(S, S, -S), Vec3::new(-S, S, -S),
+        Vec3::new(-S, -S, S), Vec3::new(S, -S, S), Vec3::new(S, S, S), Vec3::new(-S, S, S),
+    ];
+    const EDGES: [(usize, usize); 12] = [
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    ];
+    for (a, b) in EDGES {
+        let pa = v + corners[a];
+        let pb = v + corners[b];
+        verts.push(LineVertex { position: [pa.x, pa.y, pa.z], color });
+        verts.push(LineVertex { position: [pb.x, pb.y, pb.z], color });
+    }
+
+    if n == Vec3::ZERO {
+        return verts;
+    }
+
+    // 2. Garis putus-putus dari vertex ke posisi handle di arah `out_dir`.
+    let handle = v + n * handle_dist;
+    let handle_arr = [handle.x, handle.y, handle.z];
+    verts.extend(dashed_line_3d(vertex, handle_arr, 2.0, color));
+
+    // 3. Ikon kuadran lingkaran kecil di dekat handle, pada bidang tangent
+    // thd `out_dir` (basis sama seperti `double_arrow_gizmo_lines` pakai
+    // utk kepala panah, supaya orientasinya konsisten scr visual).
+    let (t1, t2) = if n.z.abs() < 0.95 {
+        let t1 = n.cross(Vec3::Z).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    } else {
+        let t1 = n.cross(Vec3::Y).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    };
+    const ARC_R: f32 = 2.5;
+    let arc_center = handle - n * (ARC_R * 0.5);
+    let segs = 8;
+    let mut prev = arc_center + t1 * ARC_R;
+    for i in 1..=segs {
+        let angle = std::f32::consts::FRAC_PI_2 * (i as f32 / segs as f32);
+        let p = arc_center + t1 * (ARC_R * angle.cos()) + t2 * (ARC_R * angle.sin());
+        verts.push(LineVertex { position: [prev.x, prev.y, prev.z], color });
+        verts.push(LineVertex { position: [p.x, p.y, p.z], color });
+        prev = p;
+    }
+
+    verts
+}
+
+/// Marker kecil (silang 3 sumbu) di tiap titik `vertices` — dipakai
+/// menggambar SEMUA sudut (vertex) body 3D saat mode 3D supaya target
+/// picking vertex/gizmo rounding (`vertex_fillet_marker_lines`, gizmo edge
+/// fillet) TERLIHAT sebelum diklik, bukan cuma target invisible ±piksel
+/// (keluhan awal fitur ini: klik "sudut kubus" sering meleset ke rusuk
+/// karena vertex-nya sendiri tidak pernah digambar). `hover_point`, kalau
+/// ada, dicocokkan lewat jarak epsilon ke salah satu `vertices` dan
+/// digambar lebih besar + `hover_color` supaya user tahu sudut mana yang
+/// bakal kena kalau diklik sekarang — pola sama dgn highlight hover
+/// entitas sketch 2D di `entity_lines`.
+pub fn vertex_dot_markers(
+    vertices: &[[f32; 3]],
+    hover_point: Option<[f32; 3]>,
+    color: [f32; 4],
+    hover_color: [f32; 4],
+) -> Vec<LineVertex> {
+    const HOVER_EPS: f32 = 1e-3;
+    let mut verts = Vec::new();
+    for p in vertices {
+        let is_hover = hover_point.is_some_and(|h| {
+            (h[0] - p[0]).abs() < HOVER_EPS && (h[1] - p[1]).abs() < HOVER_EPS && (h[2] - p[2]).abs() < HOVER_EPS
+        });
+        let c = if is_hover { hover_color } else { color };
+        let s = if is_hover { 2.2 } else { 1.0 };
+        let v = Vec3::from(*p);
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            let a = v - axis * s;
+            let b = v + axis * s;
+            verts.push(LineVertex { position: [a.x, a.y, a.z], color: c });
+            verts.push(LineVertex { position: [b.x, b.y, b.z], color: c });
+        }
+    }
+    verts
+}
+
 /// Garis leader dimensi 2D dengan garis proyeksi putus-putus dan panah pembatas pada bidang aktif.
 pub fn dimension_leader_lines(a: DVec2, b: DVec2, offset_dist: f64, plane: &SketchPlane) -> Vec<LineVertex> {
     let mut verts = Vec::new();

@@ -713,6 +713,63 @@ fn resolve_edge_along_ray(shape: &Shape, ray: PickRay, tolerance: f64) -> Option
     best.map(|(_, edge, point, polyline)| (edge, point, polyline))
 }
 
+/// Jarak titik `point` ke garis `ray` (garis TAK TERBATAS di kedua arah,
+/// bukan half-line dari `ray_origin` — sama persis dgn cabang segmen
+/// degenerate di `closest_point_ray_segment` di atas, cuma dipisah jadi
+/// helper sendiri karena vertex picking butuh jarak titik-ke-ray murni,
+/// bukan titik-ke-segmen).
+fn point_to_ray_distance(ray_origin: DVec3, ray_dir: DVec3, point: DVec3) -> f64 {
+    let a = ray_dir.dot(ray_dir);
+    let t = if a > 1e-12 { ray_dir.dot(point - ray_origin) / a } else { 0.0 };
+    let closest_on_ray = ray_origin + ray_dir * t;
+    (closest_on_ray - point).length()
+}
+
+/// Vertex (sudut/endpoint edge) terdekat ke `ray` (dalam `tolerance` mm)
+/// — tidak ada primitif vertex-along-ray di `opencascade-rs` (sama
+/// seperti face/edge di atas), jadi dikumpulkan sendiri: endpoint SEMUA
+/// edge shape (banyak edge berbagi 1 vertex yang sama di topologi B-rep,
+/// endpoint di-dedup lewat jarak epsilon supaya vertex yang sama tidak
+/// dihitung berkali-kali lintas edge), lalu dipilih yang jaraknya ke ray
+/// paling kecil dan masih dalam `tolerance`.
+fn resolve_vertex_along_ray(shape: &Shape, ray: PickRay, tolerance: f64) -> Option<DVec3> {
+    let origin = ray.origin_vec();
+    let dir = ray.dir_vec();
+    if dir.length_squared() < 1e-18 {
+        return None;
+    }
+
+    let mut best: Option<(f64, DVec3)> = None;
+    for v in collect_vertices(shape) {
+        let dist = point_to_ray_distance(origin, dir, v);
+        if dist <= tolerance && best.as_ref().is_none_or(|(d, _)| dist < *d) {
+            best = Some((dist, v));
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+/// Semua vertex (sudut) unik pada `shape` — endpoint SEMUA edge, di-dedup
+/// lewat jarak epsilon (banyak edge berbagi 1 vertex topologi B-rep yang
+/// sama). Diekstrak dari `resolve_vertex_along_ray` supaya logika dedup
+/// yang sama dipakai juga oleh `shape_vertices` (marker vertex terlihat di
+/// viewport, lihat pemanggilnya di cadraw-app) tanpa duplikasi.
+fn collect_vertices(shape: &Shape) -> Vec<DVec3> {
+    // Epsilon dedup endpoint — SAMA dengan epsilon "berimpit" yang dipakai
+    // `fillet_vertex` di bawah buat mengumpulkan tepi yang bertemu di 1
+    // vertex, supaya kriteria "vertex yang sama" konsisten di semua tempat.
+    const DEDUP_EPS: f64 = 1e-6;
+    let mut vertices: Vec<DVec3> = Vec::new();
+    for edge in shape.edges() {
+        for p in [edge.start_point(), edge.end_point()] {
+            if !vertices.iter().any(|v| (*v - p).length() < DEDUP_EPS) {
+                vertices.push(p);
+            }
+        }
+    }
+    vertices
+}
+
 /// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, dan normal satuan keluar).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FaceHit {
@@ -1102,6 +1159,15 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
     }
 }
 
+/// Deep-clone publik sebuah shape — dipakai app untuk menyimpan snapshot
+/// B-rep (mis. shape dasar SEBELUM rounding parametrik pertama, supaya
+/// radius bisa diubah/di-nol-kan lagi dengan rebuild dari dasar) tanpa
+/// membuka akses ke `deep_clone` internal maupun detail locking kernel.
+pub fn clone_shape(shape: &KernelShape) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    Ok(KernelShape(deep_clone(&shape.0)?))
+}
+
 /// (titik hit terdekat di edge, polyline approksimasi edge itu utk
 /// highlight render) — hasil `pick_edge`.
 pub type EdgePickHit = ((f64, f64, f64), Vec<(f64, f64, f64)>);
@@ -1140,6 +1206,62 @@ pub fn fillet_edges(shape: &KernelShape, radius: f64, rays: &[PickRay], toleranc
         };
         edges.push(edge);
     }
+    cloned.fillet_edges(radius, &edges);
+    Ok(KernelShape(cloned))
+}
+
+/// Cast `ray` ke `shape`, kembalikan titik vertex (sudut) terdekat kalau
+/// ada dalam `tolerance` mm dari ray. Dipakai UI utk hover/klik gizmo
+/// vertex fillet (rounded sudut 3D, beda dari `pick_edge` yang menyasar
+/// RUSUK).
+pub fn pick_vertex(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<(f64, f64, f64)> {
+    let _guard = lock_kernel();
+    resolve_vertex_along_ray(&shape.0, ray, tolerance).map(|p| (p.x, p.y, p.z))
+}
+
+/// Semua vertex (sudut) unik dari `shape`, dedup sama seperti dipakai
+/// `pick_vertex`/`fillet_vertex` (lihat `collect_vertices`). Dipakai UI utk
+/// menggambar marker kecil di tiap sudut body saat mode 3D — tanpa marker
+/// terlihat, target picking vertex yang kecil secara visual praktis tidak
+/// bisa ditemukan user (lihat juga toleransi longgar di `pick_vertex`).
+pub fn shape_vertices(shape: &KernelShape) -> Vec<(f64, f64, f64)> {
+    let _guard = lock_kernel();
+    collect_vertices(&shape.0).into_iter().map(|v| (v.x, v.y, v.z)).collect()
+}
+
+/// Fillet SEMUA tepi yang bertemu di 1 vertex (sudut) yang di-pick lewat
+/// `ray` — beda dari `fillet_edges` yang fillet tepi spesifik hasil pick:
+/// di sini user klik SUDUT, kernel yang mencari sendiri tepi-tepi yang
+/// bertemu di situ. `ray` di-cast ULANG terhadap shape hasil `deep_clone`
+/// (pola sama dgn `fillet_edges`, lihat desain di `PickRay`) buat
+/// resolusi vertex yang valid pada clone, lalu tepi-tepi yang
+/// `start_point`/`end_point`-nya berimpit (epsilon ~1e-6 mm, SAMA dengan
+/// dedup di `resolve_vertex_along_ray`) dengan vertex itu dikumpulkan dan
+/// di-fillet SEKALIGUS lewat `Shape::fillet_edges` — OCCT sendiri yang
+/// menghasilkan sudut membulat (spherical corner) ketika >1 tepi yang
+/// bertemu di 1 titik difillet bersamaan dengan radius sama.
+pub fn fillet_vertex(shape: &KernelShape, radius: f64, ray: PickRay, tolerance: f64) -> Result<KernelShape> {
+    if radius <= 0.0 {
+        bail!("radius fillet harus > 0");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    let Some(vertex) = resolve_vertex_along_ray(&cloned, ray, tolerance) else {
+        bail!("sudut (vertex) terpilih tidak ditemukan lagi pada shape");
+    };
+
+    const COINCIDENT_EPS: f64 = 1e-6;
+    let edges: Vec<Edge> = cloned
+        .edges()
+        .filter(|edge| {
+            (edge.start_point() - vertex).length() < COINCIDENT_EPS
+                || (edge.end_point() - vertex).length() < COINCIDENT_EPS
+        })
+        .collect();
+    if edges.is_empty() {
+        bail!("tidak ada tepi yang bertemu di sudut terpilih");
+    }
+
     cloned.fillet_edges(radius, &edges);
     Ok(KernelShape(cloned))
 }
@@ -1401,6 +1523,21 @@ mod tests {
     }
 
     #[test]
+    fn clone_shape_independent_of_original() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
+        let snapshot = clone_shape(&shape).unwrap();
+        // Fillet hasil clone TIDAK boleh menyentuh snapshot maupun shape
+        // asli — inti pemakaian `clone_shape` sbg base rounding parametrik.
+        let filleted = fillet_all(&snapshot, 2.0).unwrap();
+        assert!(filleted.tessellate().triangle_count() > 0);
+        assert_eq!(
+            shape.tessellate().positions.len(),
+            snapshot.tessellate().positions.len()
+        );
+    }
+
+    #[test]
     fn make_filleted_box_smoke() {
         let _guard = TEST_LOCK.lock().unwrap();
         let shape = make_filleted_box(40.0, 30.0, 20.0, 3.0).unwrap();
@@ -1611,6 +1748,47 @@ mod tests {
         assert!(pick_face(&shape, ray).is_none());
     }
 
+    // ---- Vertex Fillet Gizmo: picking vertex (sudut) 3D ----
+
+    #[test]
+    fn pick_vertex_on_box_corner() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Box x∈[0,30], y∈[0,20], z∈[0,15]; ray diagonal dari luar
+        // menuju sudut box di titik asal (0,0,0).
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let hit = pick_vertex(&shape, ray, 1.0).expect("harus kena sudut box di (0,0,0)");
+        assert!(hit.0.abs() < 1e-3);
+        assert!(hit.1.abs() < 1e-3);
+        assert!(hit.2.abs() < 1e-3);
+    }
+
+    /// Validasi arsitektur WAJIB versi vertex (lihat catatan test
+    /// `pick_face_consistent_across_deep_clone`/`pick_edge_consistent_across_deep_clone`
+    /// di atas — dasar yang sama kenapa `PickRay` aman dipakai lintas
+    /// roundtrip STEP juga berlaku utk vertex picking).
+    #[test]
+    fn pick_vertex_consistent_across_deep_clone() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let tolerance = 1.0;
+        let hit_original = pick_vertex(&shape, ray, tolerance).expect("harus kena sudut shape asli");
+        let cloned = deep_clone(&shape.0).unwrap();
+        let hit_cloned = resolve_vertex_along_ray(&cloned, ray, tolerance)
+            .map(|p| (p.x, p.y, p.z))
+            .expect("harus kena sudut shape hasil deep_clone");
+        assert!((hit_original.0 - hit_cloned.0).abs() < 1e-6);
+        assert!((hit_original.1 - hit_cloned.1).abs() < 1e-6);
+        assert!((hit_original.2 - hit_cloned.2).abs() < 1e-6);
+    }
+
     // ---- Fase 8: Fillet/Chamfer per-tepi, Shell multi-face ----
 
     #[test]
@@ -1649,6 +1827,51 @@ mod tests {
             dir: (0.0, 0.0, 1.0),
         };
         assert!(fillet_edges(&shape, 2.0, &[ray], 1.0).is_err());
+    }
+
+    // ---- Vertex Fillet Gizmo: fillet SEMUA tepi yang bertemu di 1 sudut ----
+
+    #[test]
+    fn fillet_vertex_rounds_box_corner() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // Box x∈[0,30], y∈[0,20], z∈[0,15]; ray diagonal menuju sudut
+        // box di titik asal (0,0,0) — 3 tepi bertemu di sana.
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let base_volume = shape.0.volume();
+        let filleted = fillet_vertex(&shape, 2.0, ray, 1.0).unwrap();
+        assert!(
+            filleted.0.volume() < base_volume,
+            "membulatkan sudut harus memotong material (volume berkurang)"
+        );
+        assert!(filleted.tessellate().triangle_count() > 0);
+        // Shape asli tidak boleh ikut termutasi (pola sama dgn fillet_edges/fillet_all).
+        assert!((shape.0.volume() - base_volume).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fillet_vertex_zero_radius_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        assert!(fillet_vertex(&shape, 0.0, ray, 1.0).is_err());
+    }
+
+    #[test]
+    fn fillet_vertex_no_match_errors() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (1000.0, 1000.0, 1000.0),
+            dir: (0.0, 0.0, 1.0),
+        };
+        assert!(fillet_vertex(&shape, 2.0, ray, 1.0).is_err());
     }
 
     #[test]
