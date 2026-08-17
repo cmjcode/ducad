@@ -2065,6 +2065,67 @@ rounding yang sudah ada utk edit radius" tidak berubah).
 --test-threads=1` tetap 153 test hijau (perubahan murni di jalur klik
 `cadraw-app`, tidak menyentuh kernel).
 
+## Status Sketch — Rantai Garis Kontinu (dikerjakan)
+
+Permintaan user: di tool Garis mode sketch, klik-klik berturut harus
+langsung menyambung dari titik sebelumnya (bukan minta 2 klik baru tiap
+segmen), selesai kalau klik balik ke salah satu titik AWAL rantai atau
+tekan ESC, dan tetap tampilkan nominal jarak sejajar garisnya seperti
+sebelumnya.
+
+Sebelumnya tool Garis adalah tool 2-klik generik lewat
+`on_click_point`/`finish_multipoint` (jalur yang sama dgn Rectangle/
+Circle/dst) — begitu 2 titik terkumpul, 1 `Entity::Line` di-commit dan
+`pending_points` di-reset total, jadi klik berikutnya mulai garis baru
+yang TIDAK nyambung. Preview dimensi live (leader lines panah +
+label rotasi sejajar garis, sudah ada dari sebelumnya lewat
+`sketch_render::dimension_leader_lines` + `CanvasHud::render_dimension_
+pill`) sudah keyed off `pending_points.len() == 1`, jadi TIDAK perlu
+kode render baru — tinggal jaga `pending_points` tetap 0-atau-1 elemen
+sepanjang rantai supaya preview itu otomatis nyala tiap segmen.
+
+- `CadrawApp`: field baru `line_chain_start: Option<DVec2>` (titik AWAL
+  rantai, terpisah dari `pending_points[0]` yang berarti "titik akhir
+  segmen terakhir / awal segmen berikutnya") + `line_chain_segments: u32`
+  (penghitung segmen ter-commit, dipakai syarat minimal 2 segmen sebelum
+  klik-balik-ke-awal dianggap "tutup loop" — supaya loop tertutup minimal
+  segitiga, bukan bolak-balik 1 garis). Di-reset di `set_tool` dan di
+  cabang ESC yang sudah ada (bareng `pending_points.clear()`).
+- `ToolKind::Line` dikeluarkan dari arm dispatch klik generik (yang masih
+  dipakai Rectangle/Circle/Ellipse/Arc/Measure/MeasureAngle) ke method
+  baru `handle_line_chain_click(p, close_tol)`: klik pertama cuma catat
+  titik awal; klik berikutnya SELALU commit 1 `Entity::Line` dari titik
+  terakhir ke titik klik (lewat `InsertEntities` + `execute_sketch_
+  command`, undo-able per segmen), lalu:
+  - kalau klik menyentuh `line_chain_start` (toleransi = `tol` yang sama
+    dgn `find_snap`) DAN sudah ≥2 segmen ter-commit → tutup PERSIS ke
+    titik awal rantai (bukan titik klik mentah, biar loop benar-benar
+    nyambung walau klik meleset dalam toleransi), lalu rantai selesai;
+  - selain itu → rantai lanjut, `pending_points` diisi ulang 1 elemen
+    (titik baru) supaya siap jadi awal segmen berikutnya.
+  - klik di tempat (hampir) sama dgn titik terakhir diabaikan (guard
+    `LINE_CHAIN_DEGENERATE_EPS`), tidak membuat segmen nol-panjang.
+- `finish_multipoint`/`required_points`: arm `ToolKind::Line` dihapus
+  (Line tidak pernah lewat sana lagi) — masing-masing dapat komentar
+  penunjuk ke `handle_line_chain_click` supaya tidak disangka lupa
+  di-handle.
+- `status_text()`: hint tool Garis dipecah 3 kondisi (0 titik / sudah
+  ≥2 segmen jadi bisa ditutup / masih <2 segmen) supaya user tahu opsi
+  tutup-loop begitu tersedia.
+
+Preview segmen yang sedang digambar (leader lines + pill panjang di
+`build_overlay_lines`/`dynamic_input_ui`, keyed `pending_points.len()
+== 1`) dan checkbox "Tampilkan Semua Ukuran" (`show_all_dimensions`,
+independen) TIDAK disentuh — otomatis bekerja untuk tiap segmen rantai
+tanpa perubahan.
+
+`cargo build -p cadraw-app` bersih (tanpa warning baru).
+`cargo test -p cadraw-sketch -p cadraw-kernel` tetap hijau (perubahan
+murni di `cadraw-app`, tidak menyentuh kernel/sketch) — `cadraw-app`
+sendiri tidak punya unit test (layer egui, divalidasi manual: gambar
+segitiga tertutup lewat klik-balik-ke-titik-awal, dan polyline terbuka
+diselesaikan ESC).
+
 ## Menjalankan
 
 ```bash

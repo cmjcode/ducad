@@ -411,10 +411,14 @@ enum PaletteAction {
 /// yang diklik, bukan sekadar koordinat titik).
 fn required_points(tool: ToolKind) -> usize {
     match tool {
-        ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
+        ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
         | ToolKind::Mirror | ToolKind::Revolve | ToolKind::Measure => 2,
         ToolKind::Arc | ToolKind::MeasureAngle => 3,
+        // Line TIDAK di sini — jumlah titiknya tidak tetap (rantai
+        // berlanjut sampai ditutup/ESC), lewat `handle_line_chain_click`
+        // langsung, bukan `on_click_point`/`finish_multipoint`.
         ToolKind::Select
+        | ToolKind::Line
         | ToolKind::Offset
         | ToolKind::Trim
         | ToolKind::CoincidentPick
@@ -599,6 +603,19 @@ struct CadrawApp {
     pending_point_refs: Vec<constraint::PointRef>,
     /// Entitas sumber untuk tool Offset, di-set pada klik pertama.
     offset_source: Option<EntityId>,
+    /// Titik AWAL rantai garis (`ToolKind::Line`) yang sedang digambar —
+    /// terpisah dari `pending_points[0]` karena selama rantai berjalan
+    /// `pending_points[0]` selalu berarti "titik akhir segmen terakhir /
+    /// awal segmen berikutnya", bukan titik pertama rantai. Dipakai
+    /// mendeteksi klik "tutup loop" (klik balik ke titik awal). `None`
+    /// berarti tidak sedang di tengah rantai garis. Lihat
+    /// `handle_line_chain_click`.
+    line_chain_start: Option<DVec2>,
+    /// Jumlah segmen Line yang sudah ter-commit di rantai garis yang
+    /// sedang berjalan — dipakai `handle_line_chain_click` memastikan
+    /// "tutup loop" hanya berlaku sesudah minimal 2 segmen (loop tertutup
+    /// minimal segitiga, bukan bolak-balik 1 garis).
+    line_chain_segments: u32,
 
     hovered: Option<EntityId>,
     selected: HashSet<EntityId>,
@@ -846,6 +863,8 @@ impl CadrawApp {
             pending_points: Vec::new(),
             pending_point_refs: Vec::new(),
             offset_source: None,
+            line_chain_start: None,
+            line_chain_segments: 0,
             hovered: None,
             selected: HashSet::new(),
             last_snap: None,
@@ -1037,6 +1056,8 @@ impl CadrawApp {
         self.pending_points.clear();
         self.pending_point_refs.clear();
         self.offset_source = None;
+        self.line_chain_start = None;
+        self.line_chain_segments = 0;
         self.last_snap = None;
         self.dynamic_input.clear();
         self.dynamic_focus_pending = false;
@@ -1068,18 +1089,84 @@ impl CadrawApp {
         }
     }
 
+    /// Jarak minimum (mm) sebelum dua titik dianggap "titik yang sama" saat
+    /// menggambar rantai garis — di bawah ini, klik dianggap tidak
+    /// menghasilkan segmen baru (klik ganda di tempat yang (hampir) sama).
+    const LINE_CHAIN_DEGENERATE_EPS: f64 = 1e-6;
+
+    /// Terima satu titik klik untuk tool Line (Fase "rantai garis"): beda
+    /// dari `on_click_point`/`finish_multipoint` generik karena Line tidak
+    /// pernah "selesai otomatis" pada jumlah titik tetap — setiap klik
+    /// setelah yang pertama langsung membuat 1 segmen dari titik terakhir
+    /// ke titik ini, lalu rantai berlanjut dari titik ini, TERUS sampai:
+    /// - klik balik ke titik awal rantai (`line_chain_start`), dengan
+    ///   sudah ada minimal 2 segmen ter-commit — supaya loop yang ditutup
+    ///   minimal berbentuk segitiga, bukan cuma bolak-balik 1 garis; atau
+    /// - ESC (ditangani terpisah di `handle_sketch_input`, cukup meng-clear
+    ///   `pending_points`/`line_chain_start`, tidak lewat fungsi ini).
+    ///
+    /// `close_tol` adalah toleransi jarak dunia yang sama dengan yang
+    /// dipakai `find_snap` di titik panggil (`tol` di `handle_sketch_input`)
+    /// supaya "klik balik ke titik awal" terasa konsisten dengan indikator
+    /// snap endpoint yang sudah user lihat di kursor.
+    fn handle_line_chain_click(&mut self, p: DVec2, close_tol: f64) {
+        let Some(&last) = self.pending_points.first() else {
+            // Klik pertama rantai: belum ada segmen, cuma catat titik awal.
+            self.pending_points.push(p);
+            self.line_chain_start = Some(p);
+            self.dynamic_focus_pending = true;
+            return;
+        };
+
+        if (p - last).length() < Self::LINE_CHAIN_DEGENERATE_EPS {
+            // Klik di tempat (hampir) sama dengan titik terakhir — abaikan,
+            // jangan buat segmen nol-panjang atau ganggu rantai.
+            return;
+        }
+
+        // segments_so_far: jumlah segmen yang SUDAH ter-commit sebelum
+        // klik ini. `pending_points` untuk Line selalu 0 atau 1 elemen,
+        // jadi tidak bisa dihitung dari situ — dipakai penanda terpisah.
+        let closing = self
+            .line_chain_start
+            .is_some_and(|start| self.line_chain_segments >= 2 && (p - start).length() <= close_tol);
+
+        let end = if closing {
+            // Tutup PERSIS ke titik awal rantai (bukan titik klik mentah)
+            // supaya loop benar-benar tertutup meski klik meleset sedikit
+            // dalam toleransi.
+            self.line_chain_start.unwrap()
+        } else {
+            p
+        };
+
+        self.execute_sketch_command(Box::new(InsertEntities::new(
+            "Garis",
+            vec![Entity::Line { start: last, end }],
+        )));
+        self.line_chain_segments += 1;
+
+        if closing {
+            self.pending_points.clear();
+            self.line_chain_start = None;
+            self.line_chain_segments = 0;
+            self.dynamic_input.clear();
+            self.dynamic_focus_pending = false;
+        } else {
+            self.pending_points = vec![end];
+            self.dynamic_focus_pending = true;
+        }
+    }
+
     /// Bangun entitas/command dari `pending_points` yang sudah lengkap dan
     /// eksekusi lewat undo stack.
     fn finish_multipoint(&mut self) {
         let pts = std::mem::take(&mut self.pending_points);
         let cmd: Option<Box<dyn cadraw_core::Command<Sketch>>> = match self.tool {
-            ToolKind::Line => Some(Box::new(InsertEntities::new(
-                "Garis",
-                vec![Entity::Line {
-                    start: pts[0],
-                    end: pts[1],
-                }],
-            ))),
+            // Line TIDAK lewat sini — dia tidak punya jumlah titik tetap
+            // (rantai berlanjut sampai ditutup/ESC), lihat
+            // `handle_line_chain_click` yang di-panggil langsung dari
+            // dispatch klik, bukan lewat `on_click_point`/`finish_multipoint`.
             ToolKind::Rectangle => {
                 let min = pts[0].min(pts[1]);
                 let max = pts[0].max(pts[1]);
@@ -1181,7 +1268,11 @@ impl CadrawApp {
                 });
                 None
             }
+            // Line tidak pernah mencapai sini — required_points(Line) == 0
+            // (lihat komentarnya) dan dispatch klik Line dialihkan ke
+            // `handle_line_chain_click`, tidak pernah ke `on_click_point`.
             ToolKind::Select
+            | ToolKind::Line
             | ToolKind::Offset
             | ToolKind::Trim
             | ToolKind::CoincidentPick
@@ -1879,7 +1970,10 @@ impl CadrawApp {
             }
             ToolKind::Line => match self.pending_points.len() {
                 0 => "Garis: klik titik awal (L)".to_string(),
-                _ => "Garis: klik titik akhir, atau ketik panjang lalu Enter".to_string(),
+                _ if self.line_chain_segments >= 2 => {
+                    "Garis: klik titik berikutnya, klik titik awal untuk tutup loop, atau ESC untuk selesai".to_string()
+                }
+                _ => "Garis: klik titik berikutnya, atau ESC untuk selesai".to_string(),
             },
             ToolKind::Rectangle => match self.pending_points.len() {
                 0 => "Persegi: klik sudut pertama (R)".to_string(),
@@ -2364,9 +2458,15 @@ impl CadrawApp {
                     || !self.pending_point_refs.is_empty()
                     || self.offset_source.is_some()
                 {
+                    // Untuk rantai garis (ToolKind::Line), ini menyudahi
+                    // rantai TANPA menutup loop — segmen yang sudah
+                    // di-commit (klik-klik sebelumnya) tetap ada, cuma
+                    // segmen yang sedang di-preview yang batal.
                     self.pending_points.clear();
                     self.pending_point_refs.clear();
                     self.offset_source = None;
+                    self.line_chain_start = None;
+                    self.line_chain_segments = 0;
                     self.dynamic_input.clear();
                     self.dynamic_focus_pending = false;
                 } else if !self.selected.is_empty() {
@@ -2680,7 +2780,23 @@ impl CadrawApp {
                     self.constraint_status = None;
                 }
             }
-            ToolKind::Line | ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
+            // Line: kasus khusus, BUKAN lewat `on_click_point`/`finish_multipoint`
+            // generik (yang "selesai otomatis" begitu jumlah titik tercapai) —
+            // Line tidak punya jumlah titik tetap, terus berlanjut selama
+            // user klik, sampai ditutup (klik balik ke titik awal rantai)
+            // atau ESC. Lihat `handle_line_chain_click`.
+            ToolKind::Line => {
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() {
+                    let effective = self.snapped_or(raw);
+                    self.handle_line_chain_click(effective, tol);
+                }
+            }
+            ToolKind::Rectangle | ToolKind::Circle | ToolKind::Ellipse
             | ToolKind::Arc | ToolKind::Measure | ToolKind::MeasureAngle => {
                 self.hovered = None;
                 self.last_snap = response
