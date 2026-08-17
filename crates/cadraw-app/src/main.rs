@@ -4043,6 +4043,65 @@ impl CadrawApp {
         }
     }
 
+    /// Preview shape gizmo rounding (vertex ATAU edge) selagi DRAG — cermin
+    /// persis logika `commit_round` (fitur baru/edit disusun dari
+    /// `round_history` + radius SAAT INI, lalu di-rebuild dari base), TAPI
+    /// dry-run murni: tidak menyentuh `round_history`/`model_undo`/
+    /// `model_status`. Dipakai `build_combined_body_mesh` tiap frame supaya
+    /// gizmo rounding di pojokan (vertex/edge) ikut real-time seperti gizmo
+    /// extrude sketch & extrude face — bukan cuma berubah saat drag lepas.
+    /// `None` kalau gizmo tidak aktif, radius masih "siku" (< `ROUND_SHARP_MM`,
+    /// preview-nya = body apa adanya, tidak perlu di-rebuild), atau rebuild
+    /// gagal (radius kebesaran dsb — frame itu saja tanpa preview).
+    fn round_gizmo_preview_shape(&self, kind: RoundKind) -> Option<(BodyId, KernelShape)> {
+        let (body_id, ray, anchor, radius) = match kind {
+            RoundKind::Vertex => {
+                let (b, r, a) = self.active_vertex?;
+                (b, r, a, self.vertex_gizmo_radius)
+            }
+            RoundKind::Edge => {
+                let (b, r, a) = self.active_edge?;
+                (b, r, a, self.edge_gizmo_radius)
+            }
+        };
+        if radius < Self::ROUND_SHARP_MM {
+            return None;
+        }
+        let geo = self.model.geometry.get(body_id)?;
+
+        let mut features: Vec<RoundFeature> = self
+            .round_history
+            .get(&body_id)
+            .map(|h| h.features.clone())
+            .unwrap_or_default();
+        match self.editing_round {
+            Some((b, idx)) if b == body_id && idx < features.len() => {
+                features[idx].radius = radius;
+            }
+            _ => {
+                let polyline = if kind == RoundKind::Edge {
+                    cadraw_kernel::pick_edge(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                        .map(|(_, pl)| pl)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                features.push(RoundFeature { kind, ray, anchor, radius, polyline });
+            }
+        }
+
+        let base_owned;
+        let base: &KernelShape = match self.round_history.get(&body_id) {
+            Some(h) => &h.base,
+            None => {
+                base_owned = cadraw_kernel::clone_shape(&geo.shape).ok()?;
+                &base_owned
+            }
+        };
+
+        Self::build_rounded_shape(base, &features).ok().map(|shape| (body_id, shape))
+    }
+
     /// Cari fitur rounding milik `body_id` yang dekat `hit_point` (titik
     /// klik pada permukaan body): dalam `radius·1.5 + toleransi layar` dari
     /// anchor fitur, atau — utk fitur rusuk — dari polyline rusuk aslinya
@@ -4449,6 +4508,35 @@ impl CadrawApp {
                     if self.extruding_from_gizmo && self.gizmo_is_cutting && self.gizmo_target_body == Some(id) {
                         continue;
                     }
+                    // Live face-extrude preview (blok 4 di bawah) menggantikan
+                    // body ini dgn mesh hasil `extrude_face` versi terkini
+                    // selagi drag — body asli (belum berubah) disembunyikan
+                    // dulu supaya tidak dobel-render dgn preview-nya.
+                    if self.extruding_face_from_gizmo
+                        && self.active_face.map(|(target_id, _, _)| target_id) == Some(id)
+                    {
+                        continue;
+                    }
+                    // Live rounding preview (blok 5 di bawah) menggantikan
+                    // body ini dgn mesh hasil `round_gizmo_preview_shape`
+                    // selagi drag gizmo vertex/edge fillet — cermin blok
+                    // extrude face di atas. Radius harus SUDAH lolos ambang
+                    // "siku" (`ROUND_SHARP_MM`, sama dgn syarat blok 5 di
+                    // bawah menghasilkan preview) — kalau tidak, blok 5 tidak
+                    // menggambar apa-apa dan body ini akan hilang tanpa
+                    // pengganti.
+                    if self.filleting_vertex_from_gizmo
+                        && self.vertex_gizmo_radius >= Self::ROUND_SHARP_MM
+                        && self.active_vertex.map(|(target_id, _, _)| target_id) == Some(id)
+                    {
+                        continue;
+                    }
+                    if self.filleting_edge_from_gizmo
+                        && self.edge_gizmo_radius >= Self::ROUND_SHARP_MM
+                        && self.active_edge.map(|(target_id, _, _)| target_id) == Some(id)
+                    {
+                        continue;
+                    }
                     let offset = positions.len() as u32;
                     positions.extend_from_slice(&geo.mesh.positions);
                     normals.extend_from_slice(&geo.mesh.normals);
@@ -4516,6 +4604,62 @@ impl CadrawApp {
                         indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
                     }
                 }
+            }
+        }
+
+        // 4. Live Face Extrude preview jika sedang drag gizmo face 3D —
+        // cermin blok 3 di atas tapi utk `extrude_face` (bukan extrude dari
+        // sketch): body asli sudah disembunyikan di blok 1, di sini mesh
+        // hasil `extrude_face` versi TERKINI (`face_gizmo_distance`) dipakai
+        // GANTI-nya tiap frame, bukan cuma sekali saat drag dilepas — supaya
+        // pull/push face 3D langsung kelihatan real-time sama seperti extrude
+        // dari sketch. Gagal (mis. radius bakal ≤ 0) dibiarkan lewat begitu
+        // saja, sama seperti blok 3 — frame itu cuma tidak dapat preview.
+        if self.extruding_face_from_gizmo && self.face_gizmo_distance.abs() > 0.01 {
+            if let Some((target_id, ray, _hit)) = self.active_face {
+                if let Some(target_geo) = self.model.geometry.get(target_id) {
+                    if let Ok(preview_shape) = cadraw_kernel::extrude_face(&target_geo.shape, ray, self.face_gizmo_distance) {
+                        let preview_mesh = preview_shape.tessellate();
+                        let offset = positions.len() as u32;
+                        positions.extend_from_slice(&preview_mesh.positions);
+                        normals.extend_from_slice(&preview_mesh.normals);
+                        for _ in 0..preview_mesh.positions.len() {
+                            colors.push(CYAN_FACE_SELECTED);
+                        }
+                        indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
+                    }
+                }
+            }
+        }
+
+        // 5. Live Rounding (vertex/edge fillet) preview jika sedang drag
+        // gizmo di pojokan — cermin blok 3/4 di atas: body asli sudah
+        // disembunyikan di blok 1, di sini mesh hasil
+        // `round_gizmo_preview_shape` versi TERKINI (radius drag saat ini)
+        // dipakai GANTI-nya tiap frame, supaya rounding sudut/rusuk langsung
+        // kelihatan real-time alih-alih cuma saat drag dilepas.
+        if self.filleting_vertex_from_gizmo {
+            if let Some((_, preview_shape)) = self.round_gizmo_preview_shape(RoundKind::Vertex) {
+                let preview_mesh = preview_shape.tessellate();
+                let offset = positions.len() as u32;
+                positions.extend_from_slice(&preview_mesh.positions);
+                normals.extend_from_slice(&preview_mesh.normals);
+                for _ in 0..preview_mesh.positions.len() {
+                    colors.push(CAD_GREY);
+                }
+                indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
+            }
+        }
+        if self.filleting_edge_from_gizmo {
+            if let Some((_, preview_shape)) = self.round_gizmo_preview_shape(RoundKind::Edge) {
+                let preview_mesh = preview_shape.tessellate();
+                let offset = positions.len() as u32;
+                positions.extend_from_slice(&preview_mesh.positions);
+                normals.extend_from_slice(&preview_mesh.normals);
+                for _ in 0..preview_mesh.positions.len() {
+                    colors.push(CAD_GREY);
+                }
+                indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
             }
         }
 

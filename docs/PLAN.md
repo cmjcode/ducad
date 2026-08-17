@@ -1693,6 +1693,86 @@ layarnya bisa dihitung dari proyeksi kamera SEKARANG, sama seperti
   mengikuti orbit kamera. `cargo test --workspace -- --test-threads=1`
   tetap 148 test hijau.
 
+## Status Perbaikan — Live Preview 3D saat Drag Gizmo Face (dikerjakan)
+
+User melaporkan: drag gizmo extrude PERTAMA KALI (dari sketch 2D ke solid)
+sudah menampilkan animasi perubahan 3D real-time selagi ditarik, tapi drag
+gizmo pada FACE 3D yang sudah ada (klik sisi/face lalu tarik) TIDAK — solid
+baru berubah bentuk saat drag dilepas. Diminta keduanya real-time, plus
+nominal jarak baru langsung muncul.
+
+Root cause: `build_combined_body_mesh` (dipanggil tiap frame untuk
+membangun mesh viewport) punya blok "Live Extrude / Boolean Cut preview"
+yang HANYA dipicu oleh `self.extruding_from_gizmo` (flag gizmo sketch) —
+memanggil ulang `extrude_profile_active_plane` + `.tessellate()` tiap
+frame selagi drag. Tidak ada blok setara untuk
+`self.extruding_face_from_gizmo` (flag gizmo face 3D) — geometri final
+cuma dihitung sekali lewat `extrude_active_face` saat `drag_stopped()`.
+Label jarak (`face_gizmo_distance` → pill dimensi) sebenarnya SUDAH
+ter-update tiap frame drag — cuma terasa tidak real-time karena mesh-nya
+diam.
+
+Perbaikan (`cadraw-app::main`, `build_combined_body_mesh`):
+
+- Body target disembunyikan (skip render mesh asli) selagi
+  `extruding_face_from_gizmo` aktif DAN body itu = target dari
+  `self.active_face` — pola sama dengan skip body target pada boolean cut
+  gizmo sketch (`gizmo_is_cutting`/`gizmo_target_body`), supaya preview
+  tidak dobel-render dgn mesh lama.
+- Blok baru "4. Live Face Extrude preview": selagi
+  `extruding_face_from_gizmo` dan `face_gizmo_distance` bukan nol,
+  panggil ulang `cadraw_kernel::extrude_face(&target_geo.shape, ray,
+  face_gizmo_distance)` + `.tessellate()` TIAP FRAME (cermin persis blok
+  extrude sketch), lalu masukkan mesh hasilnya ke buffer viewport
+  (warna cyan, sama dgn highlight face terpilih). Gagal (mis. radius
+  akan jadi ≤ 0 saat drag ekstrem) dibiarkan lewat — frame itu saja
+  tanpa preview, sama seperti pola blok sketch yang sudah ada.
+
+Hasil: drag gizmo face 3D sekarang menampilkan perubahan solid real-time
+persis seperti gizmo sketch — dan karena mesh sudah ikut real-time, pill
+jarak yang sebelumnya sudah live sekarang terasa konsisten dgn perubahan
+bentuknya. `cargo build -p cadraw-app` bersih, `cargo test -p
+cadraw-kernel` tetap 64 test hijau (tidak menyentuh logika `extrude_face`
+itu sendiri, cuma memanggilnya lebih sering).
+
+**Perbaikan susulan — gizmo rounding (vertex/edge fillet di pojokan) juga
+belum real-time:** user melaporkan drag gizmo rounding di sudut/rusuk
+("bikin rounded") punya masalah PERSIS sama — bentuk bulatnya baru muncul
+saat drag dilepas. Root cause identik: `build_combined_body_mesh` tidak
+punya blok live-preview utk `filleting_vertex_from_gizmo`/
+`filleting_edge_from_gizmo`, geometri final cuma dihitung sekali lewat
+`commit_round` (dipanggil dari `commit_vertex_fillet`/
+`commit_edge_fillet_single`) saat `drag_stopped()`.
+
+Rounding parametrik (lihat "Status Vertex Fillet Gizmo") lebih rumit dari
+extrude — tiap body punya `round_history` (shape dasar + daftar fitur
+rounding berurutan) dan `commit_round` menyusun ulang daftar fitur
+(tambah baru ATAU edit radius fitur yang sedang di-`editing_round`) lalu
+me-rebuild shape dari dasar via `build_rounded_shape`. Live preview-nya
+perlu logika SAMA tapi dry-run:
+
+- Method baru `round_gizmo_preview_shape(&self, kind: RoundKind) ->
+  Option<(BodyId, KernelShape)>` — cermin persis bagian penyusunan fitur
+  di `commit_round` (klon daftar fitur dari `round_history`, ganti radius
+  fitur yg sedang diedit ATAU push fitur baru dgn radius SAAT INI), lalu
+  `build_rounded_shape(base, &features)`, TAPI tidak menyentuh
+  `round_history`/`model_undo`/`model_status` — murni menghitung shape
+  utk digambar. `None` kalau gizmo tidak aktif, radius masih di bawah
+  ambang "siku" (`ROUND_SHARP_MM`), atau rebuild OCCT gagal (radius
+  kebesaran dsb, frame itu saja tanpa preview).
+- `build_combined_body_mesh`: body target disembunyikan (skip mesh asli)
+  selagi `filleting_vertex_from_gizmo`/`filleting_edge_from_gizmo` aktif
+  DAN radius sudah lolos `ROUND_SHARP_MM` (supaya tidak "hilang tanpa
+  pengganti" saat radius masih dianggap siku) — pola sama dgn skip body
+  target extrude face. Blok baru "5. Live Rounding preview": panggil
+  `round_gizmo_preview_shape` TIAP FRAME utk kind Vertex dan Edge,
+  tessellate hasilnya, masukkan ke buffer viewport (abu-abu CAD normal,
+  bukan cyan — rounding bukan highlight seleksi).
+
+`cargo build -p cadraw-app` bersih, `cargo test -p cadraw-kernel` tetap
+64 test hijau (logika `fillet_vertex`/`fillet_edges` tidak diubah, cuma
+dipanggil lebih sering lewat jalur dry-run baru).
+
 ## Menjalankan
 
 ```bash
