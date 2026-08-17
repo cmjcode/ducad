@@ -444,7 +444,14 @@ pub fn fillet_all(shape: &KernelShape, radius: f64) -> Result<KernelShape> {
     }
     let _guard = lock_kernel();
     let mut cloned = deep_clone(&shape.0)?;
-    cloned.fillet(radius);
+    let all_edges: Vec<Edge> = cloned.edges().collect();
+    let max_radius = max_fillet_radius(&cloned, &all_edges);
+    if radius > max_radius {
+        bail!("radius fillet ({radius:.2} mm) melebihi batas geometris salah satu tepi shape (maks {max_radius:.2} mm)");
+    }
+    cloned
+        .fillet(radius)
+        .context("radius fillet terlalu besar untuk salah satu tepi shape")?;
     Ok(KernelShape(cloned))
 }
 
@@ -456,7 +463,14 @@ pub fn chamfer_all(shape: &KernelShape, distance: f64) -> Result<KernelShape> {
     }
     let _guard = lock_kernel();
     let mut cloned = deep_clone(&shape.0)?;
-    cloned.chamfer(distance);
+    let all_edges: Vec<Edge> = cloned.edges().collect();
+    let max_distance = max_fillet_radius(&cloned, &all_edges);
+    if distance > max_distance {
+        bail!("jarak chamfer ({distance:.2} mm) melebihi batas geometris salah satu tepi shape (maks {max_distance:.2} mm)");
+    }
+    cloned
+        .chamfer(distance)
+        .context("jarak chamfer terlalu besar untuk salah satu tepi shape")?;
     Ok(KernelShape(cloned))
 }
 
@@ -768,6 +782,67 @@ fn collect_vertices(shape: &Shape) -> Vec<DVec3> {
         }
     }
     vertices
+}
+
+/// Batas radius/jarak rounding (fillet/chamfer) yang MASUK AKAL secara
+/// geometris. OCCT sendiri kadang tetap `IsDone()==true` (bukan
+/// `StdFail_NotDone`, lihat catatan fix crash di `fillet_edges`/
+/// `fillet_vertex` di bawah) walau radius jauh melebihi ukuran tepi yang
+/// di-fillet — hasilnya bentuk yang "memakan" seluruh sisi objek (mis.
+/// sudut box jadi baji/quarter-cylinder alih-alih sudut membulat wajar,
+/// dilaporkan lewat screenshot user). Precheck manual ini dipanggil
+/// SEBELUM manggil OCCT (pola sama dengan validasi radius silinder/
+/// kerucut di `extrude_face`): radius tidak boleh melebihi (mendekati)
+/// panjang tepi TERPENDEK yang terlibat — tiap tepi target sendiri, PLUS
+/// semua tepi lain di `shape` yang salah satu endpoint-nya berimpit
+/// (epsilon sama dengan `collect_vertices`/`fillet_vertex`) dengan salah
+/// satu endpoint tepi target (tepi tetangga sudut).
+///
+/// BUKAN separuh panjang tepi — versi awal patch ini SALAH pakai `/2.0`
+/// (kelewat konservatif, dilaporkan user lewat screenshot: gizmo berhenti
+/// baru separuh jalan, padahal masih ada ruang sampai ujung tepinya).
+/// Untuk sudut ORTOGONAL (semua sudut box/prism, kasus utama gizmo
+/// rounding CADRAW), titik singgung fillet di sepanjang tepi tetangga
+/// berjarak PERSIS `radius` dari titik sudut (`tan(45°) == 1` — sudut
+/// antar 2 wajah tegak lurus dibagi dua = 45°), BUKAN `radius/2` — jadi
+/// radius maksimum yang aman kira-kira SAMA DENGAN panjang tepi tetangga
+/// terpendek (titik singgungnya baru menyentuh ujung SATU tepi tetangga,
+/// bukan setengahnya), bukan setengahnya. Kalau radius sampai PERSIS
+/// menyentuh sudut tetangga (kasus batas paling ekstrem), `fillet_edges`/
+/// `fillet_vertex` masih bisa `Err` dari OCCT sendiri — itu SUDAH aman
+/// (tidak crash, lihat fix `StdFail_NotDone` di atas), jadi tidak perlu
+/// margin tambahan di sini.
+///
+/// Pakai jarak lurus (chord) endpoint-ke-endpoint sebagai "panjang tepi"
+/// — akurat untuk tepi lurus (semua tepi box/prism, target utama gizmo
+/// rounding CADRAW), aproksimasi (sedikit lebih pendek dari panjang
+/// busur asli) untuk tepi melengkung — cukup konservatif untuk tujuan
+/// batas atas di sini (BUKAN untuk pengukuran presisi).
+fn max_fillet_radius(shape: &Shape, target_edges: &[Edge]) -> f64 {
+    const COINCIDENT_EPS: f64 = 1e-6;
+    let mut endpoints: Vec<DVec3> = Vec::new();
+    let mut min_len = f64::INFINITY;
+    for edge in target_edges {
+        let len = (edge.end_point() - edge.start_point()).length();
+        min_len = min_len.min(len);
+        endpoints.push(edge.start_point());
+        endpoints.push(edge.end_point());
+    }
+    for candidate in shape.edges() {
+        let s = candidate.start_point();
+        let e = candidate.end_point();
+        let touches = endpoints
+            .iter()
+            .any(|p| (s - *p).length() < COINCIDENT_EPS || (e - *p).length() < COINCIDENT_EPS);
+        if touches {
+            min_len = min_len.min((e - s).length());
+        }
+    }
+    if min_len.is_finite() {
+        min_len
+    } else {
+        f64::INFINITY
+    }
 }
 
 /// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, dan normal satuan keluar).
@@ -1284,7 +1359,13 @@ pub fn fillet_edges(shape: &KernelShape, radius: f64, rays: &[PickRay], toleranc
         };
         edges.push(edge);
     }
-    cloned.fillet_edges(radius, &edges);
+    let max_radius = max_fillet_radius(&cloned, &edges);
+    if radius > max_radius {
+        bail!("radius fillet ({radius:.2} mm) melebihi batas geometris tepi terpilih (maks {max_radius:.2} mm)");
+    }
+    cloned
+        .fillet_edges(radius, &edges)
+        .context("radius fillet terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
     Ok(KernelShape(cloned))
 }
 
@@ -1295,6 +1376,45 @@ pub fn fillet_edges(shape: &KernelShape, radius: f64, rays: &[PickRay], toleranc
 pub fn pick_vertex(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<(f64, f64, f64)> {
     let _guard = lock_kernel();
     resolve_vertex_along_ray(&shape.0, ray, tolerance).map(|p| (p.x, p.y, p.z))
+}
+
+/// Radius maksimum yang MASUK AKAL secara geometris utk fillet 1 sudut
+/// (vertex) — cermin batas `max_fillet_radius` yang dipakai `fillet_vertex`
+/// sebagai precheck, tapi diekspos publik SUPAYA UI (`cadraw-app`) bisa
+/// mengunci gizmo rounding SELAGI drag (bukan cuma menolak SETELAH radius
+/// terlanjur jauh melebihi batas). Tanpa ini, nilai radius internal gizmo
+/// terus bertambah tanpa batas selagi mouse bergerak walau preview-nya
+/// sudah berhenti berubah (`fillet_vertex` mulai `Err`) — begitu drag
+/// dilepas, commit akan GAGAL total (sudut balik siku, bukan berhenti di
+/// radius maksimum) karena radius yang dikirim sudah kadung di atas batas.
+/// `None` kalau vertex tidak ditemukan lagi pada `shape` (ray usang) atau
+/// tidak ada tepi yang bertemu di situ.
+pub fn max_vertex_fillet_radius(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<f64> {
+    let _guard = lock_kernel();
+    let vertex = resolve_vertex_along_ray(&shape.0, ray, tolerance)?;
+    const COINCIDENT_EPS: f64 = 1e-6;
+    let edges: Vec<Edge> = shape
+        .0
+        .edges()
+        .filter(|edge| {
+            (edge.start_point() - vertex).length() < COINCIDENT_EPS
+                || (edge.end_point() - vertex).length() < COINCIDENT_EPS
+        })
+        .collect();
+    if edges.is_empty() {
+        return None;
+    }
+    Some(max_fillet_radius(&shape.0, &edges))
+}
+
+/// Cermin `max_vertex_fillet_radius`, tapi utk 1 tepi (edge) spesifik hasil
+/// pick via `ray` (gizmo edge fillet, "klik rusuk pojok kubus") — dipakai
+/// UI mengunci `edge_gizmo_radius` selagi drag, sama alasannya. `None`
+/// kalau tepi tidak ditemukan lagi pada `shape`.
+pub fn max_edge_fillet_radius(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<f64> {
+    let _guard = lock_kernel();
+    let (edge, _, _) = resolve_edge_along_ray(&shape.0, ray, tolerance)?;
+    Some(max_fillet_radius(&shape.0, &[edge]))
 }
 
 /// Semua vertex (sudut) unik dari `shape`, dedup sama seperti dipakai
@@ -1340,7 +1460,13 @@ pub fn fillet_vertex(shape: &KernelShape, radius: f64, ray: PickRay, tolerance: 
         bail!("tidak ada tepi yang bertemu di sudut terpilih");
     }
 
-    cloned.fillet_edges(radius, &edges);
+    let max_radius = max_fillet_radius(&cloned, &edges);
+    if radius > max_radius {
+        bail!("radius fillet ({radius:.2} mm) melebihi batas geometris sudut terpilih (maks {max_radius:.2} mm)");
+    }
+    cloned
+        .fillet_edges(radius, &edges)
+        .context("radius fillet terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)")?;
     Ok(KernelShape(cloned))
 }
 
@@ -1361,7 +1487,13 @@ pub fn chamfer_edges(shape: &KernelShape, distance: f64, rays: &[PickRay], toler
         };
         edges.push(edge);
     }
-    cloned.chamfer_edges(distance, &edges);
+    let max_distance = max_fillet_radius(&cloned, &edges);
+    if distance > max_distance {
+        bail!("jarak chamfer ({distance:.2} mm) melebihi batas geometris tepi terpilih (maks {max_distance:.2} mm)");
+    }
+    cloned
+        .chamfer_edges(distance, &edges)
+        .context("jarak chamfer terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
     Ok(KernelShape(cloned))
 }
 
@@ -1461,7 +1593,9 @@ pub fn make_filleted_box(width: f64, depth: f64, height: f64, fillet: f64) -> Re
     let solid = profile.to_face().extrude(dvec3(0.0, 0.0, height));
     let mut shape = solid.into_shape();
     if fillet > 0.0 {
-        shape.fillet(fillet);
+        shape
+            .fillet(fillet)
+            .context("radius fillet terlalu besar untuk kotak smoke-test ini")?;
     }
     Ok(KernelShape(shape))
 }
@@ -1987,6 +2121,135 @@ mod tests {
             dir: (0.0, 0.0, 1.0),
         };
         assert!(fillet_vertex(&shape, 2.0, ray, 1.0).is_err());
+    }
+
+    // ---- Regresi: radius rounding melebihi batas geometri objek ----
+    // User melaporkan drag gizmo rounding (fillet) sampai batas ujung
+    // objek membuat SELURUH aplikasi langsung close, log `libc++abi:
+    // terminating due to uncaught exception of type StdFail_NotDone`.
+    // Root cause: `BRepFilletAPI_MakeFillet::Shape()` melempar
+    // `StdFail_NotDone` (turunan `Standard_Failure`, BUKAN
+    // `std::exception`) kalau build fillet gagal — sebelum patch
+    // `Shape::fillet_edges`/`fillet_vertex` (lihat `vendor/README.md`)
+    // exception itu TEMBUS lewat cxx dan `std::terminate` (abort proses),
+    // bukan `Result::Err` yang bisa ditangani. Kalau patch ini regresi,
+    // kedua test di bawah SIGABRT alih-alih gagal assert biasa.
+    #[test]
+    fn fillet_edges_oversized_radius_errors_not_crashes() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        // Radius 1000 mm jauh melebihi semua dimensi box (30×20×15).
+        let result = fillet_edges(&shape, 1000.0, &[ray], 1.0);
+        assert!(result.is_err(), "radius jauh melebihi ukuran box harus ditolak sbg Err, bukan sukses/crash");
+    }
+
+    #[test]
+    fn fillet_vertex_oversized_radius_errors_not_crashes() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let result = fillet_vertex(&shape, 1000.0, ray, 1.0);
+        assert!(result.is_err(), "radius jauh melebihi ukuran box harus ditolak sbg Err, bukan sukses/crash");
+    }
+
+    #[test]
+    fn chamfer_edges_oversized_distance_errors_not_crashes() {
+        // Cermin test fillet di atas — jalur kode `Shape::chamfer_edges`
+        // sama-sama lewat `BRepFilletAPI_MakeChamfer::Shape()`.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let result = chamfer_edges(&shape, 1000.0, &[ray], 1.0);
+        assert!(result.is_err(), "jarak chamfer jauh melebihi ukuran box harus ditolak sbg Err, bukan sukses/crash");
+    }
+
+    // ---- Regresi: radius rounding "sukses" tapi melebihi batas wajar ----
+    // Susulan laporan di atas: setelah fix crash `StdFail_NotDone`, user
+    // melaporkan LAGI — drag gizmo rounding sampai "batas ujung objek"
+    // masih tidak berhenti, hasilnya sudut box "memakan" seluruh sisi jadi
+    // bentuk baji/quarter-cylinder (screenshot), BUKAN sudut membulat
+    // wajar. OCCT sendiri masih `IsDone()==true` di radius segini (beda
+    // dari test *_oversized_*_not_crashes di atas yang radiusnya 1000mm,
+    // cukup ekstrem utk memicu StdFail_NotDone OCCT sendiri) — makanya
+    // butuh precheck geometris manual `max_fillet_radius` SEBELUM manggil
+    // OCCT, bukan cuma andalkan `IsDone()`/exception OCCT.
+    #[test]
+    fn fillet_vertex_radius_near_full_shortest_edge_succeeds() {
+        // Regresi susulan: versi AWAL `max_fillet_radius` salah pakai
+        // `/2.0` (kelewat konservatif — dilaporkan user lewat screenshot,
+        // gizmo berhenti baru separuh jalan). Box 30×20×15; sudut atas: 2
+        // tepi horizontal (30, 20) + 1 tepi vertikal (15) bertemu — batas
+        // SEKARANG = panjang tepi terpendek itu sendiri (15mm, BUKAN
+        // 7.5mm). Radius 14mm (dekat 15 tapi masih di bawahnya) HARUS
+        // sukses — kalau formula `/2.0` regresi lagi, test ini gagal
+        // (radius 14 > cap lama 7.5).
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let result = fillet_vertex(&shape, 14.0, ray, 1.0);
+        assert!(result.is_ok(), "radius 14mm mendekati tepi terpendek (15mm) harus tetap sukses: {}", result.as_ref().err().map(|e| e.to_string()).unwrap_or_default());
+    }
+
+    #[test]
+    fn fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt() {
+        // Cermin test di atas — radius 20mm SENGAJA > 15 (batas BARU,
+        // bukan lagi 7.5) tapi jauh < 1000 (radius yg sudah teruji bikin
+        // OCCT sendiri gagal di test `*_oversized_*`) — murni menguji
+        // precheck geometris, bukan crash fix lama.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        let result = fillet_vertex(&shape, 20.0, ray, 1.0);
+        assert!(
+            result.is_err(),
+            "radius 20mm pada sudut dgn tepi terpendek 15mm (batas 15mm) harus ditolak"
+        );
+    }
+
+    #[test]
+    fn fillet_edges_radius_near_full_shortest_touching_edge_succeeds() {
+        // Cermin `fillet_vertex_radius_near_full_shortest_edge_succeeds`,
+        // tapi lewat `fillet_edges` (pick 1 tepi spesifik via ray, bukan
+        // gizmo sudut) — jalur kode berbeda, precheck geometris sama.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let result = fillet_edges(&shape, 14.0, &[ray], 1.0);
+        assert!(result.is_ok(), "radius 14mm mendekati tepi terpendek (15mm) harus tetap sukses: {}", result.as_ref().err().map(|e| e.to_string()).unwrap_or_default());
+    }
+
+    #[test]
+    fn fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 7.5),
+            dir: (1.0, 1.0, 0.0),
+        };
+        let result = fillet_edges(&shape, 20.0, &[ray], 1.0);
+        assert!(
+            result.is_err(),
+            "radius 20mm pada tepi vertikal (15mm) yg bertemu tepi 30/20mm harus tetap ditolak (batas 15mm)"
+        );
     }
 
     #[test]

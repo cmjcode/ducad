@@ -89,15 +89,51 @@ bola, bukan binding `gp_Sphere` baru (tetap belum ada, di luar cakupan Fase
 4 juga — cukup krn `center_of_mass()` GProp-based SECARA MATEMATIS persis
 pusat bola utk bola penuh/simetris).
 
-Tidak ada file lain yang disentuh di tujuh perubahan di atas.
+**Perubahan #8** (fix crash gizmo rounding — user drag fillet sampai batas
+ujung objek meng-abort seluruh proses, log `libc++abi: terminating due to
+uncaught exception of type StdFail_NotDone`, di `src/lib.rs`,
+`src/primitives/shape.rs`, `src/primitives/boolean_shape.rs`): root cause
+`BRepFilletAPI_MakeFillet`/`BRepFilletAPI_MakeChamfer::Shape()` melempar
+`StdFail_NotDone` (turunan `Standard_Failure`, BUKAN `std::exception` —
+lihat pola di bagian `opencascade-sys-0.2.0` di bawah) kalau radius/jarak
+melebihi yang bisa ditampung tepi/sudut terpilih; dipanggil TANPA
+try/catch sebelum patch ini, jadi exception-nya tembus dan `std::terminate`
+(abort proses) alih-alih jadi `Result::Err`.
+- `Error::FilletFailed(String)` — variant baru, pola sama dgn
+  `OffsetOnFaceFailed`.
+- `Shape::fillet_edge`/`fillet_edges`/`chamfer_edge`/`chamfer_edges`/
+  `fillet`/`chamfer` — keenam method sekarang balikin `Result<(),
+  Error>` (dulu `()`), memanggil binding `..._shape_checked` baru dari
+  `opencascade-sys` (Perubahan #3 di bawah) alih-alih `.Shape()` langsung
+  yang tidak aman.
+- `BooleanShape::fillet_new_edges`/`chamfer_new_edges` — cermin perubahan
+  di atas (`()` → `Result<(), Error>`), TIDAK dipakai cadraw-kernel tapi
+  disentuh biar tidak ada jalur `Shape::fillet_edges`/`chamfer_edges` yang
+  masih diam-diam mengabaikan `Result`-nya.
+- `Solid::fillet_edge` dan binding `Shape()` mentah (bukan `_checked`) yang
+  masih dipakai `AdHocShape::fillet_edges`/`chamfer_edges` (`adhoc.rs`)
+  SENGAJA TIDAK disentuh — tidak dipakai cadraw-kernel, celah
+  `StdFail_NotDone` yang sama masih ada di situ kalau nanti dipakai.
+
+Regresi dibuktikan lewat 3 test baru di `cadraw-kernel`
+(`fillet_edges_oversized_radius_errors_not_crashes`,
+`fillet_vertex_oversized_radius_errors_not_crashes`,
+`chamfer_edges_oversized_distance_errors_not_crashes`) — radius/jarak 1000mm
+pada box 30×20×15 (jelas jauh melebihi semua dimensinya): tanpa patch ini
+ketiganya SIGABRT test binary, dengan patch ini `Result::Err` biasa.
+
+Tidak ada file lain yang disentuh di kedelapan perubahan di atas.
 
 **Cara upgrade** kalau upstream `opencascade` rilis versi baru: re-copy
-`src/` dari versi baru itu, terapkan ulang ketujuh patch di atas
+`src/` dari versi baru itu, terapkan ulang kedelapan patch di atas
 (`faces_along_ray` → wrapper tipis + `faces_along_ray_with_tolerance` baru;
 `Face::surface_kind` baru; `AdHocShape::make_sphere` baru;
 `Shape::volume`/`Shape::offset_on_face` baru; `Face::cylinder_or_cone_radius`
-baru; `Error::OffsetOnFaceFailed` baru; `Face::cylinder_or_cone_axis` baru),
-update nomor versi di `[patch.crates-io]` root `Cargo.toml` & di sini.
+baru; `Error::OffsetOnFaceFailed` baru; `Face::cylinder_or_cone_axis` baru;
+`Error::FilletFailed` + `Shape::fillet_edge`/`fillet_edges`/`chamfer_edge`/
+`chamfer_edges`/`fillet`/`chamfer`/`BooleanShape::fillet_new_edges`/
+`chamfer_new_edges` balikin `Result<(), Error>`), update nomor versi di
+`[patch.crates-io]` root `Cargo.toml` & di sini.
 
 ## `opencascade-sys-0.2.0`
 
@@ -172,14 +208,30 @@ ini memakai pola dobel-deklarasi yang sama — cuma sekarang didokumentasikan
 eksplisit karena baru ketauan pas nambah enum baru pertama kalinya sejak
 vendor ini dibuat.
 
-Tidak ada perubahan lain di `opencascade-sys-0.2.0` selain dua binding baru
-di atas — `build.rs`, `Cargo.toml`, `examples/`, `tests/triangulation.rs`
-upstream tidak disentuh (`tests/surface_and_offset.rs` adalah file test
-BARU, bukan modifikasi).
+**Perubahan #3** (fix crash gizmo rounding — lihat Perubahan #8 di bagian
+`opencascade-0.2.0` di atas untuk latar belakang lengkap, `include/
+wrapper.hxx` + `src/lib.rs`): tambah dua binding baru,
+`BRepFilletAPI_MakeFillet_shape_checked`/`BRepFilletAPI_MakeChamfer_
+shape_checked` — versi `Shape()` yang dibungkus try/catch(Standard_Failure)
++ rethrow `std::runtime_error`, pola SAMA PERSIS dengan
+`BRepOffset_MakeOffset_Shape` di Perubahan #2 (pakai helper
+`rethrow_standard_failure_as_runtime_error` yang sama, TIDAK bikin helper
+baru). Binding `Shape()` mentah (tanpa `_checked`) di kedua tipe itu TETAP
+ADA apa adanya — dipakai `Solid::fillet_edge` dan `AdHocShape::
+fillet_edges`/`chamfer_edges` di `opencascade-0.2.0` yang tidak dipakai
+cadraw-kernel, jadi diff ini murni ADDITIVE (fungsi baru, bukan rename),
+tidak ada binding lama yang berubah perilaku.
+
+Tidak ada perubahan lain di `opencascade-sys-0.2.0` selain tiga binding
+baru di atas — `build.rs`, `Cargo.toml`, `examples/`,
+`tests/triangulation.rs` upstream tidak disentuh (`tests/
+surface_and_offset.rs` adalah file test BARU, bukan modifikasi).
 
 **Cara upgrade** kalau upstream `opencascade-sys` rilis versi baru: re-copy
 `include/wrapper.hxx` + `src/lib.rs` dari versi baru itu, terapkan ulang
-kedua perubahan di atas (binding `BRepAdaptor_Surface` +
-`BRepOffset_MakeOffset`, termasuk pola `Standard_Failure`→`Result` dan pola
-dobel-deklarasi enum), pastikan `tests/surface_and_offset.rs` masih lolos,
-update nomor versi di `[patch.crates-io]` root `Cargo.toml` & di sini.
+ketiga perubahan di atas (binding `BRepAdaptor_Surface` +
+`BRepOffset_MakeOffset` + `BRepFilletAPI_MakeFillet_shape_checked`/
+`BRepFilletAPI_MakeChamfer_shape_checked`, termasuk pola
+`Standard_Failure`→`Result` dan pola dobel-deklarasi enum), pastikan
+`tests/surface_and_offset.rs` masih lolos, update nomor versi di
+`[patch.crates-io]` root `Cargo.toml` & di sini.

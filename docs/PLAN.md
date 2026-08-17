@@ -1773,6 +1773,161 @@ perlu logika SAMA tapi dry-run:
 64 test hijau (logika `fillet_vertex`/`fillet_edges` tidak diubah, cuma
 dipanggil lebih sering lewat jalur dry-run baru).
 
+## Status Perbaikan — Crash Gizmo Rounding di Batas Ujung Objek (dikerjakan)
+
+User melaporkan: drag gizmo rounding (fillet vertex/edge) sampai batas
+ujung objek (radius terlalu besar utk tepi/sudut yang dipilih) membuat
+SELURUH aplikasi langsung close, log:
+```
+libc++abi: terminating due to uncaught exception of type StdFail_NotDone
+zsh: abort      cargo run -p cadraw-app
+```
+
+Root cause: `BRepFilletAPI_MakeFillet`/`BRepFilletAPI_MakeChamfer::Shape()`
+(OCCT) melempar `StdFail_NotDone` kalau build fillet/chamfer gagal
+(`IsDone()==false`) — dan `StdFail_NotDone` adalah turunan
+`Standard_Failure`, BUKAN `std::exception` (pola yang sudah didokumentasikan
+di `vendor/README.md` sejak Fase 2 utk `BRepAdaptor_Surface`/
+`BRepOffset_MakeOffset`). Mekanisme cxx yang otomatis menerjemahkan
+exception C++ jadi `Result::Err` cuma nangkep `std::exception`, jadi
+binding `opencascade-0.2.0::Shape::fillet_edges`/`chamfer_edges` yang
+manggil `.Shape()` mentah TANPA try/catch bikin exception-nya TEMBUS lewat
+cxx dan memicu `std::terminate` — abort seluruh proses `cargo run`, bukan
+error Rust yang bisa ditangani `commit_round`/`round_gizmo_preview_shape`
+di `cadraw-app`. Live preview real-time yang baru ditambahkan (lihat
+"Perbaikan susulan" di atas) membuat crash ini jauh lebih gampang kepancing
+— radius ekstrem kini dievaluasi TIAP FRAME selagi drag, bukan cuma sekali
+saat dilepas.
+
+Perbaikan (vendor patch, ikut pola `Standard_Failure`→`Result` yang sudah
+ada — lihat `vendor/README.md` § `opencascade-0.2.0` Perubahan #8 &
+§ `opencascade-sys-0.2.0` Perubahan #3 utk detail lengkap):
+
+- `vendor/opencascade-sys-0.2.0`: dua binding baru,
+  `BRepFilletAPI_MakeFillet_shape_checked`/`BRepFilletAPI_MakeChamfer_
+  shape_checked` — `Shape()` dibungkus try/catch(Standard_Failure) +
+  rethrow `std::runtime_error` di `wrapper.hxx` (helper
+  `rethrow_standard_failure_as_runtime_error` yang sudah ada, bukan baru),
+  dideklarasikan `Result<&TopoDS_Shape>` di cxx bridge. ADDITIVE murni —
+  binding `Shape()` mentah lama TETAP ADA (dipakai `Solid::fillet_edge`/
+  `AdHocShape::fillet_edges`/`chamfer_edges` yang tidak dipakai
+  cadraw-kernel).
+- `vendor/opencascade-0.2.0`: `Error::FilletFailed(String)` (variant baru,
+  pola sama `OffsetOnFaceFailed`); `Shape::fillet_edge`/`fillet_edges`/
+  `chamfer_edge`/`chamfer_edges`/`fillet`/`chamfer` sekarang balikin
+  `Result<(), Error>` (dulu `()`), manggil versi `_checked` di atas;
+  `BooleanShape::fillet_new_edges`/`chamfer_new_edges` ikut disesuaikan
+  (tidak dipakai cadraw-kernel, cuma biar konsisten & tidak diam-diam
+  mengabaikan `Result`).
+- `cadraw-kernel`: `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
+  `fillet_all`/`chamfer_all`/`make_filleted_box` menyalurkan `Result` baru
+  itu lewat `.context("...")?` — pesan error jelas ("radius fillet
+  terlalu besar untuk tepi/sudut terpilih") alih-alih crash. Signature
+  publik kernel (`Result<KernelShape>`) TIDAK berubah, jadi TIDAK ADA
+  perubahan di `cadraw-app` — `commit_round` dan `round_gizmo_preview_shape`
+  (lihat "Perbaikan susulan" di atas) sudah menangani `Err` dgn benar
+  (pesan status / skip frame preview), sekarang cuma benar-benar
+  menerimanya lewat jalur normal, bukan lewat proses yang sudah mati.
+
+Regresi dibuktikan 3 test baru di `cadraw-kernel`
+(`fillet_edges_oversized_radius_errors_not_crashes`,
+`fillet_vertex_oversized_radius_errors_not_crashes`,
+`chamfer_edges_oversized_distance_errors_not_crashes`) — radius/jarak
+1000mm pada box 30×20×15: tanpa patch SIGABRT test binary, dengan patch
+`Result::Err` biasa. `cargo build --workspace` bersih, `cargo test
+--workspace -- --test-threads=1` 151 test hijau (67 cadraw-kernel, +3 dari
+sebelumnya).
+
+**Perbaikan susulan — radius "sukses" tapi melebihi batas wajar (bukan
+crash):** user kirim screenshot — SETELAH fix crash di atas, drag gizmo
+rounding sampai "batas ujung objek" masih tidak berhenti: sudut box
+"memakan" seluruh sisi jadi bentuk baji/quarter-cylinder, bukan sudut
+membulat wajar. Beda root cause dari fix sebelumnya — OCCT sendiri masih
+`IsDone()==true` di radius segini (bukan `StdFail_NotDone`), jadi
+`Shape::fillet_edges`/`fillet_vertex` TIDAK `Err`; CADRAW sendiri yang
+belum punya batas atas geometris wajar utk radius/jarak rounding.
+
+- `cadraw-kernel`: fungsi privat baru `max_fillet_radius(shape,
+  target_edges) -> f64` — batas radius/jarak = SETENGAH panjang tepi
+  TERPENDEK yang terlibat (tepi target sendiri + semua tepi lain di shape
+  yang endpoint-nya berimpit dgn endpoint tepi target, epsilon sama dgn
+  `fillet_vertex`/`collect_vertices`). Dipanggil sbg precheck SEBELUM
+  manggil OCCT (pola sama validasi radius silinder/kerucut di
+  `extrude_face`) di `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
+  `fillet_all`/`chamfer_all` — `bail!` dgn pesan jelas ("radius fillet
+  (X mm) melebihi batas geometris ... (maks Y mm)") kalau radius/jarak
+  melebihinya.
+- Dua fungsi publik baru, `max_vertex_fillet_radius`/
+  `max_edge_fillet_radius(shape, ray, tolerance) -> Option<f64>` — versi
+  query murni (tanpa mutasi/fillet beneran) dari batas yang sama, dipakai
+  `cadraw-app` MENGUNCI nilai radius gizmo SELAGI DRAG, bukan cuma
+  menolak SETELAH radius terlanjur jauh melebihi batas. Tanpa ini, nilai
+  internal gizmo (`vertex_gizmo_radius`/`edge_gizmo_radius`) terus
+  bertambah tanpa batas selagi mouse bergerak walau preview 3D-nya sudah
+  berhenti berubah (`fillet_vertex` mulai `Err`, live preview freeze) —
+  begitu drag dilepas, commit GAGAL TOTAL (sudut balik siku, radius yang
+  dikirim sudah kadung di atas batas) alih-alih berhenti/menetap di
+  radius maksimum yang valid, persis kebalikan dari yang diminta user.
+- `cadraw-app::main`: kedua drag handler gizmo rounding (vertex & edge,
+  blok "4"/"5" di HUD draw) sekarang meng-clamp
+  `self.vertex_gizmo_radius`/`self.edge_gizmo_radius` ke hasil
+  `max_vertex_fillet_radius`/`max_edge_fillet_radius` TIAP FRAME drag —
+  dihitung terhadap `round_history[body].base` kalau ini EDIT fitur
+  rounding yang sudah ada (sudut sudah jadi permukaan blend membulat di
+  `geo.shape`, `resolve_vertex_along_ray` tidak akan menemukan vertex
+  tajam di situ lagi — base yang masih siku), atau `geo.shape` langsung
+  kalau rounding pertama kali (pola sama dgn `build_rounded_shape` yang
+  selalu rebuild dari `base`, bukan shape final).
+
+2 test baru di `cadraw-kernel`
+(`fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt`,
+`fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt`,
+lihat "Perbaikan susulan 2" di bawah utk nama final setelah dikoreksi)
+— radius 10mm pada box 30×20×15 (tepi terpendek 15mm): SENGAJA jauh lebih
+kecil dari radius 1000mm di test crash sebelumnya (yang sudah bikin OCCT
+sendiri gagal) supaya benar-benar menguji precheck geometris BARU, bukan
+cuma re-test fix crash lama. `cargo build --workspace` bersih, `cargo
+test --workspace -- --test-threads=1` 153 test hijau (69 cadraw-kernel,
++2 dari sebelumnya).
+
+**Perbaikan susulan 2 — batas geometris kelewat konservatif (baru
+separuh jalan):** user kirim screenshot LAGI — sekarang gizmo rounding
+berhenti terlalu CEPAT, baru sekitar separuh menuju ujung tepi objek,
+padahal seharusnya bisa melengkung sampai mendekati ujung tepinya. Bug
+di fix sebelumnya sendiri: `max_fillet_radius` salah pakai `min_len /
+2.0` sebagai batas.
+
+Root cause geometris yang benar: utk sudut ORTOGONAL (semua sudut
+box/prism, target utama gizmo rounding CADRAW), titik singgung fillet di
+sepanjang tepi tetangga berjarak PERSIS `radius` dari titik sudut
+(`tan(45°) == 1` — sudut antar 2 wajah tegak lurus dibagi dua = 45°),
+BUKAN `radius/2`. Jadi radius maksimum yang aman kira-kira SAMA DENGAN
+panjang tepi tetangga terpendek itu sendiri (titik singgungnya baru
+menyentuh UJUNG satu tepi tetangga di radius maksimum, bukan setengahnya
+di tengah tepi).
+
+Perbaikan (`cadraw-kernel::max_fillet_radius`): buang `/ 2.0`, balikin
+`min_len` langsung. Kalau radius sampai PERSIS menyentuh sudut tetangga
+(kasus batas paling ekstrem, marjinal secara numerik), `fillet_edges`/
+`fillet_vertex` masih bisa `Err` dari OCCT sendiri — itu SUDAH aman
+(tidak crash, fix `StdFail_NotDone` di "Perbaikan" sebelumnya), jadi
+tidak perlu margin pengaman tambahan di precheck ini.
+
+2 test lama (`*_exceeding_half_shortest_*`, radius 10mm vs batas lama
+7.5mm) DIGANTI 4 test baru — radius 10mm sekarang valid (< batas baru
+15mm) jadi tidak lagi cocok jadi kasus uji "harus ditolak":
+- `fillet_vertex_radius_near_full_shortest_edge_succeeds` /
+  `fillet_edges_radius_near_full_shortest_touching_edge_succeeds` —
+  radius 14mm (dekat batas baru 15mm) HARUS sukses — bukti formula
+  `/2.0` tidak lagi aktif (kalau regresi, 14 > cap lama 7.5 → gagal).
+- `fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt`
+  / `fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt`
+  — radius 20mm (> batas baru 15mm) tetap ditolak.
+
+`cargo build --workspace` bersih, `cargo test --workspace --
+--test-threads=1` 155 test hijau (71 cadraw-kernel, +2 neto dari
+sebelumnya — 2 test lama diganti nama+radius, 2 test baru ditambah).
+
 ## Menjalankan
 
 ```bash

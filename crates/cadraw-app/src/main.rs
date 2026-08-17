@@ -3596,7 +3596,37 @@ impl CadrawApp {
                     // Boleh sampai 0 (bukan clamp 0.1): dorong ke dalam =
                     // kecilkan radius sampai siku, commit menerjemahkan
                     // radius < ROUND_SHARP_MM jadi hapus/skip fitur.
-                    self.vertex_gizmo_radius = (self.vertex_gizmo_radius + delta_mm).max(0.0);
+                    let mut new_radius = (self.vertex_gizmo_radius + delta_mm).max(0.0);
+                    // Kunci di batas geometris (`max_vertex_fillet_radius`)
+                    // SUPAYA gizmo "tidak bisa ditarik lebih jauh" begitu
+                    // kena batas ujung objek — bukan cuma preview 3D-nya
+                    // diam sementara angka radius terus naik tanpa batas
+                    // (yang bikin commit GAGAL TOTAL saat drag dilepas,
+                    // sudut balik siku alih-alih berhenti di radius
+                    // maksimum yang masih valid).
+                    if let Some((body_id, ray, _)) = self.active_vertex {
+                        // Kalau ini EDIT fitur rounding yang SUDAH ADA
+                        // (`round_history` punya entri body ini), sudut yang
+                        // masih siku ada di `h.base` (SEBELUM rounding
+                        // pertama), BUKAN `geo.shape` (sudah jadi permukaan
+                        // blend membulat — `resolve_vertex_along_ray` tidak
+                        // akan menemukan vertex tajam di situ lagi). Pola
+                        // sama dgn `build_rounded_shape` yang selalu
+                        // rebuild dari `base`, bukan dari shape final.
+                        let base = self
+                            .round_history
+                            .get(&body_id)
+                            .map(|h| &h.base)
+                            .or_else(|| self.model.geometry.get(body_id).map(|geo| &geo.shape));
+                        if let Some(base) = base {
+                            if let Some(max_r) =
+                                cadraw_kernel::max_vertex_fillet_radius(base, ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                            {
+                                new_radius = new_radius.min(max_r);
+                            }
+                        }
+                    }
+                    self.vertex_gizmo_radius = new_radius;
                     self.vertex_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.vertex_gizmo_radius));
                 }
 
@@ -3679,7 +3709,27 @@ impl CadrawApp {
                     self.filleting_edge_from_gizmo = true;
                     let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, c_base, pull_dir, handle_resp.drag_delta());
                     // Boleh sampai 0 — lihat komentar di gizmo vertex.
-                    self.edge_gizmo_radius = (self.edge_gizmo_radius + delta_mm).max(0.0);
+                    let mut new_radius = (self.edge_gizmo_radius + delta_mm).max(0.0);
+                    // Kunci di batas geometris — lihat komentar di gizmo
+                    // vertex (`max_vertex_fillet_radius`), versi tepi
+                    // (`max_edge_fillet_radius`).
+                    if let Some((body_id, ray, _)) = self.active_edge {
+                        // Sama seperti gizmo vertex — pakai `h.base` kalau
+                        // ini EDIT fitur rounding yang sudah ada.
+                        let base = self
+                            .round_history
+                            .get(&body_id)
+                            .map(|h| &h.base)
+                            .or_else(|| self.model.geometry.get(body_id).map(|geo| &geo.shape));
+                        if let Some(base) = base {
+                            if let Some(max_r) =
+                                cadraw_kernel::max_edge_fillet_radius(base, ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                            {
+                                new_radius = new_radius.min(max_r);
+                            }
+                        }
+                    }
+                    self.edge_gizmo_radius = new_radius;
                     self.edge_gizmo_edit_input = format!("{:.1}", self.unit.to_display_val(self.edge_gizmo_radius));
                 }
 

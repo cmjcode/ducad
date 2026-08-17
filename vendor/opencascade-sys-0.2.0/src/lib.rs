@@ -645,6 +645,19 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeFillet>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepFilletAPI_MakeFillet>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepFilletAPI_MakeFillet) -> bool;
+        // PATCH (CADRAW): `Shape()` di atas TIDAK aman dipanggil kalau build
+        // fillet gagal (`IsDone()==false`) — OCCT melempar `StdFail_NotDone`
+        // (`Standard_Failure`, BUKAN `std::exception`) yang tembus lewat cxx
+        // dan `std::terminate` (lihat catatan `rethrow_standard_failure_as_
+        // runtime_error` di wrapper.hxx). Versi checked ini dibungkus
+        // try/catch di wrapper.hxx dan dideklarasikan `Result<>` di sini,
+        // dipakai `opencascade::primitives::Shape::fillet_edge`/
+        // `fillet_edges` — bukan pengganti `Shape()` lama (yang TETAP ADA
+        // apa adanya, masih dipakai `Solid::fillet_edge`/
+        // `AdHocShape::fillet_edges`, keduanya tidak dipakai cadraw-kernel).
+        pub fn BRepFilletAPI_MakeFillet_shape_checked(
+            make_fillet: Pin<&mut BRepFilletAPI_MakeFillet>,
+        ) -> Result<&TopoDS_Shape>;
 
         type BRepFilletAPI_MakeFillet2d;
 
@@ -689,6 +702,13 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeChamfer>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepFilletAPI_MakeChamfer>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepFilletAPI_MakeChamfer) -> bool;
+        // PATCH (CADRAW): cermin `BRepFilletAPI_MakeFillet_shape_checked` di
+        // atas — `Shape()` biasa lempar `StdFail_NotDone` kalau build
+        // chamfer gagal, versi checked ini dibungkus try/catch di
+        // wrapper.hxx, dipakai `Shape::chamfer_edge`/`chamfer_edges`.
+        pub fn BRepFilletAPI_MakeChamfer_shape_checked(
+            make_chamfer: Pin<&mut BRepFilletAPI_MakeChamfer>,
+        ) -> Result<&TopoDS_Shape>;
 
         // Solids
         type BRepOffsetAPI_MakeThickSolid;

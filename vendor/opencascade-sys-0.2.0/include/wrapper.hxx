@@ -533,3 +533,30 @@ inline const TopoDS_Shape &BRepOffset_MakeOffset_Shape(const BRepOffset_MakeOffs
     rethrow_standard_failure_as_runtime_error(failure, "BRepOffset_MakeOffset::Shape() failed: not done");
   }
 }
+
+// BRepFilletAPI_MakeFillet / BRepFilletAPI_MakeChamfer::Shape() — dipakai
+// gizmo rounding (vertex/edge fillet, `cadraw-kernel::fillet_vertex`/
+// `fillet_edges`). `Shape()` biasa (dibind langsung tanpa wrapper di bawah,
+// dipakai `Solid::fillet_edge`/`AdHocShape::fillet_edges`/`chamfer_edges`
+// yang TIDAK dipakai cadraw-kernel) melempar `StdFail_NotDone` kalau build
+// fillet/chamfer gagal (radius > jarak tepi yang tersedia — kejadian nyata
+// saat user drag gizmo rounding sampai batas ujung objek). `StdFail_NotDone`
+// turunan `Standard_Failure`, BUKAN `std::exception` (lihat catatan pola di
+// atas), jadi tanpa versi checked ini exception-nya tembus lewat cxx dan
+// `std::terminate` (abort seluruh proses `cargo run`) alih-alih jadi error
+// Rust yang bisa ditangani.
+inline const TopoDS_Shape &BRepFilletAPI_MakeFillet_shape_checked(BRepFilletAPI_MakeFillet &make_fillet) {
+  try {
+    return make_fillet.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepFilletAPI_MakeFillet::Shape() failed: not done");
+  }
+}
+
+inline const TopoDS_Shape &BRepFilletAPI_MakeChamfer_shape_checked(BRepFilletAPI_MakeChamfer &make_chamfer) {
+  try {
+    return make_chamfer.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepFilletAPI_MakeChamfer::Shape() failed: not done");
+  }
+}

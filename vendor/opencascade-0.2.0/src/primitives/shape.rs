@@ -93,64 +93,82 @@ impl Shape {
         self.inner.ShapeType().into()
     }
 
-    pub fn fillet_edge(&mut self, radius: f64, edge: &Edge) {
+    // PATCH (CADRAW): keenam method fillet/chamfer di bawah ini sekarang
+    // balikin `Result<(), crate::Error>`, bukan `()` tanpa jaminan sukses —
+    // `BRepFilletAPI_MakeFillet`/`MakeChamfer::Shape()` bisa gagal
+    // (`StdFail_NotDone`) kalau radius/jarak melebihi yang bisa ditampung
+    // tepi/sudut terpilih (mis. user drag gizmo rounding CADRAW sampai
+    // batas ujung objek — sebelum patch ini exception OCCT-nya tembus dan
+    // meng-abort seluruh proses, lihat `Error::FilletFailed` &
+    // `vendor/README.md`). Dipanggil lewat versi `_shape_checked` dari
+    // `opencascade-sys` (dibungkus try/catch di `wrapper.hxx`), BUKAN
+    // `.Shape()` langsung.
+    pub fn fillet_edge(&mut self, radius: f64, edge: &Edge) -> Result<(), crate::Error> {
         let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
         make_fillet.pin_mut().add_edge(radius, &edge.inner);
 
-        let filleted_shape = make_fillet.pin_mut().Shape();
+        let filleted_shape = ffi::BRepFilletAPI_MakeFillet_shape_checked(make_fillet.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
 
         self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
+        Ok(())
     }
 
-    pub fn chamfer_edge(&mut self, distance: f64, edge: &Edge) {
+    pub fn chamfer_edge(&mut self, distance: f64, edge: &Edge) -> Result<(), crate::Error> {
         let mut make_chamfer = ffi::BRepFilletAPI_MakeChamfer_ctor(&self.inner);
         make_chamfer.pin_mut().add_edge(distance, &edge.inner);
 
-        let chamfered_shape = make_chamfer.pin_mut().Shape();
+        let chamfered_shape = ffi::BRepFilletAPI_MakeChamfer_shape_checked(make_chamfer.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
 
         self.inner = ffi::TopoDS_Shape_to_owned(chamfered_shape);
+        Ok(())
     }
 
     pub fn fillet_edges<T: AsRef<Edge>>(
         &mut self,
         radius: f64,
         edges: impl IntoIterator<Item = T>,
-    ) {
+    ) -> Result<(), crate::Error> {
         let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
 
         for edge in edges.into_iter() {
             make_fillet.pin_mut().add_edge(radius, &edge.as_ref().inner);
         }
 
-        let filleted_shape = make_fillet.pin_mut().Shape();
+        let filleted_shape = ffi::BRepFilletAPI_MakeFillet_shape_checked(make_fillet.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
 
         self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
+        Ok(())
     }
 
     pub fn chamfer_edges<T: AsRef<Edge>>(
         &mut self,
         distance: f64,
         edges: impl IntoIterator<Item = T>,
-    ) {
+    ) -> Result<(), crate::Error> {
         let mut make_chamfer = ffi::BRepFilletAPI_MakeChamfer_ctor(&self.inner);
 
         for edge in edges.into_iter() {
             make_chamfer.pin_mut().add_edge(distance, &edge.as_ref().inner);
         }
 
-        let chamfered_shape = make_chamfer.pin_mut().Shape();
+        let chamfered_shape = ffi::BRepFilletAPI_MakeChamfer_shape_checked(make_chamfer.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
 
         self.inner = ffi::TopoDS_Shape_to_owned(chamfered_shape);
+        Ok(())
     }
 
     /// Performs fillet of `radius` on all edges of the shape
-    pub fn fillet(&mut self, radius: f64) {
-        self.fillet_edges(radius, self.edges());
+    pub fn fillet(&mut self, radius: f64) -> Result<(), crate::Error> {
+        self.fillet_edges(radius, self.edges())
     }
 
     /// Performs chamfer of `distance` on all edges of the shape
-    pub fn chamfer(&mut self, distance: f64) {
-        self.chamfer_edges(distance, self.edges());
+    pub fn chamfer(&mut self, distance: f64) -> Result<(), crate::Error> {
+        self.chamfer_edges(distance, self.edges())
     }
 
     pub fn subtract(&self, other: &Shape) -> BooleanShape {

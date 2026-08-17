@@ -22,4 +22,14 @@ pub enum Error {
     // rapi oleh `opencascade-sys`, tinggal disalurkan ke sini).
     #[error("BRepOffset_MakeOffset gagal: {0}")]
     OffsetOnFaceFailed(String),
+    // PATCH (CADRAW, lihat vendor/README.md): variant baru, dipakai
+    // `Shape::fillet_edge`/`fillet_edges`/`chamfer_edge`/`chamfer_edges`
+    // utk membungkus kegagalan `BRepFilletAPI_MakeFillet`/
+    // `BRepFilletAPI_MakeChamfer::Shape()` (`StdFail_NotDone` — radius/jarak
+    // > yang bisa ditampung tepi/sudut terpilih, mis. drag gizmo rounding
+    // sampai batas ujung objek) — sudah diterjemahkan jadi `Result<>` cxx
+    // rapi lewat wrapper try/catch di `opencascade-sys`, tinggal disalurkan
+    // ke sini (pola sama dgn `OffsetOnFaceFailed`).
+    #[error("BRepFilletAPI_MakeFillet/MakeChamfer gagal: {0}")]
+    FilletFailed(String),
 }
