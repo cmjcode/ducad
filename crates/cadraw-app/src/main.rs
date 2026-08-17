@@ -127,7 +127,7 @@ use cadraw_ui::{
     FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction, InspectorEvent,
     InspectorPickMode, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu,
     SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode, ToolbarEvent,
-    ToolbarTool, TopBar, TopBarEvent, TopBarFileOp, ViewCube, ViewCubeAction,
+    ToolbarTool, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
 // Import egui IconData directly
 use eframe::egui;
@@ -692,6 +692,19 @@ struct CadrawApp {
     viewcube: ViewCube,
     feature_inspector_open: bool,
     auto_hide_properties: bool,
+    /// Popup drawer "Items" (daftar sketch & body) — tombolnya sekarang ada
+    /// di header (`TopBar`), tapi status buka/tutup tetap disimpan di sini
+    /// karena drawer-nya sendiri masih dirender lewat `ItemsDrawer` terpisah.
+    items_drawer_open: bool,
+    /// Popup dropdown pemilih Sketch Plane di header — dibaca/ditulis lewat
+    /// `TopBarState::plane_menu_open` tiap frame (lihat pola `inspector_state`).
+    plane_menu_open: bool,
+    /// Sig konten Left Toolbar dari frame terakhir (cuma `is_sketching`,
+    /// karena itu satu-satunya hal yang mengubah tinggi kontennya sekarang)
+    /// dipakai buat memutuskan apakah `Area`-nya perlu `sizing_pass` ulang
+    /// frame ini supaya pemusatan vertikalnya akurat begitu tinggi berubah
+    /// (meniru pola `InspectorContentSig`).
+    left_toolbar_content_sig: Option<bool>,
     /// Sig konten Panel Properti dari frame terakhir dipakai untuk memutuskan
     /// apakah `Area`-nya perlu `sizing_pass` ulang frame ini (lihat `InspectorContentSig`).
     inspector_content_sig: Option<InspectorContentSig>,
@@ -847,6 +860,9 @@ impl CadrawApp {
             viewcube: ViewCube::default(),
             feature_inspector_open: true,
             auto_hide_properties: true,
+            items_drawer_open: false,
+            plane_menu_open: false,
+            left_toolbar_content_sig: None,
             inspector_content_sig: None,
             prop_input_p1_x: String::new(),
             prop_input_p1_y: String::new(),
@@ -4479,25 +4495,86 @@ impl eframe::App for CadrawApp {
         let screen_rect = ctx.content_rect();
         let screen_center_x = screen_rect.center().x;
 
-        // 4. Left Floating Toolbar (Pojok Kiri Atas)
-        self.left_toolbar.section_view_active = self.section_enabled;
-        self.left_toolbar.is_sketching = self.is_sketching;
-        egui::Area::new(egui::Id::new("cadraw-left-toolbar-area"))
-            .fixed_pos(egui::pos2(12.0, 12.0))
+        // 4. Modern Top Bar (Header Full Sampai Kanan) — Berisi Mode Switcher,
+        // Items, Search, Sketch Plane (khusus Sketch Mode), Section View,
+        // Measurements, Delete: SEMUA kontrol yang selalu sama di kedua mode.
+        // Dirender LEBIH DULU dari Items Drawer supaya tombol Items-nya sudah
+        // punya rect layar (`items_button_rect`) buat menempatkan popup drawer.
+        let topbar_margin_right = 12.0;
+        let topbar_x = 12.0;
+        let topbar_w = (screen_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
+        let doc_name = self
+            .current_file_path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled.cadraw")
+            .to_string();
+        let is_saved = self.current_file_path.is_some();
+
+        let mut topbar_state = TopBarState {
+            document_name: doc_name,
+            status_saved: is_saved,
+            current_unit: self.model.doc.unit,
+            is_sketching: self.is_sketching,
+            items_drawer_open: self.items_drawer_open,
+            section_view_active: self.section_enabled,
+            is_measure_active: matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle),
+            active_plane_name: self.active_plane.name().to_string(),
+            plane_menu_open: self.plane_menu_open,
+            items_button_rect: egui::Rect::NOTHING,
+        };
+
+        egui::Area::new(egui::Id::new("cadraw-topbar-floating"))
+            .fixed_pos(egui::pos2(topbar_x, 8.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool(), self.active_plane.name()) {
-                    match tb_ev {
-                        ToolbarEvent::SelectTool(t) => {
-                            self.set_tool(ToolKind::from_toolbar_tool(t));
+                ui.set_width(topbar_w);
+                if let Some(top_event) = TopBar::show(ui, &mut topbar_state) {
+                    match top_event {
+                        TopBarEvent::HomeClicked => {
+                            self.new_document();
                         }
-                        ToolbarEvent::ToggleItemsDrawer => {
-                            // Status drawer dikelola di dalam LeftToolbar
+                        TopBarEvent::SetUnit(u) => {
+                            self.unit = u;
+                            self.model.doc.unit = u;
                         }
-                        ToolbarEvent::OpenSearch => {
+                        TopBarEvent::File(op) => match op {
+                            TopBarFileOp::New => self.new_document(),
+                            TopBarFileOp::Open => self.open_native(),
+                            TopBarFileOp::Save => self.save_native(),
+                            TopBarFileOp::SaveAs => self.save_native_as(),
+                            TopBarFileOp::ImportStep => self.import_step(),
+                            TopBarFileOp::ImportDxf => self.import_dxf(),
+                            TopBarFileOp::ExportStep => self.export_step(),
+                            TopBarFileOp::ExportStl => self.export_stl(),
+                            TopBarFileOp::ExportObj => self.export_obj(),
+                            TopBarFileOp::ExportDxf => self.export_dxf(),
+                        },
+                        TopBarEvent::ToggleTheme => {
+                            self.theme = self.theme.toggled();
+                            cadraw_ui::apply_theme(ctx, self.theme);
+                        }
+                        TopBarEvent::OpenCommandPalette => {
                             self.palette.open();
                         }
-                        ToolbarEvent::SelectSketchPlane(idx) => {
+                        TopBarEvent::ToggleItemsDrawer => {
+                            self.items_drawer_open = !self.items_drawer_open;
+                        }
+                        TopBarEvent::OpenSearch => {
+                            self.palette.open();
+                        }
+                        TopBarEvent::EnterSketching => {
+                            self.is_sketching = true;
+                            self.left_toolbar.is_sketching = true;
+                            self.camera.orient_to_plane(&self.active_plane);
+                        }
+                        TopBarEvent::ExitSketching => {
+                            self.is_sketching = false;
+                            self.left_toolbar.is_sketching = false;
+                            self.set_tool(ToolKind::Select);
+                        }
+                        TopBarEvent::SelectSketchPlane(idx) => {
                             let kind = match idx {
                                 0 => PlaneKind::Top,
                                 1 => PlaneKind::Front,
@@ -4506,23 +4583,13 @@ impl eframe::App for CadrawApp {
                             };
                             self.set_sketch_plane(kind);
                         }
-                        ToolbarEvent::EnterSketching => {
-                            self.is_sketching = true;
-                            self.left_toolbar.is_sketching = true;
-                            self.camera.orient_to_plane(&self.active_plane);
-                        }
-                        ToolbarEvent::ExitSketching => {
-                            self.is_sketching = false;
-                            self.left_toolbar.is_sketching = false;
-                            self.set_tool(ToolKind::Select);
-                        }
-                        ToolbarEvent::ToggleSectionView => {
+                        TopBarEvent::ToggleSectionView => {
                             self.section_enabled = !self.section_enabled;
                         }
-                        ToolbarEvent::ToggleMeasurements => {
+                        TopBarEvent::ToggleMeasurements => {
                             self.set_tool(ToolKind::Measure);
                         }
-                        ToolbarEvent::DeleteSelection => {
+                        TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
                                 let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();
                                 self.execute_sketch_command(Box::new(DeleteEntities::new(to_delete)));
@@ -4536,8 +4603,38 @@ impl eframe::App for CadrawApp {
                 }
             });
 
-        // 5. Items Tree Drawer (Muncul di sebelah kanan toolbar saat dibuka)
-        if self.left_toolbar.items_drawer_open {
+        // Salin balik state yang bisa dimutasi TopBar::show ke App (pola sama
+        // seperti `inspector_state` di bawah — field lain di-set langsung
+        // lewat event handler di atas, bukan lewat state ini).
+        self.plane_menu_open = topbar_state.plane_menu_open;
+        let items_button_rect = topbar_state.items_button_rect;
+
+        // 5. Left Floating Toolbar — Tool-Tool Spesifik Mode (Pilih + Sketsa
+        // 2D, muncul saat Sketch Mode), Dipusatkan Vertikal Antara Atas &
+        // Bawah Viewport (meniru pola Panel Properti kanan, lihat
+        // `left_toolbar_content_sig` / `InspectorContentSig`).
+        self.left_toolbar.is_sketching = self.is_sketching;
+        let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
+        self.left_toolbar_content_sig = Some(self.is_sketching);
+        egui::Area::new(egui::Id::new("cadraw-left-toolbar-area"))
+            .fixed_pos(egui::pos2(12.0, screen_rect.center().y))
+            .pivot(egui::Align2::LEFT_CENTER)
+            .constrain_to(screen_rect)
+            .default_size(egui::vec2(60.0, 460.0))
+            .sizing_pass(left_toolbar_force_resize)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
+                    match tb_ev {
+                        ToolbarEvent::SelectTool(t) => {
+                            self.set_tool(ToolKind::from_toolbar_tool(t));
+                        }
+                    }
+                }
+            });
+
+        // 6. Items Tree Drawer (Muncul di bawah tombol Items di header saat dibuka)
+        if self.items_drawer_open {
             let sketch_planes = vec![
                 SketchPlaneItemInfo {
                     index: 0,
@@ -4571,8 +4668,9 @@ impl eframe::App for CadrawApp {
                 })
                 .collect();
 
+            let drawer_pos = egui::pos2(items_button_rect.left(), items_button_rect.bottom() + 6.0);
             egui::Area::new(egui::Id::new("cadraw-items-drawer-area"))
-                .fixed_pos(egui::pos2(68.0, 12.0))
+                .fixed_pos(drawer_pos)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies) {
@@ -4613,56 +4711,6 @@ impl eframe::App for CadrawApp {
                     }
                 });
         }
-
-        // 6. Modern Top Bar (Header Full Sampai Kanan)
-        let topbar_margin_right = 12.0;
-        let topbar_x = if self.left_toolbar.items_drawer_open { 312.0 } else { 70.0 };
-        let topbar_w = (screen_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
-        let doc_name = self
-            .current_file_path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("Untitled.cadraw")
-            .to_string();
-        let is_saved = self.current_file_path.is_some();
-
-        egui::Area::new(egui::Id::new("cadraw-topbar-floating"))
-            .fixed_pos(egui::pos2(topbar_x, 8.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                ui.set_width(topbar_w);
-                if let Some(top_event) = TopBar::show(ui, &doc_name, is_saved, self.model.doc.unit) {
-                    match top_event {
-                        TopBarEvent::HomeClicked => {
-                            self.new_document();
-                        }
-                        TopBarEvent::SetUnit(u) => {
-                            self.unit = u;
-                            self.model.doc.unit = u;
-                        }
-                        TopBarEvent::File(op) => match op {
-                            TopBarFileOp::New => self.new_document(),
-                            TopBarFileOp::Open => self.open_native(),
-                            TopBarFileOp::Save => self.save_native(),
-                            TopBarFileOp::SaveAs => self.save_native_as(),
-                            TopBarFileOp::ImportStep => self.import_step(),
-                            TopBarFileOp::ImportDxf => self.import_dxf(),
-                            TopBarFileOp::ExportStep => self.export_step(),
-                            TopBarFileOp::ExportStl => self.export_stl(),
-                            TopBarFileOp::ExportObj => self.export_obj(),
-                            TopBarFileOp::ExportDxf => self.export_dxf(),
-                        },
-                        TopBarEvent::ToggleTheme => {
-                            self.theme = self.theme.toggled();
-                            cadraw_ui::apply_theme(ctx, self.theme);
-                        }
-                        TopBarEvent::OpenCommandPalette => {
-                            self.palette.open();
-                        }
-                    }
-                }
-            });
 
         // 7. Right Properties & Features Inspector (Fixed di Kanan Kanvas, Sejajar Tepi Kanan dg Header)
         let is_editing_or_drawing = self.tool != ToolKind::Select;

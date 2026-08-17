@@ -37,5 +37,5 @@ pub use theme::{
     BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
-pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp};
+pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};
