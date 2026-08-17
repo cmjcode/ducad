@@ -1928,6 +1928,108 @@ tidak perlu margin pengaman tambahan di precheck ini.
 --test-threads=1` 155 test hijau (71 cadraw-kernel, +2 neto dari
 sebelumnya — 2 test lama diganti nama+radius, 2 test baru ditambah).
 
+**Perbaikan susulan 3 — objek 3D hilang total saat drag mencapai/
+melewati batas radius:** user kirim screenshot ketiga — saat drag gizmo
+rounding mencapai/melewati batas geometris, objek 3D-nya HILANG TOTAL
+(bukan cuma berhenti membesar) sampai drag dilepas, baru muncul lagi
+dengan radius maksimum begitu dilepas.
+
+Root cause di `build_combined_body_mesh`: pola "sembunyikan body asli,
+gambar preview sebagai gantinya" (blok 1 vs blok 3/4/5) memutuskan
+SEMBUNYIKAN body berdasarkan FLAG drag aktif semata (mis.
+`filleting_vertex_from_gizmo`), BUKAN berdasarkan apakah preview
+penggantinya benar-benar berhasil dihitung frame itu. Begitu radius
+mendekati batas paling ekstrem, `round_gizmo_preview_shape` (via
+`fillet_vertex`) bisa `Err` dari OCCT sendiri WALAU sudah lolos precheck
+`max_fillet_radius` kita (radius PERSIS di batas = kasus paling marjinal
+secara numerik OCCT, sudah diantisipasi aman dari SISI CRASH sejak
+"Perbaikan" pertama, tapi belum dari sisi RENDER) — body sudah kadung
+disembunyikan tapi preview penggantinya `None`, jadi viewport kosong.
+
+Perbaikan (`cadraw-app::main::build_combined_body_mesh`, restrukturisasi
+menyeluruh): SEMUA preview live (boolean cut dari sketch, extrude face,
+rounding vertex/edge) di-precompute LEBIH DULU sebagai `Option<(BodyId,
+KernelMesh)>` (atau `Option<KernelMesh>` utk extrude sketch non-cut yang
+tidak menyembunyikan body apa pun) SEBELUM loop body normal — loop body
+normal lalu menyembunyikan body HANYA kalau preview penggantinya
+terbukti `Some` utk body itu; bagian "gambar preview" di bawahnya tinggal
+memakai nilai yang sama, bukan menghitung ulang. Pola ini berlaku SERAGAM
+utk keempat jenis preview (bukan cuma rounding) supaya kelas bug yang
+sama tidak muncul lagi di gizmo extrude face/sketch cut (yang sebenarnya
+punya celah identik, cuma belum sempat dilaporkan).
+
+Efek samping positif: kondisi eksplisit "radius harus lolos
+`ROUND_SHARP_MM` dulu baru body disembunyikan" (ditambahkan di
+"Perbaikan susulan" pertama) jadi tidak perlu lagi — sudah otomatis benar
+lewat cek `Some`, karena `round_gizmo_preview_shape` sendiri sudah
+`return None` di bawah `ROUND_SHARP_MM` (satu sumber kebenaran, bukan dua
+syarat terpisah yang bisa tidak sinkron).
+
+`cargo build --workspace` bersih, `cargo test --workspace --
+--test-threads=1` tetap 155 test hijau (murni refactor render, tidak
+menyentuh kernel).
+
+**Perbaikan susulan 4 — formula geometris TERBUKTI dua kali salah,
+diganti validasi trial langsung ke OCCT:** user kirim screenshot keempat
+— objek 3D sudah tidak hilang, tapi radius masih berhenti SEBELUM
+benar-benar mencapai pinggir objek (R 61.89mm ditampilkan, tapi kurva
+belum sampai ujung). Ini bug KETIGA di area yang sama: formula precheck
+`/2.0` (kelewat konservatif #1), lalu formula precheck tanpa `/2.0`
+(kelewat konservatif #2, dari `min_len` "tepi tersentuh" yang scope-nya
+salah). Pola berulang ini adalah SINYAL bahwa masalahnya bukan "rumus
+mana yang benar" — masalahnya adalah PENDEKATAN "coba tebak formula
+geometris" itu sendiri: blend fillet 3 arah di 1 vertex (atau bahkan
+fillet 1 tepi) bukan geometri sederhana yang bisa diringkas 1 rumus
+tertutup akurat untuk segala kasus; OCCT-lah yang tahu persis batasnya.
+
+Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
+
+- `cadraw-kernel`: precheck manual `max_fillet_radius` DIHAPUS TOTAL
+  (fungsi `max_fillet_radius`/`max_vertex_fillet_radius`/
+  `max_edge_fillet_radius` semua dihapus) dari `fillet_edges`/
+  `fillet_vertex`/`chamfer_edges`/`fillet_all`/`chamfer_all` — sumber
+  kebenaran SEKARANG murni `Shape::fillet_edges`/`chamfer_edges`
+  (`IsDone()`/`Err` dari OCCT langsung, SUDAH aman dari crash sejak fix
+  `StdFail_NotDone`). Alasan lengkap didokumentasikan di doc-comment
+  `fillet_vertex`.
+- `cadraw-app::round_gizmo_preview_shape`: signature berubah, `radius`
+  jadi PARAMETER eksplisit (bukan dibaca langsung dari
+  `self.vertex_gizmo_radius`/`edge_gizmo_radius`) — supaya bisa dipanggil
+  dgn radius KANDIDAT (belum tentu diterima) maupun radius TERKINI
+  (dipakai render), fungsi yang SAMA.
+- Drag handler gizmo vertex & edge fillet: alih-alih menghitung
+  `new_radius` lalu meng-clamp dgn formula, sekarang menghitung
+  `candidate_radius` dari delta mouse lalu MENCOBA LANGSUNG
+  `round_gizmo_preview_shape(kind, candidate_radius)` (yang ujungnya
+  memanggil `fillet_vertex`/`fillet_edges` OCCT sungguhan) — radius
+  cuma DITERIMA (`self.vertex_gizmo_radius = candidate_radius`) kalau
+  trial itu SUKSES. Kalau gagal, radius tetap di nilai valid TERAKHIR.
+  Efeknya: `self.vertex_gizmo_radius`/`edge_gizmo_radius` SELALU berupa
+  radius yang PROVEN bisa dibangun OCCT (bukan perkiraan) — pill dan
+  visual render otomatis sinkron (render pass memanggil fungsi yang sama
+  dgn radius yang sama, dijamin sukses), DAN commit saat drag dilepas
+  otomatis sukses (radius yg dikirim sudah kadung ter-validasi).
+- Trade-off yang disadari: drag TERUS-MENERUS memanggil operasi OCCT
+  penuh (deep_clone + fillet build) — SEKALI utk validasi kandidat di
+  drag handler, SEKALI LAGI utk mesh preview di render pass — 2x lipat
+  dari sebelumnya. Diterima utk model sederhana (target CADRAW saat ini);
+  kalau nanti terasa lag di model kompleks, optimisasi lanjutan adalah
+  meng-cache hasil trial drag handler dan dipakai ulang oleh render pass
+  (BUKAN precheck formula lagi).
+
+2 test lama yg menguji AMBANG formula (`fillet_*_radius_near_full_*`,
+`fillet_*_radius_exceeding_*`) diganti 2 test baru
+(`fillet_vertex_radius_near_shortest_edge_succeeds_without_manual_precheck`,
+`fillet_edges_radius_near_shortest_touching_edge_succeeds_without_manual_precheck`)
+yang HANYA membuktikan radius mendekati tepi tetap sukses TANPA precheck
+manual (tidak menghardcode ambang mana pun milik CADRAW) — test
+"exceeding" dihapus karena tidak ada lagi ambang CADRAW utk diuji;
+batasnya sekarang murni keputusan OCCT.
+
+`cargo build --workspace` bersih, `cargo test --workspace --
+--test-threads=1` 153 test hijau (69 cadraw-kernel, neto -2 dari
+sebelumnya — 4 test lama dihapus, 2 test baru ditambah).
+
 ## Menjalankan
 
 ```bash
