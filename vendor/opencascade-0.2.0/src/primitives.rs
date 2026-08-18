@@ -99,7 +99,7 @@ fn make_vec(vec: DVec3) -> UniquePtr<ffi::gp_Vec> {
     ffi::new_vec(vec.x, vec.y, vec.z)
 }
 
-fn make_axis_1(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax1> {
+pub(crate) fn make_axis_1(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax1> {
     ffi::gp_Ax1_ctor(&make_point(origin), &make_dir(dir))
 }
 

@@ -1112,3 +1112,52 @@ fn pull_dir_is_radial_on_partial_sphere_octant_face() {
     assert!(hit.pull_dir.1.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
     assert!(hit.pull_dir.2.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
 }
+
+#[test]
+fn rotate_shape_rotates_geometry_correctly() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(10.0, 5.0), 20.0).unwrap();
+    // Putar 90 derajat sekeliling sumbu Z di origin (0, 0, 0)
+    let rotated = rotate_shape(&shape, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2)
+        .expect("rotate_shape harus berhasil");
+    let mesh = rotated.tessellate();
+    assert!(mesh.triangle_count() > 0);
+    // Bounding check: semula X in [0, 10], Y in [0, 5] -> setelah rotasi +90° di Z: X in [-5, 0], Y in [0, 10]
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for p in &mesh.positions {
+        min_x = min_x.min(p[0]);
+        max_x = max_x.max(p[0]);
+        min_y = min_y.min(p[1]);
+        max_y = max_y.max(p[1]);
+    }
+    assert!(min_x >= -5.01 && max_x <= 0.01, "X bounds mismatch: min={}, max={}", min_x, max_x);
+    assert!(min_y >= -0.01 && max_y <= 10.01, "Y bounds mismatch: min={}, max={}", min_y, max_y);
+}
+
+#[test]
+fn transform_shape_translates_and_rotates() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let transformed = transform_shape(
+        &shape,
+        (100.0, 50.0, 20.0),
+        (5.0, 5.0, 5.0),
+        (0.0, 0.0, 1.0),
+        std::f64::consts::PI,
+    )
+    .expect("transform_shape harus berhasil");
+    let mesh = transformed.tessellate();
+    assert!(mesh.triangle_count() > 0);
+    // Centroid harus berada dekat (105, 55, 25)
+    let mut avg = glam::Vec3::ZERO;
+    for p in &mesh.positions {
+        avg += glam::Vec3::from_slice(p);
+    }
+    avg /= mesh.positions.len() as f32;
+    assert!((avg.x - 105.0).abs() < 1.0, "avg.x = {}", avg.x);
+    assert!((avg.y - 55.0).abs() < 1.0, "avg.y = {}", avg.y);
+    assert!((avg.z - 25.0).abs() < 1.0, "avg.z = {}", avg.z);
+}

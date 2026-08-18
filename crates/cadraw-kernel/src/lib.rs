@@ -63,5 +63,5 @@ pub use picking::{
     EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
 };
 pub use profile::{Profile, ProfileSegment};
-pub use shape::{clone_shape, translate_shape, KernelShape};
+pub use shape::{clone_shape, rotate_shape, transform_shape, translate_shape, KernelShape};
 pub use step::write_step_compound;

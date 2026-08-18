@@ -43,19 +43,18 @@ pub struct SceneRenderer {
     grid_vbuf: wgpu::Buffer,
     grid_vertex_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
+    gizmo_pipeline: wgpu::RenderPipeline,
     mesh: Option<GpuMesh>,
     /// Mesh solid gizmo push/pull & rounding (Fase 9 — Icon Gizmo Profesional):
     /// buffer TERPISAH dari `mesh` (body CAD) supaya upload-nya independen
     /// tiap frame (gizmo cuma ada saat ada seleksi/hover aktif) tanpa perlu
     /// menggabung-satukan index body + gizmo jadi satu draw call raksasa.
-    /// Dipakai pipeline SAMA (`mesh_pipeline`/`fs_mesh`) supaya shading-nya
-    /// (ambient floor + rim light) konsisten dgn body — biar gizmo terasa
-    /// "solid" & menyatu material, bukan icon UI terpisah. Lihat
-    /// `sketch::solid_double_arrow_gizmo_mesh` utk geometrinya.
+    /// Dipakai gizmo_pipeline dengan shading fs_mesh dan depth test Always
+    /// sehingga gizmo selalu tampak di depan dan tidak terkubur di dalam body.
     gizmo_mesh: Option<GpuMesh>,
     /// Garis overlay 2D (entitas sketch, preview, glyph snap) — dibangun
-    /// ulang tiap frame lewat `set_overlay_lines`, memakai pipeline garis
-    /// yang sama dengan grid (topology & shader identik).
+    /// ulang tiap frame lewat `set_overlay_lines`, memakai overlay_pipeline.
     overlay_vbuf: Option<wgpu::Buffer>,
     overlay_vertex_count: u32,
     /// Section view (Fase 7) — lihat `set_clip_plane`.
@@ -119,6 +118,14 @@ impl SceneRenderer {
             bias: Default::default(),
         });
 
+        let top_depth_stencil = depth_format.map(|format| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
+            stencil: Default::default(),
+            bias: Default::default(),
+        });
+
         let color_target = [Some(wgpu::ColorTargetState {
             format: color_format,
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -154,6 +161,35 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_line"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<grid::LineVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_line"),
+                compilation_options: Default::default(),
+                targets: &color_target,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: top_depth_stencil.clone(),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh"),
             layout: Some(&pipeline_layout),
@@ -184,6 +220,36 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let gizmo_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("gizmo-mesh"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_mesh"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<MeshVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_mesh"),
+                compilation_options: Default::default(),
+                targets: &color_target,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: top_depth_stencil,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let grid_verts = grid::generate_grid(500.0, 10.0);
         let grid_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("grid"),
@@ -198,6 +264,8 @@ impl SceneRenderer {
             grid_vbuf,
             grid_vertex_count: grid_verts.len() as u32,
             mesh_pipeline,
+            overlay_pipeline,
+            gizmo_pipeline,
             mesh: None,
             gizmo_mesh: None,
             overlay_vbuf: None,
@@ -375,16 +443,15 @@ impl SceneRenderer {
         rpass.draw(0..self.grid_vertex_count, 0..1);
 
         if let Some(buf) = &self.overlay_vbuf {
+            rpass.set_pipeline(&self.overlay_pipeline);
             rpass.set_vertex_buffer(0, buf.slice(..));
             rpass.draw(0..self.overlay_vertex_count, 0..1);
         }
 
-        // Gizmo solid (Fase 9) digambar TERAKHIR, pipeline sama dgn body
-        // (`mesh_pipeline`/`fs_mesh`) supaya shading-nya konsisten — tapi
-        // buffer independen (`self.gizmo_mesh`) jadi tidak perlu digabung
-        // ke index body tiap frame.
+        // Gizmo solid (Fase 9) digambar TERAKHIR dengan gizmo_pipeline (depth test Always)
+        // supaya gizmo selalu tampak di depan objek 3D dan tidak terkubur di dalam body.
         if let Some(gizmo) = &self.gizmo_mesh {
-            rpass.set_pipeline(&self.mesh_pipeline);
+            rpass.set_pipeline(&self.gizmo_pipeline);
             rpass.set_vertex_buffer(0, gizmo.vertex_buf.slice(..));
             rpass.set_index_buffer(gizmo.index_buf.slice(..), wgpu::IndexFormat::Uint32);
             rpass.draw_indexed(0..gizmo.index_count, 0, 0..1);

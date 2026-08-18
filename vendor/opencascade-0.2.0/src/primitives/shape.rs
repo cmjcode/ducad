@@ -2,8 +2,8 @@ use crate::{
     adhoc::AdHocShape,
     mesh::{Mesh, Mesher},
     primitives::{
-        make_dir, make_point, make_vec, BooleanShape, Compound, Edge, EdgeIterator, Face,
-        FaceIterator, ShapeType, Solid, Vertex, Wire,
+        make_axis_1, make_dir, make_point, make_vec, BooleanShape, Compound, Edge, EdgeIterator,
+        Face, FaceIterator, ShapeType, Solid, Vertex, Wire,
     },
     Error,
 };
@@ -296,6 +296,18 @@ impl Shape {
         let location = ffi::TopLoc_Location_from_transform(&transform);
 
         self.inner.pin_mut().set_global_translation(&location, false);
+    }
+
+    pub fn rotate(&mut self, pivot: DVec3, axis: DVec3, angle_rad: f64) {
+        let axis_1 = make_axis_1(pivot, axis);
+        let mut transform = ffi::new_transform();
+        transform.pin_mut().SetRotation(&axis_1, angle_rad);
+
+        let mut transform_builder =
+            ffi::BRepBuilderAPI_Transform_ctor(&self.inner, &transform, true);
+        transform_builder.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+        let transformed_shape = transform_builder.pin_mut().Shape();
+        self.inner = ffi::TopoDS_Shape_to_owned(transformed_shape);
     }
 
     pub fn mesh(&self) -> Mesh {

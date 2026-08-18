@@ -539,6 +539,22 @@ impl CadrawApp {
             );
         }
 
+        if let Some((_, center)) = self.selected_single_body_center() {
+            if self.active_face.is_none() {
+                let gizmo_scale = (55.0 * world_scale) as f32;
+                let (gp, gn, gc, gi) = sketch_render::solid_shapr3d_transform_gizmo_mesh(
+                    [center.x, center.y, center.z],
+                    gizmo_scale,
+                    self.body_transform_part,
+                );
+                let base = positions.len() as u32;
+                positions.extend(gp);
+                normals.extend(gn);
+                colors.extend(gc);
+                indices.extend(gi.into_iter().map(|idx| idx + base));
+            }
+        }
+
         (positions, normals, colors, indices)
     }
 
@@ -577,7 +593,6 @@ impl CadrawApp {
             }
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
-            let is_selected_body = self.selected_bodies.contains(&id);
 
             let mesh_to_render = if let Some((override_id, override_shape)) = &round_override {
                 if *override_id == id {
@@ -595,10 +610,37 @@ impl CadrawApp {
                 std::borrow::Cow::Borrowed(&geo.mesh)
             };
 
-            let base_idx = positions.len() as u32;
-            positions.extend(&mesh_to_render.positions);
-            normals.extend(&mesh_to_render.normals);
-            indices.extend(mesh_to_render.indices.iter().map(|i| i + base_idx));
+            let mut transformed_positions = mesh_to_render.positions.clone();
+            let mut transformed_normals = mesh_to_render.normals.clone();
+            let is_selected_body = self.selected_bodies.contains(&id) && self.active_face.is_none();
+
+            if is_selected_body {
+                if self.body_move_dragging && self.body_move_delta.length_squared() > 1e-6 {
+                    for p in &mut transformed_positions {
+                        p[0] += self.body_move_delta.x;
+                        p[1] += self.body_move_delta.y;
+                        p[2] += self.body_move_delta.z;
+                    }
+                } else if self.body_rotate_dragging && self.body_rotate_angle_deg.abs() > 0.01 {
+                    if let Some((_, center)) = self.selected_single_body_center() {
+                        let rad = (self.body_rotate_angle_deg as f32).to_radians();
+                        let rot_mat = glam::Mat4::from_axis_angle(self.body_rotate_axis, rad);
+                        for p in &mut transformed_positions {
+                            let p_rel = Vec3::from_slice(p) - center;
+                            let p_rot = center + rot_mat.transform_vector3(p_rel);
+                            p[0] = p_rot.x;
+                            p[1] = p_rot.y;
+                            p[2] = p_rot.z;
+                        }
+                        for n in &mut transformed_normals {
+                            let n_rot = rot_mat.transform_vector3(Vec3::from_slice(n));
+                            n[0] = n_rot.x;
+                            n[1] = n_rot.y;
+                            n[2] = n_rot.z;
+                        }
+                    }
+                }
+            }
 
             let body_color = if is_cutting_target {
                 CUT_RED
@@ -608,30 +650,160 @@ impl CadrawApp {
                 CAD_GREY
             };
 
-            let face_highlight_pt: Option<Vec3> =
-                if let Some((active_id, _, hit)) = &self.active_face {
-                    if *active_id == id {
-                        Some(Vec3::new(
-                            hit.hit_point.0 as f32,
-                            hit.hit_point.1 as f32,
-                            hit.hit_point.2 as f32,
-                        ))
-                    } else {
-                        None
-                    }
+            let face_info = if let Some((active_id, _, hit)) = &self.active_face {
+                if *active_id == id {
+                    Some((
+                        Vec3::new(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32),
+                        Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32),
+                        hit.surface_kind,
+                    ))
                 } else {
                     None
-                };
+                }
+            } else {
+                None
+            };
 
-            for p in &mesh_to_render.positions {
-                let mut v_color = body_color;
-                if let Some(fpt) = face_highlight_pt {
-                    let pt = glam::Vec3::from_slice(p);
-                    if (pt - fpt).length() < 25.0 {
-                        v_color = FACE_SELECT_CYAN;
+            let mut face_vertex_indices = std::collections::HashSet::new();
+            if let Some((fpt, fnorm, skind)) = face_info {
+                for chunk in mesh_to_render.indices.chunks_exact(3) {
+                    let idx0 = chunk[0] as usize;
+                    let idx1 = chunk[1] as usize;
+                    let idx2 = chunk[2] as usize;
+                    if idx0 < mesh_to_render.positions.len()
+                        && idx1 < mesh_to_render.positions.len()
+                        && idx2 < mesh_to_render.positions.len()
+                    {
+                        let p0 = Vec3::from_slice(&mesh_to_render.positions[idx0]);
+                        let p1 = Vec3::from_slice(&mesh_to_render.positions[idx1]);
+                        let p2 = Vec3::from_slice(&mesh_to_render.positions[idx2]);
+                        let tri_center = (p0 + p1 + p2) / 3.0;
+                        let tri_norm = (p1 - p0).cross(p2 - p0).normalize_or_zero();
+
+                        let is_match = match skind {
+                            cadraw_kernel::SurfaceKind::Plane => {
+                                let dist = (tri_center - fpt).dot(fnorm).abs();
+                                let align = tri_norm.dot(fnorm).abs();
+                                dist < 0.6 && align > 0.5
+                            }
+                            _ => (tri_center - fpt).length() < 30.0,
+                        };
+                        if is_match {
+                            face_vertex_indices.insert(idx0);
+                            face_vertex_indices.insert(idx1);
+                            face_vertex_indices.insert(idx2);
+                        }
                     }
                 }
+            }
+
+            let base_idx = positions.len() as u32;
+            positions.extend(&transformed_positions);
+            normals.extend(&transformed_normals);
+            indices.extend(mesh_to_render.indices.iter().map(|i| i + base_idx));
+
+            for (i, _) in mesh_to_render.positions.iter().enumerate() {
+                let v_color = if face_vertex_indices.contains(&i) {
+                    FACE_SELECT_CYAN
+                } else {
+                    body_color
+                };
                 colors.push(v_color);
+            }
+
+            // Real-time Extrude Preview: Tambahkan prisma solid (cap + side walls)
+            // yang menempel pada face saat di-drag, tanpa memisahkan/merusak mesh body dasar
+            if self.extruding_face_from_gizmo && self.face_gizmo_distance.abs() > 0.01 {
+                if let Some((active_id, _, hit)) = &self.active_face {
+                    if *active_id == id {
+                        let pull_vec = Vec3::new(
+                            hit.pull_dir.0 as f32,
+                            hit.pull_dir.1 as f32,
+                            hit.pull_dir.2 as f32,
+                        ) * (self.face_gizmo_distance as f32);
+
+                        let preview_start_idx = positions.len() as u32;
+                        let mut prev_positions = Vec::new();
+                        let mut prev_normals = Vec::new();
+                        let mut prev_indices = Vec::new();
+
+                        let mut edge_count: std::collections::HashMap<(u32, u32), usize> = std::collections::HashMap::new();
+
+                        // 1. Cap face yang digeser
+                        for chunk in mesh_to_render.indices.chunks_exact(3) {
+                            let idx0 = chunk[0];
+                            let idx1 = chunk[1];
+                            let idx2 = chunk[2];
+                            if face_vertex_indices.contains(&(idx0 as usize))
+                                && face_vertex_indices.contains(&(idx1 as usize))
+                                && face_vertex_indices.contains(&(idx2 as usize))
+                            {
+                                let p0 = Vec3::from_slice(&mesh_to_render.positions[idx0 as usize]) + pull_vec;
+                                let p1 = Vec3::from_slice(&mesh_to_render.positions[idx1 as usize]) + pull_vec;
+                                let p2 = Vec3::from_slice(&mesh_to_render.positions[idx2 as usize]) + pull_vec;
+                                let fnorm = (p1 - p0).cross(p2 - p0).normalize_or_zero();
+
+                                let base_c = prev_positions.len() as u32;
+                                prev_positions.push([p0.x, p0.y, p0.z]);
+                                prev_positions.push([p1.x, p1.y, p1.z]);
+                                prev_positions.push([p2.x, p2.y, p2.z]);
+                                prev_normals.push([fnorm.x, fnorm.y, fnorm.z]);
+                                prev_normals.push([fnorm.x, fnorm.y, fnorm.z]);
+                                prev_normals.push([fnorm.x, fnorm.y, fnorm.z]);
+                                prev_indices.extend_from_slice(&[base_c, base_c + 1, base_c + 2]);
+
+                                for (e0, e1) in [(idx0, idx1), (idx1, idx2), (idx2, idx0)] {
+                                    let key = if e0 < e1 { (e0, e1) } else { (e1, e0) };
+                                    *edge_count.entry(key).or_insert(0) += 1;
+                                }
+                            }
+                        }
+
+                        // 2. Dinding samping (skirt)
+                        for chunk in mesh_to_render.indices.chunks_exact(3) {
+                            let idx0 = chunk[0];
+                            let idx1 = chunk[1];
+                            let idx2 = chunk[2];
+                            if face_vertex_indices.contains(&(idx0 as usize))
+                                && face_vertex_indices.contains(&(idx1 as usize))
+                                && face_vertex_indices.contains(&(idx2 as usize))
+                            {
+                                for (ea, eb) in [(idx0, idx1), (idx1, idx2), (idx2, idx0)] {
+                                    let key = if ea < eb { (ea, eb) } else { (eb, ea) };
+                                    if edge_count.get(&key) == Some(&1) {
+                                        let p_a0 = Vec3::from_slice(&mesh_to_render.positions[ea as usize]);
+                                        let p_b0 = Vec3::from_slice(&mesh_to_render.positions[eb as usize]);
+                                        let p_a1 = p_a0 + pull_vec;
+                                        let p_b1 = p_b0 + pull_vec;
+
+                                        let snorm = (p_b0 - p_a0).cross(p_a1 - p_a0).normalize_or_zero();
+
+                                        let base_s = prev_positions.len() as u32;
+                                        prev_positions.push([p_a0.x, p_a0.y, p_a0.z]);
+                                        prev_positions.push([p_b0.x, p_b0.y, p_b0.z]);
+                                        prev_positions.push([p_b1.x, p_b1.y, p_b1.z]);
+                                        prev_positions.push([p_a1.x, p_a1.y, p_a1.z]);
+
+                                        for _ in 0..4 {
+                                            prev_normals.push([snorm.x, snorm.y, snorm.z]);
+                                        }
+                                        prev_indices.extend_from_slice(&[
+                                            base_s, base_s + 1, base_s + 2,
+                                            base_s, base_s + 2, base_s + 3,
+                                        ]);
+                                    }
+                                }
+                            }
+                        }
+
+                        const PREVIEW_CYAN: [f32; 4] = [0.0, 0.85, 1.0, 0.90];
+                        let prev_len = prev_positions.len();
+                        positions.extend(prev_positions);
+                        normals.extend(prev_normals);
+                        indices.extend(prev_indices.into_iter().map(|idx| idx + preview_start_idx));
+                        colors.extend(std::iter::repeat_n(PREVIEW_CYAN, prev_len));
+                    }
+                }
             }
         }
 

@@ -215,6 +215,89 @@ impl CanvasHud {
         response
     }
 
+    /// Render badge tombol "Copy" floating (gaya Shapr3D) di bawah Transform Gizmo.
+    pub fn render_copy_toggle_badge(
+        ui: &mut Ui,
+        pos_2d: Pos2,
+        is_copy_active: bool,
+    ) -> egui::Response {
+        let font = FontId::proportional(12.0);
+        let text = "Copy";
+        let galley = ui.painter().layout_no_wrap(text.to_string(), font.clone(), Color32::from_rgb(20, 20, 25));
+        let size = galley.size() + Vec2::new(20.0, 10.0);
+        let rect = egui::Rect::from_center_size(pos_2d, size);
+
+        let response = ui.allocate_rect(rect, egui::Sense::click());
+        let is_hovered = response.hovered();
+
+        let bg_color = if is_copy_active {
+            Color32::from_rgb(40, 130, 250)
+        } else if is_hovered {
+            Color32::from_rgba_premultiplied(240, 245, 255, 250)
+        } else {
+            Color32::from_rgba_premultiplied(255, 255, 255, 245)
+        };
+        let text_color = if is_copy_active {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(20, 20, 25)
+        };
+        let border_color = if is_copy_active {
+            ACCENT_BLUE
+        } else if is_hovered {
+            ACCENT_BLUE
+        } else {
+            Color32::from_gray(180)
+        };
+
+        let painter = ui.painter();
+        painter.rect_filled(rect, 8.0, bg_color);
+        painter.rect_stroke(rect, 8.0, Stroke::new(1.2, border_color), StrokeKind::Inside);
+        let text_galley = painter.layout_no_wrap(text.to_string(), font, text_color);
+        painter.galley(rect.min + Vec2::new(10.0, 5.0), text_galley, text_color);
+
+        if is_hovered {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        response
+    }
+
+    /// Render badge sudut interaktif (mis. "45.0°") yang dapat diklik untuk mengetik angka sudut rotasi.
+    pub fn render_interactive_angle_pill(
+        ui: &mut Ui,
+        pos_2d: Pos2,
+        value_text: &str,
+        is_active: bool,
+    ) -> egui::Response {
+        let font = FontId::proportional(11.5);
+        let galley = ui.painter().layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 25));
+        let size = galley.size() + Vec2::new(18.0, 10.0);
+        let rect = egui::Rect::from_center_size(pos_2d, size);
+
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let is_hovered = response.hovered();
+
+        let bg_color = if is_active {
+            Color32::from_rgba_premultiplied(235, 245, 255, 250)
+        } else {
+            Color32::from_rgba_premultiplied(250, 250, 252, 245)
+        };
+        let border_color = if is_active || is_hovered {
+            ACCENT_BLUE
+        } else {
+            Color32::from_gray(185)
+        };
+        let stroke_width = if is_active { 1.8 } else { 1.0 };
+
+        let painter = ui.painter();
+        painter.rect_filled(rect, 8.0, bg_color);
+        painter.rect_stroke(rect, 8.0, Stroke::new(stroke_width, border_color), StrokeKind::Inside);
+        painter.galley(rect.min + Vec2::new(9.0, 5.0), galley, Color32::from_rgb(20, 20, 25));
+
+        response
+    }
+
     /// Area sense-drag utk gizmo panah dua-sisi push/pull/extrude/rounding
     /// (Fase 9 — Icon Gizmo Profesional). Dulu fungsi ini SEKALIGUS
     /// menggambar badge lingkaran biru flat + icon panah `▲-▼` di atasnya

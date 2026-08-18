@@ -291,22 +291,67 @@ impl CadrawApp {
         ) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
-                self.model_undo.execute(
-                    Box::new(ReplaceGeometryCommand::new(
-                        "Geser Body",
-                        target_id,
-                        new_geo,
-                    )),
-                    &mut self.model,
-                );
-                self.round_history.remove(&target_id);
-                self.model_status = Some(format!(
-                    "Body digeser ({:.1}, {:.1}, {:.1}) mm",
-                    delta.x, delta.y, delta.z
-                ));
+                if self.body_copy_mode {
+                    let cmd = AddSolidCommand::new("Salin Body", new_geo);
+                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.model_status = Some(format!(
+                        "Body diduplikasi & digeser ({:.1}, {:.1}, {:.1}) mm",
+                        delta.x, delta.y, delta.z
+                    ));
+                } else {
+                    self.model_undo.execute(
+                        Box::new(ReplaceGeometryCommand::new(
+                            "Geser Body",
+                            target_id,
+                            new_geo,
+                        )),
+                        &mut self.model,
+                    );
+                    self.round_history.remove(&target_id);
+                    self.model_status = Some(format!(
+                        "Body digeser ({:.1}, {:.1}, {:.1}) mm",
+                        delta.x, delta.y, delta.z
+                    ));
+                }
             }
             Err(e) => {
                 self.model_status = Some(format!("Geser body gagal: {e}"));
+            }
+        }
+    }
+
+    pub fn rotate_selected_body(&mut self, axis: Vec3, angle_deg: f64) {
+        let Some((target_id, center)) = self.selected_single_body_center() else {
+            return;
+        };
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return;
+        };
+        let angle_rad = (angle_deg as f64).to_radians();
+        let pivot = (center.x as f64, center.y as f64, center.z as f64);
+        let axis_tup = (axis.x as f64, axis.y as f64, axis.z as f64);
+        match cadraw_kernel::rotate_shape(&target_geo.shape, pivot, axis_tup, angle_rad) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                if self.body_copy_mode {
+                    let cmd = AddSolidCommand::new("Salin Body", new_geo);
+                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.model_status = Some(format!("Body diduplikasi & diputar {:.1}°", angle_deg));
+                } else {
+                    self.model_undo.execute(
+                        Box::new(ReplaceGeometryCommand::new(
+                            "Putar Body",
+                            target_id,
+                            new_geo,
+                        )),
+                        &mut self.model,
+                    );
+                    self.round_history.remove(&target_id);
+                    self.model_status = Some(format!("Body diputar {:.1}°", angle_deg));
+                }
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Putar body gagal: {e}"));
             }
         }
     }
@@ -561,6 +606,16 @@ impl CadrawApp {
                         None
                     };
 
+                    let now = std::time::Instant::now();
+                    let is_double_click = response.double_clicked()
+                        || self.last_body_select_click.as_ref().is_some_and(|(last_id, last_time)| {
+                            face_pick_3d.as_ref().is_some_and(|(b_id, ..)| *last_id == *b_id)
+                                && now.duration_since(*last_time).as_millis() < 500
+                        })
+                        || (face_pick_3d.as_ref().is_some_and(|(b_id, ..)| {
+                            self.active_face.as_ref().is_some_and(|(cur_id, ..)| cur_id == b_id)
+                        }));
+
                     if let Some((b_id, idx)) = round_edit {
                         let feature = self.round_history[&b_id].features[idx].clone();
                         self.selected.clear();
@@ -568,6 +623,7 @@ impl CadrawApp {
                         self.selected_bodies.insert(b_id);
                         self.editing_round = Some((b_id, idx));
                         self.active_face = None;
+                        self.last_body_select_click = None;
                         match feature.kind {
                             RoundKind::Vertex => {
                                 self.active_vertex =
@@ -597,6 +653,7 @@ impl CadrawApp {
                         self.active_face = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.last_body_select_click = None;
                         self.vertex_gizmo_radius = 3.0;
                         self.vertex_gizmo_edit_input = "3".to_string();
                         self.model_status = Some(
@@ -610,6 +667,7 @@ impl CadrawApp {
                         self.active_face = None;
                         self.active_vertex = None;
                         self.editing_round = None;
+                        self.last_body_select_click = None;
                         self.edge_gizmo_radius = 3.0;
                         self.edge_gizmo_edit_input = "3".to_string();
                         self.model_status = Some(
@@ -617,17 +675,36 @@ impl CadrawApp {
                         );
                     } else if let Some((b_id, ray, hit)) = face_pick_3d {
                         self.selected.clear();
-                        self.selected_bodies.clear();
-                        self.selected_bodies.insert(b_id);
-                        self.active_face = Some((b_id, ray, hit));
-                        self.active_vertex = None;
-                        self.active_edge = None;
-                        self.editing_round = None;
-                        self.face_gizmo_distance = 15.0;
-                        self.face_gizmo_edit_input = "15".to_string();
-                        self.model_status = Some(
-                            "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string(),
-                        );
+                        if is_double_click {
+                            // Klik 2x / Klik ulang: Memilih seluruh objek (body) -> memunculkan 3D Transform Gizmo
+                            self.selected_bodies.clear();
+                            self.selected_bodies.insert(b_id);
+                            self.active_face = None;
+                            self.active_vertex = None;
+                            self.active_edge = None;
+                            self.editing_round = None;
+                            self.body_move_target = Some(b_id);
+                            self.body_move_delta = Vec3::ZERO;
+                            self.body_rotate_angle_deg = 0.0;
+                            self.last_body_select_click = None;
+                            self.model_status = Some(
+                                "Objek (solid body) terpilih — gunakan 3D Gizmo untuk geser atau putar".to_string(),
+                            );
+                        } else {
+                            // Klik 1x: Memilih face / sisi yang diklik saja -> memunculkan handle extrude face
+                            self.selected_bodies.clear();
+                            self.active_face = Some((b_id, ray, hit));
+                            self.active_vertex = None;
+                            self.active_edge = None;
+                            self.editing_round = None;
+                            self.body_move_target = None;
+                            self.face_gizmo_distance = 15.0;
+                            self.face_gizmo_edit_input = "15".to_string();
+                            self.last_body_select_click = Some((b_id, now));
+                            self.model_status = Some(
+                                "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string(),
+                            );
+                        }
                     } else if let Some(reg) = region_hit {
                         self.active_face = None;
                         self.active_vertex = None;
@@ -678,18 +755,35 @@ impl CadrawApp {
                                     if let Some((b_id, ray, hit)) =
                                         self.pick_body_face_at_cursor(rect, pos)
                                     {
-                                        self.selected_bodies.clear();
-                                        self.selected_bodies.insert(b_id);
-                                        self.active_face = Some((b_id, ray, hit));
-                                        self.active_vertex = None;
-                                        self.active_edge = None;
-                                        self.face_gizmo_distance = 15.0;
-                                        self.face_gizmo_edit_input = "15".to_string();
-                                        self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
+                                        let is_double = is_double_click
+                                            || self.active_face.as_ref().is_some_and(|(cur_id, ..)| *cur_id == b_id);
+                                        if is_double {
+                                            self.selected_bodies.clear();
+                                            self.selected_bodies.insert(b_id);
+                                            self.active_face = None;
+                                            self.active_vertex = None;
+                                            self.active_edge = None;
+                                            self.body_move_target = Some(b_id);
+                                            self.last_body_select_click = None;
+                                            self.model_status = Some("Objek (solid body) terpilih — gunakan 3D Gizmo untuk geser atau putar".to_string());
+                                        } else {
+                                            self.selected_bodies.clear();
+                                            self.active_face = Some((b_id, ray, hit));
+                                            self.active_vertex = None;
+                                            self.active_edge = None;
+                                            self.body_move_target = None;
+                                            self.face_gizmo_distance = 15.0;
+                                            self.face_gizmo_edit_input = "15".to_string();
+                                            self.last_body_select_click = Some((b_id, now));
+                                            self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
+                                        }
                                     } else {
+                                        self.selected_bodies.clear();
                                         self.active_face = None;
                                         self.active_vertex = None;
                                         self.active_edge = None;
+                                        self.body_move_target = None;
+                                        self.last_body_select_click = None;
                                     }
                                 }
                             }

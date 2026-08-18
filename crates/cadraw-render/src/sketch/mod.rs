@@ -17,8 +17,9 @@ pub mod measure;
 mod tests;
 
 pub use gizmo::{
-    double_arrow_gizmo_lines, solid_double_arrow_gizmo_mesh, vertex_dot_markers,
-    vertex_fillet_marker_lines,
+    double_arrow_gizmo_lines, shapr3d_transform_gizmo_lines, solid_double_arrow_gizmo_mesh,
+    solid_shapr3d_transform_gizmo_mesh, vertex_dot_markers, vertex_fillet_marker_lines,
+    TransformGizmoPart,
 };
 pub use glyphs::{picked_point_glyph, removal_preview_lines, snap_glyph};
 pub use measure::{

@@ -1,4 +1,5 @@
 use cadraw_kernel::SurfaceKind;
+use cadraw_render::sketch::TransformGizmoPart;
 use cadraw_render::SketchPlane;
 use cadraw_sketch::{find_snap, Entity};
 use cadraw_ui::CanvasHud;
@@ -400,6 +401,7 @@ impl CadrawApp {
                         "{:.0}",
                         self.unit.to_display_val(self.face_gizmo_distance)
                     );
+                    ui.ctx().request_repaint();
                 }
 
                 if handle_resp.drag_stopped() {
@@ -758,36 +760,396 @@ impl CadrawApp {
             }
         }
 
-        if let Some((body_id, center)) = self.selected_single_body_center() {
-            let is_dragging_this = self.body_move_dragging;
-            let is_armed_this = self.body_move_armed;
-            let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, center) else {
-                return;
-            };
-            let handle_resp = CanvasHud::render_draggable_move_handle(
-                ui,
-                handle_2d,
-                is_dragging_this,
-                is_armed_this,
-            );
+        if self.active_face.is_none() {
+            if let Some((body_id, center)) = self.selected_single_body_center() {
+                let Some(s_center) = world_to_screen_pos(&self.camera, rect, center) else {
+                    return;
+                };
+                let world_scale = pixel_tolerance_to_world(&self.camera, rect);
+                let s = (55.0 * world_scale) as f32;
 
-            if handle_resp.drag_started() {
-                self.body_move_target = Some(body_id);
-                self.body_move_dragging = true;
-                self.body_move_armed = false;
-                self.body_move_delta = Vec3::ZERO;
-            }
-            if is_dragging_this && handle_resp.dragged() {
-                let shift_held = ui.input(|i| i.modifiers.shift);
-                if shift_held {
-                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(
-                        rect,
-                        center,
-                        Vec3::Z,
-                        handle_resp.drag_delta(),
-                    );
-                    self.body_move_delta.z += delta_mm as f32;
-                } else if let Some(pointer_pos) = handle_resp.interact_pointer_pos() {
+                // 1. Tombol Badge "Copy" mengambang di bawah widget
+                let s_copy = s_center + egui::vec2(0.0, 52.0);
+                let copy_resp = CanvasHud::render_copy_toggle_badge(ui, s_copy, self.body_copy_mode);
+                if copy_resp.clicked() {
+                    self.body_copy_mode = !self.body_copy_mode;
+                    if self.body_copy_mode {
+                        self.model_status = Some("Mode Salin Aktif — geser atau putar untuk menduplikasi objek".to_string());
+                    } else {
+                        self.model_status = Some("Mode Salin Nonaktif".to_string());
+                    }
+                }
+
+                // 2. Posisi 2D Handle sumbu translasi
+                let p_x = center + Vec3::X * (s * 1.5);
+                let p_y = center + Vec3::Y * (s * 1.5);
+                let p_z = center + Vec3::Z * (s * 1.5);
+
+                let s_x = world_to_screen_pos(&self.camera, rect, p_x);
+                let s_y = world_to_screen_pos(&self.camera, rect, p_y);
+                let s_z = world_to_screen_pos(&self.camera, rect, p_z);
+
+                // 3. Posisi 2D Handle kotak planar
+                let p_xy = center + (Vec3::X + Vec3::Y) * (s * 0.65);
+                let p_yz = center + (Vec3::Y + Vec3::Z) * (s * 0.65);
+                let p_zx = center + (Vec3::Z + Vec3::X) * (s * 0.65);
+
+                let s_xy = world_to_screen_pos(&self.camera, rect, p_xy);
+                let s_yz = world_to_screen_pos(&self.camera, rect, p_yz);
+                let s_zx = world_to_screen_pos(&self.camera, rect, p_zx);
+
+                // 4. Posisi 2D Handle busur rotasi
+                let p_rot_z = center + (Vec3::X + Vec3::Y).normalize() * (s * 1.05);
+                let p_rot_x = center + (Vec3::Y + Vec3::Z).normalize() * (s * 1.05);
+                let p_rot_y = center + (Vec3::Z + Vec3::X).normalize() * (s * 1.05);
+
+                let s_rot_z = world_to_screen_pos(&self.camera, rect, p_rot_z);
+                let s_rot_x = world_to_screen_pos(&self.camera, rect, p_rot_x);
+                let s_rot_y = world_to_screen_pos(&self.camera, rect, p_rot_y);
+
+                let mut current_hover_part: Option<TransformGizmoPart> = None;
+
+                // Handle Translation X
+                if let Some(sx) = s_x {
+                    let rx = egui::Rect::from_center_size(sx, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(rx, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::TranslateX);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::TranslateX);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dx, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::X, resp.drag_delta());
+                        self.body_move_delta.x += dx as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::TranslateX) {
+                        let pill_pos = sx + egui::vec2(0.0, -24.0);
+                        let val_str = format!("{:+0.1} mm", self.body_move_delta.x);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Translation Y
+                if let Some(sy) = s_y {
+                    let ry = egui::Rect::from_center_size(sy, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(ry, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::TranslateY);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::TranslateY);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dy, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Y, resp.drag_delta());
+                        self.body_move_delta.y += dy as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::TranslateY) {
+                        let pill_pos = sy + egui::vec2(0.0, -24.0);
+                        let val_str = format!("{:+0.1} mm", self.body_move_delta.y);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Translation Z
+                if let Some(sz) = s_z {
+                    let rz = egui::Rect::from_center_size(sz, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(rz, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::TranslateZ);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::TranslateZ);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dz, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, resp.drag_delta());
+                        self.body_move_delta.z += dz as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::TranslateZ) {
+                        let pill_pos = sz + egui::vec2(0.0, -24.0);
+                        let val_str = format!("{:+0.1} mm", self.body_move_delta.z);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Planar XY
+                if let Some(sxy) = s_xy {
+                    let rxy = egui::Rect::from_center_size(sxy, egui::Vec2::splat(18.0));
+                    let resp = ui.allocate_rect(rxy, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::PlaneXY);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::PlaneXY);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dx, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::X, resp.drag_delta());
+                        let (dy, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Y, resp.drag_delta());
+                        self.body_move_delta.x += dx as f32;
+                        self.body_move_delta.y += dy as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneXY) {
+                        let pill_pos = sxy + egui::vec2(0.0, -24.0);
+                        let val_str = format!("ΔX:{:+0.0} ΔY:{:+0.0}", self.body_move_delta.x, self.body_move_delta.y);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Planar YZ
+                if let Some(syz) = s_yz {
+                    let ryz = egui::Rect::from_center_size(syz, egui::Vec2::splat(18.0));
+                    let resp = ui.allocate_rect(ryz, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::PlaneYZ);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::PlaneYZ);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dy, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Y, resp.drag_delta());
+                        let (dz, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, resp.drag_delta());
+                        self.body_move_delta.y += dy as f32;
+                        self.body_move_delta.z += dz as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneYZ) {
+                        let pill_pos = syz + egui::vec2(0.0, -24.0);
+                        let val_str = format!("ΔY:{:+0.0} ΔZ:{:+0.0}", self.body_move_delta.y, self.body_move_delta.z);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Planar ZX
+                if let Some(szx) = s_zx {
+                    let rzx = egui::Rect::from_center_size(szx, egui::Vec2::splat(18.0));
+                    let resp = ui.allocate_rect(rzx, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::PlaneZX);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_move_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::PlaneZX);
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if resp.dragged() {
+                        let (dz, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, resp.drag_delta());
+                        let (dx, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::X, resp.drag_delta());
+                        self.body_move_delta.z += dz as f32;
+                        self.body_move_delta.x += dx as f32;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if self.body_move_delta.length_squared() > 1e-6 {
+                            self.translate_selected_body(self.body_move_delta);
+                        }
+                        self.body_move_dragging = false;
+                        self.body_move_delta = Vec3::ZERO;
+                    }
+                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneZX) {
+                        let pill_pos = szx + egui::vec2(0.0, -24.0);
+                        let val_str = format!("ΔZ:{:+0.0} ΔX:{:+0.0}", self.body_move_delta.z, self.body_move_delta.x);
+                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
+                    }
+                }
+
+                // Handle Rotation Z
+                if let Some(srz) = s_rot_z {
+                    let rrz = egui::Rect::from_center_size(srz, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(rrz, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::RotateZ);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_rotate_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::RotateZ);
+                        self.body_rotate_axis = Vec3::Z;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if resp.dragged() {
+                        let delta = resp.drag_delta();
+                        let ang_delta = (delta.x - delta.y) * 0.8;
+                        self.body_rotate_angle_deg += ang_delta as f64;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        let effective_angle = if !shift {
+                            (self.body_rotate_angle_deg / 5.0).round() * 5.0
+                        } else {
+                            self.body_rotate_angle_deg
+                        };
+                        if effective_angle.abs() > 0.5 {
+                            self.rotate_selected_body(Vec3::Z, effective_angle);
+                        }
+                        self.body_rotate_dragging = false;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if self.body_rotate_dragging && self.body_transform_part == Some(TransformGizmoPart::RotateZ) {
+                        let pill_pos = srz + egui::vec2(0.0, -24.0);
+                        let ang_str = format!("{:+0.1}°", self.body_rotate_angle_deg);
+                        CanvasHud::render_interactive_angle_pill(ui, pill_pos, &ang_str, true);
+                    }
+                }
+
+                // Handle Rotation X
+                if let Some(srx) = s_rot_x {
+                    let rrx = egui::Rect::from_center_size(srx, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(rrx, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::RotateX);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_rotate_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::RotateX);
+                        self.body_rotate_axis = Vec3::X;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if resp.dragged() {
+                        let delta = resp.drag_delta();
+                        let ang_delta = (delta.x + delta.y) * 0.8;
+                        self.body_rotate_angle_deg += ang_delta as f64;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        let effective_angle = if !shift {
+                            (self.body_rotate_angle_deg / 5.0).round() * 5.0
+                        } else {
+                            self.body_rotate_angle_deg
+                        };
+                        if effective_angle.abs() > 0.5 {
+                            self.rotate_selected_body(Vec3::X, effective_angle);
+                        }
+                        self.body_rotate_dragging = false;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if self.body_rotate_dragging && self.body_transform_part == Some(TransformGizmoPart::RotateX) {
+                        let pill_pos = srx + egui::vec2(0.0, -24.0);
+                        let ang_str = format!("{:+0.1}°", self.body_rotate_angle_deg);
+                        CanvasHud::render_interactive_angle_pill(ui, pill_pos, &ang_str, true);
+                    }
+                }
+
+                // Handle Rotation Y
+                if let Some(sry) = s_rot_y {
+                    let rry = egui::Rect::from_center_size(sry, egui::Vec2::splat(22.0));
+                    let resp = ui.allocate_rect(rry, egui::Sense::drag());
+                    if resp.hovered() || resp.dragged() {
+                        current_hover_part = Some(TransformGizmoPart::RotateY);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                    }
+                    if resp.drag_started() {
+                        self.body_move_target = Some(body_id);
+                        self.body_rotate_dragging = true;
+                        self.body_transform_part = Some(TransformGizmoPart::RotateY);
+                        self.body_rotate_axis = Vec3::Y;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if resp.dragged() {
+                        let delta = resp.drag_delta();
+                        let ang_delta = (delta.x - delta.y) * 0.8;
+                        self.body_rotate_angle_deg += ang_delta as f64;
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        let effective_angle = if !shift {
+                            (self.body_rotate_angle_deg / 5.0).round() * 5.0
+                        } else {
+                            self.body_rotate_angle_deg
+                        };
+                        if effective_angle.abs() > 0.5 {
+                            self.rotate_selected_body(Vec3::Y, effective_angle);
+                        }
+                        self.body_rotate_dragging = false;
+                        self.body_rotate_angle_deg = 0.0;
+                    }
+                    if self.body_rotate_dragging && self.body_transform_part == Some(TransformGizmoPart::RotateY) {
+                        let pill_pos = sry + egui::vec2(0.0, -24.0);
+                        let ang_str = format!("{:+0.1}°", self.body_rotate_angle_deg);
+                        CanvasHud::render_interactive_angle_pill(ui, pill_pos, &ang_str, true);
+                    }
+                }
+
+                // Center Pivot Handle
+                let r_center = egui::Rect::from_center_size(s_center, egui::Vec2::splat(16.0));
+                let resp_center = ui.allocate_rect(r_center, egui::Sense::click_and_drag());
+                if resp_center.hovered() || resp_center.dragged() {
+                    current_hover_part = Some(TransformGizmoPart::CenterPivot);
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+                }
+                if resp_center.drag_started() {
+                    self.body_move_target = Some(body_id);
+                    self.body_move_dragging = true;
+                    self.body_transform_part = Some(TransformGizmoPart::CenterPivot);
+                    self.body_move_delta = Vec3::ZERO;
+                }
+                if resp_center.dragged() {
                     let ground_plane = SketchPlane {
                         origin: center,
                         ..SketchPlane::top()
@@ -795,31 +1157,24 @@ impl CadrawApp {
                     if let Some(target_uv) = screen_to_plane_point(
                         &self.camera,
                         rect,
-                        pointer_pos,
+                        resp_center.interact_pointer_pos().unwrap_or(s_center),
                         &ground_plane,
                     ) {
                         self.body_move_delta.x = target_uv.x as f32;
                         self.body_move_delta.y = target_uv.y as f32;
                     }
+                    ui.ctx().request_repaint();
                 }
-            }
-            if is_dragging_this && handle_resp.drag_stopped() {
-                if self.body_move_delta.length_squared() > 1e-9 {
-                    self.translate_selected_body(self.body_move_delta);
-                }
-                self.body_move_dragging = false;
-                self.body_move_target = None;
-                self.body_move_delta = Vec3::ZERO;
-            }
-            if handle_resp.clicked() {
-                if is_armed_this {
-                    self.body_move_armed = false;
-                    self.body_move_target = None;
-                } else {
-                    self.body_move_target = Some(body_id);
-                    self.body_move_armed = true;
+                if resp_center.drag_stopped() {
+                    if self.body_move_delta.length_squared() > 1e-6 {
+                        self.translate_selected_body(self.body_move_delta);
+                    }
                     self.body_move_dragging = false;
                     self.body_move_delta = Vec3::ZERO;
+                }
+
+                if !self.body_move_dragging && !self.body_rotate_dragging {
+                    self.body_transform_part = current_hover_part;
                 }
             }
         }

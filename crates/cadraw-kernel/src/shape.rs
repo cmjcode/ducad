@@ -144,3 +144,43 @@ pub fn translate_shape(shape: &KernelShape, dx: f64, dy: f64, dz: f64) -> Result
     cloned.set_global_translation(dvec3(dx, dy, dz));
     Ok(KernelShape(cloned))
 }
+
+/// Putar shape mengelilingi sumbu yang melewati titik `pivot` dengan arah `axis` sebesar `angle_rad` radian.
+pub fn rotate_shape(
+    shape: &KernelShape,
+    pivot: (f64, f64, f64),
+    axis: (f64, f64, f64),
+    angle_rad: f64,
+) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    cloned.rotate(
+        dvec3(pivot.0, pivot.1, pivot.2),
+        dvec3(axis.0, axis.1, axis.2),
+        angle_rad,
+    );
+    Ok(KernelShape(cloned))
+}
+
+/// Transformasi shape dengan pergeseran (dx, dy, dz) dan rotasi sekeliling sumbu `axis` di `pivot`.
+pub fn transform_shape(
+    shape: &KernelShape,
+    translation: (f64, f64, f64),
+    pivot: (f64, f64, f64),
+    axis: (f64, f64, f64),
+    angle_rad: f64,
+) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    if angle_rad.abs() > 1e-6 {
+        cloned.rotate(
+            dvec3(pivot.0, pivot.1, pivot.2),
+            dvec3(axis.0, axis.1, axis.2),
+            angle_rad,
+        );
+    }
+    if translation.0.abs() > 1e-6 || translation.1.abs() > 1e-6 || translation.2.abs() > 1e-6 {
+        cloned.set_global_translation(dvec3(translation.0, translation.1, translation.2));
+    }
+    Ok(KernelShape(cloned))
+}

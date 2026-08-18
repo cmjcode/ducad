@@ -147,8 +147,16 @@ pub struct CadrawApp {
     pub body_move_dragging: bool,
     pub body_move_delta: Vec3,
     pub body_move_armed: bool,
+    pub body_transform_part: Option<cadraw_render::sketch::TransformGizmoPart>,
+    pub body_rotate_axis: Vec3,
+    pub body_rotate_angle_deg: f64,
+    pub body_rotate_dragging: bool,
+    pub body_rotate_editing: bool,
+    pub body_rotate_edit_input: String,
+    pub body_copy_mode: bool,
 
     pub last_select_click: Option<(egui::Pos2, usize)>,
+    pub last_body_select_click: Option<(BodyId, std::time::Instant)>,
 }
 
 impl CadrawApp {
@@ -291,7 +299,15 @@ impl CadrawApp {
             body_move_dragging: false,
             body_move_delta: Vec3::ZERO,
             body_move_armed: false,
+            body_transform_part: None,
+            body_rotate_axis: Vec3::Z,
+            body_rotate_angle_deg: 0.0,
+            body_rotate_dragging: false,
+            body_rotate_editing: false,
+            body_rotate_edit_input: "0".to_string(),
+            body_copy_mode: false,
             last_select_click: None,
+            last_body_select_click: None,
         }
     }
 

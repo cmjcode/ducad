@@ -275,7 +275,7 @@ pub fn solid_double_arrow_gizmo_mesh(
         }
     };
     push_cone(top, top - n * (s * 1.3));
-    push_cone(bot, bot - n * (s * 1.3));
+    push_cone(bot, bot + n * (s * 1.3));
 
     (positions, normals, colors, indices)
 }
@@ -400,3 +400,570 @@ pub fn vertex_dot_markers(
     }
     verts
 }
+
+/// Bagian komponen Shapr3D 3D Transform Gizmo yang dapat di-hover atau di-drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformGizmoPart {
+    TranslateX,
+    TranslateY,
+    TranslateZ,
+    PlaneXY,
+    PlaneYZ,
+    PlaneZX,
+    RotateX,
+    RotateY,
+    RotateZ,
+    CenterPivot,
+}
+
+/// Helper: gambar satu panah 3D linier dengan arrowhead kerucut 8-sisi.
+fn push_arrow_3d(
+    verts: &mut Vec<LineVertex>,
+    start: Vec3,
+    end: Vec3,
+    color: [f32; 4],
+    head_size: f32,
+) {
+    let dir = (end - start).normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return;
+    }
+    let (t1, t2) = if dir.z.abs() < 0.95 {
+        let t1 = dir.cross(Vec3::Z).normalize();
+        let t2 = dir.cross(t1).normalize();
+        (t1, t2)
+    } else {
+        let t1 = dir.cross(Vec3::Y).normalize();
+        let t2 = dir.cross(t1).normalize();
+        (t1, t2)
+    };
+
+    // Shaft line
+    let base_cone = end - dir * head_size;
+    verts.push(LineVertex {
+        position: [start.x, start.y, start.z],
+        color,
+    });
+    verts.push(LineVertex {
+        position: [base_cone.x, base_cone.y, base_cone.z],
+        color,
+    });
+
+    // Arrowhead cone 8 segments
+    let segs = 8;
+    let radius = head_size * 0.45;
+    let tau = std::f32::consts::TAU;
+    for i in 0..segs {
+        let a0 = tau * (i as f32 / segs as f32);
+        let a1 = tau * ((i + 1) as f32 / segs as f32);
+        let p0 = base_cone + t1 * (radius * a0.cos()) + t2 * (radius * a0.sin());
+        let p1 = base_cone + t1 * (radius * a1.cos()) + t2 * (radius * a1.sin());
+
+        // Rib to apex
+        verts.push(LineVertex {
+            position: [p0.x, p0.y, p0.z],
+            color,
+        });
+        verts.push(LineVertex {
+            position: [end.x, end.y, end.z],
+            color,
+        });
+
+        // Base ring segment
+        verts.push(LineVertex {
+            position: [p0.x, p0.y, p0.z],
+            color,
+        });
+        verts.push(LineVertex {
+            position: [p1.x, p1.y, p1.z],
+            color,
+        });
+    }
+}
+
+/// Helper: gambar kotak planar (2D tile di ruang 3D) dengan sudut rounded.
+fn push_planar_tile(
+    verts: &mut Vec<LineVertex>,
+    center: Vec3,
+    u_axis: Vec3,
+    v_axis: Vec3,
+    size: f32,
+    color: [f32; 4],
+) {
+    let half = size * 0.5;
+    let p0 = center - u_axis * half - v_axis * half;
+    let p1 = center + u_axis * half - v_axis * half;
+    let p2 = center + u_axis * half + v_axis * half;
+    let p3 = center - u_axis * half + v_axis * half;
+
+    let loop_pts = [p0, p1, p2, p3, p0];
+    for w in loop_pts.windows(2) {
+        verts.push(LineVertex {
+            position: [w[0].x, w[0].y, w[0].z],
+            color,
+        });
+        verts.push(LineVertex {
+            position: [w[1].x, w[1].y, w[1].z],
+            color,
+        });
+    }
+}
+
+/// Helper: gambar busur rotasi melengkung dengan panah dua arah di kedua ujungnya.
+fn push_curved_rotation_arc(
+    verts: &mut Vec<LineVertex>,
+    center: Vec3,
+    u_axis: Vec3,
+    v_axis: Vec3,
+    radius: f32,
+    start_rad: f32,
+    end_rad: f32,
+    color: [f32; 4],
+    arrow_size: f32,
+) {
+    let segs = 16;
+    let mut prev = center + u_axis * (radius * start_rad.cos()) + v_axis * (radius * start_rad.sin());
+    for i in 1..=segs {
+        let t = i as f32 / segs as f32;
+        let ang = start_rad + (end_rad - start_rad) * t;
+        let cur = center + u_axis * (radius * ang.cos()) + v_axis * (radius * ang.sin());
+        verts.push(LineVertex {
+            position: [prev.x, prev.y, prev.z],
+            color,
+        });
+        verts.push(LineVertex {
+            position: [cur.x, cur.y, cur.z],
+            color,
+        });
+        prev = cur;
+    }
+
+    // Arrowhead di start
+    let p_start = center + u_axis * (radius * start_rad.cos()) + v_axis * (radius * start_rad.sin());
+    let tan_start = (-u_axis * start_rad.sin() + v_axis * start_rad.cos()).normalize();
+    let norm_start = (u_axis * start_rad.cos() + v_axis * start_rad.sin()).normalize();
+    let h1_a = p_start + tan_start * arrow_size + norm_start * (arrow_size * 0.45);
+    let h1_b = p_start + tan_start * arrow_size - norm_start * (arrow_size * 0.45);
+    verts.push(LineVertex { position: [p_start.x, p_start.y, p_start.z], color });
+    verts.push(LineVertex { position: [h1_a.x, h1_a.y, h1_a.z], color });
+    verts.push(LineVertex { position: [p_start.x, p_start.y, p_start.z], color });
+    verts.push(LineVertex { position: [h1_b.x, h1_b.y, h1_b.z], color });
+
+    // Arrowhead di end
+    let p_end = center + u_axis * (radius * end_rad.cos()) + v_axis * (radius * end_rad.sin());
+    let tan_end = (-u_axis * end_rad.sin() + v_axis * end_rad.cos()).normalize();
+    let norm_end = (u_axis * end_rad.cos() + v_axis * end_rad.sin()).normalize();
+    let h2_a = p_end - tan_end * arrow_size + norm_end * (arrow_size * 0.45);
+    let h2_b = p_end - tan_end * arrow_size - norm_end * (arrow_size * 0.45);
+    verts.push(LineVertex { position: [p_end.x, p_end.y, p_end.z], color });
+    verts.push(LineVertex { position: [h2_a.x, h2_a.y, h2_a.z], color });
+    verts.push(LineVertex { position: [p_end.x, p_end.y, p_end.z], color });
+    verts.push(LineVertex { position: [h2_b.x, h2_b.y, h2_b.z], color });
+}
+
+/// Shapr3D-Style 3D Transform Gizmo:
+/// Menghasilkan garis geometri 3D lengkap untuk widget transformasi solid body:
+/// - 3 panah sumbu translasi linier (X, Y, Z)
+/// - 3 kotak handle bidang translasi planar (XY, YZ, ZX)
+/// - 3 busur rotasi berpanah ganda (sekeliling sumbu X, Y, Z)
+/// - Cincin tengah pivot handle
+pub fn shapr3d_transform_gizmo_lines(
+    center_pos: [f32; 3],
+    gizmo_scale: f32,
+    active_part: Option<TransformGizmoPart>,
+) -> Vec<LineVertex> {
+    let mut verts = Vec::new();
+    let c = Vec3::from(center_pos);
+    let s = gizmo_scale.max(10.0);
+
+    const COLOR_BASE: [f32; 4] = [0.95, 0.95, 0.98, 0.95];
+    const COLOR_ACTIVE: [f32; 4] = [1.0, 0.85, 0.20, 1.0];
+    const COLOR_X: [f32; 4] = [0.96, 0.30, 0.30, 0.95];
+    const COLOR_Y: [f32; 4] = [0.30, 0.85, 0.35, 0.95];
+    const COLOR_Z: [f32; 4] = [0.20, 0.68, 1.0, 0.95];
+
+    let color_for = |part: TransformGizmoPart, fallback: [f32; 4]| -> [f32; 4] {
+        if active_part == Some(part) {
+            COLOR_ACTIVE
+        } else {
+            fallback
+        }
+    };
+
+    let arrow_len = s * 1.5;
+    let head_size = s * 0.38;
+
+    // 1. Tiga panah translasi linier
+    push_arrow_3d(&mut verts, c, c + Vec3::X * arrow_len, color_for(TransformGizmoPart::TranslateX, COLOR_X), head_size);
+    push_arrow_3d(&mut verts, c, c + Vec3::Y * arrow_len, color_for(TransformGizmoPart::TranslateY, COLOR_Y), head_size);
+    push_arrow_3d(&mut verts, c, c + Vec3::Z * arrow_len, color_for(TransformGizmoPart::TranslateZ, COLOR_Z), head_size);
+
+    // 2. Tiga kotak translasi bidang (Planar Tiles)
+    let plane_offset = s * 0.65;
+    let plane_size = s * 0.40;
+    push_planar_tile(
+        &mut verts,
+        c + (Vec3::X + Vec3::Y) * plane_offset,
+        Vec3::X,
+        Vec3::Y,
+        plane_size,
+        color_for(TransformGizmoPart::PlaneXY, COLOR_BASE),
+    );
+    push_planar_tile(
+        &mut verts,
+        c + (Vec3::Y + Vec3::Z) * plane_offset,
+        Vec3::Y,
+        Vec3::Z,
+        plane_size,
+        color_for(TransformGizmoPart::PlaneYZ, COLOR_BASE),
+    );
+    push_planar_tile(
+        &mut verts,
+        c + (Vec3::Z + Vec3::X) * plane_offset,
+        Vec3::Z,
+        Vec3::X,
+        plane_size,
+        color_for(TransformGizmoPart::PlaneZX, COLOR_BASE),
+    );
+
+    // 3. Tiga busur rotasi melengkung (Rotation Arcs)
+    let rot_radius = s * 1.05;
+    let rot_arrow_size = s * 0.22;
+    let (ang_start, ang_end) = (0.26, 1.31); // ~15 deg s.d. 75 deg di kuadran positif
+    // Rotasi sekeliling Z (di bidang XY)
+    push_curved_rotation_arc(
+        &mut verts,
+        c,
+        Vec3::X,
+        Vec3::Y,
+        rot_radius,
+        ang_start,
+        ang_end,
+        color_for(TransformGizmoPart::RotateZ, COLOR_Z),
+        rot_arrow_size,
+    );
+    // Rotasi sekeliling X (di bidang YZ)
+    push_curved_rotation_arc(
+        &mut verts,
+        c,
+        Vec3::Y,
+        Vec3::Z,
+        rot_radius,
+        ang_start,
+        ang_end,
+        color_for(TransformGizmoPart::RotateX, COLOR_X),
+        rot_arrow_size,
+    );
+    // Rotasi sekeliling Y (di bidang ZX)
+    push_curved_rotation_arc(
+        &mut verts,
+        c,
+        Vec3::Z,
+        Vec3::X,
+        rot_radius,
+        ang_start,
+        ang_end,
+        color_for(TransformGizmoPart::RotateY, COLOR_Y),
+        rot_arrow_size,
+    );
+
+    // 4. Center Pivot Ring
+    let pivot_color = color_for(TransformGizmoPart::CenterPivot, [1.0, 1.0, 1.0, 0.9]);
+    let pivot_r = s * 0.12;
+    let segs = 12;
+    let tau = std::f32::consts::TAU;
+    for i in 0..segs {
+        let a0 = tau * (i as f32 / segs as f32);
+        let a1 = tau * ((i + 1) as f32 / segs as f32);
+        for (u, v) in [(Vec3::X, Vec3::Y), (Vec3::Y, Vec3::Z), (Vec3::Z, Vec3::X)] {
+            let p0 = c + u * (pivot_r * a0.cos()) + v * (pivot_r * a0.sin());
+            let p1 = c + u * (pivot_r * a1.cos()) + v * (pivot_r * a1.sin());
+            verts.push(LineVertex { position: [p0.x, p0.y, p0.z], color: pivot_color });
+            verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: pivot_color });
+        }
+    }
+
+    verts
+}
+
+/// Shapr3D-Style 3D Transform Gizmo Solid Mesh:
+/// Menghasilkan mesh solid 3D shaded (triangles, normals, colors, indices)
+/// dengan kualitas dan pencahayaan konsisten seperti gizmo extrude:
+/// - 3 Panah translasi solid (silinder + kerucut solid)
+/// - 3 Kotak translasi planar solid double-sided
+/// - 3 Busur rotasi tabung melengkung solid (torus arc) dengan panah kerucut solid
+/// - 1 Bola pivot pusat solid
+#[allow(clippy::type_complexity)]
+pub fn solid_shapr3d_transform_gizmo_mesh(
+    center_pos: [f32; 3],
+    gizmo_scale: f32,
+    active_part: Option<TransformGizmoPart>,
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::new();
+
+    let c = Vec3::from(center_pos);
+    let s = gizmo_scale.max(10.0);
+    let tau = std::f32::consts::TAU;
+
+    const COLOR_BASE: [f32; 4] = [0.92, 0.92, 0.95, 0.90];
+    const COLOR_ACTIVE: [f32; 4] = [1.0, 0.85, 0.15, 1.0];
+    const COLOR_X: [f32; 4] = [0.96, 0.25, 0.25, 1.0];
+    const COLOR_Y: [f32; 4] = [0.25, 0.85, 0.32, 1.0];
+    const COLOR_Z: [f32; 4] = [0.15, 0.65, 1.0, 1.0];
+
+    let color_for = |part: TransformGizmoPart, fallback: [f32; 4]| -> [f32; 4] {
+        if active_part == Some(part) {
+            COLOR_ACTIVE
+        } else {
+            fallback
+        }
+    };
+
+    let push_tri = |pos: &mut Vec<[f32; 3]>,
+                    norm: &mut Vec<[f32; 3]>,
+                    col: &mut Vec<[f32; 4]>,
+                    ind: &mut Vec<u32>,
+                    a: Vec3,
+                    b: Vec3,
+                    c: Vec3,
+                    color: [f32; 4],
+                    outward_hint: Vec3| {
+        let mut face_n = (b - a).cross(c - a);
+        let (vb, vc) = if outward_hint != Vec3::ZERO && face_n.dot(outward_hint) < 0.0 {
+            face_n = -face_n;
+            (c, b)
+        } else {
+            (b, c)
+        };
+        let face_n = face_n.normalize_or_zero();
+        let base_idx = pos.len() as u32;
+        for p in [a, vb, vc] {
+            pos.push([p.x, p.y, p.z]);
+            norm.push([face_n.x, face_n.y, face_n.z]);
+            col.push(color);
+        }
+        ind.extend_from_slice(&[base_idx, base_idx + 1, base_idx + 2]);
+    };
+
+    let push_cone = |pos: &mut Vec<[f32; 3]>,
+                     norm: &mut Vec<[f32; 3]>,
+                     col: &mut Vec<[f32; 4]>,
+                     ind: &mut Vec<u32>,
+                     apex: Vec3,
+                     base_center: Vec3,
+                     radius: f32,
+                     color: [f32; 4]| {
+        let dir = (apex - base_center).normalize_or_zero();
+        let (t1, t2) = if dir.z.abs() < 0.9 {
+            let t1 = dir.cross(Vec3::Z).normalize();
+            let t2 = dir.cross(t1).normalize();
+            (t1, t2)
+        } else {
+            let t1 = dir.cross(Vec3::Y).normalize();
+            let t2 = dir.cross(t1).normalize();
+            (t1, t2)
+        };
+        let segs = 10;
+        for i in 0..segs {
+            let a0 = tau * (i as f32 / segs as f32);
+            let a1 = tau * ((i + 1) as f32 / segs as f32);
+            let b0 = base_center + t1 * (radius * a0.cos()) + t2 * (radius * a0.sin());
+            let b1 = base_center + t1 * (radius * a1.cos()) + t2 * (radius * a1.sin());
+            let radial_hint = (b0 - base_center) + (b1 - base_center);
+            push_tri(pos, norm, col, ind, apex, b0, b1, color, radial_hint + dir * 0.5);
+            push_tri(pos, norm, col, ind, base_center, b1, b0, color, -dir);
+        }
+    };
+
+    let push_cylinder = |pos: &mut Vec<[f32; 3]>,
+                         norm: &mut Vec<[f32; 3]>,
+                         col: &mut Vec<[f32; 4]>,
+                         ind: &mut Vec<u32>,
+                         start: Vec3,
+                         end: Vec3,
+                         radius: f32,
+                         color: [f32; 4]| {
+        let dir = (end - start).normalize_or_zero();
+        let (t1, t2) = if dir.z.abs() < 0.9 {
+            let t1 = dir.cross(Vec3::Z).normalize();
+            let t2 = dir.cross(t1).normalize();
+            (t1, t2)
+        } else {
+            let t1 = dir.cross(Vec3::Y).normalize();
+            let t2 = dir.cross(t1).normalize();
+            (t1, t2)
+        };
+        let segs = 8;
+        for i in 0..segs {
+            let a0 = tau * (i as f32 / segs as f32);
+            let a1 = tau * ((i + 1) as f32 / segs as f32);
+            let r0 = t1 * (radius * a0.cos()) + t2 * (radius * a0.sin());
+            let r1 = t1 * (radius * a1.cos()) + t2 * (radius * a1.sin());
+            let hint = r0 + r1;
+            push_tri(pos, norm, col, ind, start + r0, end + r0, end + r1, color, hint);
+            push_tri(pos, norm, col, ind, start + r0, end + r1, start + r1, color, hint);
+        }
+    };
+
+    let push_quad = |pos: &mut Vec<[f32; 3]>,
+                     norm: &mut Vec<[f32; 3]>,
+                     col: &mut Vec<[f32; 4]>,
+                     ind: &mut Vec<u32>,
+                     p0: Vec3,
+                     p1: Vec3,
+                     p2: Vec3,
+                     p3: Vec3,
+                     color: [f32; 4]| {
+        let n = (p1 - p0).cross(p2 - p0).normalize_or_zero();
+        push_tri(pos, norm, col, ind, p0, p1, p2, color, n);
+        push_tri(pos, norm, col, ind, p0, p2, p3, color, n);
+        // Sisi sebaliknya (double-sided)
+        push_tri(pos, norm, col, ind, p0, p2, p1, color, -n);
+        push_tri(pos, norm, col, ind, p0, p3, p2, color, -n);
+    };
+
+    let push_torus_arc = |pos: &mut Vec<[f32; 3]>,
+                          norm: &mut Vec<[f32; 3]>,
+                          col: &mut Vec<[f32; 4]>,
+                          ind: &mut Vec<u32>,
+                          center: Vec3,
+                          u_axis: Vec3,
+                          v_axis: Vec3,
+                          radius: f32,
+                          tube_r: f32,
+                          ang_start: f32,
+                          ang_end: f32,
+                          arrow_size: f32,
+                          color: [f32; 4]| {
+        let arc_segs = 12;
+        let ring_segs = 6;
+        let axis_n = u_axis.cross(v_axis).normalize_or_zero();
+
+        for i in 0..arc_segs {
+            let t0 = ang_start + (ang_end - ang_start) * (i as f32 / arc_segs as f32);
+            let t1 = ang_start + (ang_end - ang_start) * ((i + 1) as f32 / arc_segs as f32);
+
+            let c0 = center + u_axis * (radius * t0.cos()) + v_axis * (radius * t0.sin());
+            let c1 = center + u_axis * (radius * t1.cos()) + v_axis * (radius * t1.sin());
+
+            let rad_dir0 = (u_axis * t0.cos() + v_axis * t0.sin()).normalize();
+            let rad_dir1 = (u_axis * t1.cos() + v_axis * t1.sin()).normalize();
+
+            for j in 0..ring_segs {
+                let phi0 = tau * (j as f32 / ring_segs as f32);
+                let phi1 = tau * ((j + 1) as f32 / ring_segs as f32);
+
+                let r0_0 = rad_dir0 * (tube_r * phi0.cos()) + axis_n * (tube_r * phi0.sin());
+                let r0_1 = rad_dir0 * (tube_r * phi1.cos()) + axis_n * (tube_r * phi1.sin());
+
+                let r1_0 = rad_dir1 * (tube_r * phi0.cos()) + axis_n * (tube_r * phi0.sin());
+                let r1_1 = rad_dir1 * (tube_r * phi1.cos()) + axis_n * (tube_r * phi1.sin());
+
+                let hint = (r0_0 + r1_1).normalize_or_zero();
+                push_tri(pos, norm, col, ind, c0 + r0_0, c1 + r1_0, c1 + r1_1, color, hint);
+                push_tri(pos, norm, col, ind, c0 + r0_0, c1 + r1_1, c0 + r0_1, color, hint);
+            }
+        }
+
+        // Arrowhead di ujung awal dan akhir busur rotasi
+        let p_start = center + u_axis * (radius * ang_start.cos()) + v_axis * (radius * ang_start.sin());
+        let tan_start = (-u_axis * ang_start.sin() + v_axis * ang_start.cos()).normalize();
+        push_cone(pos, norm, col, ind, p_start - tan_start * (arrow_size * 1.1), p_start, arrow_size * 0.45, color);
+
+        let p_end = center + u_axis * (radius * ang_end.cos()) + v_axis * (radius * ang_end.sin());
+        let tan_end = (-u_axis * ang_end.sin() + v_axis * ang_end.cos()).normalize();
+        push_cone(pos, norm, col, ind, p_end + tan_end * (arrow_size * 1.1), p_end, arrow_size * 0.45, color);
+    };
+
+    // 1. Tiga panah translasi linier solid (X, Y, Z)
+    let arrow_len = s * 1.55;
+    let head_size = s * 0.38;
+    let cone_r = s * 0.13;
+    let shaft_r = s * 0.042;
+
+    for (part, dir, col) in [
+        (TransformGizmoPart::TranslateX, Vec3::X, COLOR_X),
+        (TransformGizmoPart::TranslateY, Vec3::Y, COLOR_Y),
+        (TransformGizmoPart::TranslateZ, Vec3::Z, COLOR_Z),
+    ] {
+        let color = color_for(part, col);
+        let shaft_start = c + dir * (s * 0.12);
+        let shaft_end = c + dir * (arrow_len - head_size);
+        let apex = c + dir * arrow_len;
+        push_cylinder(&mut positions, &mut normals, &mut colors, &mut indices, shaft_start, shaft_end, shaft_r, color);
+        push_cone(&mut positions, &mut normals, &mut colors, &mut indices, apex, shaft_end, cone_r, color);
+    }
+
+    // 2. Tiga kotak translasi planar solid (XY, YZ, ZX)
+    let plane_offset = s * 0.55;
+    let plane_size = s * 0.36;
+    for (part, u, v, _col) in [
+        (TransformGizmoPart::PlaneXY, Vec3::X, Vec3::Y, COLOR_Z),
+        (TransformGizmoPart::PlaneYZ, Vec3::Y, Vec3::Z, COLOR_X),
+        (TransformGizmoPart::PlaneZX, Vec3::Z, Vec3::X, COLOR_Y),
+    ] {
+        let color = color_for(part, COLOR_BASE);
+        let p0 = c + u * plane_offset + v * plane_offset;
+        let p1 = p0 + u * plane_size;
+        let p2 = p0 + u * plane_size + v * plane_size;
+        let p3 = p0 + v * plane_size;
+        push_quad(&mut positions, &mut normals, &mut colors, &mut indices, p0, p1, p2, p3, color);
+    }
+
+    // 3. Tiga busur rotasi solid melengkung (Rotate X, Y, Z)
+    let rot_radius = s * 1.05;
+    let rot_tube_r = s * 0.038;
+    let rot_arrow_size = s * 0.20;
+    let (ang_start, ang_end) = (0.24, 1.33);
+
+    // Rotate Z di bidang XY
+    push_torus_arc(
+        &mut positions, &mut normals, &mut colors, &mut indices,
+        c, Vec3::X, Vec3::Y, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        color_for(TransformGizmoPart::RotateZ, COLOR_Z),
+    );
+    // Rotate X di bidang YZ
+    push_torus_arc(
+        &mut positions, &mut normals, &mut colors, &mut indices,
+        c, Vec3::Y, Vec3::Z, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        color_for(TransformGizmoPart::RotateX, COLOR_X),
+    );
+    // Rotate Y di bidang ZX
+    push_torus_arc(
+        &mut positions, &mut normals, &mut colors, &mut indices,
+        c, Vec3::Z, Vec3::X, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        color_for(TransformGizmoPart::RotateY, COLOR_Y),
+    );
+
+    // 4. Center Pivot Solid Sphere
+    let pivot_color = color_for(TransformGizmoPart::CenterPivot, [1.0, 1.0, 1.0, 1.0]);
+    let pivot_r = s * 0.10;
+    let lat_segs = 6;
+    let lon_segs = 10;
+    for i in 0..lat_segs {
+        let lat0 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * (i as f32 / lat_segs as f32);
+        let lat1 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * ((i + 1) as f32 / lat_segs as f32);
+        for j in 0..lon_segs {
+            let lon0 = tau * (j as f32 / lon_segs as f32);
+            let lon1 = tau * ((j + 1) as f32 / lon_segs as f32);
+
+            let get_p = |lat: f32, lon: f32| -> Vec3 {
+                c + Vec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()) * pivot_r
+            };
+            let p00 = get_p(lat0, lon0);
+            let p10 = get_p(lat1, lon0);
+            let p11 = get_p(lat1, lon1);
+            let p01 = get_p(lat0, lon1);
+
+            let hint = ((p00 + p11) * 0.5 - c).normalize_or_zero();
+            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, p00, p10, p11, pivot_color, hint);
+            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, p00, p11, p01, pivot_color, hint);
+        }
+    }
+
+    (positions, normals, colors, indices)
+}
+
