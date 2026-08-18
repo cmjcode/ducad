@@ -12,6 +12,19 @@ pub enum InspectorPickMode {
     Face,
 }
 
+/// Titik acuan yang tetap diam saat rectangle 2D di-resize dari panel properti.
+/// Mirror dari `cadraw_sketch::region::RectAnchor` — didefinisikan ulang di sini
+/// karena `cadraw-ui` sengaja tidak bergantung pada `cadraw-sketch` (lihat pola
+/// `SelectedEntityData`/`InspectorEvent` lain yang juga plain data, bukan tipe kernel).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspectorRectAnchor {
+    Center,
+    Corner0,
+    Corner1,
+    Corner2,
+    Corner3,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InspectorConstraintAction {
     Horizontal,
@@ -59,6 +72,12 @@ pub enum SelectedEntityData {
         center_y: f64,
         radius_x: f64,
         radius_y: f64,
+    },
+    /// 4 `Entity::Line` tertutup & saling tegak lurus (lihat `cadraw_sketch::detect_rectangle`).
+    Rectangle {
+        entity_ids: [u64; 4],
+        length_p: f64,
+        length_l: f64,
     },
     MultipleEntities {
         count: usize,
@@ -109,6 +128,12 @@ pub enum InspectorEvent {
         radius_x: f64,
         radius_y: f64,
     },
+    UpdateEntityRectangle {
+        entity_ids: [u64; 4],
+        length_p: f64,
+        length_l: f64,
+        anchor: InspectorRectAnchor,
+    },
     ApplyConstraint(InspectorConstraintAction),
     ApplyExtrude { distance: f64 },
     ApplyFaceExtrude { distance: f64 },
@@ -124,6 +149,12 @@ pub enum InspectorEvent {
     ToggleFacePicking,
     ApplyShell { thickness: f64 },
     DeleteSelectedBodies,
+    /// Terapkan ukuran bounding-box baru (mm, sumbu dunia X/Y/Z) ke body terpilih.
+    ScaleSelectedBody {
+        new_size_x: f64,
+        new_size_y: f64,
+        new_size_z: f64,
+    },
     SectionViewChanged,
     RemoveMeasurement(usize),
     ClearMeasurements,
@@ -146,6 +177,18 @@ pub struct FeatureInspectorState {
     pub entity_p2_y: String,
     pub entity_val_1: String,
     pub entity_val_2: String,
+    /// Diameter Circle — field kedua yang saling sinkron dgn `entity_val_1` (radius).
+    pub entity_val_3: String,
+    /// Input Panjang (P) & Lebar (L) utk card Rectangle.
+    pub rect_length_p_input: String,
+    pub rect_length_l_input: String,
+    /// Anchor aktif yg dipakai saat "Terapkan Dimensi" rectangle diklik.
+    pub rect_anchor: InspectorRectAnchor,
+
+    // Inputs for 3D body resize (bounding-box, mm)
+    pub body_size_x_input: String,
+    pub body_size_y_input: String,
+    pub body_size_z_input: String,
 
     // Inputs for 3D operations
     pub extrude_input: String,
@@ -194,6 +237,14 @@ impl Default for FeatureInspectorState {
             entity_p2_y: String::new(),
             entity_val_1: String::new(),
             entity_val_2: String::new(),
+            entity_val_3: String::new(),
+            rect_length_p_input: String::new(),
+            rect_length_l_input: String::new(),
+            rect_anchor: InspectorRectAnchor::Center,
+
+            body_size_x_input: String::new(),
+            body_size_y_input: String::new(),
+            body_size_z_input: String::new(),
 
             extrude_input: "20.0".to_string(),
             active_face_selected: false,

@@ -2715,6 +2715,70 @@ plus permintaan fitur baru: arah tarik vs dorong pada gizmo sudut/rusuk
 - [x] Workspace hijau — `cargo build --workspace` bersih, 180 test
       lulus (176 lama + 4 `chamfer_vertex` baru di `cadraw-kernel`).
 
+## Status — Panel Properti Ukuran Shape 2D (Rectangle/Circle) + Resize Body 3D (dikerjakan)
+
+User: "di mode sketch kalo ada shape 2D yang di klik, di kanan nya ada
+properties untuk mengubah ukuran. Kalo Kubus [maksudnya: persegi
+panjang/rectangle 2D] berarti bisa ubah p dan l, kalo lingkaran berarti
+r atau d. Atau bisa juga di munculkan ukuran seperti Checkbox 'Tampilkan
+semua pengukuran' tapi langsung bisa di edit disitu... tapi harus kamu
+sertakan anchor ya, supaya kalo salah satu sisi di edit ada feature
+untuk anchor sisi lain atau tidak" — lalu ditanya "apakah memungkinkan
+resize ini bekerja juga di object 3D?", dikonfirmasi user utk masuk
+scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
+`AskUserQuestion` sebelum eksekusi).
+
+- [x] **`cadraw_sketch::detect_rectangle`** (baru, `region.rs`) — deteksi
+      4 `Entity::Line` tertutup & saling tegak lurus jadi `RectangleShape`
+      (frame lokal `u_axis`/`v_axis` sendiri, jadi `length_p`/`length_l`
+      tetap benar walau rectangle-nya rotated). `RectAnchor` (Center +
+      4 sudut) + `RectangleShape::resized_lines(new_p, new_l, anchor)`
+      menghitung ulang ke-4 corner dgn anchor tetap diam di posisi
+      dunianya — inilah jawaban permintaan "anchor" user. `ResizeRectangle`
+      (`commands.rs`) — command baru yg apply/revert ke-4 Line sekaligus
+      sbg SATU langkah undo (bukan 4 `UpdateEntity` terpisah).
+- [x] **Card Rectangle & Diameter Circle di panel kanan** — klik satu
+      sisi rectangle di kanvas SUDAH lama menyeleksi ke-4 Line-nya
+      sekaligus (`input/sketch.rs` region_hit), dulu jatuh ke
+      `SelectedEntityData::MultipleEntities` generik; sekarang
+      `app.rs` cek `detect_rectangle` dulu di titik itu →
+      `SelectedEntityData::Rectangle` baru, dirender `entity_2d.rs`
+      sbg field **Panjang (P)** / **Lebar (L)** editable + selector
+      anchor (5 tombol). Card Circle ditambah field **Diameter (Ø)**
+      editable yg sinkron dua-arah dgn Radius (field yg baru diketik
+      jadi sumber kebenaran, field lain dihitung ulang tiap frame).
+- [x] **"Tampilkan Semua Ukuran" jadi editable langsung di kanvas** —
+      `overlay/dimensions.rs::render_all_element_dimensions` (dulu `&self`,
+      cuma gambar pill statis) diubah `&mut self`, pill Line/Circle/Arc
+      sekarang `render_interactive_dimension_pill` (pola yg sama persis
+      dgn popup edit gizmo fillet/extrude yg sudah ada) — klik pill →
+      popup angka → Enter/blur commit. Line yg jadi bagian rectangle
+      di-resize lewat `ResizeRectangle` (anchor Center) supaya sisi
+      lain ikut konsisten, bukan cuma geser 1 endpoint. Ellipse SENGAJA
+      tetap pill statis (2 angka Rx/Ry sekaligus, popup 1-angka tidak pas).
+- [x] **Resize body 3D (bounding-box X/Y/Z)** — `Shape::scale(pivot,
+      factor)` baru di `vendor/opencascade-0.2.0` (Perubahan #10, lihat
+      `vendor/README.md`) pakai `gp_Trsf::SetScale` + `BRepBuilderAPI_
+      Transform_ctor`, KEDUANYA binding `opencascade-sys` yang SUDAH ADA
+      — nol perubahan FFI. **Sengaja dibatasi scale UNIFORM saja**: non-
+      uniform per-sumbu butuh `gp_GTrsf`/`BRepBuilderAPI_GTransform`,
+      kelas C++ berbeda yang BELUM dibind di vendor ini (root-caused,
+      bukan dikerjakan blind) — dicatat sbg keterbatasan diketahui, mirip
+      pola sweep/iOS occt-sys yang lain di dokumen ini.
+      `CadrawApp::scale_selected_body` (`input/sketch.rs`, mirror persis
+      `translate_selected_body`/`rotate_selected_body`) menghitung faktor
+      dari X/Y/Z yang diminta user vs bbox sekarang; kalau tidak
+      proporsional (bukan uniform), DITOLAK dgn pesan status jelas alih-
+      alih diam-diam mendistorsi bentuk. Pivot = centroid bbox, jadi
+      body tumbuh/menyusut simetris di tempat. Panel kanan (card "3D Body
+      Info", `features_3d.rs`) dapat field X/Y/Z editable + tombol
+      "Terapkan Ukuran", plus catatan peringatan fillet/chamfer bisa ikut
+      terdistorsi kalau nanti non-uniform scale beneran diimplementasi.
+- [x] Workspace hijau — `cargo build --workspace` bersih, `cargo clippy`
+      nol warning baru (3 warning lama tidak tersentuh), 186 test lulus
+      (180 lama + 5 `region::tests::*` baru di `cadraw-sketch` + 1
+      `scale_shape_*` baru di `cadraw-kernel`).
+
 ## Menjalankan
 
 ```bash

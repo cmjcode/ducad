@@ -2,7 +2,8 @@ use egui::{RichText, Ui, Vec2};
 use egui_material_icons::icons::{ICON_EDIT, ICON_LOCK};
 
 use crate::feature_inspector::types::{
-    FeatureInspectorState, InspectorConstraintAction, InspectorEvent, SelectedEntityData,
+    FeatureInspectorState, InspectorConstraintAction, InspectorEvent, InspectorRectAnchor,
+    SelectedEntityData,
 };
 use crate::theme::{card_frame, ACCENT_BLUE, TEXT_SECONDARY};
 
@@ -132,10 +133,9 @@ pub fn show_2d_entity_cards(
             center_x: _,
             center_y: _,
             radius: _,
-            diameter,
+            diameter: _,
         } => {
             let id_raw = *id_raw;
-            let diameter = *diameter;
             card_frame().show(ui, |ui| {
                 ui.label(
                     RichText::new(format!("{} Lingkaran (Circle)", ICON_EDIT.codepoint))
@@ -159,21 +159,31 @@ pub fn show_2d_entity_cards(
                     );
                 });
 
-                ui.label(
-                    RichText::new("Radius (Jari-jari mm):")
-                        .size(10.0)
-                        .color(TEXT_SECONDARY),
-                );
+                // Radius & Diameter — dua field yang bisa diedit langsung, saling sinkron.
+                // Field yang baru saja diketik jadi sumber kebenaran; yang lain dihitung ulang
+                // tiap frame dari situ (r = d/2), supaya user bebas pilih mau isi r atau d.
+                ui.label(RichText::new("Radius (R) / Diameter (Ø), mm:").size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
-                    ui.add_sized(
-                        Vec2::new(90.0, 18.0),
+                    ui.label(RichText::new("R:").size(10.5));
+                    let r_resp = ui.add_sized(
+                        Vec2::new(70.0, 18.0),
                         egui::TextEdit::singleline(&mut state.entity_val_1),
                     );
-                    ui.label(
-                        RichText::new(format!("Ø {:.2} mm", diameter))
-                            .size(10.5)
-                            .color(TEXT_SECONDARY),
+                    ui.label(RichText::new("Ø:").size(10.5));
+                    let d_resp = ui.add_sized(
+                        Vec2::new(70.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.entity_val_3),
                     );
+
+                    if r_resp.changed() {
+                        if let Ok(r) = state.entity_val_1.trim().parse::<f64>() {
+                            state.entity_val_3 = format!("{:.2}", r * 2.0);
+                        }
+                    } else if d_resp.changed() {
+                        if let Ok(d) = state.entity_val_3.trim().parse::<f64>() {
+                            state.entity_val_1 = format!("{:.2}", d * 0.5);
+                        }
+                    }
                 });
 
                 ui.add_space(2.0);
@@ -338,6 +348,90 @@ pub fn show_2d_entity_cards(
                             center_y: cy,
                             radius_x: rx,
                             radius_y: ry,
+                        });
+                    }
+                }
+            });
+            ui.add_space(3.0);
+        }
+
+        SelectedEntityData::Rectangle {
+            entity_ids,
+            length_p: _,
+            length_l: _,
+        } => {
+            let entity_ids = *entity_ids;
+            card_frame().show(ui, |ui| {
+                ui.label(
+                    RichText::new(format!("{} Persegi Panjang (Rectangle)", ICON_EDIT.codepoint))
+                        .strong()
+                        .size(11.5)
+                        .color(ACCENT_BLUE),
+                );
+
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Panjang (P):").size(10.5).color(TEXT_SECONDARY));
+                    ui.add_sized(
+                        Vec2::new(70.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.rect_length_p_input),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Lebar (L):").size(10.5).color(TEXT_SECONDARY));
+                    ui.add_sized(
+                        Vec2::new(70.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.rect_length_l_input),
+                    );
+                });
+
+                ui.add_space(3.0);
+                ui.label(
+                    RichText::new("Anchor (titik yg tetap diam saat resize):")
+                        .size(9.5)
+                        .color(TEXT_SECONDARY),
+                );
+                ui.horizontal(|ui| {
+                    let options = [
+                        (InspectorRectAnchor::Center, "Tengah"),
+                        (InspectorRectAnchor::Corner0, "Sudut A"),
+                        (InspectorRectAnchor::Corner1, "Sudut B"),
+                    ];
+                    for (anchor, label) in options {
+                        if ui
+                            .selectable_label(state.rect_anchor == anchor, RichText::new(label).size(10.0))
+                            .clicked()
+                        {
+                            state.rect_anchor = anchor;
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let options = [
+                        (InspectorRectAnchor::Corner2, "Sudut C"),
+                        (InspectorRectAnchor::Corner3, "Sudut D"),
+                    ];
+                    for (anchor, label) in options {
+                        if ui
+                            .selectable_label(state.rect_anchor == anchor, RichText::new(label).size(10.0))
+                            .clicked()
+                        {
+                            state.rect_anchor = anchor;
+                        }
+                    }
+                });
+
+                ui.add_space(2.0);
+                if ui.button(RichText::new("Terapkan Dimensi").size(11.0)).clicked() {
+                    if let (Ok(p), Ok(l)) = (
+                        state.rect_length_p_input.trim().parse::<f64>(),
+                        state.rect_length_l_input.trim().parse::<f64>(),
+                    ) {
+                        *event = Some(InspectorEvent::UpdateEntityRectangle {
+                            entity_ids,
+                            length_p: p,
+                            length_l: l,
+                            anchor: state.rect_anchor,
                         });
                     }
                 }

@@ -162,6 +162,18 @@ pub fn rotate_shape(
     Ok(KernelShape(cloned))
 }
 
+/// Scale shape secara UNIFORM (satu faktor sama utk X/Y/Z) mengelilingi `pivot` —
+/// dipakai gizmo/panel resize body 3D. `factor` 1.0 = tanpa perubahan, 2.0 = 2x lebih
+/// besar, 0.5 = separuh. Hanya uniform: lihat catatan `Shape::scale` di
+/// `vendor/opencascade-0.2.0/src/primitives/shape.rs` (Perubahan #10) kenapa scale
+/// per-sumbu berbeda (non-uniform) belum didukung binding OCCT versi ini.
+pub fn scale_shape(shape: &KernelShape, pivot: (f64, f64, f64), factor: f64) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    cloned.scale(dvec3(pivot.0, pivot.1, pivot.2), factor);
+    Ok(KernelShape(cloned))
+}
+
 /// Transformasi shape dengan pergeseran (dx, dy, dz) dan rotasi sekeliling sumbu `axis` di `pivot`.
 pub fn transform_shape(
     shape: &KernelShape,

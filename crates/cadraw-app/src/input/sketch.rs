@@ -356,6 +356,86 @@ impl CadrawApp {
         }
     }
 
+    /// Resize body terpilih ke `new_size` (mm, bounding-box X/Y/Z) — Fase 4.
+    /// `cadraw_kernel::scale_shape` cuma dukung faktor UNIFORM (lihat catatan
+    /// di `vendor/README.md` Perubahan #10), jadi kalau X/Y/Z yg diminta user
+    /// tidak proporsional dgn bbox sekarang, ditolak dgn pesan status alih-alih
+    /// diam-diam mendistorsi bentuk. Pivot pakai centroid bbox (`selected_single_body_center`)
+    /// supaya body tumbuh/menyusut simetris di tempat, bukan bergeser.
+    pub fn scale_selected_body(&mut self, new_size: Vec3) {
+        let Some((target_id, center)) = self.selected_single_body_center() else {
+            return;
+        };
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return;
+        };
+
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &target_geo.mesh.positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        let old_size = Vec3::new(
+            (max[0] - min[0]).abs(),
+            (max[1] - min[1]).abs(),
+            (max[2] - min[2]).abs(),
+        );
+        if old_size.x < 1e-4 || old_size.y < 1e-4 || old_size.z < 1e-4 {
+            self.model_status = Some("Resize body gagal: bounding box terlalu kecil".to_string());
+            return;
+        }
+        if new_size.x <= 0.0 || new_size.y <= 0.0 || new_size.z <= 0.0 {
+            self.model_status = Some("Resize body gagal: ukuran harus > 0".to_string());
+            return;
+        }
+
+        let fx = new_size.x / old_size.x;
+        let fy = new_size.y / old_size.y;
+        let fz = new_size.z / old_size.z;
+        const REL_TOL: f32 = 0.01; // 1% — toleransi floating point/rounding input mm.
+        let uniform = (fx - fy).abs() < REL_TOL * fx.max(fy).max(1.0)
+            && (fy - fz).abs() < REL_TOL * fy.max(fz).max(1.0);
+        if !uniform {
+            self.model_status = Some(
+                "Resize body: X/Y/Z harus proporsional (scale non-uniform per-sumbu belum didukung kernel OCCT versi ini — lihat vendor/README.md)"
+                    .to_string(),
+            );
+            return;
+        }
+        let factor = ((fx + fy + fz) / 3.0) as f64;
+
+        let pivot = (center.x as f64, center.y as f64, center.z as f64);
+        match cadraw_kernel::scale_shape(&target_geo.shape, pivot, factor) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                if self.body_copy_mode {
+                    let cmd = AddSolidCommand::new("Salin Body", new_geo);
+                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.model_status =
+                        Some(format!("Body diduplikasi & diresize {:.0}%", factor * 100.0));
+                } else {
+                    self.model_undo.execute(
+                        Box::new(ReplaceGeometryCommand::new(
+                            "Resize Body",
+                            target_id,
+                            new_geo,
+                        )),
+                        &mut self.model,
+                    );
+                    self.round_history.remove(&target_id);
+                    self.model_status =
+                        Some(format!("Body diresize {:.0}%", factor * 100.0));
+                }
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Resize body gagal: {e}"));
+            }
+        }
+    }
+
     pub fn handle_sketch_input(
         &mut self,
         ui: &egui::Ui,

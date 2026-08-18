@@ -159,7 +159,21 @@ proses harus TETAP HIDUP (hasil boleh `Ok` atau `Err`, dua-duanya
 membuktikan tidak crash — beda dgn kode lama yang mati total di skenario
 serupa).
 
-Tidak ada file lain yang disentuh di kesembilan perubahan di atas.
+**Perubahan #10** (CADRAW Fase 4 — resize body 3D, di `src/primitives/
+shape.rs`): tambah method publik baru `Shape::scale(pivot, factor: f64)` —
+scale UNIFORM (satu faktor X/Y/Z sekaligus) mengelilingi titik `pivot`,
+badan fungsi persis mencontoh `rotate` (di atas): `gp_Trsf::SetScale` +
+`BRepBuilderAPI_Transform_ctor`, keduanya binding `opencascade-sys` yang
+SUDAH ADA sejak awal — nol perubahan di `opencascade-sys`. **Sengaja
+dibatasi uniform saja**: `gp_Trsf` (dipakai `BRepBuilderAPI_Transform`)
+cuma mendukung similarity transform, tidak bisa scale per-sumbu berbeda.
+Scale non-uniform butuh `gp_GTrsf`/`BRepBuilderAPI_GTransform` — kelas
+C++ berbeda yang belum dibind di `opencascade-sys` versi vendor ini (mirip
+kelas gap dgn `BRepOffset_MakeOffset` sebelum Perubahan #4 di atas
+dikerjakan) — dicatat sebagai keterbatasan diketahui di `docs/PLAN.md`,
+bukan dikerjakan blind tanpa binding baru.
+
+Tidak ada file lain yang disentuh di kesepuluh perubahan di atas.
 
 **Cara upgrade** kalau upstream `opencascade` rilis versi baru: re-copy
 `src/` dari versi baru itu, terapkan ulang kesembilan patch di atas

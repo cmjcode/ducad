@@ -163,6 +163,46 @@ impl Command<Sketch> for UpdateEntity {
     }
 }
 
+/// Ubah 4 garis pembentuk satu rectangle sekaligus (resize P/L via anchor) sebagai
+/// satu langkah undo, bukan 4 langkah `UpdateEntity` terpisah.
+pub struct ResizeRectangle {
+    label: &'static str,
+    new_lines: Vec<(EntityId, Entity)>,
+    old_lines: Vec<(EntityId, Entity)>,
+}
+
+impl ResizeRectangle {
+    pub fn new(label: &'static str, new_lines: Vec<(EntityId, Entity)>) -> Self {
+        Self {
+            label,
+            new_lines,
+            old_lines: Vec::new(),
+        }
+    }
+}
+
+impl Command<Sketch> for ResizeRectangle {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        self.old_lines.clear();
+        for (id, new_entity) in &self.new_lines {
+            if let Some(e) = sketch.entities.get_mut(*id) {
+                self.old_lines.push((*id, e.clone()));
+                *e = new_entity.clone();
+            }
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        for (id, old_entity) in self.old_lines.drain(..) {
+            if let Some(e) = sketch.entities.get_mut(id) {
+                *e = old_entity;
+            }
+        }
+    }
+}
+
 /// Geser satu/lebih entitas sepanjang bidang sketsa-nya.
 pub struct TranslateEntities {
     label: &'static str,

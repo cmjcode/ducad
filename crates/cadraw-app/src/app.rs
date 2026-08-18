@@ -6,14 +6,15 @@ use cadraw_kernel::{FaceHit, PickRay};
 use cadraw_render::{OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, ViewPreset};
 use cadraw_sketch::constraint::Constraint;
 use cadraw_sketch::{
-    DeleteEntities, Entity, EntityId, Sketch, SnapHit, UpdateEntity,
+    detect_rectangle, DeleteEntities, Entity, EntityId, RectAnchor, ResizeRectangle, Sketch,
+    SnapHit, UpdateEntity,
 };
 use cadraw_ui::{
     BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, FeatureInspector,
     FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction, InspectorEvent,
-    InspectorPickMode, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu,
-    SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode, ToolbarEvent, TopBar,
-    TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
+    InspectorPickMode, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
+    RadialMenu, SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode,
+    ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -86,6 +87,10 @@ pub struct CadrawApp {
     pub section_invert: bool,
 
     pub show_all_dimensions: bool,
+    /// Entity yg pill dimensinya sedang dibuka utk diedit di kanvas (Fase 3 —
+    /// klik pill saat "Tampilkan Semua Ukuran" aktif). `None` = tidak ada popup.
+    pub editing_dimension_entity: Option<EntityId>,
+    pub editing_dimension_input: String,
 
     pub import_worker: ImportWorker,
     pub pending_imports: u32,
@@ -105,7 +110,18 @@ pub struct CadrawApp {
     pub prop_input_p2_y: String,
     pub prop_input_val_1: String,
     pub prop_input_val_2: String,
+    /// Diameter Circle — sinkron dua-arah dgn `prop_input_val_1` (radius).
+    pub prop_input_val_3: String,
+    pub prop_input_rect_p: String,
+    pub prop_input_rect_l: String,
+    pub rect_anchor: InspectorRectAnchor,
     pub last_inspected_entity_id: Option<u64>,
+
+    // Fase 4: resize body 3D (bounding-box uniform scale, mm).
+    pub prop_input_body_size_x: String,
+    pub prop_input_body_size_y: String,
+    pub prop_input_body_size_z: String,
+    pub last_inspected_body_id: Option<u64>,
 
     pub is_sketching: bool,
     pub active_plane: SketchPlane,
@@ -239,6 +255,8 @@ impl CadrawApp {
             section_offset: 0.0,
             section_invert: false,
             show_all_dimensions: false,
+            editing_dimension_entity: None,
+            editing_dimension_input: String::new(),
 
             import_worker: ImportWorker::spawn(),
             pending_imports: 0,
@@ -258,7 +276,16 @@ impl CadrawApp {
             prop_input_p2_y: String::new(),
             prop_input_val_1: String::new(),
             prop_input_val_2: String::new(),
+            prop_input_val_3: String::new(),
+            prop_input_rect_p: String::new(),
+            prop_input_rect_l: String::new(),
+            rect_anchor: InspectorRectAnchor::Center,
             last_inspected_entity_id: None,
+
+            prop_input_body_size_x: String::new(),
+            prop_input_body_size_y: String::new(),
+            prop_input_body_size_z: String::new(),
+            last_inspected_body_id: None,
 
             is_sketching: true,
             active_plane: SketchPlane::top(),
@@ -868,6 +895,7 @@ impl eframe::App for CadrawApp {
                         self.prop_input_p1_y = format!("{:.2}", center.y);
                         self.prop_input_val_1 = format!("{:.2}", radius);
                         self.prop_input_val_2 = format!("{:.2}", diameter);
+                        self.prop_input_val_3 = format!("{:.2}", diameter);
                         self.last_inspected_entity_id = Some(id_raw);
                     }
                     SelectedEntityData::Circle {
@@ -929,9 +957,34 @@ impl eframe::App for CadrawApp {
                 }
             }
         } else if self.selected.len() > 1 {
-            self.last_inspected_entity_id = None;
-            SelectedEntityData::MultipleEntities {
-                count: self.selected.len(),
+            // Klik satu sisi rectangle di kanvas menyeleksi ke-4 Line pembentuknya
+            // sekaligus (lihat input/sketch.rs region_hit) — deteksi itu di sini
+            // supaya panel kanan tampilkan card Rectangle (P/L + anchor) alih-alih
+            // MultipleEntities generik.
+            if let Some(rect) = detect_rectangle(self.sketch(), &self.selected) {
+                let entity_ids = [
+                    rect.entity_ids[0].data().as_ffi(),
+                    rect.entity_ids[1].data().as_ffi(),
+                    rect.entity_ids[2].data().as_ffi(),
+                    rect.entity_ids[3].data().as_ffi(),
+                ];
+                // Kunci "sudah pernah diinspeksi" pakai id sisi pertama — cukup
+                // untuk deteksi ganti-seleksi tanpa menimpa input P/L yg lagi diketik.
+                if self.last_inspected_entity_id != Some(entity_ids[0]) {
+                    self.prop_input_rect_p = format!("{:.2}", rect.length_p);
+                    self.prop_input_rect_l = format!("{:.2}", rect.length_l);
+                    self.last_inspected_entity_id = Some(entity_ids[0]);
+                }
+                SelectedEntityData::Rectangle {
+                    entity_ids,
+                    length_p: rect.length_p,
+                    length_l: rect.length_l,
+                }
+            } else {
+                self.last_inspected_entity_id = None;
+                SelectedEntityData::MultipleEntities {
+                    count: self.selected.len(),
+                }
             }
         } else {
             self.last_inspected_entity_id = None;
@@ -963,17 +1016,26 @@ impl eframe::App for CadrawApp {
                     (max_p[1] - min_p[1]).abs().max(0.0),
                     (max_p[2] - min_p[2]).abs().max(0.0),
                 ];
+                let bid_raw = bid.data().as_ffi();
+                if self.last_inspected_body_id != Some(bid_raw) {
+                    self.prop_input_body_size_x = format!("{:.2}", bbox_size[0]);
+                    self.prop_input_body_size_y = format!("{:.2}", bbox_size[1]);
+                    self.prop_input_body_size_z = format!("{:.2}", bbox_size[2]);
+                    self.last_inspected_body_id = Some(bid_raw);
+                }
                 Some(SelectedBodyData {
-                    id_raw: bid.data().as_ffi(),
+                    id_raw: bid_raw,
                     name: body_name,
                     vertices_count: v_count,
                     triangles_count: t_count,
                     bbox_size,
                 })
             } else {
+                self.last_inspected_body_id = None;
                 None
             }
         } else {
+            self.last_inspected_body_id = None;
             None
         };
 
@@ -1038,6 +1100,14 @@ impl eframe::App for CadrawApp {
                 entity_p2_y: self.prop_input_p2_y.clone(),
                 entity_val_1: self.prop_input_val_1.clone(),
                 entity_val_2: self.prop_input_val_2.clone(),
+                entity_val_3: self.prop_input_val_3.clone(),
+                rect_length_p_input: self.prop_input_rect_p.clone(),
+                rect_length_l_input: self.prop_input_rect_l.clone(),
+                rect_anchor: self.rect_anchor,
+
+                body_size_x_input: self.prop_input_body_size_x.clone(),
+                body_size_y_input: self.prop_input_body_size_y.clone(),
+                body_size_z_input: self.prop_input_body_size_z.clone(),
 
                 extrude_input: self.extrude_distance_input.clone(),
                 active_face_selected: self.active_face.is_some(),
@@ -1089,6 +1159,13 @@ impl eframe::App for CadrawApp {
                         self.prop_input_p2_y = inspector_state.entity_p2_y;
                         self.prop_input_val_1 = inspector_state.entity_val_1;
                         self.prop_input_val_2 = inspector_state.entity_val_2;
+                        self.prop_input_val_3 = inspector_state.entity_val_3;
+                        self.prop_input_rect_p = inspector_state.rect_length_p_input;
+                        self.prop_input_rect_l = inspector_state.rect_length_l_input;
+                        self.rect_anchor = inspector_state.rect_anchor;
+                        self.prop_input_body_size_x = inspector_state.body_size_x_input;
+                        self.prop_input_body_size_y = inspector_state.body_size_y_input;
+                        self.prop_input_body_size_z = inspector_state.body_size_z_input;
                         self.face_extrude_distance_input = inspector_state.face_extrude_input;
 
                         match insp_ev {
@@ -1186,6 +1263,28 @@ impl eframe::App for CadrawApp {
                                     self.execute_sketch_command(Box::new(
                                         UpdateEntity::new("Ubah Elips", id, new_entity),
                                     ));
+                                }
+                            }
+                            InspectorEvent::UpdateEntityRectangle {
+                                entity_ids: _,
+                                length_p,
+                                length_l,
+                                anchor,
+                            } => {
+                                if let Some(rect) = detect_rectangle(self.sketch(), &self.selected)
+                                {
+                                    let anchor = match anchor {
+                                        InspectorRectAnchor::Center => RectAnchor::Center,
+                                        InspectorRectAnchor::Corner0 => RectAnchor::Corner0,
+                                        InspectorRectAnchor::Corner1 => RectAnchor::Corner1,
+                                        InspectorRectAnchor::Corner2 => RectAnchor::Corner2,
+                                        InspectorRectAnchor::Corner3 => RectAnchor::Corner3,
+                                    };
+                                    let new_lines = rect.resized_lines(length_p, length_l, anchor);
+                                    self.execute_sketch_command(Box::new(ResizeRectangle::new(
+                                        "Ubah Rectangle",
+                                        new_lines,
+                                    )));
                                 }
                             }
                             InspectorEvent::ApplyConstraint(act) => {
@@ -1340,6 +1439,17 @@ impl eframe::App for CadrawApp {
                             }
                             InspectorEvent::DeleteSelectedBodies => {
                                 self.delete_selected_bodies();
+                            }
+                            InspectorEvent::ScaleSelectedBody {
+                                new_size_x,
+                                new_size_y,
+                                new_size_z,
+                            } => {
+                                self.scale_selected_body(Vec3::new(
+                                    new_size_x as f32,
+                                    new_size_y as f32,
+                                    new_size_z as f32,
+                                ));
                             }
                             InspectorEvent::SectionViewChanged => {
                                 self.section_enabled = inspector_state.section_enabled;

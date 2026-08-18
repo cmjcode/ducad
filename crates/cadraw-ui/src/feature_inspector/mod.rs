@@ -11,7 +11,7 @@ use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 pub use types::{
     FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction, InspectorEvent,
-    InspectorPickMode, SelectedBodyData, SelectedEntityData,
+    InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
 
 use entity_2d::show_2d_entity_cards;
@@ -34,6 +34,7 @@ impl FeatureInspector {
                 (SelectedEntityData::Circle { .. }, _) => "Properti Lingkaran",
                 (SelectedEntityData::Arc { .. }, _) => "Properti Busur",
                 (SelectedEntityData::Ellipse { .. }, _) => "Properti Elips",
+                (SelectedEntityData::Rectangle { .. }, _) => "Properti Persegi Panjang",
                 (SelectedEntityData::MultipleEntities { .. }, _) => "Seleksi 2D",
                 (_, Some(_)) => "Properti 3D Body",
                 _ if state.selected_bodies_count > 1 => "Seleksi 3D",

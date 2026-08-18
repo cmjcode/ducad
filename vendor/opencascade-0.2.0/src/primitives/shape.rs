@@ -298,6 +298,27 @@ impl Shape {
         self.inner.pin_mut().set_global_translation(&location, false);
     }
 
+    // PATCH (CADRAW Perubahan #10, lihat vendor/README.md): scale UNIFORM
+    // (satu faktor utk X/Y/Z sekaligus) mengelilingi `pivot`. `gp_Trsf`
+    // cuma mendukung similarity transform (translasi+rotasi+scale SERAGAM
+    // via `SetScale`) — scale non-uniform per-sumbu butuh `gp_GTrsf`/
+    // `BRepBuilderAPI_GTransform` yang BELUM dibind di `opencascade-sys`
+    // versi vendor ini (beda kelas C++, bukan cuma parameter tambahan),
+    // jadi sengaja tidak dikerjakan di sini. `SetScale`+`BRepBuilderAPI_
+    // Transform_ctor` sendiri sudah ada di FFI upstream sejak awal, badan
+    // fungsi ini persis mencontoh `rotate` di atas.
+    pub fn scale(&mut self, pivot: DVec3, factor: f64) {
+        let point = make_point(pivot);
+        let mut transform = ffi::new_transform();
+        transform.pin_mut().SetScale(&point, factor);
+
+        let mut transform_builder =
+            ffi::BRepBuilderAPI_Transform_ctor(&self.inner, &transform, true);
+        transform_builder.pin_mut().Build(&ffi::Message_ProgressRange_ctor());
+        let transformed_shape = transform_builder.pin_mut().Shape();
+        self.inner = ffi::TopoDS_Shape_to_owned(transformed_shape);
+    }
+
     pub fn rotate(&mut self, pivot: DVec3, axis: DVec3, angle_rad: f64) {
         let axis_1 = make_axis_1(pivot, axis);
         let mut transform = ffi::new_transform();

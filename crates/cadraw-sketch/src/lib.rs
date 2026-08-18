@@ -15,7 +15,8 @@ pub mod snap;
 mod tests;
 
 pub use commands::{
-    DeleteEntities, InsertEntities, ReplaceEntities, TranslateEntities, UndoStack, UpdateEntity,
+    DeleteEntities, InsertEntities, ReplaceEntities, ResizeRectangle, TranslateEntities,
+    UndoStack, UpdateEntity,
 };
 pub use entity::{Entity, EntityId};
 pub use ops::{
@@ -23,7 +24,8 @@ pub use ops::{
     project_t, reflect_point, translate_entity, trim_segments,
 };
 pub use region::{
-    find_closed_regions, find_region_at_point, find_region_containing_entity, ClosedRegion,
+    detect_rectangle, find_closed_regions, find_region_at_point, find_region_containing_entity,
+    ClosedRegion, RectAnchor, RectangleShape,
 };
 pub use sketch::Sketch;
 pub use snap::{find_snap, SnapHit, SnapKind};

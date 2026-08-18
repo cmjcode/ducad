@@ -26,7 +26,7 @@ pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
-    InspectorEvent, InspectorPickMode, SelectedBodyData, SelectedEntityData,
+    InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
 pub use items_drawer::{BodyItemInfo, ItemsDrawer, ItemsDrawerEvent, SketchPlaneItemInfo};
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};

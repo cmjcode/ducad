@@ -1,7 +1,10 @@
 use cadraw_kernel::SurfaceKind;
 use cadraw_render::sketch::TransformGizmoPart;
 use cadraw_render::SketchPlane;
-use cadraw_sketch::{find_snap, Entity};
+use cadraw_sketch::{
+    detect_rectangle, find_region_containing_entity, find_snap, Entity, EntityId, RectAnchor,
+    ResizeRectangle, UpdateEntity,
+};
 use cadraw_ui::CanvasHud;
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -56,10 +59,101 @@ impl CadrawApp {
         }
     }
 
-    pub fn render_all_element_dimensions(&self, ui: &mut egui::Ui, rect: egui::Rect) {
+    /// Terapkan hasil edit satu pill dimensi (Fase 3 — "Tampilkan Semua Ukuran" interaktif).
+    /// Line yg jadi bagian dari rectangle tertutup di-resize lewat `ResizeRectangle` (P atau L,
+    /// anchor Center) supaya sisi lainnya ikut konsisten, bukan cuma menggeser 1 endpoint sendirian.
+    fn commit_dimension_pill_edit(&mut self, id: EntityId, new_value_mm: f64) {
+        let new_value_mm = new_value_mm.max(1e-3);
+        let Some(entity) = self.sketch().entities.get(id).cloned() else {
+            return;
+        };
+        match entity {
+            Entity::Line { start, end } => {
+                if let Some(region) = find_region_containing_entity(self.sketch(), id) {
+                    if let Some(r) = detect_rectangle(self.sketch(), &region.entity_ids) {
+                        if let Some(side_idx) = r.entity_ids.iter().position(|&e| e == id) {
+                            let new_lines = if side_idx % 2 == 0 {
+                                r.resized_lines(new_value_mm, r.length_l, RectAnchor::Center)
+                            } else {
+                                r.resized_lines(r.length_p, new_value_mm, RectAnchor::Center)
+                            };
+                            self.execute_sketch_command(Box::new(ResizeRectangle::new(
+                                "Ubah Ukuran Rectangle",
+                                new_lines,
+                            )));
+                            return;
+                        }
+                    }
+                }
+                let dir = (end - start).normalize_or_zero();
+                let new_end = start + dir * new_value_mm;
+                self.execute_sketch_command(Box::new(UpdateEntity::new(
+                    "Ubah Panjang Garis",
+                    id,
+                    Entity::Line { start, end: new_end },
+                )));
+            }
+            Entity::Circle { center, .. } => {
+                self.execute_sketch_command(Box::new(UpdateEntity::new(
+                    "Ubah Radius Lingkaran",
+                    id,
+                    Entity::Circle { center, radius: new_value_mm },
+                )));
+            }
+            Entity::Arc { center, start_angle, end_angle, .. } => {
+                self.execute_sketch_command(Box::new(UpdateEntity::new(
+                    "Ubah Radius Busur",
+                    id,
+                    Entity::Arc { center, radius: new_value_mm, start_angle, end_angle },
+                )));
+            }
+            // Ellipse punya 2 angka (Rx/Ry) sekaligus — popup 1-angka tidak pas, jadi
+            // sengaja tetap pill statis (non-interaktif), lihat loop render di bawah.
+            Entity::Ellipse { .. } => {}
+        }
+    }
+
+    /// Popup kecil "ketik angka baru" di bawah pill dimensi yg sedang diedit — persis pola
+    /// popup gizmo fillet/extrude di bawah (`gizmo_dimension_editing` dkk.), cuma generik utk
+    /// entity sketch mana pun lewat `commit` (di-set, bukan langsung dieksekusi, supaya
+    /// `render_all_element_dimensions` tetap satu titik yg memanggil `commit_dimension_pill_edit`).
+    fn show_dimension_pill_edit_popup(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: EntityId,
+        pos_2d: egui::Pos2,
+        commit: &mut Option<(EntityId, f64)>,
+    ) {
+        let popup_rect =
+            egui::Rect::from_center_size(pos_2d + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+        egui::Area::new(egui::Id::new(("cadraw-dim-pill-edit-popup", id.data().as_ffi())))
+            .fixed_pos(popup_rect.min)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    let resp = ui.text_edit_singleline(&mut self.editing_dimension_input);
+                    resp.request_focus();
+                    if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if let Ok(val) = self.editing_dimension_input.trim().parse::<f64>() {
+                            *commit = Some((id, self.unit.to_internal_mm(val)));
+                        }
+                        self.editing_dimension_entity = None;
+                    }
+                });
+            });
+    }
+
+    pub fn render_all_element_dimensions(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         let mut line_anchors_2d: Vec<(Vec3, f64)> = Vec::new();
 
-        for (_, entity) in self.sketch().entities.iter() {
+        // Snapshot dulu (owned, bukan borrow `self`) supaya bebas mutasi `self.editing_dimension_*`
+        // di dalam loop tanpa bentrok dgn `self.sketch()` yg masih dipinjam.
+        let entities: Vec<(EntityId, Entity)> =
+            self.sketch().entities.iter().map(|(id, e)| (id, e.clone())).collect();
+        let mut commit: Option<(EntityId, f64)> = None;
+
+        for (id, entity) in &entities {
+            let id = *id;
             match entity {
                 Entity::Line { start, end } => {
                     let len = (*end - *start).length();
@@ -67,21 +161,50 @@ impl CadrawApp {
                     let label_3d = self.active_plane.to_world(mid, 0.0);
                     line_anchors_2d.push((label_3d, len));
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        let angle = self.screen_line_angle(rect, *start, *end);
-                        CanvasHud::render_dimension_pill_aligned(
-                            ui,
-                            pos_2d,
-                            angle,
-                            &self.unit.format_precise(len),
-                        );
+                        // Dipakai interaktif (bukan `render_dimension_pill_aligned` yg mengikuti
+                        // sudut garis) supaya bisa jadi target klik yg konsisten dgn Circle/Arc di
+                        // bawah — trade-off kosmetik kecil (pill Line jadi selalu horizontal saat
+                        // "Tampilkan Semua Ukuran" aktif), fungsi ini memang cuma dipanggil saat itu.
+                        let is_editing = self.editing_dimension_entity == Some(id);
+                        let text = self.unit.format_precise(len);
+                        let resp = ui
+                            .push_id(("cadraw-dim-pill-line", id.data().as_ffi()), |ui| {
+                                CanvasHud::render_interactive_dimension_pill(
+                                    ui, pos_2d, &text, is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_dimension_entity = Some(id);
+                            self.editing_dimension_input =
+                                format!("{:.2}", self.unit.to_display_val(len));
+                        }
+                        if is_editing {
+                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                        }
                     }
                 }
                 Entity::Circle { center, radius } => {
                     let edge_pt = *center + DVec2::new(*radius, 0.0);
                     let label_3d = self.active_plane.to_world(edge_pt, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let is_editing = self.editing_dimension_entity == Some(id);
                         let text = format!("R {}", self.unit.format_precise(*radius));
-                        CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+                        let resp = ui
+                            .push_id(("cadraw-dim-pill-circle", id.data().as_ffi()), |ui| {
+                                CanvasHud::render_interactive_dimension_pill(
+                                    ui, pos_2d, &text, is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_dimension_entity = Some(id);
+                            self.editing_dimension_input =
+                                format!("{:.2}", self.unit.to_display_val(*radius));
+                        }
+                        if is_editing {
+                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                        }
                     }
                 }
                 Entity::Arc {
@@ -95,8 +218,23 @@ impl CadrawApp {
                         *center + DVec2::new(radius * mid_angle.cos(), radius * mid_angle.sin());
                     let label_3d = self.active_plane.to_world(mid_pt, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let is_editing = self.editing_dimension_entity == Some(id);
                         let text = format!("R {}", self.unit.format_precise(*radius));
-                        CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+                        let resp = ui
+                            .push_id(("cadraw-dim-pill-arc", id.data().as_ffi()), |ui| {
+                                CanvasHud::render_interactive_dimension_pill(
+                                    ui, pos_2d, &text, is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_dimension_entity = Some(id);
+                            self.editing_dimension_input =
+                                format!("{:.2}", self.unit.to_display_val(*radius));
+                        }
+                        if is_editing {
+                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                        }
                     }
                 }
                 Entity::Ellipse {
@@ -115,6 +253,11 @@ impl CadrawApp {
                     }
                 }
             }
+        }
+
+        if let Some((id, new_value_mm)) = commit {
+            self.commit_dimension_pill_edit(id, new_value_mm);
+            self.editing_dimension_entity = None;
         }
 
         const COINCIDENCE_POS_EPS: f32 = 1e-3;

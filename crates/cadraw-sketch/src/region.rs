@@ -396,6 +396,207 @@ pub fn find_region_containing_entity(sketch: &Sketch, id: EntityId) -> Option<Cl
     regions.into_iter().find(|r| r.entity_ids.contains(&id))
 }
 
+/// Titik acuan yang tetap diam saat sebuah [`RectangleShape`] di-resize.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RectAnchor {
+    /// Titik pusat rectangle tetap diam, semua sisi tumbuh/menyusut simetris.
+    Center,
+    /// Sudut ke-0..3 (urutan hasil traversal, lihat `RectangleShape::corners`) tetap diam.
+    Corner0,
+    Corner1,
+    Corner2,
+    Corner3,
+}
+
+impl RectAnchor {
+    /// Koordinat lokal (fx, fy) dalam `[0,1] x [0,1]` — 0 = sisi corners[0], 1 = sisi seberangnya.
+    fn local_fraction(self) -> (f64, f64) {
+        match self {
+            RectAnchor::Center => (0.5, 0.5),
+            RectAnchor::Corner0 => (0.0, 0.0),
+            RectAnchor::Corner1 => (1.0, 0.0),
+            RectAnchor::Corner2 => (1.0, 1.0),
+            RectAnchor::Corner3 => (0.0, 1.0),
+        }
+    }
+}
+
+/// Persegi panjang (mungkin rotated) yang terdeteksi dari 4 `Entity::Line` tertutup
+/// & saling tegak lurus. `u_axis`/`v_axis` adalah frame lokalnya sendiri, jadi
+/// `length_p`/`length_l` tetap benar walau rectangle-nya diputar.
+#[derive(Debug, Clone)]
+pub struct RectangleShape {
+    /// EntityId tiap sisi, sejajar indeks dgn `corners` (sisi ke-`k` = corners[k]..corners[k+1]).
+    pub entity_ids: [EntityId; 4],
+    /// 4 titik sudut berurutan keliling rectangle.
+    pub corners: [DVec2; 4],
+    /// Arah unit sepanjang sisi corners[0]->corners[1] ("P" / panjang).
+    pub u_axis: DVec2,
+    /// Arah unit sepanjang sisi corners[1]->corners[2] ("L" / lebar), tegak lurus `u_axis`.
+    pub v_axis: DVec2,
+    /// Panjang sisi corners[0]->corners[1] (== corners[3]->corners[2]).
+    pub length_p: f64,
+    /// Panjang sisi corners[1]->corners[2] (== corners[0]->corners[3]).
+    pub length_l: f64,
+}
+
+impl RectangleShape {
+    /// Titik dunia (world) dari sebuah anchor, dihitung dari sudut+sisi saat ini.
+    pub fn anchor_point(&self, anchor: RectAnchor) -> DVec2 {
+        let (fx, fy) = anchor.local_fraction();
+        self.corners[0] + self.u_axis * (fx * self.length_p) + self.v_axis * (fy * self.length_l)
+    }
+
+    /// Hitung (EntityId, Entity::Line baru) tiap sisi untuk `new_length_p`/`new_length_l`,
+    /// dengan `anchor` tetap diam di posisi dunianya semula. Siap dipakai `ResizeRectangle`.
+    pub fn resized_lines(
+        &self,
+        new_length_p: f64,
+        new_length_l: f64,
+        anchor: RectAnchor,
+    ) -> Vec<(EntityId, Entity)> {
+        let new_length_p = new_length_p.max(1e-3);
+        let new_length_l = new_length_l.max(1e-3);
+        let anchor_world = self.anchor_point(anchor);
+        let (fx, fy) = anchor.local_fraction();
+
+        let new_corner0 =
+            anchor_world - self.u_axis * (fx * new_length_p) - self.v_axis * (fy * new_length_l);
+        let new_corner1 = new_corner0 + self.u_axis * new_length_p;
+        let new_corner2 = new_corner1 + self.v_axis * new_length_l;
+        let new_corner3 = new_corner0 + self.v_axis * new_length_l;
+        let new_corners = [new_corner0, new_corner1, new_corner2, new_corner3];
+
+        self.entity_ids
+            .iter()
+            .enumerate()
+            .map(|(k, &id)| {
+                (
+                    id,
+                    Entity::Line {
+                        start: new_corners[k],
+                        end: new_corners[(k + 1) % 4],
+                    },
+                )
+            })
+            .collect()
+    }
+}
+
+/// Deteksi apakah `ids` (harus tepat 4 buah) membentuk satu persegi panjang tertutup:
+/// masing-masing `Entity::Line`, membentuk loop, dan tiap sisi berurutan saling tegak lurus.
+/// Kembalikan `None` kalau bukan (mis. trapesium, jajar genjang, atau bukan loop tertutup).
+pub fn detect_rectangle(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<RectangleShape> {
+    const EPS: f64 = 1e-4;
+    const PERP_EPS: f64 = 1e-3;
+
+    if ids.len() != 4 {
+        return None;
+    }
+
+    struct Seg {
+        id: EntityId,
+        start: DVec2,
+        end: DVec2,
+    }
+
+    let mut segs: Vec<Seg> = Vec::with_capacity(4);
+    for &id in ids {
+        match sketch.entities.get(id) {
+            Some(Entity::Line { start, end }) if (*start - *end).length() > EPS => {
+                segs.push(Seg { id, start: *start, end: *end });
+            }
+            _ => return None,
+        }
+    }
+
+    // Susuri loop mulai dari segs[0], sambungkan tiap sisi berikutnya via endpoint yang berimpit.
+    let mut order: Vec<usize> = vec![0];
+    let mut visited = [false; 4];
+    visited[0] = true;
+    let target_head = segs[0].start;
+    let mut current_tail = segs[0].end;
+
+    for _ in 0..3 {
+        let mut found = false;
+        for (j, s) in segs.iter().enumerate() {
+            if visited[j] {
+                continue;
+            }
+            if (s.start - current_tail).length() < EPS {
+                order.push(j);
+                visited[j] = true;
+                current_tail = s.end;
+                found = true;
+                break;
+            } else if (s.end - current_tail).length() < EPS {
+                order.push(j);
+                visited[j] = true;
+                current_tail = s.start;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return None;
+        }
+    }
+    if (current_tail - target_head).length() >= EPS {
+        return None; // bukan loop tertutup
+    }
+
+    // corners[k] = titik sebelum menyusuri sisi order[k].
+    let mut corners = [DVec2::ZERO; 4];
+    let mut pt = target_head;
+    for (k, &idx) in order.iter().enumerate() {
+        corners[k] = pt;
+        let s = &segs[idx];
+        pt = if (s.start - pt).length() < EPS { s.end } else { s.start };
+    }
+
+    let e0 = corners[1] - corners[0];
+    let e1 = corners[2] - corners[1];
+    let len_p = e0.length();
+    let len_l = e1.length();
+    if len_p < EPS || len_l < EPS {
+        return None;
+    }
+    let u_axis = e0 / len_p;
+    let v_axis = e1 / len_l;
+
+    // Tegak lurus konsekutif (2 sudut cukup — closure loop otomatis menjamin sudut ke-3&4 ikut siku).
+    if u_axis.dot(v_axis).abs() > PERP_EPS {
+        return None;
+    }
+    let e2 = corners[3] - corners[2];
+    if v_axis.dot(e2 / e2.length().max(EPS)).abs() > PERP_EPS {
+        return None;
+    }
+    // Sanity check sisi berhadapan sama panjang (harusnya otomatis benar kalau loop tertutup + siku).
+    let e3 = corners[0] - corners[3];
+    if (e2.length() - len_p).abs() > len_p.max(1.0) * 1e-2
+        || (e3.length() - len_l).abs() > len_l.max(1.0) * 1e-2
+    {
+        return None;
+    }
+
+    let entity_ids = [
+        segs[order[0]].id,
+        segs[order[1]].id,
+        segs[order[2]].id,
+        segs[order[3]].id,
+    ];
+
+    Some(RectangleShape {
+        entity_ids,
+        corners,
+        u_axis,
+        v_axis,
+        length_p: len_p,
+        length_l: len_l,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,6 +626,123 @@ mod tests {
         assert!(reg.contains_point(DVec2::new(5.0, 2.5)));
         // Point outside
         assert!(!reg.contains_point(DVec2::new(15.0, 2.5)));
+    }
+
+    #[test]
+    fn detect_rectangle_axis_aligned() {
+        let mut sketch = Sketch::default();
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 0.0);
+        let p2 = DVec2::new(10.0, 5.0);
+        let p3 = DVec2::new(0.0, 5.0);
+
+        let mut ids = HashSet::new();
+        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+
+        let rect = detect_rectangle(&sketch, &ids).expect("harus terdeteksi sebagai rectangle");
+        assert!((rect.length_p - 10.0).abs() < 1e-3 || (rect.length_l - 10.0).abs() < 1e-3);
+        assert!((rect.length_p - 5.0).abs() < 1e-3 || (rect.length_l - 5.0).abs() < 1e-3);
+        assert!(rect.u_axis.dot(rect.v_axis).abs() < 1e-6);
+    }
+
+    #[test]
+    fn detect_rectangle_rotated_still_perpendicular_axes() {
+        let mut sketch = Sketch::default();
+        let angle: f64 = 0.5;
+        let (c, s) = (angle.cos(), angle.sin());
+        let rot = |x: f64, y: f64| DVec2::new(x * c - y * s, x * s + y * c);
+        let p0 = rot(0.0, 0.0);
+        let p1 = rot(8.0, 0.0);
+        let p2 = rot(8.0, 3.0);
+        let p3 = rot(0.0, 3.0);
+
+        let mut ids = HashSet::new();
+        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+
+        let rect = detect_rectangle(&sketch, &ids).expect("rectangle rotated harus tetap terdeteksi");
+        assert!((rect.length_p - 8.0).abs() < 1e-3 || (rect.length_l - 8.0).abs() < 1e-3);
+        assert!((rect.length_p - 3.0).abs() < 1e-3 || (rect.length_l - 3.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn detect_rectangle_rejects_non_rectangle() {
+        let mut sketch = Sketch::default();
+        // Trapesium, bukan rectangle.
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 0.0);
+        let p2 = DVec2::new(7.0, 5.0);
+        let p3 = DVec2::new(2.0, 5.0);
+
+        let mut ids = HashSet::new();
+        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+
+        assert!(detect_rectangle(&sketch, &ids).is_none());
+    }
+
+    #[test]
+    fn resized_lines_keeps_anchor_corner_fixed() {
+        let mut sketch = Sketch::default();
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 0.0);
+        let p2 = DVec2::new(10.0, 5.0);
+        let p3 = DVec2::new(0.0, 5.0);
+
+        let mut ids = HashSet::new();
+        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+
+        let rect = detect_rectangle(&sketch, &ids).unwrap();
+        let anchor_before = rect.anchor_point(RectAnchor::Corner0);
+        let new_lines = rect.resized_lines(20.0, 5.0, RectAnchor::Corner0);
+        assert_eq!(new_lines.len(), 4);
+
+        // Corner0 (sudut anchor) harus tetap ada persis di posisi semula pada salah satu endpoint.
+        let touches_anchor = new_lines.iter().any(|(_, e)| match e {
+            Entity::Line { start, end } => {
+                (*start - anchor_before).length() < 1e-6 || (*end - anchor_before).length() < 1e-6
+            }
+            _ => false,
+        });
+        assert!(touches_anchor);
+    }
+
+    #[test]
+    fn resized_lines_center_anchor_keeps_centroid_fixed() {
+        let mut sketch = Sketch::default();
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 0.0);
+        let p2 = DVec2::new(10.0, 5.0);
+        let p3 = DVec2::new(0.0, 5.0);
+
+        let mut ids = HashSet::new();
+        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
+        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+
+        let rect = detect_rectangle(&sketch, &ids).unwrap();
+        let center_before = rect.anchor_point(RectAnchor::Center);
+        let new_lines = rect.resized_lines(20.0, 10.0, RectAnchor::Center);
+
+        let mut new_corners: Vec<DVec2> = Vec::new();
+        for (_, e) in &new_lines {
+            if let Entity::Line { start, .. } = e {
+                new_corners.push(*start);
+            }
+        }
+        let new_center = new_corners.iter().copied().sum::<DVec2>() / new_corners.len() as f64;
+        assert!((new_center - center_before).length() < 1e-6);
     }
 
     #[test]

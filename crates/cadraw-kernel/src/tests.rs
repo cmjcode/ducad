@@ -145,6 +145,39 @@ fn translate_shape_shifts_bounding_box_by_delta_without_mutating_original() {
 }
 
 #[test]
+fn scale_shape_grows_bounding_box_uniformly_without_mutating_original() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
+    let original_mesh = shape.tessellate();
+
+    fn bbox(mesh: &KernelMesh) -> ([f32; 3], [f32; 3]) {
+        let mut min = [f32::MAX; 3];
+        let mut max = [f32::MIN; 3];
+        for p in &mesh.positions {
+            for i in 0..3 {
+                min[i] = min[i].min(p[i]);
+                max[i] = max[i].max(p[i]);
+            }
+        }
+        (min, max)
+    }
+
+    let (orig_min, orig_max) = bbox(&original_mesh);
+    // Scale 2x mengelilingi origin (0,0,0) — sudut bbox yg nempel origin (0,0,0) itu sendiri.
+    let scaled = scale_shape(&shape, (0.0, 0.0, 0.0), 2.0).unwrap();
+    let (scaled_min, scaled_max) = bbox(&scaled.tessellate());
+
+    for i in 0..3 {
+        assert!((scaled_max[i] - orig_max[i] * 2.0).abs() < 1e-2, "axis {i}");
+        assert!((scaled_min[i] - orig_min[i] * 2.0).abs() < 1e-2, "axis {i}");
+    }
+
+    // Fungsional: `shape` asli tidak ikut ter-scale.
+    let (orig_after_min, _) = bbox(&shape.tessellate());
+    assert_eq!(orig_after_min, orig_min);
+}
+
+#[test]
 fn shell_hollow_smoke() {
     let _guard = TEST_LOCK.lock().unwrap();
     let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
