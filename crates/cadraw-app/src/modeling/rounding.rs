@@ -5,7 +5,7 @@ use glam::Vec3;
 
 use crate::app::CadrawApp;
 use crate::model::{BodyGeometry, ReplaceGeometryCommand};
-use crate::types::{RoundFeature, RoundHistory, RoundKind};
+use crate::types::{RoundFeature, RoundHistory, RoundKind, RoundStyle};
 use crate::viewport::{pixel_tolerance_to_world, screen_to_ray};
 
 impl CadrawApp {
@@ -190,6 +190,16 @@ impl CadrawApp {
         Some((anchor, dir))
     }
 
+    /// True kalau ada pick sudut/rusuk/wajah 3D yang aktif (mode edit fitur
+    /// tunggal) — dipakai buat MENYEMBUNYIKAN gizmo transform seluruh body
+    /// (translate/rotate/copy) supaya tidak menimpa/menutupi ikon gizmo
+    /// fillet/chamfer/extrude yang lebih kecil hanya karena body pemilik
+    /// vertex/edge terpilih ikut masuk `selected_bodies` (dipakai jg utk
+    /// highlight cyan, bukan pertanda "seluruh body" terpilih).
+    pub fn feature_pick_active(&self) -> bool {
+        self.active_face.is_some() || self.active_vertex.is_some() || self.active_edge.is_some()
+    }
+
     pub fn selected_single_body_center(&self) -> Option<(BodyId, Vec3)> {
         if self.tool != crate::types::ToolKind::Select || self.selected_bodies.len() != 1 {
             return None;
@@ -226,14 +236,26 @@ impl CadrawApp {
     ) -> Result<KernelShape, String> {
         let mut shape = cadraw_kernel::clone_shape(base).map_err(|e| e.to_string())?;
         for f in features {
-            shape = match f.kind {
-                RoundKind::Vertex => cadraw_kernel::fillet_vertex(
+            shape = match (f.kind, f.style) {
+                (RoundKind::Vertex, RoundStyle::Fillet) => cadraw_kernel::fillet_vertex(
                     &shape,
                     f.radius,
                     f.ray,
                     Self::EDGE_REAPPLY_TOLERANCE_MM,
                 ),
-                RoundKind::Edge => cadraw_kernel::fillet_edges(
+                (RoundKind::Vertex, RoundStyle::Chamfer) => cadraw_kernel::chamfer_vertex(
+                    &shape,
+                    f.radius,
+                    f.ray,
+                    Self::EDGE_REAPPLY_TOLERANCE_MM,
+                ),
+                (RoundKind::Edge, RoundStyle::Fillet) => cadraw_kernel::fillet_edges(
+                    &shape,
+                    f.radius,
+                    &[f.ray],
+                    Self::EDGE_REAPPLY_TOLERANCE_MM,
+                ),
+                (RoundKind::Edge, RoundStyle::Chamfer) => cadraw_kernel::chamfer_edges(
                     &shape,
                     f.radius,
                     &[f.ray],
@@ -261,6 +283,17 @@ impl CadrawApp {
         }
     }
 
+    /// Pecah nilai gizmo BERTANDA (>0 = ditarik/fillet, <0 = didorong/chamfer)
+    /// jadi `(style, magnitude>0)` — dipakai `commit_round` &
+    /// `round_gizmo_preview_shape` supaya keduanya konsisten.
+    fn round_style_and_magnitude(signed: f64) -> (RoundStyle, f64) {
+        if signed < 0.0 {
+            (RoundStyle::Chamfer, -signed)
+        } else {
+            (RoundStyle::Fillet, signed)
+        }
+    }
+
     pub fn commit_round(&mut self, kind: RoundKind) {
         let (body_id, ray, anchor, radius) = match kind {
             RoundKind::Vertex => {
@@ -276,7 +309,8 @@ impl CadrawApp {
                 (b, r, a, self.edge_gizmo_radius)
             }
         };
-        let sharp = radius < Self::ROUND_SHARP_MM;
+        let sharp = radius.abs() < Self::ROUND_SHARP_MM;
+        let (style, magnitude) = Self::round_style_and_magnitude(radius);
         let Some(geo) = self.model.geometry.get(body_id) else {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return;
@@ -292,7 +326,8 @@ impl CadrawApp {
                 if sharp {
                     features.remove(idx);
                 } else {
-                    features[idx].radius = radius;
+                    features[idx].radius = magnitude;
+                    features[idx].style = style;
                 }
             }
             _ => {
@@ -314,9 +349,10 @@ impl CadrawApp {
                 };
                 features.push(RoundFeature {
                     kind,
+                    style,
                     ray,
                     anchor,
-                    radius,
+                    radius: magnitude,
                     polyline,
                 });
             }
@@ -359,9 +395,13 @@ impl CadrawApp {
                 self.model_status = Some(if sharp {
                     "Rounding dihapus — sudut kembali menyiku".to_string()
                 } else {
+                    let label = match style {
+                        RoundStyle::Fillet => "Fillet",
+                        RoundStyle::Chamfer => "Chamfer",
+                    };
                     format!(
-                        "Rounding {:.1} mm sukses — klik sudutnya lagi utk mengubah/menghapus",
-                        radius
+                        "{label} {:.1} mm sukses — klik sudutnya lagi utk mengubah/menghapus",
+                        magnitude
                     )
                 });
                 self.clear_round_gizmo(kind);
@@ -379,9 +419,10 @@ impl CadrawApp {
             RoundKind::Vertex => self.active_vertex?,
             RoundKind::Edge => self.active_edge?,
         };
-        if radius < Self::ROUND_SHARP_MM {
+        if radius.abs() < Self::ROUND_SHARP_MM {
             return None;
         }
+        let (style, magnitude) = Self::round_style_and_magnitude(radius);
         let geo = self.model.geometry.get(body_id)?;
 
         let mut features: Vec<RoundFeature> = self
@@ -391,7 +432,8 @@ impl CadrawApp {
             .unwrap_or_default();
         match self.editing_round {
             Some((b, idx)) if b == body_id && idx < features.len() => {
-                features[idx].radius = radius;
+                features[idx].radius = magnitude;
+                features[idx].style = style;
             }
             _ => {
                 let polyline = if kind == RoundKind::Edge {
@@ -407,9 +449,10 @@ impl CadrawApp {
                 };
                 features.push(RoundFeature {
                     kind,
+                    style,
                     ray,
                     anchor,
-                    radius,
+                    radius: magnitude,
                     polyline,
                 });
             }

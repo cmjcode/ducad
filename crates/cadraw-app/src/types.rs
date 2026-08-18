@@ -253,11 +253,22 @@ pub enum RoundKind {
     Edge,
 }
 
+/// Gaya rounding: `Fillet` (bulat, dari gizmo DITARIK keluar) atau
+/// `Chamfer` (potong lurus/rata, dari gizmo DIDORONG masuk melewati nol).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RoundStyle {
+    Fillet,
+    Chamfer,
+}
+
 #[derive(Clone)]
 pub struct RoundFeature {
     pub kind: RoundKind,
+    pub style: RoundStyle,
     pub ray: PickRay,
     pub anchor: (f64, f64, f64),
+    /// Magnitude selalu positif (radius fillet ATAU jarak chamfer,
+    /// tergantung `style`) — tanda ditentukan hanya lewat `style`.
     pub radius: f64,
     pub polyline: Vec<(f64, f64, f64)>,
 }

@@ -77,7 +77,7 @@ fn main() -> eframe::Result {
         depth_buffer: 32,
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("CADRAW")
-            .with_inner_size([1440.0, 900.0])
+            .with_inner_size([1640.0, 900.0])
             .with_icon(load_icon()),
         ..Default::default()
     };

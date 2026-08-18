@@ -2666,6 +2666,55 @@ gizmo geser objek "+" yang tidak berkaitan) sebelum eksekusi.
       lulus (168 lama + 3 baru), smoke-run `cargo run --bin cadraw`
       (8 detik) tidak crash/tidak ada validation error wgpu.
 
+## Status — Fix Gizmo Sudut Tertutup Gizmo Transform Body + Chamfer saat Dorong (dikerjakan)
+
+User: "Sekarang sudut kalo di klik tidak muncul icon gizmo untuk bikin
+rounded. Trus kalo dia ditarik kan akan membuat sudut rounded,
+sebaliknya kalo di push tolong di buat memangkas sudut secara lurus
+bukan rounded." — regresi dari fitur gizmo transform seluruh body
+(translate/rotate/copy, gaya Shapr3D) yang ditambahkan hari yang sama,
+plus permintaan fitur baru: arah tarik vs dorong pada gizmo sudut/rusuk
+3D sekarang menghasilkan operasi kernel yang berbeda.
+
+- [x] **Root cause regresi ikon hilang**: gizmo transform seluruh body
+      (translate 3-sumbu, planar XY/YZ/ZX, 3 busur rotasi, badge Copy)
+      cuma digerbang `active_face.is_none()` di 3 tempat
+      (`overlay/dimensions.rs`, `overlay/lines.rs`, `overlay/gizmo.rs`),
+      lupa ikut cek `active_vertex`/`active_edge`. Klik sudut/rusuk 3D
+      JUGA memasukkan body pemiliknya ke `selected_bodies` (dipakai utk
+      highlight cyan) — cukup buat lolos gerbang itu, jadi gizmo
+      transform raksasa (~55×world_scale) ikut muncul & menimpa ikon
+      fillet kecil di titik yang sama. Fix: helper baru
+      `CadrawApp::feature_pick_active()` (`modeling/rounding.rs`) = true
+      kalau salah satu dari face/vertex/edge pick aktif, dipakai
+      gantikan ketiga gerbang itu.
+- [x] **`cadraw_kernel::chamfer_vertex`** (baru, `kernel/src/modify.rs`)
+      — versi "potong lurus" dari `fillet_vertex` yang sudah ada:
+      kumpulkan semua tepi yang bertemu di 1 vertex hasil pick,
+      `chamfer_edges` bukan `fillet_edges`. 4 test baru meniru pola
+      `fillet_vertex_*` (sukses/radius 0/no-match/oversized).
+- [x] **`RoundStyle` (`Fillet`/`Chamfer`)** ditambahkan ke
+      `RoundFeature` (`types.rs`) — `build_rounded_shape` sekarang
+      dispatch ke 4 kombinasi `(RoundKind, RoundStyle)`. Nilai kerja
+      gizmo (`vertex_gizmo_radius`/`edge_gizmo_radius`) dibuat
+      BERTANDA selama drag: tarik keluar (positif, tumbuh) = fillet
+      (perilaku lama, tidak berubah); dorong lewat nol (negatif,
+      magnitude tumbuh) = chamfer — klem `.max(0.0)` yang dulu
+      menghentikan nilai di 0 saat didorong DIHAPUS. `RoundFeature.radius`
+      yang tersimpan tetap selalu magnitude positif (tanda cuma di
+      `style`) supaya `find_round_feature_near` tidak perlu berubah.
+      Buka-ulang fitur existing (klik sudut yang sudah di-round) mengisi
+      ulang nilai kerja bertanda dari `feature.style` supaya lanjut
+      dorong/tarik tetap kontinu.
+- [x] Ikon gizmo 3D (`overlay/lines.rs::build_gizmo_mesh`) & hit-area 2D
+      (`overlay/dimensions.rs`) dipindah ke `.abs().max(0.1)` supaya
+      posisinya tetap konsisten (menjauh dari sudut) baik pas fillet
+      maupun chamfer; warna ikon beda — pink = fillet, kuning = chamfer
+      — jadi arah tarik/dorong kelihatan dari ikonnya sendiri, bukan
+      cuma dari bentuk sudut yang berubah di preview.
+- [x] Workspace hijau — `cargo build --workspace` bersih, 180 test
+      lulus (176 lama + 4 `chamfer_vertex` baru di `cadraw-kernel`).
+
 ## Menjalankan
 
 ```bash

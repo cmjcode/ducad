@@ -181,7 +181,7 @@ impl CadrawApp {
             }
         }
 
-        if self.active_face.is_none() {
+        if !self.feature_pick_active() {
             if let Some((_, center)) = self.selected_single_body_center() {
                 if let Some(s_center) = world_to_screen_pos(&self.camera, rect, center) {
                     if s_center.distance(pos) < 95.0 {

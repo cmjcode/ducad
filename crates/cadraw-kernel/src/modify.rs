@@ -136,6 +136,42 @@ pub fn fillet_vertex(
     Ok(KernelShape::from_inner(cloned))
 }
 
+/// Chamfer SEMUA tepi yang bertemu di 1 vertex (sudut) yang di-pick lewat
+/// `ray` — versi "potong lurus" dari `fillet_vertex`, dipakai saat gizmo
+/// sudut di-DORONG (bukan ditarik): sudut dipangkas rata, bukan dibulatkan.
+pub fn chamfer_vertex(
+    shape: &KernelShape,
+    distance: f64,
+    ray: PickRay,
+    tolerance: f64,
+) -> Result<KernelShape> {
+    if distance <= 0.0 {
+        bail!("jarak chamfer harus > 0");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(shape.inner())?;
+    let Some(vertex) = resolve_vertex_along_ray(&cloned, ray, tolerance) else {
+        bail!("sudut (vertex) terpilih tidak ditemukan lagi pada shape");
+    };
+
+    const COINCIDENT_EPS: f64 = 1e-6;
+    let edges: Vec<Edge> = cloned
+        .edges()
+        .filter(|edge| {
+            (edge.start_point() - vertex).length() < COINCIDENT_EPS
+                || (edge.end_point() - vertex).length() < COINCIDENT_EPS
+        })
+        .collect();
+    if edges.is_empty() {
+        bail!("tidak ada tepi yang bertemu di sudut terpilih");
+    }
+
+    cloned
+        .chamfer_edges(distance, &edges)
+        .context("jarak chamfer terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)")?;
+    Ok(KernelShape::from_inner(cloned))
+}
+
 /// Chamfer HANYA tepi yang di-pick lewat `rays` (lihat `fillet_edges`).
 pub fn chamfer_edges(
     shape: &KernelShape,

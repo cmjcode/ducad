@@ -542,6 +542,60 @@ fn fillet_vertex_oversized_radius_errors_not_crashes() {
     assert!(result.is_err(), "radius jauh melebihi ukuran box harus ditolak sbg Err, bukan sukses/crash");
 }
 
+// ---- Vertex Chamfer Gizmo: chamfer SEMUA tepi yang bertemu di 1 sudut ----
+
+#[test]
+fn chamfer_vertex_flattens_box_corner() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (-5.0, -5.0, -5.0),
+        dir: (1.0, 1.0, 1.0),
+    };
+    let base_volume = shape.inner().volume();
+    let chamfered = chamfer_vertex(&shape, 2.0, ray, 1.0).unwrap();
+    assert!(
+        chamfered.inner().volume() < base_volume,
+        "memangkas sudut harus memotong material (volume berkurang)"
+    );
+    assert!(chamfered.tessellate().triangle_count() > 0);
+    assert!((shape.inner().volume() - base_volume).abs() < 1e-6);
+}
+
+#[test]
+fn chamfer_vertex_zero_distance_errors() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (-5.0, -5.0, -5.0),
+        dir: (1.0, 1.0, 1.0),
+    };
+    assert!(chamfer_vertex(&shape, 0.0, ray, 1.0).is_err());
+}
+
+#[test]
+fn chamfer_vertex_no_match_errors() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (1000.0, 1000.0, 1000.0),
+        dir: (0.0, 0.0, 1.0),
+    };
+    assert!(chamfer_vertex(&shape, 2.0, ray, 1.0).is_err());
+}
+
+#[test]
+fn chamfer_vertex_oversized_distance_errors_not_crashes() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (-5.0, -5.0, -5.0),
+        dir: (1.0, 1.0, 1.0),
+    };
+    let result = chamfer_vertex(&shape, 1000.0, ray, 1.0);
+    assert!(result.is_err(), "jarak jauh melebihi ukuran box harus ditolak sbg Err, bukan sukses/crash");
+}
+
 #[test]
 fn chamfer_edges_oversized_distance_errors_not_crashes() {
     let _guard = TEST_LOCK.lock().unwrap();

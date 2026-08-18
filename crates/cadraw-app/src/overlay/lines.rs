@@ -458,7 +458,11 @@ impl CadrawApp {
 
         const GIZMO_ARROW_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
         const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-        const ROUNDING_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+        // Pink = fillet (ditarik, membulat), kuning = chamfer (didorong,
+        // potong lurus) — warna beda supaya arah tarik/dorong kelihatan
+        // langsung dari ikonnya, bukan cuma dari bentuk sudut yang berubah.
+        const FILLET_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+        const CHAMFER_GIZMO_COLOR: [f32; 4] = [1.0, 0.75, 0.1, 1.0];
 
         if let Some(centroid) = self.selected_closed_region_centroid() {
             let z = if self.extruding_from_gizmo {
@@ -505,9 +509,14 @@ impl CadrawApp {
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
             let dist = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.max(0.1) as f32
+                self.vertex_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
+            };
+            let color = if self.vertex_gizmo_radius < 0.0 {
+                CHAMFER_GIZMO_COLOR
+            } else {
+                FILLET_GIZMO_COLOR
             };
             let p = c_base + pull_dir * dist;
             push_mesh(
@@ -516,16 +525,21 @@ impl CadrawApp {
                 &mut colors,
                 &mut indices,
                 [p.x, p.y, p.z],
-                ROUNDING_GIZMO_COLOR,
+                color,
                 pull_dir,
             );
         }
 
         if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
             let dist = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.max(0.1) as f32
+                self.edge_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
+            };
+            let color = if self.edge_gizmo_radius < 0.0 {
+                CHAMFER_GIZMO_COLOR
+            } else {
+                FILLET_GIZMO_COLOR
             };
             let p = c_base + pull_dir * dist;
             push_mesh(
@@ -534,13 +548,13 @@ impl CadrawApp {
                 &mut colors,
                 &mut indices,
                 [p.x, p.y, p.z],
-                ROUNDING_GIZMO_COLOR,
+                color,
                 pull_dir,
             );
         }
 
         if let Some((_, center)) = self.selected_single_body_center() {
-            if self.active_face.is_none() {
+            if !self.feature_pick_active() {
                 let gizmo_scale = (55.0 * world_scale) as f32;
                 let (gp, gn, gc, gi) = sketch_render::solid_shapr3d_transform_gizmo_mesh(
                     [center.x, center.y, center.z],

@@ -11,7 +11,7 @@ use glam::{DVec2, Vec3};
 
 use crate::app::CadrawApp;
 use crate::model::{AddSolidCommand, BodyGeometry, ReplaceGeometryCommand};
-use crate::types::{required_points, Measurement, PickMode, RoundKind, ToolKind};
+use crate::types::{required_points, Measurement, PickMode, RoundKind, RoundStyle, ToolKind};
 use crate::viewport::{hit_test_cycled, pixel_tolerance_to_world, screen_to_plane_point};
 
 /// Untuk tool Trim: segmen (awal,akhir) yang akan terhapus jika `hover` diklik sekarang pada Line `id`.
@@ -624,12 +624,20 @@ impl CadrawApp {
                         self.editing_round = Some((b_id, idx));
                         self.active_face = None;
                         self.last_body_select_click = None;
+                        // Nilai kerja gizmo BERTANDA: fitur `Chamfer` dibuka
+                        // kembali sebagai negatif supaya lanjut mendorong
+                        // tetap kontinu jadi chamfer (bukan lompat balik ke
+                        // fillet) — lihat `RoundStyle`/`round_style_and_magnitude`.
+                        let signed_radius = match feature.style {
+                            RoundStyle::Fillet => feature.radius,
+                            RoundStyle::Chamfer => -feature.radius,
+                        };
                         match feature.kind {
                             RoundKind::Vertex => {
                                 self.active_vertex =
                                     Some((b_id, feature.ray, feature.anchor));
                                 self.active_edge = None;
-                                self.vertex_gizmo_radius = feature.radius;
+                                self.vertex_gizmo_radius = signed_radius;
                                 self.vertex_gizmo_edit_input =
                                     format!("{:.1}", self.unit.to_display_val(feature.radius));
                             }
@@ -637,13 +645,13 @@ impl CadrawApp {
                                 self.active_edge =
                                     Some((b_id, feature.ray, feature.anchor));
                                 self.active_vertex = None;
-                                self.edge_gizmo_radius = feature.radius;
+                                self.edge_gizmo_radius = signed_radius;
                                 self.edge_gizmo_edit_input =
                                     format!("{:.1}", self.unit.to_display_val(feature.radius));
                             }
                         }
                         self.model_status = Some(
-                            "Rounding terpilih — tarik/dorong handle utk ubah radius, dorong sampai 0 utk kembali menyiku".to_string(),
+                            "Rounding terpilih — tarik = fillet bulat, dorong = chamfer lurus, dorong sampai 0 utk kembali menyiku".to_string(),
                         );
                     } else if let Some((b_id, ray, vhit)) = vertex_pick_3d {
                         self.selected.clear();
@@ -657,7 +665,7 @@ impl CadrawApp {
                         self.vertex_gizmo_radius = 3.0;
                         self.vertex_gizmo_edit_input = "3".to_string();
                         self.model_status = Some(
-                            "Sudut (vertex) 3D terpilih — masukkan radius fillet".to_string(),
+                            "Sudut (vertex) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
                     } else if let Some((b_id, ray, point)) = edge_pick_3d {
                         self.selected.clear();
@@ -671,7 +679,7 @@ impl CadrawApp {
                         self.edge_gizmo_radius = 3.0;
                         self.edge_gizmo_edit_input = "3".to_string();
                         self.model_status = Some(
-                            "Rusuk (edge) 3D terpilih — masukkan radius fillet".to_string(),
+                            "Rusuk (edge) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
                     } else if let Some((b_id, ray, hit)) = face_pick_3d {
                         self.selected.clear();

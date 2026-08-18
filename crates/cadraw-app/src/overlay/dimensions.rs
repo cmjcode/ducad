@@ -464,7 +464,7 @@ impl CadrawApp {
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
             let z_pos = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.max(0.1) as f32
+                self.vertex_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
             };
@@ -487,7 +487,7 @@ impl CadrawApp {
 
                 if handle_resp.drag_started() {
                     self.filleting_vertex_from_gizmo = true;
-                    if self.vertex_gizmo_radius <= 0.0 {
+                    if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                         self.vertex_gizmo_radius = 3.0;
                     }
                 }
@@ -500,8 +500,11 @@ impl CadrawApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    let candidate_radius = (self.vertex_gizmo_radius + delta_mm).max(0.0);
-                    if candidate_radius < Self::ROUND_SHARP_MM
+                    // Tarik (delta_mm > 0, menjauhi sudut) => fillet membesar.
+                    // Dorong sampai lewat nol (delta_mm < 0) => jadi chamfer
+                    // (potong lurus) yang membesar, bukan diklem di 0.
+                    let candidate_radius = self.vertex_gizmo_radius + delta_mm;
+                    if candidate_radius.abs() < Self::ROUND_SHARP_MM
                         || self
                             .round_gizmo_preview_shape(RoundKind::Vertex, candidate_radius)
                             .is_some()
@@ -510,7 +513,7 @@ impl CadrawApp {
                     }
                     self.vertex_gizmo_edit_input = format!(
                         "{:.1}",
-                        self.unit.to_display_val(self.vertex_gizmo_radius)
+                        self.unit.to_display_val(self.vertex_gizmo_radius.abs())
                     );
                 }
 
@@ -520,10 +523,12 @@ impl CadrawApp {
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = if self.vertex_gizmo_radius < Self::ROUND_SHARP_MM {
-                    "R 0 (siku)".to_string()
-                } else {
+                let text = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                    "0 (siku)".to_string()
+                } else if self.vertex_gizmo_radius > 0.0 {
                     format!("R {}", self.unit.format(self.vertex_gizmo_radius))
+                } else {
+                    format!("C {}", self.unit.format(-self.vertex_gizmo_radius))
                 };
                 let pill_resp = CanvasHud::render_interactive_dimension_pill(
                     ui,
@@ -536,7 +541,7 @@ impl CadrawApp {
                         !self.vertex_gizmo_dimension_editing;
                     self.vertex_gizmo_edit_input = format!(
                         "{:.1}",
-                        self.unit.to_display_val(self.vertex_gizmo_radius)
+                        self.unit.to_display_val(self.vertex_gizmo_radius.abs())
                     );
                 }
 
@@ -573,7 +578,7 @@ impl CadrawApp {
 
         if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
             let z_pos = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.max(0.1) as f32
+                self.edge_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
             };
@@ -596,7 +601,7 @@ impl CadrawApp {
 
                 if handle_resp.drag_started() {
                     self.filleting_edge_from_gizmo = true;
-                    if self.edge_gizmo_radius <= 0.0 {
+                    if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                         self.edge_gizmo_radius = 3.0;
                     }
                 }
@@ -609,8 +614,10 @@ impl CadrawApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    let candidate_radius = (self.edge_gizmo_radius + delta_mm).max(0.0);
-                    if candidate_radius < Self::ROUND_SHARP_MM
+                    // Tarik => fillet membesar. Dorong lewat nol => chamfer
+                    // (potong lurus) yang membesar, tidak diklem di 0.
+                    let candidate_radius = self.edge_gizmo_radius + delta_mm;
+                    if candidate_radius.abs() < Self::ROUND_SHARP_MM
                         || self
                             .round_gizmo_preview_shape(RoundKind::Edge, candidate_radius)
                             .is_some()
@@ -619,7 +626,7 @@ impl CadrawApp {
                     }
                     self.edge_gizmo_edit_input = format!(
                         "{:.1}",
-                        self.unit.to_display_val(self.edge_gizmo_radius)
+                        self.unit.to_display_val(self.edge_gizmo_radius.abs())
                     );
                 }
 
@@ -629,10 +636,12 @@ impl CadrawApp {
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = if self.edge_gizmo_radius < Self::ROUND_SHARP_MM {
-                    "R 0 (siku)".to_string()
-                } else {
+                let text = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                    "0 (siku)".to_string()
+                } else if self.edge_gizmo_radius > 0.0 {
                     format!("R {}", self.unit.format(self.edge_gizmo_radius))
+                } else {
+                    format!("C {}", self.unit.format(-self.edge_gizmo_radius))
                 };
                 let pill_resp = CanvasHud::render_interactive_dimension_pill(
                     ui,
@@ -644,7 +653,7 @@ impl CadrawApp {
                     self.edge_gizmo_dimension_editing = !self.edge_gizmo_dimension_editing;
                     self.edge_gizmo_edit_input = format!(
                         "{:.1}",
-                        self.unit.to_display_val(self.edge_gizmo_radius)
+                        self.unit.to_display_val(self.edge_gizmo_radius.abs())
                     );
                 }
 
@@ -760,7 +769,7 @@ impl CadrawApp {
             }
         }
 
-        if self.active_face.is_none() {
+        if !self.feature_pick_active() {
             if let Some((body_id, center)) = self.selected_single_body_center() {
                 let Some(s_center) = world_to_screen_pos(&self.camera, rect, center) else {
                     return;
