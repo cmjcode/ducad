@@ -311,6 +311,16 @@ impl CadrawApp {
         }
     }
 
+    /// Saat gizmo extrude/push-pull mulai di-drag di mode sketsa, otomatis pindah ke mode 3D
+    /// supaya hasil extrude langsung terlihat tanpa harus menekan Cmd+Shift+3 manual.
+    pub fn auto_enter_3d_mode_on_extrude_drag(&mut self) {
+        if self.is_sketching {
+            self.is_sketching = false;
+            self.left_toolbar.is_sketching = false;
+            self.set_tool(ToolKind::Select);
+        }
+    }
+
     pub fn viewport(&mut self, ui: &mut egui::Ui) {
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -376,6 +386,7 @@ impl CadrawApp {
                 if self.face_gizmo_distance == 0.0 {
                     self.face_gizmo_distance = 15.0;
                 }
+                self.auto_enter_3d_mode_on_extrude_drag();
             }
 
             if self.extruding_face_from_gizmo
@@ -410,6 +421,7 @@ impl CadrawApp {
                 if self.gizmo_distance == 0.0 {
                     self.gizmo_distance = 20.0;
                 }
+                self.auto_enter_3d_mode_on_extrude_drag();
             }
 
             if self.extruding_from_gizmo && response.dragged_by(egui::PointerButton::Primary) {

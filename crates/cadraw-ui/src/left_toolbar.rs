@@ -11,7 +11,7 @@
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_EDIT, ICON_FLIP, ICON_HORIZONTAL_RULE, ICON_OPEN_IN_FULL, ICON_REFRESH,
+    ICON_HOME_MINI, ICON_FLIP, ICON_HORIZONTAL_RULE, ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, BG_HOVER_DARK, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -95,7 +95,7 @@ impl LeftToolbar {
                     (ToolbarTool::Arc, ICON_ARCHITECTURE.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
                     (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
                     (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
-                    (ToolbarTool::Ellipse, ICON_EDIT.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
+                    (ToolbarTool::Ellipse, ICON_HOME_MINI.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
                     (ToolbarTool::Offset, ICON_OPEN_IN_FULL.codepoint, "Offset", Some("O"), Some("Geser paralel profil kurva")),
                     (ToolbarTool::Mirror, ICON_FLIP.codepoint, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
                     (ToolbarTool::Trim, ICON_CONTENT_CUT.codepoint, "Trim", Some("T"), Some("Potong segmen berpotongan")),

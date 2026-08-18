@@ -288,6 +288,7 @@ impl CadrawApp {
                     if self.gizmo_distance == 0.0 {
                         self.gizmo_distance = 20.0;
                     }
+                    self.auto_enter_3d_mode_on_extrude_drag();
                 }
 
                 if handle_resp.dragged() {
@@ -386,6 +387,7 @@ impl CadrawApp {
                     if self.face_gizmo_distance == 0.0 {
                         self.face_gizmo_distance = 15.0;
                     }
+                    self.auto_enter_3d_mode_on_extrude_drag();
                 }
 
                 if handle_resp.dragged() {
