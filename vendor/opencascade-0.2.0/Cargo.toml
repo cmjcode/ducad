@@ -10,5 +10,5 @@ repository = "https://github.com/bschwind/opencascade-rs"
 [dependencies]
 cxx = "1"
 opencascade-sys = "0.2"
-glam = { version = "0.23", features = ["bytemuck"] }
-thiserror = "1"
+glam = { version = "0.33", features = ["bytemuck"] }
+thiserror = "2"

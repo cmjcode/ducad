@@ -693,7 +693,7 @@ dependencies = [
  "egui-wgpu",
  "egui_material_icons",
  "env_logger",
- "glam 0.33.3",
+ "glam",
  "image",
  "log",
  "objc2 0.6.4",
@@ -710,7 +710,7 @@ dependencies = [
 name = "cadraw-core"
 version = "0.1.0"
 dependencies = [
- "glam 0.33.3",
+ "glam",
  "serde",
  "slotmap",
 ]
@@ -723,7 +723,7 @@ dependencies = [
  "cadraw-core",
  "cadraw-kernel",
  "cadraw-sketch",
- "glam 0.33.3",
+ "glam",
  "serde",
  "serde_json",
 ]
@@ -733,7 +733,7 @@ name = "cadraw-kernel"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "glam 0.23.0",
+ "glam",
  "opencascade",
 ]
 
@@ -744,7 +744,7 @@ dependencies = [
  "bytemuck",
  "cadraw-sketch",
  "egui-wgpu",
- "glam 0.33.3",
+ "glam",
  "serde",
 ]
 
@@ -753,7 +753,7 @@ name = "cadraw-sketch"
 version = "0.1.0"
 dependencies = [
  "cadraw-core",
- "glam 0.33.3",
+ "glam",
  "serde",
  "slotmap",
 ]
@@ -765,7 +765,7 @@ dependencies = [
  "cadraw-core",
  "egui",
  "egui_material_icons",
- "glam 0.33.3",
+ "glam",
 ]
 
 [[package]]
@@ -1713,15 +1713,6 @@ dependencies = [
  "khronos_api",
  "log",
  "xml-rs",
-]
-
-[[package]]
-name = "glam"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e4afd9ad95555081e109fe1d21f2a30c691b5f0919c67dfa690a2e1eb6bd51c"
-dependencies = [
- "bytemuck",
 ]
 
 [[package]]
@@ -2927,9 +2918,9 @@ name = "opencascade"
 version = "0.2.0"
 dependencies = [
  "cxx",
- "glam 0.23.0",
+ "glam",
  "opencascade-sys",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
