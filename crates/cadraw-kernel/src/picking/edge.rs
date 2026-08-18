@@ -1,0 +1,121 @@
+use glam::DVec3;
+use opencascade::primitives::{Edge, Shape};
+
+use crate::lock_kernel;
+use crate::picking::ray::{closest_point_ray_segment, PickRay};
+use crate::shape::KernelShape;
+
+/// (titik hit terdekat di edge, polyline approksimasi edge itu utk
+/// highlight render) — hasil `pick_edge`.
+pub type EdgePickHit = ((f64, f64, f64), Vec<(f64, f64, f64)>);
+
+/// (titik tengah dunia edge di arc-length setengah panjangnya, titik AWAL
+/// dan AKHIR edge, panjang total edge) — satu entri per edge topologi
+/// shape. `start`/`end` disertakan (bukan cuma titik tengah) supaya
+/// pemanggil (cadraw-app) bisa menghitung sudut layar rusuknya SETELAH
+/// diproyeksikan kamera — label dimensi dengan begitu bisa disejajarkan ke
+/// arah rusuknya sendiri, ikut berubah sudut saat kamera diputar, sama
+/// seperti pill dimensi entitas sketsa 2D.
+pub type EdgeDimension = ((f64, f64, f64), (f64, f64, f64), (f64, f64, f64), f64);
+
+/// Edge terdekat ke `ray` (dalam `tolerance` mm), plus titik terdekatnya
+/// dan polyline approksimasi (buat highlight render).
+pub(crate) fn resolve_edge_along_ray(
+    shape: &Shape,
+    ray: PickRay,
+    tolerance: f64,
+) -> Option<(Edge, DVec3, Vec<DVec3>)> {
+    let origin = ray.origin_vec();
+    let dir = ray.dir_vec();
+    let mut best: Option<(f64, Edge, DVec3, Vec<DVec3>)> = None;
+    for edge in shape.edges() {
+        let polyline: Vec<DVec3> = edge.approximation_segments().collect();
+        if polyline.len() < 2 {
+            continue;
+        }
+        let mut edge_best: Option<(f64, DVec3)> = None;
+        for pair in polyline.windows(2) {
+            let (dist, point) = closest_point_ray_segment(origin, dir, pair[0], pair[1]);
+            if edge_best.is_none_or(|(d, _)| dist < d) {
+                edge_best = Some((dist, point));
+            }
+        }
+        let Some((dist, point)) = edge_best else {
+            continue;
+        };
+        if dist <= tolerance && best.as_ref().is_none_or(|(d, ..)| dist < *d) {
+            best = Some((dist, edge, point, polyline));
+        }
+    }
+    best.map(|(_, edge, point, polyline)| (edge, point, polyline))
+}
+
+/// Cast `ray` ke `shape`, kembalikan (titik hit terdekat di edge, polyline
+/// approksimasi edge itu utk highlight) kalau ada edge dalam `tolerance`
+/// mm dari ray. Dipakai UI utk edge-picking interaktif (Fillet/Chamfer
+/// per-tepi).
+pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<EdgePickHit> {
+    let _guard = lock_kernel();
+    resolve_edge_along_ray(shape.inner(), ray, tolerance).map(|(_, point, polyline)| {
+        (
+            (point.x, point.y, point.z),
+            polyline.into_iter().map(|p| (p.x, p.y, p.z)).collect(),
+        )
+    })
+}
+
+/// Panjang + titik tengah SEMUA edge shape, dipakai fitur "Tampilkan
+/// Semua Ukuran" (checkbox ruler properties, cadraw-app) untuk melabeli
+/// tiap rusuk 3D tanpa perlu ray picking satu-satu.
+pub fn edge_dimensions(shape: &KernelShape) -> Vec<EdgeDimension> {
+    let _guard = lock_kernel();
+    const DEDUP_EPS: f64 = 1e-6;
+    let mut seen_endpoints: Vec<(DVec3, DVec3)> = Vec::new();
+    let mut out = Vec::new();
+
+    for edge in shape.inner().edges() {
+        let start = edge.start_point();
+        let end = edge.end_point();
+        let is_duplicate = seen_endpoints.iter().any(|(a, b)| {
+            ((start - *a).length() < DEDUP_EPS && (end - *b).length() < DEDUP_EPS)
+                || ((start - *b).length() < DEDUP_EPS && (end - *a).length() < DEDUP_EPS)
+        });
+        if is_duplicate {
+            continue;
+        }
+        seen_endpoints.push((start, end));
+
+        let polyline: Vec<DVec3> = edge.approximation_segments().collect();
+        if polyline.len() < 2 {
+            continue;
+        }
+        let seg_lens: Vec<f64> = polyline.windows(2).map(|w| (w[1] - w[0]).length()).collect();
+        let length: f64 = seg_lens.iter().sum();
+        if length <= 1e-9 {
+            continue;
+        }
+        let half = length * 0.5;
+        let mut acc = 0.0;
+        let mut mid = polyline[0];
+        for (seg_len, w) in seg_lens.iter().zip(polyline.windows(2)) {
+            if acc + seg_len >= half {
+                let t = if *seg_len > 1e-9 {
+                    (half - acc) / seg_len
+                } else {
+                    0.0
+                };
+                mid = w[0] + (w[1] - w[0]) * t;
+                break;
+            }
+            acc += seg_len;
+            mid = w[1];
+        }
+        out.push((
+            (mid.x, mid.y, mid.z),
+            (start.x, start.y, start.z),
+            (end.x, end.y, end.z),
+            length,
+        ));
+    }
+    out
+}

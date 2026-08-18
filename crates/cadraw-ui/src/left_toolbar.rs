@@ -60,6 +60,7 @@ impl LeftToolbar {
 
     /// Render bilah alat vertikal kiri bergaya Shapr3D — hanya tool "Pilih"
     /// & tool-tool sketsa 2D (muncul saat Sketch Mode).
+    #[allow(clippy::type_complexity)]
     pub fn show(&mut self, ui: &mut Ui, current_tool: ToolbarTool) -> Option<ToolbarEvent> {
         let mut event = None;
 

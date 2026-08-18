@@ -8,7 +8,7 @@ pub mod plane;
 pub mod scene;
 pub mod sketch;
 
-pub use camera::OrbitCamera;
+pub use camera::{OrbitCamera, ViewPreset};
 pub use grid::LineVertex;
 pub use plane::{PlaneKind, SketchPlane};
 pub use scene::{MeshVertex, SceneRenderer};

@@ -137,12 +137,11 @@ fn ear_clip_triangulate(poly: &[DVec2]) -> Vec<DVec2> {
 
             // Cek apakah ada vertex lain di dalam segitiga a-b-c
             let mut has_point_inside = false;
-            for j in 0..n {
+            for (j, (_, p)) in vertices.iter().enumerate().take(n) {
                 if j == prev || j == i || j == next {
                     continue;
                 }
-                let p = vertices[j].1;
-                if is_point_in_triangle(p, a, b, c) {
+                if is_point_in_triangle(*p, a, b, c) {
                     has_point_inside = true;
                     break;
                 }

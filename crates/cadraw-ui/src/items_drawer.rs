@@ -32,16 +32,9 @@ pub enum ItemsDrawerEvent {
     SelectSketchPlane(usize),
 }
 
+#[derive(Default)]
 pub struct ItemsDrawer {
     search_query: String,
-}
-
-impl Default for ItemsDrawer {
-    fn default() -> Self {
-        Self {
-            search_query: String::new(),
-        }
-    }
 }
 
 impl ItemsDrawer {
@@ -118,7 +111,7 @@ impl ItemsDrawer {
                     if !query.is_empty() && !name.to_lowercase().contains(&query) {
                         continue;
                     }
-                    let is_active = sketch_planes.iter().find(|sp| sp.index == idx).map_or(false, |sp| sp.active);
+                    let is_active = sketch_planes.iter().find(|sp| sp.index == idx).is_some_and(|sp| sp.active);
                     card_frame().show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let label_text = if is_active {
