@@ -768,8 +768,8 @@ impl CadrawApp {
                 let world_scale = pixel_tolerance_to_world(&self.camera, rect);
                 let s = (55.0 * world_scale) as f32;
 
-                // 1. Tombol Badge "Copy" mengambang di bawah widget
-                let s_copy = s_center + egui::vec2(0.0, 52.0);
+                // 1. Tombol Badge "Copy" mengambang di bawah widget (diberi jarak aman agar tidak menutupi panah rotasi)
+                let s_copy = s_center + egui::vec2(0.0, 95.0);
                 let copy_resp = CanvasHud::render_copy_toggle_badge(ui, s_copy, self.body_copy_mode);
                 if copy_resp.clicked() {
                     self.body_copy_mode = !self.body_copy_mode;
