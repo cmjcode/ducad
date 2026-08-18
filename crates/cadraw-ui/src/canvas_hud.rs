@@ -321,4 +321,54 @@ impl CanvasHud {
 
         response
     }
+
+    /// Handle bulat draggable dengan ikon "+" (plus) — dipakai gizmo geser
+    /// sketch OMNIDIRECTIONAL (beda dari `render_draggable_double_arrow_handle`
+    /// yang menyiratkan 1 sumbu): drag bebas ke segala arah dalam bidang
+    /// sketsa sekaligus (u DAN v, bukan satu-satu), jadi ikonnya "+" bukan
+    /// panah 2 sisi. Titik "+" ini juga jadi acuan visual "titik tengah"
+    /// seleksi — dipakai user menyatukan pusat sketch (drag lalu jepret ke
+    /// snap titik/pusat entitas lain, lihat `find_snap` di pemanggil).
+    pub fn render_draggable_move_handle(ui: &mut Ui, pos_2d: Pos2, is_dragging: bool) -> egui::Response {
+        let handle_radius = if is_dragging { 16.0 } else { 14.0 };
+        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 8.0));
+        let response = ui.allocate_rect(rect, egui::Sense::drag());
+        let is_hovered = response.hovered();
+
+        if is_hovered || is_dragging {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+        }
+
+        let painter = ui.painter();
+
+        if is_hovered || is_dragging {
+            painter.circle_filled(pos_2d, handle_radius + 5.0, Color32::from_rgba_premultiplied(255, 190, 0, 70));
+        } else {
+            painter.circle_filled(pos_2d, handle_radius + 3.0, Color32::from_rgba_premultiplied(0, 0, 0, 40));
+        }
+
+        let bg_color = if is_dragging {
+            Color32::from_rgb(230, 155, 0)
+        } else if is_hovered {
+            Color32::from_rgb(255, 175, 0)
+        } else {
+            Color32::from_rgb(240, 165, 0)
+        };
+        painter.circle_filled(pos_2d, handle_radius, bg_color);
+        painter.circle_stroke(pos_2d, handle_radius, Stroke::new(2.0, Color32::WHITE));
+
+        // Ikon "+" tebal, dua garis tegak lurus lewat pusat.
+        let arm = handle_radius * 0.55;
+        let icon_color = Color32::WHITE;
+        painter.line_segment(
+            [pos_2d - Vec2::new(arm, 0.0), pos_2d + Vec2::new(arm, 0.0)],
+            Stroke::new(3.0, icon_color),
+        );
+        painter.line_segment(
+            [pos_2d - Vec2::new(0.0, arm), pos_2d + Vec2::new(0.0, arm)],
+            Stroke::new(3.0, icon_color),
+        );
+
+        response
+    }
 }

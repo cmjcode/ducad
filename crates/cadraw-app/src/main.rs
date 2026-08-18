@@ -122,7 +122,7 @@ use cadraw_sketch::{
     arc_from_three_points, find_closed_regions, find_region_at_point, find_region_containing_entity,
     find_snap, line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t,
     trim_segments, ClosedRegion, DeleteEntities, Entity, EntityId, InsertEntities, ReplaceEntities,
-    Sketch, SnapHit, UpdateEntity,
+    Sketch, SnapHit, TranslateEntities, UpdateEntity,
 };
 use cadraw_ui::{
     BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, FeatureInspector,
@@ -828,6 +828,36 @@ struct CadrawApp {
     /// fitur yang sudah ada (klik sudut yang sudah bulat), bukan membuat
     /// fitur baru — commit mengubah/menghapus fitur itu lalu rebuild.
     editing_round: Option<(BodyId, usize)>,
+
+    // State Gizmo Geser — sketch 2D (titik "+" omnidirectional) & Axis
+    // X/Y/Z — body 3D — muncul otomatis saat tool Pilih aktif & ada
+    // seleksi (sketch ATAU body), pola sama dgn gizmo Extrude/Face yang
+    // sudah auto-muncul di atas. Sketch & body punya gizmo terpisah
+    // (prioritas body kalau `selected_bodies` non-kosong) karena target &
+    // mekanik beda: sketch cuma SATU handle "+" yang bisa digeser bebas
+    // ke segala arah dalam bidangnya sendiri sekaligus (u DAN v barengan,
+    // juga bisa nge-snap ke titik entitas lain — lihat
+    // `CanvasHud::render_draggable_move_handle`), body tetap 3 panah
+    // terpisah sepanjang X/Y/Z dunia (translasi bebas arah untuk solid
+    // kurang masuk akal tanpa sumbu, beda dari sketch yang planar).
+    /// `true` selagi handle geser sketch sedang di-drag.
+    sketch_move_dragging: bool,
+    /// Delta akumulasi (u, v — mm lokal bidang aktif) sejak drag mulai.
+    sketch_move_delta: DVec2,
+    /// Sumbu dunia (arah satuan) yang sedang di-drag pada gizmo body.
+    body_axis_drag: Option<Vec3>,
+    /// Body target drag, di-set sekali saat drag gizmo body mulai.
+    body_axis_target: Option<BodyId>,
+    /// Delta akumulasi (mm) sepanjang `body_axis_drag` sejak drag mulai.
+    body_axis_delta: f64,
+
+    /// Posisi piksel + index cycle klik SELEKSI sketch TERAKHIR — dipakai
+    /// "klik ulang di tempat yang nyaris sama pilih kandidat tumpang-
+    /// tindih berikutnya" lewat `hit_test_cycled` (kasus dua entitas yang
+    /// saling menutupi, mis. lingkaran konsentris — pola sama dgn AutoCAD
+    /// Selection Cycling). Direset ke cycle 0 begitu klik jatuh lebih dari
+    /// `SELECT_CYCLE_CLICK_PX` dari posisi klik sebelumnya.
+    last_select_click: Option<(egui::Pos2, usize)>,
 }
 
 impl CadrawApp {
@@ -968,6 +998,13 @@ impl CadrawApp {
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
+
+            sketch_move_dragging: false,
+            sketch_move_delta: DVec2::ZERO,
+            body_axis_drag: None,
+            body_axis_target: None,
+            body_axis_delta: 0.0,
+            last_select_click: None,
         }
     }
 
@@ -1048,6 +1085,34 @@ impl CadrawApp {
             "Bidang '{}' kini aktif untuk sketsa",
             kind.display_label()
         ));
+    }
+
+    /// Wrapper hover di atas `hit_test_cycled` — `cycle` selalu 0 (kandidat
+    /// terdekat), dipakai empat tempat yang dulu memanggil
+    /// `self.sketch().hit_test(raw, tol)` langsung (Pilih/Offset/Trim
+    /// hover). Untuk klik SELEKSI yang perlu cycle lewat tumpang-tindih,
+    /// lihat `hit_test_click_cycled`.
+    fn hit_test_hover(&self, rect: egui::Rect, response: &egui::Response, tolerance: f64) -> Option<EntityId> {
+        let pos = response.hover_pos()?;
+        let p = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)?;
+        hit_test_cycled(self.sketch(), p, tolerance, 0)
+    }
+
+    /// Sama seperti `hit_test_hover`, tapi utk saat KLIK: kalau `pos` ada
+    /// dalam `SELECT_CYCLE_CLICK_PX` piksel dari klik seleksi sebelumnya
+    /// (`last_select_click`), naik ke kandidat tumpang-tindih BERIKUTNYA
+    /// alih-alih selalu yang terdekat — dipakai memisahkan dua entitas yang
+    /// saling menutupi (mis. lingkaran konsentris), pola sama dgn AutoCAD
+    /// Selection Cycling.
+    fn hit_test_click_cycled(&mut self, rect: egui::Rect, pos: egui::Pos2, tolerance: f64) -> Option<EntityId> {
+        const SELECT_CYCLE_CLICK_PX: f32 = 4.0;
+        let cycle = match self.last_select_click {
+            Some((last_pos, last_cycle)) if last_pos.distance(pos) < SELECT_CYCLE_CLICK_PX => last_cycle + 1,
+            _ => 0,
+        };
+        self.last_select_click = Some((pos, cycle));
+        let p = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)?;
+        hit_test_cycled(self.sketch(), p, tolerance, cycle)
     }
 
     /// Extrude profil pada bidang sketsa aktif sepanjang `distance`.
@@ -2179,6 +2244,40 @@ impl CadrawApp {
         Some(DVec2::new(cx / total_area, cy / total_area))
     }
 
+    /// Titik pusat (rata-rata representative point tiap entitas — midpoint
+    /// untuk Line, center untuk Circle/Arc/Ellipse) seluruh seleksi sketch
+    /// SAAT INI, dipakai menaruh gizmo drag axis X/Y/Z sketch. Beda dari
+    /// `selected_closed_region_centroid` (butuh region tertutup, dipakai
+    /// gizmo Extrude): ini jalan untuk seleksi APA PUN, termasuk entitas
+    /// lepas yang tidak membentuk loop tertutup.
+    fn selected_entities_centroid(&self) -> Option<DVec2> {
+        if self.tool != ToolKind::Select || self.selected.is_empty() {
+            return None;
+        }
+        let mut sum = DVec2::ZERO;
+        let mut count = 0usize;
+        for id in &self.selected {
+            if let Some(e) = self.sketch().entities.get(*id) {
+                sum += e.midpoint().or_else(|| e.center()).unwrap_or(DVec2::ZERO);
+                count += 1;
+            }
+        }
+        (count > 0).then(|| sum / count as f64)
+    }
+
+    /// Jangkar (titik pusat seleksi, dunia 3D) gizmo geser sketch — `None`
+    /// kalau tidak ada seleksi sketch yang valid atau ada body terpilih
+    /// (prioritas body menang). Dipakai BERSAMA oleh render
+    /// (`build_overlay_lines`) & interaksi (`dynamic_input_ui`) supaya
+    /// keduanya selalu sinkron persis.
+    fn sketch_move_anchor(&self) -> Option<Vec3> {
+        if !self.selected_bodies.is_empty() {
+            return None;
+        }
+        let centroid = self.selected_entities_centroid()?;
+        Some(self.active_plane.to_world(centroid, 0.05))
+    }
+
     /// Hitung delta pergeseran (dalam mm dunia) dari pergeseran mouse layar (egui `Vec2`),
     /// diproyeksikan langsung ke sumbu normal 3D sembarang di layar.
     fn project_screen_drag_to_world_axis(
@@ -2561,6 +2660,33 @@ impl CadrawApp {
                 let ids: Vec<_> = self.selected.drain().collect();
                 self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
             }
+            // Nudge seleksi sketch pakai Cmd (Mac) / Ctrl (Windows/Linux,
+            // `modifiers.command` sudah cross-platform di egui) + tombol
+            // panah — geser SATU langkah kecil (`NUDGE_STEP_MM`) sepanjang
+            // u/v bidang aktif, commit LANGSUNG sbg satu command undo-able
+            // per tekan (bukan diakumulasi seperti drag mouse) — cara
+            // kedua utk gizmo geser "+" selain drag mouse, sesuai
+            // permintaan user.
+            if !self.selected.is_empty() && self.tool == ToolKind::Select && ui.input(|i| i.modifiers.command) {
+                const NUDGE_STEP_MM: f64 = 1.0;
+                let nudge = ui.input(|i| {
+                    if i.key_pressed(egui::Key::ArrowLeft) {
+                        Some(DVec2::new(-NUDGE_STEP_MM, 0.0))
+                    } else if i.key_pressed(egui::Key::ArrowRight) {
+                        Some(DVec2::new(NUDGE_STEP_MM, 0.0))
+                    } else if i.key_pressed(egui::Key::ArrowUp) {
+                        Some(DVec2::new(0.0, NUDGE_STEP_MM))
+                    } else if i.key_pressed(egui::Key::ArrowDown) {
+                        Some(DVec2::new(0.0, -NUDGE_STEP_MM))
+                    } else {
+                        None
+                    }
+                });
+                if let Some(delta) = nudge {
+                    let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                    self.execute_sketch_command(Box::new(TranslateEntities::new("Geser Sketch (Panah)", ids, delta)));
+                }
+            }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 if self.active_vertex.is_some() || self.active_edge.is_some() {
                     self.active_vertex = None;
@@ -2651,7 +2777,7 @@ impl CadrawApp {
                 let region_hit: Option<ClosedRegion> = if !self.sketch().entities.is_empty() && response.hovered() {
                     if let Some(r) = find_region_at_point(self.sketch(), raw) {
                         Some(r)
-                    } else if let Some(hit) = self.sketch().hit_test(raw, tol) {
+                    } else if let Some(hit) = self.hit_test_hover(rect, response, tol) {
                         find_region_containing_entity(self.sketch(), hit)
                     } else {
                         None
@@ -2665,7 +2791,7 @@ impl CadrawApp {
                 } else {
                     response
                         .hovered()
-                        .then(|| self.sketch().hit_test(raw, tol))
+                        .then(|| self.hit_test_hover(rect, response, tol))
                         .flatten()
                 };
 
@@ -2850,7 +2976,14 @@ impl CadrawApp {
                         self.gizmo_edit_input = format!("{:.0}", self.unit.to_display_val(self.gizmo_distance));
                     } else {
                         eprintln!("[DEBUG click] -> cabang HOVERED/FALLBACK, self.hovered={:?} shift={}", self.hovered, shift);
-                        match (self.hovered, shift) {
+                        // Klik-cycle (Fase drag-XYZ): kalau posisi klik ini
+                        // nyaris sama dengan klik SELEKSI sebelumnya, pilih
+                        // kandidat tumpang-tindih BERIKUTNYA (mis. dua
+                        // lingkaran konsentris pada elevasi sama) alih-alih
+                        // selalu kandidat pertama yang ditampilkan hover —
+                        // lihat `hit_test_click_cycled`.
+                        let cycled_hit = click_pos.and_then(|pos| self.hit_test_click_cycled(rect, pos, tol));
+                        match (cycled_hit.or(self.hovered), shift) {
                             (Some(hit), true) => {
                                 if !self.selected.remove(&hit) {
                                     self.selected.insert(hit);
@@ -2940,7 +3073,7 @@ impl CadrawApp {
                     None => {
                         self.hovered = response
                             .hovered()
-                            .then(|| self.sketch().hit_test(raw, tol))
+                            .then(|| self.hit_test_hover(rect, response, tol))
                             .flatten();
                         if response.clicked() {
                             self.offset_source = self.hovered;
@@ -2965,7 +3098,7 @@ impl CadrawApp {
                 self.last_snap = None;
                 self.hovered = response
                     .hovered()
-                    .then(|| self.sketch().hit_test(raw, tol))
+                    .then(|| self.hit_test_hover(rect, response, tol))
                     .flatten()
                     .filter(|id| matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. })));
                 if response.clicked() {
@@ -3133,6 +3266,49 @@ impl CadrawApp {
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.70, 1.0, 0.75]));
                 verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
+            }
+        }
+
+        // Gizmo Geser (titik "+") — sketch 2D: muncul otomatis saat tool
+        // Pilih aktif & ada seleksi sketch APA PUN (bukan cuma profil
+        // tertutup, beda dari gizmo Extrude di atas), tapi cuma kalau
+        // tidak ada body terpilih (prioritas body menang, lihat gizmo body
+        // di bawah). Ikon "+" itu sendiri murni widget 2D layar
+        // (`CanvasHud::render_draggable_move_handle` di `dynamic_input_ui`)
+        // — di sini cuma garis putus-putus dari titik ASAL ke posisi
+        // geser SAAT INI selagi drag berlangsung, penanda seberapa jauh
+        // sudah bergeser (pola sama dgn gizmo Extrude/Face lain).
+        if self.sketch_move_dragging {
+            if let Some(anchor) = self.sketch_move_anchor() {
+                let current = anchor
+                    + self.active_plane.u_axis * self.sketch_move_delta.x as f32
+                    + self.active_plane.v_axis * self.sketch_move_delta.y as f32;
+                let base = [anchor.x, anchor.y, anchor.z];
+                let cur = [current.x, current.y, current.z];
+                verts.extend(sketch_render::dashed_line_3d(base, cur, 2.5, [1.0, 0.75, 0.0, 0.85]));
+            }
+        }
+
+        // Gizmo Drag Axis X/Y/Z — body 3D: muncul otomatis saat tool
+        // Pilih aktif & PERSIS satu body terpilih (lihat
+        // `selected_single_body_center`). Tidak butuh side-offset seperti
+        // versi sketch di atas — body tidak punya gizmo Extrude yang bisa
+        // bertumpuk di titik yang sama.
+        if let Some((_, center)) = self.selected_single_body_center() {
+            const AXIS_X_COLOR: [f32; 4] = [0.95, 0.25, 0.25, 1.0];
+            const AXIS_Y_COLOR: [f32; 4] = [0.25, 0.80, 0.25, 1.0];
+            const AXIS_Z_COLOR: [f32; 4] = [0.25, 0.55, 0.95, 1.0];
+            let base = [center.x, center.y, center.z];
+            for (dir, color) in [(Vec3::X, AXIS_X_COLOR), (Vec3::Y, AXIS_Y_COLOR), (Vec3::Z, AXIS_Z_COLOR)] {
+                let dist = if self.body_axis_drag == Some(dir) {
+                    self.body_axis_delta as f32
+                } else {
+                    24.0
+                };
+                let tip = center + dir * dist;
+                let tip_arr = [tip.x, tip.y, tip.z];
+                verts.extend(sketch_render::dashed_line_3d(base, tip_arr, 3.0, [color[0], color[1], color[2], 0.75]));
+                verts.extend(sketch_render::double_arrow_gizmo_lines(tip_arr, 22.0, 5.0, color, dir));
             }
         }
 
@@ -3998,6 +4174,93 @@ impl CadrawApp {
                 }
             }
         }
+
+        // 6. Interactive Draggable Handle "+" untuk Gizmo Geser sketch 2D
+        // (lihat `sketch_move_anchor`/`build_overlay_lines`) — SATU handle
+        // omnidirectional (bukan 2 panah sumbu terpisah seperti versi
+        // lama): drag bebas menggeser u DAN v bidang aktif sekaligus.
+        // Proyeksi drag_delta piksel ke u & v lewat
+        // `project_screen_drag_to_world_axis` DUA KALI (sekali per sumbu,
+        // delta mouse yang sama) — akurat persis saat kamera tegak lurus
+        // bidang (kasus umum: mode sketsa selalu mengorientasikan kamera
+        // begitu), sedikit shear di sudut kamera oblique karena ini bukan
+        // solve simultan 2D — trade-off yang sama dgn semua gizmo
+        // single-axis lain di file ini.
+        //
+        // Snap-to-point selagi drag: kalau posisi geser SAAT INI dekat
+        // titik snap (endpoint/center/dst) entitas lain, dijepret PERSIS
+        // ke situ lewat `find_snap` yang sudah ada — inilah cara
+        // "satukan pusat sketch" (drag lingkaran A ke pusat lingkaran B,
+        // titik "+" nempel pas di tengahnya).
+        if let Some(anchor) = self.sketch_move_anchor() {
+            let handle_3d = anchor
+                + self.active_plane.u_axis * self.sketch_move_delta.x as f32
+                + self.active_plane.v_axis * self.sketch_move_delta.y as f32;
+            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
+                let handle_resp = CanvasHud::render_draggable_move_handle(ui, handle_2d, self.sketch_move_dragging);
+
+                if handle_resp.drag_started() {
+                    self.sketch_move_dragging = true;
+                    self.sketch_move_delta = DVec2::ZERO;
+                }
+                if self.sketch_move_dragging && handle_resp.dragged() {
+                    let (du, _) =
+                        self.project_screen_drag_to_world_axis(rect, anchor, self.active_plane.u_axis, handle_resp.drag_delta());
+                    let (dv, _) =
+                        self.project_screen_drag_to_world_axis(rect, anchor, self.active_plane.v_axis, handle_resp.drag_delta());
+                    self.sketch_move_delta.x += du;
+                    self.sketch_move_delta.y += dv;
+
+                    if let Some(centroid) = self.selected_entities_centroid() {
+                        let target = centroid + self.sketch_move_delta;
+                        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                        if let Some(hit) = find_snap(self.sketch(), target, tol, 10.0, None) {
+                            self.sketch_move_delta = hit.point - centroid;
+                        }
+                    }
+                }
+                if self.sketch_move_dragging && handle_resp.drag_stopped() {
+                    self.commit_sketch_move_drag();
+                }
+            }
+        }
+
+        // 7. Interactive Draggable Handle untuk Gizmo Drag Axis X/Y/Z
+        // body 3D (lihat `selected_single_body_center`/`build_overlay_lines`).
+        // Cermin persis blok 6 di atas, cuma sumbunya X/Y/Z dunia murni
+        // (bukan U/V/Normal bidang sketsa) dan commit lewat
+        // `translate_selected_body` (kernel `translate_shape` + undo
+        // `ReplaceGeometryCommand`) alih-alih command sketch.
+        if let Some((body_id, center)) = self.selected_single_body_center() {
+            for dir in [Vec3::X, Vec3::Y, Vec3::Z] {
+                let is_dragging_this = self.body_axis_drag == Some(dir);
+                let dist = if is_dragging_this { self.body_axis_delta as f32 } else { 24.0 };
+                let handle_3d = center + dir * dist;
+                let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) else {
+                    continue;
+                };
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, center, dir, egui::Vec2::ZERO);
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(ui, handle_2d, is_dragging_this, arrow_vec_opt);
+
+                if handle_resp.drag_started() {
+                    self.body_axis_drag = Some(dir);
+                    self.body_axis_target = Some(body_id);
+                    self.body_axis_delta = 0.0;
+                }
+                if is_dragging_this && handle_resp.dragged() {
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, center, dir, handle_resp.drag_delta());
+                    self.body_axis_delta += delta_mm;
+                }
+                if is_dragging_this && handle_resp.drag_stopped() {
+                    if self.body_axis_delta.abs() > 1e-6 {
+                        self.translate_selected_body(dir * self.body_axis_delta as f32);
+                    }
+                    self.body_axis_drag = None;
+                    self.body_axis_target = None;
+                    self.body_axis_delta = 0.0;
+                }
+            }
+        }
     }
 
     /// Coba terapkan `constraint`: dry-run solve di atas clone sketch dulu
@@ -4714,6 +4977,34 @@ impl CadrawApp {
         Some((anchor, dir))
     }
 
+    /// Pusat bounding-box body TERPILIH (persis SATU) — dipakai menaruh
+    /// gizmo drag axis X/Y/Z body 3D. `None` kalau seleksi body kosong
+    /// ATAU lebih dari satu: gizmo translate sengaja dibatasi satu body
+    /// sekaligus, pola sama dengan `active_face`/`active_vertex`/
+    /// `active_edge` yang juga selalu menyasar SATU body.
+    fn selected_single_body_center(&self) -> Option<(BodyId, Vec3)> {
+        if self.tool != ToolKind::Select || self.selected_bodies.len() != 1 {
+            return None;
+        }
+        let body_id = *self.selected_bodies.iter().next()?;
+        let geo = self.model.geometry.get(body_id)?;
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &geo.mesh.positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        if !min[0].is_finite() {
+            return None;
+        }
+        Some((
+            body_id,
+            Vec3::new((min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5, (min[2] + max[2]) * 0.5),
+        ))
+    }
+
     /// Teks HUD pill gizmo face (CADRAW Fase 4): permukaan radial
     /// (Cylinder/Cone/Sphere — di mana `FaceHit::pull_dir` benar-benar
     /// arah radial, lihat dokumentasinya) diberi label "ΔR" + tanda eksplisit
@@ -4732,6 +5023,56 @@ impl CadrawApp {
             }
         } else {
             formatted
+        }
+    }
+
+    /// Commit drag gizmo geser sketch (`sketch_move_dragging`/
+    /// `sketch_move_delta`) jadi SATU command undo-able (delta u,v
+    /// gabungan, bukan dua command X lalu Y terpisah), lalu reset state
+    /// gizmo. Tidak melakukan apa-apa kalau delta nyaris nol (klik tanpa
+    /// drag berarti) atau seleksi kosong.
+    fn commit_sketch_move_drag(&mut self) {
+        self.sketch_move_dragging = false;
+        let delta = std::mem::take(&mut self.sketch_move_delta);
+        if delta.length() < 1e-6 || self.selected.is_empty() {
+            return;
+        }
+        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+        self.execute_sketch_command(Box::new(TranslateEntities::new("Geser Sketch", ids, delta)));
+    }
+
+    /// Geser body TERPILIH (persis satu, lihat `selected_single_body_center`)
+    /// sejauh `delta` (mm, sumbu dunia) — commit gizmo drag axis body 3D.
+    /// Dry-run: kalau `translate_shape` gagal (semestinya nyaris tidak
+    /// pernah — operasi ini cuma menggeser `Location` shape, jauh lebih
+    /// murah daripada fillet/boolean), `model` tidak tersentuh, cuma
+    /// `model_status` terisi pesan error, pola sama dgn `extrude_active_face`.
+    fn translate_selected_body(&mut self, delta: Vec3) {
+        let Some((target_id, _)) = self.selected_single_body_center() else {
+            return;
+        };
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            return;
+        };
+        match cadraw_kernel::translate_shape(&target_geo.shape, delta.x as f64, delta.y as f64, delta.z as f64) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Geser Body", target_id, new_geo)),
+                    &mut self.model,
+                );
+                // Rounding parametrik (kalau ada) jadi basi begitu geometri
+                // body diganti operasi non-rounding — pola sama dgn
+                // `extrude_active_face`/commit boolean-cut lain.
+                self.round_history.remove(&target_id);
+                self.model_status = Some(format!(
+                    "Body digeser ({:.1}, {:.1}, {:.1}) mm",
+                    delta.x, delta.y, delta.z
+                ));
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Geser body gagal: {e}"));
+            }
         }
     }
 
@@ -4859,6 +5200,23 @@ impl CadrawApp {
             .flatten()
             .map(|(id, shape)| (id, shape.tessellate()));
 
+        // Live preview drag gizmo axis body 3D (Fase drag-XYZ) — cermin
+        // pola preview lain di atas: `translate_shape` dihitung ULANG tiap
+        // frame dari shape ASLI (bukan hasil translate frame sebelumnya,
+        // supaya tidak ada akumulasi error) memakai delta TERKINI
+        // (`body_axis_delta`), body asli disembunyikan HANYA kalau preview
+        // ini berhasil dihitung.
+        let body_axis_translate_preview: Option<(BodyId, KernelMesh)> = self
+            .body_axis_drag
+            .zip(self.body_axis_target)
+            .filter(|_| self.body_axis_delta.abs() > 1e-6)
+            .and_then(|(dir, target_id)| {
+                let target_geo = self.model.geometry.get(target_id)?;
+                let delta = dir * self.body_axis_delta as f32;
+                let translated = cadraw_kernel::translate_shape(&target_geo.shape, delta.x as f64, delta.y as f64, delta.z as f64).ok()?;
+                Some((target_id, translated.tessellate()))
+            });
+
         // 1. Solid bodies normal — body disembunyikan HANYA kalau preview
         // penggantinya (di-precompute di atas) benar-benar ada (`Some`).
         for (id, geo) in self.model.geometry.iter() {
@@ -4874,6 +5232,9 @@ impl CadrawApp {
                         continue;
                     }
                     if edge_round_preview.as_ref().is_some_and(|(target_id, _)| *target_id == id) {
+                        continue;
+                    }
+                    if body_axis_translate_preview.as_ref().is_some_and(|(target_id, _)| *target_id == id) {
                         continue;
                     }
                     let offset = positions.len() as u32;
@@ -4976,6 +5337,21 @@ impl CadrawApp {
             indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
         }
 
+        // 6. Live Translate (drag gizmo axis X/Y/Z) preview jika sedang
+        // drag — cermin blok 3/4/5 di atas: body asli sudah disembunyikan
+        // di blok 1 (KALAU preview ini ada), warna sama dgn body normal
+        // (`CAD_GREY`, bukan warna highlight) karena translate BUKAN
+        // operasi "menambah/mengurangi material" seperti extrude/rounding.
+        if let Some((_, preview_mesh)) = &body_axis_translate_preview {
+            let offset = positions.len() as u32;
+            positions.extend_from_slice(&preview_mesh.positions);
+            normals.extend_from_slice(&preview_mesh.normals);
+            for _ in 0..preview_mesh.positions.len() {
+                colors.push(CAD_GREY);
+            }
+            indices.extend(preview_mesh.indices.iter().map(|i| i + offset));
+        }
+
         (positions, normals, colors, indices)
     }
 
@@ -5035,6 +5411,28 @@ fn screen_to_ray(camera: &OrbitCamera, rect: egui::Rect, pos: egui::Pos2) -> (Ve
     let p_near = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
     let p_far = inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
     (p_near, p_far - p_near)
+}
+
+/// Cari entitas sketch yang di-hit di titik 2D `p` (sudah diproyeksikan ke
+/// bidang aktif via `screen_to_plane_point`), dengan CYCLE: kalau beberapa
+/// entitas ke-hit dalam toleransi yang sama sekaligus (kasus paling umum:
+/// dua entitas yang saling menutupi, mis. lingkaran konsentris), kandidat
+/// diurutkan menurut jarak dan `cycle` memilih kandidat ke-N — dipakai
+/// `CadrawApp::last_select_click` untuk "klik ulang di tempat yang nyaris
+/// sama = pilih kandidat berikutnya", pola sama dengan AutoCAD Selection
+/// Cycling (bukan cuma tie-break diam-diam ke yang pertama).
+fn hit_test_cycled(sketch: &Sketch, p: DVec2, tolerance: f64, cycle: usize) -> Option<EntityId> {
+    let mut candidates: Vec<(EntityId, f64)> = sketch
+        .entities
+        .iter()
+        .map(|(id, e)| (id, e.distance_to(p)))
+        .filter(|(_, d)| *d <= tolerance)
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    Some(candidates[cycle % candidates.len()].0)
 }
 
 /// Konversi posisi kursor layar → titik di bidang sketch aktif (`Top`, `Front`, `Right`),

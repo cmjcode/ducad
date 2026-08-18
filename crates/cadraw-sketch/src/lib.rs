@@ -529,6 +529,43 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
     })
 }
 
+/// Geser entitas sepanjang bidang sketsa-nya (u,v lokal) sejauh `delta` —
+/// dipakai gizmo drag axis X/Y. Beda dari `mirror_entity`/`offset_entity`:
+/// selalu berhasil (tidak ada kasus degenerate seperti garis nol-panjang),
+/// jadi mengembalikan `Entity` langsung, bukan `Option<Entity>`.
+pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
+    match entity {
+        Entity::Line { start, end } => Entity::Line {
+            start: *start + delta,
+            end: *end + delta,
+        },
+        Entity::Circle { center, radius } => Entity::Circle {
+            center: *center + delta,
+            radius: *radius,
+        },
+        Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => Entity::Arc {
+            center: *center + delta,
+            radius: *radius,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+        },
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => Entity::Ellipse {
+            center: *center + delta,
+            radius_x: *radius_x,
+            radius_y: *radius_y,
+        },
+    }
+}
+
 /// Titik potong (parameter `t`, 0..1) `line` dengan entitas Line lain di
 /// `sketch` (mengecualikan `exclude`) — dipakai tool Trim. Fase ini hanya
 /// menghitung potongan Line-vs-Line; Line-vs-Circle/Arc menyusul saat
@@ -750,6 +787,43 @@ impl Command<Sketch> for UpdateEntity {
         if let Some(old) = &self.old_entity {
             if let Some(e) = sketch.entities.get_mut(self.id) {
                 *e = old.clone();
+            }
+        }
+    }
+}
+
+/// Geser satu/lebih entitas sepanjang bidang sketsa-nya (u,v lokal, sumbu
+/// X/Y gizmo drag) sejauh `delta` — `EntityId` tetap sama persis (pola
+/// sama dengan `UpdateEntity`). Command berbasis DELTA (bukan snapshot
+/// nilai lama): `revert` = apply ulang delta negatif, cukup untuk operasi
+/// yang selalu invertible seperti translasi murni.
+pub struct TranslateEntities {
+    label: &'static str,
+    ids: Vec<EntityId>,
+    delta: DVec2,
+}
+
+impl TranslateEntities {
+    pub fn new(label: &'static str, ids: Vec<EntityId>, delta: DVec2) -> Self {
+        Self { label, ids, delta }
+    }
+}
+
+impl Command<Sketch> for TranslateEntities {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        for id in &self.ids {
+            if let Some(e) = sketch.entities.get_mut(*id) {
+                *e = translate_entity(e, self.delta);
+            }
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        for id in &self.ids {
+            if let Some(e) = sketch.entities.get_mut(*id) {
+                *e = translate_entity(e, -self.delta);
             }
         }
     }
@@ -1089,6 +1163,65 @@ mod tests {
             &Entity::Circle {
                 center: DVec2::ZERO,
                 radius: 25.0,
+            }
+        );
+    }
+
+    #[test]
+    fn translate_entity_shifts_all_variants() {
+        let delta = DVec2::new(5.0, -2.0);
+        let line = Entity::Line {
+            start: DVec2::ZERO,
+            end: DVec2::new(10.0, 0.0),
+        };
+        assert_eq!(
+            translate_entity(&line, delta),
+            Entity::Line {
+                start: delta,
+                end: DVec2::new(15.0, -2.0),
+            }
+        );
+
+        let circle = Entity::Circle {
+            center: DVec2::new(1.0, 1.0),
+            radius: 3.0,
+        };
+        assert_eq!(
+            translate_entity(&circle, delta),
+            Entity::Circle {
+                center: DVec2::new(6.0, -1.0),
+                radius: 3.0,
+            }
+        );
+    }
+
+    #[test]
+    fn translate_entities_undo_roundtrip_preserves_id() {
+        let mut sketch = Sketch::default();
+        let mut undo = UndoStack::default();
+        let id = sketch.entities.insert(Entity::Circle {
+            center: DVec2::ZERO,
+            radius: 5.0,
+        });
+
+        undo.execute(
+            Box::new(TranslateEntities::new("Geser X", vec![id], DVec2::new(12.0, 0.0))),
+            &mut sketch,
+        );
+        assert_eq!(
+            sketch.entities.get(id).unwrap(),
+            &Entity::Circle {
+                center: DVec2::new(12.0, 0.0),
+                radius: 5.0,
+            }
+        );
+
+        undo.undo(&mut sketch);
+        assert_eq!(
+            sketch.entities.get(id).unwrap(),
+            &Entity::Circle {
+                center: DVec2::ZERO,
+                radius: 5.0,
             }
         );
     }

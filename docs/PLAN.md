@@ -2272,6 +2272,118 @@ for_ray` murni geometri, tidak bergantung `is_sketching` sama sekali.
 `cargo build`/`clippy`/`test` (`-p cadraw-app -p cadraw-render`) tetap
 bersih, 28 test itu semua masih hijau.
 
+## Status — Drag Axis X/Y (Sketch 2D) & X/Y/Z (Body 3D) (dikerjakan)
+
+Permintaan awal ("drag sketch 2D dan object 3D ke arah X/Y/Z") awalnya
+diperluas jadi fitur elevasi Z per-entitas sketch (`Sketch::elevations`) —
+supaya dua entitas yang "ditumpuk" (mis. lingkaran luar & dalam utk profil
+"gelas") bisa dipilih terpisah lewat elevasi berbeda. **Elevasi ini
+DICABUT TOTAL setelah dianalisis ulang dan dibandingkan dengan SolidWorks/
+AutoCAD/Shapr3D** (atas permintaan eksplisit user): sketch di ketiga tool
+itu SELALU murni planar (SolidWorks: 1 sketch = 1 plane, titik, tanpa
+kecuali) — menumpuk profil di ketinggian berbeda semestinya lewat *offset
+sketch plane* baru (bidang eksplisit, numerik, terlihat di panel), BUKAN
+field Z tersembunyi per-entitas tanpa input angka. Lebih penting lagi:
+kasus "gelas" itu sendiri TIDAK butuh elevasi sama sekali — cara
+profesionalnya adalah Shell/Hollow (sudah ada sejak Fase 3) atau Boolean
+Subtract dua body hasil extrude terpisah (juga sudah ada), keduanya cuma
+butuh bisa MEMILIH lingkaran dalam secara terpisah dari lingkaran luar,
+bukan menggesernya ke Z lain. Root cause sebenarnya murni masalah
+**seleksi entitas tumpang-tindih**, diselesaikan oleh klik-cycle di bawah
+— fondasi elevasi jadi kerumitan arsitektur (data model + serde + hit-
+test + render) tanpa manfaat nyata (YAGNI), makanya dicabut.
+
+Yang **bertahan** dari putaran ini (fondasinya benar & sudah lolos
+perbandingan dgn CAD standar):
+
+- [x] **Klik-cycle seleksi entitas tumpang-tindih** (`hit_test_cycled`,
+      state `CadrawApp::last_select_click`) — klik ulang dalam radius
+      `SELECT_CYCLE_CLICK_PX` (4px) dari klik sebelumnya memilih kandidat
+      berikutnya di antara entitas yang sama-sama ke-hit dalam toleransi,
+      bukan selalu yang pertama/terdekat. **Preseden nyata**: AutoCAD
+      punya fitur resmi bernama *Selection Cycling* (`SELECTIONCYCLING`
+      sysvar) persis untuk masalah ini; Fusion 360/SolidWorks punya
+      varian serupa. Menggantikan `Sketch::hit_test` di 4 titik panggilan
+      lama (Pilih/Offset/Trim hover + klik seleksi).
+- [x] **`translate_entity`/`TranslateEntities`** (`cadraw-sketch`) — geser
+      entitas sepanjang bidang lokalnya (u,v), command undo-able berbasis
+      delta. Ini yang menjawab permintaan asli "drag sketch ke arah X/Y".
+- [x] **Gizmo drag axis X/Y sketch** (U/V bidang aktif) — 2 panah,
+      auto-muncul saat tool Pilih aktif & ada seleksi sketch (tanpa body
+      terpilih), lewat widget `CanvasHud::render_draggable_double_arrow_handle`
+      yang sudah ada (pola vertex/edge fillet gizmo).
+- [x] **`cadraw_kernel::translate_shape(shape, dx, dy, dz)`** — TIDAK
+      butuh binding OCCT baru: `opencascade-0.2.0` vendor sudah punya
+      `Shape::set_global_translation` sejak awal, tinggal dibungkus
+      fungsional (`deep_clone` + set translation) pola sama `fillet_all`/
+      `chamfer_all`, jauh lebih murah (cuma `Location`, B-rep tak disentuh).
+- [x] **Gizmo drag axis X/Y/Z body 3D** — 3 panah dunia murni di pusat
+      bounding-box, auto-muncul saat tool Pilih aktif & PERSIS satu body
+      terpilih (pola sama `active_face`/`active_vertex`/`active_edge`).
+      Live preview tiap frame drag (`translate_shape` dihitung ulang dari
+      shape ASLI + delta akumulasi, bukan chaining, konsisten dgn semua
+      preview gizmo lain di `build_combined_body_mesh`); commit lewat
+      `ReplaceGeometryCommand` yang SUDAH ADA (tidak ada command model
+      baru). Ini yang menjawab permintaan asli "drag object 3D ke X/Y/Z".
+- [x] 165 test lulus di seluruh workspace (2 test baru bersih di
+      `cadraw-sketch` utk `translate_entity`/`TranslateEntities`, 1 di
+      `cadraw-kernel` utk `translate_shape` — test elevasi yg sempat ada
+      sudah ikut dihapus bersama fiturnya). `clippy -D warnings` masih
+      gagal di file yang TIDAK disentuh fitur ini (`cadraw-ui`,
+      `cadraw-sketch::region`) — bug lint pre-existing di `main`,
+      dikonfirmasi via `git stash`, bukan regresi dari sini.
+- [ ] **Sengaja belum ada**: popup daftar kandidat visual utk klik-cycle
+      (AutoCAD/SolidWorks tampilkan flyout, punya CADRAW masih "buta" —
+      klik berulang tanpa indikator jumlah/kandidat aktif); gizmo
+      translate multi-body sekaligus (cuma 1 body per drag); sketch
+      benar-benar planar per definisi (sesuai SolidWorks) — kalau nanti
+      butuh profil di ketinggian berbeda, jalur yang benar adalah *offset
+      sketch plane* baru (numerik, terlihat di panel), bukan Z per-entitas
+      — belum diimplementasikan, dicatat sebagai arah yang benar utk masa
+      depan; verifikasi visual/UX sungguhan di device — sama seperti semua
+      fitur viewport lain, belum bisa dicek dari sandbox agent.
+
+### Revisi — Gizmo geser sketch: 1 handle "+" omnidirectional + snap + nudge keyboard
+
+User: "sekarang kan ada 2 Icon, tolong ubah jadi 1 icon aja di tengah dg
+logo + ... kalo aku mau satukan sketch dg pusat yang sama pakai titik +
+ini juga" — 2 panah U/V terpisah (masing-masing 1 sumbu) diganti 1 handle
+bulat "+" di centroid seleksi, digeser bebas ke u DAN v sekaligus.
+
+- [x] **`CanvasHud::render_draggable_move_handle`** (`cadraw-ui`) — widget
+      baru, sibling `render_draggable_double_arrow_handle`: lingkaran kuning
+      +ikon "+" (bukan panah 2 sisi, karena drag-nya omnidirectional bukan
+      1 sumbu), cursor `Move`. Warna sengaja beda dari biru gizmo Extrude
+      supaya tidak tertukar walau anchor keduanya bisa berdekatan.
+- [x] **State disederhanakan**: `sketch_axis_drag: Option<SketchDragAxis>` +
+      `sketch_axis_delta: f64` (per-sumbu) → `sketch_move_dragging: bool` +
+      `sketch_move_delta: DVec2` (gabungan u,v). Enum `SketchDragAxis`
+      dihapus total (tidak perlu lagi, cuma 1 handle).
+- [x] **Mekanik drag**: `dynamic_input_ui` proyeksikan `drag_delta` piksel
+      yang SAMA ke u_axis DAN v_axis lewat `project_screen_drag_to_world_axis`
+      dua kali (bukan solve simultan 2D) — akurat pas kamera tegak lurus
+      bidang (kasus umum: mode sketsa selalu mengorientasikan kamera
+      begitu), sedikit shear di sudut oblique, trade-off yang sama dgn
+      semua gizmo single-axis lain di file ini.
+- [x] **Snap-to-point selagi drag** — posisi geser saat ini diuji lewat
+      `find_snap` (snap engine yang sudah ada sejak Fase 1, endpoint >
+      midpoint > center > intersection > grid) tiap frame drag; kalau kena,
+      delta dijepret PERSIS supaya titik "+" nempel di titik itu. Inilah
+      jawaban permintaan "satukan pusat sketch": drag lingkaran A sampai
+      "+"-nya nempel ke center lingkaran B → kedua pusat jadi identik.
+- [x] **Commit jadi 1 command** (bukan 2 command X lalu Y terpisah) —
+      `commit_sketch_move_drag` kirim `TranslateEntities` sekali dengan
+      delta `DVec2` gabungan, 1 langkah undo per drag.
+- [x] **Nudge keyboard** (user, mid-turn: "pakai CMD + anak panah") —
+      Cmd/Ctrl (`modifiers.command`, sudah cross-platform di egui) + Panah
+      Kiri/Kanan/Atas/Bawah menggeser seleksi 1.0 mm (`NUDGE_STEP_MM`)
+      sepanjang u/v, commit LANGSUNG per tekan (bukan diakumulasi seperti
+      drag mouse) — reuse `TranslateEntities` yang sama, ditaruh di blok
+      shortcut `!text_focused` yang sudah ada (sebelah Delete/Backspace).
+- [x] Workspace tetap hijau — `cargo build --workspace` bersih tanpa
+      warning baru, 165 test tetap lulus (perubahan ini murni UI/interaksi,
+      tidak ada test unit baru).
+
 ## Menjalankan
 
 ```bash

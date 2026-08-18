@@ -460,6 +460,24 @@ pub fn fillet_all(shape: &KernelShape, radius: f64) -> Result<KernelShape> {
     Ok(KernelShape(cloned))
 }
 
+/// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — dipakai
+/// gizmo drag axis body 3D. Fungsional (tidak memutasi `shape` pemanggil):
+/// `Shape` tidak `Clone`, jadi `deep_clone` dulu sama seperti
+/// `fillet_all`/`chamfer_all`, tapi di sini transformasinya jauh lebih
+/// murah — `set_global_translation` (API vendor `opencascade-0.2.0`,
+/// sudah ada) cuma menggeser `Location` shape, TIDAK merombak B-rep sama
+/// sekali (beda dari fillet/chamfer/boolean yang benar-benar membangun
+/// ulang geometri). `dx`/`dy`/`dz` adalah delta, bukan posisi absolut —
+/// pemanggil (gizmo di `cadraw-app`) selalu menghitung ulang dari shape
+/// ASLI sebelum drag dimulai (pola sama dgn gizmo extrude face lain),
+/// jadi tidak ada akumulasi error floating-point lintas frame drag.
+pub fn translate_shape(shape: &KernelShape, dx: f64, dy: f64, dz: f64) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(&shape.0)?;
+    cloned.set_global_translation(dvec3(dx, dy, dz));
+    Ok(KernelShape(cloned))
+}
+
 /// Chamfer SEMUA tepi shape dengan `distance` yang sama (lihat batasan
 /// yang sama seperti `fillet_all`).
 pub fn chamfer_all(shape: &KernelShape, distance: f64) -> Result<KernelShape> {
@@ -1623,6 +1641,36 @@ mod tests {
         let chamfered = chamfer_all(&shape, 2.0).unwrap();
         assert!(chamfered.tessellate().triangle_count() > 0);
         assert!(shape.tessellate().triangle_count() > 0);
+    }
+
+    #[test]
+    fn translate_shape_shifts_bounding_box_by_delta_without_mutating_original() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
+        let original_mesh = shape.tessellate();
+        let moved = translate_shape(&shape, 15.0, -5.0, 2.0).unwrap();
+        let moved_mesh = moved.tessellate();
+        assert_eq!(original_mesh.positions.len(), moved_mesh.positions.len());
+
+        fn bbox_min(mesh: &KernelMesh) -> [f32; 3] {
+            let mut min = [f32::MAX; 3];
+            for p in &mesh.positions {
+                for i in 0..3 {
+                    min[i] = min[i].min(p[i]);
+                }
+            }
+            min
+        }
+
+        let orig_min = bbox_min(&original_mesh);
+        let moved_min = bbox_min(&moved_mesh);
+        assert!((moved_min[0] - orig_min[0] - 15.0).abs() < 1e-3);
+        assert!((moved_min[1] - orig_min[1] + 5.0).abs() < 1e-3);
+        assert!((moved_min[2] - orig_min[2] - 2.0).abs() < 1e-3);
+
+        // Fungsional: `shape` asli tidak ikut bergeser.
+        let orig_after = bbox_min(&shape.tessellate());
+        assert_eq!(orig_after, orig_min);
     }
 
     #[test]
