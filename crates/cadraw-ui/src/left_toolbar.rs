@@ -10,7 +10,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_CHANGE_HISTORY, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
     ICON_EDIT, ICON_FLIP, ICON_HORIZONTAL_RULE, ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, BG_HOVER_DARK, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -92,7 +92,7 @@ impl LeftToolbar {
 
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (ToolbarTool::Line, ICON_HORIZONTAL_RULE.codepoint, "Line", Some("L"), Some("Garis lurus 2 titik")),
-                    (ToolbarTool::Arc, ICON_CHANGE_HISTORY.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
+                    (ToolbarTool::Arc, ICON_ARCHITECTURE.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
                     (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
                     (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
                     (ToolbarTool::Ellipse, ICON_EDIT.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
