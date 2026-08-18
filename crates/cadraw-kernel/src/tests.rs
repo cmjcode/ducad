@@ -869,6 +869,51 @@ fn test_pick_face_details_and_extrude_box_faces() {
 }
 
 #[test]
+fn test_resize_shape_along_edge_only_changes_target_axis() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    // Box width=30 (X), depth=20 (Y), height=15 (Z)
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+
+    // Resize vertical edge (Z) from 15.0 to 35.0 (+20.0)
+    let edge_start = (0.0, 0.0, 0.0);
+    let edge_end = (0.0, 0.0, 15.0);
+    let resized = resize_shape_along_edge(&shape, edge_start, edge_end, 35.0)
+        .expect("resize vertical edge harus berhasil");
+
+    let mesh = resized.tessellate();
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for p in &mesh.positions {
+        for k in 0..3 {
+            min[k] = min[k].min(p[k]);
+            max[k] = max[k].max(p[k]);
+        }
+    }
+    // Width (X) harus tetap 30.0
+    assert!((max[0] - min[0] - 30.0).abs() < 1e-3, "Width X harus tetap 30.0, dapat {}", max[0] - min[0]);
+    // Depth (Y) harus tetap 20.0
+    assert!((max[1] - min[1] - 20.0).abs() < 1e-3, "Depth Y harus tetap 20.0, dapat {}", max[1] - min[1]);
+    // Shrink vertical edge (Z) from 35.0 to 10.0 (-25.0)
+    let shrink_edge_start = (0.0, 0.0, 0.0);
+    let shrink_edge_end = (0.0, 0.0, 35.0);
+    let shrunk = resize_shape_along_edge(&resized, shrink_edge_start, shrink_edge_end, 10.0)
+        .expect("shrink vertical edge harus berhasil");
+
+    let mesh_shrunk = shrunk.tessellate();
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for p in &mesh_shrunk.positions {
+        for k in 0..3 {
+            min[k] = min[k].min(p[k]);
+            max[k] = max[k].max(p[k]);
+        }
+    }
+    assert!((max[0] - min[0] - 30.0).abs() < 1e-3, "Width X harus tetap 30.0, dapat {}", max[0] - min[0]);
+    assert!((max[1] - min[1] - 20.0).abs() < 1e-3, "Depth Y harus tetap 20.0, dapat {}", max[1] - min[1]);
+    assert!((max[2] - min[2] - 10.0).abs() < 1e-3, "Height Z harus menjadi 10.0, dapat {}", max[2] - min[2]);
+}
+
+#[test]
 fn test_extrude_face_cylinder_top() {
     let _guard = TEST_LOCK.lock().unwrap();
     let circle_profile = Profile::Circle {

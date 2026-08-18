@@ -2778,6 +2778,86 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
       nol warning baru (3 warning lama tidak tersentuh), 186 test lulus
       (180 lama + 5 `region::tests::*` baru di `cadraw-sketch` + 1
       `scale_shape_*` baru di `cadraw-kernel`).
+- [x] **Fix bug ditemukan user lewat screenshot**: "di kotak properties
+      ini tidak bisa diubah. Jadi pas aku ketik dia langsung berubah ke
+      nilai awal lagi" (field X/Y/Z resize body). Root cause TERNYATA
+      pre-existing di `app.rs` (bukan cuma di field baru): sync-balik
+      seluruh buffer teks `FeatureInspectorState` ke `self.prop_input_*`
+      cuma jalan DI DALAM `if let Some(insp_ev) = FeatureInspector::show(...)`
+      — `TextEdit` polos manapun (P1/P2, radius, P/L rectangle, ukuran
+      body) TIDAK PERNAH mengembalikan `InspectorEvent` sendiri (cuma
+      tombol/checkbox yg begitu), jadi karakter yg baru diketik ke
+      `inspector_state` (dibangun ulang tiap frame dari `self.*`) tidak
+      sempat tersimpan balik ke `self` sebelum frame berikutnya menimpanya
+      lagi dgn nilai lama. Fix: sync-balik dipindah jadi UNCONDITIONAL
+      tiap frame, event-handling (`match insp_ev`) tetap di dalam
+      `if let Some(insp_ev) = insp_ev` terpisah setelahnya — root-cause
+      fix yg otomatis berlaku ke SEMUA field teks panel ini, bukan cuma
+      yang baru ditambahkan fase ini.
+
+- [x] **Revisi UX resize body 3D** ("masih belum ok... klik Terapkan
+      Ukuran tidak ada yang berubah. UX nya juga gak enak. Tolong di
+      object 3D resize ukuran juga seperti resize 2D... klik di ukuran
+      yang ada di object dari checkbox 'Tampilkan semua ukuran' lalu
+      enter"). Penyebab "tidak berubah": panel X/Y/Z lama menuntut
+      ketiga nilai persis proporsional (kernel cuma dukung scale
+      UNIFORM) -- kalau user cuma ubah 1 field, request DITOLAK diam2
+      (cuma nongol di `model_status` kecil, gampang kelewat, TERLIHAT
+      seperti tidak ngapa-ngapain). Panel X/Y/Z + tombol "Terapkan
+      Ukuran" **dihapus total** (`InspectorEvent::ScaleSelectedBody`,
+      `body_size_x/y/z_input` di `FeatureInspectorState`, dan
+      `CadrawApp::scale_selected_body` lama semua dibuang), diganti 3
+      pill dimensi X/Y/Z yg digambar LANGSUNG di objek 3D (`overlay/
+      dimensions.rs`, di edge midpoint bbox), muncul saat checkbox
+      "Tampilkan Semua Ukuran" aktif -- persis pola pill sketch 2D:
+      klik -> popup angka -> Enter -> `scale_selected_body_by_axis(axis,
+      new_length_mm)` (baru, `input/sketch.rs`). Karena tiap pill SELALU
+      menghasilkan 1 faktor dari 1 sumbu yg diedit (bukan minta 3 nilai
+      sekaligus), tidak mungkin lagi kena kasus non-uniform yg ditolak
+      diam2 -- 2 sumbu lain otomatis ikut proporsional & angkanya
+      ter-update sendiri di frame berikutnya (dihitung ulang langsung
+      dari mesh, bukan disimpan terpisah, sama seperti pill Line/Circle/
+      Arc di sketch). Panel kanan sekarang cuma nampilkan info BBox
+      read-only + petunjuk singkat ke interaksi baru ini.
+- [x] Workspace hijau -- `cargo build --workspace` bersih, `cargo clippy`
+      nol warning baru, 186 test tetap lulus, smoke-run app tanpa crash.
+- [x] **Fix 2 bug lanjutan dari user, sekali laporan**: "saat ukuran di
+      klik ini jadi rancu dg klik mau rounded, karena yang muncul gizmo
+      untuk rounded bukan edit ukuran. Trus saat berhasil edit ukuran
+      yang berubah bukan object 3D tapi object 2D dibawahnya".
+      - **Root cause bug 1** (rancu dgn gizmo rounded): raycast pick
+        vertex/edge/face body 3D (`handle_sketch_input`, dipicu
+        `response.clicked()` di viewport) jalan SEBELUM pill dimensi
+        digambar (`dynamic_input_ui` dipanggil belakangan di frame yg
+        sama) -- posisi pill SENGAJA persis di tengah rusuk bbox, yg pada
+        body axis-aligned sederhana sering berhimpit persis dgn rusuk
+        asli objek, jadi 1 klik fisik kedeteksi 2 widget sekaligus (pill
+        DAN raycast pick), egui tidak otomatis exclusive-consume klik
+        antar widget yg beririsan. Fix: `body_dim_pill_hit_at` (baru,
+        `overlay/dimensions.rs`) -- cek jarak posisi klik ke tiap pill
+        SEBELUM raycast dieksekusi (bukan sesudahnya), di-AND-kan ke
+        gerbang `response.clicked()` yg sama dipakai `suppress_click_
+        from_radial` (pola yg sudah ada utk kasus serupa: radial menu).
+      - **Root cause bug 2** (yg berubah malah sketch 2D): pill dimensi
+        Line/Circle/Arc (Fase 3) SEBELUMNYA interaktif di KEDUA mode
+        (sketch & 3D) -- profil sketch yg jadi asal extrude sebuah body
+        posisinya persis sama dgn rusuk body itu di dunia, jadi pill
+        panjang-garis sketch & pill dimensi bbox body bisa jatuh di
+        koordinat layar yg SAMA PERSIS, dua target klik beririsan.
+        Fix: pill Line/Circle/Arc sekarang interaktif HANYA saat
+        `is_sketching`; di mode 3D balik jadi pill statis (referensi
+        visual spt semula, TIDAK disembunyikan total) -- dan pill
+        dimensi bbox body sebaliknya cuma tampil/interaktif saat
+        `!is_sketching` (`body_dim_pill_screen_hits`). Dua mode jadi
+        mutually exclusive utk target klik, tidak mungkin lagi
+        beririsan.
+      - `body_dim_pill_screen_hits`/`body_dim_pill_hit_at` jadi SATU
+        titik sumber kebenaran posisi+radius klik pill (dipakai render
+        di `dimensions.rs` DAN guard di `input/sketch.rs`), bukan
+        logika bbox yg diduplikasi di 2 tempat.
+- [x] Workspace hijau -- `cargo build --workspace` bersih, `cargo clippy`
+      nol warning baru, 186 test tetap lulus, smoke-run app tanpa crash.
+
 
 ## Menjalankan
 

@@ -149,12 +149,6 @@ pub enum InspectorEvent {
     ToggleFacePicking,
     ApplyShell { thickness: f64 },
     DeleteSelectedBodies,
-    /// Terapkan ukuran bounding-box baru (mm, sumbu dunia X/Y/Z) ke body terpilih.
-    ScaleSelectedBody {
-        new_size_x: f64,
-        new_size_y: f64,
-        new_size_z: f64,
-    },
     SectionViewChanged,
     RemoveMeasurement(usize),
     ClearMeasurements,
@@ -184,11 +178,6 @@ pub struct FeatureInspectorState {
     pub rect_length_l_input: String,
     /// Anchor aktif yg dipakai saat "Terapkan Dimensi" rectangle diklik.
     pub rect_anchor: InspectorRectAnchor,
-
-    // Inputs for 3D body resize (bounding-box, mm)
-    pub body_size_x_input: String,
-    pub body_size_y_input: String,
-    pub body_size_z_input: String,
 
     // Inputs for 3D operations
     pub extrude_input: String,
@@ -241,10 +230,6 @@ impl Default for FeatureInspectorState {
             rect_length_p_input: String::new(),
             rect_length_l_input: String::new(),
             rect_anchor: InspectorRectAnchor::Center,
-
-            body_size_x_input: String::new(),
-            body_size_y_input: String::new(),
-            body_size_z_input: String::new(),
 
             extrude_input: "20.0".to_string(),
             active_face_selected: false,

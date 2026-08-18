@@ -117,11 +117,12 @@ pub struct CadrawApp {
     pub rect_anchor: InspectorRectAnchor,
     pub last_inspected_entity_id: Option<u64>,
 
-    // Fase 4: resize body 3D (bounding-box uniform scale, mm).
-    pub prop_input_body_size_x: String,
-    pub prop_input_body_size_y: String,
-    pub prop_input_body_size_z: String,
-    pub last_inspected_body_id: Option<u64>,
+    // Fase 4: resize body 3D via pill dimensi langsung di viewport (bukan panel —
+    // lihat `editing_body_dim_axis` di overlay/dimensions.rs).
+    pub editing_body_dim_axis: Option<usize>,
+    pub editing_body_dim_input: String,
+    pub editing_edge_dim: Option<(BodyId, usize)>,
+    pub editing_edge_dim_input: String,
 
     pub is_sketching: bool,
     pub active_plane: SketchPlane,
@@ -282,10 +283,10 @@ impl CadrawApp {
             rect_anchor: InspectorRectAnchor::Center,
             last_inspected_entity_id: None,
 
-            prop_input_body_size_x: String::new(),
-            prop_input_body_size_y: String::new(),
-            prop_input_body_size_z: String::new(),
-            last_inspected_body_id: None,
+            editing_body_dim_axis: None,
+            editing_body_dim_input: String::new(),
+            editing_edge_dim: None,
+            editing_edge_dim_input: String::new(),
 
             is_sketching: true,
             active_plane: SketchPlane::top(),
@@ -1016,26 +1017,17 @@ impl eframe::App for CadrawApp {
                     (max_p[1] - min_p[1]).abs().max(0.0),
                     (max_p[2] - min_p[2]).abs().max(0.0),
                 ];
-                let bid_raw = bid.data().as_ffi();
-                if self.last_inspected_body_id != Some(bid_raw) {
-                    self.prop_input_body_size_x = format!("{:.2}", bbox_size[0]);
-                    self.prop_input_body_size_y = format!("{:.2}", bbox_size[1]);
-                    self.prop_input_body_size_z = format!("{:.2}", bbox_size[2]);
-                    self.last_inspected_body_id = Some(bid_raw);
-                }
                 Some(SelectedBodyData {
-                    id_raw: bid_raw,
+                    id_raw: bid.data().as_ffi(),
                     name: body_name,
                     vertices_count: v_count,
                     triangles_count: t_count,
                     bbox_size,
                 })
             } else {
-                self.last_inspected_body_id = None;
                 None
             }
         } else {
-            self.last_inspected_body_id = None;
             None
         };
 
@@ -1105,10 +1097,6 @@ impl eframe::App for CadrawApp {
                 rect_length_l_input: self.prop_input_rect_l.clone(),
                 rect_anchor: self.rect_anchor,
 
-                body_size_x_input: self.prop_input_body_size_x.clone(),
-                body_size_y_input: self.prop_input_body_size_y.clone(),
-                body_size_z_input: self.prop_input_body_size_z.clone(),
-
                 extrude_input: self.extrude_distance_input.clone(),
                 active_face_selected: self.active_face.is_some(),
                 face_extrude_input: self.face_extrude_distance_input.clone(),
@@ -1152,22 +1140,30 @@ impl eframe::App for CadrawApp {
                 .sizing_pass(inspector_force_resize)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(insp_ev) = FeatureInspector::show(ui, &mut inspector_state) {
-                        self.prop_input_p1_x = inspector_state.entity_p1_x;
-                        self.prop_input_p1_y = inspector_state.entity_p1_y;
-                        self.prop_input_p2_x = inspector_state.entity_p2_x;
-                        self.prop_input_p2_y = inspector_state.entity_p2_y;
-                        self.prop_input_val_1 = inspector_state.entity_val_1;
-                        self.prop_input_val_2 = inspector_state.entity_val_2;
-                        self.prop_input_val_3 = inspector_state.entity_val_3;
-                        self.prop_input_rect_p = inspector_state.rect_length_p_input;
-                        self.prop_input_rect_l = inspector_state.rect_length_l_input;
-                        self.rect_anchor = inspector_state.rect_anchor;
-                        self.prop_input_body_size_x = inspector_state.body_size_x_input;
-                        self.prop_input_body_size_y = inspector_state.body_size_y_input;
-                        self.prop_input_body_size_z = inspector_state.body_size_z_input;
-                        self.face_extrude_distance_input = inspector_state.face_extrude_input;
+                    let insp_ev = FeatureInspector::show(ui, &mut inspector_state);
 
+                    // Sinkron balik SEMUA buffer teks tiap frame, bukan cuma pas ada
+                    // event (klik tombol/checkbox). `inspector_state` dibangun ULANG
+                    // dari `self.*` tiap frame di atas; `TextEdit` polos (P1/P2/radius/
+                    // P-L rectangle/ukuran body dst) tidak pernah mengembalikan
+                    // `InspectorEvent` sendiri — kalau sync-back cuma jalan di dalam
+                    // `if let Some(insp_ev)`, karakter yg baru diketik hilang lagi di
+                    // frame berikutnya (balik ke nilai lama) karena tidak sempat
+                    // tersimpan ke `self`. Root cause laporan "kotak properties tidak
+                    // bisa diubah, balik ke nilai awal lagi pas diketik".
+                    self.prop_input_p1_x = inspector_state.entity_p1_x;
+                    self.prop_input_p1_y = inspector_state.entity_p1_y;
+                    self.prop_input_p2_x = inspector_state.entity_p2_x;
+                    self.prop_input_p2_y = inspector_state.entity_p2_y;
+                    self.prop_input_val_1 = inspector_state.entity_val_1;
+                    self.prop_input_val_2 = inspector_state.entity_val_2;
+                    self.prop_input_val_3 = inspector_state.entity_val_3;
+                    self.prop_input_rect_p = inspector_state.rect_length_p_input;
+                    self.prop_input_rect_l = inspector_state.rect_length_l_input;
+                    self.rect_anchor = inspector_state.rect_anchor;
+                    self.face_extrude_distance_input = inspector_state.face_extrude_input;
+
+                    if let Some(insp_ev) = insp_ev {
                         match insp_ev {
                             InspectorEvent::CloseInspector => {
                                 self.feature_inspector_open = false;
@@ -1439,17 +1435,6 @@ impl eframe::App for CadrawApp {
                             }
                             InspectorEvent::DeleteSelectedBodies => {
                                 self.delete_selected_bodies();
-                            }
-                            InspectorEvent::ScaleSelectedBody {
-                                new_size_x,
-                                new_size_y,
-                                new_size_z,
-                            } => {
-                                self.scale_selected_body(Vec3::new(
-                                    new_size_x as f32,
-                                    new_size_y as f32,
-                                    new_size_z as f32,
-                                ));
                             }
                             InspectorEvent::SectionViewChanged => {
                                 self.section_enabled = inspector_state.section_enabled;

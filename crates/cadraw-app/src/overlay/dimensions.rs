@@ -1,3 +1,4 @@
+use cadraw_core::BodyId;
 use cadraw_kernel::SurfaceKind;
 use cadraw_render::sketch::TransformGizmoPart;
 use cadraw_render::SketchPlane;
@@ -133,21 +134,190 @@ impl CadrawApp {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     let resp = ui.text_edit_singleline(&mut self.editing_dimension_input);
                     resp.request_focus();
-                    if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.editing_dimension_entity = None;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         if let Ok(val) = self.editing_dimension_input.trim().parse::<f64>() {
                             *commit = Some((id, self.unit.to_internal_mm(val)));
                         }
+                        self.editing_dimension_entity = None;
+                    } else if resp.lost_focus() {
                         self.editing_dimension_entity = None;
                     }
                 });
             });
     }
 
-    pub fn render_all_element_dimensions(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let mut line_anchors_2d: Vec<(Vec3, f64)> = Vec::new();
+    /// Radius klik (px) di sekitar pusat pill dimensi bbox body 3D — dipakai gating raycast
+    /// pick vertex/edge/face (`input/sketch.rs`) supaya klik di pill tidak "diserobot" jadi
+    /// pilih rusuk/sudut utk fillet/chamfer. Posisi pill SENGAJA persis di tengah rusuk bbox,
+    /// yg pada body axis-aligned sederhana sering berhimpit persis dgn rusuk asli objek —
+    /// akar bug "klik ukuran malah muncul gizmo rounded".
+    const BODY_DIM_PILL_HIT_RADIUS_PX: f32 = 28.0;
 
-        // Snapshot dulu (owned, bukan borrow `self`) supaya bebas mutasi `self.editing_dimension_*`
-        // di dalam loop tanpa bentrok dgn `self.sketch()` yg masih dipinjam.
+    /// Posisi layar + panjang (mm) tiap pill dimensi bbox X/Y/Z body 3D yg SEDANG ditampilkan
+    /// — kosong kalau checkbox "Tampilkan Semua Ukuran" nonaktif, sedang mode sketch, atau
+    /// tidak ada tepat 1 body terpilih. Dipakai render pill itu sendiri DAN guard klik di
+    /// `input/sketch.rs`, supaya logika bbox/gating cuma ada di satu tempat.
+    pub fn body_dim_pill_screen_hits(&self, rect: egui::Rect) -> Vec<(usize, egui::Pos2, f64)> {
+        if !self.show_all_dimensions || self.is_sketching {
+            return Vec::new();
+        }
+        let Some((body_id, _)) = self.selected_single_body_center() else {
+            return Vec::new();
+        };
+        let Some(geo) = self.model.geometry.get(body_id) else {
+            return Vec::new();
+        };
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in &geo.mesh.positions {
+            for k in 0..3 {
+                min[k] = min[k].min(p[k]);
+                max[k] = max[k].max(p[k]);
+            }
+        }
+        let world_positions = [
+            Vec3::new((min[0] + max[0]) * 0.5, min[1], min[2]),
+            Vec3::new(min[0], (min[1] + max[1]) * 0.5, min[2]),
+            Vec3::new(min[0], min[1], (min[2] + max[2]) * 0.5),
+        ];
+        let lengths = [
+            (max[0] - min[0]).abs() as f64,
+            (max[1] - min[1]).abs() as f64,
+            (max[2] - min[2]).abs() as f64,
+        ];
+        (0..3)
+            .filter_map(|axis| {
+                world_to_screen_pos(&self.camera, rect, world_positions[axis])
+                    .map(|pos_2d| (axis, pos_2d, lengths[axis]))
+            })
+            .collect()
+    }
+
+    /// True kalau `screen_pos` (posisi klik) jatuh di dekat salah satu pill dimensi bbox body
+    /// 3D yg sedang tampil — dipakai `input/sketch.rs` utk skip raycast pick vertex/edge/face
+    /// SEBELUM dieksekusi, bukan sesudahnya (klik tunggal cuma boleh berarti SATU hal: edit
+    /// ukuran ATAU pilih rusuk/sudut, tidak dua-duanya sekaligus).
+    pub fn body_dim_pill_hit_at(&self, rect: egui::Rect, screen_pos: egui::Pos2) -> bool {
+        if !self.show_all_dimensions || self.is_sketching {
+            return false;
+        }
+        if self.body_dim_pill_screen_hits(rect)
+            .iter()
+            .any(|(_, pos_2d, _)| pos_2d.distance(screen_pos) < Self::BODY_DIM_PILL_HIT_RADIUS_PX)
+        {
+            return true;
+        }
+        for (id, geo) in self.model.geometry.iter() {
+            let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
+            if !visible {
+                continue;
+            }
+            for (mid, _, _, _) in &geo.edge_dims {
+                let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
+                if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
+                    if pos_2d.distance(screen_pos) < Self::BODY_DIM_PILL_HIT_RADIUS_PX {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub fn render_all_element_dimensions(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        const COINCIDENCE_POS_EPS: f32 = 1e-3;
+        const COINCIDENCE_LEN_EPS: f64 = 1e-3;
+
+        let mut line_anchors_2d: Vec<(Vec3, f64)> = Vec::new();
+        let mut shown_3d_edges: Vec<(Vec3, f64)> = Vec::new();
+        let mut edge_dim_commit: Option<(BodyId, usize, f64)> = None;
+
+        // 1. Jika di Mode 3D (!is_sketching): gambar dimensi rusuk 3D INTERAKTIF terlebih dahulu.
+        // Seluruh rusuk body (termasuk rusuk bawah yang berhimpit dengan sketch profil awal)
+        // diprioritaskan sebagai dimensi 3D interaktif yang bisa langsung diedit.
+        if !self.is_sketching {
+            for (id, geo) in self.model.geometry.iter() {
+                let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
+                if !visible {
+                    continue;
+                }
+                let bid_raw = id.data().as_ffi();
+                for (edge_idx, (mid, start, end, length)) in geo.edge_dims.iter().enumerate() {
+                    let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
+                    shown_3d_edges.push((world_pt, *length));
+
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
+                        let start_pt = Vec3::new(start.0 as f32, start.1 as f32, start.2 as f32);
+                        let end_pt = Vec3::new(end.0 as f32, end.1 as f32, end.2 as f32);
+                        let angle = self.screen_angle_between_world_points(rect, start_pt, end_pt);
+                        let is_editing = self.editing_edge_dim == Some((id, edge_idx));
+                        let text = self.unit.format_precise(*length);
+                        let resp = ui
+                            .push_id(("cadraw-edge-dim-pill", bid_raw, edge_idx), |ui| {
+                                CanvasHud::render_interactive_dimension_pill_aligned(
+                                    ui,
+                                    pos_2d,
+                                    angle,
+                                    &text,
+                                    is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_edge_dim = Some((id, edge_idx));
+                            self.editing_edge_dim_input =
+                                format!("{:.2}", self.unit.to_display_val(*length));
+                            self.selected_bodies.clear();
+                            self.selected_bodies.insert(id);
+                        }
+                        if is_editing {
+                            let popup_rect = egui::Rect::from_center_size(
+                                pos_2d + egui::vec2(0.0, 28.0),
+                                egui::vec2(100.0, 32.0),
+                            );
+                            egui::Area::new(egui::Id::new((
+                                "cadraw-edge-dim-edit-popup",
+                                bid_raw,
+                                edge_idx,
+                            )))
+                            .fixed_pos(popup_rect.min)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    let resp =
+                                        ui.text_edit_singleline(&mut self.editing_edge_dim_input);
+                                    resp.request_focus();
+                                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                        self.editing_edge_dim = None;
+                                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        if let Ok(val) =
+                                            self.editing_edge_dim_input.trim().parse::<f64>()
+                                        {
+                                            let new_len_mm = self.unit.to_internal_mm(val);
+                                            edge_dim_commit = Some((id, edge_idx, new_len_mm));
+                                        }
+                                        self.editing_edge_dim = None;
+                                    } else if resp.lost_focus() {
+                                        self.editing_edge_dim = None;
+                                    }
+                                });
+                            });
+                        }
+                    }
+                }
+            }
+
+            if let Some((b_id, e_idx, new_len_mm)) = edge_dim_commit {
+                self.scale_body_by_edge(b_id, e_idx, new_len_mm);
+                self.editing_edge_dim = None;
+            }
+        }
+
+        // 2. Render entitas sketch 2D:
+        // - Di mode sketch (`is_sketching`): interaktif & bebas diedit.
+        // - Di mode 3D (`!is_sketching`): hanya digambar jika TIDAK berhimpit dengan rusuk 3D solid body.
         let entities: Vec<(EntityId, Entity)> =
             self.sketch().entities.iter().map(|(id, e)| (id, e.clone())).collect();
         let mut commit: Option<(EntityId, f64)> = None;
@@ -160,50 +330,82 @@ impl CadrawApp {
                     let mid = (*start + *end) * 0.5;
                     let label_3d = self.active_plane.to_world(mid, 0.0);
                     line_anchors_2d.push((label_3d, len));
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        // Dipakai interaktif (bukan `render_dimension_pill_aligned` yg mengikuti
-                        // sudut garis) supaya bisa jadi target klik yg konsisten dgn Circle/Arc di
-                        // bawah — trade-off kosmetik kecil (pill Line jadi selalu horizontal saat
-                        // "Tampilkan Semua Ukuran" aktif), fungsi ini memang cuma dipanggil saat itu.
-                        let is_editing = self.editing_dimension_entity == Some(id);
-                        let text = self.unit.format_precise(len);
-                        let resp = ui
-                            .push_id(("cadraw-dim-pill-line", id.data().as_ffi()), |ui| {
-                                CanvasHud::render_interactive_dimension_pill(
-                                    ui, pos_2d, &text, is_editing,
-                                )
-                            })
-                            .inner;
-                        if resp.clicked() && !is_editing {
-                            self.editing_dimension_entity = Some(id);
-                            self.editing_dimension_input =
-                                format!("{:.2}", self.unit.to_display_val(len));
+
+                    // Di mode 3D, jika garis sketch sudah terwakili oleh rusuk 3D solid body, jangan gambar duplikatnya
+                    if !self.is_sketching {
+                        let already_covered_by_3d = shown_3d_edges.iter().any(|(anchor, elen)| {
+                            (label_3d - *anchor).length() < COINCIDENCE_POS_EPS
+                                && (len - elen).abs() < COINCIDENCE_LEN_EPS
+                        });
+                        if already_covered_by_3d {
+                            continue;
                         }
-                        if is_editing {
-                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                    }
+
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        if self.is_sketching {
+                            let is_editing = self.editing_dimension_entity == Some(id);
+                            let text = self.unit.format_precise(len);
+                            let resp = ui
+                                .push_id(("cadraw-dim-pill-line", id.data().as_ffi()), |ui| {
+                                    CanvasHud::render_interactive_dimension_pill(
+                                        ui, pos_2d, &text, is_editing,
+                                    )
+                                })
+                                .inner;
+                            if resp.clicked() && !is_editing {
+                                self.editing_dimension_entity = Some(id);
+                                self.editing_dimension_input =
+                                    format!("{:.2}", self.unit.to_display_val(len));
+                            }
+                            if is_editing {
+                                self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                            }
+                        } else {
+                            let angle = self.screen_line_angle(rect, *start, *end);
+                            CanvasHud::render_dimension_pill_aligned(
+                                ui,
+                                pos_2d,
+                                angle,
+                                &self.unit.format_precise(len),
+                            );
                         }
                     }
                 }
                 Entity::Circle { center, radius } => {
                     let edge_pt = *center + DVec2::new(*radius, 0.0);
                     let label_3d = self.active_plane.to_world(edge_pt, 0.0);
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        let is_editing = self.editing_dimension_entity == Some(id);
-                        let text = format!("R {}", self.unit.format_precise(*radius));
-                        let resp = ui
-                            .push_id(("cadraw-dim-pill-circle", id.data().as_ffi()), |ui| {
-                                CanvasHud::render_interactive_dimension_pill(
-                                    ui, pos_2d, &text, is_editing,
-                                )
-                            })
-                            .inner;
-                        if resp.clicked() && !is_editing {
-                            self.editing_dimension_entity = Some(id);
-                            self.editing_dimension_input =
-                                format!("{:.2}", self.unit.to_display_val(*radius));
+
+                    if !self.is_sketching {
+                        let already_covered_by_3d = shown_3d_edges.iter().any(|(anchor, _)| {
+                            (label_3d - *anchor).length() < COINCIDENCE_POS_EPS
+                        });
+                        if already_covered_by_3d {
+                            continue;
                         }
-                        if is_editing {
-                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                    }
+
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = format!("R {}", self.unit.format_precise(*radius));
+                        if self.is_sketching {
+                            let is_editing = self.editing_dimension_entity == Some(id);
+                            let resp = ui
+                                .push_id(("cadraw-dim-pill-circle", id.data().as_ffi()), |ui| {
+                                    CanvasHud::render_interactive_dimension_pill(
+                                        ui, pos_2d, &text, is_editing,
+                                    )
+                                })
+                                .inner;
+                            if resp.clicked() && !is_editing {
+                                self.editing_dimension_entity = Some(id);
+                                self.editing_dimension_input =
+                                    format!("{:.2}", self.unit.to_display_val(*radius));
+                            }
+                            if is_editing {
+                                self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                            }
+                        } else {
+                            CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
                         }
                     }
                 }
@@ -217,23 +419,37 @@ impl CadrawApp {
                     let mid_pt =
                         *center + DVec2::new(radius * mid_angle.cos(), radius * mid_angle.sin());
                     let label_3d = self.active_plane.to_world(mid_pt, 0.0);
-                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
-                        let is_editing = self.editing_dimension_entity == Some(id);
-                        let text = format!("R {}", self.unit.format_precise(*radius));
-                        let resp = ui
-                            .push_id(("cadraw-dim-pill-arc", id.data().as_ffi()), |ui| {
-                                CanvasHud::render_interactive_dimension_pill(
-                                    ui, pos_2d, &text, is_editing,
-                                )
-                            })
-                            .inner;
-                        if resp.clicked() && !is_editing {
-                            self.editing_dimension_entity = Some(id);
-                            self.editing_dimension_input =
-                                format!("{:.2}", self.unit.to_display_val(*radius));
+
+                    if !self.is_sketching {
+                        let already_covered_by_3d = shown_3d_edges.iter().any(|(anchor, _)| {
+                            (label_3d - *anchor).length() < COINCIDENCE_POS_EPS
+                        });
+                        if already_covered_by_3d {
+                            continue;
                         }
-                        if is_editing {
-                            self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                    }
+
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = format!("R {}", self.unit.format_precise(*radius));
+                        if self.is_sketching {
+                            let is_editing = self.editing_dimension_entity == Some(id);
+                            let resp = ui
+                                .push_id(("cadraw-dim-pill-arc", id.data().as_ffi()), |ui| {
+                                    CanvasHud::render_interactive_dimension_pill(
+                                        ui, pos_2d, &text, is_editing,
+                                    )
+                                })
+                                .inner;
+                            if resp.clicked() && !is_editing {
+                                self.editing_dimension_entity = Some(id);
+                                self.editing_dimension_input =
+                                    format!("{:.2}", self.unit.to_display_val(*radius));
+                            }
+                            if is_editing {
+                                self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+                            }
+                        } else {
+                            CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
                         }
                     }
                 }
@@ -260,33 +476,33 @@ impl CadrawApp {
             self.editing_dimension_entity = None;
         }
 
-        const COINCIDENCE_POS_EPS: f32 = 1e-3;
-        const COINCIDENCE_LEN_EPS: f64 = 1e-3;
-
-        for (id, geo) in self.model.geometry.iter() {
-            let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
-            if !visible {
-                continue;
-            }
-            for (mid, start, end, length) in &geo.edge_dims {
-                let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
-                let already_shown_by_sketch = line_anchors_2d.iter().any(|(anchor, len)| {
-                    (world_pt - *anchor).length() < COINCIDENCE_POS_EPS
-                        && (length - len).abs() < COINCIDENCE_LEN_EPS
-                });
-                if already_shown_by_sketch {
+        // 3. Jika di mode sketch (`is_sketching`), render dimensi rusuk 3D yang TIDAK berhimpit dengan sketch
+        if self.is_sketching {
+            for (id, geo) in self.model.geometry.iter() {
+                let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);
+                if !visible {
                     continue;
                 }
-                if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
-                    let start_pt = Vec3::new(start.0 as f32, start.1 as f32, start.2 as f32);
-                    let end_pt = Vec3::new(end.0 as f32, end.1 as f32, end.2 as f32);
-                    let angle = self.screen_angle_between_world_points(rect, start_pt, end_pt);
-                    CanvasHud::render_dimension_pill_aligned(
-                        ui,
-                        pos_2d,
-                        angle,
-                        &self.unit.format_precise(*length),
-                    );
+                for (mid, start, end, length) in &geo.edge_dims {
+                    let world_pt = Vec3::new(mid.0 as f32, mid.1 as f32, mid.2 as f32);
+                    let already_shown_by_sketch = line_anchors_2d.iter().any(|(anchor, len)| {
+                        (world_pt - *anchor).length() < COINCIDENCE_POS_EPS
+                            && (length - len).abs() < COINCIDENCE_LEN_EPS
+                    });
+                    if already_shown_by_sketch {
+                        continue;
+                    }
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, world_pt) {
+                        let start_pt = Vec3::new(start.0 as f32, start.1 as f32, start.2 as f32);
+                        let end_pt = Vec3::new(end.0 as f32, end.1 as f32, end.2 as f32);
+                        let angle = self.screen_angle_between_world_points(rect, start_pt, end_pt);
+                        CanvasHud::render_dimension_pill_aligned(
+                            ui,
+                            pos_2d,
+                            angle,
+                            &self.unit.format_precise(*length),
+                        );
+                    }
                 }
             }
         }
@@ -477,15 +693,17 @@ impl CadrawApp {
                             egui::Frame::popup(ui.style()).show(ui, |ui| {
                                 let resp = ui.text_edit_singleline(&mut self.gizmo_edit_input);
                                 resp.request_focus();
-                                if resp.lost_focus()
-                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    self.gizmo_dimension_editing = false;
+                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                     if let Ok(val) =
                                         self.gizmo_edit_input.trim().parse::<f64>()
                                     {
                                         self.gizmo_distance = self.unit.to_internal_mm(val);
                                         self.commit_gizmo_extrusion();
                                     }
+                                    self.gizmo_dimension_editing = false;
+                                } else if resp.lost_focus() {
                                     self.gizmo_dimension_editing = false;
                                 }
                             });
@@ -589,9 +807,9 @@ impl CadrawApp {
                             egui::Frame::popup(ui.style()).show(ui, |ui| {
                                 let resp = ui.text_edit_singleline(&mut self.face_gizmo_edit_input);
                                 resp.request_focus();
-                                if resp.lost_focus()
-                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    self.face_gizmo_dimension_editing = false;
+                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                     if let Ok(val) =
                                         self.face_gizmo_edit_input.trim().parse::<f64>()
                                     {
@@ -599,6 +817,8 @@ impl CadrawApp {
                                         self.face_gizmo_distance = dist;
                                         self.extrude_active_face(dist);
                                     }
+                                    self.face_gizmo_dimension_editing = false;
+                                } else if resp.lost_focus() {
                                     self.face_gizmo_dimension_editing = false;
                                 }
                             });
@@ -703,9 +923,9 @@ impl CadrawApp {
                                 let resp =
                                     ui.text_edit_singleline(&mut self.vertex_gizmo_edit_input);
                                 resp.request_focus();
-                                if resp.lost_focus()
-                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    self.vertex_gizmo_dimension_editing = false;
+                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                     if let Ok(val) =
                                         self.vertex_gizmo_edit_input.trim().parse::<f64>()
                                     {
@@ -713,6 +933,8 @@ impl CadrawApp {
                                             self.unit.to_internal_mm(val).max(0.0);
                                         self.commit_vertex_fillet();
                                     }
+                                    self.vertex_gizmo_dimension_editing = false;
+                                } else if resp.lost_focus() {
                                     self.vertex_gizmo_dimension_editing = false;
                                 }
                             });
@@ -815,9 +1037,9 @@ impl CadrawApp {
                                 let resp =
                                     ui.text_edit_singleline(&mut self.edge_gizmo_edit_input);
                                 resp.request_focus();
-                                if resp.lost_focus()
-                                    || ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                {
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    self.edge_gizmo_dimension_editing = false;
+                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                                     if let Ok(val) =
                                         self.edge_gizmo_edit_input.trim().parse::<f64>()
                                     {
@@ -825,6 +1047,8 @@ impl CadrawApp {
                                             self.unit.to_internal_mm(val).max(0.0);
                                         self.commit_edge_fillet_single();
                                     }
+                                    self.edge_gizmo_dimension_editing = false;
+                                } else if resp.lost_focus() {
                                     self.edge_gizmo_dimension_editing = false;
                                 }
                             });
@@ -921,6 +1145,68 @@ impl CadrawApp {
                 };
                 let world_scale = pixel_tolerance_to_world(&self.camera, rect);
                 let s = (55.0 * world_scale) as f32;
+
+                // 0. Pill dimensi bbox X/Y/Z langsung di objek (Fase 4 revisi UX — gantikan
+                // panel X/Y/Z + tombol "Terapkan" yg gampang bikin nilai non-proporsional yg
+                // diam2 ditolak). Sama persis pola pill sketch 2D: klik → popup angka → Enter
+                // commit. Hanya muncul di mode 3D (`!is_sketching`, digerbang di dalam
+                // `body_dim_pill_screen_hits`) — kalau ikut tampil pas sketching, posisinya
+                // sering berhimpit persis dgn pill garis sketch profil (rusuk bbox axis-aligned
+                // == rusuk sketch yg di-extrude jadi body itu), dua target klik yg beririsan itu
+                // sumber bug "yg berubah malah sketch 2D".
+                {
+                    let bid_raw = body_id.data().as_ffi();
+                    for (axis, pos_2d, length) in self.body_dim_pill_screen_hits(rect) {
+                        let is_editing = self.editing_body_dim_axis == Some(axis);
+                        let axis_label = ["X", "Y", "Z"][axis];
+                        let text = format!("{axis_label} {}", self.unit.format_precise(length));
+                        let resp = ui
+                            .push_id(("cadraw-body-dim-pill", bid_raw, axis), |ui| {
+                                CanvasHud::render_interactive_dimension_pill(
+                                    ui, pos_2d, &text, is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_body_dim_axis = Some(axis);
+                            self.editing_body_dim_input =
+                                format!("{:.2}", self.unit.to_display_val(length));
+                        }
+                        if is_editing {
+                            let popup_rect = egui::Rect::from_center_size(
+                                pos_2d + egui::vec2(0.0, 28.0),
+                                egui::vec2(100.0, 32.0),
+                            );
+                            egui::Area::new(egui::Id::new((
+                                "cadraw-body-dim-edit-popup",
+                                bid_raw,
+                                axis,
+                            )))
+                            .fixed_pos(popup_rect.min)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    let resp =
+                                        ui.text_edit_singleline(&mut self.editing_body_dim_input);
+                                    resp.request_focus();
+                                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                        self.editing_body_dim_axis = None;
+                                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        if let Ok(val) =
+                                            self.editing_body_dim_input.trim().parse::<f64>()
+                                        {
+                                            let new_len_mm = self.unit.to_internal_mm(val);
+                                            self.scale_selected_body_by_axis(axis, new_len_mm);
+                                        }
+                                        self.editing_body_dim_axis = None;
+                                    } else if resp.lost_focus() {
+                                        self.editing_body_dim_axis = None;
+                                    }
+                                });
+                            });
+                        }
+                    }
+                }
 
                 // 1. Tombol Badge "Copy" mengambang di bawah widget (diberi jarak aman agar tidak menutupi panah rotasi)
                 let s_copy = s_center + egui::vec2(0.0, 95.0);

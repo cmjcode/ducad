@@ -1,4 +1,4 @@
-use cadraw_core::Command;
+use cadraw_core::{BodyId, Command};
 use cadraw_sketch::constraint::Constraint;
 use cadraw_sketch::{
     arc_from_three_points, find_region_at_point, find_region_containing_entity, find_snap,
@@ -356,13 +356,16 @@ impl CadrawApp {
         }
     }
 
-    /// Resize body terpilih ke `new_size` (mm, bounding-box X/Y/Z) — Fase 4.
-    /// `cadraw_kernel::scale_shape` cuma dukung faktor UNIFORM (lihat catatan
-    /// di `vendor/README.md` Perubahan #10), jadi kalau X/Y/Z yg diminta user
-    /// tidak proporsional dgn bbox sekarang, ditolak dgn pesan status alih-alih
-    /// diam-diam mendistorsi bentuk. Pivot pakai centroid bbox (`selected_single_body_center`)
-    /// supaya body tumbuh/menyusut simetris di tempat, bukan bergeser.
-    pub fn scale_selected_body(&mut self, new_size: Vec3) {
+    /// Resize body terpilih lewat SATU pill dimensi bbox (`axis` 0=X/1=Y/2=Z) yg diklik
+    /// langsung di viewport — Fase 4 revisi UX (dulu panel X/Y/Z + tombol Terapkan, gampang
+    /// bikin nilai non-proporsional yg diam-diam ditolak & terkesan "tidak ngapa-ngapain").
+    /// Faktor SELALU dihitung dari 1 sumbu yg diedit itu (`new_length_mm` / panjang sumbu
+    /// itu sekarang) lalu diterapkan uniform ke X/Y/Z sekaligus — `cadraw_kernel::scale_shape`
+    /// cuma dukung faktor seragam (lihat `vendor/README.md` Perubahan #10), jadi 2 sumbu lain
+    /// ikut proporsional otomatis (angkanya update sendiri di frame berikutnya, dihitung ulang
+    /// langsung dari mesh — bukan disimpan terpisah). Pivot = centroid bbox supaya body
+    /// tumbuh/menyusut simetris di tempat, tidak bergeser.
+    pub fn scale_selected_body_by_axis(&mut self, axis: usize, new_length_mm: f64) {
         let Some((target_id, center)) = self.selected_single_body_center() else {
             return;
         };
@@ -378,34 +381,16 @@ impl CadrawApp {
                 max[k] = max[k].max(p[k]);
             }
         }
-        let old_size = Vec3::new(
-            (max[0] - min[0]).abs(),
-            (max[1] - min[1]).abs(),
-            (max[2] - min[2]).abs(),
-        );
-        if old_size.x < 1e-4 || old_size.y < 1e-4 || old_size.z < 1e-4 {
+        let old_len = (max[axis] - min[axis]).abs() as f64;
+        if old_len < 1e-4 {
             self.model_status = Some("Resize body gagal: bounding box terlalu kecil".to_string());
             return;
         }
-        if new_size.x <= 0.0 || new_size.y <= 0.0 || new_size.z <= 0.0 {
+        if new_length_mm <= 0.0 {
             self.model_status = Some("Resize body gagal: ukuran harus > 0".to_string());
             return;
         }
-
-        let fx = new_size.x / old_size.x;
-        let fy = new_size.y / old_size.y;
-        let fz = new_size.z / old_size.z;
-        const REL_TOL: f32 = 0.01; // 1% — toleransi floating point/rounding input mm.
-        let uniform = (fx - fy).abs() < REL_TOL * fx.max(fy).max(1.0)
-            && (fy - fz).abs() < REL_TOL * fy.max(fz).max(1.0);
-        if !uniform {
-            self.model_status = Some(
-                "Resize body: X/Y/Z harus proporsional (scale non-uniform per-sumbu belum didukung kernel OCCT versi ini — lihat vendor/README.md)"
-                    .to_string(),
-            );
-            return;
-        }
-        let factor = ((fx + fy + fz) / 3.0) as f64;
+        let factor = new_length_mm / old_len;
 
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
         match cadraw_kernel::scale_shape(&target_geo.shape, pivot, factor) {
@@ -432,6 +417,56 @@ impl CadrawApp {
             }
             Err(e) => {
                 self.model_status = Some(format!("Resize body gagal: {e}"));
+            }
+        }
+    }
+
+    /// Resize body 3D berdasarkan panjang rusuk (edge) yang diedit user langsung pada pill
+    /// dimensi viewport. Hanya dimensi yang bersangkutan (misal tinggi balok) yang berubah,
+    /// sedangkan sisi lainnya tetap utuh via `resize_shape_along_edge`.
+    pub fn scale_body_by_edge(&mut self, body_id: BodyId, edge_idx: usize, new_length_mm: f64) {
+        let Some(target_geo) = self.model.geometry.get(body_id) else {
+            return;
+        };
+        let Some((_, start, end, old_len)) = target_geo.edge_dims.get(edge_idx).copied() else {
+            return;
+        };
+        if old_len < 1e-4 {
+            self.model_status = Some("Resize body gagal: panjang rusuk terlalu kecil".to_string());
+            return;
+        }
+        if new_length_mm <= 0.0 {
+            self.model_status = Some("Resize body gagal: ukuran harus > 0".to_string());
+            return;
+        }
+        if (new_length_mm - old_len).abs() < 1e-4 {
+            return;
+        }
+
+        match cadraw_kernel::resize_shape_along_edge(&target_geo.shape, start, end, new_length_mm) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                if self.body_copy_mode {
+                    let cmd = AddSolidCommand::new("Salin Body", new_geo);
+                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.model_status =
+                        Some(format!("Body diduplikasi & diubah ukurannya ke {:.2} mm", new_length_mm));
+                } else {
+                    self.model_undo.execute(
+                        Box::new(ReplaceGeometryCommand::new(
+                            "Ubah Ukuran Rusuk",
+                            body_id,
+                            new_geo,
+                        )),
+                        &mut self.model,
+                    );
+                    self.round_history.remove(&body_id);
+                    self.model_status =
+                        Some(format!("Ukuran rusuk diubah ke {:.2} mm", new_length_mm));
+                }
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Ubah ukuran gagal: {e}"));
             }
         }
     }
@@ -522,7 +557,22 @@ impl CadrawApp {
             }
 
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                if self.active_vertex.is_some() || self.active_edge.is_some() {
+                if self.editing_dimension_entity.is_some()
+                    || self.editing_edge_dim.is_some()
+                    || self.editing_body_dim_axis.is_some()
+                    || self.gizmo_dimension_editing
+                    || self.face_gizmo_dimension_editing
+                    || self.vertex_gizmo_dimension_editing
+                    || self.edge_gizmo_dimension_editing
+                {
+                    self.editing_dimension_entity = None;
+                    self.editing_edge_dim = None;
+                    self.editing_body_dim_axis = None;
+                    self.gizmo_dimension_editing = false;
+                    self.face_gizmo_dimension_editing = false;
+                    self.vertex_gizmo_dimension_editing = false;
+                    self.edge_gizmo_dimension_editing = false;
+                } else if self.active_vertex.is_some() || self.active_edge.is_some() {
                     self.active_vertex = None;
                     self.active_edge = None;
                     self.editing_round = None;
@@ -590,6 +640,19 @@ impl CadrawApp {
 
         let suppress_click_from_radial = std::mem::take(&mut self.radial_suppress_click);
 
+        // Klik yg jatuh di pill dimensi bbox body 3D (`body_dim_pill_screen_hits`, "Tampilkan
+        // Semua Ukuran" di mode 3D) HARUS berarti "edit ukuran ini" — bukan raycast pilih
+        // rusuk/sudut buat fillet/chamfer, walau posisinya sengaja persis di tengah rusuk bbox
+        // (yg pada body axis-aligned sederhana sering berhimpit dgn rusuk asli objek). Dicek di
+        // sini (SEBELUM raycast pick di bawah dieksekusi, pakai posisi kursor SEKARANG — pill
+        // itu sendiri baru digambar belakangan di `dynamic_input_ui` frame yg sama, tapi klik-nya
+        // sendiri tetap kedeteksi widget-nya independen krn egui tidak exclusive-consume per
+        // klik), bukan sesudahnya — satu klik cuma boleh berarti satu hal.
+        let click_hits_body_dim_pill = response
+            .hover_pos()
+            .or_else(|| ui.input(|i| i.pointer.latest_pos()))
+            .is_some_and(|pos| self.body_dim_pill_hit_at(rect, pos));
+
         let Some(raw) = raw_cursor else {
             self.hovered = None;
             self.last_snap = None;
@@ -642,7 +705,7 @@ impl CadrawApp {
                     None
                 };
 
-                if response.clicked() && !suppress_click_from_radial {
+                if response.clicked() && !suppress_click_from_radial && !click_hits_body_dim_pill {
                     self.sketch_move_armed = false;
                     self.sketch_move_target = None;
                     self.body_move_armed = false;

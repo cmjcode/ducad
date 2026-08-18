@@ -320,3 +320,96 @@ pub fn make_filleted_box(
     }
     Ok(KernelShape::from_inner(shape))
 }
+
+/// Ubah ukuran satu dimensi solid sepanjang rusuk (edge) yang dipilih.
+/// Fungsi ini mencari face planar di ujung rusuk (`end` atau `start`) yang tegak lurus
+/// terhadap rusuk tersebut (normal sejajar arah rusuk) lalu mengekstrusi/memotong face
+/// tersebut sebesar `delta = new_length - old_length` via `extrude_face`.
+/// Dengan cara ini, HANYA dimensi yang bersangkutan yang berubah (misal tinggi balok),
+/// sedangkan dimensi sisi lainnya (panjang, lebar) tetap utuh.
+pub fn resize_shape_along_edge(
+    shape: &KernelShape,
+    edge_start: (f64, f64, f64),
+    edge_end: (f64, f64, f64),
+    new_length: f64,
+) -> Result<KernelShape> {
+    if new_length <= 0.0 {
+        bail!("ukuran baru harus positif");
+    }
+    let p_start = glam::DVec3::new(edge_start.0, edge_start.1, edge_start.2);
+    let p_end = glam::DVec3::new(edge_end.0, edge_end.1, edge_end.2);
+    let edge_vec = p_end - p_start;
+    let old_length = edge_vec.length();
+    if old_length < 1e-5 {
+        bail!("panjang rusuk terlalu kecil");
+    }
+    let delta = new_length - old_length;
+    if delta.abs() < 1e-6 {
+        return crate::shape::clone_shape(shape);
+    }
+    let dir = edge_vec / old_length;
+
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+
+    let mut best_target: Option<(PickRay, f64)> = None;
+
+    for face in cloned.faces() {
+        if SurfaceKind::from(face.surface_kind().as_str()) != SurfaceKind::Plane {
+            continue;
+        }
+        if let Some((normal, centroid)) = compute_face_normal_and_centroid(&face, -dir) {
+            // Cek face di ujung p_end (normal searah dir)
+            let dot_end = normal.dot(dir);
+            if dot_end > 0.95 {
+                let plane_dist = (p_end - centroid).dot(normal).abs();
+                if plane_dist < 1e-2 {
+                    let ray = PickRay {
+                        origin: (
+                            centroid.x + dir.x * 20.0,
+                            centroid.y + dir.y * 20.0,
+                            centroid.z + dir.z * 20.0,
+                        ),
+                        dir: (-dir.x, -dir.y, -dir.z),
+                    };
+                    best_target = Some((ray, delta));
+                    break;
+                }
+            }
+            // Cek face di ujung p_start (normal searah -dir)
+            let dot_start = normal.dot(-dir);
+            if dot_start > 0.95 {
+                let plane_dist = (p_start - centroid).dot(normal).abs();
+                if plane_dist < 1e-2 {
+                    let ray = PickRay {
+                        origin: (
+                            centroid.x - dir.x * 20.0,
+                            centroid.y - dir.y * 20.0,
+                            centroid.z - dir.z * 20.0,
+                        ),
+                        dir: (dir.x, dir.y, dir.z),
+                    };
+                    best_target = Some((ray, delta));
+                    break;
+                }
+            }
+        }
+    }
+
+    drop(_guard);
+
+    if let Some((ray, d)) = best_target {
+        if let Ok(result_shape) = extrude_face(shape, ray, d) {
+            return Ok(result_shape);
+        }
+    }
+
+    // Fallback: uniform scaling jika tidak ada face planar yang cocok di ujung rusuk
+    let factor = new_length / old_length;
+    let pivot = (
+        (edge_start.0 + edge_end.0) * 0.5,
+        (edge_start.1 + edge_end.1) * 0.5,
+        (edge_start.2 + edge_end.2) * 0.5,
+    );
+    crate::shape::scale_shape(shape, pivot, factor)
+}

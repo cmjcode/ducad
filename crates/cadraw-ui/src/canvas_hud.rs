@@ -215,6 +215,60 @@ impl CanvasHud {
         response
     }
 
+    /// Render badge dimensi interaktif yang DIPUTAR sejajar arah garis pengukuran
+    /// (dengan border biru bila aktif / hover) yang dapat diklik untuk memasukkan angka presisi.
+    pub fn render_interactive_dimension_pill_aligned(
+        ui: &mut Ui,
+        center_2d: Pos2,
+        angle_rad: f32,
+        value_text: &str,
+        is_active: bool,
+    ) -> egui::Response {
+        let font = FontId::proportional(11.5);
+        let galley = ui.painter().layout_no_wrap(value_text.to_string(), font, Color32::from_rgb(20, 20, 25));
+        let half = (galley.size() + Vec2::new(18.0, 10.0)) * 0.5;
+        let size = half * 2.0;
+        let max_dim = size.x.max(size.y);
+        let rect = egui::Rect::from_center_size(center_2d, Vec2::splat(max_dim));
+
+        let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let is_hovered = response.hovered();
+
+        let bg_color = if is_active {
+            Color32::from_rgba_premultiplied(235, 245, 255, 250)
+        } else if is_hovered {
+            Color32::from_rgba_premultiplied(255, 255, 255, 250)
+        } else {
+            Color32::from_rgba_premultiplied(245, 246, 250, 220)
+        };
+        let border_color = if is_active || is_hovered {
+            ACCENT_BLUE
+        } else {
+            Color32::from_rgba_premultiplied(170, 170, 175, 220)
+        };
+        let stroke_width = if is_active || is_hovered { 1.8 } else { 1.0 };
+
+        let rot = egui::emath::Rot2::from_angle(angle_rad);
+        let corners: Vec<Pos2> = rounded_rect_local_points(half, 8.0, 6)
+            .into_iter()
+            .map(|c| center_2d + rot * c.to_vec2())
+            .collect();
+
+        let painter = ui.painter();
+        painter.add(egui::epaint::PathShape::convex_polygon(
+            corners,
+            bg_color,
+            Stroke::new(stroke_width, border_color),
+        ));
+
+        let text_pos = center_2d + rot * (Vec2::new(-half.x, -half.y) + Vec2::new(9.0, 5.0));
+        let mut text_shape = egui::epaint::TextShape::new(text_pos, galley, Color32::from_rgb(20, 20, 25));
+        text_shape.angle = angle_rad;
+        painter.add(text_shape);
+
+        response
+    }
+
     /// Render badge tombol "Copy" floating (gaya Shapr3D) di bawah Transform Gizmo.
     pub fn render_copy_toggle_badge(
         ui: &mut Ui,

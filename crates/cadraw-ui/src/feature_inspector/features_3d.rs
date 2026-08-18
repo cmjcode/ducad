@@ -96,46 +96,17 @@ pub fn show_3d_cards(
 
             ui.add_space(3.0);
             ui.label(
-                RichText::new("Ubah Ukuran (Bounding Box, mm):")
-                    .size(9.5)
+                RichText::new("💡 Resize: aktifkan \"Tampilkan Semua Ukuran\" (kartu Pengukuran di atas), lalu klik angka X/Y/Z yg muncul langsung di objek → ketik → Enter.")
+                    .size(9.0)
+                    .italics()
                     .color(TEXT_SECONDARY),
             );
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("X:").size(10.0));
-                ui.add_sized(
-                    Vec2::new(56.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.body_size_x_input),
-                );
-                ui.label(RichText::new("Y:").size(10.0));
-                ui.add_sized(
-                    Vec2::new(56.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.body_size_y_input),
-                );
-                ui.label(RichText::new("Z:").size(10.0));
-                ui.add_sized(
-                    Vec2::new(56.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.body_size_z_input),
-                );
-            });
             ui.label(
-                RichText::new("Catatan: fillet/chamfer di body ini bisa ikut berubah bentuk (jadi elips) kalau skala X/Y/Z tidak seragam.")
+                RichText::new("Catatan: scale seragam (proporsional) — fillet/chamfer bisa ikut berubah bentuk kalau ukurannya besar sekali.")
                     .size(8.5)
                     .italics()
                     .color(TEXT_SECONDARY),
             );
-            if ui.button(RichText::new("Terapkan Ukuran").size(11.0)).clicked() {
-                if let (Ok(x), Ok(y), Ok(z)) = (
-                    state.body_size_x_input.trim().parse::<f64>(),
-                    state.body_size_y_input.trim().parse::<f64>(),
-                    state.body_size_z_input.trim().parse::<f64>(),
-                ) {
-                    *event = Some(InspectorEvent::ScaleSelectedBody {
-                        new_size_x: x,
-                        new_size_y: y,
-                        new_size_z: z,
-                    });
-                }
-            }
         });
         ui.add_space(3.0);
     }
