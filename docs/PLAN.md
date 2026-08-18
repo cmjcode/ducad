@@ -2547,6 +2547,39 @@ geser "+".
       utk `region_center_snap`/`translate_entity`/`find_closed_regions`
       tetap relevan & lulus).
 
+### Revisi 5 — Fix drag "+" lepas dari kursor di kamera oblique (ray-plane intersection, bukan proyeksi 2-sumbu)
+
+User: "udah enak kalo view nya dari top. Tapi kalo miring saat di drag
+pointer di mouse berbeda dg + yang di geser." Root cause: mekanisme drag
+lama memproyeksikan `drag_delta` piksel ke u-axis DAN v-axis SECARA
+TERPISAH lewat `project_screen_drag_to_world_axis` lalu dijumlah — akurat
+cuma kalau u/v tegak lurus sempurna DI LAYAR (kasus top-down), makin
+shear/meleset dari posisi kursor sungguhan begitu kamera oblique (u/v
+tidak lagi ortogonal di ruang layar, tapi kode menjumlahkan proyeksi
+independennya seolah masih ortogonal — bukan solve simultan 2D, persis
+seperti yang sudah diperingatkan di komentar lama sebagai trade-off).
+
+- [x] **Ganti ke `screen_to_plane_point`** (ray-plane intersection yang
+      SUDAH ADA & sudah dipakai menempatkan titik saat menggambar Line/
+      Rectangle/dst) — tiap frame drag, ambil posisi kursor SAAT INI
+      (`handle_resp.interact_pointer_pos()`), ray-cast LANGSUNG ke bidang
+      sketsa aktif, dapat titik (u,v) EKSAK di bawah kursor. `sketch_move_
+      delta` dihitung ABSOLUT (`titik_di_bidang - centroid`) tiap frame,
+      bukan diakumulasi inkremental dari delta piksel lagi — jadi tidak
+      ada ruang shear terakumulasi sama sekali, akurat untuk sudut kamera
+      berapa pun (selama ray tidak sejajar bidang, kasus degenerate
+      bawaan geometri bukan bug).
+- [x] `project_screen_drag_to_world_axis` (proyeksi 2-sumbu lama) TIDAK
+      dihapus — tetap dipakai gizmo 1D (body axis-drag X/Y/Z, face push/
+      pull) di tempat lain, yang MEMANG gerak 1 sumbu jadi ray-plane tidak
+      relevan di situ. Cuma handle "+" sketch (gerak bebas 2D di bidang)
+      yang pindah teknik.
+- [x] Workspace hijau — `cargo build --workspace` bersih, 168 test tetap
+      lulus (murni ganti teknik proyeksi geometri, tidak ada logika baru
+      yang perlu test unit baru — `screen_to_plane_point`/`ray_intersection`
+      sendiri sudah dipakai & terverifikasi lewat jalur menggambar sejak
+      Fase 1).
+
 ## Menjalankan
 
 ```bash

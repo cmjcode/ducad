@@ -4299,13 +4299,25 @@ impl CadrawApp {
         // dibungkus `ui.push_id` dengan id STABIL dari isi grupnya (bukan
         // urutan render) supaya drag di tengah gestur tidak putus walau
         // `find_closed_regions` menghitung ulang urutan region tiap
-        // frame. Drag bebas menggeser u DAN v bidang aktif sekaligus,
-        // proyeksi drag_delta piksel ke u & v lewat
-        // `project_screen_drag_to_world_axis` DUA KALI (sekali per sumbu,
-        // delta mouse yang sama) — akurat persis saat kamera tegak lurus
-        // bidang (kasus umum: mode sketsa selalu mengorientasikan kamera
-        // begitu), sedikit shear di sudut kamera oblique, trade-off yang
-        // sama dgn semua gizmo single-axis lain di file ini.
+        // frame. Drag bebas menggeser u DAN v bidang aktif sekaligus lewat
+        // `screen_to_plane_point` — ray-plane intersection LANGSUNG dari
+        // posisi kursor SAAT INI ke bidang aktif (teknik yang SAMA dipakai
+        // menempatkan titik saat menggambar Line/Rectangle/dst), BUKAN
+        // proyeksi drag_delta piksel ke u & v terpisah lewat
+        // `project_screen_drag_to_world_axis` DUA KALI (versi lama) — versi
+        // lama akurat cuma pas kamera tegak lurus bidang, geser (shear) dan
+        // makin lepas dari posisi kursor sungguhan di sudut kamera oblique
+        // (dilaporkan user: "kalo miring saat di drag pointer di mouse
+        // berbeda dg + yang di geser") karena TIDAK solve simultan 2D —
+        // cuma proyeksi 2 sumbu independen lalu dijumlah, salah kalau u/v
+        // tidak tegak lurus di LAYAR (baru terjadi pas kamera oblique).
+        // Ray-plane intersection eksak untuk sudut kamera manapun (selama
+        // ray tidak sejajar bidang) karena posisi absolut, bukan delta
+        // inkremental — jadi tidak ada akumulasi shear sama sekali. Body
+        // axis-drag (blok 7 di bawah) TETAP pakai
+        // `project_screen_drag_to_world_axis` — itu genuinely 1D (gerak
+        // SATU sumbu, bukan bebas di bidang), ray-plane tidak relevan di
+        // situ.
         //
         // Snap-to-point selagi drag: kalau posisi geser SAAT INI dekat
         // titik snap (endpoint/center/dst) entitas lain, dijepret PERSIS
@@ -4351,19 +4363,16 @@ impl CadrawApp {
                     self.sketch_move_delta = DVec2::ZERO;
                 }
                 if is_dragging_this && handle_resp.dragged() {
-                    let (du, _) =
-                        self.project_screen_drag_to_world_axis(rect, anchor, self.active_plane.u_axis, handle_resp.drag_delta());
-                    let (dv, _) =
-                        self.project_screen_drag_to_world_axis(rect, anchor, self.active_plane.v_axis, handle_resp.drag_delta());
-                    self.sketch_move_delta.x += du;
-                    self.sketch_move_delta.y += dv;
-
-                    let target_pt = centroid + self.sketch_move_delta;
-                    let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
-                    if let Some(hit) = find_snap(self.sketch(), target_pt, tol, 10.0, None) {
-                        self.sketch_move_delta = hit.point - centroid;
-                    } else if let Some(region_center) = self.find_region_center_snap(&group, target_pt, tol) {
-                        self.sketch_move_delta = region_center - centroid;
+                    if let Some(pointer_pos) = handle_resp.interact_pointer_pos() {
+                        if let Some(mut target_pt) = screen_to_plane_point(&self.camera, rect, pointer_pos, &self.active_plane) {
+                            let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                            if let Some(hit) = find_snap(self.sketch(), target_pt, tol, 10.0, None) {
+                                target_pt = hit.point;
+                            } else if let Some(region_center) = self.find_region_center_snap(&group, target_pt, tol) {
+                                target_pt = region_center;
+                            }
+                            self.sketch_move_delta = target_pt - centroid;
+                        }
                     }
                 }
                 if is_dragging_this && handle_resp.drag_stopped() {
