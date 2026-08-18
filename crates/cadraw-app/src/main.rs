@@ -5,6 +5,8 @@ use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree, TreeParsing};
 use resvg::Tree as ResvgTree;
 
+#[cfg(target_vendor = "apple")]
+pub mod apple;
 pub mod app;
 pub mod document;
 pub mod file_io;

@@ -33,11 +33,22 @@ resvg = { version = "0.33" }
 # UIKit sama sekali (dibuktikan lewat probe crate terpisah saat Fase 6).
 # Digeser jadi target-specific supaya `cargo build --target aarch64-apple-
 # ios` tidak gagal di dependensi ini; pemanggilnya (`CadrawApp::
-# pick_open_path`/`pick_save_path` di `main.rs`) sudah punya kembaran
-# `cfg(target_os = "ios")` yang melaporkan status "belum didukung" alih-
-# alih memanggil `rfd` sama sekali.
+# pick_open_path`/`pick_save_path` di `file_io.rs`) di iOS menggunakan
+# direktori Documents native dari Apple runtime.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 rfd = { workspace = true }
+
+# Modern Apple platform bridging (macOS & iOS) — https://github.com/madsmtm/objc2
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { workspace = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-ui-kit = { workspace = true }
 
 # Packaging desktop (Fase 7) lewat `cargo-bundle` (`cargo install cargo-
 # bundle && cargo bundle --release -p cadraw-app`) — dibaca `cargo-bundle`

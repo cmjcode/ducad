@@ -8,7 +8,7 @@ use crate::types::ToolKind;
 
 #[cfg(target_os = "ios")]
 pub fn ios_documents_dir() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())).join("Documents")
+    crate::apple::apple_documents_directory()
 }
 
 impl CadrawApp {
@@ -24,17 +24,26 @@ impl CadrawApp {
     }
 
     #[cfg(target_os = "ios")]
-    pub fn pick_open_path(&mut self, filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
+    pub fn pick_open_path(&mut self, _filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
         let docs = ios_documents_dir();
-        let mut dialog = rfd::FileDialog::new()
-            .set_directory(&docs)
-            .add_filter(filter_name, extensions);
-        if let Some(p) = &self.current_file_path {
-            if let Some(dir) = p.parent() {
-                dialog = dialog.set_directory(dir);
+        let read_dir = std::fs::read_dir(&docs).ok()?;
+        let mut matching_files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if extensions.iter().any(|&e| e.eq_ignore_ascii_case(ext)) {
+                        let modified = entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        matching_files.push((modified, path));
+                    }
+                }
             }
         }
-        dialog.pick_file()
+        matching_files.sort_by_key(|(m, _)| *m);
+        matching_files.pop().map(|(_, p)| p)
     }
 
     #[cfg(not(target_os = "ios"))]
@@ -63,6 +72,7 @@ impl CadrawApp {
         default_name: &str,
     ) -> Option<PathBuf> {
         let docs = ios_documents_dir();
+        let _ = std::fs::create_dir_all(&docs);
         Some(docs.join(default_name))
     }
 

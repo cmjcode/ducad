@@ -668,27 +668,18 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       oleh `[dependencies.winit]` eframe sendiri, jadi tidak hilang).
       Perilaku desktop tidak berubah (`cargo check --workspace` di macOS
       tetap hijau) — CADRAW memang tidak pernah memakai glow sama sekali.
-- [x] **Files.app — putaran pertama nyata, bukan stub kosong**: `rfd`
-      (dialog file native Fase 5) TERBUKTI TIDAK COMPILE SAMA SEKALI di
-      iOS (tak ada backend UIKit, dibuktikan lewat probe crate terpisah)
-      — digeser jadi target-specific dependency
-      (`[target.'cfg(not(target_os = "ios"))'.dependencies]` di
-      `crates/cadraw-app/Cargo.toml`). Pemanggilnya (8 titik di
-      `main.rs` — Buka/Simpan/Import/Export STEP/STL/OBJ/DXF) dirapikan
-      lewat 2 method baru `pick_open_path`/`pick_save_path` yang punya
-      kembaran `cfg(target_os = "ios")`: BUKAN sekadar "belum didukung",
-      tapi implementasi nyata berbasis folder `Documents` sandbox app
-      (`ios_documents_dir`, dari env var `HOME` — pola standar iOS, tanpa
-      dependensi bridging UIKit tambahan). "Simpan" menulis ke
-      `Documents/<nama_default>` (mis. `untitled.cadraw`), "Buka"/Import
-      mengambil file BERTANGGAL PALING BARU berekstensi cocok di folder
-      itu. Folder ini muncul di Files.app ("Di iPad Ini ▸ CADRAW") HANYA
-      kalau `Info.plist` app final menyematkan `UIFileSharingEnabled` +
-      `LSSupportsOpeningDocumentsInPlace` — sudah didokumentasikan di
-      `crates/cadraw-app/ios/Info.plist.template`. Batasan sadar:
-      BUKAN `UIDocumentPickerViewController` sungguhan (tak ada dialog
-      pilih file bebas) — itu butuh bridging UIKit (`objc2-ui-kit` atau
-      sejenis), ditunda ke putaran berikutnya.
+- [x] **Files.app & Apple Runtime (`objc2` & `block2`)**: `rfd`
+      (dialog file native Fase 5) terisolasi untuk non-iOS target,
+      sedangkan pada target Apple (`target_vendor = "apple"`), CADRAW kini
+      menggunakan modul bridging modern `objc2` (0.6), `block2` (0.6),
+      `objc2-foundation` (0.3), `objc2-app-kit` (macOS), dan `objc2-ui-kit`
+      (iOS). Pemanggilan `pick_open_path`/`pick_save_path` di iOS memakai
+      `apple::apple_documents_directory()` via `NSFileManager` Foundation
+      untuk mengambil file bertanggal paling baru berekstensi cocok tanpa
+      bergantung pada dialog desktop, terbukti lolos kompilasi bersih di
+      `cargo check --target aarch64-apple-ios -p cadraw-app`. Folder ini muncul
+      di Files.app ("Di iPad Ini ▸ CADRAW") ketika `Info.plist` app menyematkan
+      `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
 - [x] **Apple Pencil — diriset, bukan diasumsikan**: dibaca langsung
       source `winit` 0.30 (`event.rs`: `Touch.force: Option<Force>`,
       tersedia di iOS 9.0+) dan `egui-winit` 0.32
