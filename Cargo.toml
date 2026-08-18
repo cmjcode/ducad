@@ -16,7 +16,7 @@ cadraw-render = { path = "crates/cadraw-render" }
 cadraw-io = { path = "crates/cadraw-io" }
 cadraw-ui = { path = "crates/cadraw-ui" }
 
-glam = { version = "0.29", features = ["bytemuck", "serde"] }
+glam = { version = "0.33", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }
 # `default-features = false` + daftar ulang manual: fitur default eframe
 # TERMASUK "glow" (backend OpenGL lewat egui_glow/glutin) walau kita HANYA
@@ -34,7 +34,7 @@ bytemuck = { version = "1", features = ["derive"] }
 # opsional apa pun). Satu-satunya yang hilang dibanding default penuh:
 # "wayland-dlopen"/"wayland-csd-adwaita" (kosmetik Linux/Wayland saja,
 # tak menyentuh macOS/iOS yang jadi target pengembangan saat ini).
-eframe = { version = "0.33", default-features = false, features = [
+eframe = { version = "0.36", default-features = false, features = [
     "accesskit",
     "default_fonts",
     "wayland",
@@ -42,9 +42,9 @@ eframe = { version = "0.33", default-features = false, features = [
     "x11",
     "wgpu",
 ] }
-egui = "0.33"
-egui_wgpu = { package = "egui-wgpu", version = "0.33" }
-egui_material_icons = "0.5"
+egui = "0.36"
+egui_wgpu = { package = "egui-wgpu", version = "0.36" }
+egui_material_icons = "0.8"
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

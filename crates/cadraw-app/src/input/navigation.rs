@@ -38,7 +38,7 @@ impl CadrawApp {
             if pinch != 1.0 {
                 self.camera.zoom(pinch);
             }
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let factor = 1.0 - scroll * 0.0015;
                 self.camera.zoom(factor);

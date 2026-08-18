@@ -26,7 +26,7 @@ pub fn show_2d_entity_cards(
             let angle_deg = *angle_deg;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Garis (Line)", ICON_EDIT))
+                    RichText::new(format!("{} Garis (Line)", ICON_EDIT.codepoint))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -115,7 +115,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new(format!("{} Lock", ICON_LOCK)).size(10.5))
+                        .button(RichText::new(format!("{} Lock", ICON_LOCK.codepoint)).size(10.5))
                         .on_hover_text("Kunci posisi")
                         .clicked()
                     {
@@ -138,7 +138,7 @@ pub fn show_2d_entity_cards(
             let diameter = *diameter;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Lingkaran (Circle)", ICON_EDIT))
+                    RichText::new(format!("{} Lingkaran (Circle)", ICON_EDIT.codepoint))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -194,7 +194,7 @@ pub fn show_2d_entity_cards(
 
                 ui.separator();
                 if ui
-                    .button(RichText::new(format!("{} Lock Pusat", ICON_LOCK)).size(10.5))
+                    .button(RichText::new(format!("{} Lock Pusat", ICON_LOCK.codepoint)).size(10.5))
                     .clicked()
                 {
                     *event =
@@ -215,7 +215,7 @@ pub fn show_2d_entity_cards(
             let id_raw = *id_raw;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Busur (Arc)", ICON_EDIT))
+                    RichText::new(format!("{} Busur (Arc)", ICON_EDIT.codepoint))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -290,7 +290,7 @@ pub fn show_2d_entity_cards(
             let id_raw = *id_raw;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Elips (Ellipse)", ICON_EDIT))
+                    RichText::new(format!("{} Elips (Ellipse)", ICON_EDIT.codepoint))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -349,7 +349,7 @@ pub fn show_2d_entity_cards(
             let count = *count;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} {} Entitas 2D Terpilih", ICON_EDIT, count))
+                    RichText::new(format!("{} {} Entitas 2D Terpilih", ICON_EDIT.codepoint, count))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),

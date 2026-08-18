@@ -72,7 +72,7 @@ impl LeftToolbar {
             let select_active = current_tool == ToolbarTool::Select;
             let sel_btn = square_btn(
                 ui,
-                ICON_ADS_CLICK,
+                ICON_ADS_CLICK.codepoint,
                 select_active,
                 "Pilih",
                 Some("Esc"),
@@ -91,15 +91,15 @@ impl LeftToolbar {
                 ui.add_space(1.0);
 
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::Line, ICON_HORIZONTAL_RULE, "Line", Some("L"), Some("Garis lurus 2 titik")),
-                    (ToolbarTool::Arc, ICON_CHANGE_HISTORY, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
-                    (ToolbarTool::Rectangle, ICON_CROP_16_9, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
-                    (ToolbarTool::Circle, ICON_CIRCLE, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
-                    (ToolbarTool::Ellipse, ICON_EDIT, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
-                    (ToolbarTool::Offset, ICON_OPEN_IN_FULL, "Offset", Some("O"), Some("Geser paralel profil kurva")),
-                    (ToolbarTool::Mirror, ICON_FLIP, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
-                    (ToolbarTool::Trim, ICON_CONTENT_CUT, "Trim", Some("T"), Some("Potong segmen berpotongan")),
-                    (ToolbarTool::Revolve, ICON_REFRESH, "Revolve", Some("V"), Some("Putar profil 360° terhadap sumbu")),
+                    (ToolbarTool::Line, ICON_HORIZONTAL_RULE.codepoint, "Line", Some("L"), Some("Garis lurus 2 titik")),
+                    (ToolbarTool::Arc, ICON_CHANGE_HISTORY.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
+                    (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
+                    (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
+                    (ToolbarTool::Ellipse, ICON_EDIT.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
+                    (ToolbarTool::Offset, ICON_OPEN_IN_FULL.codepoint, "Offset", Some("O"), Some("Geser paralel profil kurva")),
+                    (ToolbarTool::Mirror, ICON_FLIP.codepoint, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
+                    (ToolbarTool::Trim, ICON_CONTENT_CUT.codepoint, "Trim", Some("T"), Some("Potong segmen berpotongan")),
+                    (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve", Some("V"), Some("Putar profil 360° terhadap sumbu")),
                 ];
 
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {

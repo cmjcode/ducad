@@ -168,6 +168,12 @@ pub fn dimension_pill_frame() -> Frame {
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     egui_material_icons::initialize(ctx);
 
+    let theme = match mode {
+        ThemeMode::Dark => egui::Theme::Dark,
+        ThemeMode::Light => egui::Theme::Light,
+    };
+    ctx.set_theme(theme);
+
     let mut style = Style {
         visuals: mode.visuals(),
         ..Default::default()
@@ -175,5 +181,5 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     style.spacing.interact_size.y = MIN_TOUCH_TARGET;
     style.spacing.button_padding = Vec2::new(8.0, 4.0);
     style.spacing.item_spacing = Vec2::new(4.0, 4.0);
-    ctx.set_style(style);
+    ctx.set_style_of(theme, style);
 }

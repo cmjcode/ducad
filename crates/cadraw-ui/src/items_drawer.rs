@@ -58,7 +58,7 @@ impl ItemsDrawer {
 
             // Header
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{} All Items", ICON_FOLDER)).strong().size(13.0).color(TEXT_PRIMARY));
+                ui.label(RichText::new(format!("{} All Items", ICON_FOLDER.codepoint)).strong().size(13.0).color(TEXT_PRIMARY));
             });
 
             // Filter Pencarian
@@ -79,16 +79,16 @@ impl ItemsDrawer {
                     card_frame().show(ui, |ui| {
                         ui.horizontal(|ui| {
                             // Ikon mata visibilitas
-                            let eye = if sp.visible { ICON_VISIBILITY } else { ICON_VISIBILITY_OFF };
+                            let eye = if sp.visible { ICON_VISIBILITY.codepoint } else { ICON_VISIBILITY_OFF.codepoint };
                             if ui.small_button(eye).clicked() {
                                 event = Some(ItemsDrawerEvent::ToggleSketchVisibility(sp.index));
                             }
 
                             // Ikon & Nama Sketch
                             let label_text = if sp.active {
-                                RichText::new(format!("{} {} (Aktif)", ICON_EDIT, sp.name)).strong().color(ACCENT_BLUE)
+                                RichText::new(format!("{} {} (Aktif)", ICON_EDIT.codepoint, sp.name)).strong().color(ACCENT_BLUE)
                             } else {
-                                RichText::new(format!("{} {}", ICON_EDIT, sp.name)).color(TEXT_PRIMARY)
+                                RichText::new(format!("{} {}", ICON_EDIT.codepoint, sp.name)).color(TEXT_PRIMARY)
                             };
 
                             if ui.selectable_label(sp.active, label_text).clicked() {
@@ -115,9 +115,9 @@ impl ItemsDrawer {
                     card_frame().show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let label_text = if is_active {
-                                RichText::new(format!("{} {} (Aktif)", ICON_LAYERS, name)).strong().color(ACCENT_BLUE)
+                                RichText::new(format!("{} {} (Aktif)", ICON_LAYERS.codepoint, name)).strong().color(ACCENT_BLUE)
                             } else {
-                                RichText::new(format!("{} {}", ICON_LAYERS, name)).color(TEXT_PRIMARY)
+                                RichText::new(format!("{} {}", ICON_LAYERS.codepoint, name)).color(TEXT_PRIMARY)
                             };
                             if ui.selectable_label(is_active, label_text).clicked() {
                                 event = Some(ItemsDrawerEvent::SelectSketchPlane(idx));
@@ -140,15 +140,15 @@ impl ItemsDrawer {
 
                         card_frame().show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                let eye = if b.visible { ICON_VISIBILITY } else { ICON_VISIBILITY_OFF };
+                                let eye = if b.visible { ICON_VISIBILITY.codepoint } else { ICON_VISIBILITY_OFF.codepoint };
                                 if ui.small_button(eye).clicked() {
                                     event = Some(ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw));
                                 }
 
                                 let text = if b.selected {
-                                    RichText::new(format!("{} {}", ICON_CATEGORY, b.name)).strong().color(ACCENT_BLUE)
+                                    RichText::new(format!("{} {}", ICON_CATEGORY.codepoint, b.name)).strong().color(ACCENT_BLUE)
                                 } else {
-                                    RichText::new(format!("{} {}", ICON_CATEGORY, b.name)).color(TEXT_PRIMARY)
+                                    RichText::new(format!("{} {}", ICON_CATEGORY.codepoint, b.name)).color(TEXT_PRIMARY)
                                 };
 
                                 let resp = ui.selectable_label(b.selected, text);

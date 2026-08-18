@@ -49,7 +49,7 @@ impl CanvasHud {
         let mut event = None;
         pill_frame().show(ui, |ui| {
             let btn = ui.button(
-                RichText::new(format!("{} Normal to Sketch", ICON_3D_ROTATION))
+                RichText::new(format!("{} Normal to Sketch", ICON_3D_ROTATION.codepoint))
                     .size(12.0)
                     .strong()
                     .color(TEXT_PRIMARY),
@@ -101,7 +101,7 @@ impl CanvasHud {
                     ui.label(RichText::new("|").color(TEXT_SECONDARY));
                     let resp = ui.selectable_label(
                         false,
-                        RichText::new(format!("{} {}", ICON_STRAIGHTEN, m))
+                        RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, m))
                             .size(11.0)
                             .color(TEXT_PRIMARY),
                     );
@@ -122,7 +122,7 @@ impl CanvasHud {
         locked: bool,
     ) {
         let painter = ui.painter();
-        let lock_icon = if locked { format!("{} ", ICON_LOCK) } else { "".to_string() };
+        let lock_icon = if locked { format!("{} ", ICON_LOCK.codepoint) } else { "".to_string() };
         let full_text = format!("{}{}", lock_icon, value_text);
 
         let font = FontId::proportional(11.0);

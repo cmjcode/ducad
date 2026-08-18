@@ -70,7 +70,7 @@ impl ConstraintStrip {
                 (ConstraintAction::ApplyEqualRadius, "=R", "Equal Radius (2 Lingkaran/Arc)"),
                 (ConstraintAction::ApplyTangent, "tan", "Tangent / Bersinggungan"),
                 (ConstraintAction::ApplyCoincident, "><", "Coincident / Berimpit (Titik)"),
-                (ConstraintAction::ApplyFixed, ICON_LOCK, "Lock / Fixed (Titik)"),
+                (ConstraintAction::ApplyFixed, ICON_LOCK.codepoint, "Lock / Fixed (Titik)"),
                 (ConstraintAction::ApplySymmetric, "sym", "Symmetric / Simetris"),
             ];
 

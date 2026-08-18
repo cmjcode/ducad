@@ -2,8 +2,7 @@ use std::fs;
 
 use eframe::egui::IconData;
 use resvg::tiny_skia::{Pixmap, Transform};
-use resvg::usvg::{Options, Tree, TreeParsing};
-use resvg::Tree as ResvgTree;
+use resvg::usvg::{Options, Tree};
 
 #[cfg(target_vendor = "apple")]
 pub mod apple;
@@ -29,14 +28,13 @@ fn load_icon() -> IconData {
     const ICON_TARGET_PX: u32 = 256;
     if let Ok(svg_bytes) = fs::read(svg_path) {
         if let Ok(tree) = Tree::from_data(&svg_bytes, &Options::default()) {
-            let intrinsic = tree.size;
+            let intrinsic = tree.size();
             let width = ICON_TARGET_PX;
             let height = ICON_TARGET_PX;
             if let Some(mut pixmap) = Pixmap::new(width, height) {
-                let scale_x = width as f32 / intrinsic.width() as f32;
-                let scale_y = height as f32 / intrinsic.height() as f32;
-                let rtree = ResvgTree::from_usvg(&tree);
-                rtree.render(Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
+                let scale_x = width as f32 / intrinsic.width();
+                let scale_y = height as f32 / intrinsic.height();
+                resvg::render(&tree, Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
                 let rgba = pixmap.data().to_vec();
                 return IconData { rgba, width, height };
             }

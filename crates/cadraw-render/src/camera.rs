@@ -48,13 +48,13 @@ impl OrbitCamera {
     }
 
     pub fn view(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye(), self.target, Vec3::Z)
+        glam::camera::rh::view::look_at_mat4(self.eye(), self.target, Vec3::Z)
     }
 
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
         let near = (self.distance * 0.001).max(0.01);
         let far = (self.distance * 100.0).max(10_000.0);
-        Mat4::perspective_rh(self.fov_y, aspect.max(0.01), near, far) * self.view()
+        glam::camera::rh::proj::directx::perspective(self.fov_y, aspect.max(0.01), near, far) * self.view()
     }
 
     /// Putar kamera; delta dalam piksel layar.

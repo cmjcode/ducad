@@ -42,7 +42,7 @@ impl FeatureInspector {
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{} {}", ICON_TUNE, header_title))
+                    RichText::new(format!("{} {}", ICON_TUNE.codepoint, header_title))
                         .strong()
                         .size(12.5)
                         .color(TEXT_PRIMARY),
@@ -51,7 +51,7 @@ impl FeatureInspector {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Tombol Tutup / Sembunyikan
                     if ui
-                        .small_button(RichText::new(ICON_CLOSE).size(12.0).color(TEXT_SECONDARY))
+                        .small_button(RichText::new(ICON_CLOSE.codepoint).size(12.0).color(TEXT_SECONDARY))
                         .on_hover_text("Sembunyikan Panel")
                         .clicked()
                     {
@@ -67,7 +67,7 @@ impl FeatureInspector {
                     let pin_text = if state.auto_hide_enabled { "Auto" } else { "Pin" };
                     if ui
                         .small_button(
-                            RichText::new(format!("{} {}", ICON_PUSH_PIN, pin_text))
+                            RichText::new(format!("{} {}", ICON_PUSH_PIN.codepoint, pin_text))
                                 .size(10.0)
                                 .color(pin_color),
                         )

@@ -451,7 +451,8 @@ impl CadrawApp {
 }
 
 impl eframe::App for CadrawApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         self.poll_import_worker();
         if self.pending_imports > 0 {
             ctx.request_repaint();
@@ -510,7 +511,7 @@ impl eframe::App for CadrawApp {
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 self.viewport(ui);
             });
 
@@ -542,10 +543,10 @@ impl eframe::App for CadrawApp {
             items_button_rect: egui::Rect::NOTHING,
         };
 
-        egui::Area::new(egui::Id::new("cadraw-topbar-floating"))
-            .fixed_pos(egui::pos2(topbar_x, 8.0))
+        egui::Area::new(egui::Id::new("cadraw-topbar-area"))
+            .fixed_pos(egui::pos2(topbar_x, 10.0))
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 ui.set_width(topbar_w);
                 if let Some(top_event) = TopBar::show(ui, &mut topbar_state) {
                     match top_event {
@@ -570,7 +571,7 @@ impl eframe::App for CadrawApp {
                         },
                         TopBarEvent::ToggleTheme => {
                             self.theme = self.theme.toggled();
-                            cadraw_ui::apply_theme(ctx, self.theme);
+                            cadraw_ui::apply_theme(&ctx, self.theme);
                         }
                         TopBarEvent::OpenCommandPalette => {
                             self.palette.open();
@@ -642,7 +643,7 @@ impl eframe::App for CadrawApp {
             .default_size(egui::vec2(60.0, 460.0))
             .sizing_pass(left_toolbar_force_resize)
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
                     match tb_ev {
                         ToolbarEvent::SelectTool(t) => {
@@ -700,7 +701,7 @@ impl eframe::App for CadrawApp {
             egui::Area::new(egui::Id::new("cadraw-items-drawer-area"))
                 .fixed_pos(drawer_pos)
                 .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
@@ -759,7 +760,7 @@ impl eframe::App for CadrawApp {
         egui::Area::new(egui::Id::new("cadraw-viewcube-area"))
             .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 if let Some(action) = self.viewcube.show(
                     ui,
                     viewcube_pos,
@@ -781,10 +782,10 @@ impl eframe::App for CadrawApp {
             });
 
         if self.tool != ToolKind::Select {
-            egui::Area::new(egui::Id::new("cadraw-hud-normal-to-sketch"))
+            egui::Area::new(egui::Id::new("cadraw-normal-to-sketch-hud"))
                 .fixed_pos(egui::pos2(screen_center_x - 75.0, 56.0))
                 .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     if let Some(hud_ev) = CanvasHud::show_normal_to_sketch_btn(ui) {
                         if hud_ev == CanvasHudEvent::OrientNormalToSketch {
                             self.camera.orient_to_plane(&self.active_plane);
@@ -796,7 +797,7 @@ impl eframe::App for CadrawApp {
             egui::Area::new(egui::Id::new("cadraw-hud-section-banner"))
                 .fixed_pos(egui::pos2(screen_center_x - 140.0, 94.0))
                 .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     if let Some(hud_ev) = CanvasHud::show_section_view_banner(ui) {
                         if hud_ev == CanvasHudEvent::TurnOffSectionView {
                             self.section_enabled = false;
@@ -956,7 +957,7 @@ impl eframe::App for CadrawApp {
                 ))
                 .pivot(egui::Align2::RIGHT_CENTER)
                 .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     let btn = egui::Button::new(
                         egui::RichText::new("⚙ Properties")
                             .size(12.0)
@@ -1052,7 +1053,7 @@ impl eframe::App for CadrawApp {
                 .default_size(egui::vec2(264.0, inspector_max_h))
                 .sizing_pass(inspector_force_resize)
                 .order(egui::Order::Foreground)
-                .show(ctx, |ui| {
+                .show(&ctx, |ui| {
                     if let Some(insp_ev) = FeatureInspector::show(ui, &mut inspector_state) {
                         self.prop_input_p1_x = inspector_state.entity_p1_x;
                         self.prop_input_p1_y = inspector_state.entity_p1_y;
@@ -1348,7 +1349,7 @@ impl eframe::App for CadrawApp {
         egui::Area::new(egui::Id::new("cadraw-hud-bottom-status-area"))
             .fixed_pos(bottom_center - egui::vec2(130.0, 48.0))
             .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 if let Some(ev) =
                     CanvasHud::show_bottom_status_pill(ui, &sel_summary, m_summary.as_deref())
                 {
@@ -1363,9 +1364,9 @@ impl eframe::App for CadrawApp {
             .iter()
             .map(|(label, hint, _)| (label.as_str(), hint.as_str()))
             .collect();
-        if let Some(idx) = self.palette.show(ctx, &palette_entries) {
+        if let Some(idx) = self.palette.show(&ctx, &palette_entries) {
             let action = palette_actions[idx].2;
-            self.run_palette_action(ctx, action);
+            self.run_palette_action(&ctx, action);
         }
     }
 }

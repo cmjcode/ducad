@@ -84,7 +84,7 @@ impl TopBar {
             ui.set_height(30.0);
             ui.horizontal(|ui| {
                 // 1. Home Button
-                if ui.button(RichText::new(ICON_HOME).size(14.0)).on_hover_text("Dokumen Baru").clicked() {
+                if ui.button(RichText::new(ICON_HOME.codepoint).size(14.0)).on_hover_text("Dokumen Baru").clicked() {
                     event = Some(TopBarEvent::HomeClicked);
                 }
 
@@ -94,7 +94,7 @@ impl TopBar {
                 let cloud_color = if state.status_saved { ACCENT_BLUE } else { Color32::from_rgb(255, 180, 50) };
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(ICON_CLOUD).size(14.0).color(cloud_color));
+                    ui.label(RichText::new(ICON_CLOUD.codepoint).size(14.0).color(cloud_color));
                     ui.label(
                         RichText::new(&state.document_name)
                             .strong()
@@ -110,9 +110,9 @@ impl TopBar {
                 // 3. Mode Switcher + Items + Search + Sketch Plane (Selalu Ada
                 // di Kedua Mode, Kecuali Sketch Plane yang Khusus Sketch Mode)
                 let (mode_icon, mode_title, mode_shortcut, mode_sub) = if state.is_sketching {
-                    (ICON_EDIT, "Sketch Mode", "⌘⇧3", "Klik atau ⌘⇧3 untuk ke Mode 3D")
+                    (ICON_EDIT.codepoint, "Sketch Mode", "⌘⇧3", "Klik atau ⌘⇧3 untuk ke Mode 3D")
                 } else {
-                    (ICON_CATEGORY, "3D Mode", "⌘⇧2", "Klik atau ⌘⇧2 untuk ke Mode Sketch")
+                    (ICON_CATEGORY.codepoint, "3D Mode", "⌘⇧2", "Klik atau ⌘⇧2 untuk ke Mode Sketch")
                 };
                 let mode_btn = header_icon_btn(
                     ui,
@@ -132,7 +132,7 @@ impl TopBar {
                     });
                 }
 
-                let folder_icon = if state.items_drawer_open { ICON_FOLDER_OPEN } else { ICON_FOLDER };
+                let folder_icon = if state.items_drawer_open { ICON_FOLDER_OPEN.codepoint } else { ICON_FOLDER.codepoint };
                 let items_btn = header_icon_btn(
                     ui,
                     folder_icon,
@@ -150,7 +150,7 @@ impl TopBar {
 
                 let search_btn = header_icon_btn(
                     ui,
-                    ICON_SEARCH,
+                    ICON_SEARCH.codepoint,
                     false,
                     "Search",
                     Some("⌘K"),
@@ -165,7 +165,7 @@ impl TopBar {
                 if state.is_sketching {
                     let plane_btn = header_icon_btn(
                         ui,
-                        ICON_LAYERS,
+                        ICON_LAYERS.codepoint,
                         state.plane_menu_open,
                         "Sketch Plane",
                         None,
@@ -198,7 +198,7 @@ impl TopBar {
 
                                     for (idx, label, sub) in planes {
                                         let plane_active = state.active_plane_name.contains(&label[..5]);
-                                        let btn = ui.selectable_label(plane_active, RichText::new(format!("{} {}", ICON_LAYERS, label)).size(11.5));
+                                        let btn = ui.selectable_label(plane_active, RichText::new(format!("{} {}", ICON_LAYERS.codepoint, label)).size(11.5));
                                         if btn.on_hover_text(sub).clicked() {
                                             event = Some(TopBarEvent::SelectSketchPlane(idx));
                                             state.plane_menu_open = false;
@@ -217,7 +217,7 @@ impl TopBar {
                 // Ada di Kedua Mode
                 let sec_btn = header_icon_btn(
                     ui,
-                    ICON_CONTENT_CUT,
+                    ICON_CONTENT_CUT.codepoint,
                     state.section_view_active,
                     "Section View",
                     None,
@@ -235,7 +235,7 @@ impl TopBar {
 
                 let meas_btn = header_icon_btn(
                     ui,
-                    ICON_STRAIGHTEN,
+                    ICON_STRAIGHTEN.codepoint,
                     state.is_measure_active,
                     "Measurements",
                     None,
@@ -249,7 +249,7 @@ impl TopBar {
 
                 let del_btn = header_icon_btn(
                     ui,
-                    ICON_DELETE,
+                    ICON_DELETE.codepoint,
                     false,
                     "Delete",
                     Some("⌫"),
@@ -267,40 +267,40 @@ impl TopBar {
 
                 // 5. File Menu
                 ui.menu_button(RichText::new("Berkas").size(11.5), |ui| {
-                    if ui.button(format!("{} Dokumen Baru", ICON_NOTE_ADD)).clicked() {
+                    if ui.button(format!("{} Dokumen Baru", ICON_NOTE_ADD.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::New));
                         ui.close();
                     }
-                    if ui.button(format!("{} Buka… (⌘O)", ICON_FILE_OPEN)).clicked() {
+                    if ui.button(format!("{} Buka… (⌘O)", ICON_FILE_OPEN.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::Open));
                         ui.close();
                     }
-                    if ui.button(format!("{} Simpan (⌘S)", ICON_SAVE)).clicked() {
+                    if ui.button(format!("{} Simpan (⌘S)", ICON_SAVE.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::Save));
                         ui.close();
                     }
-                    if ui.button(format!("{} Simpan Sebagai… (⌘⇧S)", ICON_SAVE)).clicked() {
+                    if ui.button(format!("{} Simpan Sebagai… (⌘⇧S)", ICON_SAVE.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::SaveAs));
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(format!("{} Impor STEP…", ICON_DOWNLOAD)).clicked() {
+                    if ui.button(format!("{} Impor STEP…", ICON_DOWNLOAD.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
                         ui.close();
                     }
-                    if ui.button(format!("{} Impor DXF (2D)…", ICON_DOWNLOAD)).clicked() {
+                    if ui.button(format!("{} Impor DXF (2D)…", ICON_DOWNLOAD.codepoint)).clicked() {
                         event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
                         ui.close();
                     }
                 });
 
                 // 6. Settings Menu
-                ui.menu_button(RichText::new(format!("{} Pengaturan", ICON_SETTINGS)).size(11.5), |ui| {
-                    if ui.button(format!("{} Ganti Tema (Terang/Gelap)", ICON_PALETTE)).clicked() {
+                ui.menu_button(RichText::new(format!("{} Pengaturan", ICON_SETTINGS.codepoint)).size(11.5), |ui| {
+                    if ui.button(format!("{} Ganti Tema (Terang/Gelap)", ICON_PALETTE.codepoint)).clicked() {
                         event = Some(TopBarEvent::ToggleTheme);
                         ui.close();
                     }
-                    if ui.button(format!("{} Command Palette (⌘K)", ICON_SEARCH)).clicked() {
+                    if ui.button(format!("{} Command Palette (⌘K)", ICON_SEARCH.codepoint)).clicked() {
                         event = Some(TopBarEvent::OpenCommandPalette);
                         ui.close();
                     }
@@ -320,24 +320,24 @@ impl TopBar {
                 // 7. Right-aligned Export / Share Button (Shapr3D blue accent)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button(
-                        RichText::new(format!("{} Share", ICON_SHARE))
+                        RichText::new(format!("{} Share", ICON_SHARE.codepoint))
                             .strong()
                             .size(11.5)
                             .color(Color32::WHITE),
                         |ui| {
-                            if ui.button(format!("{} Ekspor STEP (Solid B-Rep)…", ICON_UPLOAD)).clicked() {
+                            if ui.button(format!("{} Ekspor STEP (Solid B-Rep)…", ICON_UPLOAD.codepoint)).clicked() {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportStep));
                                 ui.close();
                             }
-                            if ui.button(format!("{} Ekspor STL (Mesh 3D)…", ICON_UPLOAD)).clicked() {
+                            if ui.button(format!("{} Ekspor STL (Mesh 3D)…", ICON_UPLOAD.codepoint)).clicked() {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
                                 ui.close();
                             }
-                            if ui.button(format!("{} Ekspor OBJ (Mesh 3D)…", ICON_UPLOAD)).clicked() {
+                            if ui.button(format!("{} Ekspor OBJ (Mesh 3D)…", ICON_UPLOAD.codepoint)).clicked() {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));
                                 ui.close();
                             }
-                            if ui.button(format!("{} Ekspor DXF (Sketch 2D)…", ICON_UPLOAD)).clicked() {
+                            if ui.button(format!("{} Ekspor DXF (Sketch 2D)…", ICON_UPLOAD.codepoint)).clicked() {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportDxf));
                                 ui.close();
                             }

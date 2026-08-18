@@ -17,7 +17,7 @@ pub fn show_measurements_card(
 ) {
     card_frame().show(ui, |ui| {
         ui.label(
-            RichText::new(format!("{} Pengukuran", ICON_STRAIGHTEN))
+            RichText::new(format!("{} Pengukuran", ICON_STRAIGHTEN.codepoint))
                 .strong()
                 .size(11.5)
                 .color(ACCENT_ORANGE),
@@ -45,7 +45,7 @@ pub fn show_measurements_card(
         for (i, label) in state.measurements.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(label).size(10.5).color(TEXT_SECONDARY));
-                if ui.small_button(RichText::new(ICON_CLOSE).size(10.0)).clicked() {
+                if ui.small_button(RichText::new(ICON_CLOSE.codepoint).size(10.0)).clicked() {
                     remove_at = Some(i);
                 }
             });
@@ -72,7 +72,7 @@ pub fn show_3d_cards(
     if let Some(body) = &state.selected_body {
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} {}", ICON_CATEGORY, body.name))
+                RichText::new(format!("{} {}", ICON_CATEGORY.codepoint, body.name))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_GREEN),
@@ -101,7 +101,7 @@ pub fn show_3d_cards(
     if state.active_face_selected {
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Extrude Sisi (Face)", ICON_OPEN_IN_FULL))
+                RichText::new(format!("{} Extrude Sisi (Face)", ICON_OPEN_IN_FULL.codepoint))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_BLUE),
@@ -138,7 +138,7 @@ pub fn show_3d_cards(
     if has_2d_selection {
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Extrude Profil (3D)", ICON_OPEN_IN_FULL))
+                RichText::new(format!("{} Extrude Profil (3D)", ICON_OPEN_IN_FULL.codepoint))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_BLUE),
@@ -161,12 +161,14 @@ pub fn show_3d_cards(
         // Revolve & Loft
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Revolve & Loft", ICON_REFRESH))
+                RichText::new(format!("{} Revolve & Loft", ICON_REFRESH.codepoint))
                     .strong()
+                    .size(11.5)
                     .color(ACCENT_BLUE),
             );
+            ui.add_space(2.0);
             if ui
-                .button(format!("{} Revolve (Pilih Axis)", ICON_REFRESH))
+                .button(format!("{} Revolve (Pilih Axis)", ICON_REFRESH.codepoint))
                 .clicked()
             {
                 *event = Some(InspectorEvent::ApplyRevolve);
@@ -204,7 +206,7 @@ pub fn show_3d_cards(
             ui.label(
                 RichText::new(format!(
                     "{} Boolean ({} Bodies)",
-                    ICON_CALL_MERGE, state.selected_bodies_count
+                    ICON_CALL_MERGE.codepoint, state.selected_bodies_count
                 ))
                 .strong()
                 .color(ACCENT_BLUE),
@@ -226,7 +228,7 @@ pub fn show_3d_cards(
         // Fillet & Chamfer Card
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Fillet & Chamfer", ICON_CATEGORY))
+                RichText::new(format!("{} Fillet & Chamfer", ICON_CATEGORY.codepoint))
                     .strong()
                     .color(ACCENT_BLUE),
             );
@@ -290,7 +292,7 @@ pub fn show_3d_cards(
         // Shell / Hollow Card
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Shell / Hollow", ICON_OPEN_IN_FULL))
+                RichText::new(format!("{} Shell / Hollow", ICON_OPEN_IN_FULL.codepoint))
                     .strong()
                     .color(ACCENT_BLUE),
             );
@@ -333,7 +335,7 @@ pub fn show_3d_cards(
         ui.add_space(3.0);
 
         // Hapus Body
-        let del_text = format!("{} Hapus Body Terpilih", ICON_DELETE);
+        let del_text = format!("{} Hapus Body Terpilih", ICON_DELETE.codepoint);
         if ui
             .button(
                 RichText::new(del_text)
@@ -350,7 +352,7 @@ pub fn show_3d_cards(
     // 6. Section View Card
     card_frame().show(ui, |ui| {
         ui.label(
-            RichText::new(format!("{} Section View", ICON_CONTENT_CUT))
+            RichText::new(format!("{} Section View", ICON_CONTENT_CUT.codepoint))
                 .strong()
                 .color(ACCENT_ORANGE),
         );
@@ -387,17 +389,13 @@ pub fn show_3d_cards(
     card_frame().show(ui, |ui| {
         ui.label(RichText::new("Riwayat Model 3D:").size(10.5).color(TEXT_SECONDARY));
         ui.horizontal(|ui| {
-            let undo_label = format!("{} Undo", ICON_UNDO);
-            if ui
-                .add_enabled(
-                    state.can_undo_model,
-                    egui::Button::new(RichText::new(undo_label).size(10.5)),
-                )
-                .clicked()
-            {
+            let undo_label = format!("{} Undo", ICON_UNDO.codepoint);
+            let undo_btn = egui::Button::new(RichText::new(undo_label).size(10.5));
+            if ui.add_enabled(state.can_undo_model, undo_btn).clicked() {
                 *event = Some(InspectorEvent::UndoModel);
             }
-            let redo_label = format!("{} Redo", ICON_REDO);
+
+            let redo_label = format!("{} Redo", ICON_REDO.codepoint);
             if ui
                 .add_enabled(
                     state.can_redo_model,
