@@ -2384,6 +2384,169 @@ bulat "+" di centroid seleksi, digeser bebas ke u DAN v sekaligus.
       warning baru, 165 test tetap lulus (perubahan ini murni UI/interaksi,
       tidak ada test unit baru).
 
+### Revisi 2 — Handle "+" bawaan mode sketsa (bukan tool Pilih) + blend visual + armed-nudge + snap ke pusat objek lain
+
+User: "select mode itu ada di 3D mode aja... icon + ini ada bawaan di
+sketch aja... titik + kalo bisa menyatu dg sketch 2d jangan berupa icon +
+warna kuning... kalo mau memindahkan bisa klik-drag ATAU klik + (masuk
+mode geser) lalu digeser dg keyboard anak panah... titik + jadi titik
+untuk menyatukan 2 sketch atau lebih" — 4 perubahan atas revisi
+sebelumnya, semua di `dynamic_input_ui`/`handle_sketch_input`
+(`cadraw-app`) + `render_draggable_move_handle` (`cadraw-ui`):
+
+- [x] **Lepas gate `tool == Select`** dari `selected_entities_centroid`
+      (satu-satunya konsumen: gizmo geser sketch) — diganti `is_sketching`.
+      `self.selected` sendiri sudah persist lintas tool (`set_tool` tidak
+      pernah membersihkannya), jadi cukup itu supaya handle "+" tetap
+      hidup & draggable walau user pindah ke tool 2D lain (Line/Rectangle/
+      dst) tanpa perlu balik ke tool Pilih dulu. `selected_closed_region_
+      centroid` (dipakai gizmo Extrude, konsumen BEDA) sengaja TIDAK
+      disentuh — tetap gate `tool == Select` seperti semula, supaya arrow
+      Extrude tidak nongol di tool manapun. Sisi 3D (`selected_single_body_
+      center`, gizmo drag axis X/Y/Z body) juga tidak disentuh — "select
+      mode" tetap relevan penuh di situ, sesuai permintaan user.
+- [x] **Restyle `render_draggable_move_handle`** — badge lingkaran kuning
+      solid + ikon "+" putih tebal diganti crosshair tipis warna biru
+      (`rgb(77,166,255)`, selaras `COLOR_SELECTED` di `cadraw-render/
+      sketch.rs`) tanpa fill solid saat idle, supaya "menyatu" dgn garis
+      sketch alih-alih tampak sbg tombol UI berdiri sendiri. Tetap ada glow
+      ring saat hover/drag dan cincin denyut saat armed supaya tidak
+      hilang kegunaannya sbg target klik.
+- [x] **Mode geser "armed"** (`sketch_move_armed: bool`, field baru) —
+      klik SINGKAT (bukan drag) di handle "+" meng-arm; selama armed,
+      Panah Kiri/Kanan/Atas/Bawah **POLOS** (tanpa Cmd) menggeser seleksi
+      1 mm per tekan, commit lewat `TranslateEntities` yang sama dgn jalur
+      Cmd+Panah lama (yang TETAP ada, gate-nya ikut dilonggarkan dari
+      `tool == Select` ke `is_sketching`). `Sense::drag()` di handle diganti
+      `Sense::click_and_drag()` supaya `clicked()` (armed toggle) terbaca
+      terpisah dari `dragged()` (drag_started otomatis melucuti armed —
+      drag menang). Direset di semua titik reset serupa yg sudah ada:
+      `set_tool` (central), Escape (prioritas SEBELUM clear seleksi), klik
+      viewport apa pun (ganti seleksi), Delete/Backspace.
+- [x] **`region_center_snap`** (free function baru, `cadraw-app`,
+      ditambah 3 test) — perluasan snap selagi drag: kalau `find_snap`
+      (endpoint/midpoint/center/intersection/grid — titik DOF entitas
+      TUNGGAL) tidak kena, dicoba juga titik tengah region tertutup LAIN
+      di sketch yang sama (`find_closed_regions`, dikecualikan region milik
+      seleksi sendiri). Inilah "satukan 2 sketch/profil" yang diminta:
+      pusat rectangle 4-garis atau profil majemuk bukan titik snap entitas
+      manapun, jadi butuh sumber terpisah dari `find_snap`.
+- [x] Workspace hijau — `cargo build --workspace` bersih, 168 test lulus
+      (165 lama + 3 baru utk `region_center_snap` di `cadraw-app`).
+
+### Revisi 3 — Handle "+" tanpa perlu seleksi eksplisit sama sekali (fallback seluruh sketch) + catatan bug Cmd+Panah kiri/kanan
+
+User: "jangan gunakan tool pilih untuk mengaktifkan + ini, dia muncul
+terus aja... Trus aku coba geser dg CMD + anak panah keyboard yang bisa
+baru keatas dan kebawah, anak panah kiri kanan belum bisa" — Revisi 2
+masih mengharuskan MINIMAL 1x klik-seleksi lewat tool Pilih supaya
+`self.selected` terisi (baru setelah itu handle "+" bawaan lintas-tool).
+User mau lebih jauh: TIDAK butuh seleksi eksplisit APAPUN.
+
+- [x] **`CadrawApp::move_target_ids`** (helper baru) — seleksi eksplisit
+      (`self.selected`) kalau ADA, atau SEMUA entitas di sketch aktif kalau
+      TIDAK ada seleksi sama sekali. Fallback "seluruh sketch" inilah yang
+      bikin handle "+" langsung muncul begitu sketch punya isi — tanpa
+      perlu tool Pilih SAMA SEKALI (beda dari Revisi 2, yang cuma
+      melonggarkan gate SETELAH ada seleksi). Tool Pilih tetap berguna
+      untuk kasus presisi: geser SEBAGIAN sketch saja.
+- [x] `selected_entities_centroid` diganti nama jadi
+      **`sketch_move_target_centroid`** (dan isinya pakai `move_target_ids`)
+      supaya nama fungsi tidak lagi menyesatkan (sekarang bisa mewakili
+      SELURUH sketch, bukan cuma "seleksi"). `find_region_center_snap`
+      (exclude-nya) dan `commit_sketch_move_drag`/nudge (ids-nya) ikut
+      dipindah ke `move_target_ids` — cuma 4 titik pakai, jadi rename +
+      migrasi murah. `find_region_center_snap` saat fallback "seluruh
+      sketch" otomatis TIDAK punya region lain tersisa buat disnap
+      (semuanya masuk exclude) — masuk akal: "satukan 2 profil" tetap
+      butuh seleksi manual salah satunya dulu, supaya yang SATU LAGI
+      tersisa jadi target snap.
+- [x] Gate nudge (Cmd+Panah & armed+panah-polos) dilonggarkan dari
+      `!self.selected.is_empty()` jadi `!self.sketch().entities.is_empty()`
+      — konsisten dgn fallback di atas.
+- [x] **Investigasi bug "Cmd+Panah kiri/kanan tidak jalan, atas/bawah
+      jalan"**: dibaca ulang kode nudge baris-per-baris — 4 cabang
+      (Left/Right/Up/Down) simetris persis, semua lewat `TranslateEntities`
+      yang sama (`translate_entity` di `cadraw-sketch` juga simetris x/y,
+      sudah ada test `translate_entity_shifts_all_variants` yang lulus).
+      Tidak ditemukan kode lain di seluruh workspace yang mengonsumsi
+      `ArrowLeft`/`ArrowRight` duluan (`consume_key` tidak dipakai di mana
+      pun — egui `key_pressed` sendiri tidak "React tag project" style
+      konsumsi event, jadi tidak ada tabrakan internal). Dicek juga
+      shortcut tiling jendela default macOS Sequoia (websearch) — BUKAN
+      Cmd+Panah (defaultnya Fn-Control-Panah), jadi bukan itu. Kesimpulan:
+      kemungkinan besar bentrok keybinding level OS/aplikasi pihak ketiga
+      di mesin user (mis. app snapping jendela custom yang bind
+      Cmd+Kiri/Kanan), BUKAN bug kode CADRAW — tidak bisa diverifikasi
+      lebih lanjut dari sandbox (tidak ada display, sudah didokumentasikan
+      berkali-kali di memory project). Mitigasi konkret: jalur BARU "klik +
+      lalu panah POLOS tanpa Cmd" (armed mode, dari Revisi 2) sama sekali
+      tidak butuh Cmd, jadi otomatis kebal dari kemungkinan bentrokan ini —
+      direkomendasikan ke user sbg jalur utama.
+- [x] Workspace hijau — `cargo build --workspace` bersih, `clippy -p
+      cadraw-app` tidak ada warning baru di kode yang disentuh, 168 test
+      tetap lulus (murni refactor/rename, tidak ada logika baru yang perlu
+      test baru).
+
+### Revisi 4 — SATU handle "+" PER OBJEK (bukan 1 titik gabungan), tool Pilih tetap ada di sketch
+
+User (dgn screenshot): "Masih ngaco. Aku bikin 2 Sketch. Titik + jadi ada
+diantara 2 sketch ini. Kan harusnya masing2 punya. dan selalu muncul
+terus." — Revisi 3 fallback ke SATU centroid gabungan SELURUH sketch saat
+tidak ada seleksi, jadi 2 rectangle terpisah malah dapat 1 titik "+" di
+tengah-tengah keduanya (bukti di screenshot). Ditanya juga soal
+"pindahkan tool Pilih ke 3D aja" — dikonfirmasi via `AskUserQuestion`:
+tool Pilih TETAP ada & dipakai di sketch (Extrude/Mirror/Revolve/Delete/
+Constraint semua masih butuh dia), cuma memang sudah TIDAK wajib buat
+geser "+".
+
+- [x] **Desain ulang total dari "1 target gabungan" jadi "banyak grup
+      independen"**: `CadrawApp::sketch_move_groups()` — kalau ada
+      seleksi eksplisit (`self.selected`, tool Pilih), itu SATU-SATUNYA
+      grup (jalur presisi, tidak berubah); kalau TIDAK ada seleksi, SATU
+      GRUP PER REGION TERTUTUP (`find_closed_regions`, bukan digabung jadi
+      satu lagi) — 2 rectangle terpisah = 2 grup = 2 titik "+" independen.
+      `move_target_ids`/`sketch_move_target_centroid` (fallback-gabungan,
+      Revisi 3) DIHAPUS total, diganti `group_centroid(ids)` per-grup.
+- [x] State `sketch_move_target: Option<HashSet<EntityId>>` (baru) —
+      identitas grup MANA yang sedang di-drag/di-armed sekarang (bukan
+      index/posisi, supaya tetap valid walau urutan `find_closed_regions`
+      berubah antar frame). `sketch_move_dragging`/`sketch_move_armed`
+      sekarang berlaku KHUSUS untuk grup ini; handle lain tetap statis &
+      independen. Direset (bersama armed) di SEMUA titik reset yang sudah
+      ada: `set_tool`, Escape, klik viewport, Delete/Backspace,
+      `commit_sketch_move_drag`.
+- [x] **Render loop di `dynamic_input_ui` diubah dari "1 blok if" jadi
+      "loop per grup"** — tiap grup dari `sketch_move_groups()` dapat
+      handle "+" sendiri (posisi = `group_centroid` + delta HANYA kalau
+      grup itu `sketch_move_target`), dibungkus `ui.push_id` dengan ID
+      STABIL dari isi grupnya (`EntityId::data().as_ffi()`, di-sort lalu
+      di-hash) — bukan urutan render — supaya drag di tengah gestur tidak
+      putus kalau `find_closed_regions` menghitung ulang urutan region di
+      frame berikutnya (region tanpa id eksplisit HANYA stabil kalau
+      urutan render-nya juga stabil, yang tidak dijamin `find_closed_
+      regions`, jadi ini bukan langkah opsional). Klik handle grup LAIN
+      selagi satu grup masih armed langsung MEMINDAH target (bukan
+      menumpuk armed di 2 grup).
+- [x] **`nudge_target_ids()`** (baru, ganti `move_target_ids`) — target
+      nudge KEYBOARD (Cmd+Panah / armed+panah-polos) HARUS satu grup yang
+      tidak ambigu, beda dari render (bisa banyak handle sekaligus).
+      Prioritas: seleksi eksplisit → grup yang sedang armed/di-drag →
+      (kalau sketch cuma punya SATU region total, tidak ambigu sama
+      sekali) region itu → selain itu `None` (sengaja tidak menggeser
+      apa-apa; dgn 2+ region tak-berlabel, tidak ada cara tahu yang mana
+      dimaksud tanpa user menunjuk salah satu "+" dulu).
+- [x] **Tool Pilih TIDAK dihapus dari sketch** (dikonfirmasi via
+      `AskUserQuestion`, opsi "Tetap ada, tapi tidak wajib") — masih
+      dipakai penuh utk Extrude/Mirror/Revolve/Delete/Constraint seperti
+      sebelumnya; TIDAK ADA perubahan di `left_toolbar.rs`.
+- [x] Workspace hijau — `cargo build --workspace` bersih, `clippy -p
+      cadraw-app` tidak ada warning baru di kode yang disentuh, 168 test
+      tetap lulus (perubahan ini re-arsitektur interaksi/render, bukan
+      logika kernel/sketch murni baru — cakupan test lama yg sudah ada
+      utk `region_center_snap`/`translate_entity`/`find_closed_regions`
+      tetap relevan & lulus).
+
 ## Menjalankan
 
 ```bash

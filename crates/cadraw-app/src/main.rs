@@ -829,21 +829,41 @@ struct CadrawApp {
     /// fitur baru — commit mengubah/menghapus fitur itu lalu rebuild.
     editing_round: Option<(BodyId, usize)>,
 
-    // State Gizmo Geser — sketch 2D (titik "+" omnidirectional) & Axis
-    // X/Y/Z — body 3D — muncul otomatis saat tool Pilih aktif & ada
-    // seleksi (sketch ATAU body), pola sama dgn gizmo Extrude/Face yang
-    // sudah auto-muncul di atas. Sketch & body punya gizmo terpisah
-    // (prioritas body kalau `selected_bodies` non-kosong) karena target &
-    // mekanik beda: sketch cuma SATU handle "+" yang bisa digeser bebas
-    // ke segala arah dalam bidangnya sendiri sekaligus (u DAN v barengan,
-    // juga bisa nge-snap ke titik entitas lain — lihat
-    // `CanvasHud::render_draggable_move_handle`), body tetap 3 panah
-    // terpisah sepanjang X/Y/Z dunia (translasi bebas arah untuk solid
-    // kurang masuk akal tanpa sumbu, beda dari sketch yang planar).
-    /// `true` selagi handle geser sketch sedang di-drag.
+    // State Gizmo Geser — sketch 2D & Axis X/Y/Z body 3D. Body tetap
+    // butuh tool Pilih aktif (gate 3D tidak diubah — lihat
+    // `selected_single_body_center`). Sketch SEKARANG bawaan mode sketsa,
+    // TIDAK butuh tool Pilih SAMA SEKALI: SETIAP region tertutup di
+    // sketch aktif dapat titik "+" SENDIRI-SENDIRI (lihat
+    // `sketch_move_groups`) — 2 sketch terpisah = 2 titik "+" independen,
+    // BUKAN 1 titik gabungan di tengah-tengah keduanya (bug yang
+    // dilaporkan user dari versi sebelumnya yang cuma fallback ke SATU
+    // centroid gabungan seluruh sketch). Kalau ada seleksi eksplisit
+    // (`self.selected`, lewat tool Pilih — masih ada & masih dipakai utk
+    // Extrude/Mirror/Revolve/Delete/Constraint, TIDAK dihapus) itu jadi
+    // SATU-SATUNYA grup (override semua region individual) — jalur
+    // presisi buat geser SEBAGIAN sketch saja. `sketch_move_target`
+    // menyimpan grup MANA yang sedang di-drag/di-armed SEKARANG — handle
+    // lain tetap statis & independen (masing2 di-render terpisah tiap
+    // frame di `dynamic_input_ui`, lihat blok "Gizmo Geser sketch 2D").
+    // Body tetap 3 panah terpisah sepanjang X/Y/Z dunia (translasi bebas
+    // arah untuk solid kurang masuk akal tanpa sumbu, beda dari sketch
+    // yang planar & bisa punya banyak objek sekaligus).
+    /// Grup entitas yang SEDANG jadi target gizmo geser sketch (drag ATAU
+    /// armed) — `None` kalau tidak ada satu pun handle "+" yang sedang
+    /// aktif. Identitas grup (bukan index/posisi) supaya tetap valid
+    /// walau `find_closed_regions` menghitung ulang tiap frame.
+    sketch_move_target: Option<HashSet<EntityId>>,
+    /// `true` selagi handle geser sketch (`sketch_move_target`) sedang
+    /// di-drag.
     sketch_move_dragging: bool,
     /// Delta akumulasi (u, v — mm lokal bidang aktif) sejak drag mulai.
     sketch_move_delta: DVec2,
+    /// `true` selagi "mode geser" armed aktif (diaktifkan klik singkat —
+    /// bukan drag — di handle "+" milik `sketch_move_target`): tombol
+    /// panah keyboard POLOS (tanpa Cmd) menggeser grup itu selangkah demi
+    /// selangkah selama ini `true`. Cara kedua menggeser sketch selain
+    /// drag mouse langsung — lihat blok nudge di `handle_sketch_input`.
+    sketch_move_armed: bool,
     /// Sumbu dunia (arah satuan) yang sedang di-drag pada gizmo body.
     body_axis_drag: Option<Vec3>,
     /// Body target drag, di-set sekali saat drag gizmo body mulai.
@@ -999,8 +1019,10 @@ impl CadrawApp {
             round_history: std::collections::HashMap::new(),
             editing_round: None,
 
+            sketch_move_target: None,
             sketch_move_dragging: false,
             sketch_move_delta: DVec2::ZERO,
+            sketch_move_armed: false,
             body_axis_drag: None,
             body_axis_target: None,
             body_axis_delta: 0.0,
@@ -1150,6 +1172,13 @@ impl CadrawApp {
         self.last_snap = None;
         self.dynamic_input.clear();
         self.dynamic_focus_pending = false;
+        // Ganti tool = niat user berubah — "mode geser" armed (panah
+        // keyboard polos, lihat `sketch_move_armed`) punya makna implisit
+        // "lagi fokus geser objek ini", jadi ikut dilucuti (beserta grup
+        // targetnya) supaya tidak nyangkut nge-arm selagi user pindah
+        // kerjain hal lain.
+        self.sketch_move_armed = false;
+        self.sketch_move_target = None;
     }
 
     fn snapped_or(&self, raw: DVec2) -> DVec2 {
@@ -2244,19 +2273,38 @@ impl CadrawApp {
         Some(DVec2::new(cx / total_area, cy / total_area))
     }
 
-    /// Titik pusat (rata-rata representative point tiap entitas — midpoint
-    /// untuk Line, center untuk Circle/Arc/Ellipse) seluruh seleksi sketch
-    /// SAAT INI, dipakai menaruh gizmo drag axis X/Y/Z sketch. Beda dari
-    /// `selected_closed_region_centroid` (butuh region tertutup, dipakai
-    /// gizmo Extrude): ini jalan untuk seleksi APA PUN, termasuk entitas
-    /// lepas yang tidak membentuk loop tertutup.
-    fn selected_entities_centroid(&self) -> Option<DVec2> {
-        if self.tool != ToolKind::Select || self.selected.is_empty() {
-            return None;
+    /// Grup-grup entitas yang MASING-MASING dapat titik "+" SENDIRI di
+    /// sketch aktif: kalau ada seleksi eksplisit (`self.selected`, lewat
+    /// tool Pilih), itu jadi SATU-SATUNYA grup (override semua region
+    /// individual) — jalur presisi buat geser SEBAGIAN sketch saja. Kalau
+    /// TIDAK ada seleksi sama sekali, SATU grup per region tertutup
+    /// (`find_closed_regions`) — inilah yang bikin 2 sketch/profil
+    /// terpisah dapat 2 titik "+" independen, bukan 1 titik gabungan di
+    /// tengah-tengah keduanya. Entitas lepas yang tidak membentuk loop
+    /// tertutup manapun sengaja belum dapat handle otomatis sendiri
+    /// (perlu diseleksi manual dulu lewat tool Pilih) — batasan yang
+    /// didokumentasikan, bukan regresi.
+    fn sketch_move_groups(&self) -> Vec<HashSet<EntityId>> {
+        if !self.selected.is_empty() {
+            return vec![self.selected.clone()];
         }
+        find_closed_regions(self.sketch())
+            .into_iter()
+            .map(|r| r.entity_ids)
+            .collect()
+    }
+
+    /// Titik pusat (rata-rata representative point tiap entitas — midpoint
+    /// untuk Line, center untuk Circle/Arc/Ellipse) satu grup `ids` dari
+    /// `sketch_move_groups`. Beda dari `selected_closed_region_centroid`
+    /// (butuh region tertutup, dipakai gizmo Extrude — TETAP di-gate
+    /// `tool == Select` di situ, tidak disentuh di sini): ini jalan untuk
+    /// grup APA PUN, termasuk entitas lepas dalam seleksi eksplisit yang
+    /// tidak membentuk loop tertutup.
+    fn group_centroid(&self, ids: &HashSet<EntityId>) -> Option<DVec2> {
         let mut sum = DVec2::ZERO;
         let mut count = 0usize;
-        for id in &self.selected {
+        for id in ids {
             if let Some(e) = self.sketch().entities.get(*id) {
                 sum += e.midpoint().or_else(|| e.center()).unwrap_or(DVec2::ZERO);
                 count += 1;
@@ -2265,17 +2313,56 @@ impl CadrawApp {
         (count > 0).then(|| sum / count as f64)
     }
 
-    /// Jangkar (titik pusat seleksi, dunia 3D) gizmo geser sketch — `None`
-    /// kalau tidak ada seleksi sketch yang valid atau ada body terpilih
+    /// Jangkar (titik pusat, dunia 3D) grup yang SEDANG jadi target gizmo
+    /// geser sketch (`sketch_move_target` — drag ATAU armed) — `None`
+    /// kalau tidak ada grup yang sedang aktif atau ada body terpilih
     /// (prioritas body menang). Dipakai BERSAMA oleh render
-    /// (`build_overlay_lines`) & interaksi (`dynamic_input_ui`) supaya
-    /// keduanya selalu sinkron persis.
+    /// (`build_overlay_lines`, garis putus-putus preview drag) &
+    /// interaksi (`dynamic_input_ui`) supaya keduanya selalu sinkron
+    /// persis. Handle "+" LAIN yang tidak aktif dirender independen
+    /// langsung dari `sketch_move_groups` di `dynamic_input_ui`, tidak
+    /// lewat fungsi ini.
     fn sketch_move_anchor(&self) -> Option<Vec3> {
         if !self.selected_bodies.is_empty() {
             return None;
         }
-        let centroid = self.selected_entities_centroid()?;
+        let ids = self.sketch_move_target.as_ref()?;
+        let centroid = self.group_centroid(ids)?;
         Some(self.active_plane.to_world(centroid, 0.05))
+    }
+
+    /// Titik tengah region tertutup LAIN (bukan bagian `exclude`, biasanya
+    /// grup yang sedang di-drag) di sketch aktif yang paling dekat dengan
+    /// `target`, dalam `tolerance` — dipakai selagi drag handle "+" biar
+    /// bisa "menyatukan pusat" 2 sketch/profil. Logika sesungguhnya di
+    /// `region_center_snap` (free function, testable tanpa `CadrawApp`).
+    fn find_region_center_snap(&self, exclude: &HashSet<EntityId>, target: DVec2, tolerance: f64) -> Option<DVec2> {
+        region_center_snap(self.sketch(), exclude, target, tolerance)
+    }
+
+    /// Target nudge KEYBOARD (Cmd+Panah ATAU armed+panah-polos) — beda
+    /// dari `sketch_move_groups` (bisa banyak grup sekaligus, satu per
+    /// handle "+" independen): keyboard cuma bisa menggeser SATU grup per
+    /// tekan, jadi harus tidak ambigu. Prioritas: (1) seleksi eksplisit
+    /// (`self.selected`) kalau ada — presisi, sama seperti drag; (2) grup
+    /// yang sedang armed/di-drag (`sketch_move_target`) kalau ada — user
+    /// baru saja klik/drag handle tertentu, itu yang dimaksud; (3) kalau
+    /// sketch cuma punya SATU region tertutup total (tidak ambigu sama
+    /// sekali), pakai itu. Selain itu (2+ region, tidak ada yang dipilih/
+    /// di-arm) sengaja `None` — tidak ada cara tahu region MANA yang mau
+    /// digeser tanpa user menunjuknya dulu (klik salah satu "+").
+    fn nudge_target_ids(&self) -> Option<Vec<EntityId>> {
+        if !self.selected.is_empty() {
+            return Some(self.selected.iter().copied().collect());
+        }
+        if let Some(ids) = &self.sketch_move_target {
+            return Some(ids.iter().copied().collect());
+        }
+        let regions = find_closed_regions(self.sketch());
+        if regions.len() == 1 {
+            return Some(regions[0].entity_ids.iter().copied().collect());
+        }
+        None
     }
 
     /// Hitung delta pergeseran (dalam mm dunia) dari pergeseran mouse layar (egui `Vec2`),
@@ -2659,32 +2746,45 @@ impl CadrawApp {
             {
                 let ids: Vec<_> = self.selected.drain().collect();
                 self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
+                self.sketch_move_armed = false;
+                self.sketch_move_target = None;
             }
-            // Nudge seleksi sketch pakai Cmd (Mac) / Ctrl (Windows/Linux,
-            // `modifiers.command` sudah cross-platform di egui) + tombol
-            // panah — geser SATU langkah kecil (`NUDGE_STEP_MM`) sepanjang
-            // u/v bidang aktif, commit LANGSUNG sbg satu command undo-able
-            // per tekan (bukan diakumulasi seperti drag mouse) — cara
-            // kedua utk gizmo geser "+" selain drag mouse, sesuai
-            // permintaan user.
-            if !self.selected.is_empty() && self.tool == ToolKind::Select && ui.input(|i| i.modifiers.command) {
-                const NUDGE_STEP_MM: f64 = 1.0;
-                let nudge = ui.input(|i| {
-                    if i.key_pressed(egui::Key::ArrowLeft) {
-                        Some(DVec2::new(-NUDGE_STEP_MM, 0.0))
-                    } else if i.key_pressed(egui::Key::ArrowRight) {
-                        Some(DVec2::new(NUDGE_STEP_MM, 0.0))
-                    } else if i.key_pressed(egui::Key::ArrowUp) {
-                        Some(DVec2::new(0.0, NUDGE_STEP_MM))
-                    } else if i.key_pressed(egui::Key::ArrowDown) {
-                        Some(DVec2::new(0.0, -NUDGE_STEP_MM))
-                    } else {
-                        None
+            // Nudge sketch (`nudge_target_ids` — lihat dokumentasinya:
+            // seleksi eksplisit, atau grup armed/dragging, atau satu-
+            // satunya region kalau tidak ambigu) pakai tombol panah — dua
+            // jalur pemicu: (a) Cmd (Mac) / Ctrl (Windows/Linux,
+            // `modifiers.command` sudah cross-platform di egui) + panah,
+            // cara lama, jalan di TOOL 2D APAPUN sepanjang masih mode
+            // sketsa (dulu digate `tool == Select`, sekarang bawaan mode
+            // sketsa — gizmo geser sketch bawaan mode sketsa, bukan tool
+            // Pilih); (b) "mode geser" armed aktif (`sketch_move_armed`,
+            // diaktifkan klik singkat di salah satu handle "+" — lihat
+            // `dynamic_input_ui`) + panah POLOS tanpa modifier apa pun,
+            // cara baru sesuai permintaan user (klik "+" dulu, lepas
+            // mouse, lalu tinggal pakai keyboard). Geser SATU langkah
+            // kecil (`NUDGE_STEP_MM`) sepanjang u/v bidang aktif, commit
+            // LANGSUNG sbg satu command undo-able per tekan (bukan
+            // diakumulasi seperti drag mouse).
+            let cmd_held = ui.input(|i| i.modifiers.command);
+            if self.is_sketching && (cmd_held || self.sketch_move_armed) {
+                if let Some(ids) = self.nudge_target_ids() {
+                    const NUDGE_STEP_MM: f64 = 1.0;
+                    let nudge = ui.input(|i| {
+                        if i.key_pressed(egui::Key::ArrowLeft) {
+                            Some(DVec2::new(-NUDGE_STEP_MM, 0.0))
+                        } else if i.key_pressed(egui::Key::ArrowRight) {
+                            Some(DVec2::new(NUDGE_STEP_MM, 0.0))
+                        } else if i.key_pressed(egui::Key::ArrowUp) {
+                            Some(DVec2::new(0.0, NUDGE_STEP_MM))
+                        } else if i.key_pressed(egui::Key::ArrowDown) {
+                            Some(DVec2::new(0.0, -NUDGE_STEP_MM))
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(delta) = nudge {
+                        self.execute_sketch_command(Box::new(TranslateEntities::new("Geser Sketch (Panah)", ids, delta)));
                     }
-                });
-                if let Some(delta) = nudge {
-                    let ids: Vec<EntityId> = self.selected.iter().copied().collect();
-                    self.execute_sketch_command(Box::new(TranslateEntities::new("Geser Sketch (Panah)", ids, delta)));
                 }
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -2707,6 +2807,11 @@ impl CadrawApp {
                     self.line_chain_segments = 0;
                     self.dynamic_input.clear();
                     self.dynamic_focus_pending = false;
+                } else if self.sketch_move_armed {
+                    // Escape keluar dari "mode geser" armed dulu — lebih
+                    // ringan/lokal daripada langsung membatalkan seleksi.
+                    self.sketch_move_armed = false;
+                    self.sketch_move_target = None;
                 } else if !self.selected.is_empty() {
                     self.selected.clear();
                 } else if self.is_sketching {
@@ -2822,6 +2927,15 @@ impl CadrawApp {
                     );
                 }
                 if response.clicked() && !suppress_click_from_radial {
+                    // Klik viewport (di luar handle "+" itu sendiri — handle
+                    // punya `Response` allocate_rect terpisah, lihat
+                    // `dynamic_input_ui`) selalu mengubah/mengonfirmasi
+                    // seleksi baru, jadi "mode geser" armed lama (kalau ada)
+                    // tidak relevan lagi buat seleksi ini — lucuti supaya
+                    // panah keyboard tidak diam-diam menggeser objek yang
+                    // sudah bukan yang dimaksud user.
+                    self.sketch_move_armed = false;
+                    self.sketch_move_target = None;
                     let shift = ui.input(|i| i.modifiers.shift);
                     let click_pos = response.hover_pos()
                         .or_else(|| ui.input(|i| i.pointer.latest_pos()))
@@ -3269,11 +3383,12 @@ impl CadrawApp {
             }
         }
 
-        // Gizmo Geser (titik "+") — sketch 2D: muncul otomatis saat tool
-        // Pilih aktif & ada seleksi sketch APA PUN (bukan cuma profil
-        // tertutup, beda dari gizmo Extrude di atas), tapi cuma kalau
-        // tidak ada body terpilih (prioritas body menang, lihat gizmo body
-        // di bawah). Ikon "+" itu sendiri murni widget 2D layar
+        // Gizmo Geser (titik "+") — sketch 2D: SATU per grup
+        // (`sketch_move_groups`, biasanya 1 per region tertutup — TIDAK
+        // butuh tool Pilih ataupun seleksi eksplisit sama sekali lagi),
+        // tapi cuma kalau tidak ada body terpilih (prioritas body menang,
+        // lihat gizmo body di bawah). Ikon "+" itu sendiri murni widget 2D
+        // layar
         // (`CanvasHud::render_draggable_move_handle` di `dynamic_input_ui`)
         // — di sini cuma garis putus-putus dari titik ASAL ke posisi
         // geser SAAT INI selagi drag berlangsung, penanda seberapa jauh
@@ -4176,34 +4291,66 @@ impl CadrawApp {
         }
 
         // 6. Interactive Draggable Handle "+" untuk Gizmo Geser sketch 2D
-        // (lihat `sketch_move_anchor`/`build_overlay_lines`) — SATU handle
-        // omnidirectional (bukan 2 panah sumbu terpisah seperti versi
-        // lama): drag bebas menggeser u DAN v bidang aktif sekaligus.
-        // Proyeksi drag_delta piksel ke u & v lewat
+        // — SATU handle omnidirectional PER GRUP (`sketch_move_groups`,
+        // biasanya satu per region tertutup — lihat dokumentasinya): 2
+        // sketch/profil terpisah dapat 2 titik "+" independen yang
+        // masing2 bisa digeser sendiri-sendiri, bukan 1 titik gabungan di
+        // tengah-tengah keduanya (bug yang dilaporkan user). Tiap handle
+        // dibungkus `ui.push_id` dengan id STABIL dari isi grupnya (bukan
+        // urutan render) supaya drag di tengah gestur tidak putus walau
+        // `find_closed_regions` menghitung ulang urutan region tiap
+        // frame. Drag bebas menggeser u DAN v bidang aktif sekaligus,
+        // proyeksi drag_delta piksel ke u & v lewat
         // `project_screen_drag_to_world_axis` DUA KALI (sekali per sumbu,
         // delta mouse yang sama) — akurat persis saat kamera tegak lurus
         // bidang (kasus umum: mode sketsa selalu mengorientasikan kamera
-        // begitu), sedikit shear di sudut kamera oblique karena ini bukan
-        // solve simultan 2D — trade-off yang sama dgn semua gizmo
-        // single-axis lain di file ini.
+        // begitu), sedikit shear di sudut kamera oblique, trade-off yang
+        // sama dgn semua gizmo single-axis lain di file ini.
         //
         // Snap-to-point selagi drag: kalau posisi geser SAAT INI dekat
         // titik snap (endpoint/center/dst) entitas lain, dijepret PERSIS
         // ke situ lewat `find_snap` yang sudah ada — inilah cara
         // "satukan pusat sketch" (drag lingkaran A ke pusat lingkaran B,
-        // titik "+" nempel pas di tengahnya).
-        if let Some(anchor) = self.sketch_move_anchor() {
-            let handle_3d = anchor
-                + self.active_plane.u_axis * self.sketch_move_delta.x as f32
-                + self.active_plane.v_axis * self.sketch_move_delta.y as f32;
-            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
-                let handle_resp = CanvasHud::render_draggable_move_handle(ui, handle_2d, self.sketch_move_dragging);
+        // titik "+" nempel pas di tengahnya). Kalau tidak ada entity-point
+        // snap yang kena, coba juga titik tengah region tertutup LAIN
+        // (`find_region_center_snap`, exclude grup yang sedang di-drag) —
+        // inilah jalur "satukan 2 sketch/profil supaya sepusat" yang
+        // diminta user: drag "+" rectangle A sampai dekat "+"
+        // rectangle/circle B, langsung nempel pas di tengahnya.
+        if self.selected_bodies.is_empty() {
+            for group in self.sketch_move_groups() {
+                let Some(centroid) = self.group_centroid(&group) else {
+                    continue;
+                };
+                let is_target = self.sketch_move_target.as_ref() == Some(&group);
+                let delta = if is_target { self.sketch_move_delta } else { DVec2::ZERO };
+                let anchor = self.active_plane.to_world(centroid, 0.05);
+                let handle_3d = anchor
+                    + self.active_plane.u_axis * delta.x as f32
+                    + self.active_plane.v_axis * delta.y as f32;
+                let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) else {
+                    continue;
+                };
+
+                let mut key_ids: Vec<u64> = group.iter().map(|id| id.data().as_ffi()).collect();
+                key_ids.sort_unstable();
+                let handle_id = egui::Id::new(("cadraw_sketch_move_handle", key_ids));
+
+                let is_dragging_this = is_target && self.sketch_move_dragging;
+                let is_armed_this = is_target && self.sketch_move_armed;
+                let handle_resp = ui
+                    .push_id(handle_id, |ui| {
+                        CanvasHud::render_draggable_move_handle(ui, handle_2d, is_dragging_this, is_armed_this)
+                    })
+                    .inner;
 
                 if handle_resp.drag_started() {
+                    self.sketch_move_target = Some(group.clone());
                     self.sketch_move_dragging = true;
+                    self.sketch_move_armed = false;
                     self.sketch_move_delta = DVec2::ZERO;
                 }
-                if self.sketch_move_dragging && handle_resp.dragged() {
+                if is_dragging_this && handle_resp.dragged() {
                     let (du, _) =
                         self.project_screen_drag_to_world_axis(rect, anchor, self.active_plane.u_axis, handle_resp.drag_delta());
                     let (dv, _) =
@@ -4211,16 +4358,33 @@ impl CadrawApp {
                     self.sketch_move_delta.x += du;
                     self.sketch_move_delta.y += dv;
 
-                    if let Some(centroid) = self.selected_entities_centroid() {
-                        let target = centroid + self.sketch_move_delta;
-                        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
-                        if let Some(hit) = find_snap(self.sketch(), target, tol, 10.0, None) {
-                            self.sketch_move_delta = hit.point - centroid;
-                        }
+                    let target_pt = centroid + self.sketch_move_delta;
+                    let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                    if let Some(hit) = find_snap(self.sketch(), target_pt, tol, 10.0, None) {
+                        self.sketch_move_delta = hit.point - centroid;
+                    } else if let Some(region_center) = self.find_region_center_snap(&group, target_pt, tol) {
+                        self.sketch_move_delta = region_center - centroid;
                     }
                 }
-                if self.sketch_move_dragging && handle_resp.drag_stopped() {
+                if is_dragging_this && handle_resp.drag_stopped() {
                     self.commit_sketch_move_drag();
+                }
+                // Klik SINGKAT (bukan drag) di handle "+" — toggle "mode
+                // geser" armed grup ini: sekali armed, panah keyboard
+                // polos (lihat `handle_sketch_input`) menggeser grup itu
+                // tanpa perlu pegang mouse sama sekali. Klik handle LAIN
+                // sambil satu grup masih armed langsung memindah target
+                // (bukan menumpuk armed di 2 grup sekaligus).
+                if handle_resp.clicked() {
+                    if is_target && self.sketch_move_armed {
+                        self.sketch_move_armed = false;
+                        self.sketch_move_target = None;
+                    } else {
+                        self.sketch_move_target = Some(group.clone());
+                        self.sketch_move_armed = true;
+                        self.sketch_move_dragging = false;
+                        self.sketch_move_delta = DVec2::ZERO;
+                    }
                 }
             }
         }
@@ -5029,15 +5193,20 @@ impl CadrawApp {
     /// Commit drag gizmo geser sketch (`sketch_move_dragging`/
     /// `sketch_move_delta`) jadi SATU command undo-able (delta u,v
     /// gabungan, bukan dua command X lalu Y terpisah), lalu reset state
-    /// gizmo. Tidak melakukan apa-apa kalau delta nyaris nol (klik tanpa
-    /// drag berarti) atau seleksi kosong.
+    /// gizmo termasuk `sketch_move_target` (grup yang barusan di-drag
+    /// SELESAI, handle-nya kembali statis di posisi barunya lewat
+    /// `sketch_move_groups`/`group_centroid` normal, bukan lewat
+    /// `sketch_move_delta` lagi). Tidak melakukan apa-apa kalau delta
+    /// nyaris nol (klik tanpa drag berarti) atau tidak ada grup aktif.
     fn commit_sketch_move_drag(&mut self) {
         self.sketch_move_dragging = false;
         let delta = std::mem::take(&mut self.sketch_move_delta);
-        if delta.length() < 1e-6 || self.selected.is_empty() {
+        let Some(ids) = self.sketch_move_target.take().map(|s| s.into_iter().collect::<Vec<_>>()) else {
+            return;
+        };
+        if delta.length() < 1e-6 || ids.is_empty() {
             return;
         }
-        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
         self.execute_sketch_command(Box::new(TranslateEntities::new("Geser Sketch", ids, delta)));
     }
 
@@ -5374,6 +5543,32 @@ impl CadrawApp {
 
 }
 
+/// Titik tengah region tertutup di `sketch` (tidak termasuk region yang
+/// beririsan dengan `exclude`) yang paling dekat dengan `target`, dalam
+/// `tolerance` — dipakai `CadrawApp::find_region_center_snap` selagi drag
+/// handle "+" biar bisa "menyatukan pusat" 2 sketch/profil (mis. drag
+/// rectangle A supaya titik tengahnya pas di titik tengah circle/rectangle
+/// B). Beda dari `find_snap` (endpoint/midpoint/center/intersection/grid —
+/// titik DOF entitas TUNGGAL): titik tengah region tertutup majemuk (mis.
+/// rectangle 4 garis) bukan titik snap entitas manapun, jadi butuh sumber
+/// terpisah. `exclude` mengecualikan region milik seleksi yang sedang
+/// digeser sendiri — tanpa ini, delta 0 (awal drag) akan selalu "nge-snap"
+/// ke centroid sendiri, mengunci gerakan di posisi awal.
+fn region_center_snap(
+    sketch: &Sketch,
+    exclude: &HashSet<EntityId>,
+    target: DVec2,
+    tolerance: f64,
+) -> Option<DVec2> {
+    find_closed_regions(sketch)
+        .into_iter()
+        .filter(|r| r.entity_ids.is_disjoint(exclude))
+        .map(|r| (r.centroid, (r.centroid - target).length()))
+        .filter(|(_, d)| *d <= tolerance)
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .map(|(p, _)| p)
+}
+
 /// Untuk tool Trim: segmen (awal,akhir) yang akan terhapus jika `hover`
 /// diklik sekarang pada entitas Line `id`. Dipakai preview hover; commit
 /// klik menghitung ulang lewat `trim_segments` (lihat `handle_sketch_input`)
@@ -5549,6 +5744,68 @@ mod plane_activation_tests {
         let p_near = Vec3::new(0.0, 0.0, 50.0);
         let dir = Vec3::new(1.0, 0.0, 0.0);
         let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Right);
+        assert_eq!(hit, None);
+    }
+}
+
+#[cfg(test)]
+mod region_center_snap_tests {
+    use super::*;
+
+    /// Dua rectangle terpisah (A: 0..10, B: 20..30 di X) — drag titik
+    /// tengah A (5,2.5) yang didekatkan ke arah titik tengah B (25,2.5)
+    /// harus nge-snap PERSIS ke situ, sama seperti "satukan pusat 2
+    /// sketch" yang diminta user.
+    #[test]
+    fn snaps_to_other_closed_region_centroid() {
+        let mut sketch = Sketch::default();
+        // Rectangle A (bakal jadi "seleksi yang di-drag" — id-nya dikecualikan).
+        let a0 = sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 0.0), end: DVec2::new(10.0, 0.0) });
+        let a1 = sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 0.0), end: DVec2::new(10.0, 5.0) });
+        let a2 = sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 5.0), end: DVec2::new(0.0, 5.0) });
+        let a3 = sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 5.0), end: DVec2::new(0.0, 0.0) });
+        // Rectangle B, pusat geometris di (25, 2.5).
+        sketch.entities.insert(Entity::Line { start: DVec2::new(20.0, 0.0), end: DVec2::new(30.0, 0.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(30.0, 0.0), end: DVec2::new(30.0, 5.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(30.0, 5.0), end: DVec2::new(20.0, 5.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(20.0, 5.0), end: DVec2::new(20.0, 0.0) });
+
+        let selected: HashSet<EntityId> = [a0, a1, a2, a3].into_iter().collect();
+
+        // Target hampir sampai di pusat B (25, 2.5), masih dalam toleransi.
+        let near_target = DVec2::new(24.5, 2.6);
+        let hit = region_center_snap(&sketch, &selected, near_target, 2.0);
+        assert_eq!(hit, Some(DVec2::new(25.0, 2.5)));
+    }
+
+    /// Region milik seleksi sendiri (`exclude`) tidak boleh jadi kandidat
+    /// snap — kalau ikut, delta 0 di awal drag akan selalu "nge-snap" ke
+    /// centroid sendiri dan mengunci gerakan.
+    #[test]
+    fn ignores_region_belonging_to_excluded_selection() {
+        let mut sketch = Sketch::default();
+        let a0 = sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 0.0), end: DVec2::new(10.0, 0.0) });
+        let a1 = sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 0.0), end: DVec2::new(10.0, 5.0) });
+        let a2 = sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 5.0), end: DVec2::new(0.0, 5.0) });
+        let a3 = sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 5.0), end: DVec2::new(0.0, 0.0) });
+        let selected: HashSet<EntityId> = [a0, a1, a2, a3].into_iter().collect();
+
+        // Target tepat di centroid sendiri (5, 2.5) — satu-satunya region ada.
+        let hit = region_center_snap(&sketch, &selected, DVec2::new(5.0, 2.5), 2.0);
+        assert_eq!(hit, None);
+    }
+
+    /// Di luar toleransi — tidak nge-snap.
+    #[test]
+    fn no_snap_when_outside_tolerance() {
+        let mut sketch = Sketch::default();
+        sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 0.0), end: DVec2::new(10.0, 0.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 0.0), end: DVec2::new(10.0, 5.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(10.0, 5.0), end: DVec2::new(0.0, 5.0) });
+        sketch.entities.insert(Entity::Line { start: DVec2::new(0.0, 5.0), end: DVec2::new(0.0, 0.0) });
+
+        let far_target = DVec2::new(500.0, 500.0);
+        let hit = region_center_snap(&sketch, &HashSet::new(), far_target, 2.0);
         assert_eq!(hit, None);
     }
 }
