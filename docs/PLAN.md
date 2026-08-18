@@ -2624,6 +2624,57 @@ tetap cuma 2D jadi tetap butuh cara eksplisit utk sumbu ketiga).
       lulus (murni re-arsitektur interaksi/render gizmo body, tidak ada
       logika kernel/sketch baru yang perlu test unit baru).
 
+## Status — Icon Gizmo Push/Pull Solid & Profesional (dikerjakan)
+
+User: "design icon gizmo ini tolong buat lebih profesional. Aku mau
+cukup 1 icon aja. Tapi yang benar2 fungsional. Yang 3D frame itu ok,
+cuma harus kamu ubah jadi solid dan ukuran di kecilin. Karena yang icon
+lingkaran 2D itu aneh." — screenshot menunjukkan gizmo push/pull face
+tampil sbg DUA elemen tumpang tindih: kerucut-ganda WIREFRAME raksasa
+(ukuran mm dunia tetap, jadi memenuhi layar saat kamera zoom in) + badge
+lingkaran biru flat 2D di tengahnya (widget drag sungguhan). `/ecc:plan`
+dijalankan dulu, sempat di-re-verifikasi terhadap 4 commit baru (fitur
+gizmo geser objek "+" yang tidak berkaitan) sebelum eksekusi.
+
+- [x] **`sketch_render::solid_double_arrow_gizmo_mesh`** (baru,
+      `cadraw-render/src/sketch.rs`) — versi SOLID dari
+      `double_arrow_gizmo_lines` lama (silhouette sama persis: poros +
+      2 kepala kerucut), tapi segitiga flat-shaded (tiap segitiga vertex
+      sendiri, normal tegas per-wajah = kesan "gem"/facet tajam) alih-
+      alih rusuk kawat. Winding tiap segitiga dikoreksi otomatis lewat
+      `outward_hint` supaya normal SELALU menghadap keluar (dipakai
+      shading, beda dari sekadar soal visibility — `mesh_pipeline` pakai
+      `cull_mode: None`).
+- [x] **`SceneRenderer::set_gizmo_mesh`** (baru, `scene.rs`) — buffer
+      GPU terpisah dari `set_mesh` (body CAD), tapi pipeline SAMA
+      (`mesh_pipeline`/`fs_mesh`) supaya shading gizmo (ambient floor +
+      rim light) konsisten dgn material body, bukan icon UI yang
+      ditempel di atas scene. Digambar terakhir di `paint()`.
+- [x] **`CadrawApp::build_gizmo_mesh`** (baru, `main.rs`) — SATU fungsi
+      dipakai utk KEEMPAT jenis gizmo (extrude sketch, push/pull face,
+      rounding vertex, rounding edge; beda cuma warna tint), ukurannya
+      dihitung dari `pixel_tolerance_to_world` (mm per piksel layar)
+      BUKAN konstanta mm tetap — akar bug ukuran raksasa di screenshot.
+      Gizmo sekarang selalu ~sebesar ini di layar berapa pun jarak
+      kamera (pola sama dgn manipulator Fusion 360/Blender).
+- [x] 4 panggilan `double_arrow_gizmo_lines` (wireframe) dihapus dari
+      `build_overlay_lines` (garis panduan putus-putus tetap ada, cuma
+      icon panahnya yang pindah ke mesh solid).
+- [x] `CanvasHud::render_draggable_double_arrow_handle` dilucuti —
+      badge lingkaran biru + icon panah `▲-▼` flat-nya DIHAPUS total,
+      sisa cuma hit-area `Sense::drag()` + logic cursor-icon (signature
+      & `Response` TIDAK berubah, jadi 4 call site di `main.rs` tidak
+      perlu disentuh). Hasil akhir: **1 icon per gizmo** — solid,
+      ter-shading, kecil & proporsional di semua level zoom.
+- [x] 3 unit test baru (`sketch.rs`): triangle-soup valid (index dalam
+      batas, tidak ada NaN, normal satuan), mesh kosong utk normal nol
+      vektor (tidak panic), dan ukuran ikut membesar/mengecil sesuai
+      `arrow_size` (jaminan dasar skala-berbasis-piksel benar-benar
+      berefek).
+- [x] Workspace hijau — `cargo build --workspace` bersih, 171 test
+      lulus (168 lama + 3 baru), smoke-run `cargo run --bin cadraw`
+      (8 detik) tidak crash/tidak ada validation error wgpu.
+
 ## Menjalankan
 
 ```bash

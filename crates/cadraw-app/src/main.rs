@@ -2641,6 +2641,7 @@ impl CadrawApp {
         let world_scale = pixel_tolerance_to_world(&self.camera, rect);
         let overlay = self.build_overlay_lines(raw_cursor, world_scale);
         let (body_positions, body_normals, body_colors, body_indices) = self.build_combined_body_mesh();
+        let (gizmo_positions, gizmo_normals, gizmo_colors, gizmo_indices) = self.build_gizmo_mesh(world_scale);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
@@ -2652,6 +2653,10 @@ impl CadrawApp {
                 body_normals,
                 body_colors,
                 body_indices,
+                gizmo_positions,
+                gizmo_normals,
+                gizmo_colors,
+                gizmo_indices,
                 clip_plane: self.section_clip_plane(),
             },
         ));
@@ -3419,20 +3424,20 @@ impl CadrawApp {
         if let Some(centroid) = self.selected_closed_region_centroid() {
             let c_base_pt = self.active_plane.to_world(centroid, 0.02);
             let c_base = [c_base_pt.x, c_base_pt.y, c_base_pt.z];
-            const GIZMO_ARROW_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
 
+            // Icon panah-nya sendiri (Fase 9 — solid, dishading) TIDAK lagi
+            // digambar di sini sbg wireframe — lihat `build_gizmo_mesh`,
+            // dipanggil terpisah & di-upload lewat `SceneRenderer::
+            // set_gizmo_mesh`. Di sini cuma sisa garis panduan putus-putus.
             if self.extruding_from_gizmo {
                 let c_top_pt = self.active_plane.to_world(centroid, self.gizmo_distance as f32);
                 let c_top = [c_top_pt.x, c_top_pt.y, c_top_pt.z];
                 // Garis putus-putus dari base ke ketinggian extrude
                 verts.extend(sketch_render::dashed_line_3d(c_base, c_top, 4.0, [0.15, 0.70, 1.0, 0.95]));
-                // Gizmo panah tebal di posisi ujung extrude
-                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
             } else {
                 let gizmo_pt = self.active_plane.to_world(centroid, 18.0);
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.70, 1.0, 0.75]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 22.0, 5.0, GIZMO_ARROW_COLOR, self.active_plane.normal));
             }
         }
 
@@ -3483,19 +3488,18 @@ impl CadrawApp {
             // supaya panah visual menunjuk arah yang benar-benar mengubah
             // radius, bukan normal permukaan lokal yang konstan per-face.
             let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
-            const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
 
+            // Icon panah solid-nya sendiri: lihat `build_gizmo_mesh` (sama
+            // catatan dgn blok sketch-extrude di atas).
             if self.extruding_face_from_gizmo {
                 let dist = self.face_gizmo_distance as f32;
                 let c_top = Vec3::from(c_base) + pull_dir * dist;
                 let c_top_arr = [c_top.x, c_top.y, c_top.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, c_top_arr, 4.0, [0.15, 0.80, 1.0, 0.95]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(c_top_arr, 24.0, 5.5, FACE_GIZMO_COLOR, pull_dir));
             } else {
                 let gizmo_pt = Vec3::from(c_base) + pull_dir * 18.0;
                 let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
                 verts.extend(sketch_render::dashed_line_3d(c_base, gizmo_pos, 2.5, [0.15, 0.80, 1.0, 0.85]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(gizmo_pos, 24.0, 5.5, FACE_GIZMO_COLOR, pull_dir));
             }
         }
 
@@ -3748,6 +3752,92 @@ impl CadrawApp {
         }
 
         verts
+    }
+
+    /// Mesh solid icon gizmo (Fase 9 — Icon Gizmo Profesional): SATU jenis
+    /// bentuk (panah kerucut-ganda solid, `sketch_render::
+    /// solid_double_arrow_gizmo_mesh`) dipakai utk KEEMPAT jenis gizmo
+    /// (extrude sketch, push/pull face, rounding vertex, rounding edge),
+    /// beda cuma warna tint — gantinya wireframe raksasa (`
+    /// double_arrow_gizmo_lines`, dihapus dari `build_overlay_lines`) DAN
+    /// badge lingkaran 2D flat (`CanvasHud::render_draggable_double_arrow_
+    /// handle`, painting-nya sudah dilucuti — lihat `canvas_hud.rs`) —
+    /// jadi cuma ADA SATU icon per gizmo, solid & ter-shading sama seperti
+    /// body CAD (lewat `SceneRenderer::set_gizmo_mesh`, pipeline `fs_mesh`
+    /// yang sama).
+    ///
+    /// Ukurannya SENGAJA dihitung dari `world_scale` (mm per piksel layar,
+    /// lihat `pixel_tolerance_to_world`) alih-alih konstanta mm tetap —
+    /// kalau tidak, gizmo raksasa saat kamera zoom in dekat (persis bug
+    /// yang dilaporkan: kerucut wireframe memenuhi layar) atau nyaris tak
+    /// kelihatan saat zoom out jauh. Dengan skala berbasis piksel, gizmo
+    /// selalu terlihat ~sebesar ini di layar berapa pun jarak kameranya —
+    /// pola sama seperti manipulator Fusion 360/Blender.
+    fn build_gizmo_mesh(&self, world_scale: f64) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        let mut colors = Vec::new();
+        let mut indices = Vec::new();
+
+        // Target ukuran DI LAYAR (piksel), bukan mm dunia — lihat dokumentasi
+        // fungsi di atas. `ARROW_PX` = radius dasar kerucut, `HEIGHT_PX` =
+        // panjang total poros ujung-ke-ujung.
+        const ARROW_PX: f32 = 6.5;
+        const HEIGHT_PX: f32 = 30.0;
+        let arrow_size = (ARROW_PX as f64 * world_scale) as f32;
+        let height = (HEIGHT_PX as f64 * world_scale) as f32;
+
+        let push_mesh = |positions: &mut Vec<[f32; 3]>,
+                              normals: &mut Vec<[f32; 3]>,
+                              colors: &mut Vec<[f32; 4]>,
+                              indices: &mut Vec<u32>,
+                              center: [f32; 3],
+                              color: [f32; 4],
+                              dir: Vec3| {
+            let (p, n, c, i) = sketch_render::solid_double_arrow_gizmo_mesh(center, height, arrow_size, color, dir);
+            let base = positions.len() as u32;
+            positions.extend(p);
+            normals.extend(n);
+            colors.extend(c);
+            indices.extend(i.into_iter().map(|idx| idx + base));
+        };
+
+        const GIZMO_ARROW_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
+        const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
+        const ROUNDING_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+
+        // 1. Extrude sketch 2D
+        if let Some(centroid) = self.selected_closed_region_centroid() {
+            let z = if self.extruding_from_gizmo { self.gizmo_distance as f32 } else { 18.0 };
+            let p = self.active_plane.to_world(centroid, z);
+            push_mesh(&mut positions, &mut normals, &mut colors, &mut indices, [p.x, p.y, p.z], GIZMO_ARROW_COLOR, self.active_plane.normal);
+        }
+
+        // 2. Push/pull face 3D
+        if let Some((_, _, hit)) = &self.active_face {
+            let anchor = hit.gizmo_anchor();
+            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+            let pull_dir = Vec3::new(hit.pull_dir.0 as f32, hit.pull_dir.1 as f32, hit.pull_dir.2 as f32);
+            let dist = if self.extruding_face_from_gizmo { self.face_gizmo_distance as f32 } else { 18.0 };
+            let p = c_base + pull_dir * dist;
+            push_mesh(&mut positions, &mut normals, &mut colors, &mut indices, [p.x, p.y, p.z], FACE_GIZMO_COLOR, pull_dir);
+        }
+
+        // 3. Rounding vertex
+        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
+            let dist = if self.filleting_vertex_from_gizmo { self.vertex_gizmo_radius.max(0.1) as f32 } else { 12.0 };
+            let p = c_base + pull_dir * dist;
+            push_mesh(&mut positions, &mut normals, &mut colors, &mut indices, [p.x, p.y, p.z], ROUNDING_GIZMO_COLOR, pull_dir);
+        }
+
+        // 4. Rounding edge
+        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
+            let dist = if self.filleting_edge_from_gizmo { self.edge_gizmo_radius.max(0.1) as f32 } else { 12.0 };
+            let p = c_base + pull_dir * dist;
+            push_mesh(&mut positions, &mut normals, &mut colors, &mut indices, [p.x, p.y, p.z], ROUNDING_GIZMO_COLOR, pull_dir);
+        }
+
+        (positions, normals, colors, indices)
     }
 
     /// Sudut layar (radian, dinormalisasi ke -90°..90°) garis dunia `a`→`b`
@@ -6817,6 +6907,11 @@ struct ViewportCallback {
     body_normals: Vec<[f32; 3]>,
     body_colors: Vec<[f32; 4]>,
     body_indices: Vec<u32>,
+    /// Mesh solid icon gizmo (Fase 9) — lihat `CadrawApp::build_gizmo_mesh`.
+    gizmo_positions: Vec<[f32; 3]>,
+    gizmo_normals: Vec<[f32; 3]>,
+    gizmo_colors: Vec<[f32; 4]>,
+    gizmo_indices: Vec<u32>,
     /// Section View (Fase 7) — lihat `CadrawApp::section_clip_plane`.
     clip_plane: Option<(Vec3, f32)>,
 }
@@ -6839,6 +6934,13 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
                 &self.body_normals,
                 Some(&self.body_colors),
                 &self.body_indices,
+            );
+            scene.set_gizmo_mesh(
+                device,
+                &self.gizmo_positions,
+                &self.gizmo_normals,
+                &self.gizmo_colors,
+                &self.gizmo_indices,
             );
             scene.set_clip_plane(self.clip_plane);
             scene.prepare(queue, self.view_proj, self.eye);

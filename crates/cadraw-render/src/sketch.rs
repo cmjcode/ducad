@@ -293,6 +293,123 @@ pub fn double_arrow_gizmo_lines(
     verts
 }
 
+/// Versi SOLID (bukan wireframe) dari `double_arrow_gizmo_lines` (CADRAW
+/// Fase 9 — Icon Gizmo Profesional): silhouette-nya SENGAJA identik
+/// (poros tengah + 2 kepala kerucut di ujung, proporsi sama) — cuma sisi
+/// kerucut & poros diisi segitiga solid (flat-shaded, tiap segitiga punya
+/// vertex-nya sendiri supaya normal-nya tegas per-wajah, hasilnya kesan
+/// "gem"/facet yang tajam & profesional, bukan smooth-shaded yang blur)
+/// alih-alih rusuk garis kawat. Dipakai lewat pipeline mesh yang SAMA
+/// dengan body CAD (`SceneRenderer::set_gizmo_mesh`, shader `fs_mesh`)
+/// supaya shading-nya (ambient floor + rim light) konsisten & terasa
+/// benar-benar solid, bukan icon UI 2D yang ditempel di atas scene.
+/// `cull_mode: None` di `mesh_pipeline`, jadi winding triangle tidak
+/// wajib konsisten — tapi `push_tri` tetap membetulkan urutan vertex
+/// berdasar `outward_hint` supaya arah NORMAL (dipakai shading) selalu
+/// menghadap keluar, bukan cuma soal visibility.
+pub fn solid_double_arrow_gizmo_mesh(
+    center: [f32; 3],
+    height: f32,
+    arrow_size: f32,
+    color: [f32; 4],
+    normal: Vec3,
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut colors: Vec<[f32; 4]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    let n = normal.normalize_or_zero();
+    if n == Vec3::ZERO {
+        return (positions, normals, colors, indices);
+    }
+    let c = Vec3::from(center);
+    let top = c + n * (height * 0.5);
+    let bot = c - n * (height * 0.5);
+
+    let (t1, t2) = if n.z.abs() < 0.95 {
+        let t1 = n.cross(Vec3::Z).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    } else {
+        let t1 = n.cross(Vec3::Y).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    };
+
+    let shaft_radius = arrow_size * 0.22;
+    let s = arrow_size;
+    let segs = 10;
+    let tau = std::f32::consts::TAU;
+
+    // Segitiga flat-shaded: normal dihitung dari winding a->b->c, lalu
+    // ditukar b/c kalau hasilnya berlawanan dgn `outward_hint` — jadi
+    // pemanggil cukup kasih perkiraan arah "keluar" kasar (radial cukup,
+    // tidak perlu presisi), bukan normal final.
+    let push_tri = |positions: &mut Vec<[f32; 3]>,
+                         normals: &mut Vec<[f32; 3]>,
+                         colors: &mut Vec<[f32; 4]>,
+                         indices: &mut Vec<u32>,
+                         a: Vec3,
+                         b: Vec3,
+                         c: Vec3,
+                         outward_hint: Vec3| {
+        let mut face_n = (b - a).cross(c - a);
+        let (vb, vc) = if face_n.dot(outward_hint) < 0.0 {
+            face_n = -face_n;
+            (c, b)
+        } else {
+            (b, c)
+        };
+        let face_n = face_n.normalize_or_zero();
+        let base_idx = positions.len() as u32;
+        for p in [a, vb, vc] {
+            positions.push([p.x, p.y, p.z]);
+            normals.push([face_n.x, face_n.y, face_n.z]);
+            colors.push(color);
+        }
+        indices.extend_from_slice(&[base_idx, base_idx + 1, base_idx + 2]);
+    };
+
+    // 1. Poros tengah (silinder solid tipis) — direntang persis sepanjang
+    // segmen yang TERLIHAT (antara dasar kedua kerucut); ujungnya yang
+    // menembus ke dalam kerucut otomatis tertutup tutup dasar kerucut di
+    // bawah, jadi tidak perlu tutup sendiri.
+    let shaft_top = top - n * (s * 1.0);
+    let shaft_bot = bot + n * (s * 1.0);
+    for i in 0..segs {
+        let a0 = tau * (i as f32 / segs as f32);
+        let a1 = tau * ((i + 1) as f32 / segs as f32);
+        let r0 = t1 * (shaft_radius * a0.cos()) + t2 * (shaft_radius * a0.sin());
+        let r1 = t1 * (shaft_radius * a1.cos()) + t2 * (shaft_radius * a1.sin());
+        let hint = r0 + r1;
+        push_tri(&mut positions, &mut normals, &mut colors, &mut indices, shaft_bot + r0, shaft_top + r0, shaft_top + r1, hint);
+        push_tri(&mut positions, &mut normals, &mut colors, &mut indices, shaft_bot + r0, shaft_top + r1, shaft_bot + r1, hint);
+    }
+
+    // 2 & 3. Kepala panah atas & bawah: kerucut solid (sisi + tutup dasar)
+    // menunjuk keluar dari pusat, radius dasar `s` di titik `*_base`
+    // (sama persis dgn geometri wireframe lama).
+    let mut push_cone = |apex: Vec3, base_center: Vec3| {
+        for i in 0..segs {
+            let a0 = tau * (i as f32 / segs as f32);
+            let a1 = tau * ((i + 1) as f32 / segs as f32);
+            let b0 = base_center + t1 * (s * a0.cos()) + t2 * (s * a0.sin());
+            let b1 = base_center + t1 * (s * a1.cos()) + t2 * (s * a1.sin());
+            let radial_hint = (b0 - base_center) + (b1 - base_center);
+            // Sisi kerucut: normal menghadap keluar (radial + sedikit axial).
+            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, apex, b0, b1, radial_hint);
+            // Tutup dasar: menghadap ke arah BERLAWANAN dgn apex (ke dalam gizmo).
+            let cap_hint = base_center - apex;
+            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, base_center, b0, b1, cap_hint);
+        }
+    };
+    push_cone(top, top - n * (s * 1.3));
+    push_cone(bot, bot + n * (s * 1.3));
+
+    (positions, normals, colors, indices)
+}
+
 /// Marker gizmo vertex fillet 3D (CADRAW Fase 3 — Rounded Sudut): kotak
 /// kawat kecil TEPAT di `vertex`, garis putus-putus dari `vertex` ke posisi
 /// handle sejauh `handle_dist` di sepanjang `out_dir` (arah "keluar" body,
@@ -680,5 +797,59 @@ mod tests {
         assert!((right_verts[0].position[0] - Z_OFFSET).abs() < 1e-4);
         assert!((right_verts[0].position[1] - 10.0).abs() < 1e-4);
         assert!((right_verts[0].position[2] - 20.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn solid_double_arrow_gizmo_mesh_produces_valid_triangle_soup() {
+        let (positions, normals, colors, indices) =
+            solid_double_arrow_gizmo_mesh([0.0, 0.0, 0.0], 22.0, 5.0, [0.0, 0.78, 1.0, 1.0], Vec3::Z);
+
+        assert!(!positions.is_empty());
+        assert_eq!(positions.len(), normals.len());
+        assert_eq!(positions.len(), colors.len());
+        // Non-indexed triangle soup (flat-shaded): 1 vertex unik per sudut segitiga.
+        assert_eq!(indices.len(), positions.len());
+        assert_eq!(indices.len() % 3, 0);
+
+        for idx in &indices {
+            assert!((*idx as usize) < positions.len());
+        }
+        for p in &positions {
+            assert!(p.iter().all(|v| v.is_finite()));
+        }
+        for n in &normals {
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            // Semua normal harus satuan (flat-shaded per segitiga) — kecuali
+            // segitiga degenerate (tidak terjadi di geometri kerucut/silinder ini).
+            assert!((len - 1.0).abs() < 1e-3, "normal length = {len}");
+        }
+        for c in &colors {
+            assert_eq!(*c, [0.0, 0.78, 1.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn solid_double_arrow_gizmo_mesh_empty_for_zero_normal() {
+        let (positions, normals, colors, indices) =
+            solid_double_arrow_gizmo_mesh([0.0, 0.0, 0.0], 22.0, 5.0, [0.0, 0.78, 1.0, 1.0], Vec3::ZERO);
+        assert!(positions.is_empty());
+        assert!(normals.is_empty());
+        assert!(colors.is_empty());
+        assert!(indices.is_empty());
+    }
+
+    #[test]
+    fn solid_double_arrow_gizmo_mesh_scales_with_arrow_size() {
+        // Semua vertex kerucut/poros harus tetap berada dalam bounding radius
+        // proporsional thd `arrow_size` (radius dasar kerucut) — jaminan dasar
+        // supaya gizmo yang di-skala kecil (Fase 9, skala berbasis piksel layar)
+        // benar-benar mengecil, bukan diam di ukuran tetap.
+        let (small, ..) = solid_double_arrow_gizmo_mesh([0.0, 0.0, 0.0], 4.0, 1.0, [1.0, 1.0, 1.0, 1.0], Vec3::Z);
+        let (big, ..) = solid_double_arrow_gizmo_mesh([0.0, 0.0, 0.0], 40.0, 10.0, [1.0, 1.0, 1.0, 1.0], Vec3::Z);
+
+        let max_radial = |verts: &[[f32; 3]]| -> f32 {
+            verts.iter().map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt()).fold(0.0, f32::max)
+        };
+        assert!(max_radial(&big) > max_radial(&small) * 5.0);
     }
 }

@@ -44,6 +44,15 @@ pub struct SceneRenderer {
     grid_vertex_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
     mesh: Option<GpuMesh>,
+    /// Mesh solid gizmo push/pull & rounding (Fase 9 — Icon Gizmo Profesional):
+    /// buffer TERPISAH dari `mesh` (body CAD) supaya upload-nya independen
+    /// tiap frame (gizmo cuma ada saat ada seleksi/hover aktif) tanpa perlu
+    /// menggabung-satukan index body + gizmo jadi satu draw call raksasa.
+    /// Dipakai pipeline SAMA (`mesh_pipeline`/`fs_mesh`) supaya shading-nya
+    /// (ambient floor + rim light) konsisten dgn body — biar gizmo terasa
+    /// "solid" & menyatu material, bukan icon UI terpisah. Lihat
+    /// `sketch::solid_double_arrow_gizmo_mesh` utk geometrinya.
+    gizmo_mesh: Option<GpuMesh>,
     /// Garis overlay 2D (entitas sketch, preview, glyph snap) — dibangun
     /// ulang tiap frame lewat `set_overlay_lines`, memakai pipeline garis
     /// yang sama dengan grid (topology & shader identik).
@@ -190,6 +199,7 @@ impl SceneRenderer {
             grid_vertex_count: grid_verts.len() as u32,
             mesh_pipeline,
             mesh: None,
+            gizmo_mesh: None,
             overlay_vbuf: None,
             overlay_vertex_count: 0,
             clip_plane: CLIP_PLANE_DISABLED,
@@ -294,6 +304,51 @@ impl SceneRenderer {
         });
     }
 
+    /// Upload mesh solid gizmo (push/pull & rounding, Fase 9) — mirror persis
+    /// `set_mesh` di atas (SoA `positions`/`normals`/`colors`/`indices`, buffer
+    /// terpisah kosong = `None` saat tidak ada gizmo aktif frame ini), TAPI
+    /// disimpan di `self.gizmo_mesh` yang independen dari body supaya body
+    /// tetap tampil walau gizmo kosong (dan sebaliknya).
+    pub fn set_gizmo_mesh(
+        &mut self,
+        device: &wgpu::Device,
+        positions: &[[f32; 3]],
+        normals: &[[f32; 3]],
+        colors: &[[f32; 4]],
+        indices: &[u32],
+    ) {
+        use wgpu::util::DeviceExt;
+        if indices.is_empty() {
+            self.gizmo_mesh = None;
+            return;
+        }
+        const DEFAULT_GIZMO_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
+        let verts: Vec<MeshVertex> = positions
+            .iter()
+            .enumerate()
+            .map(|(i, p)| MeshVertex {
+                position: *p,
+                normal: normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]),
+                color: colors.get(i).copied().unwrap_or(DEFAULT_GIZMO_COLOR),
+            })
+            .collect();
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("gizmo-mesh-vb"),
+            contents: bytemuck::cast_slice(&verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("gizmo-mesh-ib"),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        self.gizmo_mesh = Some(GpuMesh {
+            vertex_buf,
+            index_buf,
+            index_count: indices.len() as u32,
+        });
+    }
+
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3) {
         let light = Vec3::new(0.4, 0.3, 0.85).normalize();
         let globals = Globals {
@@ -322,6 +377,17 @@ impl SceneRenderer {
         if let Some(buf) = &self.overlay_vbuf {
             rpass.set_vertex_buffer(0, buf.slice(..));
             rpass.draw(0..self.overlay_vertex_count, 0..1);
+        }
+
+        // Gizmo solid (Fase 9) digambar TERAKHIR, pipeline sama dgn body
+        // (`mesh_pipeline`/`fs_mesh`) supaya shading-nya konsisten — tapi
+        // buffer independen (`self.gizmo_mesh`) jadi tidak perlu digabung
+        // ke index body tiap frame.
+        if let Some(gizmo) = &self.gizmo_mesh {
+            rpass.set_pipeline(&self.mesh_pipeline);
+            rpass.set_vertex_buffer(0, gizmo.vertex_buf.slice(..));
+            rpass.set_index_buffer(gizmo.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..gizmo.index_count, 0, 0..1);
         }
     }
 }
