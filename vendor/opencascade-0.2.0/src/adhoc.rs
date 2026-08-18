@@ -193,24 +193,37 @@ impl AdHocShape {
         self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
     }
 
-    pub fn subtract(&mut self, other: &Shape) {
-        let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor(&self.inner, &other.inner);
+    // PATCH (CADRAW, lihat vendor/README.md): cermin `Shape::subtract`/
+    // `union` — balikin `Result<(), crate::Error>`, bukan `()` tanpa
+    // jaminan sukses (dipakai `cadraw-kernel::intersect`, satu-satunya
+    // pemanggil `AdHocShape::union`/`subtract`/`intersect`).
+    pub fn subtract(&mut self, other: &Shape) -> Result<(), crate::Error> {
+        let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor_checked(&self.inner, &other.inner)
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
 
-        let cut_shape = cut_operation.pin_mut().Shape();
+        let cut_shape = ffi::BRepAlgoAPI_Cut_shape_checked(cut_operation.pin_mut())
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         self.inner = ffi::TopoDS_Shape_to_owned(cut_shape);
+        Ok(())
     }
 
-    pub fn union(&mut self, other: &Shape) {
-        let mut fuse_operation = ffi::BRepAlgoAPI_Fuse_ctor(&self.inner, &other.inner);
+    pub fn union(&mut self, other: &Shape) -> Result<(), crate::Error> {
+        let mut fuse_operation = ffi::BRepAlgoAPI_Fuse_ctor_checked(&self.inner, &other.inner)
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
 
-        let cut_shape = fuse_operation.pin_mut().Shape();
+        let cut_shape = ffi::BRepAlgoAPI_Fuse_shape_checked(fuse_operation.pin_mut())
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         self.inner = ffi::TopoDS_Shape_to_owned(cut_shape);
+        Ok(())
     }
 
-    pub fn intersect(&mut self, other: &Shape) {
-        let mut common_operation = ffi::BRepAlgoAPI_Common_ctor(&self.inner, &other.inner);
+    pub fn intersect(&mut self, other: &Shape) -> Result<(), crate::Error> {
+        let mut common_operation = ffi::BRepAlgoAPI_Common_ctor_checked(&self.inner, &other.inner)
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
 
-        let cut_shape = common_operation.pin_mut().Shape();
+        let cut_shape = ffi::BRepAlgoAPI_Common_shape_checked(common_operation.pin_mut())
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         self.inner = ffi::TopoDS_Shape_to_owned(cut_shape);
+        Ok(())
     }
 }

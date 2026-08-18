@@ -171,8 +171,19 @@ impl Shape {
         self.chamfer_edges(distance, self.edges())
     }
 
-    pub fn subtract(&self, other: &Shape) -> BooleanShape {
-        let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor(&self.inner, &other.inner);
+    // PATCH (CADRAW, lihat vendor/README.md): balikin `Result<BooleanShape,
+    // crate::Error>`, bukan `BooleanShape` tanpa jaminan sukses —
+    // `BRepAlgoAPI_Cut` (ctor MAUPUN `.Shape()`) bisa gagal (`StdFail_
+    // NotDone`) kalau geometri kedua shape gagal di-cut (mis. `cadraw-
+    // kernel::extrude_face` jalur datar cut prism baru dari shape yang
+    // tepi/sudut tetangganya sudah di-rounding — sebelum patch ini
+    // exception OCCT-nya tembus dan meng-abort seluruh proses, lihat
+    // `Error::BooleanOpFailed` & `vendor/README.md`). Dipanggil lewat versi
+    // `_checked` dari `opencascade-sys` (dibungkus try/catch di
+    // `wrapper.hxx`), BUKAN `BRepAlgoAPI_Cut_ctor`/`.Shape()` langsung.
+    pub fn subtract(&self, other: &Shape) -> Result<BooleanShape, crate::Error> {
+        let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor_checked(&self.inner, &other.inner)
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
 
         let edge_list = cut_operation.pin_mut().SectionEdges();
         let vec = ffi::shape_list_to_vector(edge_list);
@@ -185,10 +196,11 @@ impl Shape {
             new_edges.push(edge);
         }
 
-        let cut_shape = cut_operation.pin_mut().Shape();
+        let cut_shape = ffi::BRepAlgoAPI_Cut_shape_checked(cut_operation.pin_mut())
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         let inner = ffi::TopoDS_Shape_to_owned(cut_shape);
 
-        BooleanShape { shape: Shape { inner }, new_edges }
+        Ok(BooleanShape { shape: Shape { inner }, new_edges })
     }
 
     pub fn read_step(path: impl AsRef<Path>) -> Result<Self, Error> {
@@ -225,8 +237,13 @@ impl Shape {
         Ok(())
     }
 
-    pub fn union(&self, other: &Shape) -> BooleanShape {
-        let mut fuse_operation = ffi::BRepAlgoAPI_Fuse_ctor(&self.inner, &other.inner);
+    // PATCH (CADRAW, lihat vendor/README.md): cermin `subtract` di atas —
+    // `BRepAlgoAPI_Fuse` (ctor MAUPUN `.Shape()`) sama-sama bisa gagal
+    // (`StdFail_NotDone`) kalau geometri kedua shape gagal di-fuse, dilewatkan
+    // lewat versi `_checked`.
+    pub fn union(&self, other: &Shape) -> Result<BooleanShape, crate::Error> {
+        let mut fuse_operation = ffi::BRepAlgoAPI_Fuse_ctor_checked(&self.inner, &other.inner)
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         let edge_list = fuse_operation.pin_mut().SectionEdges();
         let vec = ffi::shape_list_to_vector(edge_list);
 
@@ -238,10 +255,11 @@ impl Shape {
             new_edges.push(edge);
         }
 
-        let fuse_shape = fuse_operation.pin_mut().Shape();
+        let fuse_shape = ffi::BRepAlgoAPI_Fuse_shape_checked(fuse_operation.pin_mut())
+            .map_err(|e| crate::Error::BooleanOpFailed(e.what().to_string()))?;
         let inner = ffi::TopoDS_Shape_to_owned(fuse_shape);
 
-        BooleanShape { shape: Shape { inner }, new_edges }
+        Ok(BooleanShape { shape: Shape { inner }, new_edges })
     }
 
     pub fn write_stl<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {

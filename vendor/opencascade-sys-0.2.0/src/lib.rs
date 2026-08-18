@@ -803,6 +803,21 @@ pub mod ffi {
         pub fn IsDone(self: &BRepAlgoAPI_Fuse) -> bool;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Fuse>) -> &TopTools_ListOfShape;
         pub fn SetGlue(self: Pin<&mut BRepAlgoAPI_Fuse>, glue: BOPAlgo_GlueEnum);
+        // PATCH (CADRAW): `_ctor`/`Shape()` biasa di atas melempar
+        // `Standard_Failure` (BUKAN `std::exception`) langsung dari
+        // KONSTRUKTOR (algoritma BOP jalan eager, beda dari fillet/chamfer
+        // yang lazy) kalau geometri gagal di-fuse — lolos lewat cxx dan
+        // `std::terminate` (crash total proses). Lihat catatan lengkap di
+        // wrapper.hxx. Versi checked ini dipakai `Shape::union`/
+        // `AdHocShape::union`, `_ctor`/`Shape()` mentah TETAP ADA apa
+        // adanya, masih dipakai `Solid::union` (tidak dipakai cadraw-kernel).
+        pub fn BRepAlgoAPI_Fuse_ctor_checked(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepAlgoAPI_Fuse>>;
+        pub fn BRepAlgoAPI_Fuse_shape_checked(
+            fuse_operation: Pin<&mut BRepAlgoAPI_Fuse>,
+        ) -> Result<&TopoDS_Shape>;
 
         type BRepAlgoAPI_Cut;
 
@@ -820,6 +835,16 @@ pub mod ffi {
             shape: &'a TopoDS_Shape,
         ) -> &'a TopTools_ListOfShape;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Cut>) -> &TopTools_ListOfShape;
+        // PATCH (CADRAW): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
+        // `_shape_checked` di atas — dipakai `Shape::subtract`/
+        // `AdHocShape::subtract`.
+        pub fn BRepAlgoAPI_Cut_ctor_checked(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepAlgoAPI_Cut>>;
+        pub fn BRepAlgoAPI_Cut_shape_checked(
+            cut_operation: Pin<&mut BRepAlgoAPI_Cut>,
+        ) -> Result<&TopoDS_Shape>;
 
         type BRepAlgoAPI_Common;
 
@@ -832,6 +857,15 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Common>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Common>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Common) -> bool;
+        // PATCH (CADRAW): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
+        // `_shape_checked` di atas — dipakai `AdHocShape::intersect`.
+        pub fn BRepAlgoAPI_Common_ctor_checked(
+            shape_1: &TopoDS_Shape,
+            shape_2: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepAlgoAPI_Common>>;
+        pub fn BRepAlgoAPI_Common_shape_checked(
+            common_operation: Pin<&mut BRepAlgoAPI_Common>,
+        ) -> Result<&TopoDS_Shape>;
 
         type BRepAlgoAPI_Section;
 

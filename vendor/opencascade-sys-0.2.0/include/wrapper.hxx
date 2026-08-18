@@ -560,3 +560,75 @@ inline const TopoDS_Shape &BRepFilletAPI_MakeChamfer_shape_checked(BRepFilletAPI
     rethrow_standard_failure_as_runtime_error(failure, "BRepFilletAPI_MakeChamfer::Shape() failed: not done");
   }
 }
+
+// BRepAlgoAPI_Fuse / BRepAlgoAPI_Cut / BRepAlgoAPI_Common — operasi boolean
+// (union/subtract/intersect, dipakai `Shape::union`/`subtract` &
+// `AdHocShape::union`/`subtract`/`intersect`, termasuk jalur datar
+// `cadraw-kernel::extrude_face` yang fuse/cut prism baru ke shape lama).
+// BEDA dari fillet/chamfer di atas: konstruktor 2-argumen kelas ini
+// menjalankan algoritma BOP secara EAGER (bukan lazy) — begitu geometri
+// gagal di-fuse/cut (kasus nyata CADRAW: extrude wajah yang tepi/sudut
+// tetangganya sudah di-rounding, prism baru bertemu permukaan blend
+// fillet secara tangen sehingga klasifikasi boolean OCCT gagal), baik
+// KONSTRUKTOR maupun `.Shape()` bisa melempar `Standard_Failure`
+// (`StdFail_NotDone` dkk) — bukan cuma `.Shape()` seperti fillet/chamfer.
+// `construct_unique` generik cxx (dipakai ctor fillet/chamfer di atas)
+// tidak bisa dibungkus try/catch, jadi ctor checked di sini ditulis
+// manual (pola sama seperti `BRepAdaptor_Surface_cylinder` di atas —
+// konstruksi risky dibungkus try/catch, dikembalikan lewat unique_ptr).
+// Tanpa versi checked ini exception OCCT lolos lewat cxx dan
+// `std::terminate` (crash total proses, bukan panic Rust — cocok dengan
+// laporan "aplikasi close saat extrude wajah yang sebelahnya rounded").
+// `_ctor`/`Shape()` MENTAH di atas (dibind cxx `construct_unique` di
+// lib.rs) TETAP ADA apa adanya — masih dipakai `Solid::union`/`subtract`
+// yang TIDAK dipakai cadraw-kernel.
+inline std::unique_ptr<BRepAlgoAPI_Fuse> BRepAlgoAPI_Fuse_ctor_checked(const TopoDS_Shape &shape_1,
+                                                                        const TopoDS_Shape &shape_2) {
+  try {
+    return std::unique_ptr<BRepAlgoAPI_Fuse>(new BRepAlgoAPI_Fuse(shape_1, shape_2));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Fuse: fuse gagal (geometri tidak valid)");
+  }
+}
+
+inline const TopoDS_Shape &BRepAlgoAPI_Fuse_shape_checked(BRepAlgoAPI_Fuse &fuse_operation) {
+  try {
+    return fuse_operation.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Fuse::Shape() failed: not done");
+  }
+}
+
+inline std::unique_ptr<BRepAlgoAPI_Cut> BRepAlgoAPI_Cut_ctor_checked(const TopoDS_Shape &shape_1,
+                                                                      const TopoDS_Shape &shape_2) {
+  try {
+    return std::unique_ptr<BRepAlgoAPI_Cut>(new BRepAlgoAPI_Cut(shape_1, shape_2));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Cut: cut gagal (geometri tidak valid)");
+  }
+}
+
+inline const TopoDS_Shape &BRepAlgoAPI_Cut_shape_checked(BRepAlgoAPI_Cut &cut_operation) {
+  try {
+    return cut_operation.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Cut::Shape() failed: not done");
+  }
+}
+
+inline std::unique_ptr<BRepAlgoAPI_Common> BRepAlgoAPI_Common_ctor_checked(const TopoDS_Shape &shape_1,
+                                                                            const TopoDS_Shape &shape_2) {
+  try {
+    return std::unique_ptr<BRepAlgoAPI_Common>(new BRepAlgoAPI_Common(shape_1, shape_2));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Common: intersect gagal (geometri tidak valid)");
+  }
+}
+
+inline const TopoDS_Shape &BRepAlgoAPI_Common_shape_checked(BRepAlgoAPI_Common &common_operation) {
+  try {
+    return common_operation.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Common::Shape() failed: not done");
+  }
+}

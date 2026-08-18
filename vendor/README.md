@@ -122,18 +122,57 @@ Regresi dibuktikan lewat 3 test baru di `cadraw-kernel`
 pada box 30×20×15 (jelas jauh melebihi semua dimensinya): tanpa patch ini
 ketiganya SIGABRT test binary, dengan patch ini `Result::Err` biasa.
 
-Tidak ada file lain yang disentuh di kedelapan perubahan di atas.
+**Perubahan #9** (fix crash EXTRUDE dekat rounding — user extrude wajah
+yang tepi/sudut TETANGGANYA sudah di-fillet meng-abort seluruh proses
+(dilaporkan sbg "aplikasi close", TANPA panic Rust/backtrace apa pun di
+terminal — persis pola `std::terminate` yang sama dgn Perubahan #8, cuma
+lewat jalur boolean bukan fillet), di `src/lib.rs`, `src/primitives/
+shape.rs`, `src/adhoc.rs`): root cause `BRepAlgoAPI_Fuse`/`Cut`/`Common`
+(dipakai `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/
+`intersect`, termasuk jalur planar `cadraw-kernel::extrude_face` yang
+fuse/cut prism baru ke shape lama) bisa melempar `StdFail_NotDone` — BEDA
+dari fillet/chamfer di Perubahan #8: bukan cuma `.Shape()`, KONSTRUKTORNYA
+SENDIRI (2 argumen) menjalankan algoritma BOP secara eager, jadi exception
+bisa lolos dari titik itu juga, bukan cuma dari `.Shape()`. Dipanggil TANPA
+try/catch sebelum patch ini di kedua titik itu.
+- `Error::BooleanOpFailed(String)` — variant baru, pola sama dgn
+  `FilletFailed`/`OffsetOnFaceFailed`.
+- `Shape::union`/`subtract` — sekarang balikin `Result<BooleanShape,
+  Error>` (dulu `BooleanShape` langsung), memanggil binding `..._ctor_
+  checked`/`..._shape_checked` baru dari `opencascade-sys` (Perubahan #4 di
+  bawah) alih-alih `BRepAlgoAPI_Fuse_ctor`/`Cut_ctor` + `.Shape()` langsung
+  yang tidak aman.
+- `AdHocShape::union`/`subtract`/`intersect` — cermin perubahan di atas
+  (`()` → `Result<(), Error>`); `intersect` dipakai langsung oleh
+  `cadraw-kernel::intersect` (satu-satunya jalan publik `opencascade-rs`
+  0.2.0 ke `BRepAlgoAPI_Common`, lihat komentar di kode `cadraw-kernel`).
+- `Solid::union`/`subtract` dan binding `_ctor`/`Shape()` MENTAH (bukan
+  `_checked`) di ketiga tipe boolean — SENGAJA TIDAK disentuh, tidak
+  dipakai cadraw-kernel, celah `StdFail_NotDone` yang sama masih ada di
+  situ kalau nanti dipakai.
+
+Regresi dibuktikan lewat test baru di `cadraw-kernel`
+(`extrude_face_adjacent_to_fillet_does_not_crash`) — fillet 1 tepi vertikal
+box 30×20×15 (radius 8mm, cukup besar relatif wajah box), lalu extrude
+wajah yang bertetangga LANGSUNG dgn tepi ter-fillet itu: klaim intinya
+proses harus TETAP HIDUP (hasil boleh `Ok` atau `Err`, dua-duanya
+membuktikan tidak crash — beda dgn kode lama yang mati total di skenario
+serupa).
+
+Tidak ada file lain yang disentuh di kesembilan perubahan di atas.
 
 **Cara upgrade** kalau upstream `opencascade` rilis versi baru: re-copy
-`src/` dari versi baru itu, terapkan ulang kedelapan patch di atas
+`src/` dari versi baru itu, terapkan ulang kesembilan patch di atas
 (`faces_along_ray` → wrapper tipis + `faces_along_ray_with_tolerance` baru;
 `Face::surface_kind` baru; `AdHocShape::make_sphere` baru;
 `Shape::volume`/`Shape::offset_on_face` baru; `Face::cylinder_or_cone_radius`
 baru; `Error::OffsetOnFaceFailed` baru; `Face::cylinder_or_cone_axis` baru;
 `Error::FilletFailed` + `Shape::fillet_edge`/`fillet_edges`/`chamfer_edge`/
 `chamfer_edges`/`fillet`/`chamfer`/`BooleanShape::fillet_new_edges`/
-`chamfer_new_edges` balikin `Result<(), Error>`), update nomor versi di
-`[patch.crates-io]` root `Cargo.toml` & di sini.
+`chamfer_new_edges` balikin `Result<(), Error>`; `Error::BooleanOpFailed` +
+`Shape::union`/`subtract`/`AdHocShape::union`/`subtract`/`intersect`
+balikin `Result<..., Error>`), update nomor versi di `[patch.crates-io]`
+root `Cargo.toml` & di sini.
 
 ## `opencascade-sys-0.2.0`
 
@@ -222,16 +261,38 @@ fillet_edges`/`chamfer_edges` di `opencascade-0.2.0` yang tidak dipakai
 cadraw-kernel, jadi diff ini murni ADDITIVE (fungsi baru, bukan rename),
 tidak ada binding lama yang berubah perilaku.
 
-Tidak ada perubahan lain di `opencascade-sys-0.2.0` selain tiga binding
-baru di atas — `build.rs`, `Cargo.toml`, `examples/`,
-`tests/triangulation.rs` upstream tidak disentuh (`tests/
-surface_and_offset.rs` adalah file test BARU, bukan modifikasi).
+**Perubahan #4** (fix crash extrude dekat rounding — lihat Perubahan #9 di
+bagian `opencascade-0.2.0` di atas untuk latar belakang lengkap, `include/
+wrapper.hxx` + `src/lib.rs`): tambah enam binding baru,
+`BRepAlgoAPI_Fuse_ctor_checked`/`_shape_checked`,
+`BRepAlgoAPI_Cut_ctor_checked`/`_shape_checked`,
+`BRepAlgoAPI_Common_ctor_checked`/`_shape_checked` — BEDA dari
+Perubahan #3: yang dibungkus try/catch(Standard_Failure) bukan cuma
+`.Shape()`, tapi juga KONSTRUKTORNYA (`new BRepAlgoAPI_Fuse(shape_1,
+shape_2)` dkk jalan eager, langsung menjalankan algoritma BOP), jadi ctor
+checked di sini ditulis manual (TIDAK pakai `#[cxx_name =
+"construct_unique"]` generik yang dipakai ctor fillet/chamfer — itu tidak
+bisa dibungkus try/catch), pola sama dgn `BRepAdaptor_Surface_cylinder` di
+Perubahan #1 (konstruksi risky → `std::unique_ptr` dibungkus try/catch).
+Helper `rethrow_standard_failure_as_runtime_error` yang sama dipakai lagi,
+TIDAK bikin helper baru. Binding `_ctor`/`Shape()` mentah (tanpa
+`_checked`) di ketiga tipe itu TETAP ADA apa adanya — dipakai `Solid::
+union`/`subtract` di `opencascade-0.2.0` (tidak dipakai cadraw-kernel) dan
+contoh `examples/bottle.rs` upstream, jadi diff ini murni ADDITIVE (fungsi
+baru, bukan rename), tidak ada binding lama yang berubah perilaku.
+
+Tidak ada perubahan lain di `opencascade-sys-0.2.0` selain sembilan binding
+baru di atas (tiga di Perubahan #3 + enam di Perubahan #4) — `build.rs`,
+`Cargo.toml`, `examples/`, `tests/triangulation.rs` upstream tidak disentuh
+(`tests/surface_and_offset.rs` adalah file test BARU, bukan modifikasi).
 
 **Cara upgrade** kalau upstream `opencascade-sys` rilis versi baru: re-copy
 `include/wrapper.hxx` + `src/lib.rs` dari versi baru itu, terapkan ulang
-ketiga perubahan di atas (binding `BRepAdaptor_Surface` +
+keempat perubahan di atas (binding `BRepAdaptor_Surface` +
 `BRepOffset_MakeOffset` + `BRepFilletAPI_MakeFillet_shape_checked`/
-`BRepFilletAPI_MakeChamfer_shape_checked`, termasuk pola
+`BRepFilletAPI_MakeChamfer_shape_checked` + `BRepAlgoAPI_Fuse_ctor_checked`/
+`_shape_checked`/`BRepAlgoAPI_Cut_ctor_checked`/`_shape_checked`/
+`BRepAlgoAPI_Common_ctor_checked`/`_shape_checked`, termasuk pola
 `Standard_Failure`→`Result` dan pola dobel-deklarasi enum), pastikan
 `tests/surface_and_offset.rs` masih lolos, update nomor versi di
 `[patch.crates-io]` root `Cargo.toml` & di sini.

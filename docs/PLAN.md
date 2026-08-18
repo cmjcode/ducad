@@ -2126,6 +2126,59 @@ sendiri tidak punya unit test (layer egui, divalidasi manual: gambar
 segitiga tertutup lewat klik-balik-ke-titik-awal, dan polyline terbuka
 diselesaikan ESC).
 
+## Fix — Crash Extrude Dekat Wajah Rounding (dikerjakan)
+
+Laporan user: aplikasi CLOSE (bukan hang, bukan panic Rust — tidak ada
+pesan/backtrace apa pun di terminal, log debug hanya berhenti tiba-tiba
+tepat setelah face pick sukses) saat extrude wajah yang tepi/sudut
+TETANGGANYA sudah di-rounding (fillet).
+
+Root cause: `Shape::union`/`subtract` (`vendor/opencascade-0.2.0/src/
+primitives/shape.rs`) dan `AdHocShape::union`/`subtract`/`intersect`
+(`vendor/opencascade-0.2.0/src/adhoc.rs`) — dipanggil `cadraw-kernel::
+union`/`subtract`/`intersect`/`extrude_face` (jalur planar extrude fuse/cut
+prism baru ke shape lewat boolean OCCT) — memanggil `BRepAlgoAPI_Fuse`/
+`Cut`/`Common` MENTAH tanpa `IsDone()`/try-catch. Fuse/cut prism baru ke
+solid yang tepinya sudah di-fillet adalah kasus OCCT yang bisa gagal
+(`StdFail_NotDone`) di titik tangent dgn blend surface fillet. `StdFail_
+NotDone` turunan `Standard_Failure`, BUKAN `std::exception` — lolos lewat
+cxx dan memicu `std::terminate` (abort SELURUH proses), bukan `Result::
+Err`. Kelas bug yang SAMA PERSIS sudah pernah diperbaiki utk fillet/chamfer
+(lihat `vendor/README.md` "Perubahan #8"/"#3" — user drag radius rounding
+sampai batas ujung objek) tapi belum pernah diterapkan ke boolean
+union/subtract/intersect, satu-satunya celah yang tersisa.
+
+Fix (lihat `vendor/README.md` "Perubahan #9" untuk `opencascade-0.2.0` &
+"Perubahan #4" untuk `opencascade-sys-0.2.0`, detail lengkap di sana):
+- `opencascade-sys`: 6 binding baru (`BRepAlgoAPI_Fuse/Cut/Common_ctor_
+  checked`/`_shape_checked`) — try/catch(Standard_Failure) di
+  `wrapper.hxx`, BEDA dari fillet/chamfer: bukan cuma `.Shape()`, ctor
+  2-argumen kelas ini jalan eager (langsung Build() algoritma BOP), jadi
+  ctor-nya JUGA dibungkus (ditulis manual, bukan lewat `construct_unique`
+  generik cxx yang tidak bisa di-try/catch).
+- `opencascade-0.2.0`: `Error::BooleanOpFailed(String)` baru;
+  `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/`intersect`
+  sekarang balikin `Result<..., Error>` (dulu tanpa jaminan sukses),
+  lewat binding checked di atas.
+- `cadraw-kernel`: `union`/`subtract`/`intersect`/`extrude_face`
+  `.context(...)?`-kan `Result` baru itu (tanda tangan publiknya sendiri
+  sudah `Result<KernelShape>` dari awal, jadi TIDAK ada perubahan API yang
+  terlihat pemanggil).
+- `cadraw-app`: NOL perubahan — semua titik panggil `cadraw_kernel::union/
+  subtract/intersect/extrude_face` sudah pakai `match`/`if let Ok`/`.ok()?`
+  dari awal, jadi begitu native exception-nya ketangkep jadi `Err`, alur
+  error-handling yang sudah ada otomatis kepakai.
+
+Regresi dibuktikan test baru `extrude_face_adjacent_to_fillet_does_not_
+crash` di `cadraw-kernel` — fillet 1 tepi vertikal box 30×20×15 (radius
+8mm), extrude wajah yang bertetangga LANGSUNG dgn tepi ter-fillet: klaim
+intinya proses harus TETAP HIDUP (hasil `Ok` atau `Err` sama-sama
+membuktikan tidak crash).
+
+`cargo build --workspace` bersih. `cargo test --workspace -- --test-
+threads=1` 154 test hijau (naik dari 153 — 70 di antaranya di
+`cadraw-kernel`, naik dari 69, tambahan test regresi di atas).
+
 ## Menjalankan
 
 ```bash

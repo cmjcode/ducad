@@ -32,4 +32,16 @@ pub enum Error {
     // ke sini (pola sama dgn `OffsetOnFaceFailed`).
     #[error("BRepFilletAPI_MakeFillet/MakeChamfer gagal: {0}")]
     FilletFailed(String),
+    // PATCH (CADRAW, lihat vendor/README.md): variant baru, dipakai
+    // `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/
+    // `intersect` utk membungkus kegagalan `BRepAlgoAPI_Fuse`/`Cut`/
+    // `Common` (`StdFail_NotDone` — kasus nyata: extrude jalur datar
+    // `cadraw-kernel::extrude_face` fuse/cut prism baru ke shape yang
+    // tepi/sudut tetangganya sudah di-rounding, prism bertemu blend
+    // surface fillet secara tangen sehingga klasifikasi boolean OCCT
+    // gagal) — sudah diterjemahkan jadi `Result<>` cxx rapi lewat wrapper
+    // try/catch di `opencascade-sys`, tinggal disalurkan ke sini (pola
+    // sama dgn `FilletFailed`).
+    #[error("BRepAlgoAPI_Fuse/Cut/Common gagal: {0}")]
+    BooleanOpFailed(String),
 }

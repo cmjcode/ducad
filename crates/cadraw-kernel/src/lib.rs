@@ -401,7 +401,11 @@ pub fn loft_profiles(bottom: &Profile, top: &Profile, height: f64) -> Result<Ker
 /// seperti "jahitan"/seam ganda di viewport walau geometrinya valid).
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    let mut merged = a.0.union(&b.0).shape;
+    let mut merged = a
+        .0
+        .union(&b.0)
+        .context("gagal menggabungkan (union) dua shape")?
+        .shape;
     merged.clean();
     Ok(KernelShape(merged))
 }
@@ -409,7 +413,11 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
 /// Subtract (`a` dikurangi `b`) — lihat catatan `.clean()` di `union`.
 pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    let mut result = a.0.subtract(&b.0).shape;
+    let mut result = a
+        .0
+        .subtract(&b.0)
+        .context("gagal mengurangi (subtract) dua shape")?
+        .shape;
     result.clean();
     Ok(KernelShape(result))
 }
@@ -424,7 +432,9 @@ pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
     let cloned = deep_clone(&a.0)?;
     let mut adhoc = AdHocShape(cloned);
-    adhoc.intersect(&b.0);
+    adhoc
+        .intersect(&b.0)
+        .context("gagal menghitung irisan (intersect) dua shape")?;
     // Pakai `tessellate_shape` (helper privat, TIDAK mengunci sendiri) —
     // bukan `KernelShape::tessellate()` publik, yang akan mencoba
     // `lock_kernel()` lagi selagi `_guard` di atas masih dipegang (Mutex
@@ -1154,11 +1164,17 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
     // `.clean()`-nya, lihat catatan di `union`) di sini, pola sama dengan
     // komentar `intersect` di atas.
     if distance > 0.0 {
-        let mut merged = cloned.union(&swept_shape).shape;
+        let mut merged = cloned
+            .union(&swept_shape)
+            .context("gagal menggabungkan hasil extrude ke shape (mis. wajah bersinggungan dengan rounding di sebelahnya)")?
+            .shape;
         merged.clean();
         Ok(KernelShape(merged))
     } else {
-        let mut result = cloned.subtract(&swept_shape).shape;
+        let mut result = cloned
+            .subtract(&swept_shape)
+            .context("gagal mengurangi hasil extrude dari shape (mis. wajah bersinggungan dengan rounding di sebelahnya)")?
+            .shape;
         result.clean();
         Ok(KernelShape(result))
     }
@@ -2510,7 +2526,7 @@ mod tests {
         // Cylinder terpisah dari dinding luar.
         let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
         let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
-        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
         tube_shape.clean();
         let tube = KernelShape(tube_shape);
 
@@ -2545,7 +2561,7 @@ mod tests {
         const H: f64 = 20.0;
         let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
         let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
-        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
         tube_shape.clean();
         let tube = KernelShape(tube_shape);
 
@@ -2577,7 +2593,7 @@ mod tests {
         const H: f64 = 20.0;
         let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
         let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
-        let mut tube_shape = outer.0.subtract(&inner.0).shape;
+        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
         tube_shape.clean();
         let tube = KernelShape(tube_shape);
 
@@ -2670,6 +2686,46 @@ mod tests {
         let taller = extrude_face(&cylinder, ray_top, 15.0).expect("extrude top cap silinder berhasil");
         let expect_vol = std::f64::consts::PI * 12.0 * 12.0 * 40.0;
         assert_close(taller.0.volume(), expect_vol, "volume silinder tinggi 40 (25+15) hasil jalur planar lama");
+    }
+
+    #[test]
+    fn extrude_face_adjacent_to_fillet_does_not_crash() {
+        // Regresi crash dilaporkan user CADRAW: aplikasi CLOSE (bukan panic
+        // Rust — `std::terminate` lolos lewat FFI, lihat catatan di
+        // `vendor/README.md` & `wrapper.hxx`) saat extrude wajah yang
+        // tepinya SUDAH di-rounding (fillet) di sebelahnya. Jalur planar
+        // `extrude_face` di atas fuse/cut prism baru ke shape lewat
+        // `Shape::union`/`subtract` — sebelum wrapper `_checked` di
+        // `opencascade-sys`, kegagalan boolean OCCT (`StdFail_NotDone`) di
+        // titik temu tangent dgn blend surface fillet lolos jadi
+        // `std::terminate` (abort SELURUH proses), bukan `Result::Err`.
+        // Radius fillet cukup besar relatif wajah box (mirip skenario
+        // `fillet_edges_radius_near_shortest_touching_edge_succeeds_
+        // without_manual_precheck`) supaya blend surface fillet-nya besar.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+        let edge_ray = PickRay { origin: (-5.0, -5.0, 7.5), dir: (1.0, 1.0, 0.0) };
+        let filleted = fillet_edges(&shape, 8.0, &[edge_ray], 1.0).expect("fillet tepi vertikal box harus berhasil");
+
+        // Wajah y=0 (depan) — bertetangga LANGSUNG dgn tepi yang baru saja
+        // di-fillet di atas (sudut x=0, y=0).
+        let face_ray = PickRay { origin: (15.0, -50.0, 7.5), dir: (0.0, 1.0, 0.0) };
+        let result = extrude_face(&filleted, face_ray, 5.0);
+        // Klaim inti regresi ini: proses TIDAK BOLEH mati. Kalau ini abort
+        // (`std::terminate`), test binary langsung berhenti di tengah jalan
+        // dan baris di bawah TIDAK PERNAH sempat dievaluasi — assert biasa
+        // tidak akan pernah "gagal" secara normal, prosesnya lenyap total.
+        // Hasilnya sendiri boleh Ok (boolean sukses) ATAU Err (boolean
+        // gagal tapi tertangani rapi) — dua-duanya sama-sama membuktikan
+        // tidak crash, beda dgn versi lama yang SELALU mati di kasus ini.
+        match result {
+            Ok(extruded) => {
+                assert!(extruded.tessellate().triangle_count() > 0, "hasil sukses harus punya mesh valid");
+            }
+            Err(err) => {
+                assert!(!err.to_string().is_empty(), "hasil gagal harus punya pesan error, bukan diam");
+            }
+        }
     }
 
     // ---- CADRAW Fase 4: `FaceHit::pull_dir` per `SurfaceKind` ----
