@@ -2580,6 +2580,50 @@ seperti yang sudah diperingatkan di komentar lama sebagai trade-off).
       sendiri sudah dipakai & terverifikasi lewat jalur menggambar sejak
       Fase 1).
 
+### Revisi 6 — Gizmo geser body 3D jadi satu "+" (X/Y drag bebas + Shift-lock Z, armed + nudge X/Y/Z)
+
+User: "geser di mode 3D masih menampilkan 3 icon, tolong ini diubah
+seperti + di 2D, tapi untuk 3D ini berarti bisa geser X, Y dan Z ya?"
+Riset dulu ke pola industri (Shapr3D, SolidWorks 3DMOVE, AutoCAD Triad —
+semuanya pakai 1 widget gabungan di pusat objek: bola/tile pusat = geser
+bebas 2 sumbu, lengan = 1 sumbu terkunci) sebelum implementasi, supaya
+tidak asal tiru "+" 2D murni (sketch 2D DOF, body 3D DOF — drag mouse
+tetap cuma 2D jadi tetap butuh cara eksplisit utk sumbu ketiga).
+
+- [x] **Body axis-drag 3-panah-terpisah dihapus total** — state
+      `body_axis_drag: Option<Vec3>`/`body_axis_target`/`body_axis_delta:
+      f64` diganti `body_move_target: Option<BodyId>`/`body_move_dragging:
+      bool`/`body_move_delta: Vec3`/`body_move_armed: bool` (Vec3, bukan
+      f64 — nampung X/Y/Z sekaligus, bisa campur drag X/Y lalu Shift-drag
+      Z tanpa reset).
+- [x] **Satu `render_draggable_move_handle`** (fungsi yang SAMA persis dg
+      "+" sketch 2D, `crates/cadraw-ui/src/canvas_hud.rs`) di pusat body,
+      gantikan loop `for dir in [X, Y, Z]` yang dulu render 3
+      `render_draggable_double_arrow_handle` terpisah 24mm dari pusat.
+- [x] **Drag bebas TANPA Shift = X/Y** (bidang datar dunia lewat pusat
+      body) — pakai teknik ray-plane `screen_to_plane_point` yang SAMA
+      dgn Revisi 5 (akurat di sudut kamera manapun), lewat
+      `SketchPlane { origin: center, ..SketchPlane::top() }` — SENGAJA
+      TIDAK pakai `SketchPlane::from_origin_normal(center, Vec3::Z)`
+      karena normal persis Z bikin basis `u_axis`/`v_axis` internalnya
+      (`normal.cross(arbitrary)`) kolaps nol lalu `normalize()` NaN —
+      bug laten yang ketemu pas mau reuse fungsi itu utk ground plane.
+- [x] **Shift+drag = kunci Z** — pakai `project_screen_drag_to_world_axis`
+      lama (genuinely 1D, ray-plane tidak relevan), sama fungsi yang dulu
+      dipakai per-panah, cuma sekarang gerbangnya modifier bukan
+      handle terpisah.
+- [x] **Armed + keyboard nudge diperluas ke 3 sumbu** —
+      Kiri/Kanan/Atas/Bawah = X/Y (mirror pola nudge sketch), tambah
+      PageUp/PageDown = Z. Commit per tekan lewat `translate_selected_body`
+      (bukan command sketch) — sudah undo-able lewat `ReplaceGeometryCommand`.
+- [x] `body_move_armed`/`body_move_target` dilucuti di semua titik yang
+      dulu melucuti `sketch_move_armed` (Escape, `set_tool`, klik viewport
+      re-select, `delete_selected_bodies`) — konsisten dgn alasan yang
+      sama: ganti konteks = niat "lagi fokus geser objek ini" sudah basi.
+- [x] Workspace hijau — `cargo build --workspace` bersih, 168 test tetap
+      lulus (murni re-arsitektur interaksi/render gizmo body, tidak ada
+      logika kernel/sketch baru yang perlu test unit baru).
+
 ## Menjalankan
 
 ```bash

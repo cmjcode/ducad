@@ -845,9 +845,13 @@ struct CadrawApp {
     // menyimpan grup MANA yang sedang di-drag/di-armed SEKARANG — handle
     // lain tetap statis & independen (masing2 di-render terpisah tiap
     // frame di `dynamic_input_ui`, lihat blok "Gizmo Geser sketch 2D").
-    // Body tetap 3 panah terpisah sepanjang X/Y/Z dunia (translasi bebas
-    // arah untuk solid kurang masuk akal tanpa sumbu, beda dari sketch
-    // yang planar & bisa punya banyak objek sekaligus).
+    // Body 3D pakai SATU handle "+" gaya sama dgn sketch (lihat
+    // `body_move_*` di bawah) — bukan lagi 3 panah sumbu terpisah. Drag
+    // bebas default menggeser X/Y (bidang datar dunia lewat pusat body,
+    // teknik ray-plane sama persis dgn `sketch_move_delta`), Shift+drag
+    // mengunci ke Z (`project_screen_drag_to_world_axis`, genuinely 1D
+    // jadi tetap cocok proyeksi per-sumbu, bukan ray-plane). Armed +
+    // keyboard nudge X/Y/Z mirror pola sketch (lihat `handle_sketch_input`).
     /// Grup entitas yang SEDANG jadi target gizmo geser sketch (drag ATAU
     /// armed) — `None` kalau tidak ada satu pun handle "+" yang sedang
     /// aktif. Identitas grup (bukan index/posisi) supaya tetap valid
@@ -864,12 +868,21 @@ struct CadrawApp {
     /// selangkah selama ini `true`. Cara kedua menggeser sketch selain
     /// drag mouse langsung — lihat blok nudge di `handle_sketch_input`.
     sketch_move_armed: bool,
-    /// Sumbu dunia (arah satuan) yang sedang di-drag pada gizmo body.
-    body_axis_drag: Option<Vec3>,
-    /// Body target drag, di-set sekali saat drag gizmo body mulai.
-    body_axis_target: Option<BodyId>,
-    /// Delta akumulasi (mm) sepanjang `body_axis_drag` sejak drag mulai.
-    body_axis_delta: f64,
+    /// Body target drag/armed, di-set sekali saat interaksi handle "+"
+    /// body mulai (drag ATAU klik-armed).
+    body_move_target: Option<BodyId>,
+    /// `true` selagi handle "+" body sedang di-drag mouse (lawan dari
+    /// `body_move_armed`, sama pola dgn `sketch_move_dragging`).
+    body_move_dragging: bool,
+    /// Delta akumulasi (mm, dunia X/Y/Z) sejak drag/nudge body mulai —
+    /// X/Y diisi ray-plane drag bebas, Z diisi Shift+drag ATAU nudge
+    /// PageUp/PageDown, semuanya menumpuk di vector yang sama supaya bisa
+    /// campur (mis. drag X/Y dulu baru Shift+drag Z tanpa kehilangan X/Y).
+    body_move_delta: Vec3,
+    /// `true` selagi "mode geser" armed aktif utk body (klik singkat di
+    /// handle "+" body) — panah keyboard POLOS + PageUp/PageDown menggeser
+    /// body X/Y/Z selangkah demi selangkah, mirror `sketch_move_armed`.
+    body_move_armed: bool,
 
     /// Posisi piksel + index cycle klik SELEKSI sketch TERAKHIR — dipakai
     /// "klik ulang di tempat yang nyaris sama pilih kandidat tumpang-
@@ -1023,9 +1036,10 @@ impl CadrawApp {
             sketch_move_dragging: false,
             sketch_move_delta: DVec2::ZERO,
             sketch_move_armed: false,
-            body_axis_drag: None,
-            body_axis_target: None,
-            body_axis_delta: 0.0,
+            body_move_target: None,
+            body_move_dragging: false,
+            body_move_delta: Vec3::ZERO,
+            body_move_armed: false,
             last_select_click: None,
         }
     }
@@ -1179,6 +1193,9 @@ impl CadrawApp {
         // kerjain hal lain.
         self.sketch_move_armed = false;
         self.sketch_move_target = None;
+        // Sama dgn di atas, versi body 3D.
+        self.body_move_armed = false;
+        self.body_move_target = None;
     }
 
     fn snapped_or(&self, raw: DVec2) -> DVec2 {
@@ -2787,6 +2804,36 @@ impl CadrawApp {
                     }
                 }
             }
+            // Nudge body 3D (`body_move_armed`, diaktifkan klik singkat di
+            // handle "+" body — lihat `dynamic_input_ui`) — mirror POLOS
+            // pattern nudge sketch di atas, tapi 3 sumbu bukan 2: kiri/
+            // kanan = X, atas/bawah = Y, PageUp/PageDown = Z (sumbu yang di
+            // mouse-drag butuh Shift ditahan). Commit LANGSUNG per tekan
+            // lewat `translate_selected_body` (kernel `translate_shape` +
+            // undo `ReplaceGeometryCommand`), bukan command sketch.
+            if self.body_move_armed {
+                const NUDGE_STEP_MM: f32 = 1.0;
+                let nudge = ui.input(|i| {
+                    if i.key_pressed(egui::Key::ArrowLeft) {
+                        Some(Vec3::new(-NUDGE_STEP_MM, 0.0, 0.0))
+                    } else if i.key_pressed(egui::Key::ArrowRight) {
+                        Some(Vec3::new(NUDGE_STEP_MM, 0.0, 0.0))
+                    } else if i.key_pressed(egui::Key::ArrowUp) {
+                        Some(Vec3::new(0.0, NUDGE_STEP_MM, 0.0))
+                    } else if i.key_pressed(egui::Key::ArrowDown) {
+                        Some(Vec3::new(0.0, -NUDGE_STEP_MM, 0.0))
+                    } else if i.key_pressed(egui::Key::PageUp) {
+                        Some(Vec3::new(0.0, 0.0, NUDGE_STEP_MM))
+                    } else if i.key_pressed(egui::Key::PageDown) {
+                        Some(Vec3::new(0.0, 0.0, -NUDGE_STEP_MM))
+                    } else {
+                        None
+                    }
+                });
+                if let Some(delta) = nudge {
+                    self.translate_selected_body(delta);
+                }
+            }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 if self.active_vertex.is_some() || self.active_edge.is_some() {
                     self.active_vertex = None;
@@ -2812,6 +2859,10 @@ impl CadrawApp {
                     // ringan/lokal daripada langsung membatalkan seleksi.
                     self.sketch_move_armed = false;
                     self.sketch_move_target = None;
+                } else if self.body_move_armed {
+                    // Sama dgn di atas, versi body 3D.
+                    self.body_move_armed = false;
+                    self.body_move_target = None;
                 } else if !self.selected.is_empty() {
                     self.selected.clear();
                 } else if self.is_sketching {
@@ -2936,6 +2987,8 @@ impl CadrawApp {
                     // sudah bukan yang dimaksud user.
                     self.sketch_move_armed = false;
                     self.sketch_move_target = None;
+                    self.body_move_armed = false;
+                    self.body_move_target = None;
                     let shift = ui.input(|i| i.modifiers.shift);
                     let click_pos = response.hover_pos()
                         .or_else(|| ui.input(|i| i.pointer.latest_pos()))
@@ -3404,26 +3457,20 @@ impl CadrawApp {
             }
         }
 
-        // Gizmo Drag Axis X/Y/Z — body 3D: muncul otomatis saat tool
-        // Pilih aktif & PERSIS satu body terpilih (lihat
-        // `selected_single_body_center`). Tidak butuh side-offset seperti
-        // versi sketch di atas — body tidak punya gizmo Extrude yang bisa
-        // bertumpuk di titik yang sama.
+        // Gizmo Geser (titik "+") — body 3D: cermin persis blok sketch di
+        // atas (SATU handle "+" widget 2D layar, dirender di
+        // `dynamic_input_ui`), cuma garis putus-putus penanda arah/jarak
+        // geser di sini. Drag bebas default = X/Y (bidang datar lewat
+        // pusat body), Shift+drag mengunci Z — keduanya sama-sama
+        // menumpuk ke `body_move_delta` jadi garis ini otomatis
+        // menunjukkan resultan gabungan X/Y/Z tanpa perlu tahu sumbu mana
+        // yang sedang aktif.
         if let Some((_, center)) = self.selected_single_body_center() {
-            const AXIS_X_COLOR: [f32; 4] = [0.95, 0.25, 0.25, 1.0];
-            const AXIS_Y_COLOR: [f32; 4] = [0.25, 0.80, 0.25, 1.0];
-            const AXIS_Z_COLOR: [f32; 4] = [0.25, 0.55, 0.95, 1.0];
-            let base = [center.x, center.y, center.z];
-            for (dir, color) in [(Vec3::X, AXIS_X_COLOR), (Vec3::Y, AXIS_Y_COLOR), (Vec3::Z, AXIS_Z_COLOR)] {
-                let dist = if self.body_axis_drag == Some(dir) {
-                    self.body_axis_delta as f32
-                } else {
-                    24.0
-                };
-                let tip = center + dir * dist;
-                let tip_arr = [tip.x, tip.y, tip.z];
-                verts.extend(sketch_render::dashed_line_3d(base, tip_arr, 3.0, [color[0], color[1], color[2], 0.75]));
-                verts.extend(sketch_render::double_arrow_gizmo_lines(tip_arr, 22.0, 5.0, color, dir));
+            if self.body_move_dragging {
+                let current = center + self.body_move_delta;
+                let base = [center.x, center.y, center.z];
+                let cur = [current.x, current.y, current.z];
+                verts.extend(sketch_render::dashed_line_3d(base, cur, 2.5, [1.0, 0.75, 0.0, 0.85]));
             }
         }
 
@@ -4398,39 +4445,82 @@ impl CadrawApp {
             }
         }
 
-        // 7. Interactive Draggable Handle untuk Gizmo Drag Axis X/Y/Z
-        // body 3D (lihat `selected_single_body_center`/`build_overlay_lines`).
-        // Cermin persis blok 6 di atas, cuma sumbunya X/Y/Z dunia murni
-        // (bukan U/V/Normal bidang sketsa) dan commit lewat
-        // `translate_selected_body` (kernel `translate_shape` + undo
-        // `ReplaceGeometryCommand`) alih-alih command sketch.
+        // 7. Interactive Draggable Handle "+" untuk Gizmo Geser body 3D
+        // (lihat `selected_single_body_center`/`build_overlay_lines`).
+        // Cermin gaya visual & armed-mode blok 6 di atas
+        // (`render_draggable_move_handle`, SATU handle bukan 3 panah
+        // terpisah), tapi body butuh 3 DOF sementara drag mouse cuma 2D —
+        // jadi ada 2 mode drag yang menumpuk ke `body_move_delta` yang
+        // SAMA (bukan reset tiap ganti mode, supaya bisa campur X/Y lalu
+        // Z tanpa kehilangan hasil sebelumnya):
+        //   - drag TANPA Shift: bebas di bidang datar dunia (X/Y) lewat
+        //     pusat body, pakai `screen_to_plane_point` ray-plane
+        //     intersection PERSIS teknik blok 6 (akurat di sudut kamera
+        //     manapun, bukan proyeksi delta piksel yang cuma eksak dari
+        //     top-view).
+        //   - drag SAMBIL Shift ditahan: dikunci ke sumbu Z lewat
+        //     `project_screen_drag_to_world_axis` (genuinely 1D, ray-plane
+        //     tidak relevan di sini — sama alasannya dgn dulunya body
+        //     axis-drag per-sumbu).
+        // Commit lewat `translate_selected_body` (kernel `translate_shape`
+        // + undo `ReplaceGeometryCommand`) alih-alih command sketch.
         if let Some((body_id, center)) = self.selected_single_body_center() {
-            for dir in [Vec3::X, Vec3::Y, Vec3::Z] {
-                let is_dragging_this = self.body_axis_drag == Some(dir);
-                let dist = if is_dragging_this { self.body_axis_delta as f32 } else { 24.0 };
-                let handle_3d = center + dir * dist;
-                let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) else {
-                    continue;
-                };
-                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, center, dir, egui::Vec2::ZERO);
-                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(ui, handle_2d, is_dragging_this, arrow_vec_opt);
+            let is_dragging_this = self.body_move_dragging;
+            let is_armed_this = self.body_move_armed;
+            let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, center) else {
+                return;
+            };
+            let handle_resp = CanvasHud::render_draggable_move_handle(ui, handle_2d, is_dragging_this, is_armed_this);
 
-                if handle_resp.drag_started() {
-                    self.body_axis_drag = Some(dir);
-                    self.body_axis_target = Some(body_id);
-                    self.body_axis_delta = 0.0;
-                }
-                if is_dragging_this && handle_resp.dragged() {
-                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, center, dir, handle_resp.drag_delta());
-                    self.body_axis_delta += delta_mm;
-                }
-                if is_dragging_this && handle_resp.drag_stopped() {
-                    if self.body_axis_delta.abs() > 1e-6 {
-                        self.translate_selected_body(dir * self.body_axis_delta as f32);
+            if handle_resp.drag_started() {
+                self.body_move_target = Some(body_id);
+                self.body_move_dragging = true;
+                self.body_move_armed = false;
+                self.body_move_delta = Vec3::ZERO;
+            }
+            if is_dragging_this && handle_resp.dragged() {
+                let shift_held = ui.input(|i| i.modifiers.shift);
+                if shift_held {
+                    let (delta_mm, _) =
+                        self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, handle_resp.drag_delta());
+                    self.body_move_delta.z += delta_mm as f32;
+                } else if let Some(pointer_pos) = handle_resp.interact_pointer_pos() {
+                    // TIDAK pakai `SketchPlane::from_origin_normal(center,
+                    // Vec3::Z)` di sini — normal Z persis bikin `arbitrary`
+                    // internalnya kolaps sejajar (cross product nol,
+                    // `normalize()` NaN). Bidang tanah cuma butuh
+                    // `SketchPlane::top()` digeser origin-nya ke `center`,
+                    // u/v-nya SUDAH pasti X/Y dunia (bukan basis
+                    // orthonormal sembarang) — cocok langsung dgn semantik
+                    // `translate_selected_body(delta.x/.y/.z)`.
+                    let ground_plane = SketchPlane { origin: center, ..SketchPlane::top() };
+                    if let Some(target_uv) = screen_to_plane_point(&self.camera, rect, pointer_pos, &ground_plane) {
+                        self.body_move_delta.x = target_uv.x as f32;
+                        self.body_move_delta.y = target_uv.y as f32;
                     }
-                    self.body_axis_drag = None;
-                    self.body_axis_target = None;
-                    self.body_axis_delta = 0.0;
+                }
+            }
+            if is_dragging_this && handle_resp.drag_stopped() {
+                if self.body_move_delta.length_squared() > 1e-9 {
+                    self.translate_selected_body(self.body_move_delta);
+                }
+                self.body_move_dragging = false;
+                self.body_move_target = None;
+                self.body_move_delta = Vec3::ZERO;
+            }
+            // Klik singkat (bukan drag) — toggle "mode geser" armed, cermin
+            // persis blok 6 (klik "+" lagi = lepas armed, tombol panah
+            // POLOS + PageUp/PageDown menggeser body selama armed — lihat
+            // nudge di `handle_sketch_input`).
+            if handle_resp.clicked() {
+                if is_armed_this {
+                    self.body_move_armed = false;
+                    self.body_move_target = None;
+                } else {
+                    self.body_move_target = Some(body_id);
+                    self.body_move_armed = true;
+                    self.body_move_dragging = false;
+                    self.body_move_delta = Vec3::ZERO;
                 }
             }
         }
@@ -5305,6 +5395,8 @@ impl CadrawApp {
                 .execute(Box::new(DeleteBodyCommand::new(id)), &mut self.model);
             self.round_history.remove(&id);
         }
+        self.body_move_armed = false;
+        self.body_move_target = None;
     }
 
     /// Merge mesh semua body VISIBLE + highlight face cyan 2D + preview extrude/boolean
@@ -5378,19 +5470,18 @@ impl CadrawApp {
             .flatten()
             .map(|(id, shape)| (id, shape.tessellate()));
 
-        // Live preview drag gizmo axis body 3D (Fase drag-XYZ) — cermin
-        // pola preview lain di atas: `translate_shape` dihitung ULANG tiap
-        // frame dari shape ASLI (bukan hasil translate frame sebelumnya,
-        // supaya tidak ada akumulasi error) memakai delta TERKINI
-        // (`body_axis_delta`), body asli disembunyikan HANYA kalau preview
-        // ini berhasil dihitung.
-        let body_axis_translate_preview: Option<(BodyId, KernelMesh)> = self
-            .body_axis_drag
-            .zip(self.body_axis_target)
-            .filter(|_| self.body_axis_delta.abs() > 1e-6)
-            .and_then(|(dir, target_id)| {
+        // Live preview drag gizmo "+" body 3D — cermin pola preview lain di
+        // atas: `translate_shape` dihitung ULANG tiap frame dari shape ASLI
+        // (bukan hasil translate frame sebelumnya, supaya tidak ada
+        // akumulasi error) memakai delta TERKINI (`body_move_delta`, sudah
+        // resultan gabungan X/Y drag bebas + Z Shift-drag), body asli
+        // disembunyikan HANYA kalau preview ini berhasil dihitung.
+        let body_move_translate_preview: Option<(BodyId, KernelMesh)> = self
+            .body_move_target
+            .filter(|_| self.body_move_dragging && self.body_move_delta.length_squared() > 1e-9)
+            .and_then(|target_id| {
                 let target_geo = self.model.geometry.get(target_id)?;
-                let delta = dir * self.body_axis_delta as f32;
+                let delta = self.body_move_delta;
                 let translated = cadraw_kernel::translate_shape(&target_geo.shape, delta.x as f64, delta.y as f64, delta.z as f64).ok()?;
                 Some((target_id, translated.tessellate()))
             });
@@ -5412,7 +5503,7 @@ impl CadrawApp {
                     if edge_round_preview.as_ref().is_some_and(|(target_id, _)| *target_id == id) {
                         continue;
                     }
-                    if body_axis_translate_preview.as_ref().is_some_and(|(target_id, _)| *target_id == id) {
+                    if body_move_translate_preview.as_ref().is_some_and(|(target_id, _)| *target_id == id) {
                         continue;
                     }
                     let offset = positions.len() as u32;
@@ -5520,7 +5611,7 @@ impl CadrawApp {
         // di blok 1 (KALAU preview ini ada), warna sama dgn body normal
         // (`CAD_GREY`, bukan warna highlight) karena translate BUKAN
         // operasi "menambah/mengurangi material" seperti extrude/rounding.
-        if let Some((_, preview_mesh)) = &body_axis_translate_preview {
+        if let Some((_, preview_mesh)) = &body_move_translate_preview {
             let offset = positions.len() as u32;
             positions.extend_from_slice(&preview_mesh.positions);
             normals.extend_from_slice(&preview_mesh.normals);
