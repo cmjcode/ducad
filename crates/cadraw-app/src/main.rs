@@ -696,6 +696,15 @@ struct CadrawApp {
     /// diproses sebagai klik seleksi/tool biasa. Dikonsumsi (di-reset ke
     /// `false`) sekali oleh `handle_sketch_input` tiap frame.
     radial_suppress_click: bool,
+    /// Info gestur 2-sentuhan (tepat `num_touches == 2`) dari frame
+    /// terakhir yang masih berlangsung — dipakai mendeteksi "two-finger
+    /// tap" (padanan sentuh utk `Cmd+Klik` di iPad tanpa keyboard fisik:
+    /// sentuh 2 jari, lepas cepat, tanpa geser) di `handle_plane_activation`.
+    /// `MultiTouchInfo::start_time`/`start_pos` dari egui sudah tetap
+    /// selama satu gestur berlangsung, jadi cukup dibandingkan dgn
+    /// `center_pos` frame terakhir saat sentuhan dilepas. `None` = tak ada
+    /// gestur 2-jari aktif.
+    two_finger_tap_press: Option<egui::MultiTouchInfo>,
 
     /// Hasil tool Ukur/Ukur Sudut (Fase 7), terkumpul sampai "Hapus Semua"
     /// ditekan atau dokumen baru dibuat — TIDAK ikut undo stack manapun
@@ -899,6 +908,7 @@ impl CadrawApp {
             radial_menu: RadialMenu::default(),
             radial_press: None,
             radial_suppress_click: false,
+            two_finger_tap_press: None,
 
             measurements: Vec::new(),
 
@@ -1024,6 +1034,20 @@ impl CadrawApp {
         self.is_sketching = true;
         self.left_toolbar.is_sketching = true;
         self.camera.orient_to_plane(&self.active_plane);
+    }
+
+    /// Aktifkan `kind` sebagai bidang sketsa lewat gestur langsung di
+    /// viewport 3D (Cmd+Klik / two-finger tap pada `plane_outline`-nya —
+    /// lihat `handle_plane_activation`), bukan lewat dropdown/Items Drawer.
+    /// Sama-sama lewat `set_sketch_plane` supaya perilakunya konsisten
+    /// (kamera tetap snap ke bidang baru), cuma ditambah status toast
+    /// supaya jelas kalau switch-nya berasal dari klik langsung.
+    fn activate_plane_from_viewport(&mut self, kind: PlaneKind) {
+        self.set_sketch_plane(kind);
+        self.model_status = Some(format!(
+            "Bidang '{}' kini aktif untuk sketsa",
+            kind.display_label()
+        ));
     }
 
     /// Extrude profil pada bidang sketsa aktif sepanjang `distance`.
@@ -1963,6 +1987,85 @@ impl CadrawApp {
         }
     }
 
+    /// Deteksi & proses gestur "aktifkan bidang sketsa langsung dari
+    /// viewport": `Cmd + Klik` di desktop (mouse/trackpad + keyboard —
+    /// termasuk iPad dgn keyboard eksternal, modifier-nya diteruskan sama
+    /// oleh egui/winit tanpa kode khusus), atau "two-finger tap" (sentuh 2
+    /// jari, lepas cepat tanpa geser/drag) sebagai padanannya di iPad
+    /// tanpa keyboard fisik — dipilih karena belum diklaim gestur lain
+    /// (2-jari **drag** = pan/orbit, pinch = zoom, long-press 1-jari =
+    /// radial tool menu, lihat `handle_radial_menu`).
+    ///
+    /// Aktif di KEDUA mode (sketch DAN 3D) — `set_sketch_plane` (dipanggil
+    /// via `activate_plane_from_viewport`) sudah menyalakan `is_sketching`
+    /// sendiri, jadi klik/tap sebuah bidang dari mode 3D otomatis "lompat
+    /// masuk" ke sketch di bidang itu, sama seperti dropdown/Items Drawer
+    /// yang sudah ada. Aman jalan bersamaan dgn face/edge/vertex picking
+    /// mode 3D di bawahnya karena `Cmd` tidak dipakai gesture pick manapun
+    /// di sana.
+    ///
+    /// Return `true` kalau gestur ini menangani interaksi frame ini (plane
+    /// baru saja diaktifkan) supaya caller (`handle_sketch_input`) skip
+    /// proses klik/tool biasa — hindari titik sketsa/pick 3D nyasar
+    /// ter-commit di klik yang sama dipakai buat pindah bidang.
+    ///
+    /// CATATAN: jalur two-finger tap ditulis & diuji secara logis (lihat
+    /// modul test), tapi belum bisa diverifikasi end-to-end di iPad fisik
+    /// karena Fase 6 (build iOS) masih blocked di level linking OCCT —
+    /// lihat `docs/PLAN.md`.
+    fn handle_plane_activation(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        rect: egui::Rect,
+    ) -> bool {
+        // --- Desktop / iPad+keyboard: Cmd + Klik ---
+        if response.clicked() && ui.input(|i| i.modifiers.command) {
+            if let Some(pos) = response.interact_pointer_pos() {
+                if let Some(kind) =
+                    pick_inactive_plane_at_cursor(&self.camera, rect, pos, self.active_plane.kind)
+                {
+                    self.activate_plane_from_viewport(kind);
+                    return true;
+                }
+            }
+        }
+
+        // --- iPad tanpa keyboard: two-finger tap ---
+        const TAP_MAX_SECS: f64 = 0.3;
+        const TAP_MOVE_TOLERANCE: f32 = 10.0;
+
+        match ui.input(|i| i.multi_touch()) {
+            Some(t) if t.num_touches == 2 => {
+                // Masih berlangsung -- simpan info gestur terbaru (dipakai
+                // saat sentuhan dilepas nanti). >2 sentuhan (mis. mulai
+                // gestur 3 jari) dibiarkan jatuh ke cabang `_` di bawah,
+                // yang otomatis membatalkan pelacakan.
+                self.two_finger_tap_press = Some(t);
+            }
+            _ => {
+                if let Some(t) = self.two_finger_tap_press.take() {
+                    let now = ui.input(|i| i.time);
+                    let elapsed = now - t.start_time;
+                    let drift = t.center_pos.distance(t.start_pos);
+                    if elapsed <= TAP_MAX_SECS && drift <= TAP_MOVE_TOLERANCE {
+                        if let Some(kind) = pick_inactive_plane_at_cursor(
+                            &self.camera,
+                            rect,
+                            t.center_pos,
+                            self.active_plane.kind,
+                        ) {
+                            self.activate_plane_from_viewport(kind);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     fn status_text(&self) -> String {
         let hint = match self.tool {
             ToolKind::Select => {
@@ -2435,6 +2538,15 @@ impl CadrawApp {
             } else {
                 self.handle_3d_picking(response, rect);
             }
+            return;
+        }
+
+        // Aktifkan bidang sketsa lain langsung dari viewport (Cmd+Klik di
+        // desktop, two-finger tap di iPad tanpa keyboard) — dicek PALING
+        // AWAL, di KEDUA mode (sketch maupun 3D), sebelum klik jatuh ke
+        // drawing tool/seleksi/pick 3D biasa di bawah (lihat
+        // `handle_plane_activation`).
+        if self.handle_plane_activation(ui, response, rect) {
             return;
         }
 
@@ -2982,6 +3094,24 @@ impl CadrawApp {
                 verts.extend(sketch_render::entity_lines(&self.sketches[idx], self.hovered, &self.selected, &plane));
             } else {
                 verts.extend(sketch_render::inactive_entity_lines(&self.sketches[idx], &plane));
+                // Kerangka batas bidang non-aktif — supaya ketiganya tampak
+                // & bisa jadi target Cmd+Klik / two-finger tap walau
+                // sketch-nya masih kosong (lihat `pick_inactive_plane_at_cursor`).
+                // Ditampilkan di KEDUA mode (sketch & 3D) — di mode 3D
+                // sedikit lebih redup (0.18 vs 0.30) supaya tidak bersaing
+                // visual dgn body solid yang sedang dilihat, tapi tetap
+                // jadi target klik yang valid utk lompat langsung ke
+                // sketch di bidang itu (lihat `handle_plane_activation`).
+                let outline_color: [f32; 4] = if self.is_sketching {
+                    [0.10, 0.55, 0.95, 0.30]
+                } else {
+                    [0.10, 0.55, 0.95, 0.18]
+                };
+                verts.extend(cadraw_render::grid::plane_outline(
+                    &plane,
+                    cadraw_render::grid::INACTIVE_PLANE_HALF_EXTENT,
+                    outline_color,
+                ));
             }
         }
 
@@ -4917,6 +5047,112 @@ fn screen_to_plane_point(
 ) -> Option<DVec2> {
     let (p_near, dir) = screen_to_ray(camera, rect, pos);
     plane.ray_intersection(p_near, dir)
+}
+
+/// Cari bidang sketsa NON-AKTIF yang kena ray dari posisi kursor/sentuhan
+/// layar, dibatasi kotak `INACTIVE_PLANE_HALF_EXTENT` (persis area yang
+/// digambar `plane_outline`) — dipakai Cmd+Klik (desktop) & two-finger tap
+/// (iPad) untuk mengaktifkan bidang itu langsung dari viewport 3D tanpa
+/// buka dropdown. Kalau ray kebetulan kena kedua bidang non-aktif sekaligus
+/// (bisa terjadi karena ketiganya berpotongan tegak lurus di origin),
+/// menangkan yang titik potongnya paling dekat ke kamera.
+fn pick_inactive_plane_at_cursor(
+    camera: &OrbitCamera,
+    rect: egui::Rect,
+    pos: egui::Pos2,
+    active_kind: PlaneKind,
+) -> Option<PlaneKind> {
+    let (p_near, dir) = screen_to_ray(camera, rect, pos);
+    pick_inactive_plane_for_ray(p_near, dir, active_kind)
+}
+
+/// Bagian murni-matematika (tanpa kamera/layar) dari `pick_inactive_plane_at_cursor`
+/// — dipisah supaya bisa dites langsung dengan ray buatan tangan, meniru gaya
+/// test `SketchPlane::ray_intersection` di `cadraw-render/src/plane.rs`.
+fn pick_inactive_plane_for_ray(p_near: Vec3, dir: Vec3, active_kind: PlaneKind) -> Option<PlaneKind> {
+    let half_extent = cadraw_render::grid::INACTIVE_PLANE_HALF_EXTENT as f64;
+
+    let mut best: Option<(PlaneKind, f64)> = None;
+    for kind in PlaneKind::all() {
+        if kind == active_kind {
+            continue;
+        }
+        let plane = SketchPlane::from_kind(kind);
+        let Some(uv) = plane.ray_intersection(p_near, dir) else {
+            continue;
+        };
+        if uv.x.abs() > half_extent || uv.y.abs() > half_extent {
+            continue;
+        }
+        let hit = plane.to_world(uv, 0.0);
+        let dist = (hit - p_near).length() as f64;
+        if best.map_or(true, |(_, best_dist)| dist < best_dist) {
+            best = Some((kind, dist));
+        }
+    }
+    best.map(|(kind, _)| kind)
+}
+
+#[cfg(test)]
+mod plane_activation_tests {
+    use super::*;
+
+    // Ray sama persis dgn `test_front_plane_projection` di
+    // cadraw-render/src/plane.rs: tegak lurus menghantam Front plane (XZ)
+    // di (u=15, v=25), jauh dalam batas `INACTIVE_PLANE_HALF_EXTENT`.
+    #[test]
+    fn cmd_click_ray_hits_front_plane_activates_it() {
+        let p_near = Vec3::new(15.0, -100.0, 25.0);
+        let dir = Vec3::new(0.0, 1.0, 0.0);
+        let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Top);
+        assert_eq!(hit, Some(PlaneKind::Front));
+    }
+
+    // Ray sama persis dgn `test_right_plane_projection`: menghantam Right
+    // plane (YZ) di (u=30, v=40).
+    #[test]
+    fn cmd_click_ray_hits_right_plane_activates_it() {
+        let p_near = Vec3::new(100.0, 30.0, 40.0);
+        let dir = Vec3::new(-1.0, 0.0, 0.0);
+        let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Top);
+        assert_eq!(hit, Some(PlaneKind::Right));
+    }
+
+    /// Bidang yang SEDANG aktif tidak boleh pernah dikembalikan, walau
+    /// ray-nya kena — mencegah "klik plane sendiri" jadi no-op yang salah
+    /// diinterpretasikan sebagai pindah bidang.
+    #[test]
+    fn active_plane_never_returned_even_if_ray_hits_it() {
+        // Ray yang justru pas kena Front plane, tapi Front sedang aktif.
+        let p_near = Vec3::new(15.0, -100.0, 25.0);
+        let dir = Vec3::new(0.0, 1.0, 0.0);
+        let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Front);
+        assert_ne!(hit, Some(PlaneKind::Front));
+    }
+
+    /// Titik potong di luar `INACTIVE_PLANE_HALF_EXTENT` (kartu batas yang
+    /// digambar `plane_outline`) tidak boleh mengaktifkan plane — konsisten
+    /// dgn area yang divisualisasikan sebagai target klik.
+    #[test]
+    fn hit_outside_half_extent_is_ignored() {
+        let half_extent = cadraw_render::grid::INACTIVE_PLANE_HALF_EXTENT;
+        let far = half_extent * 3.0;
+        let p_near = Vec3::new(far, -100.0, far);
+        let dir = Vec3::new(0.0, 1.0, 0.0);
+        let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Top);
+        assert_eq!(hit, None);
+    }
+
+    /// Ray sepanjang sumbu X sejajar normal Top (Z) MAUPUN normal Front
+    /// (-Y) sekaligus (dot produk keduanya = 0) — tidak menghasilkan hit
+    /// ke plane manapun, jadi tidak boleh mengaktifkan apa-apa.
+    #[test]
+    fn parallel_ray_to_both_inactive_planes_returns_none() {
+        let p_near = Vec3::new(0.0, 0.0, 50.0);
+        let dir = Vec3::new(1.0, 0.0, 0.0);
+        let hit = pick_inactive_plane_for_ray(p_near, dir, PlaneKind::Right);
+        assert_eq!(hit, None);
+    }
 }
 
 /// Perkiraan unit-dunia per piksel layar pada kedalaman target kamera —

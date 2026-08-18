@@ -2179,6 +2179,99 @@ membuktikan tidak crash).
 threads=1` 154 test hijau (naik dari 153 — 70 di antaranya di
 `cadraw-kernel`, naik dari 69, tambahan test regresi di atas).
 
+## Status — Aktivasi Bidang Sketsa Langsung dari Viewport (dikerjakan)
+
+Permintaan user: di mode sketch, 3 bidang (Top/Front/Right) sudah otomatis
+menampilkan entitas sketsanya sekaligus (yang non-aktif digambar redup,
+lihat loop `0..3` di `build_overlay_lines`), tapi belum ada cara memilih
+bidang mana yang aktif langsung dari viewport 3D — cuma lewat dropdown
+top-bar atau Items Drawer. Diminta: `Cmd + Klik` di desktop utk
+mengaktifkan bidang yang diklik, plus gesture setara utk iPad (belum ada
+keyboard fisik).
+
+Pendekatan (bukan grid rapat 500-unit penuh utk bidang non-aktif — akan
+membuat viewport penuh garis karena ketiganya saling tegak lurus & berpotongan
+di origin):
+- `cadraw-render/src/grid.rs`: `plane_outline()` baru — kerangka persegi
+  tipis + silang sumbu kecil (bukan grid rapat), area `INACTIVE_PLANE_
+  HALF_EXTENT` (120 unit) dipakai SEKALIGUS utk digambar & utk hit-test,
+  jadi area yang divisualisasikan selalu sama persis dgn area yang bisa
+  diklik.
+- `cadraw-app/src/main.rs`: `build_overlay_lines` menggambar `plane_outline`
+  utk 2 bidang non-aktif (cuma saat `is_sketching`), warna biru redup
+  (senada `ACCENT_BLUE`) sbg penanda "ini bisa diklik".
+- `pick_inactive_plane_at_cursor` (wrapper screen→ray) + `pick_inactive_
+  plane_for_ray` (murni matematika, dipisah supaya testable tanpa kamera/
+  layar, gaya sama dgn test `SketchPlane::ray_intersection` di `plane.rs`)
+  — ray-test ke 2 bidang non-aktif, dibatasi `INACTIVE_PLANE_HALF_EXTENT`,
+  menangkan yang titik potongnya paling dekat kamera kalau kena keduanya.
+- `handle_plane_activation` (dipanggil paling awal di `handle_sketch_input`,
+  sebelum klik jatuh ke tool/seleksi biasa):
+  - **Desktop / iPad+keyboard eksternal**: `response.clicked() && modifiers.
+    command` → `pick_inactive_plane_at_cursor` → `activate_plane_from_
+    viewport` (pembungkus `set_sketch_plane` + toast status). Modifier
+    `Cmd` diteruskan sama oleh egui/winit dari keyboard eksternal iPad,
+    jadi jalur ini otomatis jalan di sana tanpa kode khusus.
+  - **iPad sentuh murni (tanpa keyboard)**: "two-finger tap" — dilacak
+    lewat `ui.input(|i| i.multi_touch())`, state terakhir `num_touches==2`
+    disimpan (`two_finger_tap_press: Option<egui::MultiTouchInfo>`), begitu
+    sentuhan dilepas (`multi_touch()` balik ke `None`) dicek `elapsed <=
+    0.3s` & `center_pos` tidak bergeser jauh dari `start_pos` (bukan
+    drag/pan) → aktifkan bidang di posisi itu. Dipilih krn belum diklaim
+    gestur lain: 2-jari **drag** = pan/orbit, pinch = zoom, long-press
+    1-jari = radial tool menu (`handle_radial_menu`, sudah ada sejak
+    Fase 4).
+
+Keputusan desain (default dipertahankan konsisten dgn dropdown/Items
+Drawer yang sudah ada): aktivasi bidang lewat klik viewport TETAP men-snap
+kamera menghadap bidang baru (`camera.orient_to_plane`, lewat `set_sketch_
+plane` yang sama).
+
+Keterbatasan yang diketahui & didokumentasikan di kode:
+- Jalur two-finger tap ditulis & diuji SECARA LOGIS (5 test baru di
+  `plane_activation_tests`, ray buatan tangan gaya `plane.rs`), tapi belum
+  bisa diverifikasi end-to-end di iPad fisik — Fase 6 (build iOS) masih
+  blocked di level linking OCCT utk aarch64-apple-ios (lihat status Fase 6
+  di atas), jadi tidak ada device/simulator utk smoke-test gesture-nya.
+- Deteksi tap tidak membedakan pinch-zoom-di-tempat (centroid nyaris diam
+  tapi jari-jari bergerak menjauh/mendekat) dari tap murni — kalau user
+  pinch cepat lalu lepas dlm <0.3s persis di area bidang non-aktif, bisa
+  salah kepicu aktivasi bidang. Cukup jarang & bukan destruktif (tinggal
+  klik/tap ulang plane semula), ditandai sbg follow-up kalau jadi masalah
+  nyata setelah Fase 6 rilis & bisa dites di device asli.
+
+3 test baru di `cadraw-render::grid` (vertex count, batas half-extent,
+warna) + 5 test baru di `cadraw-app::plane_activation_tests` (hit Front/
+Right plane, bidang aktif tidak pernah dikembalikan, hit di luar batas
+diabaikan, ray sejajar kedua bidang → `None`). `cargo build --workspace`
+& `cargo clippy -p cadraw-render -p cadraw-app --no-deps` bersih (nol
+error, warning yang muncul semuanya pra-existing/gaya `map_or` yang sudah
+dipakai di seluruh file, bukan regresi). `cargo test --workspace
+-- --test-threads=1` 162 test hijau (naik dari 154 — 8 test baru di atas).
+
+**Follow-up sama hari: diperluas ke mode 3D** (user: "tolong multi layer
+ini juga di terapkan di 3D mode"). Sebelumnya outline bidang non-aktif &
+gestur Cmd+Klik/two-finger tap cuma jalan selagi `is_sketching`. Kedua
+guard `if self.is_sketching` itu dilepas:
+- `build_overlay_lines` sekarang menggambar `plane_outline` di KEDUA
+  mode, dgn alpha lebih redup di mode 3D (0.18 vs 0.30 saat sketching)
+  supaya tidak bersaing visual dgn body solid yang sedang dilihat.
+- `handle_plane_activation` sekarang jalan tanpa syarat mode — klik/tap
+  sebuah bidang dari mode 3D otomatis "lompat masuk" ke sketch di bidang
+  itu (lewat `set_sketch_plane` yang sama, yang sudah menyalakan
+  `is_sketching` sendiri sejak awal — tidak perlu logic baru), identik
+  dgn cara dropdown/Items Drawer bekerja. Aman dijalankan bersamaan dgn
+  face/edge/vertex picking mode 3D yang sudah ada karena `Cmd` tidak
+  pernah dipakai gesture pick manapun di sana (dicek ulang sebelum
+  diterapkan, bukan asumsi) — tapi tetap ditempatkan SETELAH early-return
+  `picking_mode != PickMode::None` di `handle_sketch_input`, supaya tidak
+  mengganggu sesi pick edge/face fillet yang sedang berlangsung.
+
+Tidak ada API/test baru yang perlu diubah — 5 test `pick_inactive_plane_
+for_ray` murni geometri, tidak bergantung `is_sketching` sama sekali.
+`cargo build`/`clippy`/`test` (`-p cadraw-app -p cadraw-render`) tetap
+bersih, 28 test itu semua masih hijau.
+
 ## Menjalankan
 
 ```bash
