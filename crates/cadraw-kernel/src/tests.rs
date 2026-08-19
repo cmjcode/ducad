@@ -309,6 +309,26 @@ fn revolve_profile_degenerate_axis_errors() {
     assert!(revolve_profile(&profile, (0.0, 0.0), (0.0, 0.0), None).is_err());
 }
 
+#[test]
+fn revolve_profile_axis_crossing_profile_returns_err_safely_without_abort() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    // Profil membentang dari X=10 sampai X=20, Y=0 sampai Y=5
+    let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
+    // Sumbu X=15 membelah tengah persegi panjang -> memicu self-intersection di OCCT
+    let result = revolve_profile(&profile, (15.0, 0.0), (0.0, 1.0), None);
+    assert!(result.is_err(), "Revolve dengan sumbu membelah profil harus return Err, bukan abort/crash!");
+}
+
+#[test]
+fn revolve_profile_partial_angle_succeeds() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
+    let shape_180 = revolve_profile(&profile, (0.0, 0.0), (0.0, 1.0), Some(180.0)).unwrap();
+    let mesh = shape_180.tessellate();
+    assert!(mesh.triangle_count() > 0);
+}
+
+
 // ---- Fase 8: Loft ----
 
 #[test]

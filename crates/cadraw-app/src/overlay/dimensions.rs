@@ -536,6 +536,44 @@ impl CadrawApp {
             self.render_all_element_dimensions(ui, rect);
         }
 
+        if self.tool == ToolKind::Revolve {
+            let is_staged = self.revolve_staged_axis.is_some();
+            if let Some(action) = CanvasHud::render_revolve_animated_guide(
+                ui,
+                rect,
+                self.pending_points.len(),
+                !self.selected.is_empty(),
+                self.revolve_angle_setting,
+                self.revolve_reverse,
+                is_staged,
+                ui.input(|i| i.time),
+            ) {
+                match action {
+                    cadraw_ui::RevolveHudAction::SetAngle(angle) => {
+                        self.revolve_angle_setting = angle;
+                        self.revolve_dialog.angle_input = format!("{:.1}", angle);
+                    }
+                    cadraw_ui::RevolveHudAction::ToggleReverse => {
+                        self.revolve_reverse = !self.revolve_reverse;
+                    }
+                    cadraw_ui::RevolveHudAction::Commit => {
+                        self.commit_staged_revolve();
+                    }
+                    cadraw_ui::RevolveHudAction::Cancel => {
+                        self.cancel_staged_revolve();
+                    }
+                }
+            }
+
+            if is_staged {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.commit_staged_revolve();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.cancel_staged_revolve();
+                }
+            }
+        }
+
         if let Some(raw) = raw_cursor {
             let effective = self.snapped_or(raw);
             let world_scale = pixel_tolerance_to_world(&self.camera, rect);

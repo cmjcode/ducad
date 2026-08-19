@@ -104,9 +104,9 @@ impl CadrawApp {
                 PaletteAction::SetTool(ToolKind::Trim),
             ),
             (
-                "Revolve".to_string(),
+                "Revolve (Putar 3D)".to_string(),
                 "V".to_string(),
-                PaletteAction::SetTool(ToolKind::Revolve),
+                PaletteAction::OpenRevolveDialog,
             ),
             (
                 "Coincident (titik)".to_string(),
@@ -204,6 +204,7 @@ impl CadrawApp {
     pub fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
         match action {
             PaletteAction::SetTool(kind) => self.set_tool(kind),
+            PaletteAction::OpenRevolveDialog => self.open_revolve_dialog(),
             PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
             PaletteAction::EnterSketching => {
                 self.is_sketching = true;

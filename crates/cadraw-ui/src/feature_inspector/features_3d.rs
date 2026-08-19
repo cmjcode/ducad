@@ -8,7 +8,9 @@ use crate::feature_inspector::types::{
     FeatureInspectorState, InspectorBooleanKind, InspectorEvent, InspectorPickMode,
     SelectedEntityData,
 };
-use crate::theme::{card_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{
+    card_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+};
 
 pub fn show_measurements_card(
     ui: &mut Ui,
@@ -172,21 +174,109 @@ pub fn show_3d_cards(
         });
         ui.add_space(3.0);
 
-        // Revolve & Loft
+        // Revolve Card (Properties Panel Kanan)
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Revolve & Loft", ICON_REFRESH.codepoint))
+                RichText::new(format!("{} Revolve 3D (Benda Putar)", ICON_REFRESH.codepoint))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_BLUE),
             );
             ui.add_space(2.0);
-            if ui
-                .button(format!("{} Revolve (Pilih Axis)", ICON_REFRESH.codepoint))
-                .clicked()
-            {
-                *event = Some(InspectorEvent::ApplyRevolve);
+
+            // Pilihan Sumbu
+            ui.label(RichText::new("Poros Sumbu:").size(10.5).color(TEXT_SECONDARY));
+            ui.radio_value(&mut state.revolve_axis_preset, 0, RichText::new("Sumbu Y (Vertikal)").size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 1, RichText::new("Sumbu X (Horizontal)").size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 2, RichText::new("Tepi Kiri Sketsa").size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 3, RichText::new("Tepi Bawah Sketsa").size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 4, RichText::new("✏️ Gambar 2 Titik Manual").size(10.5));
+
+            ui.add_space(3.0);
+
+            // Sudut
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
+                if ui.small_button("360°").clicked() {
+                    state.revolve_angle_input = "360.0".to_string();
+                }
+                if ui.small_button("180°").clicked() {
+                    state.revolve_angle_input = "180.0".to_string();
+                }
+                if ui.small_button("90°").clicked() {
+                    state.revolve_angle_input = "90.0".to_string();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Derajat:").size(10.5).color(TEXT_SECONDARY));
+                ui.add_sized(
+                    Vec2::new(60.0, 18.0),
+                    egui::TextEdit::singleline(&mut state.revolve_angle_input),
+                );
+                ui.label(RichText::new("°").size(10.5).color(TEXT_MUTED));
+            });
+
+            ui.add_space(3.0);
+
+            // Arah Putar (CW vs CCW)
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Arah:").size(10.5).color(TEXT_SECONDARY));
+                let dir_label = if state.revolve_reverse { "↻ Balik Arah (CW)" } else { "↺ Normal (CCW)" };
+                if ui
+                    .button(RichText::new(dir_label).size(10.5).color(if state.revolve_reverse { ACCENT_ORANGE } else { TEXT_PRIMARY }))
+                    .clicked()
+                {
+                    state.revolve_reverse = !state.revolve_reverse;
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // Tombol Eksekusi
+            if state.revolve_axis_preset == 4 {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("✏️ Klik 2 Titik di Kanvas")
+                                .size(11.0)
+                                .color(Color32::WHITE),
+                        )
+                        .fill(ACCENT_BLUE),
+                    )
+                    .clicked()
+                {
+                    *event = Some(InspectorEvent::StartManualRevolve);
+                }
+            } else {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new("🚀 Eksekusi Revolve")
+                                .size(11.0)
+                                .color(Color32::WHITE),
+                        )
+                        .fill(ACCENT_BLUE),
+                    )
+                    .clicked()
+                {
+                    let angle = state.revolve_angle_input.trim().parse::<f64>().unwrap_or(360.0);
+                    *event = Some(InspectorEvent::ApplyRevolvePreset {
+                        preset_idx: state.revolve_axis_preset,
+                        angle_deg: angle,
+                    });
+                }
             }
+        });
+        ui.add_space(3.0);
+
+        // Loft Card
+        card_frame().show(ui, |ui| {
+            ui.label(
+                RichText::new(format!("{} Loft 3D", ICON_REFRESH.codepoint))
+                    .strong()
+                    .size(11.5)
+                    .color(ACCENT_BLUE),
+            );
             ui.separator();
             ui.label(RichText::new("Loft:").size(10.5).color(TEXT_SECONDARY));
             let staged_label = if state.loft_bottom_staged {

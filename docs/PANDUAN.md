@@ -145,19 +145,16 @@ dasar yang belum jadi solid) tetap memilih region sketsa itu (gizmo
 extrude 2D biasa) — push/pull sisi 3D cuma aktif kalau klik benar-benar
 kena permukaan solid yang sudah ada.
 
-### Revolve — putar profil 360° mengelilingi sumbu (Fase 8)
+### Revolve — putar profil mengelilingi sumbu (Fase 8)
 
-1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil (sama
-   aturan dengan Extrude — 1 Lingkaran, atau ≥3 Line/Arc loop tertutup).
-2. Tekan **V** (atau pilih "Revolve" di toolbar/command palette).
-3. Klik **2 titik** (snap aktif) menentukan garis sumbu — profil diputar
-   360° penuh mengelilingi garis itu. Hasil langsung muncul sebagai body
-   baru.
-4. Kalau gagal (profil tidak valid, atau 2 titik sumbu sama/terlalu
-   dekat), pesan error muncul di panel Model 3D.
+1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil tertutup (1 Lingkaran, atau loop Line/Arc tertutup).
+2. Tekan **V** (atau klik ikon **Revolve** di toolbar kiri / Feature Inspector / context bar).
+3. Jendela **✨ Fitur Revolve** akan muncul secara interaktif:
+   - **Preset Sumbu 1-Klik**: Pilih **Sumbu Y (Vertikal)**, **Sumbu X (Horizontal)**, **Tepi Kiri Profil**, atau **Gambar Manual (2 Titik)**.
+   - **Pilihan Sudut**: Pilih **360° Penuh**, **180° Setengah**, **90° Siku**, atau masukkan nilai derajat bebas.
+   - Klik **🚀 Eksekusi Revolve**.
+4. Jika terjadi kesalahan (misal sumbu memotong interior profil atau profil belum tertutup), popup **⚠️ Peringatan Revolve** akan otomatis muncul memberikan penjelasan ramah beserta tips solusi praktis.
 
-⚠️ Baru revolve **360° penuh** — sudut parsial (mis. cuma 180°) belum ada
-UI-nya di putaran pertama ini.
 
 ### Loft — solid antara 2 profil beda bentuk (Fase 8)
 

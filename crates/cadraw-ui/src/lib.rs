@@ -18,11 +18,12 @@ pub mod feature_inspector;
 pub mod items_drawer;
 pub mod left_toolbar;
 pub mod radial_menu;
+pub mod revolve_dialog;
 pub mod theme;
 pub mod top_bar;
 pub mod viewcube;
 
-pub use canvas_hud::{CanvasHud, CanvasHudEvent};
+pub use canvas_hud::{CanvasHud, CanvasHudEvent, RevolveHudAction};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use context_bar::{ContextAction, ContextActionBar};
@@ -33,6 +34,10 @@ pub use feature_inspector::{
 pub use items_drawer::{BodyItemInfo, ItemsDrawer, ItemsDrawerEvent, SketchPlaneItemInfo};
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use radial_menu::RadialMenu;
+pub use revolve_dialog::{
+    AlertModal, AlertModalState, RevolveAxisPreset, RevolveDialog, RevolveDialogEvent,
+    RevolveDialogState,
+};
 pub use theme::{
     apply as apply_theme, card_frame, dimension_pill_frame, glass_frame, pill_frame, ThemeMode,
     ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS, BG_CARD_DARK,
@@ -41,3 +46,4 @@ pub use theme::{
 };
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};
+

@@ -208,33 +208,21 @@ impl CadrawApp {
             }
             ToolKind::Revolve => {
                 let (axis_origin, axis_end) = (pts[0], pts[1]);
-                let axis_dir = axis_end - axis_origin;
-                if axis_dir.length() < 1e-6 {
+                let raw_dir = axis_end - axis_origin;
+                if raw_dir.length() < 1e-6 {
+                    self.alert_modal.show_error(
+                        "Revolve Gagal: Sumbu Terlalu Pendek",
+                        "Dua titik sumbu yang Anda klik berada di posisi yang sama atau terlalu dekat.",
+                        vec![
+                            "Klik dua titik yang berjarak jelas untuk membentuk garis sumbu.",
+                            "Atau gunakan preset 'Sumbu Y' / 'Sumbu X' di jendela opsi Revolve.",
+                        ],
+                    );
                     self.model_status =
                         Some("Revolve gagal: dua titik axis sama/terlalu dekat".to_string());
                 } else {
-                    match crate::model::build_profile_from_selection(self.sketch(), &self.selected)
-                    {
-                        Ok(profile) => {
-                            match cadraw_kernel::revolve_profile(
-                                &profile,
-                                (axis_origin.x, axis_origin.y),
-                                (axis_dir.x, axis_dir.y),
-                                None,
-                            ) {
-                                Ok(shape) => {
-                                    let geo = BodyGeometry::from_shape(shape);
-                                    self.model_undo.execute(
-                                        Box::new(AddSolidCommand::new("Revolve", geo)),
-                                        &mut self.model,
-                                    );
-                                    self.model_status = None;
-                                }
-                                Err(e) => self.model_status = Some(format!("Revolve gagal: {e}")),
-                            }
-                        }
-                        Err(msg) => self.model_status = Some(msg),
-                    }
+                    self.revolve_staged_axis = Some((axis_origin, axis_end));
+                    self.model_status = Some("Sumbu poros terpasang. Sesuaikan sudut & arah lalu klik Terapkan (atau tekan Enter)".to_string());
                 }
                 None
             }
@@ -633,7 +621,7 @@ impl CadrawApp {
                     self.set_tool(ToolKind::Trim);
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::V)) {
-                    self.set_tool(ToolKind::Revolve);
+                    self.open_revolve_dialog();
                 }
             }
         }
@@ -983,6 +971,8 @@ impl CadrawApp {
                         let effective = self.snapped_or(raw);
                         self.on_click_point(effective);
                     }
+                } else if response.clicked() {
+                    self.open_revolve_dialog();
                 }
             }
             ToolKind::Offset => {

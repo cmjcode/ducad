@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use glam::dvec3;
 use opencascade::adhoc::AdHocShape;
 use opencascade::angle::Angle;
@@ -74,7 +74,8 @@ pub fn revolve_profile(
     let origin = dvec3(axis_origin.0, axis_origin.1, 0.0);
     let axis = dvec3(axis_dir.0, axis_dir.1, 0.0);
     let angle = angle_degrees.map(Angle::Degrees);
-    let solid: Solid = face.revolve(origin, axis, angle);
+    let solid: Solid = face.try_revolve(origin, axis, angle)
+        .map_err(|e| anyhow!("Operasi Revolve gagal: pastikan sumbu putar tidak memotong bagian dalam profil dan profil membentuk bidang tertutup ({e})"))?;
     Ok(KernelShape::from_inner(solid.into_shape()))
 }
 

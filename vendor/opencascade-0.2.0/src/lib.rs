@@ -44,4 +44,9 @@ pub enum Error {
     // sama dgn `FilletFailed`).
     #[error("BRepAlgoAPI_Fuse/Cut/Common gagal: {0}")]
     BooleanOpFailed(String),
+    // PATCH (CADRAW): variant baru untuk membungkus kegagalan BRepPrimAPI_MakeRevol
+    // (sumbu memotong interior profil, profil tidak tertutup, atau geometri tidak valid).
+    #[error("BRepPrimAPI_MakeRevol gagal: {0}")]
+    RevolveFailed(String),
 }
+

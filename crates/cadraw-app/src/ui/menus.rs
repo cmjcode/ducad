@@ -19,7 +19,11 @@ impl CadrawApp {
             (ToolKind::Revolve, "Revolve (V)"),
         ] {
             if ui.selectable_label(self.tool == kind, label).clicked() {
-                self.set_tool(kind);
+                if kind == ToolKind::Revolve {
+                    self.open_revolve_dialog();
+                } else {
+                    self.set_tool(kind);
+                }
             }
         }
         ui.separator();

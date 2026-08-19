@@ -60,6 +60,118 @@ impl CadrawApp {
         }
     }
 
+    /// Revolve profil dari seleksi sketch dengan sumbu dan sudut tertentu.
+    pub fn revolve_selected(
+        &mut self,
+        axis_origin: (f64, f64),
+        axis_dir: (f64, f64),
+        angle_deg: Option<f64>,
+    ) -> bool {
+        let profile = match crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.alert_modal.show_error(
+                    "Revolve Gagal: Profil Tidak Valid",
+                    format!("{msg}"),
+                    vec![
+                        "Pastikan sketsa membentuk garis atau kurva tertutup sempurna (misal: kotak atau lingkaran).",
+                        "Gunakan Tool Pilih (S) lalu drag untuk menyeleksi seluruh entitas yang membentuk profil tertutup.",
+                        "Gunakan constraint Coincident pada titik ujung garis yang belum menyatu.",
+                    ],
+                );
+                self.model_status = Some(msg);
+                return false;
+            }
+        };
+
+        match cadraw_kernel::revolve_profile(&profile, axis_origin, axis_dir, angle_deg) {
+            Ok(shape) => {
+                let geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(AddSolidCommand::new("Revolve", geo)),
+                    &mut self.model,
+                );
+                self.model_status = Some(format!(
+                    "Revolve {:.0}° berhasil dibuat",
+                    angle_deg.unwrap_or(360.0)
+                ));
+                true
+            }
+            Err(e) => {
+                self.alert_modal.show_error(
+                    "Revolve Gagal: Kesalahan Geometri / Sumbu",
+                    format!("{e}"),
+                    vec![
+                        "Pastikan garis sumbu poros putar TIDAK MEMOTONG bagian dalam profil.",
+                        "Letakkan garis sumbu di luar profil atau tepat berhimpit pada salah satu tepi profil.",
+                        "Coba gunakan preset 'Sumbu Y' atau 'Tepi Kiri' pada jendela opsi Revolve.",
+                    ],
+                );
+                self.model_status = Some(format!("Revolve gagal: {e}"));
+                false
+            }
+        }
+    }
+
+    /// Revolve profil dari seleksi sketch dengan preset sumbu.
+    pub fn revolve_selected_with_preset(
+        &mut self,
+        preset: cadraw_ui::RevolveAxisPreset,
+        angle_deg: f64,
+    ) -> bool {
+        let angle_opt = if (angle_deg - 360.0).abs() < 1e-4 {
+            None
+        } else {
+            Some(angle_deg)
+        };
+
+        let bbox = crate::model::compute_profile_bbox(self.sketch(), &self.selected);
+
+        let (axis_origin, axis_dir) = match preset {
+            cadraw_ui::RevolveAxisPreset::YAxisOrigin => ((0.0, 0.0), (0.0, 1.0)),
+            cadraw_ui::RevolveAxisPreset::XAxisOrigin => ((0.0, 0.0), (1.0, 0.0)),
+            cadraw_ui::RevolveAxisPreset::BBoxLeft => {
+                if let Some([min_x, min_y, _, _]) = bbox {
+                    ((min_x, min_y), (0.0, 1.0))
+                } else {
+                    ((0.0, 0.0), (0.0, 1.0))
+                }
+            }
+            cadraw_ui::RevolveAxisPreset::BBoxRight => {
+                if let Some([_, min_y, max_x, _]) = bbox {
+                    ((max_x, min_y), (0.0, 1.0))
+                } else {
+                    ((0.0, 0.0), (0.0, 1.0))
+                }
+            }
+            cadraw_ui::RevolveAxisPreset::BBoxBottom => {
+                if let Some([min_x, min_y, _, _]) = bbox {
+                    ((min_x, min_y), (1.0, 0.0))
+                } else {
+                    ((0.0, 0.0), (1.0, 0.0))
+                }
+            }
+            cadraw_ui::RevolveAxisPreset::BBoxTop => {
+                if let Some([min_x, _, _, max_y]) = bbox {
+                    ((min_x, max_y), (1.0, 0.0))
+                } else {
+                    ((0.0, 0.0), (1.0, 0.0))
+                }
+            }
+            cadraw_ui::RevolveAxisPreset::CustomTwoPoints => {
+                return false;
+            }
+        };
+
+        let effective_axis_dir = if self.revolve_reverse {
+            (-axis_dir.0, -axis_dir.1)
+        } else {
+            axis_dir
+        };
+
+        self.revolve_selected(axis_origin, effective_axis_dir, angle_opt)
+    }
+
     /// Loft antara `pending_loft_bottom` dan profil dari seleksi sketch saat ini.
     pub fn loft_selected(&mut self) {
         let Some(bottom) = self.pending_loft_bottom.clone() else {

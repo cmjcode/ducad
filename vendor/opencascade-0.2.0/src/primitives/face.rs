@@ -105,19 +105,26 @@ impl Face {
         Shape { inner }
     }
 
-    pub fn revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Solid {
+    pub fn try_revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Result<Solid, crate::Error> {
         let revol_vec = make_axis_1(origin, axis);
 
         let angle = angle.map(Angle::radians).unwrap_or(std::f64::consts::PI * 2.0);
         let copy = false;
 
         let inner_shape = ffi::cast_face_to_shape(&self.inner);
-        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_vec, angle, copy);
-        let revolved_shape = make_solid.pin_mut().Shape();
+        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor_checked(inner_shape, &revol_vec, angle, copy)
+            .map_err(|e| crate::Error::RevolveFailed(e.to_string()))?;
+        let revolved_shape = ffi::BRepPrimAPI_MakeRevol_shape_checked(make_solid.pin_mut())
+            .map_err(|e| crate::Error::RevolveFailed(e.to_string()))?;
         let solid = ffi::TopoDS_cast_to_solid(revolved_shape);
         let inner = ffi::TopoDS_Solid_to_owned(solid);
 
-        Solid { inner }
+        Ok(Solid { inner })
+    }
+
+    pub fn revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Solid {
+        self.try_revolve(origin, axis, angle)
+            .expect("Face::revolve failed (use try_revolve for safe error handling)")
     }
 
     /// Fillets the face edges by a given radius at each vertex
@@ -394,7 +401,7 @@ impl CompoundFace {
         Shape { inner }
     }
 
-    pub fn revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Shape {
+    pub fn try_revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Result<Shape, crate::Error> {
         let revol_axis = make_axis_1(origin, axis);
 
         let angle = angle.map(Angle::radians).unwrap_or(std::f64::consts::PI * 2.0);
@@ -402,11 +409,18 @@ impl CompoundFace {
 
         let inner_shape = ffi::cast_compound_to_shape(&self.inner);
 
-        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor(inner_shape, &revol_axis, angle, copy);
-        let revolved_shape = make_solid.pin_mut().Shape();
+        let mut make_solid = ffi::BRepPrimAPI_MakeRevol_ctor_checked(inner_shape, &revol_axis, angle, copy)
+            .map_err(|e| crate::Error::RevolveFailed(e.to_string()))?;
+        let revolved_shape = ffi::BRepPrimAPI_MakeRevol_shape_checked(make_solid.pin_mut())
+            .map_err(|e| crate::Error::RevolveFailed(e.to_string()))?;
         let inner = ffi::TopoDS_Shape_to_owned(revolved_shape);
 
-        Shape { inner }
+        Ok(Shape { inner })
+    }
+
+    pub fn revolve(&self, origin: DVec3, axis: DVec3, angle: Option<Angle>) -> Shape {
+        self.try_revolve(origin, axis, angle)
+            .expect("AdHocFace::revolve failed (use try_revolve for safe error handling)")
     }
 
     pub fn set_global_translation(&mut self, translation: DVec3) {

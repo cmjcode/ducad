@@ -459,6 +459,60 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     Ok(Profile::Loop(ordered.into_iter().map(|s| s.seg).collect()))
 }
 
+/// Hitung bounding box 2D `[min_x, min_y, max_x, max_y]` dari seleksi entitas sketch.
+pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<[f64; 4]> {
+    if ids.is_empty() {
+        return None;
+    }
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    let mut count = 0;
+
+    for id in ids {
+        if let Some(e) = sketch.entities.get(*id) {
+            count += 1;
+            match e {
+                Entity::Line { start, end } => {
+                    min_x = min_x.min(start.x.min(end.x));
+                    max_x = max_x.max(start.x.max(end.x));
+                    min_y = min_y.min(start.y.min(end.y));
+                    max_y = max_y.max(start.y.max(end.y));
+                }
+                Entity::Circle { center, radius } => {
+                    min_x = min_x.min(center.x - radius);
+                    max_x = max_x.max(center.x + radius);
+                    min_y = min_y.min(center.y - radius);
+                    max_y = max_y.max(center.y + radius);
+                }
+                Entity::Arc { center, radius, .. } => {
+                    min_x = min_x.min(center.x - radius);
+                    max_x = max_x.max(center.x + radius);
+                    min_y = min_y.min(center.y - radius);
+                    max_y = max_y.max(center.y + radius);
+                }
+                Entity::Ellipse {
+                    center,
+                    radius_x,
+                    radius_y,
+                } => {
+                    min_x = min_x.min(center.x - radius_x);
+                    max_x = max_x.max(center.x + radius_x);
+                    min_y = min_y.min(center.y - radius_y);
+                    max_y = max_y.max(center.y + radius_y);
+                }
+            }
+        }
+    }
+
+    if count == 0 {
+        None
+    } else {
+        Some([min_x, min_y, max_x, max_y])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,5 +591,21 @@ mod tests {
     fn build_profile_empty_selection_errors() {
         let sketch = Sketch::default();
         assert!(build_profile_from_selection(&sketch, &HashSet::new()).is_err());
+    }
+
+    #[test]
+    fn compute_profile_bbox_rect_and_circle() {
+        let mut sketch = Sketch::default();
+        let id1 = sketch.entities.insert(Entity::Line {
+            start: DVec2::new(5.0, 10.0),
+            end: DVec2::new(15.0, 20.0),
+        });
+        let id2 = sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 3.0,
+        });
+        let ids: HashSet<_> = [id1, id2].into_iter().collect();
+        let bbox = compute_profile_bbox(&sketch, &ids).unwrap();
+        assert_eq!(bbox, [-3.0, -3.0, 15.0, 20.0]);
     }
 }

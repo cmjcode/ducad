@@ -364,17 +364,23 @@ impl CadrawApp {
                         }
                     }
                 }
-                ToolKind::Revolve
-                    if !self.selected.is_empty() && self.pending_points.len() == 1 =>
-                {
-                    let axis_preview = Entity::Line {
-                        start: self.pending_points[0],
-                        end: self.snapped_or(raw),
-                    };
-                    verts.extend(sketch_render::preview_lines(
-                        &axis_preview,
-                        &self.active_plane,
-                    ));
+                ToolKind::Revolve => {
+                    if !self.selected.is_empty() && self.pending_points.len() == 1 {
+                        let axis_preview = Entity::Line {
+                            start: self.pending_points[0],
+                            end: self.snapped_or(raw),
+                        };
+                        verts.extend(sketch_render::preview_lines(
+                            &axis_preview,
+                            &self.active_plane,
+                        ));
+                    } else if let Some((start, end)) = self.revolve_staged_axis {
+                        let axis_preview = Entity::Line { start, end };
+                        verts.extend(sketch_render::preview_lines(
+                            &axis_preview,
+                            &self.active_plane,
+                        ));
+                    }
                 }
                 ToolKind::Offset => {
                     if let Some(entity) = self

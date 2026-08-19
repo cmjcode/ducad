@@ -124,6 +124,7 @@ pub enum FileOp {
 #[derive(Debug, Clone, Copy)]
 pub enum PaletteAction {
     SetTool(ToolKind),
+    OpenRevolveDialog,
     Undo,
     Redo,
     ModelUndo,

@@ -81,6 +81,12 @@ pub struct CadrawApp {
 
     pub measurements: Vec<crate::types::Measurement>,
 
+    pub alert_modal: cadraw_ui::AlertModalState,
+    pub revolve_dialog: cadraw_ui::RevolveDialogState,
+    pub revolve_angle_setting: f64,
+    pub revolve_reverse: bool,
+    pub revolve_staged_axis: Option<(glam::DVec2, glam::DVec2)>,
+
     pub section_enabled: bool,
     pub section_axis: SectionAxis,
     pub section_offset: f32,
@@ -250,6 +256,12 @@ impl CadrawApp {
             two_finger_tap_press: None,
 
             measurements: Vec::new(),
+
+            alert_modal: cadraw_ui::AlertModalState::default(),
+            revolve_dialog: cadraw_ui::RevolveDialogState::default(),
+            revolve_angle_setting: 360.0,
+            revolve_reverse: false,
+            revolve_staged_axis: None,
 
             section_enabled: false,
             section_axis: SectionAxis::Z,
@@ -702,6 +714,10 @@ impl eframe::App for CadrawApp {
             .show(&ctx, |ui| {
                 if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
                     match tb_ev {
+                        ToolbarEvent::SelectTool(cadraw_ui::ToolbarTool::Revolve) => {
+                            self.feature_inspector_open = true;
+                            self.set_tool(ToolKind::Revolve);
+                        }
                         ToolbarEvent::SelectTool(t) => {
                             self.set_tool(ToolKind::from_toolbar_tool(t));
                         }
@@ -1100,6 +1116,15 @@ impl eframe::App for CadrawApp {
                 extrude_input: self.extrude_distance_input.clone(),
                 active_face_selected: self.active_face.is_some(),
                 face_extrude_input: self.face_extrude_distance_input.clone(),
+                revolve_angle_input: self.revolve_dialog.angle_input.clone(),
+                revolve_axis_preset: match self.revolve_dialog.axis_preset {
+                    cadraw_ui::RevolveAxisPreset::YAxisOrigin => 0,
+                    cadraw_ui::RevolveAxisPreset::XAxisOrigin => 1,
+                    cadraw_ui::RevolveAxisPreset::BBoxLeft => 2,
+                    cadraw_ui::RevolveAxisPreset::BBoxBottom => 3,
+                    _ => 4,
+                },
+                revolve_reverse: self.revolve_reverse,
                 loft_height_input: self.loft_height_input.clone(),
                 loft_bottom_staged: self.pending_loft_bottom.is_some(),
                 fillet_input: self.fillet_radius_input.clone(),
@@ -1372,6 +1397,20 @@ impl eframe::App for CadrawApp {
                                 self.sketch_on_active_face();
                             }
                             InspectorEvent::ApplyRevolve => {
+                                self.feature_inspector_open = true;
+                                self.set_tool(ToolKind::Revolve);
+                            }
+                            InspectorEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
+                                let preset = match preset_idx {
+                                    0 => cadraw_ui::RevolveAxisPreset::YAxisOrigin,
+                                    1 => cadraw_ui::RevolveAxisPreset::XAxisOrigin,
+                                    2 => cadraw_ui::RevolveAxisPreset::BBoxLeft,
+                                    3 => cadraw_ui::RevolveAxisPreset::BBoxBottom,
+                                    _ => cadraw_ui::RevolveAxisPreset::CustomTwoPoints,
+                                };
+                                self.revolve_selected_with_preset(preset, angle_deg);
+                            }
+                            InspectorEvent::StartManualRevolve => {
                                 self.set_tool(ToolKind::Revolve);
                             }
                             InspectorEvent::StageLoftBottom => {
@@ -1456,6 +1495,18 @@ impl eframe::App for CadrawApp {
                             }
                         }
                     }
+                    if let Ok(ang) = inspector_state.revolve_angle_input.trim().parse::<f64>() {
+                        self.revolve_angle_setting = ang;
+                    }
+                    self.revolve_reverse = inspector_state.revolve_reverse;
+                    self.revolve_dialog.angle_input = inspector_state.revolve_angle_input;
+                    self.revolve_dialog.axis_preset = match inspector_state.revolve_axis_preset {
+                        0 => cadraw_ui::RevolveAxisPreset::YAxisOrigin,
+                        1 => cadraw_ui::RevolveAxisPreset::XAxisOrigin,
+                        2 => cadraw_ui::RevolveAxisPreset::BBoxLeft,
+                        3 => cadraw_ui::RevolveAxisPreset::BBoxBottom,
+                        _ => cadraw_ui::RevolveAxisPreset::CustomTwoPoints,
+                    };
                 });
         }
 
@@ -1481,7 +1532,7 @@ impl eframe::App for CadrawApp {
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
-                                ContextAction::Revolve => self.set_tool(ToolKind::Revolve),
+                                ContextAction::Revolve => self.open_revolve_dialog(),
                                 ContextAction::Delete => {
                                     if !self.selected.is_empty() {
                                         let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();
@@ -1507,7 +1558,7 @@ impl eframe::App for CadrawApp {
                                     self.sketch_on_active_face();
                                 }
                                 ContextAction::Revolve => {
-                                    self.set_tool(ToolKind::Revolve);
+                                    self.open_revolve_dialog();
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;
@@ -1562,5 +1613,43 @@ impl eframe::App for CadrawApp {
             let action = palette_actions[idx].2;
             self.run_palette_action(&ctx, action);
         }
+
+        // Render Alert Modal Peringatan jika ada operasi yang gagal
+        cadraw_ui::AlertModal::show(&ctx, &mut self.alert_modal);
     }
 }
+
+impl CadrawApp {
+    /// Buka konfigurasi Revolve di panel properti kanan dan aktifkan tool Revolve.
+    pub fn open_revolve_dialog(&mut self) {
+        self.feature_inspector_open = true;
+        self.set_tool(ToolKind::Revolve);
+    }
+
+    /// Eksekusi revolve setelah sumbu 2 titik di-stage dan sudut disesuaikan.
+    pub fn commit_staged_revolve(&mut self) {
+        if let Some((axis_origin, axis_end)) = self.revolve_staged_axis.take() {
+            let raw_dir = axis_end - axis_origin;
+            let axis_dir = if self.revolve_reverse { -raw_dir } else { raw_dir };
+            let angle_opt = if (self.revolve_angle_setting - 360.0).abs() < 1e-4 {
+                None
+            } else {
+                Some(self.revolve_angle_setting)
+            };
+            self.revolve_selected(
+                (axis_origin.x, axis_origin.y),
+                (axis_dir.x, axis_dir.y),
+                angle_opt,
+            );
+            self.set_tool(ToolKind::Select);
+        }
+    }
+
+    /// Batalkan sumbu revolve yang sedang di-stage.
+    pub fn cancel_staged_revolve(&mut self) {
+        self.revolve_staged_axis = None;
+        self.set_tool(ToolKind::Select);
+    }
+}
+
+
