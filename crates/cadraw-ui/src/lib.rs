@@ -13,6 +13,7 @@
 pub mod canvas_hud;
 pub mod command_palette;
 pub mod constraint_strip;
+pub mod context_bar;
 pub mod feature_inspector;
 pub mod items_drawer;
 pub mod left_toolbar;
@@ -24,6 +25,7 @@ pub mod viewcube;
 pub use canvas_hud::{CanvasHud, CanvasHudEvent};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
+pub use context_bar::{ContextAction, ContextActionBar};
 pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,

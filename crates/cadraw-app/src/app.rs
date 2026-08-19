@@ -10,10 +10,10 @@ use cadraw_sketch::{
     SnapHit, UpdateEntity,
 };
 use cadraw_ui::{
-    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, FeatureInspector,
-    FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction, InspectorEvent,
-    InspectorPickMode, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu, SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode,
+    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, ContextAction, ContextActionBar,
+    FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
+    InspectorEvent, InspectorPickMode, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent,
+    LeftToolbar, RadialMenu, SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode,
     ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
 use eframe::egui;
@@ -1460,6 +1460,77 @@ impl eframe::App for CadrawApp {
         }
 
         let bottom_center = egui::pos2(screen_center_x, screen_rect.max.y);
+
+        // Shapr3D-Style Floating Contextual Action Bar
+        let has_sketch_sel = !self.selected.is_empty();
+        let has_face_sel = self.active_face.is_some();
+        let has_body_sel = !self.selected_bodies.is_empty();
+
+        if has_sketch_sel || has_face_sel || has_body_sel {
+            egui::Area::new(egui::Id::new("cadraw-context-action-bar-area"))
+                .fixed_pos(egui::pos2(screen_center_x, screen_rect.max.y - 56.0))
+                .pivot(egui::Align2::CENTER_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if has_sketch_sel {
+                        let has_closed = self.selected_closed_region_centroid().is_some()
+                            || crate::model::build_profile_from_selection(self.sketch(), &self.selected).is_ok();
+                        if let Some(act) = ContextActionBar::show_sketch_selection(ui, self.selected.len(), has_closed) {
+                            match act {
+                                ContextAction::Extrude => self.extrude_selected(),
+                                ContextAction::Offset => self.set_tool(ToolKind::Offset),
+                                ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
+                                ContextAction::Trim => self.set_tool(ToolKind::Trim),
+                                ContextAction::Revolve => self.set_tool(ToolKind::Revolve),
+                                ContextAction::Delete => {
+                                    if !self.selected.is_empty() {
+                                        let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();
+                                        self.execute_sketch_command(Box::new(DeleteEntities::new(to_delete)));
+                                        self.selected.clear();
+                                    }
+                                }
+                                ContextAction::ClearSelection => self.selected.clear(),
+                                _ => {}
+                            }
+                        }
+                    } else if has_face_sel {
+                        if let Some(act) = ContextActionBar::show_face_selection(ui) {
+                            match act {
+                                ContextAction::Extrude => {
+                                    self.extruding_face_from_gizmo = true;
+                                    if self.face_gizmo_distance == 0.0 {
+                                        self.face_gizmo_distance = 15.0;
+                                    }
+                                    self.auto_enter_3d_mode_on_extrude_drag();
+                                }
+                                ContextAction::SketchOnFace => {
+                                    self.sketch_on_active_face();
+                                }
+                                ContextAction::Revolve => {
+                                    self.set_tool(ToolKind::Revolve);
+                                }
+                                ContextAction::ClearSelection => {
+                                    self.active_face = None;
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else if has_body_sel {
+                        if let Some(act) = ContextActionBar::show_body_selection(ui, self.selected_bodies.len()) {
+                            match act {
+                                ContextAction::Delete => {
+                                    self.delete_selected_bodies();
+                                }
+                                ContextAction::ClearSelection => {
+                                    self.selected_bodies.clear();
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                });
+        }
+
         let sel_summary = if !self.selected.is_empty() {
             format!("{} entitas terpilih", self.selected.len())
         } else if !self.selected_bodies.is_empty() {

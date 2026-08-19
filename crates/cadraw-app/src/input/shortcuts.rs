@@ -257,43 +257,14 @@ impl CadrawApp {
         }
     }
 
-    pub fn handle_radial_menu(&mut self, ui: &egui::Ui, response: &egui::Response) {
-        const LONG_PRESS_SECS: f64 = 0.42;
-        const MOVE_TOLERANCE: f32 = 6.0;
-
+    pub fn handle_radial_menu(&mut self, ui: &egui::Ui, _response: &egui::Response) {
         if self.radial_menu.is_open() {
             let items: Vec<&str> = RADIAL_TOOLS.iter().map(|(_, label)| *label).collect();
             if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
                 self.set_tool(RADIAL_TOOLS[idx].0);
             }
-            return;
         }
-
-        if self.tool != ToolKind::Select {
-            self.radial_press = None;
-            return;
-        }
-
-        let now = ui.input(|i| i.time);
-        if response.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) {
-            let pos = response
-                .interact_pointer_pos()
-                .unwrap_or_else(|| ui.input(|i| i.pointer.hover_pos()).unwrap_or_default());
-            match self.radial_press {
-                None => self.radial_press = Some((pos, now)),
-                Some((start_pos, start_time)) => {
-                    if pos.distance(start_pos) > MOVE_TOLERANCE {
-                        self.radial_press = None;
-                    } else if now - start_time >= LONG_PRESS_SECS {
-                        self.radial_menu.open_at(start_pos);
-                        self.radial_suppress_click = true;
-                        self.radial_press = None;
-                    }
-                }
-            }
-        } else {
-            self.radial_press = None;
-        }
+        self.radial_press = None;
     }
 
     pub fn status_text(&self) -> String {
