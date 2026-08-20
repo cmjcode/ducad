@@ -1,4 +1,4 @@
-# Rencana Implementasi CADRAW
+# Rencana Implementasi DUCAD
 
 Aplikasi CAD gaya AutoCAD (drafting 2D presisi) yang berevolusi ke pemodelan
 3D gaya Shapr3D (sketch → extrude, direct modeling). Rust + egui/eframe,
@@ -8,8 +8,8 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 ## Keputusan Arsitektur
 
 - **Workspace Cargo**, satu crate per lapisan tanggung jawab — lihat tabel di bawah.
-- **Kernel**: OpenCASCADE (via `opencascade-rs`), dibungkus di `cadraw-kernel`.
-  Seluruh aplikasi hanya menyentuh tipe dari `cadraw-kernel`, tidak pernah
+- **Kernel**: OpenCASCADE (via `opencascade-rs`), dibungkus di `ducad-kernel`.
+  Seluruh aplikasi hanya menyentuh tipe dari `ducad-kernel`, tidak pernah
   `opencascade`/OCCT langsung — supaya kernel bisa ditambal/diganti tanpa
   merombak app. (truck dipertimbangkan dan ditolak: tidak punya
   fillet/chamfer 3D dan boolean rapuh di kasus tangensial — lihat diskusi
@@ -20,19 +20,19 @@ Target desktop (macOS/Windows/Linux) dan iPad.
   feature-tree parametrik penuh — realistis untuk kernel & cocok untuk touch.
 - **Input abstraction**: event pointer yang sama untuk mouse, jari, dan
   Apple Pencil, sejak Fase 0 — supaya tool otomatis jalan di kedua platform.
-- **Undo/redo**: command pattern (`cadraw_core::Command`) sejak hari pertama.
+- **Undo/redo**: command pattern (`ducad_core::Command`) sejak hari pertama.
 
 ## Struktur Workspace
 
 | Crate | Peran |
 |---|---|
-| `cadraw-core` | Document model, command/undo-redo |
-| `cadraw-sketch` | Entitas 2D, snapping, constraint solver (Fase 1–2) |
-| `cadraw-kernel` | Wrapper di atas opencascade-rs (modeling, boolean, mesh, STEP) |
-| `cadraw-render` | Viewport wgpu: kamera orbit, grid, pipeline, gizmo |
-| `cadraw-io` | Format native `.cadraw`, STEP, DXF, STL/OBJ (Fase 5) |
-| `cadraw-ui` | Komponen egui bersama: toolbar, radial menu, numpad (Fase 4) |
-| `cadraw-app` | Shell eframe desktop; basis entry point iOS (Fase 6) |
+| `ducad-core` | Document model, command/undo-redo |
+| `ducad-sketch` | Entitas 2D, snapping, constraint solver (Fase 1–2) |
+| `ducad-kernel` | Wrapper di atas opencascade-rs (modeling, boolean, mesh, STEP) |
+| `ducad-render` | Viewport wgpu: kamera orbit, grid, pipeline, gizmo |
+| `ducad-io` | Format native `.ducad`, STEP, DXF, STL/OBJ (Fase 5) |
+| `ducad-ui` | Komponen egui bersama: toolbar, radial menu, numpad (Fase 4) |
+| `ducad-app` | Shell eframe desktop; basis entry point iOS (Fase 6) |
 
 ## Fase
 
@@ -42,7 +42,7 @@ Target desktop (macOS/Windows/Linux) dan iPad.
 1. **Sketching 2D + snapping** — line/arc/circle/spline, snap engine,
    dynamic input. **[status: selesai + iterasi lanjutan, lihat bawah]**
 2. **Constraint solver** — coincident/parallel/tangent/dst, solver numerik
-   Newton/LM ditulis sendiri di `cadraw-sketch`. **[status: selesai — 12
+   Newton/LM ditulis sendiri di `ducad-sketch`. **[status: selesai — 12
    jenis constraint + UI lengkap termasuk pemilihan titik, lihat bawah]**
 3. **Modeling 3D** — extrude/revolve/sweep, boolean, sketch-on-face, fillet/
    chamfer/shell sebagai fitur inti (bukan "sejauh kemampuan kernel").
@@ -54,11 +54,11 @@ Target desktop (macOS/Windows/Linux) dan iPad.
    target sentuh ≥44pt, tema. **[status: putaran pertama selesai — command
    palette, radial menu long-press, toggle tema, target sentuh global,
    lihat bawah]**
-5. **File I/O** — `.cadraw` native (serde+versioning), STEP, DXF, STL/OBJ.
+5. **File I/O** — `.ducad` native (serde+versioning), STEP, DXF, STL/OBJ.
    **[status: putaran pertama selesai — save/load native, import/export
    STEP & DXF, export STL/OBJ, lihat bawah]**
 6. **Port iPad** — winit iOS + Metal via wgpu, Apple Pencil, Files.app,
-   TestFlight. **[status: seluruh stack Rust CADRAW + eframe/winit/wgpu
+   TestFlight. **[status: seluruh stack Rust DUCAD + eframe/winit/wgpu
    terbukti compile bersih untuk `aarch64-apple-ios`; satu blocker upstream
    tersisa — OCCT (kernel geometri) belum bisa link untuk iOS, lihat
    bawah]**
@@ -85,31 +85,31 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
   Fase 0, bukan ditunda ke Fase 6.
 - Dukungan egui/winit di iOS masih berkembang — spike sama.
 - Coverage binding `opencascade-rs` belum 100% API OCCT — mitigasi: tambah
-  binding cxx sendiri di `cadraw-kernel` saat dibutuhkan.
+  binding cxx sendiri di `ducad-kernel` saat dibutuhkan.
 
 ## Status Fase 0 (dikerjakan)
 
-- [x] Workspace 7 crate ter-scaffold, `cargo build -p cadraw-app` hijau,
-      unit test kamera (`cadraw-render::camera`) dan undo-stack
-      (`cadraw-core`) lulus.
+- [x] Workspace 7 crate ter-scaffold, `cargo build -p ducad-app` hijau,
+      unit test kamera (`ducad-render::camera`) dan undo-stack
+      (`ducad-core`) lulus.
 - [x] Viewport wgpu: kamera orbit turntable (Z-up, tanpa roll), grid XY
       minor/mayor + sumbu berwarna, shader WGSL dasar (mesh + garis dengan
       fade jarak).
 - [x] Navigasi: drag kiri/tengah orbit, shift+drag/kanan pan, scroll/pinch
       zoom, multi-touch dua jari (trackpad/iPad) untuk orbit+zoom.
-- [x] `cadraw-kernel`: wrapper `make_filleted_box`/`tessellate`/`write_stl`
+- [x] `ducad-kernel`: wrapper `make_filleted_box`/`tessellate`/`write_stl`
       di atas opencascade-rs, plus binary `smoke` untuk validasi.
-- [x] Build OCCT (`cargo build -p cadraw-kernel`) — sukses. Sempat kena
+- [x] Build OCCT (`cargo build -p ducad-kernel`) — sukses. Sempat kena
       konflik versi `glam` (opencascade 0.2.0 pin ke glam 0.23, workspace
-      pakai 0.29) — diperbaiki dengan memberi `cadraw-kernel` dependensi
+      pakai 0.29) — diperbaiki dengan memberi `ducad-kernel` dependensi
       glam 0.23 sendiri (tidak dari workspace), karena `KernelMesh`
       memang sudah mengonversi ke `[f32; 3]` mentah sehingga tidak
       membocorkan tipe glam versi berbeda ke crate lain.
-- [x] Smoke test kernel (`cargo run -p cadraw-kernel --bin smoke`) — box
+- [x] Smoke test kernel (`cargo run -p ducad-kernel --bin smoke`) — box
       40×30×20 mm + fillet r3 → 2129 vertex/3478 tri, STL tertulis.
       Alur inti "sketch → extrude → fillet → mesh → export" terbukti hidup.
 - [ ] Verifikasi visual jendela: **perlu dijalankan manual** oleh
-      developer (`cargo run -p cadraw-app`) di sesi desktop interaktif —
+      developer (`cargo run -p ducad-app`) di sesi desktop interaktif —
       shell agent tidak punya akses WindowServer untuk screenshot.
 - [ ] Spike build iOS (winit iOS + cross-compile OCCT) — belum dimulai,
       masih prioritas tertinggi berikutnya (risiko arsitektur, lihat
@@ -117,21 +117,21 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 1 (dikerjakan)
 
-- [x] `cadraw-core::Command`/`UndoStack` digeneralisasi jadi generik atas
-      target `T` (bukan cuma `Document`), supaya `cadraw-sketch` bisa pakai
+- [x] `ducad-core::Command`/`UndoStack` digeneralisasi jadi generik atas
+      target `T` (bukan cuma `Document`), supaya `ducad-sketch` bisa pakai
       undo/redo yang sama tanpa retrofit. `Document` (3D) tetap jalan lewat
       `Command<Document>`.
-- [x] `cadraw-sketch`: entitas Line/Circle/Arc, hit-testing (jarak titik-ke-
+- [x] `ducad-sketch`: entitas Line/Circle/Arc, hit-testing (jarak titik-ke-
       entitas), snap engine dengan prioritas endpoint > midpoint > center >
       intersection > grid, command `InsertEntities`/`DeleteEntities`
       (undo-able). 5 unit test lulus (hit-test, 3 skenario snap,
       insert/delete roundtrip).
-- [x] `cadraw-render`: modul `sketch` mengonversi entitas + preview + glyph
+- [x] `ducad-render`: modul `sketch` mengonversi entitas + preview + glyph
       snap (bentuk beda per jenis: kotak endpoint, segitiga midpoint,
       lingkaran center, diamond intersection, silang grid) jadi
       `LineVertex`; `SceneRenderer` dapat buffer overlay dinamis yang
       di-upload ulang tiap frame lewat pipeline garis yang sama dengan grid.
-- [x] `cadraw-app`: tool Pilih/Garis/Persegi/Lingkaran lengkap — klik 2 titik
+- [x] `ducad-app`: tool Pilih/Garis/Persegi/Lingkaran lengkap — klik 2 titik
       dengan snap otomatis, preview rubber-band, dynamic input (ketik
       panjang/radius + Enter, gaya AutoCAD), seleksi klik & Shift+klik,
       hover highlight, Delete/Backspace hapus, Ctrl/Cmd+Z undo, Ctrl/Cmd+
@@ -150,7 +150,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 1 Lanjutan (dikerjakan)
 
-- [x] `cadraw-sketch`: entitas `Ellipse` (axis-aligned, distance_to via
+- [x] `ducad-sketch`: entitas `Ellipse` (axis-aligned, distance_to via
       sampling batas — tak ada rumus tertutup titik-ke-ellips), hit-test &
       snap center ikut otomatis lewat match arm yang sudah ada.
 - [x] `arc_from_three_points(p1, p2, p3)`: bangun Arc lewat circumcenter +
@@ -173,11 +173,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       Trim Line-vs-Line — klik sub-segmen di antara/di luar titik potong
       untuk menghapusnya, sisa 0-2 potongan disisipkan lewat command baru
       `ReplaceEntities` (hapus+sisip sebagai satu langkah undo).
-      16 unit test `cadraw-sketch` lulus total (11 baru di putaran ini).
-- [x] `cadraw-render`: render Ellipse (tessellation parametrik rx/ry
+      16 unit test `ducad-sketch` lulus total (11 baru di putaran ini).
+- [x] `ducad-render`: render Ellipse (tessellation parametrik rx/ry
       independen) dan `removal_preview_lines` (warna peringatan merah
       untuk pratinjau segmen yang akan terhapus Trim).
-- [x] `cadraw-app`: 5 tool baru — Ellips (E, 2-klik kotak pembatas), Arc
+- [x] `ducad-app`: 5 tool baru — Ellips (E, 2-klik kotak pembatas), Arc
       (A, 3-klik: awal/akhir/titik-di-busur, preview live begitu 2 titik
       terisi), Offset (O, klik sumber lalu klik sisi+jarak, preview live),
       Mirror (M, perlu seleksi non-kosong dari tool Pilih lebih dulu, 2
@@ -206,7 +206,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 2 — Constraint Solver (dikerjakan)
 
-- [x] `cadraw-sketch::constraint`: parametrisasi entitas → vektor unknown
+- [x] `ducad-sketch::constraint`: parametrisasi entitas → vektor unknown
       f64 (Line 4 DOF, Circle 3, Arc 5, Ellipse 4), 12 jenis constraint
       (Coincident, Horizontal, Vertical, Parallel, Perpendicular,
       EqualLength, EqualRadius, Fixed, Distance, Radius, Angle, Tangent,
@@ -232,7 +232,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       awal itu penting, bukan formalitas.
 - [x] Command `AddConstraint`/`RemoveConstraint` (undo-able, snapshot
       geometri sebelum solve untuk revert persis).
-- [x] `cadraw-app`: panel Constraint kontekstual di kanan layar, muncul
+- [x] `ducad-app`: panel Constraint kontekstual di kanan layar, muncul
       saat tool Pilih aktif + 1-2 entitas terpilih. 1 Line → Horizontal/
       Vertikal/Panjang; 1 Circle/Arc → Radius; 2 Line → Sejajar/Tegak
       Lurus/Sama Panjang/Sudut; 2 Circle/Arc → Sama Radius. Pola "dry-run
@@ -260,7 +260,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       sekarang bawa `source: Option<PointRef>` — snap ke Endpoint/Center
       (bukan Midpoint/Intersection/Grid, yang bukan DOF tunggal) membawa
       rujukan persis entitas+bagian mana yang di-snap, lewat method baru
-      `Entity::endpoint_refs`/`center_ref`. Tiga tool baru di `cadraw-app`:
+      `Entity::endpoint_refs`/`center_ref`. Tiga tool baru di `ducad-app`:
       **CoincidentPick** (klik 2 titik via snap → berimpit), **FixedPick**
       (klik 1 titik → ditahan di posisi sekarang, tanpa perlu ketik target
       — pin di tempat adalah pemakaian paling umum), **SymmetricPick**
@@ -298,7 +298,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 3 — Modeling 3D (dikerjakan, putaran pertama)
 
-- [x] `cadraw-kernel` ditulis ulang: `KernelShape` (pembungkus `Shape` OCCT
+- [x] `ducad-kernel` ditulis ulang: `KernelShape` (pembungkus `Shape` OCCT
       yang SEPENUHNYA privat — sebelumnya `make_filleted_box`/`tessellate`
       membocorkan tipe `opencascade::primitives::Shape` langsung ke
       pemanggil, melanggar aturan arsitektur sendiri; sekarang benar-benar
@@ -309,7 +309,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 - [x] `Profile`/`ProfileSegment`: profil 2D di bidang XY dalam koordinat
       mentah `(f64,f64)` (bukan `glam::DVec2`) — pola yang sama dengan
       `KernelMesh` sebelumnya, supaya glam 0.23 (pin kernel) tidak pernah
-      bocor ke `cadraw-app` (glam 0.29). Mendukung `Circle` (jadi silinder)
+      bocor ke `ducad-app` (glam 0.29). Mendukung `Circle` (jadi silinder)
       dan `Loop` tertutup segmen Line/Arc.
 - [x] **Bug ditemukan lewat test, bukan teori** (lagi — pola yang sama
       persis dengan bug damping LM di Fase 2): `opencascade-rs` 0.2.0
@@ -322,15 +322,15 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       binding ini) sebelum operasi destruktif — didokumentasikan di kode
       sebagai keputusan sadar, bukan technical debt.
 - [x] **Bug thread-safety ditemukan lewat test**: `cargo test -p
-      cadraw-kernel` (multi-thread default) crash `SIGABRT` /
+      ducad-kernel` (multi-thread default) crash `SIGABRT` /
       `Interface_InterfaceError` — jalur transfer STEP OCCT (dipakai
       `deep_clone`) punya state global yang tidak aman dipanggil dari
       banyak thread sekaligus. Semua 9 test lulus satu-satu; diperbaiki
       dengan `Mutex` global yang menyerialkan test modul (tidak
-      mempengaruhi `cadraw-app` — kernel selalu dipanggil dari UI thread
+      mempengaruhi `ducad-app` — kernel selalu dipanggil dari UI thread
       tunggal).
 - [x] **Blocker environment ditemukan & diperbaiki**: `cargo build -p
-      cadraw-kernel` gagal total di mesin ini — CMake 4.3.4 terinstal
+      ducad-kernel` gagal total di mesin ini — CMake 4.3.4 terinstal
       menolak `cmake_minimum_required` versi lama di `CMakeLists.txt`
       bawaan OCCT (dependensi `occt-sys`). Diperbaiki lewat
       `.cargo/config.toml` (`CMAKE_POLICY_VERSION_MINIMUM = "3.5"`,
@@ -338,9 +338,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       `cargo build/test/run` di workspace ini, tidak perlu diketik manual.
       Build OCCT dari source makan waktu ~8 menit sekali (di-cache
       `target/` setelahnya).
-- [x] `cadraw-app/src/model.rs` (modul baru, pola sama dengan
-      `cadraw-sketch::constraint`): `ModelDoc` menggabungkan
-      `cadraw_core::Document` (metadata body, sengaja tetap bebas
+- [x] `ducad-app/src/model.rs` (modul baru, pola sama dengan
+      `ducad-sketch::constraint`): `ModelDoc` menggabungkan
+      `ducad_core::Document` (metadata body, sengaja tetap bebas
       dependensi kernel) dengan `SecondaryMap<BodyId, BodyGeometry>`
       (geometri kernel sungguhan) yang dikunci `BodyId` yang sama.
       Command undo-able: `AddSolidCommand` (Extrude), `ReplaceGeometryCommand`
@@ -348,7 +348,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       geometri lama↔baru), `BooleanCommand` (Union/Subtract — hapus 2 body
       input, tambah 1 body hasil; `BodyId` body yang di-restore lewat undo
       BERUBAH, konsisten dengan konvensi `DeleteEntities` di
-      `cadraw-sketch`), `DeleteBodyCommand`.
+      `ducad-sketch`), `DeleteBodyCommand`.
 - [x] `build_profile_from_selection`: bangun `Profile` kernel dari seleksi
       entitas sketch — 1 `Circle` langsung, atau ≥3 `Line`/`Arc` yang
       dirangkai lewat titik-ujungnya (toleransi 1e-6) jadi satu loop
@@ -361,7 +361,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       ekor, prepend di kepala) — test `build_profile_open_chain_errors`
       yang awalnya gagal sekarang lulus konsisten (diverifikasi 8x jalan
       berturut-turut untuk menyingkirkan keberuntungan urutan HashSet).
-- [x] `cadraw-app`: panel "Model 3D" (kiri layar, berdampingan dengan
+- [x] `ducad-app`: panel "Model 3D" (kiri layar, berdampingan dengan
       panel Constraint di kanan) — daftar body (checkbox visible, klik
       pilih/Ctrl+klik multi-pilih), Extrude dari seleksi sketch (input
       jarak), Union/Subtract (butuh persis 2 body terpilih), Fillet/
@@ -371,9 +371,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       gagal → `model_status` tampil, `model` tak tersentuh. Undo/redo
       Model SENGAJA terpisah dari undo sketch (tombol sendiri di panel,
       bukan Ctrl+Z global) — digabung baru kalau ada kebutuhan nyata.
-- [x] Render mesh 3D nyata: `cadraw-render::SceneRenderer` sudah punya
+- [x] Render mesh 3D nyata: `ducad-render::SceneRenderer` sudah punya
       pipeline mesh sejak Fase 0 (`set_mesh`) tapi belum pernah dipanggil
-      dari app. Sekarang `CadrawApp::build_combined_body_mesh` menggabung
+      dari app. Sekarang `DuCADApp::build_combined_body_mesh` menggabung
       mesh semua body `visible` jadi satu buffer (indeks digeser per body)
       tiap frame, diupload lewat `ViewportCallback`. `set_mesh` ditambah
       guard early-return saat kosong (wgpu menolak buffer ukuran 0) — pola
@@ -386,7 +386,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       sweep/loft (API `opencascade-rs` 0.2.0 cuma punya `Solid::loft`
       lintas-penampang, bukan sweep-sepanjang-jalur sungguhan), boolean
       intersect/irisan (binding cuma expose union & subtract), sketch-on-
-      face (sketch CADRAW masih selalu di bidang XY — butuh picking face
+      face (sketch DUCAD masih selalu di bidang XY — butuh picking face
       3D + workplane lokal, infrastruktur belum ada), picking body/face
       lewat klik viewport 3D (body dipilih dari daftar di panel, bukan
       klik langsung), fillet/chamfer PER-TEPI (baru "semua tepi
@@ -399,16 +399,16 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 4 — UX Shell (dikerjakan, putaran pertama)
 
-- [x] `cadraw-ui` diisi pertama kali (sebelumnya kosong sejak Fase 0):
+- [x] `ducad-ui` diisi pertama kali (sebelumnya kosong sejak Fase 0):
       3 modul platform-agnostic (cuma bergantung `egui`, tidak menyentuh
-      state `cadraw-app`) — `theme` (mode terang/gelap + gaya target-sentuh
+      state `ducad-app`) — `theme` (mode terang/gelap + gaya target-sentuh
       global), `command_palette` (`CommandPalette`, generik atas daftar
       `(label, hint)` yang disuplai caller tiap frame, return index balik
       ke daftar yang sama), `radial_menu` (`RadialMenu`, pola sama). Dipilih
       generik-atas-index (bukan generik atas tipe aksi lewat `Box<dyn Fn>`)
-      supaya crate ini tetap tanpa dependensi ke `cadraw-sketch`/
-      `cadraw_kernel`/dst — cocok dipakai ulang shell iPad Fase 6.
-- [x] **Tema**: `cadraw_ui::apply_theme(ctx, ThemeMode)` — bangun
+      supaya crate ini tetap tanpa dependensi ke `ducad-sketch`/
+      `ducad_kernel`/dst — cocok dipakai ulang shell iPad Fase 6.
+- [x] **Tema**: `ducad_ui::apply_theme(ctx, ThemeMode)` — bangun
       `egui::Style` baru dari `Style::default()` (bukan mutasi style lama
       context) supaya idempoten dipanggil berkali-kali saat toggle, tidak
       menumpuk penyesuaian dari panggilan sebelumnya. Default: `Dark`.
@@ -426,14 +426,14 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       di `handle_sketch_input` yang menahan shortcut huruf saat ada widget
       teks fokus — supaya tetap jalan walau fokus sedang di kotak cari
       palette sendiri). Filter substring case-insensitive (bukan fuzzy
-      sungguhan — cukup untuk belasan aksi CADRAW saat ini, dicatat sebagai
-      batasan sadar bukan lupa). `CadrawApp::palette_actions` membangun
+      sungguhan — cukup untuk belasan aksi DUCAD saat ini, dicatat sebagai
+      batasan sadar bukan lupa). `DuCADApp::palette_actions` membangun
       daftar aksi tiap frame (murah) dari `PaletteAction` enum: ganti tool
       apa pun (termasuk 3 tool titik), Undo/Redo sketch, Undo/Redo Model,
       Ganti Tema, Hapus Seleksi (muncul kondisional, cuma kalau ada
       seleksi).
 - [x] **Radial menu** (khusus tool Pilih, ditujukan untuk sentuh/iPad):
-      deteksi long-press ditulis di `cadraw-app::handle_radial_menu` (bukan
+      deteksi long-press ditulis di `ducad-app::handle_radial_menu` (bukan
       di `RadialMenu` itu sendiri, yang cuma tahu cara gambar+proses
       drag-lepas — deteksi butuh akses ke tool aktif & response viewport).
       Tekan primer diam ≥0.42 detik (toleransi gerak 6px, kalau lewat
@@ -450,7 +450,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       tidak bergerak sama sekali.
 - [x] **Menu "⚙ Pengaturan"** (revisi setelah putaran pertama, user: "Theme
       dan Keyboard shortcut itu dibuat di dalam menu settings aja"):
-      `CadrawApp::settings_menu` — `menu_button` di ujung kanan toolbar
+      `DuCADApp::settings_menu` — `menu_button` di ujung kanan toolbar
       mengumpulkan toggle tema, tombol "⌘K Buka Command Palette" (sama
       efeknya dengan menekan Ctrl/Cmd+K), dan `egui::CollapsingHeader`
       "Pintasan Keyboard" berisi `egui::Grid` daftar semua shortcut huruf
@@ -469,14 +469,14 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (53
       test — sama seperti akhir Fase 3, Fase 4 murni UI/interaksi jadi
       tidak menambah unit test baru; diverifikasi manual lewat smoke-run
-      `cargo run -p cadraw-app` 6 detik tanpa panic).
+      `cargo run -p ducad-app` 6 detik tanpa panic).
 - [ ] **Sengaja belum ada** (lingkup Fase 4 dipersempit ke inti yang bisa
       dikirim dalam satu putaran): toolbar kontekstual PENUH (mis.
       tombol/panel yang benar-benar hilang-muncul mengikuti tool aktif,
       bukan cuma satu grup dikumpulkan ke menu), radial menu untuk konteks
       selain ganti tool (mis. aksi Model 3D atau constraint cepat), fuzzy
       search sungguhan di command palette (baru substring), command
-      palette/radial menu belum extensible dari luar `cadraw-app` (list
+      palette/radial menu belum extensible dari luar `ducad-app` (list
       aksi & tool masih hardcoded di `main.rs`, wajar untuk single-app tapi
       perlu direvisi kalau shell iPad Fase 6 butuh daftar berbeda), deteksi
       tema sistem otomatis (cuma toggle manual), radial menu belum dites
@@ -491,9 +491,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 ## Status Fase 5 — File I/O (dikerjakan, putaran pertama)
 
-- [x] **`Sketch`/`Entity`/`Constraint`/`PointRef` (di `cadraw-sketch`)
+- [x] **`Sketch`/`Entity`/`Constraint`/`PointRef` (di `ducad-sketch`)
       di-derive `Serialize`/`Deserialize` LANGSUNG** — bukan struct
-      salinan di `cadraw-io` (satu sumber kebenaran bentuk data). Ini
+      salinan di `ducad-io` (satu sumber kebenaran bentuk data). Ini
       cuma mungkin karena `slotmap` di-build dengan fitur "serde"
       (ditambahkan di workspace `Cargo.toml`): `EntityId` (hasil
       `new_key_type!`) otomatis dapat `Serialize`/`Deserialize`, DAN
@@ -502,25 +502,25 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       `Constraint`/`PointRef` (mis. `Coincident { a, b }`) balik PERSIS
       sama tanpa remapping id manual sama sekali. `glam` juga dibangun
       dengan fitur "serde" (cuma di dependensi WORKSPACE 0.29 — pin
-      independen `cadraw-kernel` ke glam 0.23 tidak tersentuh) supaya
+      independen `ducad-kernel` ke glam 0.23 tidak tersentuh) supaya
       `DVec2` di dalam `Entity`/`Constraint` ikut serialize.
-- [x] `cadraw-kernel`: `KernelShape::to_step_string`/`from_step_string`
+- [x] `ducad-kernel`: `KernelShape::to_step_string`/`from_step_string`
       (roundtrip lewat file sementara, pola sama dengan `deep_clone`),
       `KernelShape::read_step` (baca file `.step` sungguhan), dan
       `write_step_compound` (gabung beberapa shape jadi SATU file STEP
       lewat `opencascade::primitives::Compound`, masing-masing tetap
       solid terpisah — bukan di-union). `KernelMesh::merge` ditambahkan
       sekalian (dipakai render viewport DAN export STL/OBJ multi-body —
-      sebelumnya `cadraw-app::build_combined_body_mesh` menduplikasi
+      sebelumnya `ducad-app::build_combined_body_mesh` menduplikasi
       logika gabung-mesh ini sendiri, sekarang keduanya pakai fungsi yang
       sama). 5 test baru (roundtrip STEP string, read_step, compound 2
       body, compound kosong error, merge menggeser indeks).
-- [x] `cadraw-io` diisi pertama kali (sebelumnya kosong sejak Fase 0), 4
+- [x] `ducad-io` diisi pertama kali (sebelumnya kosong sejak Fase 0), 4
       modul:
-      - `native`: format `.cadraw` — JSON pretty-printed (sengaja
+      - `native`: format `.ducad` — JSON pretty-printed (sengaja
         manusiawi-dibaca, bukan biner/kompresi, konsisten dengan
         `Profile`/`ProfileSegment` yang juga koordinat mentah bisa-baca).
-        `CadrawFile { format_version, sketch, bodies }` — `format_version`
+        `DuCADFile { format_version, sketch, bodies }` — `format_version`
         (const `FORMAT_VERSION = 1`) ditolak `load` kalau file dibuat versi
         LEBIH BARU dari yang dikenal build ini (lebih aman daripada diam-
         diam salah baca; versi lebih lama tetap diterima, belum ada
@@ -533,7 +533,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       - `step_io`: export (1 body langsung, >1 body lewat
         `write_step_compound`) & import (`KernelShape::read_step`) file
         `.step` SUNGGUHAN di disk — beda dari `native` yang menyematkan
-        teks STEP yang sama DI DALAM JSON `.cadraw`.
+        teks STEP yang sama DI DALAM JSON `.ducad`.
       - `mesh_export`: STL BINER (ditulis sendiri dari `KernelMesh`,
         bukan lewat `KernelShape::write_stl` milik kernel — supaya bisa
         menggabungkan banyak body jadi satu file; normal per-facet
@@ -567,11 +567,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       menyentuh jalur transfer STEP OCCT yang sama) tetap bisa jalan
       BERSAMAAN lintas modul walau masing-masing sudah dikunci sendiri-
       sendiri. Diperbaiki dengan SATU lock `pub(crate)` di
-      `cadraw-io::lib` dipakai bersama oleh `native`+`step_io` — beda
-      dari `cadraw-kernel::tests::TEST_LOCK` yang cukup satu per crate
+      `ducad-io::lib` dipakai bersama oleh `native`+`step_io` — beda
+      dari `ducad-kernel::tests::TEST_LOCK` yang cukup satu per crate
       karena krat itu cuma satu binary test tanpa modul lain yang ikut
       menyentuh OCCT.
-- [x] `cadraw-app`: menu "📄 File" di toolbar (Baru, Buka…/Simpan/Simpan
+- [x] `ducad-app`: menu "📄 File" di toolbar (Baru, Buka…/Simpan/Simpan
       Sebagai… native, submenu Import STEP/DXF, submenu Export
       STEP/STL/OBJ/DXF) + dialog file native lewat `rfd`. Shortcut
       Ctrl/Cmd+O (Buka), +S (Simpan — jatuh ke Simpan Sebagai kalau
@@ -591,8 +591,8 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       cuma terisi saat gagal) tampil di status bar bawah.
       Seluruh workspace hijau: `build`/`clippy -D warnings`/`test` (72
       test: 3 kamera, 1 undo-core, 14 kernel, 36 sketch termasuk 18
-      constraint & 4 model chain-builder, 14 cadraw-io); diverifikasi
-      manual lewat smoke-run `cargo run -p cadraw-app` 6 detik tanpa
+      constraint & 4 model chain-builder, 14 ducad-io); diverifikasi
+      manual lewat smoke-run `cargo run -p ducad-app` 6 detik tanpa
       panic.
 - [ ] **Sengaja belum ada** (lingkup Fase 5 dipersempit ke inti yang bisa
       dikirim dalam satu putaran): import STL/OBJ (lossy, sudah segitiga,
@@ -614,7 +614,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
 
 - [x] **Spike cross-compile OCCT ke `aarch64-apple-ios` — risiko tertinggi
       sejak Fase 0, akhirnya dieksekusi di Fase 6**: `occt-sys` (dependensi
-      `cadraw-kernel`) pakai crate `cmake` untuk build OCCT dari source.
+      `ducad-kernel`) pakai crate `cmake` untuk build OCCT dari source.
       Ditemukan (via `cargo build --target aarch64-apple-ios`, bukan
       dugaan) crate `cmake` 0.1.58 SUDAH mengeset `CMAKE_SYSTEM_NAME=iOS`+
       `CMAKE_SYSTEM_PROCESSOR=arm64` otomatis saat cross-compiling, TAPI
@@ -626,7 +626,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       `otool -l`), gagal link terhadap binary yang ditarget iOS
       (`ld: building for iOS, but linking in object file built for
       macOS`).
-- [x] Diperbaiki **wiring**-nya (`crates/cadraw-kernel/ios/ios-toolchain.cmake`
+- [x] Diperbaiki **wiring**-nya (`crates/ducad-kernel/ios/ios-toolchain.cmake`
       + env var `CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios` di
       `.cargo/config.toml`, format nama yang dibaca crate `cmake` lewat
       `getenv_target_os`) — DIBUKTIKAN bekerja lewat probe CMake project
@@ -648,7 +648,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       generik (didesain untuk Android/Linux/Windows, tidak pernah
       diadaptasi untuk kebutuhan khusus iOS OCCT) — jadi ini **gap
       upstream di `occt-sys`/`opencascade-rs` 0.2.0**, bukan sesuatu yang
-      bisa diperbaiki dari sisi CADRAW lewat env var/toolchain file saja.
+      bisa diperbaiki dari sisi DUCAD lewat env var/toolchain file saja.
       **Dihentikan setelah 4 percobaan rebuild penuh** (tiap percobaan
       ~20-30 menit) karena hasil identik tiap kali — melanjutkan tebak-
       tebakan toolchain lebih jauh tidak produktif, lihat "Langkah
@@ -658,8 +658,8 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       blocker OCCT di atas): `eframe = { features = ["wgpu"] }` tanpa
       `default-features = false` tetap ikut mengaktifkan fitur DEFAULT
       eframe termasuk `"glow"` (backend OpenGL lewat `egui_glow`/
-      `glutin`) walau CADRAW SELALU cuma pakai backend wgpu
-      (`eframe::Renderer::Wgpu`, `cadraw-app/src/main.rs`). `glutin`
+      `glutin`) walau DUCAD SELALU cuma pakai backend wgpu
+      (`eframe::Renderer::Wgpu`, `ducad-app/src/main.rs`). `glutin`
       TIDAK mendukung iOS — gagal compile (`match` non-exhaustive di
       `Surface<T>`, ~39 error). Diperbaiki: `eframe` di-set
       `default-features = false` + daftar ulang fitur default MINUS
@@ -667,18 +667,18 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       biasa lewat `"winit/default"` ternyata sudah diminta TANPA SYARAT
       oleh `[dependencies.winit]` eframe sendiri, jadi tidak hilang).
       Perilaku desktop tidak berubah (`cargo check --workspace` di macOS
-      tetap hijau) — CADRAW memang tidak pernah memakai glow sama sekali.
+      tetap hijau) — DUCAD memang tidak pernah memakai glow sama sekali.
 - [x] **Files.app & Apple Runtime (`objc2` & `block2`)**: `rfd`
       (dialog file native Fase 5) terisolasi untuk non-iOS target,
-      sedangkan pada target Apple (`target_vendor = "apple"`), CADRAW kini
+      sedangkan pada target Apple (`target_vendor = "apple"`), DUCAD kini
       menggunakan modul bridging modern `objc2` (0.6), `block2` (0.6),
       `objc2-foundation` (0.3), `objc2-app-kit` (macOS), dan `objc2-ui-kit`
       (iOS). Pemanggilan `pick_open_path`/`pick_save_path` di iOS memakai
       `apple::apple_documents_directory()` via `NSFileManager` Foundation
       untuk mengambil file bertanggal paling baru berekstensi cocok tanpa
       bergantung pada dialog desktop, terbukti lolos kompilasi bersih di
-      `cargo check --target aarch64-apple-ios -p cadraw-app`. Folder ini muncul
-      di Files.app ("Di iPad Ini ▸ CADRAW") ketika `Info.plist` app menyematkan
+      `cargo check --target aarch64-apple-ios -p ducad-app`. Folder ini muncul
+      di Files.app ("Di iPad Ini ▸ DUCAD") ketika `Info.plist` app menyematkan
       `UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`.
 - [x] **Apple Pencil — diriset, bukan diasumsikan**: dibaca langsung
       source `winit` 0.30 (`event.rs`: `Touch.force: Option<Force>`,
@@ -691,23 +691,23 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       (`force`) SUDAH mengalir sampai ke `egui::Event::Touch` kalau
       kelak ada fitur yang butuh (mis. lebar garis sensitif-tekanan) —
       SENGAJA belum ditambahkan kode yang membaca `force` itu karena
-      belum ada fitur nyata yang memakainya (CADRAW itu CAD presisi
+      belum ada fitur nyata yang memakainya (DUCAD itu CAD presisi
       vektor, bukan app sketsa freehand — instrumentasi tanpa pemakai
       nyata cuma kode mati). Yang SENGAJA belum ada: gesture ganda-ketuk
       Pencil 2 (`UIPencilInteraction`) dan hover-sebelum-sentuh (kedua-
       duanya butuh bridging UIKit, di luar lingkup putaran ini).
-- [x] `crates/cadraw-app/ios/Info.plist.template` — bukan dipakai
+- [x] `crates/ducad-app/ios/Info.plist.template` — bukan dipakai
       otomatis (belum ada langkah yang mem-package binary jadi bundle
       `.app`), tapi referensi lengkap+beranotasi untuk langkah manual
-      Xcode nanti: `CFBundleExecutable=cadraw`, orientasi landscape-utama
+      Xcode nanti: `CFBundleExecutable=ducad`, orientasi landscape-utama
       (iPad tetap izinkan portrait), 2 key Files.app di atas.
 - [x] **Ditemukan (bukan diasumsikan) bahwa tidak perlu shim Objective-C
       `main.m`/`AppDelegate` terpisah**: dibaca langsung source
       `winit` 0.30 (`platform_impl/ios/event_loop.rs`) —
       `EventLoop::run_app` di iOS memanggil `UIApplicationMain` SENDIRI
       dari proses yang sama, baca `argc`/`argv` proses lewat
-      `_NSGetArgc`/`_NSGetArgv`. Artinya binary `[[bin]] name = "cadraw"`
-      yang sudah ada (`crates/cadraw-app/Cargo.toml`) BISA LANGSUNG jadi
+      `_NSGetArgc`/`_NSGetArgv`. Artinya binary `[[bin]] name = "ducad"`
+      yang sudah ada (`crates/ducad-app/Cargo.toml`) BISA LANGSUNG jadi
       executable `.app` iOS begitu OCCT beres — tidak perlu crate
       `staticlib` terpisah atau project Xcode dengan kode ObjC tambahan.
 - [ ] **Langkah lanjutan untuk blocker OCCT** (belum dikerjakan, di luar
@@ -732,27 +732,27 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       perangkat/simulator sungguhan (sama alasan — perlu Xcode GUI).
 - [ ] Verifikasi lewat `cargo check --target aarch64-apple-ios`
       (type-check, BUKAN link — link final baru mungkin setelah blocker
-      OCCT beres): `cadraw-render`+`cadraw-core`+`cadraw-sketch`+
-      `cadraw-ui` bersih total. `cadraw-app` (seluruh app termasuk
-      eframe/winit/wgpu/egui-winit DAN `cadraw-kernel`/`opencascade`)
+      OCCT beres): `ducad-render`+`ducad-core`+`ducad-sketch`+
+      `ducad-ui` bersih total. `ducad-app` (seluruh app termasuk
+      eframe/winit/wgpu/egui-winit DAN `ducad-kernel`/`opencascade`)
       JUGA bersih total setelah 2 perbaikan di atas — `cargo check
       --workspace` di macOS host tetap hijau sepanjang perubahan ini
       (diverifikasi ulang, bukan diasumsikan aman).
 
 ## Status Fase 7 — Poles & Performa (dikerjakan, putaran pertama)
 
-- [x] **Alat ukur**: `cadraw_sketch::measure` (murni fungsi baca-saja,
+- [x] **Alat ukur**: `ducad_sketch::measure` (murni fungsi baca-saja,
       TIDAK menyentuh `Sketch`/undo stack) — `distance` (jarak lurus) dan
       `angle_degrees` (sudut interior 0–180° di titik vertex,
       `atan2(det, dot)` supaya independen dari urutan klik titik). 6 test
       baru (segitiga 3-4-5, sudut siku-siku, sudut lurus 180°,
       order-independence, degenerate saat ray panjang nol).
-      `cadraw-app`: 2 tool baru — **Ukur Jarak** (2 klik snap) dan **Ukur
+      `ducad-app`: 2 tool baru — **Ukur Jarak** (2 klik snap) dan **Ukur
       Sudut** (3 klik: awal/vertex/akhir), dikumpulkan di dropdown "📏 Ukur
       ▾" (pola sama dengan "Titik ▾") — non-destruktif, TIDAK masuk undo
-      stack manapun. Hasil disimpan di `CadrawApp::measurements`,
+      stack manapun. Hasil disimpan di `DuCADApp::measurements`,
       digambar permanen sebagai garis kuning
-      (`cadraw_render::sketch::measurement_lines`, 3 test vertex-count)
+      (`ducad_render::sketch::measurement_lines`, 3 test vertex-count)
       dan didaftar di kartu "📏 Pengukuran" (bisa dihapus satu-satu atau
       semua sekaligus, juga lewat command palette) — awalnya jendela
       mengambang terpisah, **dipindah ke panel Properties kanan**
@@ -765,9 +765,9 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       commit) — pola sama persis dengan pill panjang tool Line di
       `dynamic_input_ui` (`ToolKind::Measure if pending_points.len() == 1`).
       Garis kuning-nya sendiri (baik masih preview ditarik MAUPUN sudah
-      di-commit ke `CadrawApp::measurements`) sekarang bergaya dimension
+      di-commit ke `DuCADApp::measurements`) sekarang bergaya dimension
       line CAD standar `↔`: kepala panah bentuk V di KEDUA ujung lewat
-      `cadraw_render::sketch::measurement_arrowheads` (fungsi baru,
+      `ducad_render::sketch::measurement_arrowheads` (fungsi baru,
       terpisah dari `measurement_lines` supaya vertex tengah tool Ukur
       Sudut — 3 titik, 2 segmen — TIDAK ikut dapat panah, cuma titik
       pertama & terakhir; 4 test baru), dan nominal jaraknya ditaruh
@@ -783,7 +783,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       Select (deactivate), bukan cuma reset ke Measure terus-menerus.
       Pill nominalnya sekarang juga DIPUTAR sejajar arah garisnya sendiri
       (bukan selalu horizontal) lewat `CanvasHud::render_dimension_pill_aligned`
-      (fungsi baru di `cadraw-ui`: polygon konveks 4-sudut awalnya, lalu
+      (fungsi baru di `ducad-ui`: polygon konveks 4-sudut awalnya, lalu
       diganti `rounded_rect_local_points` — aproksimasi rounded-rect radius 10
       pakai 4 busur seperempat lingkaran per sudut, biar tetap membulat sama
       seperti `render_dimension_pill` yang tidak diputar — + `epaint::TextShape`
@@ -791,7 +791,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       titik tengah pill; fill dibikin agak transparan, alpha 245→210, supaya
       garis kuning di baliknya tetap samar kelihatan) supaya label tidak numpuk
       dengan garis pengukuran lain yang miring. Sudutnya dihitung dari selisih
-      proyeksi layar kedua ujung garis (`CadrawApp::screen_line_angle`, helper
+      proyeksi layar kedua ujung garis (`DuCADApp::screen_line_angle`, helper
       baru) dan dinormalisasi ke -90°..90° supaya teksnya tidak pernah terbaca
       terbalik/kebalik walau garisnya miring ke kiri.
 - [x] **Section View**: clip plane di render, BUKAN operasi kernel — sadar
@@ -801,7 +801,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       vec4<f32>` (`dot(normal, world) - offset`, fragment dengan hasil > 0
       di-`discard` di `fs_mesh`); nonaktif = normal nol vektor + offset
       1e9 (trik menghindari field "enabled" terpisah — selalu sangat
-      negatif, tidak pernah memotong). `cadraw-app`: panel "✂ Section
+      negatif, tidak pernah memotong). `ducad-app`: panel "✂ Section
       View" di panel Model 3D — checkbox aktif, sumbu X/Y/Z, slider offset
       (mm), "Balik arah potong" (membalik `(normal, offset)` SEKALIGUS,
       bukan cuma normal, supaya posisi potong di slider tidak ikut lompat
@@ -825,7 +825,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       SENGAJA ditunda ke putaran lain, bukan dipaksakan setengah jalan di
       sini (sama semangat dengan blocker OCCT/iOS Fase 6: root-cause dulu,
       jangan tebak-tebak toolchain).
-- [x] **`cadraw-kernel::KERNEL_LOCK`** (baru, PRODUKSI bukan cuma test):
+- [x] **`ducad-kernel::KERNEL_LOCK`** (baru, PRODUKSI bukan cuma test):
       `Mutex<()>` global yang WAJIB dikunci di SETIAP fungsi publik kernel
       (14 titik: `tessellate`, `write_stl`, `write_step`, `read_step`,
       `to_step_string`, `from_step_string`, `extrude_profile`, `union`,
@@ -834,16 +834,16 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       fungsi publik, bukan di helper privat (`deep_clone`/
       `tessellate_shape`) yang selalu dipanggil dari dalam fungsi publik
       yang sudah memegang lock, supaya tidak deadlock (`Mutex` std tidak
-      reentrant). Sebelum Fase 7 ini tidak perlu — `cadraw-app` cuma
+      reentrant). Sebelum Fase 7 ini tidak perlu — `ducad-app` cuma
       pernah memanggil kernel dari UI thread tunggal; sekarang WAJIB
       karena `import_worker` menambah thread kedua yang bisa memanggil
       kernel. Menjamin tidak pernah ada 2 panggilan OCCT jalan bersamaan
       apa pun urutan klik user (mis. Extrude persis saat Import STEP
       latar belakang masih jalan) — cukup untuk KEBENARAN (tidak crash),
       BUKAN untuk paralelisme (OCCT tetap serial, itu memang batasannya).
-      14 test `cadraw-kernel` tetap hijau, termasuk jalan multi-thread
+      14 test `ducad-kernel` tetap hijau, termasuk jalan multi-thread
       default (bukan cuma `--test-threads=1`).
-- [x] **`cadraw-app::import_worker`** (baru): satu thread background
+- [x] **`ducad-app::import_worker`** (baru): satu thread background
       berumur-panjang, job Import STEP diproses lewat `mpsc` channel.
       HANYA tipe `Send` murni yang lewat channel — `PathBuf` masuk,
       `(String teks STEP, KernelMesh)` keluar; `KernelShape` TIDAK PERNAH
@@ -859,7 +859,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       (mouse bergerak dsb.) — egui default cuma redraw saat ada event.
       Import DXF SENGAJA tetap synchronous (murah, tidak menyentuh OCCT
       sama sekali, tidak butuh threading).
-- [x] **Packaging**: `crates/cadraw-app/Cargo.toml` dapat
+- [x] **Packaging**: `crates/ducad-app/Cargo.toml` dapat
       `[package.metadata.bundle]` untuk `cargo-bundle` (nama, identifier,
       kategori, deskripsi) — metadata pasif, tidak mempengaruhi
       `cargo build`/`run`/`test` biasa sama sekali (diverifikasi: build
@@ -901,7 +901,7 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       ada akses WindowServer). `cargo build`/`clippy -D warnings`/`test`
       seluruh workspace hijau (81 test: 4 kamera, 1 undo-core, 14 kernel,
       14 io, 6 render termasuk 3 measurement_lines baru, 42 sketch
-      termasuk 6 measure baru), plus smoke-run `cargo run -p cadraw-app`
+      termasuk 6 measure baru), plus smoke-run `cargo run -p ducad-app`
       tanpa panic startup.
 
 ## Status Fase 8 — Modeling 3D Lanjutan (dikerjakan, putaran pertama)
@@ -926,7 +926,7 @@ dugaan lama di dokumen ini:
   besar untuk sebagian kecil kemampuannya).
 
 - [x] **`revolve_profile(profile, axis_origin, axis_dir, angle_degrees)`**
-      (`cadraw-kernel`): `build_wire` (sudah ada) → `Face::from_wire` →
+      (`ducad-kernel`): `build_wire` (sudah ada) → `Face::from_wire` →
       `face.revolve(...)`. Validasi `axis_dir` non-degenerate SEBELUM
       panggil OCCT (dir nol → `Err`, bukan panic). `angle_degrees: None` =
       360° penuh (default binding); `Some(derajat)` didukung kernel tapi
@@ -934,27 +934,27 @@ dugaan lama di dokumen ini:
       yang TIDAK menyentuh axis → verifikasi geometris nyata (radius dalam
       >5, radius luar dalam rentang 15-25, tinggi dalam rentang y profil —
       bukan cuma "tidak panic"); axis degenerate → `Err`.
-      `cadraw-app`: `ToolKind::Revolve` (shortcut **V**) — UX MENIRU PERSIS
+      `ducad-app`: `ToolKind::Revolve` (shortcut **V**) — UX MENIRU PERSIS
       pola Mirror yang sudah ada: pilih profil dulu di tool Pilih (non-
       kosong), lalu 2 klik (snap aktif) jadi sumbu 2D di bidang XY. Hasil
       langsung `AddSolidCommand` (tipe existing, tidak perlu Command baru)
       kalau sukses.
-- [x] **`build_wire_at_z(profile, z)`** (`cadraw-kernel`, refactor
+- [x] **`build_wire_at_z(profile, z)`** (`ducad-kernel`, refactor
       `build_wire` lama supaya terima parameter Z opsional — `build_wire`
       lama jadi wrapper tipis `build_wire_at_z(profile, 0.0)`) +
       **`loft_profiles(bottom, top, height)`** → `Solid::loft([bottom_wire,
       top_wire_at_z(height)])`. BUKAN loft lintas-workplane sungguhan
-      (sketch CADRAW masih satu bidang XY, tidak ada konsep workplane sama
+      (sketch DUCAD masih satu bidang XY, tidak ada konsep workplane sama
       sekali — dikonfirmasi lewat grep nol match) — profil ATAS cuma
       diangkat lewat translasi Z murni. 2 test: loft persegi→lingkaran
       verifikasi dasar tepat di Z=0 & puncak tepat di Z=height (sampling
       posisi vertex, bukan cuma triangle_count); tinggi nol → `Err`.
-      `cadraw-app`: section baru di panel Model 3D (bukan tool viewport,
+      `ducad-app`: section baru di panel Model 3D (bukan tool viewport,
       panel-driven seperti Extrude) — tombol "Set Profil Bawah dari
       Seleksi" men-stage `pending_loft_bottom: Option<Profile>`, field
       Tinggi + tombol "Loft" pakai profil bawah ter-stage + seleksi sketch
       SAAT DIKLIK sebagai profil atas.
-- [x] **`intersect(a, b)`** (`cadraw-kernel`) — `Shape` publik tidak
+- [x] **`intersect(a, b)`** (`ducad-kernel`) — `Shape` publik tidak
       expose `.intersect()` seperti union/subtract (cuma `AdHocShape`,
       wrapper tipis `BRepAlgoAPI_Common`) — `deep_clone` dulu (pola sama
       dengan fillet/chamfer, `a`/`b` asli pemanggil tidak tersentuh), lalu
@@ -966,7 +966,7 @@ dugaan lama di dokumen ini:
       diperbaiki sebelum sempat jadi bug produksi, bukan lewat teori) →
       `Err` rapi. 2 test: 2 box overlap → hasil lebih kecil dari union
       (bukti nyata "cuma irisan"); 2 box tidak overlap → `Err`.
-      `cadraw-app`: `model::BooleanKind::Intersect` (varian baru,
+      `ducad-app`: `model::BooleanKind::Intersect` (varian baru,
       `BooleanCommand`/`try_new` existing dipakai apa adanya — tidak perlu
       Command baru) + tombol "Intersect" di baris Union/Subtract.
 - [x] **Desain kunci: picking edge/face TANPA index yang rapuh lintas
@@ -993,7 +993,7 @@ dugaan lama di dokumen ini:
       toleransi numerik kecil. Keduanya lulus — asumsi terbukti valid,
       bukan cuma masuk akal secara teori.
 - [x] **`pick_face(shape, ray)`** / **`pick_edge(shape, ray, tolerance)`**
-      (`cadraw-kernel`, publik — dipakai UI utk feedback interaktif) +
+      (`ducad-kernel`, publik — dipakai UI utk feedback interaktif) +
       helper privat `resolve_face_along_ray`/`resolve_edge_along_ray`
       (dipakai ULANG oleh fillet/chamfer/shell per-tepi di bawah, supaya
       tidak `lock_kernel()` dua kali dari dalam fungsi publik yang sama).
@@ -1004,7 +1004,7 @@ dugaan lama di dokumen ini:
       `pick_face` `None` (bukan salah nangkep sesuatu).
 - [x] **`fillet_edges(shape, radius, rays, tolerance)`** /
       **`chamfer_edges(shape, distance, rays, tolerance)`** /
-      **`shell_hollow_faces(shape, thickness, rays)`** (`cadraw-kernel`,
+      **`shell_hollow_faces(shape, thickness, rays)`** (`ducad-kernel`,
       fungsi TERPISAH dari `fillet_all`/`chamfer_all`/`shell_hollow` lama
       — perilaku lama TIDAK berubah sama sekali, backward-compatible
       penuh). `Shape::fillet_edges`/`chamfer_edges` TERNYATA sudah ada
@@ -1025,7 +1025,7 @@ dugaan lama di dokumen ini:
       pakai face count + triangle count yang terbukti beda (10 vs 11 face,
       32 vs 28 triangle, dicek langsung); plus 2 test error (rays kosong,
       ray meleset dari shape mana pun).
-      `cadraw-app`: `fillet_selected_body`/`chamfer_selected_body`/
+      `ducad-app`: `fillet_selected_body`/`chamfer_selected_body`/
       `shell_selected_body` (existing) dicabang — `selected_edges`/
       `selected_faces` tidak kosong → panggil varian `_edges`/`_faces`
       baru; kosong → perilaku LAMA (fungsi `_all`/`shell_hollow`) tidak
@@ -1068,7 +1068,7 @@ dugaan lama di dokumen ini:
       (tidak ada akses WindowServer). `cargo build`/`clippy -D warnings`/
       `test` seluruh workspace hijau (96 test: 4 kamera, 1 undo-core, 29
       kernel termasuk 15 baru Fase 8, 14 io, 6 render, 42 sketch), plus
-      smoke-run `cargo run -p cadraw-app` tanpa panic startup.
+      smoke-run `cargo run -p ducad-app` tanpa panic startup.
 
 ## Status Fase 8 Lanjutan — Direct Face Push/Pull (dikerjakan)
 
@@ -1079,7 +1079,7 @@ Extrude/Revolve/Loft/Boolean apa saja, karena beroperasi di level B-rep
 `Face`, bukan bentuk primitif tertentu) memunculkan gizmo panah 3D yang
 bisa di-drag untuk menambah/memotong volume, meniru UX Shapr3D/Fusion.
 
-- [x] **`extrude_face(shape, ray, distance)`** (`cadraw-kernel`) — cast
+- [x] **`extrude_face(shape, ray, distance)`** (`ducad-kernel`) — cast
       ulang `ray` (pola `PickRay` yang sama dengan fillet/chamfer/shell
       per-tepi) ke `deep_clone` shape untuk resolusi `Face` yang valid,
       hitung normal keluar via `compute_face_normal_and_centroid`
@@ -1094,7 +1094,7 @@ bisa di-drag untuk menambah/memotong volume, meniru UX Shapr3D/Fusion.
       normal }`, publik) — dipakai UI utk gizmo interaktif; beda dari
       `pick_face` lama (cuma titik hit) yang tetap dipertahankan untuk
       pemanggil lain (Shell multi-face).
-      `cadraw-app`: `active_face: Option<(BodyId, PickRay, FaceHit)>` —
+      `ducad-app`: `active_face: Option<(BodyId, PickRay, FaceHit)>` —
       klik viewport di tool Pilih (Mode 3D) → `pick_body_face_at_cursor`
       ray-cast ke SEMUA body visible, ambil hit terdekat ke kamera.
       Gizmo panah digambar di `hit.centroid` sepanjang `hit.normal`
@@ -1144,7 +1144,7 @@ geometris di balik sebuah `Face`, belum dipakai fitur apa pun.
       baru juga, sama-sama tanpa sentuh `-sys` — cuma bungkus
       `BRepPrimAPI_MakeSphere_ctor` yang FFI-nya sudah ada tapi belum
       punya wrapper Rust publik).
-- [x] **`SurfaceKind` enum** (`cadraw-kernel`) — `Plane | Cylinder | Cone |
+- [x] **`SurfaceKind` enum** (`ducad-kernel`) — `Plane | Cylinder | Cone |
       Sphere | Torus | Other`, `From<&str>` mem-parse keluaran
       `surface_kind()` (nama tak dikenal jatuh ke `Other`, bukan error —
       klasifikasi ini informasional). Field baru `FaceHit.surface_kind`
@@ -1200,18 +1200,18 @@ FFI yang BELUM ADA sama sekali (arah gizmo radial silinder/kerucut presisi
       `TopAbs_ShapeEnum`/`BOPAlgo_GlueEnum`/`IFSelect_ReturnStatus` di
       binding upstream — baru ketauan & didokumentasikan eksplisit pas
       nambah enum baru pertama kali sejak vendor dibuat.
-- [x] 43 test `cadraw-kernel` + 5 test baru `opencascade-sys` lulus,
+- [x] 43 test `ducad-kernel` + 5 test baru `opencascade-sys` lulus,
       seluruh workspace (`cargo test --workspace`) hijau.
 - [ ] **Sengaja belum ada di putaran ini**: belum ada API level
-      `cadraw-kernel`/`opencascade` yang memanggil `BRepAdaptor_Surface`/
+      `ducad-kernel`/`opencascade` yang memanggil `BRepAdaptor_Surface`/
       `BRepOffset_MakeOffset` baru ini — Fase 2 murni nambah FFI mentah di
       `opencascade-sys`, integrasi ke gizmo radial & fitur offset shell
-      di level kernel/UI CADRAW ditunda ke putaran berikutnya.
+      di level kernel/UI DUCAD ditunda ke putaran berikutnya.
 
 ## Status Fase 8 Lanjutan 4 — `extrude_face` Dispatch per Tipe Surface (dikerjakan, Fase 3)
 
 Integrasi FFI mentah dari "Fase 8 Lanjutan 3" (`BRepOffset_MakeOffset`,
-`BRepAdaptor_Surface`) ke level `cadraw-kernel`: `extrude_face` sekarang
+`BRepAdaptor_Surface`) ke level `ducad-kernel`: `extrude_face` sekarang
 dispatch berdasarkan `SurfaceKind` face yang di-pick, bukan selalu
 extrude+boolean.
 
@@ -1233,7 +1233,7 @@ extrude+boolean.
       tidak tercakup — `opencascade-sys` belum ada binding
       `gp_Sphere`/`gp_Torus`, di luar cakupan Fase 2). Detail di
       `vendor/README.md` (Perubahan #5).
-- [x] **`extrude_face` jadi dispatch per `SurfaceKind`** (`cadraw-kernel`):
+- [x] **`extrude_face` jadi dispatch per `SurfaceKind`** (`ducad-kernel`):
       - `Plane` → jalur ASLI (extrude+union/subtract) **tidak disentuh
         sama sekali** — termasuk catatan deadlock `KERNEL_LOCK` yang sudah
         ada, tetap berlaku persis seperti sebelumnya.
@@ -1257,7 +1257,7 @@ extrude+boolean.
         dari-material OCCT di wajah itu mengarah ke sumbu) — perilaku
         OCCT standar, bukan bug, dibuktikan lewat test volume presisi di
         bawah.
-- [x] **6 test baru volume** (`cadraw-kernel`, total sekarang 50 test,
+- [x] **6 test baru volume** (`ducad-kernel`, total sekarang 50 test,
       seluruh workspace `cargo test --workspace` hijau):
       - Silinder R=10,h=20 di-pull selimut +2 mm → volume persis
         `π·12²·20` (radius membesar).
@@ -1293,13 +1293,13 @@ extrude+boolean.
 
 ## Status Fase 8 Lanjutan 5 — Gizmo & UI per Tipe Surface (dikerjakan, Fase 4)
 
-`FaceHit` (`cadraw-kernel`) sekarang membawa `pull_dir`: arah satuan yang
+`FaceHit` (`ducad-kernel`) sekarang membawa `pull_dir`: arah satuan yang
 benar-benar dipakai gizmo push/pull, terpisah dari `normal` — untuk wajah
 lengkung (Cylinder/Cone/Sphere), arah yang mengubah radius saat di-drag
 BUKAN normal permukaan lokal (yang konstan per-face lewat Newell's method),
 melainkan arah radial di titik hit itu sendiri.
 
-- [x] **`FaceHit::pull_dir: (f64, f64, f64)`** (`cadraw-kernel`) — field
+- [x] **`FaceHit::pull_dir: (f64, f64, f64)`** (`ducad-kernel`) — field
       baru di samping `normal`, dihitung `compute_pull_dir` per
       `SurfaceKind`:
       - `Plane` → identik `normal` (normal Newell, perilaku lama, TIDAK
@@ -1337,10 +1337,10 @@ melainkan arah radial di titik hit itu sendiri.
       `GeomAPI_ProjectPointOnSurf` gagal dapat solusi tunggal dan OCCT
       melempar `Standard_OutOfRange` yang TIDAK tertangkap cxx (abort
       proses via `std::terminate`, dibuktikan lewat crash nyata saat
-      `cargo test -p cadraw-kernel`). Diperbaiki dgn memproyeksikan
+      `cargo test -p ducad-kernel`). Diperbaiki dgn memproyeksikan
       `hit_point` (titik yang TERBUKTI ada di permukaan, hasil ray-face
       intersection) — selalu well-defined.
-- [x] **Gizmo (`cadraw-app`) pakai `pull_dir`, bukan `normal`** — 5 titik:
+- [x] **Gizmo (`ducad-app`) pakai `pull_dir`, bukan `normal`** — 5 titik:
       hit-test gizmo (`check_near_gizmo`), kalkulasi kursor resize, direct
       drag handler layar penuh, render panah 3D visual, dan handle+pill
       HUD interaktif. Mekanik drag itu sendiri
@@ -1349,11 +1349,11 @@ melainkan arah radial di titik hit itu sendiri.
       `hit.normal` di `sketch_on_active_face` (orientasi bidang sketsa)
       SENGAJA tidak disentuh — bukan bagian mekanik push/pull.
 - [x] **HUD dimension pill baru `format_face_gizmo_dimension_text`**
-      (`cadraw-app`) — permukaan radial (`Cylinder`/`Cone`/`Sphere`) tampil
+      (`ducad-app`) — permukaan radial (`Cylinder`/`Cone`/`Sphere`) tampil
       `"ΔR +2.0 mm"` (prefix `ΔR` + tanda eksplisit, drag mengubah RADIUS);
       permukaan lain (`Plane`, dan fallback `Torus`/`Other`) tetap `"2.0
       mm"` polos, perilaku lama.
-- [x] **4 test baru `pull_dir`** (`cadraw-kernel`, total sekarang 54 test,
+- [x] **4 test baru `pull_dir`** (`ducad-kernel`, total sekarang 54 test,
       seluruh workspace `cargo test --workspace` hijau): `pull_dir` sama
       dgn `normal` di wajah datar; `pull_dir` radial persis (silinder &
       kerucut, titik hit di bidang simetri sehingga hasil bisa divalidasi
@@ -1373,7 +1373,7 @@ melainkan arah radial di titik hit itu sendiri.
       dicegah precheck ini. Diperbaiki dgn `Face::orientation()` (sudah
       ada di vendor, `face.rs:345`): `Forward` → `R + d`, `Reversed` →
       `R − d`. 2 test baru menyusul (total sekarang 56 test
-      `cadraw-kernel`): lubang membesar MELEBIHI radius awal via distance
+      `ducad-kernel`): lubang membesar MELEBIHI radius awal via distance
       negatif harus berhasil; lubang didorong persis sejauh radiusnya
       sendiri (menutup penuh) harus ditolak dgn pesan jelas soal radius.
 - [x] **Bug ditemukan & diperbaiki: gizmo ter-anchor DI DALAM material utk
@@ -1386,10 +1386,10 @@ melainkan arah radial di titik hit itu sendiri.
       di dalam material utk radius > 18 mm — tak terlihat, tak bisa
       di-drag. (Sudah begitu sejak Fase 4 sebelumnya, tapi baru terasa
       sekarang karena face lengkung jadi fitur utama.) Diperbaiki dgn
-      method baru **`FaceHit::gizmo_anchor()`** (`cadraw-kernel`):
+      method baru **`FaceHit::gizmo_anchor()`** (`ducad-kernel`):
       `Plane` → tetap `centroid` (perilaku lama, region datar biasanya
       kecil); selain `Plane` → `hit_point`, yang SELALU di permukaan
-      (hasil ray-face intersection). Ke-5 titik gizmo di `cadraw-app`
+      (hasil ray-face intersection). Ke-5 titik gizmo di `ducad-app`
       diganti dari `hit.centroid` mentah ke `hit.gizmo_anchor()`; mekanik
       `project_screen_drag_to_world_axis` TIDAK berubah. `hit.centroid` di
       `sketch_on_active_face` (orientasi bidang sketsa, bukan gizmo)
@@ -1415,7 +1415,7 @@ melainkan arah radial di titik hit itu sendiri.
       irisan bola dgn box oktan, 1/8 permukaan bola dibatasi 3 busur
       seperempat lingkaran — sengaja BUKAN full-sphere spy lewat jalur
       Newell, bukan fallback GProp) — total sekarang 57 test
-      `cadraw-kernel`, `cargo test --workspace` hijau.
+      `ducad-kernel`, `cargo test --workspace` hijau.
 
 ## Status Vertex Fillet Gizmo — Rounded Sudut 3D (dikerjakan bertahap)
 
@@ -1424,7 +1424,7 @@ Fitur baru: fillet SUDUT (vertex) 3D lewat gizmo, beda dari fillet TEPI
 masukkan radius, semua tepi yang bertemu di sudut itu di-fillet sekaligus
 jadi sudut membulat (spherical corner).
 
-- [x] **Fase 1 — Kernel (`cadraw-kernel`).**
+- [x] **Fase 1 — Kernel (`ducad-kernel`).**
       `resolve_vertex_along_ray(shape, ray, tolerance) -> Option<DVec3>`:
       vertex bukan warga topologi tersendiri di query kernel (beda dari
       face/edge), jadi dikumpulkan sendiri dari endpoint SEMUA edge shape
@@ -1438,9 +1438,9 @@ jadi sudut membulat (spherical corner).
       (epsilon SAMA, 1e-6 mm) dgn vertex terpilih dikumpulkan lalu
       di-fillet SEKALIGUS lewat `Shape::fillet_edges` — OCCT sendiri yang
       menghasilkan sudut membulat saat >1 tepi bertemu di 1 titik difillet
-      bareng dgn radius sama. 5 test baru (`cadraw-kernel` sekarang 62
+      bareng dgn radius sama. 5 test baru (`ducad-kernel` sekarang 62
       test, `cargo test --workspace` — 142 test total — hijau).
-- [x] **Fase 2 — State & Klik (`cadraw-app`).** State baru di `CadrawApp`:
+- [x] **Fase 2 — State & Klik (`ducad-app`).** State baru di `DuCADApp`:
       `active_vertex: Option<(BodyId, PickRay, (f64,f64,f64))>` (pola
       persis `active_face`, simpan `ray` bukan cuma titik supaya resolusi
       ULANG saat fillet sungguhan konsisten dgn body hasil `deep_clone`),
@@ -1462,11 +1462,11 @@ jadi sudut membulat (spherical corner).
       `filleting_vertex_from_gizmo`/`vertex_gizmo_dimension_editing` masih
       belum dipakai di fase ini (warning dead-code wajar) — akan dipakai
       Fase 3 (render gizmo + HUD interaktif + eksekusi `fillet_vertex`).
-- [x] **Fase 3 — Gizmo Visual & HUD (`cadraw-app`/`cadraw-render`).**
+- [x] **Fase 3 — Gizmo Visual & HUD (`ducad-app`/`ducad-render`).**
       Digabung 1 fase (render + interaksi + commit) alih-alih dipecah
       Fase 3/4 seperti draft awal di atas, sama kompleksitasnya dgn 1
       blok gizmo face yang sudah ada. **Overlay 3D**
-      (`sketch_render::vertex_fillet_marker_lines`, `cadraw-render`):
+      (`sketch_render::vertex_fillet_marker_lines`, `ducad-render`):
       kotak kawat kecil TEPAT di vertex + garis putus-putus ke posisi
       handle + ikon kuadran lingkaran kecil (melambangkan "rounding") di
       dekat handle, semua di sepanjang `out_dir` — warna magenta
@@ -1490,7 +1490,7 @@ jadi sudut membulat (spherical corner).
       pill → toggle popup input teks; Enter/lost-focus → parse +
       `unit.to_internal_mm` + clamp `.max(0.1)` → commit. **Commit**
       (fungsi baru `commit_vertex_fillet`, dipanggil dari drag-stop DAN
-      dari popup Enter/lost-focus): panggil `cadraw_kernel::fillet_vertex`
+      dari popup Enter/lost-focus): panggil `ducad_kernel::fillet_vertex`
       dgn `Self::EDGE_REAPPLY_TOLERANCE_MM` (sama dgn `fillet_edges`,
       bukan toleransi piksel — tidak ada akses `rect` layar di titik
       commit ini) — sukses → `ReplaceGeometryCommand` lewat
@@ -1500,7 +1500,7 @@ jadi sudut membulat (spherical corner).
       tersentuh (`fillet_vertex` bekerja di atas `deep_clone`). Tidak ada
       test baru (murni UI/rendering — sama alasan dgn catatan "Fase
       3"/"Fase 4" akhir modeling 3D lain di dokumen ini) — `cargo test
-      --workspace` tetap 142 test hijau (62 di `cadraw-kernel`, tidak
+      --workspace` tetap 142 test hijau (62 di `ducad-kernel`, tidak
       berubah dari Fase 1).
 
 - [x] **Fase 4 — Perbaikan UX picking sudut ("klik sudut kubus meleset").**
@@ -1515,7 +1515,7 @@ jadi sudut membulat (spherical corner).
       tidak digambar jadi tidak ada feedback visual sebelum klik. 3
       perbaikan, tidak ada perubahan skema data tersimpan:
       1. **Toleransi vertex 12px → 18px** (`pick_body_vertex_at_cursor`,
-         `cadraw-app`) — dulu malah lebih ketat dari face/edge (14px),
+         `ducad-app`) — dulu malah lebih ketat dari face/edge (14px),
          padahal komentarnya sendiri bilang "lebih longgar"; sekarang
          benar-benar melebihi keduanya sesuai maksud aslinya.
       2. **Edge fillet gizmo baru** — kernel sudah punya `pick_edge`
@@ -1533,13 +1533,13 @@ jadi sudut membulat (spherical corner).
          `active_vertex_gizmo_dir`, overlay pakai
          `vertex_fillet_marker_lines` warna magenta yang sama, blok ke-5 di
          `dynamic_input_ui` cermin blok ke-4) — cuma commit-nya fungsi baru
-         **`commit_edge_fillet_single`**: `cadraw_kernel::fillet_edges`
+         **`commit_edge_fillet_single`**: `ducad_kernel::fillet_edges`
          dgn 1 ray (bukan `fillet_vertex`). Semua tempat yang meng-clear
          `active_face`/`active_vertex` (klik region 2D, klik entity sketch,
          klik kosong, Escape) diperbarui ikut clear `active_edge`.
       3. **Marker vertex terlihat + hover highlight** — fungsi baru
          **`shape_vertices(shape) -> Vec<(f64,f64,f64)>`** di
-         `cadraw-kernel` (endpoint semua edge, dedup sama seperti dipakai
+         `ducad-kernel` (endpoint semua edge, dedup sama seperti dipakai
          `pick_vertex`/`fillet_vertex`, diekstrak jadi helper privat
          `collect_vertices` supaya logikanya cuma 1 tempat) + fungsi
          render baru **`sketch_render::vertex_dot_markers`** (silang 3
@@ -1552,7 +1552,7 @@ jadi sudut membulat (spherical corner).
          sama dipakai klik) — dilewati selagi drag gizmo mana pun biar
          tidak query kernel percuma tiap frame drag. Tidak ada test baru
          (murni UX/rendering, sama alasan dgn fase gizmo lain) —
-         `cargo test -p cadraw-kernel` tetap 62 test hijau.
+         `cargo test -p ducad-kernel` tetap 62 test hijau.
 
 ### Rounding Parametrik (lanjutan gizmo rounding — dua arah & bisa dibatalkan)
 
@@ -1561,9 +1561,9 @@ tidak bisa (radius di-clamp min 0.1, commit destruktif — sekali bulat tak
 bisa siku lagi), (2) klik sudut yang SUDAH bulat jatuh ke face-pick →
 gizmo extrude → `offset_on_face` malah MEMBESARKAN objek.
 
-- `cadraw-kernel`: fungsi publik baru `clone_shape` (deep-clone snapshot
+- `ducad-kernel`: fungsi publik baru `clone_shape` (deep-clone snapshot
   B-rep utk app; test `clone_shape_independent_of_original`). 63 test.
-- `cadraw-app`: rounding jadi PARAMETRIK — `RoundHistory` per body
+- `ducad-app`: rounding jadi PARAMETRIK — `RoundHistory` per body
   (`round_history: HashMap<BodyId, RoundHistory>`) menyimpan shape DASAR
   sebelum rounding pertama + daftar `RoundFeature` (kind Vertex/Edge, ray,
   anchor, radius, polyline rusuk). Commit (`commit_round`) menyusun daftar
@@ -1588,11 +1588,11 @@ Permintaan user: di kartu "📏 Pengukuran" (ruler properties, panel
 Properties kanan), tambah checkbox yang kalau aktif melabeli nominal
 ukuran SEMUA elemen di kanvas — bukan cuma hasil tool "Ukur" eksplisit —
 supaya user langsung tahu ukuran tiap elemen tanpa harus mengukur satu-satu.
-Kanvas CADRAW tidak punya toggle mode 2D/3D terpisah (sketsa bidang aktif +
+Kanvas DUCAD tidak punya toggle mode 2D/3D terpisah (sketsa bidang aktif +
 body 3D selalu ditumpuk render bersamaan), jadi satu checkbox menangani
 kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
 
-- `cadraw-kernel`: fungsi publik baru `edge_dimensions(shape) ->
+- `ducad-kernel`: fungsi publik baru `edge_dimensions(shape) ->
   Vec<EdgeDimension>` (`EdgeDimension = ((f64,f64,f64), f64)`, titik
   tengah arc-length + panjang). Traversal `shape.edges()` yang sama dengan
   `resolve_edge_along_ray`/`collect_vertices`, TAPI di-dedup pakai epsilon
@@ -1601,7 +1601,7 @@ kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
   dedup box sederhana melapor 24 rusuk alih-alih 12. Test
   `edge_dimensions_reports_all_box_edges` (extrude rect 30×20 tinggi 15,
   assert 12 rusuk + multiset panjang `{15×4, 20×4, 30×4}`). 64 test kernel.
-- `cadraw-app::model`: `BodyGeometry` dapat field `edge_dims`, dihitung
+- `ducad-app::model`: `BodyGeometry` dapat field `edge_dims`, dihitung
   SEKALI saat geometri body dibuat/berubah (constructor
   `from_shape`/`from_shape_with_mesh`, pola sama dengan cache `mesh`) —
   bukan tiap frame render, supaya toggle checkbox tidak memicu traversal
@@ -1609,11 +1609,11 @@ kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
   (`poll_import_worker`) yang sebelumnya membangun `BodyGeometry` lewat
   struct literal langsung (bypass `from_shape`) — sekarang tetap dapat
   `edge_dims` walau mesh-nya sudah dihitung worker di thread lain.
-- `cadraw-ui::feature_inspector`: `FeatureInspectorState.show_all_dimensions`
+- `ducad-ui::feature_inspector`: `FeatureInspectorState.show_all_dimensions`
   + `InspectorEvent::ToggleShowAllDimensions`. Kartu Pengukuran diubah dari
   kondisional (dulu cuma tampil kalau tool Ukur aktif/ada hasil) jadi SELALU
   render, supaya checkbox-nya selalu bisa ditemukan.
-- `cadraw-app::main`: `CadrawApp::show_all_dimensions`, disinkronkan ke/dari
+- `ducad-app::main`: `DuCADApp::show_all_dimensions`, disinkronkan ke/dari
   inspector state seperti `auto_hide_properties`. Method baru
   `render_all_element_dimensions` dipanggil dari `dynamic_input_ui` saat
   checkbox aktif:
@@ -1630,8 +1630,8 @@ kedua konteks ("mode sketch 2D atau mode 3D") sekaligus:
     checkbox ini independen, murni tambahan label pasif.
 
 `cargo build --workspace` bersih, `cargo test --workspace -- --test-threads=1`
-148 test hijau (64 cadraw-kernel, 45 cadraw-sketch, sisanya cadraw-core/
-cadraw-io/cadraw-render/cadraw-ui).
+148 test hijau (64 ducad-kernel, 45 ducad-sketch, sisanya ducad-core/
+ducad-io/ducad-render/ducad-ui).
 
 **Perbaikan susulan — nominal dobel di rusuk dasar body:** user melaporkan
 banyak label dobel, "terutama bagian bawah, dimana sumber sketch menjadi
@@ -1667,13 +1667,13 @@ Perlu titik AWAL+AKHIR tiap rusuk (bukan cuma titik tengah) supaya sudut
 layarnya bisa dihitung dari proyeksi kamera SEKARANG, sama seperti
 `screen_line_angle` yang dipakai sketsa 2D:
 
-- `cadraw-kernel::EdgeDimension` diperluas dari `(mid, length)` jadi
+- `ducad-kernel::EdgeDimension` diperluas dari `(mid, length)` jadi
   `(mid, start, end, length)` — `edge_dimensions` mengembalikan endpoint
   dunia tiap rusuk juga, bukan cuma titik tengah arc-length-nya. Test
   `edge_dimensions_reports_all_box_edges` diperluas: validasi korda
   start↔end sama dengan `length` (rusuk box selalu lurus) dan `mid` persis
   di tengah start↔end. 64 test kernel tetap hijau.
-- `cadraw-app::main`: `screen_line_angle` (2D) di-refactor, bagian inti
+- `ducad-app::main`: `screen_line_angle` (2D) di-refactor, bagian inti
   "proyeksi 2 titik dunia → sudut layar dinormalisasi -90°..90°" dipecah
   jadi `screen_angle_between_world_points` yang menerima `Vec3` dunia
   langsung — dipakai ULANG oleh loop rusuk 3D di
@@ -1703,7 +1703,7 @@ Label jarak (`face_gizmo_distance` → pill dimensi) sebenarnya SUDAH
 ter-update tiap frame drag — cuma terasa tidak real-time karena mesh-nya
 diam.
 
-Perbaikan (`cadraw-app::main`, `build_combined_body_mesh`):
+Perbaikan (`ducad-app::main`, `build_combined_body_mesh`):
 
 - Body target disembunyikan (skip render mesh asli) selagi
   `extruding_face_from_gizmo` aktif DAN body itu = target dari
@@ -1712,7 +1712,7 @@ Perbaikan (`cadraw-app::main`, `build_combined_body_mesh`):
   tidak dobel-render dgn mesh lama.
 - Blok baru "4. Live Face Extrude preview": selagi
   `extruding_face_from_gizmo` dan `face_gizmo_distance` bukan nol,
-  panggil ulang `cadraw_kernel::extrude_face(&target_geo.shape, ray,
+  panggil ulang `ducad_kernel::extrude_face(&target_geo.shape, ray,
   face_gizmo_distance)` + `.tessellate()` TIAP FRAME (cermin persis blok
   extrude sketch), lalu masukkan mesh hasilnya ke buffer viewport
   (warna cyan, sama dgn highlight face terpilih). Gagal (mis. radius
@@ -1722,8 +1722,8 @@ Perbaikan (`cadraw-app::main`, `build_combined_body_mesh`):
 Hasil: drag gizmo face 3D sekarang menampilkan perubahan solid real-time
 persis seperti gizmo sketch — dan karena mesh sudah ikut real-time, pill
 jarak yang sebelumnya sudah live sekarang terasa konsisten dgn perubahan
-bentuknya. `cargo build -p cadraw-app` bersih, `cargo test -p
-cadraw-kernel` tetap 64 test hijau (tidak menyentuh logika `extrude_face`
+bentuknya. `cargo build -p ducad-app` bersih, `cargo test -p
+ducad-kernel` tetap 64 test hijau (tidak menyentuh logika `extrude_face`
 itu sendiri, cuma memanggilnya lebih sering).
 
 **Perbaikan susulan — gizmo rounding (vertex/edge fillet di pojokan) juga
@@ -1760,7 +1760,7 @@ perlu logika SAMA tapi dry-run:
   tessellate hasilnya, masukkan ke buffer viewport (abu-abu CAD normal,
   bukan cyan — rounding bukan highlight seleksi).
 
-`cargo build -p cadraw-app` bersih, `cargo test -p cadraw-kernel` tetap
+`cargo build -p ducad-app` bersih, `cargo test -p ducad-kernel` tetap
 64 test hijau (logika `fillet_vertex`/`fillet_edges` tidak diubah, cuma
 dipanggil lebih sering lewat jalur dry-run baru).
 
@@ -1771,7 +1771,7 @@ ujung objek (radius terlalu besar utk tepi/sudut yang dipilih) membuat
 SELURUH aplikasi langsung close, log:
 ```
 libc++abi: terminating due to uncaught exception of type StdFail_NotDone
-zsh: abort      cargo run -p cadraw-app
+zsh: abort      cargo run -p ducad-app
 ```
 
 Root cause: `BRepFilletAPI_MakeFillet`/`BRepFilletAPI_MakeChamfer::Shape()`
@@ -1785,7 +1785,7 @@ binding `opencascade-0.2.0::Shape::fillet_edges`/`chamfer_edges` yang
 manggil `.Shape()` mentah TANPA try/catch bikin exception-nya TEMBUS lewat
 cxx dan memicu `std::terminate` — abort seluruh proses `cargo run`, bukan
 error Rust yang bisa ditangani `commit_round`/`round_gizmo_preview_shape`
-di `cadraw-app`. Live preview real-time yang baru ditambahkan (lihat
+di `ducad-app`. Live preview real-time yang baru ditambahkan (lihat
 "Perbaikan susulan" di atas) membuat crash ini jauh lebih gampang kepancing
 — radius ekstrem kini dievaluasi TIAP FRAME selagi drag, bukan cuma sekali
 saat dilepas.
@@ -1802,31 +1802,31 @@ ada — lihat `vendor/README.md` § `opencascade-0.2.0` Perubahan #8 &
   dideklarasikan `Result<&TopoDS_Shape>` di cxx bridge. ADDITIVE murni —
   binding `Shape()` mentah lama TETAP ADA (dipakai `Solid::fillet_edge`/
   `AdHocShape::fillet_edges`/`chamfer_edges` yang tidak dipakai
-  cadraw-kernel).
+  ducad-kernel).
 - `vendor/opencascade-0.2.0`: `Error::FilletFailed(String)` (variant baru,
   pola sama `OffsetOnFaceFailed`); `Shape::fillet_edge`/`fillet_edges`/
   `chamfer_edge`/`chamfer_edges`/`fillet`/`chamfer` sekarang balikin
   `Result<(), Error>` (dulu `()`), manggil versi `_checked` di atas;
   `BooleanShape::fillet_new_edges`/`chamfer_new_edges` ikut disesuaikan
-  (tidak dipakai cadraw-kernel, cuma biar konsisten & tidak diam-diam
+  (tidak dipakai ducad-kernel, cuma biar konsisten & tidak diam-diam
   mengabaikan `Result`).
-- `cadraw-kernel`: `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
+- `ducad-kernel`: `fillet_edges`/`fillet_vertex`/`chamfer_edges`/
   `fillet_all`/`chamfer_all`/`make_filleted_box` menyalurkan `Result` baru
   itu lewat `.context("...")?` — pesan error jelas ("radius fillet
   terlalu besar untuk tepi/sudut terpilih") alih-alih crash. Signature
   publik kernel (`Result<KernelShape>`) TIDAK berubah, jadi TIDAK ADA
-  perubahan di `cadraw-app` — `commit_round` dan `round_gizmo_preview_shape`
+  perubahan di `ducad-app` — `commit_round` dan `round_gizmo_preview_shape`
   (lihat "Perbaikan susulan" di atas) sudah menangani `Err` dgn benar
   (pesan status / skip frame preview), sekarang cuma benar-benar
   menerimanya lewat jalur normal, bukan lewat proses yang sudah mati.
 
-Regresi dibuktikan 3 test baru di `cadraw-kernel`
+Regresi dibuktikan 3 test baru di `ducad-kernel`
 (`fillet_edges_oversized_radius_errors_not_crashes`,
 `fillet_vertex_oversized_radius_errors_not_crashes`,
 `chamfer_edges_oversized_distance_errors_not_crashes`) — radius/jarak
 1000mm pada box 30×20×15: tanpa patch SIGABRT test binary, dengan patch
 `Result::Err` biasa. `cargo build --workspace` bersih, `cargo test
---workspace -- --test-threads=1` 151 test hijau (67 cadraw-kernel, +3 dari
+--workspace -- --test-threads=1` 151 test hijau (67 ducad-kernel, +3 dari
 sebelumnya).
 
 **Perbaikan susulan — radius "sukses" tapi melebihi batas wajar (bukan
@@ -1835,10 +1835,10 @@ rounding sampai "batas ujung objek" masih tidak berhenti: sudut box
 "memakan" seluruh sisi jadi bentuk baji/quarter-cylinder, bukan sudut
 membulat wajar. Beda root cause dari fix sebelumnya — OCCT sendiri masih
 `IsDone()==true` di radius segini (bukan `StdFail_NotDone`), jadi
-`Shape::fillet_edges`/`fillet_vertex` TIDAK `Err`; CADRAW sendiri yang
+`Shape::fillet_edges`/`fillet_vertex` TIDAK `Err`; DUCAD sendiri yang
 belum punya batas atas geometris wajar utk radius/jarak rounding.
 
-- `cadraw-kernel`: fungsi privat baru `max_fillet_radius(shape,
+- `ducad-kernel`: fungsi privat baru `max_fillet_radius(shape,
   target_edges) -> f64` — batas radius/jarak = SETENGAH panjang tepi
   TERPENDEK yang terlibat (tepi target sendiri + semua tepi lain di shape
   yang endpoint-nya berimpit dgn endpoint tepi target, epsilon sama dgn
@@ -1851,7 +1851,7 @@ belum punya batas atas geometris wajar utk radius/jarak rounding.
 - Dua fungsi publik baru, `max_vertex_fillet_radius`/
   `max_edge_fillet_radius(shape, ray, tolerance) -> Option<f64>` — versi
   query murni (tanpa mutasi/fillet beneran) dari batas yang sama, dipakai
-  `cadraw-app` MENGUNCI nilai radius gizmo SELAGI DRAG, bukan cuma
+  `ducad-app` MENGUNCI nilai radius gizmo SELAGI DRAG, bukan cuma
   menolak SETELAH radius terlanjur jauh melebihi batas. Tanpa ini, nilai
   internal gizmo (`vertex_gizmo_radius`/`edge_gizmo_radius`) terus
   bertambah tanpa batas selagi mouse bergerak walau preview 3D-nya sudah
@@ -1859,7 +1859,7 @@ belum punya batas atas geometris wajar utk radius/jarak rounding.
   begitu drag dilepas, commit GAGAL TOTAL (sudut balik siku, radius yang
   dikirim sudah kadung di atas batas) alih-alih berhenti/menetap di
   radius maksimum yang valid, persis kebalikan dari yang diminta user.
-- `cadraw-app::main`: kedua drag handler gizmo rounding (vertex & edge,
+- `ducad-app::main`: kedua drag handler gizmo rounding (vertex & edge,
   blok "4"/"5" di HUD draw) sekarang meng-clamp
   `self.vertex_gizmo_radius`/`self.edge_gizmo_radius` ke hasil
   `max_vertex_fillet_radius`/`max_edge_fillet_radius` TIAP FRAME drag —
@@ -1870,7 +1870,7 @@ belum punya batas atas geometris wajar utk radius/jarak rounding.
   kalau rounding pertama kali (pola sama dgn `build_rounded_shape` yang
   selalu rebuild dari `base`, bukan shape final).
 
-2 test baru di `cadraw-kernel`
+2 test baru di `ducad-kernel`
 (`fillet_vertex_radius_exceeding_shortest_edge_errors_before_reaching_occt`,
 `fillet_edges_radius_exceeding_shortest_touching_edge_errors_before_reaching_occt`,
 lihat "Perbaikan susulan 2" di bawah utk nama final setelah dikoreksi)
@@ -1878,7 +1878,7 @@ lihat "Perbaikan susulan 2" di bawah utk nama final setelah dikoreksi)
 kecil dari radius 1000mm di test crash sebelumnya (yang sudah bikin OCCT
 sendiri gagal) supaya benar-benar menguji precheck geometris BARU, bukan
 cuma re-test fix crash lama. `cargo build --workspace` bersih, `cargo
-test --workspace -- --test-threads=1` 153 test hijau (69 cadraw-kernel,
+test --workspace -- --test-threads=1` 153 test hijau (69 ducad-kernel,
 +2 dari sebelumnya).
 
 **Perbaikan susulan 2 — batas geometris kelewat konservatif (baru
@@ -1889,7 +1889,7 @@ di fix sebelumnya sendiri: `max_fillet_radius` salah pakai `min_len /
 2.0` sebagai batas.
 
 Root cause geometris yang benar: utk sudut ORTOGONAL (semua sudut
-box/prism, target utama gizmo rounding CADRAW), titik singgung fillet di
+box/prism, target utama gizmo rounding DUCAD), titik singgung fillet di
 sepanjang tepi tetangga berjarak PERSIS `radius` dari titik sudut
 (`tan(45°) == 1` — sudut antar 2 wajah tegak lurus dibagi dua = 45°),
 BUKAN `radius/2`. Jadi radius maksimum yang aman kira-kira SAMA DENGAN
@@ -1897,7 +1897,7 @@ panjang tepi tetangga terpendek itu sendiri (titik singgungnya baru
 menyentuh UJUNG satu tepi tetangga di radius maksimum, bukan setengahnya
 di tengah tepi).
 
-Perbaikan (`cadraw-kernel::max_fillet_radius`): buang `/ 2.0`, balikin
+Perbaikan (`ducad-kernel::max_fillet_radius`): buang `/ 2.0`, balikin
 `min_len` langsung. Kalau radius sampai PERSIS menyentuh sudut tetangga
 (kasus batas paling ekstrem, marjinal secara numerik), `fillet_edges`/
 `fillet_vertex` masih bisa `Err` dari OCCT sendiri — itu SUDAH aman
@@ -1916,7 +1916,7 @@ tidak perlu margin pengaman tambahan di precheck ini.
   — radius 20mm (> batas baru 15mm) tetap ditolak.
 
 `cargo build --workspace` bersih, `cargo test --workspace --
---test-threads=1` 155 test hijau (71 cadraw-kernel, +2 neto dari
+--test-threads=1` 155 test hijau (71 ducad-kernel, +2 neto dari
 sebelumnya — 2 test lama diganti nama+radius, 2 test baru ditambah).
 
 **Perbaikan susulan 3 — objek 3D hilang total saat drag mencapai/
@@ -1937,7 +1937,7 @@ secara numerik OCCT, sudah diantisipasi aman dari SISI CRASH sejak
 "Perbaikan" pertama, tapi belum dari sisi RENDER) — body sudah kadung
 disembunyikan tapi preview penggantinya `None`, jadi viewport kosong.
 
-Perbaikan (`cadraw-app::main::build_combined_body_mesh`, restrukturisasi
+Perbaikan (`ducad-app::main::build_combined_body_mesh`, restrukturisasi
 menyeluruh): SEMUA preview live (boolean cut dari sketch, extrude face,
 rounding vertex/edge) di-precompute LEBIH DULU sebagai `Option<(BodyId,
 KernelMesh)>` (atau `Option<KernelMesh>` utk extrude sketch non-cut yang
@@ -1975,7 +1975,7 @@ tertutup akurat untuk segala kasus; OCCT-lah yang tahu persis batasnya.
 
 Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
 
-- `cadraw-kernel`: precheck manual `max_fillet_radius` DIHAPUS TOTAL
+- `ducad-kernel`: precheck manual `max_fillet_radius` DIHAPUS TOTAL
   (fungsi `max_fillet_radius`/`max_vertex_fillet_radius`/
   `max_edge_fillet_radius` semua dihapus) dari `fillet_edges`/
   `fillet_vertex`/`chamfer_edges`/`fillet_all`/`chamfer_all` — sumber
@@ -1983,7 +1983,7 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
   (`IsDone()`/`Err` dari OCCT langsung, SUDAH aman dari crash sejak fix
   `StdFail_NotDone`). Alasan lengkap didokumentasikan di doc-comment
   `fillet_vertex`.
-- `cadraw-app::round_gizmo_preview_shape`: signature berubah, `radius`
+- `ducad-app::round_gizmo_preview_shape`: signature berubah, `radius`
   jadi PARAMETER eksplisit (bukan dibaca langsung dari
   `self.vertex_gizmo_radius`/`edge_gizmo_radius`) — supaya bisa dipanggil
   dgn radius KANDIDAT (belum tentu diterima) maupun radius TERKINI
@@ -2003,7 +2003,7 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
 - Trade-off yang disadari: drag TERUS-MENERUS memanggil operasi OCCT
   penuh (deep_clone + fillet build) — SEKALI utk validasi kandidat di
   drag handler, SEKALI LAGI utk mesh preview di render pass — 2x lipat
-  dari sebelumnya. Diterima utk model sederhana (target CADRAW saat ini);
+  dari sebelumnya. Diterima utk model sederhana (target DUCAD saat ini);
   kalau nanti terasa lag di model kompleks, optimisasi lanjutan adalah
   meng-cache hasil trial drag handler dan dipakai ulang oleh render pass
   (BUKAN precheck formula lagi).
@@ -2013,12 +2013,12 @@ Perbaikan (perombakan pendekatan, bukan sekadar formula baru):
 (`fillet_vertex_radius_near_shortest_edge_succeeds_without_manual_precheck`,
 `fillet_edges_radius_near_shortest_touching_edge_succeeds_without_manual_precheck`)
 yang HANYA membuktikan radius mendekati tepi tetap sukses TANPA precheck
-manual (tidak menghardcode ambang mana pun milik CADRAW) — test
-"exceeding" dihapus karena tidak ada lagi ambang CADRAW utk diuji;
+manual (tidak menghardcode ambang mana pun milik DUCAD) — test
+"exceeding" dihapus karena tidak ada lagi ambang DUCAD utk diuji;
 batasnya sekarang murni keputusan OCCT.
 
 `cargo build --workspace` bersih, `cargo test --workspace --
---test-threads=1` 153 test hijau (69 cadraw-kernel, neto -2 dari
+--test-threads=1` 153 test hijau (69 ducad-kernel, neto -2 dari
 sebelumnya — 4 test lama dihapus, 2 test baru ditambah).
 
 **Perbaikan susulan 5 — klik sudut LAIN utk rounding baru malah tidak
@@ -2054,7 +2054,7 @@ rounding yang sudah ada utk edit radius" tidak berubah).
 
 `cargo build --workspace` bersih, `cargo test --workspace --
 --test-threads=1` tetap 153 test hijau (perubahan murni di jalur klik
-`cadraw-app`, tidak menyentuh kernel).
+`ducad-app`, tidak menyentuh kernel).
 
 ## Status Sketch — Rantai Garis Kontinu (dikerjakan)
 
@@ -2075,7 +2075,7 @@ pill`) sudah keyed off `pending_points.len() == 1`, jadi TIDAK perlu
 kode render baru — tinggal jaga `pending_points` tetap 0-atau-1 elemen
 sepanjang rantai supaya preview itu otomatis nyala tiap segmen.
 
-- `CadrawApp`: field baru `line_chain_start: Option<DVec2>` (titik AWAL
+- `DuCADApp`: field baru `line_chain_start: Option<DVec2>` (titik AWAL
   rantai, terpisah dari `pending_points[0]` yang berarti "titik akhir
   segmen terakhir / awal segmen berikutnya") + `line_chain_segments: u32`
   (penghitung segmen ter-commit, dipakai syarat minimal 2 segmen sebelum
@@ -2110,9 +2110,9 @@ Preview segmen yang sedang digambar (leader lines + pill panjang di
 independen) TIDAK disentuh — otomatis bekerja untuk tiap segmen rantai
 tanpa perubahan.
 
-`cargo build -p cadraw-app` bersih (tanpa warning baru).
-`cargo test -p cadraw-sketch -p cadraw-kernel` tetap hijau (perubahan
-murni di `cadraw-app`, tidak menyentuh kernel/sketch) — `cadraw-app`
+`cargo build -p ducad-app` bersih (tanpa warning baru).
+`cargo test -p ducad-sketch -p ducad-kernel` tetap hijau (perubahan
+murni di `ducad-app`, tidak menyentuh kernel/sketch) — `ducad-app`
 sendiri tidak punya unit test (layer egui, divalidasi manual: gambar
 segitiga tertutup lewat klik-balik-ke-titik-awal, dan polyline terbuka
 diselesaikan ESC).
@@ -2126,7 +2126,7 @@ TETANGGANYA sudah di-rounding (fillet).
 
 Root cause: `Shape::union`/`subtract` (`vendor/opencascade-0.2.0/src/
 primitives/shape.rs`) dan `AdHocShape::union`/`subtract`/`intersect`
-(`vendor/opencascade-0.2.0/src/adhoc.rs`) — dipanggil `cadraw-kernel::
+(`vendor/opencascade-0.2.0/src/adhoc.rs`) — dipanggil `ducad-kernel::
 union`/`subtract`/`intersect`/`extrude_face` (jalur planar extrude fuse/cut
 prism baru ke shape lewat boolean OCCT) — memanggil `BRepAlgoAPI_Fuse`/
 `Cut`/`Common` MENTAH tanpa `IsDone()`/try-catch. Fuse/cut prism baru ke
@@ -2151,24 +2151,24 @@ Fix (lihat `vendor/README.md` "Perubahan #9" untuk `opencascade-0.2.0` &
   `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/`intersect`
   sekarang balikin `Result<..., Error>` (dulu tanpa jaminan sukses),
   lewat binding checked di atas.
-- `cadraw-kernel`: `union`/`subtract`/`intersect`/`extrude_face`
+- `ducad-kernel`: `union`/`subtract`/`intersect`/`extrude_face`
   `.context(...)?`-kan `Result` baru itu (tanda tangan publiknya sendiri
   sudah `Result<KernelShape>` dari awal, jadi TIDAK ada perubahan API yang
   terlihat pemanggil).
-- `cadraw-app`: NOL perubahan — semua titik panggil `cadraw_kernel::union/
+- `ducad-app`: NOL perubahan — semua titik panggil `ducad_kernel::union/
   subtract/intersect/extrude_face` sudah pakai `match`/`if let Ok`/`.ok()?`
   dari awal, jadi begitu native exception-nya ketangkep jadi `Err`, alur
   error-handling yang sudah ada otomatis kepakai.
 
 Regresi dibuktikan test baru `extrude_face_adjacent_to_fillet_does_not_
-crash` di `cadraw-kernel` — fillet 1 tepi vertikal box 30×20×15 (radius
+crash` di `ducad-kernel` — fillet 1 tepi vertikal box 30×20×15 (radius
 8mm), extrude wajah yang bertetangga LANGSUNG dgn tepi ter-fillet: klaim
 intinya proses harus TETAP HIDUP (hasil `Ok` atau `Err` sama-sama
 membuktikan tidak crash).
 
 `cargo build --workspace` bersih. `cargo test --workspace -- --test-
 threads=1` 154 test hijau (naik dari 153 — 70 di antaranya di
-`cadraw-kernel`, naik dari 69, tambahan test regresi di atas).
+`ducad-kernel`, naik dari 69, tambahan test regresi di atas).
 
 ## Status — Aktivasi Bidang Sketsa Langsung dari Viewport (dikerjakan)
 
@@ -2183,12 +2183,12 @@ keyboard fisik).
 Pendekatan (bukan grid rapat 500-unit penuh utk bidang non-aktif — akan
 membuat viewport penuh garis karena ketiganya saling tegak lurus & berpotongan
 di origin):
-- `cadraw-render/src/grid.rs`: `plane_outline()` baru — kerangka persegi
+- `ducad-render/src/grid.rs`: `plane_outline()` baru — kerangka persegi
   tipis + silang sumbu kecil (bukan grid rapat), area `INACTIVE_PLANE_
   HALF_EXTENT` (120 unit) dipakai SEKALIGUS utk digambar & utk hit-test,
   jadi area yang divisualisasikan selalu sama persis dgn area yang bisa
   diklik.
-- `cadraw-app/src/main.rs`: `build_overlay_lines` menggambar `plane_outline`
+- `ducad-app/src/main.rs`: `build_overlay_lines` menggambar `plane_outline`
   utk 2 bidang non-aktif (cuma saat `is_sketching`), warna biru redup
   (senada `ACCENT_BLUE`) sbg penanda "ini bisa diklik".
 - `pick_inactive_plane_at_cursor` (wrapper screen→ray) + `pick_inactive_
@@ -2231,11 +2231,11 @@ Keterbatasan yang diketahui & didokumentasikan di kode:
   klik/tap ulang plane semula), ditandai sbg follow-up kalau jadi masalah
   nyata setelah Fase 6 rilis & bisa dites di device asli.
 
-3 test baru di `cadraw-render::grid` (vertex count, batas half-extent,
-warna) + 5 test baru di `cadraw-app::plane_activation_tests` (hit Front/
+3 test baru di `ducad-render::grid` (vertex count, batas half-extent,
+warna) + 5 test baru di `ducad-app::plane_activation_tests` (hit Front/
 Right plane, bidang aktif tidak pernah dikembalikan, hit di luar batas
 diabaikan, ray sejajar kedua bidang → `None`). `cargo build --workspace`
-& `cargo clippy -p cadraw-render -p cadraw-app --no-deps` bersih (nol
+& `cargo clippy -p ducad-render -p ducad-app --no-deps` bersih (nol
 error, warning yang muncul semuanya pra-existing/gaya `map_or` yang sudah
 dipakai di seluruh file, bukan regresi). `cargo test --workspace
 -- --test-threads=1` 162 test hijau (naik dari 154 — 8 test baru di atas).
@@ -2260,7 +2260,7 @@ guard `if self.is_sketching` itu dilepas:
 
 Tidak ada API/test baru yang perlu diubah — 5 test `pick_inactive_plane_
 for_ray` murni geometri, tidak bergantung `is_sketching` sama sekali.
-`cargo build`/`clippy`/`test` (`-p cadraw-app -p cadraw-render`) tetap
+`cargo build`/`clippy`/`test` (`-p ducad-app -p ducad-render`) tetap
 bersih, 28 test itu semua masih hijau.
 
 ## Status — Drag Axis X/Y (Sketch 2D) & X/Y/Z (Body 3D) (dikerjakan)
@@ -2288,7 +2288,7 @@ Yang **bertahan** dari putaran ini (fondasinya benar & sudah lolos
 perbandingan dgn CAD standar):
 
 - [x] **Klik-cycle seleksi entitas tumpang-tindih** (`hit_test_cycled`,
-      state `CadrawApp::last_select_click`) — klik ulang dalam radius
+      state `DuCADApp::last_select_click`) — klik ulang dalam radius
       `SELECT_CYCLE_CLICK_PX` (4px) dari klik sebelumnya memilih kandidat
       berikutnya di antara entitas yang sama-sama ke-hit dalam toleransi,
       bukan selalu yang pertama/terdekat. **Preseden nyata**: AutoCAD
@@ -2296,14 +2296,14 @@ perbandingan dgn CAD standar):
       sysvar) persis untuk masalah ini; Fusion 360/SolidWorks punya
       varian serupa. Menggantikan `Sketch::hit_test` di 4 titik panggilan
       lama (Pilih/Offset/Trim hover + klik seleksi).
-- [x] **`translate_entity`/`TranslateEntities`** (`cadraw-sketch`) — geser
+- [x] **`translate_entity`/`TranslateEntities`** (`ducad-sketch`) — geser
       entitas sepanjang bidang lokalnya (u,v), command undo-able berbasis
       delta. Ini yang menjawab permintaan asli "drag sketch ke arah X/Y".
 - [x] **Gizmo drag axis X/Y sketch** (U/V bidang aktif) — 2 panah,
       auto-muncul saat tool Pilih aktif & ada seleksi sketch (tanpa body
       terpilih), lewat widget `CanvasHud::render_draggable_double_arrow_handle`
       yang sudah ada (pola vertex/edge fillet gizmo).
-- [x] **`cadraw_kernel::translate_shape(shape, dx, dy, dz)`** — TIDAK
+- [x] **`ducad_kernel::translate_shape(shape, dx, dy, dz)`** — TIDAK
       butuh binding OCCT baru: `opencascade-0.2.0` vendor sudah punya
       `Shape::set_global_translation` sejak awal, tinggal dibungkus
       fungsional (`deep_clone` + set translation) pola sama `fillet_all`/
@@ -2317,14 +2317,14 @@ perbandingan dgn CAD standar):
       `ReplaceGeometryCommand` yang SUDAH ADA (tidak ada command model
       baru). Ini yang menjawab permintaan asli "drag object 3D ke X/Y/Z".
 - [x] 165 test lulus di seluruh workspace (2 test baru bersih di
-      `cadraw-sketch` utk `translate_entity`/`TranslateEntities`, 1 di
-      `cadraw-kernel` utk `translate_shape` — test elevasi yg sempat ada
+      `ducad-sketch` utk `translate_entity`/`TranslateEntities`, 1 di
+      `ducad-kernel` utk `translate_shape` — test elevasi yg sempat ada
       sudah ikut dihapus bersama fiturnya). `clippy -D warnings` masih
-      gagal di file yang TIDAK disentuh fitur ini (`cadraw-ui`,
-      `cadraw-sketch::region`) — bug lint pre-existing di `main`,
+      gagal di file yang TIDAK disentuh fitur ini (`ducad-ui`,
+      `ducad-sketch::region`) — bug lint pre-existing di `main`,
       dikonfirmasi via `git stash`, bukan regresi dari sini.
 - [ ] **Sengaja belum ada**: popup daftar kandidat visual utk klik-cycle
-      (AutoCAD/SolidWorks tampilkan flyout, punya CADRAW masih "buta" —
+      (AutoCAD/SolidWorks tampilkan flyout, punya DUCAD masih "buta" —
       klik berulang tanpa indikator jumlah/kandidat aktif); gizmo
       translate multi-body sekaligus (cuma 1 body per drag); sketch
       benar-benar planar per definisi (sesuai SolidWorks) — kalau nanti
@@ -2341,7 +2341,7 @@ logo + ... kalo aku mau satukan sketch dg pusat yang sama pakai titik +
 ini juga" — 2 panah U/V terpisah (masing-masing 1 sumbu) diganti 1 handle
 bulat "+" di centroid seleksi, digeser bebas ke u DAN v sekaligus.
 
-- [x] **`CanvasHud::render_draggable_move_handle`** (`cadraw-ui`) — widget
+- [x] **`CanvasHud::render_draggable_move_handle`** (`ducad-ui`) — widget
       baru, sibling `render_draggable_double_arrow_handle`: lingkaran kuning
       +ikon "+" (bukan panah 2 sisi, karena drag-nya omnidirectional bukan
       1 sumbu), cursor `Move`. Warna sengaja beda dari biru gizmo Extrude
@@ -2383,7 +2383,7 @@ warna kuning... kalo mau memindahkan bisa klik-drag ATAU klik + (masuk
 mode geser) lalu digeser dg keyboard anak panah... titik + jadi titik
 untuk menyatukan 2 sketch atau lebih" — 4 perubahan atas revisi
 sebelumnya, semua di `dynamic_input_ui`/`handle_sketch_input`
-(`cadraw-app`) + `render_draggable_move_handle` (`cadraw-ui`):
+(`ducad-app`) + `render_draggable_move_handle` (`ducad-ui`):
 
 - [x] **Lepas gate `tool == Select`** dari `selected_entities_centroid`
       (satu-satunya konsumen: gizmo geser sketch) — diganti `is_sketching`.
@@ -2398,7 +2398,7 @@ sebelumnya, semua di `dynamic_input_ui`/`handle_sketch_input`
       mode" tetap relevan penuh di situ, sesuai permintaan user.
 - [x] **Restyle `render_draggable_move_handle`** — badge lingkaran kuning
       solid + ikon "+" putih tebal diganti crosshair tipis warna biru
-      (`rgb(77,166,255)`, selaras `COLOR_SELECTED` di `cadraw-render/
+      (`rgb(77,166,255)`, selaras `COLOR_SELECTED` di `ducad-render/
       sketch.rs`) tanpa fill solid saat idle, supaya "menyatu" dgn garis
       sketch alih-alih tampak sbg tombol UI berdiri sendiri. Tetap ada glow
       ring saat hover/drag dan cincin denyut saat armed supaya tidak
@@ -2414,7 +2414,7 @@ sebelumnya, semua di `dynamic_input_ui`/`handle_sketch_input`
       drag menang). Direset di semua titik reset serupa yg sudah ada:
       `set_tool` (central), Escape (prioritas SEBELUM clear seleksi), klik
       viewport apa pun (ganti seleksi), Delete/Backspace.
-- [x] **`region_center_snap`** (free function baru, `cadraw-app`,
+- [x] **`region_center_snap`** (free function baru, `ducad-app`,
       ditambah 3 test) — perluasan snap selagi drag: kalau `find_snap`
       (endpoint/midpoint/center/intersection/grid — titik DOF entitas
       TUNGGAL) tidak kena, dicoba juga titik tengah region tertutup LAIN
@@ -2423,7 +2423,7 @@ sebelumnya, semua di `dynamic_input_ui`/`handle_sketch_input`
       pusat rectangle 4-garis atau profil majemuk bukan titik snap entitas
       manapun, jadi butuh sumber terpisah dari `find_snap`.
 - [x] Workspace hijau — `cargo build --workspace` bersih, 168 test lulus
-      (165 lama + 3 baru utk `region_center_snap` di `cadraw-app`).
+      (165 lama + 3 baru utk `region_center_snap` di `ducad-app`).
 
 ### Revisi 3 — Handle "+" tanpa perlu seleksi eksplisit sama sekali (fallback seluruh sketch) + catatan bug Cmd+Panah kiri/kanan
 
@@ -2434,7 +2434,7 @@ masih mengharuskan MINIMAL 1x klik-seleksi lewat tool Pilih supaya
 `self.selected` terisi (baru setelah itu handle "+" bawaan lintas-tool).
 User mau lebih jauh: TIDAK butuh seleksi eksplisit APAPUN.
 
-- [x] **`CadrawApp::move_target_ids`** (helper baru) — seleksi eksplisit
+- [x] **`DuCADApp::move_target_ids`** (helper baru) — seleksi eksplisit
       (`self.selected`) kalau ADA, atau SEMUA entitas di sketch aktif kalau
       TIDAK ada seleksi sama sekali. Fallback "seluruh sketch" inilah yang
       bikin handle "+" langsung muncul begitu sketch punya isi — tanpa
@@ -2458,7 +2458,7 @@ User mau lebih jauh: TIDAK butuh seleksi eksplisit APAPUN.
 - [x] **Investigasi bug "Cmd+Panah kiri/kanan tidak jalan, atas/bawah
       jalan"**: dibaca ulang kode nudge baris-per-baris — 4 cabang
       (Left/Right/Up/Down) simetris persis, semua lewat `TranslateEntities`
-      yang sama (`translate_entity` di `cadraw-sketch` juga simetris x/y,
+      yang sama (`translate_entity` di `ducad-sketch` juga simetris x/y,
       sudah ada test `translate_entity_shifts_all_variants` yang lulus).
       Tidak ditemukan kode lain di seluruh workspace yang mengonsumsi
       `ArrowLeft`/`ArrowRight` duluan (`consume_key` tidak dipakai di mana
@@ -2468,14 +2468,14 @@ User mau lebih jauh: TIDAK butuh seleksi eksplisit APAPUN.
       Cmd+Panah (defaultnya Fn-Control-Panah), jadi bukan itu. Kesimpulan:
       kemungkinan besar bentrok keybinding level OS/aplikasi pihak ketiga
       di mesin user (mis. app snapping jendela custom yang bind
-      Cmd+Kiri/Kanan), BUKAN bug kode CADRAW — tidak bisa diverifikasi
+      Cmd+Kiri/Kanan), BUKAN bug kode DUCAD — tidak bisa diverifikasi
       lebih lanjut dari sandbox (tidak ada display, sudah didokumentasikan
       berkali-kali di memory project). Mitigasi konkret: jalur BARU "klik +
       lalu panah POLOS tanpa Cmd" (armed mode, dari Revisi 2) sama sekali
       tidak butuh Cmd, jadi otomatis kebal dari kemungkinan bentrokan ini —
       direkomendasikan ke user sbg jalur utama.
 - [x] Workspace hijau — `cargo build --workspace` bersih, `clippy -p
-      cadraw-app` tidak ada warning baru di kode yang disentuh, 168 test
+      ducad-app` tidak ada warning baru di kode yang disentuh, 168 test
       tetap lulus (murni refactor/rename, tidak ada logika baru yang perlu
       test baru).
 
@@ -2492,7 +2492,7 @@ Constraint semua masih butuh dia), cuma memang sudah TIDAK wajib buat
 geser "+".
 
 - [x] **Desain ulang total dari "1 target gabungan" jadi "banyak grup
-      independen"**: `CadrawApp::sketch_move_groups()` — kalau ada
+      independen"**: `DuCADApp::sketch_move_groups()` — kalau ada
       seleksi eksplisit (`self.selected`, tool Pilih), itu SATU-SATUNYA
       grup (jalur presisi, tidak berubah); kalau TIDAK ada seleksi, SATU
       GRUP PER REGION TERTUTUP (`find_closed_regions`, bukan digabung jadi
@@ -2532,7 +2532,7 @@ geser "+".
       dipakai penuh utk Extrude/Mirror/Revolve/Delete/Constraint seperti
       sebelumnya; TIDAK ADA perubahan di `left_toolbar.rs`.
 - [x] Workspace hijau — `cargo build --workspace` bersih, `clippy -p
-      cadraw-app` tidak ada warning baru di kode yang disentuh, 168 test
+      ducad-app` tidak ada warning baru di kode yang disentuh, 168 test
       tetap lulus (perubahan ini re-arsitektur interaksi/render, bukan
       logika kernel/sketch murni baru — cakupan test lama yg sudah ada
       utk `region_center_snap`/`translate_entity`/`find_closed_regions`
@@ -2588,7 +2588,7 @@ tetap cuma 2D jadi tetap butuh cara eksplisit utk sumbu ketiga).
       f64 — nampung X/Y/Z sekaligus, bisa campur drag X/Y lalu Shift-drag
       Z tanpa reset).
 - [x] **Satu `render_draggable_move_handle`** (fungsi yang SAMA persis dg
-      "+" sketch 2D, `crates/cadraw-ui/src/canvas_hud.rs`) di pusat body,
+      "+" sketch 2D, `crates/ducad-ui/src/canvas_hud.rs`) di pusat body,
       gantikan loop `for dir in [X, Y, Z]` yang dulu render 3
       `render_draggable_double_arrow_handle` terpisah 24mm dari pusat.
 - [x] **Drag bebas TANPA Shift = X/Y** (bidang datar dunia lewat pusat
@@ -2628,7 +2628,7 @@ dijalankan dulu, sempat di-re-verifikasi terhadap 4 commit baru (fitur
 gizmo geser objek "+" yang tidak berkaitan) sebelum eksekusi.
 
 - [x] **`sketch_render::solid_double_arrow_gizmo_mesh`** (baru,
-      `cadraw-render/src/sketch.rs`) — versi SOLID dari
+      `ducad-render/src/sketch.rs`) — versi SOLID dari
       `double_arrow_gizmo_lines` lama (silhouette sama persis: poros +
       2 kepala kerucut), tapi segitiga flat-shaded (tiap segitiga vertex
       sendiri, normal tegas per-wajah = kesan "gem"/facet tajam) alih-
@@ -2641,7 +2641,7 @@ gizmo geser objek "+" yang tidak berkaitan) sebelum eksekusi.
       (`mesh_pipeline`/`fs_mesh`) supaya shading gizmo (ambient floor +
       rim light) konsisten dgn material body, bukan icon UI yang
       ditempel di atas scene. Digambar terakhir di `paint()`.
-- [x] **`CadrawApp::build_gizmo_mesh`** (baru, `main.rs`) — SATU fungsi
+- [x] **`DuCADApp::build_gizmo_mesh`** (baru, `main.rs`) — SATU fungsi
       dipakai utk KEEMPAT jenis gizmo (extrude sketch, push/pull face,
       rounding vertex, rounding edge; beda cuma warna tint), ukurannya
       dihitung dari `pixel_tolerance_to_world` (mm per piksel layar)
@@ -2663,7 +2663,7 @@ gizmo geser objek "+" yang tidak berkaitan) sebelum eksekusi.
       `arrow_size` (jaminan dasar skala-berbasis-piksel benar-benar
       berefek).
 - [x] Workspace hijau — `cargo build --workspace` bersih, 171 test
-      lulus (168 lama + 3 baru), smoke-run `cargo run --bin cadraw`
+      lulus (168 lama + 3 baru), smoke-run `cargo run --bin ducad`
       (8 detik) tidak crash/tidak ada validation error wgpu.
 
 ## Status — Fix Gizmo Sudut Tertutup Gizmo Transform Body + Chamfer saat Dorong (dikerjakan)
@@ -2685,10 +2685,10 @@ plus permintaan fitur baru: arah tarik vs dorong pada gizmo sudut/rusuk
       highlight cyan) — cukup buat lolos gerbang itu, jadi gizmo
       transform raksasa (~55×world_scale) ikut muncul & menimpa ikon
       fillet kecil di titik yang sama. Fix: helper baru
-      `CadrawApp::feature_pick_active()` (`modeling/rounding.rs`) = true
+      `DuCADApp::feature_pick_active()` (`modeling/rounding.rs`) = true
       kalau salah satu dari face/vertex/edge pick aktif, dipakai
       gantikan ketiga gerbang itu.
-- [x] **`cadraw_kernel::chamfer_vertex`** (baru, `kernel/src/modify.rs`)
+- [x] **`ducad_kernel::chamfer_vertex`** (baru, `kernel/src/modify.rs`)
       — versi "potong lurus" dari `fillet_vertex` yang sudah ada:
       kumpulkan semua tepi yang bertemu di 1 vertex hasil pick,
       `chamfer_edges` bukan `fillet_edges`. 4 test baru meniru pola
@@ -2713,7 +2713,7 @@ plus permintaan fitur baru: arah tarik vs dorong pada gizmo sudut/rusuk
       — jadi arah tarik/dorong kelihatan dari ikonnya sendiri, bukan
       cuma dari bentuk sudut yang berubah di preview.
 - [x] Workspace hijau — `cargo build --workspace` bersih, 180 test
-      lulus (176 lama + 4 `chamfer_vertex` baru di `cadraw-kernel`).
+      lulus (176 lama + 4 `chamfer_vertex` baru di `ducad-kernel`).
 
 ## Status — Panel Properti Ukuran Shape 2D (Rectangle/Circle) + Resize Body 3D (dikerjakan)
 
@@ -2728,7 +2728,7 @@ resize ini bekerja juga di object 3D?", dikonfirmasi user utk masuk
 scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
 `AskUserQuestion` sebelum eksekusi).
 
-- [x] **`cadraw_sketch::detect_rectangle`** (baru, `region.rs`) — deteksi
+- [x] **`ducad_sketch::detect_rectangle`** (baru, `region.rs`) — deteksi
       4 `Entity::Line` tertutup & saling tegak lurus jadi `RectangleShape`
       (frame lokal `u_axis`/`v_axis` sendiri, jadi `length_p`/`length_l`
       tetap benar walau rectangle-nya rotated). `RectAnchor` (Center +
@@ -2765,7 +2765,7 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
       kelas C++ berbeda yang BELUM dibind di vendor ini (root-caused,
       bukan dikerjakan blind) — dicatat sbg keterbatasan diketahui, mirip
       pola sweep/iOS occt-sys yang lain di dokumen ini.
-      `CadrawApp::scale_selected_body` (`input/sketch.rs`, mirror persis
+      `DuCADApp::scale_selected_body` (`input/sketch.rs`, mirror persis
       `translate_selected_body`/`rotate_selected_body`) menghitung faktor
       dari X/Y/Z yang diminta user vs bbox sekarang; kalau tidak
       proporsional (bukan uniform), DITOLAK dgn pesan status jelas alih-
@@ -2776,8 +2776,8 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
       terdistorsi kalau nanti non-uniform scale beneran diimplementasi.
 - [x] Workspace hijau — `cargo build --workspace` bersih, `cargo clippy`
       nol warning baru (3 warning lama tidak tersentuh), 186 test lulus
-      (180 lama + 5 `region::tests::*` baru di `cadraw-sketch` + 1
-      `scale_shape_*` baru di `cadraw-kernel`).
+      (180 lama + 5 `region::tests::*` baru di `ducad-sketch` + 1
+      `scale_shape_*` baru di `ducad-kernel`).
 - [x] **Fix bug ditemukan user lewat screenshot**: "di kotak properties
       ini tidak bisa diubah. Jadi pas aku ketik dia langsung berubah ke
       nilai awal lagi" (field X/Y/Z resize body). Root cause TERNYATA
@@ -2806,7 +2806,7 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
       seperti tidak ngapa-ngapain). Panel X/Y/Z + tombol "Terapkan
       Ukuran" **dihapus total** (`InspectorEvent::ScaleSelectedBody`,
       `body_size_x/y/z_input` di `FeatureInspectorState`, dan
-      `CadrawApp::scale_selected_body` lama semua dibuang), diganti 3
+      `DuCADApp::scale_selected_body` lama semua dibuang), diganti 3
       pill dimensi X/Y/Z yg digambar LANGSUNG di objek 3D (`overlay/
       dimensions.rs`, di edge midpoint bbox), muncul saat checkbox
       "Tampilkan Semua Ukuran" aktif -- persis pola pill sketch 2D:
@@ -2863,10 +2863,10 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
 
 ```bash
 # App desktop (viewport 3D)
-cargo run -p cadraw-app
+cargo run -p ducad-app
 
 # Smoke test kernel OCCT (setelah build pertama selesai)
-cargo run -p cadraw-kernel --bin smoke
+cargo run -p ducad-kernel --bin smoke
 
 # Unit test
 cargo test --workspace
@@ -2874,7 +2874,7 @@ cargo test --workspace
 
 Catatan build: `.cargo/config.toml` di root workspace mengatur
 `CMAKE_POLICY_VERSION_MINIMUM=3.5` supaya `occt-sys` (dependensi
-`cadraw-kernel`) tetap bisa dikonfigurasi CMake di mesin dengan CMake ≥
+`ducad-kernel`) tetap bisa dikonfigurasi CMake di mesin dengan CMake ≥
 4.0 (CMakeLists.txt bawaan OCCT pakai `cmake_minimum_required` versi
 lama). Build OCCT dari source pertama kali makan waktu beberapa menit,
 setelahnya di-cache di `target/`.

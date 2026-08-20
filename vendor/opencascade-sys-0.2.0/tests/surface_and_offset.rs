@@ -1,4 +1,4 @@
-// CADRAW Fase 2 — smoke tests utk binding baru: BRepAdaptor_Surface (deteksi
+// DUCAD Fase 2 — smoke tests utk binding baru: BRepAdaptor_Surface (deteksi
 // tipe surface + accessor gp_Cylinder/gp_Cone) dan BRepOffset_MakeOffset
 // (offset shell per-face). Fokus utama: membuktikan Standard_Failure OCCT
 // (mis. GeomAdaptor_Surface::Cylinder() di surface non-silinder, atau

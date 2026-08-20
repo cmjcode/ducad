@@ -1,4 +1,4 @@
-# Packaging CADRAW (Fase 7)
+# Packaging DUCAD (Fase 7)
 
 Status: putaran pertama — cukup untuk hasilkan `.app` macOS yang bisa
 dijalankan lokal. Code signing, notarization, installer Windows, dan
@@ -7,23 +7,23 @@ AppImage Linux SENGAJA belum digarap (lihat "Di luar lingkup" di bawah).
 ## Build rilis
 
 ```bash
-cargo build --release -p cadraw-app
-# Binary: target/release/cadraw
+cargo build --release -p ducad-app
+# Binary: target/release/ducad
 ```
 
 ## macOS: bundle `.app` lewat `cargo-bundle`
 
-Metadata bundle sudah ada di `crates/cadraw-app/Cargo.toml`
+Metadata bundle sudah ada di `crates/ducad-app/Cargo.toml`
 (`[package.metadata.bundle]`) — `cargo-bundle` membacanya otomatis, tidak
 perlu config terpisah.
 
 ```bash
 cargo install cargo-bundle   # sekali saja
-cargo bundle --release -p cadraw-app
-# Hasil: target/release/bundle/osx/CADRAW.app
+cargo bundle --release -p ducad-app
+# Hasil: target/release/bundle/osx/DUCAD.app
 ```
 
-Buka lewat `open target/release/bundle/osx/CADRAW.app` atau drag ke
+Buka lewat `open target/release/bundle/osx/DUCAD.app` atau drag ke
 Applications. Ini `.app` valid (bisa dijalankan lewat Finder/Spotlight)
 TAPI belum ditandatangani — macOS Gatekeeper akan memblokir peluncuran dari
 mesin LAIN (bukan yang dipakai build) dengan pesan "tidak bisa dibuka
@@ -40,7 +40,7 @@ sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
 ## Windows / Linux
 
 `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
-yang jalan langsung tanpa bundling — CADRAW tidak punya dependensi native
+yang jalan langsung tanpa bundling — DUCAD tidak punya dependensi native
 selain yang sudah di-static-link OCCT/wgpu saat build. Installer
 (`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
 Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.

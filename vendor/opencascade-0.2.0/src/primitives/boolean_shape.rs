@@ -27,7 +27,7 @@ impl BooleanShape {
         self.new_edges.iter()
     }
 
-    // PATCH (CADRAW): cermin perubahan `Shape::fillet_edges`/`chamfer_edges`
+    // PATCH (DUCAD): cermin perubahan `Shape::fillet_edges`/`chamfer_edges`
     // — balikin `Result<(), crate::Error>` supaya kegagalan OCCT
     // (`StdFail_NotDone`, radius/jarak > yang bisa ditampung tepi) jadi
     // error Rust, bukan diam-diam diabaikan (`unused_must_use`) atau

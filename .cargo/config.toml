@@ -1,11 +1,11 @@
 [env]
-# occt-sys (dependensi cadraw-kernel) membawa CMakeLists.txt bawaan OCCT
+# occt-sys (dependensi ducad-kernel) membawa CMakeLists.txt bawaan OCCT
 # yang pakai `cmake_minimum_required` versi lama; CMake >= 4.0 (terinstal di
 # banyak mesin dev sekarang) menghapus dukungan untuk itu dan build gagal di
 # langkah konfigurasi. Override ini bikin CMake tetap menerima project lama
 # tanpa menambal source OCCT sendiri — build script `cmake` crate membaca
 # env var ini otomatis. Kalau OCCT naik versi dan ini sudah tidak perlu,
-# aman dihapus (bukan bagian dari API CADRAW).
+# aman dihapus (bukan bagian dari API DUCAD).
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 
 # Fase 6 (port iPad): paksa occt-sys memakai SDK/arsitektur iOS saat cross-
@@ -13,6 +13,6 @@ CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 # Nama var `CMAKE_TOOLCHAIN_FILE_<target_dengan_garis_bawah>` adalah
 # konvensi yang dibaca crate `cmake` (dipakai occt-sys) lewat
 # `getenv_target_os` — lihat komentar penuh di
-# crates/cadraw-kernel/ios/ios-toolchain.cmake. `relative = true` supaya
+# crates/ducad-kernel/ios/ios-toolchain.cmake. `relative = true` supaya
 # path selalu benar tak peduli dari direktori mana `cargo` dipanggil.
-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/cadraw-kernel/ios/ios-toolchain.cmake", relative = true }
+CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }

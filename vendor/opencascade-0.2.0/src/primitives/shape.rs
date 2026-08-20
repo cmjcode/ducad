@@ -93,11 +93,11 @@ impl Shape {
         self.inner.ShapeType().into()
     }
 
-    // PATCH (CADRAW): keenam method fillet/chamfer di bawah ini sekarang
+    // PATCH (DUCAD): keenam method fillet/chamfer di bawah ini sekarang
     // balikin `Result<(), crate::Error>`, bukan `()` tanpa jaminan sukses —
     // `BRepFilletAPI_MakeFillet`/`MakeChamfer::Shape()` bisa gagal
     // (`StdFail_NotDone`) kalau radius/jarak melebihi yang bisa ditampung
-    // tepi/sudut terpilih (mis. user drag gizmo rounding CADRAW sampai
+    // tepi/sudut terpilih (mis. user drag gizmo rounding DUCAD sampai
     // batas ujung objek — sebelum patch ini exception OCCT-nya tembus dan
     // meng-abort seluruh proses, lihat `Error::FilletFailed` &
     // `vendor/README.md`). Dipanggil lewat versi `_shape_checked` dari
@@ -171,10 +171,10 @@ impl Shape {
         self.chamfer_edges(distance, self.edges())
     }
 
-    // PATCH (CADRAW, lihat vendor/README.md): balikin `Result<BooleanShape,
+    // PATCH (DUCAD, lihat vendor/README.md): balikin `Result<BooleanShape,
     // crate::Error>`, bukan `BooleanShape` tanpa jaminan sukses —
     // `BRepAlgoAPI_Cut` (ctor MAUPUN `.Shape()`) bisa gagal (`StdFail_
-    // NotDone`) kalau geometri kedua shape gagal di-cut (mis. `cadraw-
+    // NotDone`) kalau geometri kedua shape gagal di-cut (mis. `ducad-
     // kernel::extrude_face` jalur datar cut prism baru dari shape yang
     // tepi/sudut tetangganya sudah di-rounding — sebelum patch ini
     // exception OCCT-nya tembus dan meng-abort seluruh proses, lihat
@@ -237,7 +237,7 @@ impl Shape {
         Ok(())
     }
 
-    // PATCH (CADRAW, lihat vendor/README.md): cermin `subtract` di atas —
+    // PATCH (DUCAD, lihat vendor/README.md): cermin `subtract` di atas —
     // `BRepAlgoAPI_Fuse` (ctor MAUPUN `.Shape()`) sama-sama bisa gagal
     // (`StdFail_NotDone`) kalau geometri kedua shape gagal di-fuse, dilewatkan
     // lewat versi `_checked`.
@@ -298,7 +298,7 @@ impl Shape {
         self.inner.pin_mut().set_global_translation(&location, false);
     }
 
-    // PATCH (CADRAW Perubahan #10, lihat vendor/README.md): scale UNIFORM
+    // PATCH (DUCAD Perubahan #10, lihat vendor/README.md): scale UNIFORM
     // (satu faktor utk X/Y/Z sekaligus) mengelilingi `pivot`. `gp_Trsf`
     // cuma mendukung similarity transform (translasi+rotasi+scale SERAGAM
     // via `SetScale`) — scale non-uniform per-sumbu butuh `gp_GTrsf`/
@@ -353,11 +353,11 @@ impl Shape {
         self.faces_along_ray_with_tolerance(ray_start, ray_dir, 0.0001)
     }
 
-    // PATCH (CADRAW, lihat vendor/README.md): sama persis dengan
+    // PATCH (DUCAD, lihat vendor/README.md): sama persis dengan
     // `faces_along_ray` di atas, cuma toleransi geometris
     // `BRepIntCurveSurface_Inter` dijadikan parameter alih-alih di-hardcode
     // `0.0001`. `faces_along_ray` TETAP ada tanpa perubahan perilaku (jadi
-    // wrapper tipis di atas fungsi ini) — CADRAW pakai toleransi lebih
+    // wrapper tipis di atas fungsi ini) — DUCAD pakai toleransi lebih
     // longgar khusus untuk face-picking interaktif (ray oblique dari kamera
     // 3D nyata, BUKAN ray tegak lurus seperti test upstream), operasi
     // presisi lain (boolean/fillet/dst) tidak tersentuh sama sekali.
@@ -419,9 +419,9 @@ impl Shape {
     /// — FFI-nya SUDAH ADA di `opencascade-sys` (dipakai internal utk
     /// operasi lain), cuma belum ada wrapper Rust publik di `Shape`.
     //
-    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3, offset shell
+    // PATCH (DUCAD, lihat vendor/README.md — DUCAD Fase 3, offset shell
     // per-face): method baru, TIDAK menyentuh `opencascade-sys` sama
-    // sekali. Dipakai `cadraw-kernel` utk regresi volume `extrude_face`
+    // sekali. Dipakai `ducad-kernel` utk regresi volume `extrude_face`
     // jalur offset (non-planar) — cara paling langsung memverifikasi
     // radius silinder/kerucut/bola benar-benar berubah sesuai `distance`.
     pub fn volume(&self) -> f64 {
@@ -441,9 +441,9 @@ impl Shape {
     /// jadi hasilnya di sini LANGSUNG solid baru dari satu operasi offset,
     /// bukan dua langkah extrude lalu digabung/dipotong.
     //
-    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3): method baru,
+    // PATCH (DUCAD, lihat vendor/README.md — DUCAD Fase 3): method baru,
     // menyusun binding `BRepOffset_MakeOffset` yang ditambahkan ke
-    // `opencascade-sys` di CADRAW Fase 2 (lihat vendor/README.md §
+    // `opencascade-sys` di DUCAD Fase 2 (lihat vendor/README.md §
     // `opencascade-sys-0.2.0`) — TIDAK ada perubahan lagi di
     // `opencascade-sys` di fase ini, murni pemakaian FFI yang sudah ada.
     // Mode `BRepOffset_Skin` + join `GeomAbs_Intersection` + `intersection

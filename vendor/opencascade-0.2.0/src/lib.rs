@@ -14,7 +14,7 @@ pub enum Error {
     StepReadFailed,
     #[error("Failed to write STEP file")]
     StepWriteFailed,
-    // PATCH (CADRAW, lihat vendor/README.md — CADRAW Fase 3, offset shell
+    // PATCH (DUCAD, lihat vendor/README.md — DUCAD Fase 3, offset shell
     // per-face): variant baru, dipakai `Shape::offset_on_face` utk
     // membungkus kegagalan `BRepOffset_MakeOffset` (Initialize/
     // SetOffsetOnFace/MakeOffsetShape/Shape masing-masing bisa gagal
@@ -22,7 +22,7 @@ pub enum Error {
     // rapi oleh `opencascade-sys`, tinggal disalurkan ke sini).
     #[error("BRepOffset_MakeOffset gagal: {0}")]
     OffsetOnFaceFailed(String),
-    // PATCH (CADRAW, lihat vendor/README.md): variant baru, dipakai
+    // PATCH (DUCAD, lihat vendor/README.md): variant baru, dipakai
     // `Shape::fillet_edge`/`fillet_edges`/`chamfer_edge`/`chamfer_edges`
     // utk membungkus kegagalan `BRepFilletAPI_MakeFillet`/
     // `BRepFilletAPI_MakeChamfer::Shape()` (`StdFail_NotDone` — radius/jarak
@@ -32,11 +32,11 @@ pub enum Error {
     // ke sini (pola sama dgn `OffsetOnFaceFailed`).
     #[error("BRepFilletAPI_MakeFillet/MakeChamfer gagal: {0}")]
     FilletFailed(String),
-    // PATCH (CADRAW, lihat vendor/README.md): variant baru, dipakai
+    // PATCH (DUCAD, lihat vendor/README.md): variant baru, dipakai
     // `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/
     // `intersect` utk membungkus kegagalan `BRepAlgoAPI_Fuse`/`Cut`/
     // `Common` (`StdFail_NotDone` — kasus nyata: extrude jalur datar
-    // `cadraw-kernel::extrude_face` fuse/cut prism baru ke shape yang
+    // `ducad-kernel::extrude_face` fuse/cut prism baru ke shape yang
     // tepi/sudut tetangganya sudah di-rounding, prism bertemu blend
     // surface fillet secara tangen sehingga klasifikasi boolean OCCT
     // gagal) — sudah diterjemahkan jadi `Result<>` cxx rapi lewat wrapper
@@ -44,7 +44,7 @@ pub enum Error {
     // sama dgn `FilletFailed`).
     #[error("BRepAlgoAPI_Fuse/Cut/Common gagal: {0}")]
     BooleanOpFailed(String),
-    // PATCH (CADRAW): variant baru untuk membungkus kegagalan BRepPrimAPI_MakeRevol
+    // PATCH (DUCAD): variant baru untuk membungkus kegagalan BRepPrimAPI_MakeRevol
     // (sumbu memotong interior profil, profil tidak tertutup, atau geometri tidak valid).
     #[error("BRepPrimAPI_MakeRevol gagal: {0}")]
     RevolveFailed(String),

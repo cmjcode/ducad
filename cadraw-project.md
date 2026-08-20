@@ -1,6 +1,6 @@
 ---
-name: cadraw-project
-description: "CADRAW — CAD app in Rust/egui with OpenCASCADE kernel, desktop+iPad target, Phase 0-5 done. Phase 6 (iPad port) BLOCKED: entire Rust/eframe/winit/wgpu stack proven to cross-compile clean for aarch64-apple-ios, but OCCT itself (occt-sys 0.2.0) cannot yet LINK for iOS — root-caused to an upstream gap, not fixable via env vars alone. Phase 7 (polish/perf) first round done on desktop: measurement tool, section view, background STEP import thread (KernelShape proven not Send), production KERNEL_LOCK, cargo-bundle packaging metadata. Phase 8 (advanced 3D modeling) first round done: Revolve, Loft, Boolean Intersect, edge/face picking in the 3D viewport (ray-based, not index-based — survives deep_clone), per-edge Fillet/Chamfer, multi-face Shell. 96 tests green."
+name: ducad-project
+description: "DUCAD — CAD app in Rust/egui with OpenCASCADE kernel, desktop+iPad target, Phase 0-5 done. Phase 6 (iPad port) BLOCKED: entire Rust/eframe/winit/wgpu stack proven to cross-compile clean for aarch64-apple-ios, but OCCT itself (occt-sys 0.2.0) cannot yet LINK for iOS — root-caused to an upstream gap, not fixable via env vars alone. Phase 7 (polish/perf) first round done on desktop: measurement tool, section view, background STEP import thread (KernelShape proven not Send), production KERNEL_LOCK, cargo-bundle packaging metadata. Phase 8 (advanced 3D modeling) first round done: Revolve, Loft, Boolean Intersect, edge/face picking in the 3D viewport (ray-based, not index-based — survives deep_clone), per-edge Fillet/Chamfer, multi-face Shell. 96 tests green."
 metadata: 
   node_type: memory
   type: project
@@ -8,7 +8,7 @@ metadata:
   modified: 2026-08-15T04:03:03.995Z
 ---
 
-User is building CADRAW: a CAD app like AutoCAD (2D drafting) evolving toward
+User is building DUCAD: a CAD app like AutoCAD (2D drafting) evolving toward
 Shapr3D-style direct modeling (sketch → extrude, push/pull). Stack: Rust +
 egui/eframe (wgpu backend), targeting desktop (macOS/Windows/Linux) AND iPad
 from one codebase.
@@ -18,15 +18,15 @@ switched to **opencascade-rs** (binding to OpenCASCADE/OCCT) after
 discussion — truck lacks 3D fillet/chamfer and has fragile tangential
 booleans, both fatal for a Shapr3D-like UX. OCCT trade-off accepted: heavy
 C++ build (~20-40 min first compile), but industrial-grade fillet/chamfer/
-shell/boolean/STEP. All kernel access goes through the `cadraw-kernel` crate
+shell/boolean/STEP. All kernel access goes through the `ducad-kernel` crate
 wrapper — app code never touches `opencascade`/OCCT types directly.
 
-Full plan lives at `/Users/jayuda/Documents/PROJECT/CADRAW/docs/PLAN.md` —
+Full plan lives at `/Users/jayuda/Documents/PROJECT/DUCAD/docs/PLAN.md` —
 8 phases (0 Foundation/viewport → 7 Polish), workspace of 7 crates
-(cadraw-core, cadraw-sketch, cadraw-kernel, cadraw-render, cadraw-io,
-cadraw-ui, cadraw-app). Phase 0 scaffolding done as of 2026-08-14: orbit
-camera + grid + wgpu pipeline in cadraw-render (unit tested), eframe shell
-in cadraw-app builds and runs, cadraw-kernel wrapper written with a `smoke`
+(ducad-core, ducad-sketch, ducad-kernel, ducad-render, ducad-io,
+ducad-ui, ducad-app). Phase 0 scaffolding done as of 2026-08-14: orbit
+camera + grid + wgpu pipeline in ducad-render (unit tested), eframe shell
+in ducad-app builds and runs, ducad-kernel wrapper written with a `smoke`
 bin (box→extrude→fillet→tessellate→STL) pending first OCCT build to finish.
 
 OCCT build finished successfully and kernel smoke test passed (box 40x30x20
@@ -34,7 +34,7 @@ OCCT build finished successfully and kernel smoke test passed (box 40x30x20
 "sketch → extrude → fillet → mesh → export" pipeline is alive end-to-end.
 Hit one gotcha worth remembering: `opencascade` 0.2.0 pins `glam = "0.23"`
 with no re-export, while the rest of the workspace uses glam 0.29 — fixed
-by giving `cadraw-kernel` its own glam 0.23 dependency (not from the
+by giving `ducad-kernel` its own glam 0.23 dependency (not from the
 workspace table) since `KernelMesh` already converts to raw `[f32; 3]`
 before crossing crate boundaries, so the version split doesn't leak.
 
@@ -44,16 +44,16 @@ support maturity. Neither started yet — still the next priority after
 Phase 1, deferred one round at user's request ("lanjut Fase 1").
 
 **Phase 1 (2D sketching + snapping) done** as of 2026-08-14, same session.
-Generalized `cadraw-core::Command`/`UndoStack` to be generic over target
-type `T` (was hardcoded to `Document`) so `cadraw-sketch` could get its own
-undo/redo without retrofitting — `cadraw_sketch::UndoStack` is a type alias
-for `cadraw_core::UndoStack<Sketch>`. Built: entity model (Line/Circle/Arc)
+Generalized `ducad-core::Command`/`UndoStack` to be generic over target
+type `T` (was hardcoded to `Document`) so `ducad-sketch` could get its own
+undo/redo without retrofitting — `ducad_sketch::UndoStack` is a type alias
+for `ducad_core::UndoStack<Sketch>`. Built: entity model (Line/Circle/Arc)
 with hit-testing and a priority-ordered snap engine (endpoint > midpoint >
-center > intersection > grid) in `cadraw-sketch`; a `sketch` render module
-in `cadraw-render` turning entities/preview/snap-hits into colored
+center > intersection > grid) in `ducad-sketch`; a `sketch` render module
+in `ducad-render` turning entities/preview/snap-hits into colored
 `LineVertex` overlays (drawn via a new dynamic per-frame buffer in
 `SceneRenderer`, same line pipeline as the grid); and full tool wiring in
-`cadraw-app` — Select/Line/Rectangle/Circle tools, two-click placement with
+`ducad-app` — Select/Line/Rectangle/Circle tools, two-click placement with
 live snap preview, AutoCAD-style dynamic input (type a length/radius +
 Enter), click/shift-click selection with hover highlight, Delete key,
 Ctrl/Cmd+Z undo and Ctrl/Cmd+Shift+Z or Ctrl+Y redo, L/R/C tool shortcuts,
@@ -69,7 +69,7 @@ single-gesture drag-to-draw (currently two separate clicks — Shapr3D-style
 one-drag rectangle/circle is slated for the Fase 4 UX polish pass).
 
 **Phase 1 lanjutan done** same day (user: "Ok garap Fase 1 Lanjutan dong"),
-picking up most of that deferred list. Added to `cadraw-sketch`:
+picking up most of that deferred list. Added to `ducad-sketch`:
 `Entity::Ellipse` (axis-aligned only, distance_to via 64-point boundary
 sampling since there's no closed-form point-to-ellipse distance);
 `arc_from_three_points` (circumcenter + correct CCW start/end angle
@@ -84,9 +84,9 @@ horizontal/vertical axes — rotated-ellipse output isn't representable,
 documented not silently wrong); and Trim via `trim_segments` +
 `project_t` + `line_intersection_params_in_sketch` (Line-vs-Line only) plus
 a new generic `ReplaceEntities` command (delete+insert as one undo step,
-reusable beyond Trim). 16 cadraw-sketch tests pass (11 new).
+reusable beyond Trim). 16 ducad-sketch tests pass (11 new).
 
-`cadraw-app` gained 5 new tools: Ellipse (E), Arc (A, 3-click with live
+`ducad-app` gained 5 new tools: Ellipse (E), Arc (A, 3-click with live
 arc preview once 2 points are placed), Offset (O, click source then click
 side+distance, live preview), Mirror (M, requires a non-empty selection
 made first via Select tool — ghost-previews all selected entities
@@ -114,7 +114,7 @@ two rounds deferred.
 
 **Phase 2 (constraint solver) done** same day (user: "ok lanjut Fase 2. Kalo
 sudah jangan lupa update plan.md" — docs/PLAN.md IS kept current after every
-phase per this explicit standing instruction). Built `cadraw_sketch::constraint`:
+phase per this explicit standing instruction). Built `ducad_sketch::constraint`:
 entities parametrized into flat f64 unknown vectors (Line 4 DOF, Circle 3,
 Arc 5, Ellipse 4), 10 constraint types (Coincident, Horizontal, Vertical,
 Parallel, Perpendicular, EqualLength, EqualRadius, Fixed, Distance, Radius,
@@ -133,7 +133,7 @@ JtJ value. This is exactly the kind of thing "teruji unit" in the original
 plan was meant to catch, and it did.
 
 `AddConstraint`/`RemoveConstraint` commands (undo-able, snapshot geometry
-before solve for exact revert) live in the same module. `cadraw-app` got a
+before solve for exact revert) live in the same module. `ducad-app` got a
 contextual "Constraint" side panel (right side of screen, shown only when
 Select tool is active with 1-2 entities selected): 1 Line → Horizontal/
 Vertical/Length; 1 Circle/Arc → Radius; 2 Lines → Parallel/Perpendicular/
@@ -154,7 +154,7 @@ cross-compile spike deferred, three rounds running at that point.
 
 **All three deferred Fase 2 items finished same day** (user: "tuntaskan
 dulu Tangent/Symmetric/UI Coincident-Fixed di Fase 2"). Added to
-`cadraw_sketch::constraint`: `Constraint::Tangent` (Line-Radial residual =
+`ducad_sketch::constraint`: `Constraint::Tangent` (Line-Radial residual =
 distance-to-infinite-line minus radius; Radial-Radial = center distance
 minus sum of radii, external tangency only; Line-Line is a documented no-op,
 geometrically meaningless) and `Constraint::Symmetric` (point `a` reflects
@@ -171,7 +171,7 @@ For Coincident/Fixed UI, built real point-picking infrastructure rather
 than faking it: `SnapHit` now carries `source: Option<PointRef>`, populated
 via new `Entity::endpoint_refs`/`center_ref` methods whenever the snap hit
 an Endpoint or Center (Midpoint/Intersection/Grid stay `None` — they're
-derived points, not a single entity's actual DOF). Three new `cadraw-app`
+derived points, not a single entity's actual DOF). Three new `ducad-app`
 tools: CoincidentPick (click 2 snapped points → make them coincide),
 FixedPick (click 1 point → pin it exactly where it already is — simpler
 and more useful UX than requiring a typed target, since "pin in place" is
@@ -193,7 +193,7 @@ actual guaranteed invariant (reflect against the *final* axis position),
 matching the pattern already used for the Parallel/Perpendicular tests.
 
 Fase 2 is now considered fully complete per its original scope — 40 tests
-total (36 cadraw-sketch, including 18 constraint tests). Remaining items are
+total (36 ducad-sketch, including 18 constraint tests). Remaining items are
 explicitly Fase 4+ territory: constraint browser/manager, DOF color-coding,
 auto-constrain-while-drawing, Arc-endpoint PointRef, point-on-entity
 constraints, internal tangency, Tangent Line-Line, dynamic input for the
@@ -202,13 +202,13 @@ highest-risk item, now well past due for attention whenever the user is
 ready to switch focus to it.
 
 **Environment note**: the agent's Bash sandbox has no WindowServer/display
-session, so `cargo run -p cadraw-app` exits immediately with code 0 and no
+session, so `cargo run -p ducad-app` exits immediately with code 0 and no
 visual — the user must run it themselves in a real Terminal to see the
 window. Don't re-attempt GUI verification via the sandbox; ask the user to
 confirm visually instead.
 
 **Environment blocker fixed 2026-08-14 (this machine)**: `cargo build -p
-cadraw-kernel` failed outright — this machine's CMake 4.3.4 rejects the old
+ducad-kernel` failed outright — this machine's CMake 4.3.4 rejects the old
 `cmake_minimum_required` in OCCT's bundled `CMakeLists.txt` (dependency of
 `occt-sys`). Fixed via `.cargo/config.toml` at the workspace root setting
 `CMAKE_POLICY_VERSION_MINIMUM = "3.5"` (env var the `cmake` crate reads) —
@@ -218,7 +218,7 @@ manual flag needed. First OCCT build from source still takes ~8 min
 error, this is already the fix — check `.cargo/config.toml` exists.
 
 **Phase 3 (3D modeling) first round done same day** (user: "ok lanjut fase
-3"). `cadraw-kernel` rewritten: `KernelShape` now FULLY hides OCCT's
+3"). `ducad-kernel` rewritten: `KernelShape` now FULLY hides OCCT's
 `Shape` (previously `make_filleted_box`/`tessellate` leaked it directly,
 violating the crate's own architecture rule). New functional API —
 `&KernelShape` in, new `KernelShape` out, never mutates the caller's input:
@@ -235,14 +235,14 @@ mutate in place and `hollow` consumes ownership, which would corrupt the
 caller's shape needed for undo. Fixed with an internal `deep_clone` that
 roundtrips through a temp STEP file (the only public way to copy a B-rep
 exactly in this binding) before any destructive op. (2) `cargo test -p
-cadraw-kernel` crashed `SIGABRT`/`Interface_InterfaceError` under the
+ducad-kernel` crashed `SIGABRT`/`Interface_InterfaceError` under the
 default multi-threaded test runner — OCCT's STEP transfer path (used by
 `deep_clone`) has unsafe global state. All 9 tests pass individually;
 fixed with a `Mutex` serializing the whole test module (doesn't affect
-`cadraw-app`, which only ever calls the kernel from its single UI thread).
+`ducad-app`, which only ever calls the kernel from its single UI thread).
 
-New `cadraw-app/src/model.rs` module (same pattern as
-`cadraw-sketch::constraint`): `ModelDoc` pairs `cadraw_core::Document`
+New `ducad-app/src/model.rs` module (same pattern as
+`ducad-sketch::constraint`): `ModelDoc` pairs `ducad_core::Document`
 (kept kernel-free on purpose) with a `SecondaryMap<BodyId, BodyGeometry>`
 holding the real kernel geometry, keyed by the same `BodyId`. Undo-able
 commands: `AddSolidCommand` (Extrude), `ReplaceGeometryCommand`
@@ -261,7 +261,7 @@ connected" instead of "not closed". Fixed to grow from both ends
 (append at tail, prepend at head) — verified 8 repeated runs after the
 fix, since HashSet order varies per run.
 
-`cadraw-app` gained a "Model 3D" side panel (left side, `cadraw-sketch`'s
+`ducad-app` gained a "Model 3D" side panel (left side, `ducad-sketch`'s
 Constraint panel stays on the right): body list with visibility
 checkboxes and click/Ctrl-click multi-select, Extrude from sketch
 selection, Union/Subtract (needs exactly 2 selected bodies), Fillet/
@@ -271,9 +271,9 @@ the op, only push to the undo stack on success. Model undo/redo is a
 SEPARATE stack from sketch undo (own buttons in the panel, not global
 Ctrl+Z) — deliberate scope cut, not an oversight.
 
-Real 3D rendering wired up for the first time: `cadraw-render`'s mesh
+Real 3D rendering wired up for the first time: `ducad-render`'s mesh
 pipeline (`SceneRenderer::set_mesh`) existed since Phase 0 but was never
-called from the app. Now `CadrawApp::build_combined_body_mesh` merges all
+called from the app. Now `DuCADApp::build_combined_body_mesh` merges all
 visible bodies' meshes into one buffer (index-offset per body) every
 frame. Added an empty-buffer guard to `set_mesh` (wgpu rejects 0-size
 buffers), mirroring the existing `set_overlay_lines` pattern.
@@ -291,8 +291,8 @@ chain-builder). The iOS/OCCT cross-compile spike is still the
 highest-risk deferred item, now four rounds past due.
 
 **Phase 4 (UX shell) first round done same day** (user: "lanjut fase 4").
-`cadraw-ui` — empty since Phase 0 — got its first real content: 3
-platform-agnostic modules (only depend on `egui`, never touch `cadraw-app`
+`ducad-ui` — empty since Phase 0 — got its first real content: 3
+platform-agnostic modules (only depend on `egui`, never touch `ducad-app`
 state, so the shell iPad port in Phase 6 can reuse them) — `theme`
 (`ThemeMode::{Light,Dark}` + `apply()` building a fresh `egui::Style` from
 `Style::default()` each call so toggling is idempotent; sets
@@ -302,12 +302,12 @@ solved app-wide from one call site instead of per-widget), `command_palette`
 (`CommandPalette`, generic over a `&[(&str,&str)]` label/hint list the
 caller rebuilds each frame; returns the index back into that same list on
 Enter/click — deliberately generic-over-index rather than
-generic-over-action-closure, to keep the crate free of any `cadraw-*`
+generic-over-action-closure, to keep the crate free of any `ducad-*`
 dependency), `radial_menu` (`RadialMenu`, same generic-over-index pattern;
 draws via `ctx.layer_painter` directly rather than an `egui::Area`, simpler
 and avoids clip-rect edge cases for a full-screen overlay).
 
-Wired into `cadraw-app`: `Ctrl/Cmd+K` opens the command palette (checked
+Wired into `ducad-app`: `Ctrl/Cmd+K` opens the command palette (checked
 directly in `update()`, not inside `handle_sketch_input`'s
 text-focus-gated shortcut block, so it still works while the palette's own
 search box has focus) — filters by case-insensitive substring (not real
@@ -327,7 +327,7 @@ so dragging toward a slice doesn't also spin the camera. A
 any early return in `handle_sketch_input`) stops the same pointer-release
 from also being processed as an ordinary Select-tool click when the
 long-press never moved at all. Long-press *detection* itself lives in
-`cadraw-app` (`handle_radial_menu`), not in the `RadialMenu` widget — the
+`ducad-app` (`handle_radial_menu`), not in the `RadialMenu` widget — the
 widget only knows how to draw+resolve an already-open menu; detection needs
 the active tool and the viewport `Response`, which are app state.
 
@@ -340,12 +340,12 @@ stays visible with the menu closed.
 
 No new unit tests this round (Phase 4 is UI/interaction, not new pure
 logic) — still 53 tests total, all green, plus a 6-second smoke-run
-(`cargo run -p cadraw-app`) confirming no startup panic. Deliberately
+(`cargo run -p ducad-app`) confirming no startup panic. Deliberately
 deferred (documented in docs/PLAN.md): a fully contextual toolbar (tools
 that actually appear/disappear per active tool, not just one group
 collapsed into a menu), radial menu for non-tool-switch contexts (Model 3D
 ops, quick constraints), real fuzzy search, making the palette/radial menu
-extensible from outside `cadraw-app` (action/tool lists are still hardcoded
+extensible from outside `ducad-app` (action/tool lists are still hardcoded
 in `main.rs` — fine for a single app, will need revisiting once the iPad
 shell in Phase 6 wants a different list), automatic system theme
 detection, and real touch-gesture verification of the radial menu (a
@@ -358,7 +358,7 @@ five rounds past due.
 dibuat di dalam menu settings aja"): the standalone theme-toggle button
 and "⌘K Perintah" command-palette-launcher button — both loose in the main
 toolbar from the first Phase 4 pass — got consolidated into one
-`menu_button("⚙ Pengaturan")` (`CadrawApp::settings_menu`), which also
+`menu_button("⚙ Pengaturan")` (`DuCADApp::settings_menu`), which also
 gained a new read-only keyboard-shortcuts reference (`KEYBOARD_SHORTCUTS`
 const, 13 entries, rendered via `egui::CollapsingHeader` + `egui::Grid`) —
 not remappable, just a cheat-sheet. Rationale: things touched at most once
@@ -370,13 +370,13 @@ Key unlock: enabling the `serde` feature on the WORKSPACE `slotmap`
 dependency gives `EntityId`/`BodyId` (both built via `new_key_type!`)
 automatic `Serialize`/`Deserialize` for free, AND makes `SlotMap<K,V>`
 roundtrip its exact internal index+version state — so `Sketch`/`Entity`/
-`Constraint`/`PointRef` could just be derived directly in `cadraw-sketch`
+`Constraint`/`PointRef` could just be derived directly in `ducad-sketch`
 with zero manual id-remapping, even though `Constraint` variants embed raw
 `EntityId`. Also enabled `serde` on the workspace `glam` (0.29) dep for
-`DVec2` — completely independent of `cadraw-kernel`'s own pinned glam
+`DVec2` — completely independent of `ducad-kernel`'s own pinned glam
 0.23, so no cross-version leak risk.
 
-`cadraw-kernel` gained `KernelShape::to_step_string`/`from_step_string`
+`ducad-kernel` gained `KernelShape::to_step_string`/`from_step_string`
 (temp-file roundtrip, same trick as the existing `deep_clone`),
 `read_step`, and `write_step_compound` (multi-shape → one STEP file via
 `opencascade::primitives::Compound`, solids stay separate not unioned).
@@ -384,7 +384,7 @@ Also `KernelMesh::merge`, extracted so both the render path
 (`build_combined_body_mesh`) and STL/OBJ export share one mesh-combining
 implementation instead of duplicating it.
 
-`cadraw-io` (empty since Phase 0) got 4 modules: `native` (`.cadraw` = a
+`ducad-io` (empty since Phase 0) got 4 modules: `native` (`.ducad` = a
 version-tagged pretty-printed JSON envelope; each body embeds its FULL
 STEP text — not just mesh — since there's no in-memory OCCT serialization
 in this binding; bodies deliberately don't preserve `BodyId` since
@@ -406,12 +406,12 @@ exception — turns out per-MODULE test locks aren't enough, because
 across threads, so `native::*` and `step_io::*` tests (both touching the
 same OCCT STEP transfer session) could still run concurrently across
 module boundaries even though each module's own tests were serialized
-internally. Fixed with one shared `pub(crate)` lock in `cadraw-io`'s
+internally. Fixed with one shared `pub(crate)` lock in `ducad-io`'s
 `lib.rs` used by both modules — a variant of the exact same non-
 thread-safe-OCCT-STEP-transfer issue documented back in Phase 3's
-`cadraw-kernel::tests::TEST_LOCK`.
+`ducad-kernel::tests::TEST_LOCK`.
 
-`cadraw-app` got a "📄 File" toolbar menu (New/Open/Save/Save As, Import
+`ducad-app` got a "📄 File" toolbar menu (New/Open/Save/Save As, Import
 STEP+DXF, Export STEP+STL+OBJ+DXF) plus native file dialogs via `rfd`.
 `Ctrl/Cmd+O`/`+S`/`+Shift+S` shortcuts. STEP/native export includes ALL
 bodies (document archive, visibility-independent); STL/OBJ export is
@@ -425,7 +425,7 @@ variant (an inner `FileOp` enum) instead of bloating `PaletteAction`
 with 10 separate variants.
 
 Whole workspace green — 72 tests total (was 53 at end of Phase 4; +5
-kernel, +14 cadraw-io), plus a clean 6-second smoke-run with no startup
+kernel, +14 ducad-io), plus a clean 6-second smoke-run with no startup
 panic. Deliberately deferred (documented in docs/PLAN.md): STL/OBJ
 import, DXF ellipse/spline/polyline, splitting a multi-solid STEP file
 into separate bodies on import (reads as one merged `KernelShape`),
@@ -439,11 +439,11 @@ highest-risk spikes finally got executed:
 
 1. **egui/winit/wgpu iOS support — fully proven, zero issues.**
    `cargo check --target aarch64-apple-ios` is clean for the ENTIRE
-   CADRAW workspace (all crates including `cadraw-app`'s full eframe/
+   DUCAD workspace (all crates including `ducad-app`'s full eframe/
    winit/wgpu/egui-winit stack). Also discovered by reading winit 0.30
    source directly: on iOS, `EventLoop::run_app` calls `UIApplicationMain`
    itself from the process's own `main()` (reads argc/argv via
-   `_NSGetArgc`/`_NSGetArgv`) — so the existing `cadraw` bin target can
+   `_NSGetArgc`/`_NSGetArgv`) — so the existing `ducad` bin target can
    become the iOS app executable directly, no separate staticlib/
    Objective-C `main.m`/AppDelegate shim needed.
 2. **OCCT → iOS cross-compile — NOT solved, root-caused to an upstream
@@ -468,7 +468,7 @@ highest-risk spikes finally got executed:
 3. **Independent bug found & fixed while verifying via `cargo check`**:
    `eframe = { features = ["wgpu"] }` without `default-features = false`
    still pulls in the DEFAULT `"glow"` feature (egui_glow/glutin) even
-   though CADRAW only ever uses `eframe::Renderer::Wgpu`. `glutin`
+   though DUCAD only ever uses `eframe::Renderer::Wgpu`. `glutin`
    doesn't support iOS (~39 compile errors, non-exhaustive match on
    `Surface<T>`). Fixed by disabling default features and re-listing
    every default feature except glow — confirmed `rwh_06` (the one
@@ -478,16 +478,16 @@ highest-risk spikes finally got executed:
 4. **Files.app — real implementation, not a stub.** `rfd` (native file
    dialogs, used since Phase 5) doesn't compile on iOS at all (no UIKit
    backend — confirmed via a standalone probe crate). Made target-
-   specific (`cfg(not(target_os = "ios"))`) in `cadraw-app/Cargo.toml`.
+   specific (`cfg(not(target_os = "ios"))`) in `ducad-app/Cargo.toml`.
    Its 8 call sites in `main.rs` were refactored into two methods,
    `pick_open_path`/`pick_save_path`, each with a real iOS
    implementation: reads/writes the app's sandboxed `Documents/` folder
    (`ios_documents_dir`, via the `HOME` env var — no UIKit bridging
    dependency needed) — "Save" writes to a fixed default filename,
    "Open"/Import picks the newest matching file by extension. Visible
-   in Files.app ("On My iPad ▸ CADRAW") once a real Xcode project sets
+   in Files.app ("On My iPad ▸ DUCAD") once a real Xcode project sets
    `UIFileSharingEnabled`+`LSSupportsOpeningDocumentsInPlace` (documented
-   in the new `crates/cadraw-app/ios/Info.plist.template`). Not a real
+   in the new `crates/ducad-app/ios/Info.plist.template`). Not a real
    `UIDocumentPickerViewController` yet (needs UIKit bridging) — that's
    the explicitly-deferred next increment.
 5. **Apple Pencil — researched via source, not assumed.** Confirmed
@@ -496,7 +496,7 @@ highest-risk spikes finally got executed:
    .force` unmodified. Conclusion: precise Pencil pointer input already
    works for free through the existing touch→pointer pipeline (nothing
    to add); force data is already available in the event stream if a
-   future feature needs it, but nothing currently consumes it (CADRAW is
+   future feature needs it, but nothing currently consumes it (DUCAD is
    precision vector CAD, not freehand sketching) — deliberately didn't
    add unused instrumentation. Double-tap/hover gestures need UIKit
    bridging, deferred.
@@ -519,9 +519,9 @@ paid Apple Developer account) — documented as such, not silently skipped.
 
 **Phase 7 (polish/perf) first round done 2026-08-15** (user: "sekarang
 lanjut ke fase 7", same session as the Fase 6 blocker). Measurement tool
-(`cadraw_sketch::measure` — distance + angle, pure/non-destructive, not
+(`ducad_sketch::measure` — distance + angle, pure/non-destructive, not
 in any undo stack) and Section View (shader clip-plane in
-`cadraw-render`, purely render-side so it's safe to drag in real time —
+`ducad-render`, purely render-side so it's safe to drag in real time —
 never calls OCCT) both shipped clean.
 
 **Real architectural finding, proven not assumed**: `KernelShape` (wraps
@@ -529,7 +529,7 @@ never calls OCCT) both shipped clean.
 confirmed via a compile-time `fn assert_send<T: Send>()` check, not
 guesswork. This means "tessellation on a separate thread" from the
 original plan can't literally move a `KernelShape` across threads;
-implemented instead as `cadraw-app::import_worker`, a background thread
+implemented instead as `ducad-app::import_worker`, a background thread
 for Import STEP ONLY, passing only `Send`-safe `PathBuf`/`String`/
 `KernelMesh` across the channel (thread rebuilds its own local shape via
 `from_step_string`). Backgrounding OTHER kernel ops (Extrude/Fillet/
@@ -539,7 +539,7 @@ into this one (same discipline as the Fase 6 OCCT/iOS blocker: root-cause
 first, don't force it).
 
 Since introducing a second thread that can touch OCCT, added
-`cadraw-kernel::KERNEL_LOCK` — a global `Mutex<()>` acquired at the top
+`ducad-kernel::KERNEL_LOCK` — a global `Mutex<()>` acquired at the top
 of every one of the crate's 14 public functions (never in the private
 unlocked helpers `deep_clone`/`tessellate_shape`, which are always called
 from within an already-locked public fn — `Mutex` isn't reentrant,
@@ -549,7 +549,7 @@ ever run concurrently regardless of click timing, without needing
 OCCT-level parallelism (which doesn't exist). All 14 kernel tests still
 pass, including the default multi-threaded test runner.
 
-Packaging: `[package.metadata.bundle]` added to `cadraw-app/Cargo.toml`
+Packaging: `[package.metadata.bundle]` added to `ducad-app/Cargo.toml`
 for `cargo-bundle` (macOS `.app`), plus `docs/PACKAGING.md`. Deliberately
 did NOT run `cargo bundle --release` in-session — release profile would
 trigger a full OCCT rebuild from scratch (~8-40 min, separate target dir
@@ -560,8 +560,8 @@ explicitly out of scope (same reasoning as iOS TestFlight in Fase 6 —
 paid certs / GUI tools the agent sandbox doesn't have).
 
 Whole workspace green: 81 tests total (was 72 at end of Fase 5 — +9 new
-pure-logic tests this phase: 6 `cadraw_sketch::measure`, 3
-`cadraw_render::sketch::measurement_lines`; kernel/io/camera/undo-core
+pure-logic tests this phase: 6 `ducad_sketch::measure`, 3
+`ducad_render::sketch::measurement_lines`; kernel/io/camera/undo-core
 counts unchanged), `clippy -D warnings` clean, 6-second smoke-run with no
 startup panic. Deliberately deferred (documented in docs/PLAN.md):
 background threading for kernel ops beyond Import STEP;
@@ -589,7 +589,7 @@ wired in. Sweep genuinely IS unavailable (`opencascade-sys` has zero
 `BRepOffsetAPI_MakePipe`/`MakePipeShell` binding) — same category of
 upstream gap as the iOS/OCCT blocker, deliberately deferred rather than
 patched blind. `Shape::hollow` was already generic over multiple faces
-the whole time — `shell_hollow`'s "1 face only" limit was CADRAW's own
+the whole time — `shell_hollow`'s "1 face only" limit was DUCAD's own
 choice (`try_farthest`), not a binding limitation.
 
 **Key architectural decision, the crux of this phase**: `fillet_all`/
@@ -599,7 +599,7 @@ Any `Face`/`Edge` picked from the ORIGINAL shape isn't a valid sub-shape
 of the CLONED shape, and index position in `shape.edges()`/`faces()`
 iteration was never verified stable across a STEP roundtrip either.
 Rather than assume either is safe, picked edges/faces are stored as
-**world-space rays** (`cadraw_kernel::PickRay { origin, dir }`) — at
+**world-space rays** (`ducad_kernel::PickRay { origin, dir }`) — at
 apply time, `deep_clone` first, then re-cast the SAME ray against the
 clone (`Shape::faces_along_ray`, already in the binding, for faces;
 a hand-written closest-point-ray-to-segment search, since no
@@ -612,7 +612,7 @@ ray at a shape and at its deep_clone, assert identical hit point) — same
 root-cause-first discipline as the Fase 6 iOS blocker and the Fase 3
 deep_clone/thread-safety bugs.
 
-New `cadraw-kernel` API: `revolve_profile`, `loft_profiles` (+
+New `ducad-kernel` API: `revolve_profile`, `loft_profiles` (+
 `build_wire_at_z`, `build_wire` now a thin z=0 wrapper), `intersect`
 (via `AdHocShape`, since `Shape` itself doesn't expose `.intersect()`
 publicly — only union/subtract are), `PickRay`/`pick_face`/`pick_edge`,
@@ -630,12 +630,12 @@ box, a real test failure. Diagnostic printing showed face count (10 vs
 vertex count from tessellation just isn't a reliable topology proxy for
 this simple case. Fixed the assertion, not the code.
 
-`cadraw-app`: `ToolKind::Revolve` (shortcut V) mirrors the existing
+`ducad-app`: `ToolKind::Revolve` (shortcut V) mirrors the existing
 Mirror UX exactly (pre-select profile, then 2 fresh clicks define the
 axis — confirmed by reading Mirror's actual click-handling code first,
 not assumed). Loft is panel-driven like Extrude (stage bottom profile via
 button, top profile read from current selection at Loft-click time,
-top lifted to Z=height — not real cross-workplane lofting, since CADRAW
+top lifted to Z=height — not real cross-workplane lofting, since DUCAD
 sketches are still XY-only). Intersect is a third button next to
 Union/Subtract, reusing `BooleanCommand`/`BooleanKind` unchanged except
 one new variant. Picking is a `PickMode` enum ORTHOGONAL to `ToolKind`

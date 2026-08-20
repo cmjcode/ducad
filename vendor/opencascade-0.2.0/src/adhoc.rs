@@ -68,7 +68,7 @@ impl AdHocShape {
 
     /// Make a sphere of radius r, centered at the origin.
     //
-    // PATCH (CADRAW, lihat vendor/README.md): method baru, TIDAK menyentuh
+    // PATCH (DUCAD, lihat vendor/README.md): method baru, TIDAK menyentuh
     // `opencascade-sys` sama sekali — `BRepPrimAPI_MakeSphere_ctor`/`Shape`
     // SUDAH ADA di FFI upstream, cuma belum ada wrapper Rust publiknya di
     // sini (beda dengan `make_box`/`make_cylinder` di atas yang sudah ada).
@@ -193,9 +193,9 @@ impl AdHocShape {
         self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
     }
 
-    // PATCH (CADRAW, lihat vendor/README.md): cermin `Shape::subtract`/
+    // PATCH (DUCAD, lihat vendor/README.md): cermin `Shape::subtract`/
     // `union` — balikin `Result<(), crate::Error>`, bukan `()` tanpa
-    // jaminan sukses (dipakai `cadraw-kernel::intersect`, satu-satunya
+    // jaminan sukses (dipakai `ducad-kernel::intersect`, satu-satunya
     // pemanggil `AdHocShape::union`/`subtract`/`intersect`).
     pub fn subtract(&mut self, other: &Shape) -> Result<(), crate::Error> {
         let mut cut_operation = ffi::BRepAlgoAPI_Cut_ctor_checked(&self.inner, &other.inner)

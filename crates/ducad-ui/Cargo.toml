@@ -1,0 +1,12 @@
+[package]
+name = "ducad-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ducad-core = { workspace = true }
+egui = { workspace = true }
+glam = { workspace = true }
+egui_material_icons = { workspace = true }

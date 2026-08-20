@@ -677,98 +677,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "cadraw-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "block2 0.6.2",
- "cadraw-core",
- "cadraw-io",
- "cadraw-kernel",
- "cadraw-render",
- "cadraw-sketch",
- "cadraw-ui",
- "eframe",
- "egui",
- "egui-wgpu",
- "egui_material_icons",
- "env_logger",
- "glam",
- "image",
- "log",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "objc2-ui-kit 0.3.2",
- "resvg",
- "rfd",
- "slotmap",
- "usvg",
-]
-
-[[package]]
-name = "cadraw-core"
-version = "0.1.0"
-dependencies = [
- "glam",
- "serde",
- "slotmap",
-]
-
-[[package]]
-name = "cadraw-io"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cadraw-core",
- "cadraw-kernel",
- "cadraw-sketch",
- "glam",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "cadraw-kernel"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "glam",
- "opencascade",
-]
-
-[[package]]
-name = "cadraw-render"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "cadraw-sketch",
- "egui-wgpu",
- "glam",
- "serde",
-]
-
-[[package]]
-name = "cadraw-sketch"
-version = "0.1.0"
-dependencies = [
- "cadraw-core",
- "glam",
- "serde",
- "slotmap",
-]
-
-[[package]]
-name = "cadraw-ui"
-version = "0.1.0"
-dependencies = [
- "cadraw-core",
- "egui",
- "egui_material_icons",
- "glam",
-]
-
-[[package]]
 name = "calloop"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1179,6 +1087,98 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "ducad-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "block2 0.6.2",
+ "ducad-core",
+ "ducad-io",
+ "ducad-kernel",
+ "ducad-render",
+ "ducad-sketch",
+ "ducad-ui",
+ "eframe",
+ "egui",
+ "egui-wgpu",
+ "egui_material_icons",
+ "env_logger",
+ "glam",
+ "image",
+ "log",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-ui-kit 0.3.2",
+ "resvg",
+ "rfd",
+ "slotmap",
+ "usvg",
+]
+
+[[package]]
+name = "ducad-core"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde",
+ "slotmap",
+]
+
+[[package]]
+name = "ducad-io"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ducad-core",
+ "ducad-kernel",
+ "ducad-sketch",
+ "glam",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ducad-kernel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "glam",
+ "opencascade",
+]
+
+[[package]]
+name = "ducad-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "ducad-sketch",
+ "egui-wgpu",
+ "glam",
+ "serde",
+]
+
+[[package]]
+name = "ducad-sketch"
+version = "0.1.0"
+dependencies = [
+ "ducad-core",
+ "glam",
+ "serde",
+ "slotmap",
+]
+
+[[package]]
+name = "ducad-ui"
+version = "0.1.0"
+dependencies = [
+ "ducad-core",
+ "egui",
+ "egui_material_icons",
+ "glam",
+]
 
 [[package]]
 name = "ecolor"

@@ -40,7 +40,7 @@ pub mod ffi {
         BOPAlgo_GlueFull,
     }
 
-    // CADRAW Fase 2 — dipakai BRepAdaptor_Surface::GetType() untuk deteksi
+    // DUCAD Fase 2 — dipakai BRepAdaptor_Surface::GetType() untuk deteksi
     // arah gizmo radial (silinder/kerucut) & validasi tipe surface.
     #[derive(Debug)]
     #[repr(u32)]
@@ -58,7 +58,7 @@ pub mod ffi {
         GeomAbs_OtherSurface,
     }
 
-    // CADRAW Fase 2 — mode BRepOffset_MakeOffset::Initialize().
+    // DUCAD Fase 2 — mode BRepOffset_MakeOffset::Initialize().
     #[derive(Debug)]
     #[repr(u32)]
     pub enum BRepOffset_Mode {
@@ -67,7 +67,7 @@ pub mod ffi {
         BRepOffset_RectoVerso,
     }
 
-    // CADRAW Fase 2 — join type BRepOffset_MakeOffset::Initialize().
+    // DUCAD Fase 2 — join type BRepOffset_MakeOffset::Initialize().
     #[derive(Debug)]
     #[repr(u32)]
     pub enum GeomAbs_JoinType {
@@ -500,7 +500,7 @@ pub mod ffi {
         pub fn LastParameter(self: &BRepAdaptor_Curve) -> f64;
         pub fn BRepAdaptor_Curve_value(curve: &BRepAdaptor_Curve, u: f64) -> UniquePtr<gp_Pnt>;
 
-        // BRepAdaptor_Surface (CADRAW Fase 2) — deteksi tipe surface (Plane/
+        // BRepAdaptor_Surface (DUCAD Fase 2) — deteksi tipe surface (Plane/
         // Cylinder/Cone/…) via GetType(), lalu Cylinder()/Cone() untuk arah
         // gizmo radial & validasi. Cylinder()/Cone() melempar Standard_Failure
         // dari OCCT kalau surface bukan tipe yang diminta — dibungkus
@@ -654,7 +654,7 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeFillet>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepFilletAPI_MakeFillet>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepFilletAPI_MakeFillet) -> bool;
-        // PATCH (CADRAW): `Shape()` di atas TIDAK aman dipanggil kalau build
+        // PATCH (DUCAD): `Shape()` di atas TIDAK aman dipanggil kalau build
         // fillet gagal (`IsDone()==false`) — OCCT melempar `StdFail_NotDone`
         // (`Standard_Failure`, BUKAN `std::exception`) yang tembus lewat cxx
         // dan `std::terminate` (lihat catatan `rethrow_standard_failure_as_
@@ -663,7 +663,7 @@ pub mod ffi {
         // dipakai `opencascade::primitives::Shape::fillet_edge`/
         // `fillet_edges` — bukan pengganti `Shape()` lama (yang TETAP ADA
         // apa adanya, masih dipakai `Solid::fillet_edge`/
-        // `AdHocShape::fillet_edges`, keduanya tidak dipakai cadraw-kernel).
+        // `AdHocShape::fillet_edges`, keduanya tidak dipakai ducad-kernel).
         pub fn BRepFilletAPI_MakeFillet_shape_checked(
             make_fillet: Pin<&mut BRepFilletAPI_MakeFillet>,
         ) -> Result<&TopoDS_Shape>;
@@ -711,7 +711,7 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeChamfer>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepFilletAPI_MakeChamfer>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepFilletAPI_MakeChamfer) -> bool;
-        // PATCH (CADRAW): cermin `BRepFilletAPI_MakeFillet_shape_checked` di
+        // PATCH (DUCAD): cermin `BRepFilletAPI_MakeFillet_shape_checked` di
         // atas — `Shape()` biasa lempar `StdFail_NotDone` kalau build
         // chamfer gagal, versi checked ini dibungkus try/catch di
         // wrapper.hxx, dipakai `Shape::chamfer_edge`/`chamfer_edges`.
@@ -753,7 +753,7 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepOffsetAPI_ThruSections>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepOffsetAPI_ThruSections) -> bool;
 
-        // BRepOffset_MakeOffset (CADRAW Fase 2) — shell offset per-face
+        // BRepOffset_MakeOffset (DUCAD Fase 2) — shell offset per-face
         // (dipakai utk preview/validasi ketebalan sebelum commit ke solid).
         // Semua langkah yang bisa gagal secara geometris di OCCT
         // (Initialize/SetOffsetOnFace/MakeOffsetShape/Shape, tiap-tiap
@@ -812,14 +812,14 @@ pub mod ffi {
         pub fn IsDone(self: &BRepAlgoAPI_Fuse) -> bool;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Fuse>) -> &TopTools_ListOfShape;
         pub fn SetGlue(self: Pin<&mut BRepAlgoAPI_Fuse>, glue: BOPAlgo_GlueEnum);
-        // PATCH (CADRAW): `_ctor`/`Shape()` biasa di atas melempar
+        // PATCH (DUCAD): `_ctor`/`Shape()` biasa di atas melempar
         // `Standard_Failure` (BUKAN `std::exception`) langsung dari
         // KONSTRUKTOR (algoritma BOP jalan eager, beda dari fillet/chamfer
         // yang lazy) kalau geometri gagal di-fuse — lolos lewat cxx dan
         // `std::terminate` (crash total proses). Lihat catatan lengkap di
         // wrapper.hxx. Versi checked ini dipakai `Shape::union`/
         // `AdHocShape::union`, `_ctor`/`Shape()` mentah TETAP ADA apa
-        // adanya, masih dipakai `Solid::union` (tidak dipakai cadraw-kernel).
+        // adanya, masih dipakai `Solid::union` (tidak dipakai ducad-kernel).
         pub fn BRepAlgoAPI_Fuse_ctor_checked(
             shape_1: &TopoDS_Shape,
             shape_2: &TopoDS_Shape,
@@ -844,7 +844,7 @@ pub mod ffi {
             shape: &'a TopoDS_Shape,
         ) -> &'a TopTools_ListOfShape;
         pub fn SectionEdges(self: Pin<&mut BRepAlgoAPI_Cut>) -> &TopTools_ListOfShape;
-        // PATCH (CADRAW): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
+        // PATCH (DUCAD): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
         // `_shape_checked` di atas — dipakai `Shape::subtract`/
         // `AdHocShape::subtract`.
         pub fn BRepAlgoAPI_Cut_ctor_checked(
@@ -866,7 +866,7 @@ pub mod ffi {
         pub fn Shape(self: Pin<&mut BRepAlgoAPI_Common>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Common>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Common) -> bool;
-        // PATCH (CADRAW): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
+        // PATCH (DUCAD): cermin `BRepAlgoAPI_Fuse_ctor_checked`/
         // `_shape_checked` di atas — dipakai `AdHocShape::intersect`.
         pub fn BRepAlgoAPI_Common_ctor_checked(
             shape_1: &TopoDS_Shape,

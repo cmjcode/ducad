@@ -418,7 +418,7 @@ inline std::unique_ptr<gp_Dir> TColgp_Array1OfDir_Value(const TColgp_Array1OfDir
   return std::unique_ptr<gp_Dir>(new gp_Dir(array.Value(index)));
 }
 
-// CADRAW Fase 2 — deteksi tipe surface radial (silinder/kerucut) untuk arah
+// DUCAD Fase 2 — deteksi tipe surface radial (silinder/kerucut) untuk arah
 // gizmo, dan offset shell per-face.
 //
 // OCCT melempar `Standard_Failure` (dan turunannya, mis. `Standard_
@@ -535,10 +535,10 @@ inline const TopoDS_Shape &BRepOffset_MakeOffset_Shape(const BRepOffset_MakeOffs
 }
 
 // BRepFilletAPI_MakeFillet / BRepFilletAPI_MakeChamfer::Shape() — dipakai
-// gizmo rounding (vertex/edge fillet, `cadraw-kernel::fillet_vertex`/
+// gizmo rounding (vertex/edge fillet, `ducad-kernel::fillet_vertex`/
 // `fillet_edges`). `Shape()` biasa (dibind langsung tanpa wrapper di bawah,
 // dipakai `Solid::fillet_edge`/`AdHocShape::fillet_edges`/`chamfer_edges`
-// yang TIDAK dipakai cadraw-kernel) melempar `StdFail_NotDone` kalau build
+// yang TIDAK dipakai ducad-kernel) melempar `StdFail_NotDone` kalau build
 // fillet/chamfer gagal (radius > jarak tepi yang tersedia — kejadian nyata
 // saat user drag gizmo rounding sampai batas ujung objek). `StdFail_NotDone`
 // turunan `Standard_Failure`, BUKAN `std::exception` (lihat catatan pola di
@@ -564,10 +564,10 @@ inline const TopoDS_Shape &BRepFilletAPI_MakeChamfer_shape_checked(BRepFilletAPI
 // BRepAlgoAPI_Fuse / BRepAlgoAPI_Cut / BRepAlgoAPI_Common — operasi boolean
 // (union/subtract/intersect, dipakai `Shape::union`/`subtract` &
 // `AdHocShape::union`/`subtract`/`intersect`, termasuk jalur datar
-// `cadraw-kernel::extrude_face` yang fuse/cut prism baru ke shape lama).
+// `ducad-kernel::extrude_face` yang fuse/cut prism baru ke shape lama).
 // BEDA dari fillet/chamfer di atas: konstruktor 2-argumen kelas ini
 // menjalankan algoritma BOP secara EAGER (bukan lazy) — begitu geometri
-// gagal di-fuse/cut (kasus nyata CADRAW: extrude wajah yang tepi/sudut
+// gagal di-fuse/cut (kasus nyata DUCAD: extrude wajah yang tepi/sudut
 // tetangganya sudah di-rounding, prism baru bertemu permukaan blend
 // fillet secara tangen sehingga klasifikasi boolean OCCT gagal), baik
 // KONSTRUKTOR maupun `.Shape()` bisa melempar `Standard_Failure`
@@ -581,7 +581,7 @@ inline const TopoDS_Shape &BRepFilletAPI_MakeChamfer_shape_checked(BRepFilletAPI
 // laporan "aplikasi close saat extrude wajah yang sebelahnya rounded").
 // `_ctor`/`Shape()` MENTAH di atas (dibind cxx `construct_unique` di
 // lib.rs) TETAP ADA apa adanya — masih dipakai `Solid::union`/`subtract`
-// yang TIDAK dipakai cadraw-kernel.
+// yang TIDAK dipakai ducad-kernel.
 inline std::unique_ptr<BRepAlgoAPI_Fuse> BRepAlgoAPI_Fuse_ctor_checked(const TopoDS_Shape &shape_1,
                                                                         const TopoDS_Shape &shape_2) {
   try {

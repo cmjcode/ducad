@@ -1,4 +1,4 @@
-# Panduan Pemakaian CADRAW
+# Panduan Pemakaian DUCAD
 
 Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 8
 (viewport 3D, sketching 2D, constraint solver, modeling 3D — termasuk
@@ -10,7 +10,7 @@ dokumen ini murni tentang mengoperasikan aplikasinya.
 ## Menjalankan
 
 ```bash
-cargo run -p cadraw-app
+cargo run -p ducad-app
 ```
 
 Build pertama kali akan mengompilasi OCCT dari source (~8 menit, sekali
@@ -101,7 +101,7 @@ dengan panel Constraint di kanan.
 1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil tertutup:
    - **1 Lingkaran** sendirian → jadi silinder, ATAU
    - **≥3 Line/Arc** yang ujung-ujungnya nyambung membentuk satu loop
-     tertutup (urutan klik/pilih bebas — CADRAW merangkainya sendiri).
+     tertutup (urutan klik/pilih bebas — DUCAD merangkainya sendiri).
      Contoh paling gampang: 4 garis dari tool Persegi.
 2. Di panel Model 3D, isi **Jarak (mm)**, klik **Extrude**.
 3. Kalau gagal (profil tidak tertutup, atau tercampur dengan Ellips/
@@ -158,7 +158,7 @@ kena permukaan solid yang sudah ada.
 
 ### Loft — solid antara 2 profil beda bentuk (Fase 8)
 
-Bukan loft lintas-bidang sungguhan (sketch CADRAW masih satu bidang XY) —
+Bukan loft lintas-bidang sungguhan (sketch DUCAD masih satu bidang XY) —
 profil ATAS diangkat lewat translasi Z murni, bukan digambar di bidang
 lain.
 
@@ -215,7 +215,7 @@ highlight visual 3D untuk wajah, baru angka di panel), lalu klik **Shell**
 
 ### Belum didukung di Model 3D
 
-Sweep sepanjang jalur (gap upstream binding OCCT, bukan CADRAW), Revolve
+Sweep sepanjang jalur (gap upstream binding OCCT, bukan DUCAD), Revolve
 sudut parsial (baru 360°), loft lintas-bidang sungguhan & sketch-on-face
 (sketch selalu di bidang XY), klik langsung di viewport 3D untuk GANTI
 seleksi BODY (pakai daftar di panel — picking viewport baru untuk
@@ -266,19 +266,19 @@ lantai global, bukan disetel manual per tombol.
 
 ## File I/O — Fase 5
 
-Menu **"📄 File"** di ujung kiri toolbar (sebelah nama "CADRAW"). Semua
+Menu **"📄 File"** di ujung kiri toolbar (sebelah nama "DUCAD"). Semua
 aksi juga ada di command palette (`Ctrl/Cmd+K`, ketik nama aksinya).
 
-### Dokumen native `.cadraw`
+### Dokumen native `.ducad`
 
 | Aksi | Shortcut | Perilaku |
 |---|---|---|
 | Baru | — | Kosongkan sketch+model+kedua undo stack. Kamera & tema TIDAK ikut direset. |
-| Buka… | `Ctrl/Cmd+O` | Dialog pilih file `.cadraw`, mengganti SELURUH dokumen (undo stack ikut direset — undo lintas-dokumen tidak masuk akal). |
+| Buka… | `Ctrl/Cmd+O` | Dialog pilih file `.ducad`, mengganti SELURUH dokumen (undo stack ikut direset — undo lintas-dokumen tidak masuk akal). |
 | Simpan | `Ctrl/Cmd+S` | Tulis ke file terakhir dibuka/disimpan; kalau dokumen belum pernah punya file (baru), jatuh ke Simpan Sebagai. |
 | Simpan Sebagai… | `Ctrl/Cmd+Shift+S` | SELALU tampilkan dialog, walau dokumen sudah punya file aktif. |
 
-File `.cadraw` adalah JSON manusiawi-dibaca (bisa dibuka teks editor untuk
+File `.ducad` adalah JSON manusiawi-dibaca (bisa dibuka teks editor untuk
 diperiksa) — sketch (entitas+constraint) DAN semua body 3D (geometri
 B-rep lengkap, bukan cuma mesh) tersimpan utuh, termasuk body yang lagi
 disembunyikan (checkbox visible di panel Model 3D).

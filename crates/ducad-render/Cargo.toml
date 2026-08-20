@@ -1,0 +1,13 @@
+[package]
+name = "ducad-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ducad-sketch = { workspace = true }
+egui_wgpu = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }
+serde = { workspace = true }

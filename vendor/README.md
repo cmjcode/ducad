@@ -9,10 +9,10 @@ Salinan lokal dari crate [`opencascade`](https://crates.io/crates/opencascade)
 **Kenapa di-vendor** (bukan cukup pin versi dari crates.io): `Shape::faces_along_ray`
 meng-hardcode toleransi geometris `BRepIntCurveSurface_Inter` ke `0.0001` —
 terlalu ketat untuk ray *oblique* (miring) dari kamera 3D perspektif nyata,
-menyebabkan `pick_face_details`/`extrude_face` CADRAW selalu `None`/gagal saat
+menyebabkan `pick_face_details`/`extrude_face` DUCAD selalu `None`/gagal saat
 ray mengenai sisi samping (side/swept face) dari sudut manapun selain tegak
 lurus persis. Root cause terverifikasi lewat 5 test terisolasi di
-`cadraw-kernel` (lihat riwayat commit) — bukan bug di CADRAW, tapi di
+`ducad-kernel` (lihat riwayat commit) — bukan bug di DUCAD, tapi di
 binding upstream, dan `Shape`/`Face` di `opencascade-rs` menyimpan field
 `inner` (handle FFI mentah) sebagai `pub(crate)`, jadi TIDAK ADA cara
 menembus toleransi itu dari luar crate tanpa vendor.
@@ -25,14 +25,14 @@ ADANYA, sekarang jadi wrapper tipis yang manggil versi baru dengan `0.0001`
 — nol perubahan perilaku untuk pemanggil manapun yang masih pakai method
 lama.
 
-**Perubahan #2** (CADRAW Fase 1 — deteksi tipe surface, di
+**Perubahan #2** (DUCAD Fase 1 — deteksi tipe surface, di
 `src/primitives/face.rs`): tambah method publik baru
 `Face::surface_kind() -> String`, mengembalikan nama kelas dinamis C++/OCCT
 dari permukaan geometris di balik face (mis. `"Geom_Plane"`,
 `"Geom_CylindricalSurface"`, `"Geom_SphericalSurface"`, dst). Disusun
 murni dari binding FFI yang SUDAH ADA di `opencascade-sys` 0.2.0
 (`BRep_Tool_Surface`, `DynamicType`, `type_name`) — tidak ada perubahan di
-`opencascade-sys` sama sekali. `cadraw-kernel::SurfaceKind` mem-parse
+`opencascade-sys` sama sekali. `ducad-kernel::SurfaceKind` mem-parse
 string ini jadi enum.
 
 **Perubahan #3** (fixture test utk Perubahan #2, di `src/adhoc.rs`): tambah
@@ -42,11 +42,11 @@ upstream tapi belum ada wrapper Rust publiknya (beda dengan `make_box`/
 `make_cylinder` yang sudah ada sebelumnya). Tidak ada perubahan di
 `opencascade-sys`.
 
-**Perubahan #4** (CADRAW Fase 3 — `extrude_face` dispatch per tipe
+**Perubahan #4** (DUCAD Fase 3 — `extrude_face` dispatch per tipe
 permukaan, di `src/primitives/shape.rs`): tambah dua method publik baru:
 - `Shape::volume() -> f64` — `BRepGProp_VolumeProperties`/`Mass()`, FFI-nya
   SUDAH ADA (dipakai internal sebelumnya), cuma belum ada wrapper publik.
-  Dipakai `cadraw-kernel` utk regresi volume `extrude_face` jalur offset.
+  Dipakai `ducad-kernel` utk regresi volume `extrude_face` jalur offset.
 - `Shape::offset_on_face(face, offset) -> Result<Self, Error>` — menyusun
   binding `BRepOffset_MakeOffset` yang ditambahkan ke `opencascade-sys` di
   Fase 2 (base offset `0.0` utk semua face, `SetOffsetOnFace(face, offset)`
@@ -57,31 +57,31 @@ permukaan, di `src/primitives/shape.rs`): tambah dua method publik baru:
   siapa pun (lihat catatan "Sengaja belum ada" di `docs/PLAN.md` § Fase 8
   Lanjutan 3).
 
-**Perubahan #5** (CADRAW Fase 3, di `src/primitives/face.rs`): tambah
+**Perubahan #5** (DUCAD Fase 3, di `src/primitives/face.rs`): tambah
 method publik baru `Face::cylinder_or_cone_radius() -> Option<f64>` —
 coba `BRepAdaptor_Surface_cylinder`/`_cone` (Fase 2) berantai, `None` kalau
-bukan salah satu dari keduanya. Dipakai `cadraw-kernel::extrude_face` utk
+bukan salah satu dari keduanya. Dipakai `ducad-kernel::extrude_face` utk
 validasi batas (`radius + distance > 0`) SEBELUM memanggil
 `offset_on_face`, supaya offset yang membuat radius ≤ 0 ditolak jelas lebih
 awal. Sengaja TIDAK menutupi Sphere/Torus — `opencascade-sys` belum punya
 binding `gp_Sphere`/`gp_Torus` (di luar cakupan Fase 2); utk tipe itu
-`cadraw-kernel` mengandalkan `IsDone()`/`Result::Err` dari OCCT sendiri di
+`ducad-kernel` mengandalkan `IsDone()`/`Result::Err` dari OCCT sendiri di
 `offset_on_face`.
 
-**Perubahan #6** (CADRAW Fase 3, di `src/lib.rs`): tambah varian baru
+**Perubahan #6** (DUCAD Fase 3, di `src/lib.rs`): tambah varian baru
 `Error::OffsetOnFaceFailed(String)`, dipakai `offset_on_face` (Perubahan
 #4) membungkus pesan `cxx::Exception` dari kegagalan
 `Initialize`/`SetOffsetOnFace`/`MakeOffsetShape`/`Shape` milik
 `BRepOffset_MakeOffset`.
 
-**Perubahan #7** (CADRAW Fase 4 — arah gizmo `pull_dir` radial, di
+**Perubahan #7** (DUCAD Fase 4 — arah gizmo `pull_dir` radial, di
 `src/primitives/face.rs`): tambah method publik baru
 `Face::cylinder_or_cone_axis() -> Option<(DVec3, DVec3)>` (titik acuan +
 arah satuan sumbu) — pola identik Perubahan #5, cuma menyusun ulang binding
 `gp_Cylinder_location`/`_direction`/`gp_Cone_location`/`_direction` yang
 SUDAH ADA di `opencascade-sys` sejak Fase 2 (dulu cuma dipakai
 `cylinder_or_cone_radius` utk radius, arah/lokasinya belum pernah dipakai
-sampai fase ini). Dipakai `cadraw-kernel::compute_pull_dir` menghitung arah
+sampai fase ini). Dipakai `ducad-kernel::compute_pull_dir` menghitung arah
 radial gizmo di titik hit: proyeksikan `hit_point` ke garis sumbu, ambil
 vektor `(hit − proyeksi)`. TIDAK ada perubahan di `opencascade-sys` di fase
 ini — sphere pakai `Face::center_of_mass()` (SUDAH ADA sejak awal) sbg pusat
@@ -107,15 +107,15 @@ try/catch sebelum patch ini, jadi exception-nya tembus dan `std::terminate`
   `opencascade-sys` (Perubahan #3 di bawah) alih-alih `.Shape()` langsung
   yang tidak aman.
 - `BooleanShape::fillet_new_edges`/`chamfer_new_edges` — cermin perubahan
-  di atas (`()` → `Result<(), Error>`), TIDAK dipakai cadraw-kernel tapi
+  di atas (`()` → `Result<(), Error>`), TIDAK dipakai ducad-kernel tapi
   disentuh biar tidak ada jalur `Shape::fillet_edges`/`chamfer_edges` yang
   masih diam-diam mengabaikan `Result`-nya.
 - `Solid::fillet_edge` dan binding `Shape()` mentah (bukan `_checked`) yang
   masih dipakai `AdHocShape::fillet_edges`/`chamfer_edges` (`adhoc.rs`)
-  SENGAJA TIDAK disentuh — tidak dipakai cadraw-kernel, celah
+  SENGAJA TIDAK disentuh — tidak dipakai ducad-kernel, celah
   `StdFail_NotDone` yang sama masih ada di situ kalau nanti dipakai.
 
-Regresi dibuktikan lewat 3 test baru di `cadraw-kernel`
+Regresi dibuktikan lewat 3 test baru di `ducad-kernel`
 (`fillet_edges_oversized_radius_errors_not_crashes`,
 `fillet_vertex_oversized_radius_errors_not_crashes`,
 `chamfer_edges_oversized_distance_errors_not_crashes`) — radius/jarak 1000mm
@@ -129,7 +129,7 @@ terminal — persis pola `std::terminate` yang sama dgn Perubahan #8, cuma
 lewat jalur boolean bukan fillet), di `src/lib.rs`, `src/primitives/
 shape.rs`, `src/adhoc.rs`): root cause `BRepAlgoAPI_Fuse`/`Cut`/`Common`
 (dipakai `Shape::union`/`subtract` & `AdHocShape::union`/`subtract`/
-`intersect`, termasuk jalur planar `cadraw-kernel::extrude_face` yang
+`intersect`, termasuk jalur planar `ducad-kernel::extrude_face` yang
 fuse/cut prism baru ke shape lama) bisa melempar `StdFail_NotDone` — BEDA
 dari fillet/chamfer di Perubahan #8: bukan cuma `.Shape()`, KONSTRUKTORNYA
 SENDIRI (2 argumen) menjalankan algoritma BOP secara eager, jadi exception
@@ -144,14 +144,14 @@ try/catch sebelum patch ini di kedua titik itu.
   yang tidak aman.
 - `AdHocShape::union`/`subtract`/`intersect` — cermin perubahan di atas
   (`()` → `Result<(), Error>`); `intersect` dipakai langsung oleh
-  `cadraw-kernel::intersect` (satu-satunya jalan publik `opencascade-rs`
-  0.2.0 ke `BRepAlgoAPI_Common`, lihat komentar di kode `cadraw-kernel`).
+  `ducad-kernel::intersect` (satu-satunya jalan publik `opencascade-rs`
+  0.2.0 ke `BRepAlgoAPI_Common`, lihat komentar di kode `ducad-kernel`).
 - `Solid::union`/`subtract` dan binding `_ctor`/`Shape()` MENTAH (bukan
   `_checked`) di ketiga tipe boolean — SENGAJA TIDAK disentuh, tidak
-  dipakai cadraw-kernel, celah `StdFail_NotDone` yang sama masih ada di
+  dipakai ducad-kernel, celah `StdFail_NotDone` yang sama masih ada di
   situ kalau nanti dipakai.
 
-Regresi dibuktikan lewat test baru di `cadraw-kernel`
+Regresi dibuktikan lewat test baru di `ducad-kernel`
 (`extrude_face_adjacent_to_fillet_does_not_crash`) — fillet 1 tepi vertikal
 box 30×20×15 (radius 8mm, cukup besar relatif wajah box), lalu extrude
 wajah yang bertetangga LANGSUNG dgn tepi ter-fillet itu: klaim intinya
@@ -159,7 +159,7 @@ proses harus TETAP HIDUP (hasil boleh `Ok` atau `Err`, dua-duanya
 membuktikan tidak crash — beda dgn kode lama yang mati total di skenario
 serupa).
 
-**Perubahan #10** (CADRAW Fase 4 — resize body 3D, di `src/primitives/
+**Perubahan #10** (DUCAD Fase 4 — resize body 3D, di `src/primitives/
 shape.rs`): tambah method publik baru `Shape::scale(pivot, factor: f64)` —
 scale UNIFORM (satu faktor X/Y/Z sekaligus) mengelilingi titik `pivot`,
 badan fungsi persis mencontoh `rotate` (di atas): `gp_Trsf::SetScale` +
@@ -197,7 +197,7 @@ di root `Cargo.toml` workspace. `opencascade-0.2.0` (vendored di atas)
 otomatis memakai copy lokal ini juga — dependensinya `opencascade-sys = "0.2"`
 tidak diubah, resolusi `[patch.crates-io]` yang mengarahkannya.
 
-**Kenapa di-vendor** (CADRAW Fase 2 — arah gizmo radial silinder/kerucut +
+**Kenapa di-vendor** (DUCAD Fase 2 — arah gizmo radial silinder/kerucut +
 offset shell per-face): fitur ini butuh dua kelas OCCT yang belum ada
 binding-nya sama sekali di `opencascade-sys` 0.2.0 upstream —
 `BRepAdaptor_Surface` (deteksi tipe surface + ekstraksi `gp_Cylinder`/
@@ -217,7 +217,7 @@ dilakukan di `wrapper.hxx` + cxx bridge (`src/lib.rs`) milik
 - accessor `gp_Cylinder`/`gp_Cone` baru (`gp_Cylinder_location`/`_direction`/`_radius`,
   `gp_Cone_location`/`_direction`/`_radius`/`_semi_angle`) — titik axis, arah
   axis, radius, semi-angle, dipakai utk arah gizmo radial & validasi tipe
-  surface di CADRAW.
+  surface di DUCAD.
 
 **Perubahan #2** (`include/wrapper.hxx` + `src/lib.rs`): tambah binding
 `BRepOffset_MakeOffset` (offset shell per-face, mode default `BRepOffset_Skin`,
@@ -272,7 +272,7 @@ shape_checked` — versi `Shape()` yang dibungkus try/catch(Standard_Failure)
 baru). Binding `Shape()` mentah (tanpa `_checked`) di kedua tipe itu TETAP
 ADA apa adanya — dipakai `Solid::fillet_edge` dan `AdHocShape::
 fillet_edges`/`chamfer_edges` di `opencascade-0.2.0` yang tidak dipakai
-cadraw-kernel, jadi diff ini murni ADDITIVE (fungsi baru, bukan rename),
+ducad-kernel, jadi diff ini murni ADDITIVE (fungsi baru, bukan rename),
 tidak ada binding lama yang berubah perilaku.
 
 **Perubahan #4** (fix crash extrude dekat rounding — lihat Perubahan #9 di
@@ -291,7 +291,7 @@ Perubahan #1 (konstruksi risky → `std::unique_ptr` dibungkus try/catch).
 Helper `rethrow_standard_failure_as_runtime_error` yang sama dipakai lagi,
 TIDAK bikin helper baru. Binding `_ctor`/`Shape()` mentah (tanpa
 `_checked`) di ketiga tipe itu TETAP ADA apa adanya — dipakai `Solid::
-union`/`subtract` di `opencascade-0.2.0` (tidak dipakai cadraw-kernel) dan
+union`/`subtract` di `opencascade-0.2.0` (tidak dipakai ducad-kernel) dan
 contoh `examples/bottle.rs` upstream, jadi diff ini murni ADDITIVE (fungsi
 baru, bukan rename), tidak ada binding lama yang berubah perilaku.
 
