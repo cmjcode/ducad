@@ -853,18 +853,7 @@ impl eframe::App for DuCADApp {
                 }
             });
 
-        if self.tool != ToolKind::Select {
-            egui::Area::new(egui::Id::new("ducad-normal-to-sketch-hud"))
-                .fixed_pos(egui::pos2(screen_center_x - 75.0, 56.0))
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    if let Some(hud_ev) = CanvasHud::show_normal_to_sketch_btn(ui) {
-                        if hud_ev == CanvasHudEvent::OrientNormalToSketch {
-                            self.camera.orient_to_plane(&self.active_plane);
-                        }
-                    }
-                });
-        }
+
         if self.section_enabled {
             egui::Area::new(egui::Id::new("ducad-hud-section-banner"))
                 .fixed_pos(egui::pos2(screen_center_x - 140.0, 94.0))
@@ -1590,16 +1579,27 @@ impl eframe::App for DuCADApp {
             self.status_text()
         };
         let m_summary = self.measurements.last().map(|m| m.label());
+        let show_normal_to_sketch = self.tool != ToolKind::Select;
 
         egui::Area::new(egui::Id::new("ducad-hud-bottom-status-area"))
-            .fixed_pos(bottom_center - egui::vec2(130.0, 48.0))
+            .pivot(egui::Align2::CENTER_BOTTOM)
+            .fixed_pos(bottom_center - egui::vec2(0.0, 18.0))
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
-                if let Some(ev) =
-                    CanvasHud::show_bottom_status_pill(ui, &sel_summary, m_summary.as_deref())
-                {
-                    if ev == CanvasHudEvent::OpenMeasurements {
-                        self.set_tool(ToolKind::Measure);
+                if let Some(ev) = CanvasHud::show_bottom_status_pill(
+                    ui,
+                    &sel_summary,
+                    m_summary.as_deref(),
+                    show_normal_to_sketch,
+                ) {
+                    match ev {
+                        CanvasHudEvent::OrientNormalToSketch => {
+                            self.camera.orient_to_plane(&self.active_plane);
+                        }
+                        CanvasHudEvent::OpenMeasurements => {
+                            self.set_tool(ToolKind::Measure);
+                        }
+                        CanvasHudEvent::TurnOffSectionView => {}
                     }
                 }
             });

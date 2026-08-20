@@ -90,22 +90,37 @@ impl CanvasHud {
         event
     }
 
-    /// Render status badge seleksi & pengukuran mengambang di dalam container UI yang diberikan.
+    /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di dalam container UI yang diberikan.
     pub fn show_bottom_status_pill(
         ui: &mut Ui,
         selection_summary: &str,
         measurement_summary: Option<&str>,
+        show_normal_to_sketch: bool,
     ) -> Option<CanvasHudEvent> {
         let mut event = None;
         pill_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Ringkasan seleksi
+                // Ringkasan seleksi / informasi status tool
                 ui.label(
                     RichText::new(selection_summary)
                         .size(11.0)
                         .strong()
                         .color(ACCENT_BLUE),
                 );
+
+                // Tombol "Normal to Sketch" menyatu di pill bawah bila mode sketsa/tool aktif
+                if show_normal_to_sketch {
+                    ui.label(RichText::new("|").color(TEXT_SECONDARY));
+                    let btn = ui.button(
+                        RichText::new(format!("{} Normal to Sketch", ICON_3D_ROTATION.codepoint))
+                            .size(11.0)
+                            .strong()
+                            .color(TEXT_PRIMARY),
+                    );
+                    if btn.clicked() {
+                        event = Some(CanvasHudEvent::OrientNormalToSketch);
+                    }
+                }
 
                 // Ringkasan pengukuran jika ada
                 if let Some(m) = measurement_summary {
