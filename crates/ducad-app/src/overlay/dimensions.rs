@@ -544,6 +544,7 @@ impl DuCADApp {
                 self.pending_points.len(),
                 !self.selected.is_empty(),
                 self.revolve_angle_setting,
+                &mut self.revolve_dialog.angle_input,
                 self.revolve_reverse,
                 is_staged,
                 ui.input(|i| i.time),
@@ -551,7 +552,7 @@ impl DuCADApp {
                 match action {
                     ducad_ui::RevolveHudAction::SetAngle(angle) => {
                         self.revolve_angle_setting = angle;
-                        self.revolve_dialog.angle_input = format!("{:.1}", angle);
+                        self.revolve_dialog.angle_deg = angle;
                     }
                     ducad_ui::RevolveHudAction::ToggleReverse => {
                         self.revolve_reverse = !self.revolve_reverse;
