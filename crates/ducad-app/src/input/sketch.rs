@@ -962,7 +962,8 @@ impl DuCADApp {
             ToolKind::Mirror | ToolKind::Revolve => {
                 self.hovered = None;
                 self.last_snap = None;
-                if !self.selected.is_empty() {
+                let has_target = !self.selected.is_empty() || (self.tool == ToolKind::Revolve && self.active_face.is_some());
+                if has_target {
                     self.last_snap = response
                         .hovered()
                         .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))

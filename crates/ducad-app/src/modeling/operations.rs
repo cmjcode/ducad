@@ -388,6 +388,60 @@ impl DuCADApp {
         }
     }
 
+    /// Revolve sisi/face 3D yang sedang aktif mengelilingi sumbu dalam koordinat bidang aktif atau 3D.
+    pub fn revolve_active_face(
+        &mut self,
+        axis_origin_2d: (f64, f64),
+        axis_dir_2d: (f64, f64),
+        angle_deg: Option<f64>,
+    ) -> bool {
+        let Some((target_id, ray, _hit)) = self.active_face else {
+            self.model_status =
+                Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
+            return false;
+        };
+        let Some(target_geo) = self.model.geometry.get(target_id) else {
+            self.model_status = Some("Body terpilih tidak ditemukan".to_string());
+            return false;
+        };
+
+        let p0_3d = self.active_plane.to_world_f64(axis_origin_2d, 0.0);
+        let p1_2d = (axis_origin_2d.0 + axis_dir_2d.0, axis_origin_2d.1 + axis_dir_2d.1);
+        let p1_3d = self.active_plane.to_world_f64(p1_2d, 0.0);
+
+        let axis_origin = glam::dvec3(p0_3d[0], p0_3d[1], p0_3d[2]);
+        let axis_dir = glam::dvec3(p1_3d[0] - p0_3d[0], p1_3d[1] - p0_3d[1], p1_3d[2] - p0_3d[2]);
+
+        match ducad_kernel::revolve_face(&target_geo.shape, ray, axis_origin, axis_dir, angle_deg) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Revolve Face", target_id, new_geo)),
+                    &mut self.model,
+                );
+                self.round_history.remove(&target_id);
+                self.active_face = None;
+                self.model_status = Some(format!(
+                    "Revolve Face {:.0}° sukses",
+                    angle_deg.unwrap_or(360.0)
+                ));
+                true
+            }
+            Err(e) => {
+                self.alert_modal.show_error(
+                    "Revolve Face Gagal",
+                    format!("{e}"),
+                    vec![
+                        "Pastikan garis sumbu poros putar TIDAK MEMOTONG bagian dalam sisi (face).",
+                        "Letakkan garis sumbu di luar face atau tepat berhimpit pada salah satu tepi rusuk.",
+                    ],
+                );
+                self.model_status = Some(format!("Revolve face gagal: {e}"));
+                false
+            }
+        }
+    }
+
     /// Jadikan permukaan sisi 3D yang aktif sebagai bidang sketsa baru.
     pub fn sketch_on_active_face(&mut self) {
         let Some((_target_id, _ray, hit)) = self.active_face else {

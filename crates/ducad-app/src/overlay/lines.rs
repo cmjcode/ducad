@@ -365,7 +365,8 @@ impl DuCADApp {
                     }
                 }
                 ToolKind::Revolve => {
-                    if !self.selected.is_empty() && self.pending_points.len() == 1 {
+                    let has_target = !self.selected.is_empty() || self.active_face.is_some();
+                    if has_target && self.pending_points.len() == 1 {
                         let axis_preview = Entity::Line {
                             start: self.pending_points[0],
                             end: self.snapped_or(raw),

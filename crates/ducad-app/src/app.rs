@@ -1311,11 +1311,19 @@ impl DuCADApp {
             } else {
                 Some(self.revolve_angle_setting)
             };
-            self.revolve_selected(
-                (axis_origin.x, axis_origin.y),
-                (axis_dir.x, axis_dir.y),
-                angle_opt,
-            );
+            if self.active_face.is_some() {
+                self.revolve_active_face(
+                    (axis_origin.x, axis_origin.y),
+                    (axis_dir.x, axis_dir.y),
+                    angle_opt,
+                );
+            } else {
+                self.revolve_selected(
+                    (axis_origin.x, axis_origin.y),
+                    (axis_dir.x, axis_dir.y),
+                    angle_opt,
+                );
+            }
             self.set_tool(ToolKind::Select);
         }
     }

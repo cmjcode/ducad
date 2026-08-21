@@ -1,6 +1,7 @@
-use anyhow::{bail, Context, Result};
-use glam::dvec3;
-use opencascade::primitives::{Direction as OcctDirection, Edge, FaceOrientation, IntoShape};
+use anyhow::{anyhow, bail, Context, Result};
+use glam::{dvec3, DVec3};
+use opencascade::angle::Angle;
+use opencascade::primitives::{Direction as OcctDirection, Edge, FaceOrientation, IntoShape, Solid};
 use opencascade::workplane::Workplane;
 
 use crate::lock_kernel;
@@ -299,6 +300,42 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
             .shape;
         result.clean();
         Ok(KernelShape::from_inner(result))
+    }
+}
+
+/// Revolve satu sisi (face) solid mengelilingi sumbu 3D (`axis_origin` + `axis_dir`).
+/// `angle_degrees: None` = revolve 360°.
+/// Menggabungkan hasil revolve (Union) dengan body asal jika bersentuhan, atau mengembalikan shape terpisah.
+pub fn revolve_face(
+    shape: &KernelShape,
+    ray: PickRay,
+    axis_origin: DVec3,
+    axis_dir: DVec3,
+    angle_degrees: Option<f64>,
+) -> Result<KernelShape> {
+    let dir_len = axis_dir.length();
+    if dir_len < 1e-9 {
+        bail!("sumbu revolve tidak valid (dua titik axis sama/terlalu dekat)");
+    }
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let Some((face, _)) = resolve_face_along_ray(&cloned, ray) else {
+        bail!("wajah terpilih tidak ditemukan pada shape");
+    };
+
+    let angle = angle_degrees.map(Angle::Degrees);
+    let solid: Solid = face
+        .try_revolve(axis_origin, axis_dir, angle)
+        .map_err(|e| anyhow!("Operasi Revolve Face gagal: pastikan sumbu putar tidak memotong bagian dalam face ({e})"))?;
+    let swept_shape = solid.into_shape();
+
+    match cloned.union(&swept_shape) {
+        Ok(merged) => {
+            let mut s = merged.shape;
+            s.clean();
+            Ok(KernelShape::from_inner(s))
+        }
+        Err(_) => Ok(KernelShape::from_inner(swept_shape)),
     }
 }
 

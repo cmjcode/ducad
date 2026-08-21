@@ -889,6 +889,30 @@ fn test_pick_face_details_and_extrude_box_faces() {
 }
 
 #[test]
+fn test_revolve_face() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    // Box 30x20x15
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+
+    let ray_top = PickRay {
+        origin: (15.0, 10.0, 50.0),
+        dir: (0.0, 0.0, -1.0),
+    };
+
+    // Revolve top face (z=15) around axis at edge (0, 0, 15) along (0, 1, 0)
+    let revolved = revolve_face(
+        &shape,
+        ray_top,
+        glam::dvec3(0.0, 0.0, 15.0),
+        glam::dvec3(0.0, 1.0, 0.0),
+        Some(90.0),
+    )
+    .expect("revolve top face 90 deg harus berhasil");
+
+    assert!(revolved.tessellate().triangle_count() > 0);
+}
+
+#[test]
 fn test_resize_shape_along_edge_only_changes_target_axis() {
     let _guard = TEST_LOCK.lock().unwrap();
     // Box width=30 (X), depth=20 (Y), height=15 (Z)

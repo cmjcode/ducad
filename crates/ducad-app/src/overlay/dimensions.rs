@@ -538,11 +538,12 @@ impl DuCADApp {
 
         if self.tool == ToolKind::Revolve {
             let is_staged = self.revolve_staged_axis.is_some();
+            let has_selection = !self.selected.is_empty() || self.active_face.is_some();
             if let Some(action) = CanvasHud::render_revolve_animated_guide(
                 ui,
                 rect,
                 self.pending_points.len(),
-                !self.selected.is_empty(),
+                has_selection,
                 self.revolve_angle_setting,
                 &mut self.revolve_dialog.angle_input,
                 self.revolve_reverse,
