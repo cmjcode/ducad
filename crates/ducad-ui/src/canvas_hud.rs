@@ -197,7 +197,12 @@ impl CanvasHud {
         measurement_summary: Option<&str>,
         show_normal_to_sketch: bool,
     ) -> Option<CanvasHudEvent> {
-        Self::show_status_pill(ui, selection_summary, measurement_summary, show_normal_to_sketch)
+        Self::show_status_pill(
+            ui,
+            selection_summary,
+            measurement_summary,
+            show_normal_to_sketch,
+        )
     }
 
     /// Render badge dimensi mengambang putih langsung pada posisi 2D di kanvas.
@@ -1387,9 +1392,9 @@ impl CanvasHud {
         );
 
         let step_text = if has_enough_bodies {
-            format!("Operasi Boolean ({} Body Terpilih)", selected_bodies_count)
+            format!("({} Body Terpilih)", selected_bodies_count)
         } else {
-            "Pilih minimal 2 solid body (Tahan Shift + Klik)".to_string()
+            "Pilih min 2 body (Tahan Shift + Klik)".to_string()
         };
 
         // Layout horizontal di dalam banner
@@ -1447,17 +1452,19 @@ impl CanvasHud {
 
                     for (op, label) in ops {
                         let is_active = selected_op == op;
-                        let btn = egui::Button::new(
-                            RichText::new(label)
-                                .size(11.0)
-                                .strong()
-                                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
-                        )
-                        .fill(if is_active {
-                            ACCENT_BLUE
-                        } else {
-                            Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                        });
+                        let btn =
+                            egui::Button::new(RichText::new(label).size(11.0).strong().color(
+                                if is_active {
+                                    Color32::WHITE
+                                } else {
+                                    TEXT_PRIMARY
+                                },
+                            ))
+                            .fill(if is_active {
+                                ACCENT_BLUE
+                            } else {
+                                Color32::from_rgba_premultiplied(40, 44, 52, 180)
+                            });
 
                         if ui.add(btn).clicked() {
                             hud_action = Some(BooleanHudAction::SelectOp(op));
