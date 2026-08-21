@@ -1,4 +1,5 @@
 //! Manajemen Penyimpanan SQLite untuk Riwayat Aktivitas Pengguna (Maksimal 100 data).
+//! Menyimpan log aktivitas beserta snapshot dokumen (JSON) untuk fitur time-travel restore.
 
 use std::path::PathBuf;
 use chrono::Local;
@@ -26,12 +27,15 @@ impl HistoryDb {
                         timestamp TEXT NOT NULL,
                         kind TEXT NOT NULL,
                         action TEXT NOT NULL,
-                        details TEXT NOT NULL
+                        details TEXT NOT NULL,
+                        snapshot TEXT
                     );
                 ";
                 if let Err(e) = c.execute(init_sql, []) {
                     log::error!("Gagal inisialisasi tabel SQLite activity_log: {}", e);
                 }
+                // Migrasi kolom jika snapshot belum ada di tabel versi awal
+                let _ = c.execute("ALTER TABLE activity_log ADD COLUMN snapshot TEXT", []);
                 Some(c)
             }
             Err(e) => {
@@ -57,8 +61,14 @@ impl HistoryDb {
         PathBuf::from("ducad_history.db")
     }
 
-    /// Catat aktivitas baru ke SQLite dan batasi maksimal 100 entri terbaru.
-    pub fn log_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
+    /// Catat aktivitas baru ke SQLite bersama snapshot dokumen JSON, dan batasi maksimal 100 entri terbaru.
+    pub fn log_activity(
+        &mut self,
+        kind: ActivityKindUi,
+        action: &str,
+        details: &str,
+        snapshot: Option<&str>,
+    ) {
         let Some(conn) = &mut self.conn else { return };
 
         let now = Local::now();
@@ -69,8 +79,8 @@ impl HistoryDb {
         };
 
         let res = conn.execute(
-            "INSERT INTO activity_log (timestamp, kind, action, details) VALUES (?1, ?2, ?3, ?4)",
-            params![timestamp, kind_str, action, details],
+            "INSERT INTO activity_log (timestamp, kind, action, details, snapshot) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![timestamp, kind_str, action, details, snapshot],
         );
 
         if let Err(e) = res {
@@ -86,6 +96,16 @@ impl HistoryDb {
         if let Err(e) = prune_res {
             log::warn!("Gagal memangkas riwayat aktivitas lama: {}", e);
         }
+    }
+
+    /// Ambil snapshot JSON berdasarkan `id` entri log.
+    pub fn get_snapshot(&self, id: i64) -> Option<String> {
+        let conn = self.conn.as_ref()?;
+        let mut stmt = conn
+            .prepare("SELECT snapshot FROM activity_log WHERE id = ?1")
+            .ok()?;
+        let snap: Option<String> = stmt.query_row(params![id], |row| row.get(0)).ok()?;
+        snap
     }
 
     /// Muat seluruh riwayat aktivitas terbaru dari database SQLite (hingga 100 entri, urut terbaru di atas).
@@ -147,7 +167,8 @@ impl HistoryDb {
                 timestamp TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 action TEXT NOT NULL,
-                details TEXT NOT NULL
+                details TEXT NOT NULL,
+                snapshot TEXT
             );
         ";
         conn.execute(init_sql, []).unwrap();
@@ -167,8 +188,8 @@ mod tests {
         let mut db = HistoryDb::in_memory();
         assert!(db.load_activities().is_empty());
 
-        db.log_activity(ActivityKindUi::Sketch2D, "Line", "Panjang 50.0mm");
-        db.log_activity(ActivityKindUi::Solid3D, "Extrude", "Tinggi 20.0mm");
+        db.log_activity(ActivityKindUi::Sketch2D, "Line", "Panjang 50.0mm", Some("{\"mock\": 1}"));
+        db.log_activity(ActivityKindUi::Solid3D, "Extrude", "Tinggi 20.0mm", Some("{\"mock\": 2}"));
 
         let items = db.load_activities();
         assert_eq!(items.len(), 2);
@@ -176,6 +197,9 @@ mod tests {
         assert_eq!(items[0].kind, ActivityKindUi::Solid3D);
         assert_eq!(items[1].action, "Line");
         assert_eq!(items[1].kind, ActivityKindUi::Sketch2D);
+
+        let snap1 = db.get_snapshot(items[0].id);
+        assert_eq!(snap1.as_deref(), Some("{\"mock\": 2}"));
     }
 
     #[test]
@@ -187,6 +211,7 @@ mod tests {
                 ActivityKindUi::Sketch2D,
                 &format!("Aksi #{}", i),
                 &format!("Detail #{}", i),
+                None,
             );
         }
 
@@ -201,11 +226,10 @@ mod tests {
     #[test]
     fn test_history_db_clear() {
         let mut db = HistoryDb::in_memory();
-        db.log_activity(ActivityKindUi::Sketch2D, "Circle", "Radius 15.0mm");
+        db.log_activity(ActivityKindUi::Sketch2D, "Circle", "Radius 15.0mm", None);
         assert_eq!(db.load_activities().len(), 1);
 
         db.clear();
         assert_eq!(db.load_activities().len(), 0);
     }
 }
-

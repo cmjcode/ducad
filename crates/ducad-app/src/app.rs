@@ -374,10 +374,53 @@ impl DuCADApp {
         }
     }
 
-    /// Catat aktivitas baru ke SQLite dan perbarui cache tampilan riwayat.
+    /// Catat aktivitas baru ke SQLite bersama snapshot dokumen penuh, lalu perbarui cache riwayat.
     pub fn record_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
-        self.history_db.log_activity(kind, action, details);
+        let body_refs = self.native_body_refs();
+        let snapshot_json = ducad_io::native::serialize_to_json(&self.sketches, &body_refs).ok();
+
+        self.history_db.log_activity(kind, action, details, snapshot_json.as_deref());
         self.activity_cache = self.history_db.load_activities();
+    }
+
+    /// Pulihkan dokumen ke snapshot JSON tertentu (Time-Travel).
+    pub fn restore_snapshot_from_json(&mut self, json: &str) -> anyhow::Result<()> {
+        let loaded = ducad_io::native::deserialize_from_json(json)?;
+
+        self.sketches = [loaded.sketch, loaded.front_sketch, loaded.right_sketch];
+        self.undos = [
+            ducad_sketch::UndoStack::default(),
+            ducad_sketch::UndoStack::default(),
+            ducad_sketch::UndoStack::default(),
+        ];
+        self.selected.clear();
+        self.hovered = None;
+        self.pending_points.clear();
+        self.pending_point_refs.clear();
+        self.offset_source = None;
+        self.line_chain_start = None;
+        self.line_chain_segments = 0;
+
+        let mut new_model = crate::model::ModelDoc::default();
+        for nb in loaded.bodies {
+            let geo = crate::model::BodyGeometry::from_shape(nb.shape);
+            let id = new_model.doc.add_body(&nb.name);
+            new_model.geometry.insert(id, geo);
+            if let Some(meta) = new_model.doc.bodies.get_mut(id) {
+                meta.visible = nb.visible;
+            }
+        }
+        self.model = new_model;
+        self.model_undo = ducad_core::UndoStack::default();
+        self.selected_bodies.clear();
+        self.selected_faces.clear();
+        self.picking_mode = crate::types::PickMode::None;
+        self.active_face = None;
+        self.round_history.clear();
+        self.loft_staged_body_id = None;
+        self.set_tool(ToolKind::Select);
+
+        Ok(())
     }
 
     /// Saat gizmo extrude/push-pull mulai di-drag di mode sketsa, otomatis pindah ke mode 3D
@@ -812,9 +855,9 @@ impl eframe::App for DuCADApp {
 
         let both_open = self.items_drawer_open && self.history_drawer_open;
         let max_drawer_h = if both_open {
-            ((screen_rect.height() - 200.0) * 0.45).clamp(160.0, 320.0)
+            ((screen_rect.height() - 200.0) * 0.48).clamp(200.0, 420.0)
         } else {
-            (screen_rect.height() - 140.0).clamp(180.0, 480.0)
+            (screen_rect.height() - 140.0).clamp(320.0, 620.0)
         };
 
         // 1. Folder / Items Drawer (Pojok Kanan Bawah, tepat di atas tombol)
@@ -896,6 +939,23 @@ impl eframe::App for DuCADApp {
                             HistoryDrawerEvent::ClearAll => {
                                 self.history_db.clear();
                                 self.activity_cache.clear();
+                            }
+                            HistoryDrawerEvent::JumpTo { id, timestamp, action } => {
+                                if let Some(snap_json) = self.history_db.get_snapshot(id) {
+                                    match self.restore_snapshot_from_json(&snap_json) {
+                                        Ok(()) => {
+                                            self.model_status = Some(format!(
+                                                "✓ Dokumen dipulihkan ke waktu {} ({})",
+                                                timestamp, action
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            self.model_status = Some(format!("Gagal memulihkan snapshot: {e}"));
+                                        }
+                                    }
+                                } else {
+                                    self.model_status = Some("Snapshot untuk riwayat ini tidak tersedia".to_string());
+                                }
                             }
                         }
                     }

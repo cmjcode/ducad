@@ -77,12 +77,11 @@ impl LoadedDocument {
     }
 }
 
-/// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
-pub fn save_multi_plane(
-    path: impl AsRef<Path>,
+/// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
+pub fn serialize_to_json(
     sketches: &[Sketch; 3],
     bodies: &[(&str, bool, &KernelShape)],
-) -> Result<()> {
+) -> Result<String> {
     let bodies = bodies
         .iter()
         .map(|(name, visible, shape)| {
@@ -103,29 +102,16 @@ pub fn save_multi_plane(
         right_sketch: Some(sketches[2].clone()),
         bodies,
     };
-    let json = serde_json::to_string_pretty(&file).context("gagal serialize dokumen ke JSON")?;
-    std::fs::write(path, json).context("gagal menulis file .ducad")?;
-    Ok(())
+    serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
 }
 
-/// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
-pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &KernelShape)]) -> Result<()> {
-    save_multi_plane(
-        path,
-        &[sketch.clone(), Sketch::default(), Sketch::default()],
-        bodies,
-    )
-}
-
-/// Muat dokumen dari `path`. Menolak `format_version` yang lebih baru dari
-/// `FORMAT_VERSION` yang dikenal build ini (lihat catatan konstanta).
-pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
-    let json = std::fs::read_to_string(&path).context("gagal membaca file .ducad")?;
+/// Deserialize dokumen dari String JSON (untuk restore snapshot database).
+pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
     let file: DuCADFile =
-        serde_json::from_str(&json).context("gagal parse file .ducad (format tidak dikenal atau rusak)")?;
+        serde_json::from_str(json).context("gagal parse snapshot file .ducad")?;
     if file.format_version > FORMAT_VERSION {
         bail!(
-            "file .ducad ini dibuat versi format {} — build DUCAD ini cuma mengenal sampai versi {FORMAT_VERSION}, perbarui aplikasi",
+            "snapshot dibuat versi format {} — build DUCAD cuma mengenal sampai versi {FORMAT_VERSION}",
             file.format_version
         );
     }
@@ -135,7 +121,7 @@ pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
         .into_iter()
         .map(|b| {
             let shape = KernelShape::from_step_string(&b.step)
-                .with_context(|| format!("gagal baca geometri body '{}' dari STEP tersimpan", b.name))?;
+                .with_context(|| format!("gagal baca geometri body '{}' dari STEP snapshot", b.name))?;
             Ok(LoadedBody {
                 name: b.name,
                 visible: b.visible,
@@ -153,6 +139,33 @@ pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
         right_sketch,
         bodies,
     })
+}
+
+/// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
+pub fn save_multi_plane(
+    path: impl AsRef<Path>,
+    sketches: &[Sketch; 3],
+    bodies: &[(&str, bool, &KernelShape)],
+) -> Result<()> {
+    let json = serialize_to_json(sketches, bodies)?;
+    std::fs::write(path, json).context("gagal menulis file .ducad")?;
+    Ok(())
+}
+
+/// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
+pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &KernelShape)]) -> Result<()> {
+    save_multi_plane(
+        path,
+        &[sketch.clone(), Sketch::default(), Sketch::default()],
+        bodies,
+    )
+}
+
+/// Muat dokumen dari `path`. Menolak `format_version` yang lebih baru dari
+/// `FORMAT_VERSION` yang dikenal build ini (lihat catatan konstanta).
+pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
+    let json = std::fs::read_to_string(&path).context("gagal membaca file .ducad")?;
+    deserialize_from_json(&json)
 }
 
 #[cfg(test)]
@@ -238,7 +251,9 @@ mod tests {
         // internal `SlotMap` (yang selalu punya slot sentinel index 0, jadi
         // `"entities": []` mentah bukan representasi valid).
         let json = std::fs::read_to_string(&path).unwrap();
-        let bumped = json.replacen("\"format_version\": 1", "\"format_version\": 999999", 1);
+        let bumped = json
+            .replacen("\"format_version\": 1", "\"format_version\": 999999", 1)
+            .replacen("\"format_version\":1", "\"format_version\": 999999", 1);
         assert_ne!(json, bumped, "replace format_version harus benar-benar kena");
         std::fs::write(&path, bumped).unwrap();
 

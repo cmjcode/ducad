@@ -75,6 +75,30 @@ impl DuCADApp {
         self.undos[idx].redo(&mut self.sketches[idx]);
     }
 
+    #[inline]
+    pub fn can_undo_active_sketch(&self) -> bool {
+        let idx = self.active_plane_index();
+        self.undos[idx].can_undo()
+    }
+
+    #[inline]
+    pub fn can_redo_active_sketch(&self) -> bool {
+        let idx = self.active_plane_index();
+        self.undos[idx].can_redo()
+    }
+
+    #[inline]
+    pub fn sketch_undo_count(&self) -> usize {
+        let idx = self.active_plane_index();
+        self.undos[idx].undo_count()
+    }
+
+    #[inline]
+    pub fn sketch_redo_count(&self) -> usize {
+        let idx = self.active_plane_index();
+        self.undos[idx].redo_count()
+    }
+
     /// Ubah bidang kerja sketsa aktif dan selaraskan kamera.
     pub fn set_sketch_plane(&mut self, kind: PlaneKind) {
         if self.active_plane.kind != kind {

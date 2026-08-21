@@ -168,6 +168,14 @@ impl<T> UndoStack<T> {
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
+
+    pub fn undo_count(&self) -> usize {
+        self.undo.len()
+    }
+
+    pub fn redo_count(&self) -> usize {
+        self.redo.len()
+    }
 }
 
 #[cfg(test)]
