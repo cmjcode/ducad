@@ -426,6 +426,46 @@ impl DuCADApp {
         }
     }
 
+    /// Shell/Hollow sisi/face 3D yang sedang aktif dengan ketebalan dinding yang ditentukan.
+    pub fn shell_active_face(&mut self) {
+        let Some((target_id, ray, _hit)) = self.active_face else {
+            self.model_status =
+                Some("Pilih salah satu sisi (face) objek terlebih dahulu untuk Shell/Hollow".to_string());
+            return;
+        };
+        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+            self.model_status = Some("Tebal shell tidak valid".to_string());
+            return;
+        };
+        if thickness <= 0.0 {
+            self.model_status = Some("Ketebalan shell harus lebih besar dari 0".to_string());
+            return;
+        }
+        let Some(geo) = self.model.geometry.get(target_id) else {
+            self.model_status = Some("Geometri body target tidak ditemukan".to_string());
+            return;
+        };
+
+        match ducad_kernel::shell_hollow_faces(&geo.shape, thickness, &[ray]) {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.model_undo.execute(
+                    Box::new(ReplaceGeometryCommand::new("Shell", target_id, new_geo)),
+                    &mut self.model,
+                );
+                self.round_history.remove(&target_id);
+                self.active_face = None;
+                self.selected_faces.clear();
+                self.picking_mode = PickMode::None;
+                self.set_tool(crate::types::ToolKind::Select);
+                self.model_status = Some(format!("✓ Shell berhasil dibuat (tebal {:.1} mm)", thickness));
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Shell gagal: {e}"));
+            }
+        }
+    }
+
     /// Extrude sisi/face 3D yang sedang aktif sepanjang `distance` mm.
     pub fn extrude_active_face(&mut self, distance: f64) {
         let Some((target_id, ray, _hit)) = self.active_face else {

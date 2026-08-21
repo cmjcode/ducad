@@ -26,7 +26,7 @@ pub mod tool_popups;
 pub mod top_bar;
 pub mod viewcube;
 
-pub use canvas_hud::{CanvasHud, CanvasHudEvent, LoftHudAction, RevolveHudAction};
+pub use canvas_hud::{CanvasHud, CanvasHudEvent, LoftHudAction, RevolveHudAction, ShellHudAction};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use context_bar::{ContextAction, ContextActionBar};

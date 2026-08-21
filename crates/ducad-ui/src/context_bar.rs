@@ -18,6 +18,7 @@ pub enum ContextAction {
     Mirror,
     Trim,
     Revolve,
+    Shell,
     Fillet,
     SketchOnFace,
     Delete,
@@ -176,6 +177,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Putar bidang mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
+                }
+
+                // Shell / Hollow Face
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Shell / Hollow", ICON_OPEN_IN_FULL.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Ronggakan benda 3D dengan ketebalan dinding (S)").clicked() {
+                    action = Some(ContextAction::Shell);
                 }
 
                 ui.add_space(2.0);

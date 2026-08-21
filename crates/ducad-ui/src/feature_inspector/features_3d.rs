@@ -1,6 +1,6 @@
 use egui::{Color32, RichText, Slider, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_OPEN_IN_FULL,
+    ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_REDO, ICON_REFRESH, ICON_STRAIGHTEN, ICON_UNDO,
 };
 
@@ -334,50 +334,6 @@ pub fn show_3d_cards(
         });
         ui.add_space(3.0);
 
-        // Shell / Hollow Card
-        card_frame().show(ui, |ui| {
-            ui.label(
-                RichText::new(format!("{} Shell / Hollow", ICON_OPEN_IN_FULL.codepoint))
-                    .strong()
-                    .color(ACCENT_BLUE),
-            );
-            let face_btn_label = if state.picking_mode == InspectorPickMode::Face {
-                "[x] Mode Pilih Wajah (Aktif)"
-            } else {
-                "[ ] Mode Pilih Wajah Manual"
-            };
-            ui.horizontal(|ui| {
-                let single = state.selected_bodies_count == 1;
-                if ui
-                    .add_enabled(
-                        single,
-                        egui::Button::new(RichText::new(face_btn_label).size(10.5)),
-                    )
-                    .clicked()
-                {
-                    *event = Some(InspectorEvent::ToggleFacePicking);
-                }
-                ui.label(
-                    RichText::new(format!("{} wajah", state.selected_faces_count))
-                        .size(10.5)
-                        .color(TEXT_SECONDARY),
-                );
-            });
-
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Tebal:").size(10.5).color(TEXT_SECONDARY));
-                ui.add_sized(
-                    Vec2::new(60.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.shell_input),
-                );
-            });
-            if ui.button(RichText::new("Eksekusi Shell").size(10.5)).clicked() {
-                if let Ok(t) = state.shell_input.trim().parse::<f64>() {
-                    *event = Some(InspectorEvent::ApplyShell { thickness: t });
-                }
-            }
-        });
-        ui.add_space(3.0);
 
         // Hapus Body
         let del_text = format!("{} Hapus Body Terpilih", ICON_DELETE.codepoint);

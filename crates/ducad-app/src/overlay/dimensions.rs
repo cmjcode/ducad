@@ -683,6 +683,37 @@ impl DuCADApp {
                 !self.selected.is_empty(),
                 ui.input(|i| i.time),
             );
+        } else if self.tool == ToolKind::Shell {
+            let has_face_selection = self.active_face.is_some();
+            let current_thickness = self.shell_thickness_input.trim().parse::<f64>().unwrap_or(2.0);
+
+            if let Some(action) = CanvasHud::render_shell_top_bar_hud(
+                ui,
+                rect,
+                has_face_selection,
+                current_thickness,
+                &mut self.shell_thickness_input,
+            ) {
+                match action {
+                    ducad_ui::ShellHudAction::SetThickness(t) => {
+                        self.shell_thickness_input = format!("{:.1}", t);
+                    }
+                    ducad_ui::ShellHudAction::Commit => {
+                        self.shell_active_face();
+                    }
+                    ducad_ui::ShellHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if has_face_selection {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.shell_active_face();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            }
         } else {
             ToolGuides::render_tool_guide(
                 ui,

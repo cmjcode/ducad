@@ -29,6 +29,13 @@ pub enum LoftHudAction {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ShellHudAction {
+    SetThickness(f64),
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
@@ -1010,16 +1017,13 @@ impl CanvasHud {
         let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
         banner_ui.horizontal_centered(|ui| {
             ui.add_space(14.0);
-            ui.label(
-                RichText::new(step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if is_staged || is_ready {
-                        ACCENT_GREEN
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
+            ui.label(RichText::new(step_text).size(11.5).strong().color(
+                if is_staged || is_ready {
+                    ACCENT_GREEN
+                } else {
+                    Color32::WHITE
+                },
+            ));
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
@@ -1061,17 +1065,19 @@ impl CanvasHud {
                     } else {
                         "↕ Bawah: Profil 1"
                     };
-                    let flip_btn = egui::Button::new(
-                        RichText::new(flip_label)
-                            .size(10.5)
-                            .strong()
-                            .color(if is_flipped { ACCENT_ORANGE } else { TEXT_PRIMARY }),
-                    )
-                    .fill(if is_flipped {
-                        Color32::from_rgba_premultiplied(70, 45, 15, 200)
-                    } else {
-                        Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                    });
+                    let flip_btn =
+                        egui::Button::new(RichText::new(flip_label).size(10.5).strong().color(
+                            if is_flipped {
+                                ACCENT_ORANGE
+                            } else {
+                                TEXT_PRIMARY
+                            },
+                        ))
+                        .fill(if is_flipped {
+                            Color32::from_rgba_premultiplied(70, 45, 15, 200)
+                        } else {
+                            Color32::from_rgba_premultiplied(40, 44, 52, 180)
+                        });
 
                     if ui
                         .add(flip_btn)
@@ -1134,7 +1140,8 @@ impl CanvasHud {
                     let modal_w = 400.0;
                     let modal_h = 105.0;
                     let modal_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 160.0);
-                    let modal_rect = egui::Rect::from_center_size(modal_pos, Vec2::new(modal_w, modal_h));
+                    let modal_rect =
+                        egui::Rect::from_center_size(modal_pos, Vec2::new(modal_w, modal_h));
 
                     ui.painter().rect_filled(
                         modal_rect,
@@ -1148,7 +1155,8 @@ impl CanvasHud {
                         StrokeKind::Inside,
                     );
 
-                    let mut modal_ui = ui.new_child(egui::UiBuilder::new().max_rect(modal_rect.shrink(10.0)));
+                    let mut modal_ui =
+                        ui.new_child(egui::UiBuilder::new().max_rect(modal_rect.shrink(10.0)));
                     modal_ui.vertical_centered(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(
@@ -1192,6 +1200,131 @@ impl CanvasHud {
                 }
             }
         }
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Shell / Hollow 3D (seperti Revolve & Loft)
+    pub fn render_shell_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        has_face_selection: bool,
+        current_thickness: f64,
+        thickness_input: &mut String,
+    ) -> Option<ShellHudAction> {
+        let mut hud_action = None;
+
+        let banner_w = 680.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            18.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            18.0,
+            Stroke::new(
+                1.2,
+                if has_face_selection {
+                    ACCENT_GREEN
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = if has_face_selection {
+            "Atur Ketebalan Dinding"
+        } else {
+            "Pilih salah satu sisi objek 3D"
+        };
+
+        // Layout horizontal di dalam banner
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(step_text)
+                    .size(11.5)
+                    .strong()
+                    .color(if has_face_selection {
+                        ACCENT_GREEN
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                if has_face_selection {
+                    // Tombol Eksekusi Shell (Commit)
+                    let exec_btn = egui::Button::new(
+                        RichText::new("🚀 Eksekusi Shell (Enter)")
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_GREEN);
+
+                    if ui.add(exec_btn).clicked() {
+                        hud_action = Some(ShellHudAction::Commit);
+                    }
+
+                    // Tombol Batal
+                    let cancel_btn = egui::Button::new(
+                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
+                    )
+                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
+
+                    if ui.add(cancel_btn).clicked() {
+                        hud_action = Some(ShellHudAction::Cancel);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Input Textbox Tebal
+                    let text_edit = egui::TextEdit::singleline(thickness_input)
+                        .desired_width(46.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let resp = ui.add(text_edit);
+                    if resp.changed() {
+                        if let Ok(t) = thickness_input.trim().parse::<f64>() {
+                            hud_action = Some(ShellHudAction::SetThickness(t));
+                        }
+                    }
+
+                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
+
+                    // Quick Preset Buttons [5 mm, 3 mm, 2 mm, 1 mm]
+                    for &t in &[5.0, 3.0, 2.0, 1.0] {
+                        let is_active = (current_thickness - t).abs() < 0.05;
+                        let btn = egui::Button::new(
+                            RichText::new(format!("{:.0}", t))
+                                .size(10.5)
+                                .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
+                        )
+                        .fill(if is_active {
+                            Color32::from_rgba_premultiplied(40, 60, 90, 200)
+                        } else {
+                            Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                        });
+
+                        if ui.add(btn).clicked() {
+                            *thickness_input = format!("{:.1}", t);
+                            hud_action = Some(ShellHudAction::SetThickness(t));
+                        }
+                    }
+                    ui.label(RichText::new("Tebal:").size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
 
         hud_action
     }

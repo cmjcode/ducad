@@ -15,7 +15,6 @@ use ducad_ui::{
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     RadialMenu,
-    ShellPopup, ShellPopupState,
     SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -873,16 +872,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::Shell => {
-                let mut state = ShellPopupState {
-                    shell_input: self.shell_thickness_input.clone(),
-                    is_face_picking_active: self.picking_mode == PickMode::Face,
-                    selected_faces_count: self.selected_faces.len(),
-                    selected_bodies_count: self.selected_bodies.len(),
-                };
-                popup_ev = ShellPopup::show(&ctx, &mut state, screen_rect);
-                self.shell_thickness_input = state.shell_input;
-            }
             ToolKind::Boolean => {
                 let mut state = BooleanPopupState {
                     selected_bodies_count: self.selected_bodies.len(),
@@ -1194,6 +1183,9 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::Revolve => {
                                     self.open_revolve_dialog();
+                                }
+                                ContextAction::Shell => {
+                                    self.set_tool(ToolKind::Shell);
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;
