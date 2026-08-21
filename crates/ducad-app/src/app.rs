@@ -1134,8 +1134,6 @@ impl eframe::App for DuCADApp {
             }
         }
 
-        let bottom_center = egui::pos2(screen_center_x, screen_rect.max.y);
-
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
         let has_face_sel = self.active_face.is_some();
@@ -1219,12 +1217,12 @@ impl eframe::App for DuCADApp {
         let m_summary = self.measurements.last().map(|m| m.label());
         let show_normal_to_sketch = self.tool != ToolKind::Select;
 
-        egui::Area::new(egui::Id::new("ducad-hud-bottom-status-area"))
-            .pivot(egui::Align2::CENTER_BOTTOM)
-            .fixed_pos(bottom_center - egui::vec2(0.0, 18.0))
+        egui::Area::new(egui::Id::new("ducad-hud-status-area"))
+            .pivot(egui::Align2::LEFT_TOP)
+            .fixed_pos(egui::pos2(screen_rect.min.x + 16.0, screen_rect.min.y + 60.0))
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
-                if let Some(ev) = CanvasHud::show_bottom_status_pill(
+                if let Some(ev) = CanvasHud::show_status_pill(
                     ui,
                     &sel_summary,
                     m_summary.as_deref(),

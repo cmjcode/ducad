@@ -2,7 +2,7 @@
 //!
 //! Menampilkan widget HUD mengambang langsung di atas kanvas 3D:
 //! tombol kapsul "Normal to Sketch", banner peringatan Section View,
-//! badge dimensi in-situ, dan status seleksi mengambang di bawah tengah kanvas.
+//! badge dimensi in-situ, dan status seleksi mengambang di pojok kiri atas kanvas.
 
 use crate::theme::{
     pill_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
@@ -127,7 +127,7 @@ impl CanvasHud {
     }
 
     /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di dalam container UI yang diberikan.
-    pub fn show_bottom_status_pill(
+    pub fn show_status_pill(
         ui: &mut Ui,
         selection_summary: &str,
         measurement_summary: Option<&str>,
@@ -174,6 +174,16 @@ impl CanvasHud {
             });
         });
         event
+    }
+
+    #[inline]
+    pub fn show_bottom_status_pill(
+        ui: &mut Ui,
+        selection_summary: &str,
+        measurement_summary: Option<&str>,
+        show_normal_to_sketch: bool,
+    ) -> Option<CanvasHudEvent> {
+        Self::show_status_pill(ui, selection_summary, measurement_summary, show_normal_to_sketch)
     }
 
     /// Render badge dimensi mengambang putih langsung pada posisi 2D di kanvas.
