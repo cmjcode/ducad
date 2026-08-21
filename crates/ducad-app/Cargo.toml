@@ -26,6 +26,8 @@ log = { workspace = true }
 env_logger = { workspace = true }
 anyhow = { workspace = true }
 image = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
 usvg = { version = "0.48", default-features = false }
 resvg = { version = "0.48" }
 

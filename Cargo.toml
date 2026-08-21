@@ -63,6 +63,8 @@ opencascade = "0.2"
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
 rfd = "0.17"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # Modern Apple platform bridging (macOS & iOS) — https://github.com/madsmtm/objc2
 objc2 = "0.6"

@@ -101,13 +101,13 @@ impl DuCADApp {
                                     ducad_kernel::subtract(&target_geo.shape, &swept)
                                 {
                                     let new_geo = BodyGeometry::from_shape(cut_res);
-                                    self.model_undo.execute(
+                                    self.execute_model_command(
                                         Box::new(ReplaceGeometryCommand::new(
                                             "Cut Extrude",
                                             target_id,
                                             new_geo,
                                         )),
-                                        &mut self.model,
+                                        &format!("Jarak {:.1} mm", self.gizmo_distance),
                                     );
                                     self.round_history.remove(&target_id);
                                 }
@@ -116,7 +116,10 @@ impl DuCADApp {
                     } else {
                         let geo = BodyGeometry::from_shape(swept);
                         let cmd = AddSolidCommand::new("Extrude", geo);
-                        self.model_undo.execute(Box::new(cmd), &mut self.model);
+                        self.execute_model_command(
+                            Box::new(cmd),
+                            &format!("Tinggi {:.1} mm", self.gizmo_distance),
+                        );
                     }
                     self.selected.clear();
                 }

@@ -130,67 +130,68 @@ impl ItemsDrawer {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
-            ui.set_width(260.0);
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 6.0);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_width(260.0);
+                ui.spacing_mut().item_spacing = Vec2::new(4.0, 6.0);
 
-            // =========================================================================
-            // 1. SEARCH BAR & CLOSE BUTTON (Compact Single Row, No Folder Icon)
-            // =========================================================================
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(ICON_SEARCH.codepoint)
-                        .size(13.0)
-                        .color(TEXT_SECONDARY),
-                );
-                let has_query = !self.search_query.is_empty();
-                let clear_btn_w = if has_query { 22.0 } else { 0.0 };
-                let close_btn_w = 26.0;
-                let text_width = (ui.available_width() - clear_btn_w - close_btn_w).max(80.0);
+                // =========================================================================
+                // 1. SEARCH BAR & CLOSE BUTTON (Compact Single Row, No Folder Icon)
+                // =========================================================================
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(ICON_SEARCH.codepoint)
+                            .size(13.0)
+                            .color(TEXT_SECONDARY),
+                    );
+                    let has_query = !self.search_query.is_empty();
+                    let clear_btn_w = if has_query { 22.0 } else { 0.0 };
+                    let close_btn_w = 26.0;
+                    let text_width = (ui.available_width() - clear_btn_w - close_btn_w).max(80.0);
 
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.search_query)
-                        .hint_text("Cari objek 2D, body 3D…")
-                        .desired_width(text_width),
-                );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.search_query)
+                            .hint_text("Cari objek 2D, body 3D…")
+                            .desired_width(text_width),
+                    );
 
-                if has_query {
-                    if ui
+                    if has_query {
+                        if ui
+                            .small_button(
+                                RichText::new(ICON_CLEAR.codepoint)
+                                    .size(11.0)
+                                    .color(TEXT_SECONDARY),
+                            )
+                            .on_hover_text("Hapus pencarian")
+                            .clicked()
+                        {
+                            self.search_query.clear();
+                        }
+                    }
+
+                    let close_btn = ui
                         .small_button(
-                            RichText::new(ICON_CLEAR.codepoint)
-                                .size(11.0)
+                            RichText::new(ICON_CLOSE.codepoint)
+                                .size(12.0)
                                 .color(TEXT_SECONDARY),
                         )
-                        .on_hover_text("Hapus pencarian")
-                        .clicked()
-                    {
-                        self.search_query.clear();
+                        .on_hover_text("Tutup Panel");
+                    if close_btn.clicked() {
+                        event = Some(ItemsDrawerEvent::Close);
                     }
-                }
+                });
 
-                let close_btn = ui
-                    .small_button(
-                        RichText::new(ICON_CLOSE.codepoint)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    )
-                    .on_hover_text("Tutup Panel");
-                if close_btn.clicked() {
-                    event = Some(ItemsDrawerEvent::Close);
-                }
-            });
+                ui.separator();
 
-            ui.separator();
+                let query = self.search_query.to_lowercase().trim().to_string();
 
-            let query = self.search_query.to_lowercase().trim().to_string();
-
-            // =========================================================================
-            // 2. SCROLLABLE ACCORDION SECTIONS
-            // =========================================================================
-            ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .max_height(max_height)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
+                // =========================================================================
+                // 2. SCROLLABLE ACCORDION SECTIONS
+                // =========================================================================
+                ScrollArea::vertical()
+                    .auto_shrink([false, true])
+                    .max_height(max_height)
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
 
                     // -----------------------------------------------------------------
                     // ACCORDION A: 2D OBJECTS
@@ -558,6 +559,7 @@ impl ItemsDrawer {
                         }
                     }
                 });
+            });
         });
 
         event

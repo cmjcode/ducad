@@ -388,17 +388,17 @@ impl DuCADApp {
                     h.features = features;
                 }
                 let new_geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
-                    Box::new(ReplaceGeometryCommand::new("Rounding", body_id, new_geo)),
-                    &mut self.model,
+                let label = match style {
+                    RoundStyle::Fillet => "Fillet",
+                    RoundStyle::Chamfer => "Chamfer",
+                };
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new(label, body_id, new_geo)),
+                    &format!("{:.1} mm", magnitude),
                 );
                 self.model_status = Some(if sharp {
                     "Rounding dihapus — sudut kembali menyiku".to_string()
                 } else {
-                    let label = match style {
-                        RoundStyle::Fillet => "Fillet",
-                        RoundStyle::Chamfer => "Chamfer",
-                    };
                     format!(
                         "{label} {:.1} mm sukses — klik sudutnya lagi utk mengubah/menghapus",
                         magnitude

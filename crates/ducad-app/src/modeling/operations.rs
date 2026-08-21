@@ -3,6 +3,7 @@ use ducad_kernel::PickRay;
 use ducad_render::SketchPlane;
 use ducad_sketch::constraint::{self, AddConstraint, Constraint};
 use glam::Vec3;
+use slotmap::Key;
 
 use crate::app::DuCADApp;
 use crate::model::{
@@ -50,9 +51,9 @@ impl DuCADApp {
         match self.extrude_profile_active_plane(&profile, distance) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(AddSolidCommand::new("Extrude", geo)),
-                    &mut self.model,
+                    &format!("Tinggi {:.1} mm", distance),
                 );
                 self.model_status = None;
             }
@@ -87,9 +88,9 @@ impl DuCADApp {
         match ducad_kernel::revolve_profile(&profile, axis_origin, axis_dir, angle_deg) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(AddSolidCommand::new("Revolve", geo)),
-                    &mut self.model,
+                    &format!("Sudut {:.0}°", angle_deg.unwrap_or(360.0)),
                 );
                 self.model_status = Some(format!(
                     "Revolve {:.0}° berhasil dibuat",
@@ -218,8 +219,10 @@ impl DuCADApp {
         match ducad_kernel::loft_profiles(&bottom, &top, height) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
-                self.model_undo
-                    .execute(Box::new(AddSolidCommand::new("Loft", geo)), &mut self.model);
+                self.execute_model_command(
+                    Box::new(AddSolidCommand::new("Loft", geo)),
+                    &format!("Tinggi {:.1} mm", height),
+                );
                 self.set_tool(crate::types::ToolKind::Select);
                 self.selected.clear();
                 self.selection_box = None;
@@ -252,7 +255,7 @@ impl DuCADApp {
         };
         let height: f64 = match self.loft_height_input.trim().parse() {
             Ok(v) => v,
-            Err(_) => {
+            _ => {
                 self.model_status = Some("Tinggi loft tidak valid".to_string());
                 return;
             }
@@ -267,8 +270,10 @@ impl DuCADApp {
         match ducad_kernel::loft_profiles(&bottom, &top, height) {
             Ok(shape) => {
                 let geo = BodyGeometry::from_shape(shape);
-                self.model_undo
-                    .execute(Box::new(AddSolidCommand::new("Loft", geo)), &mut self.model);
+                self.execute_model_command(
+                    Box::new(AddSolidCommand::new("Loft", geo)),
+                    &format!("Tinggi {:.1} mm", height),
+                );
                 self.pending_loft_bottom = None;
                 self.model_status = None;
             }
@@ -287,7 +292,7 @@ impl DuCADApp {
         let (a_id, b_id) = (*a, *b);
         match BooleanCommand::try_new(&self.model, kind, label, result_name, a_id, b_id) {
             Ok(cmd) => {
-                self.model_undo.execute(Box::new(cmd), &mut self.model);
+                self.execute_model_command(Box::new(cmd), label);
                 self.selected_bodies.clear();
                 self.round_history.remove(&a_id);
                 self.round_history.remove(&b_id);
@@ -345,9 +350,9 @@ impl DuCADApp {
         match result {
             Ok(shape) => {
                 let new_geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Fillet", id, new_geo)),
-                    &mut self.model,
+                    &format!("Radius {:.1} mm", radius),
                 );
                 self.round_history.remove(&id);
                 self.selected_edges.clear();
@@ -390,9 +395,9 @@ impl DuCADApp {
         match result {
             Ok(shape) => {
                 let new_geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Chamfer", id, new_geo)),
-                    &mut self.model,
+                    &format!("Jarak {:.1} mm", distance),
                 );
                 self.round_history.remove(&id);
                 self.selected_edges.clear();
@@ -429,9 +434,9 @@ impl DuCADApp {
         match result {
             Ok(shape) => {
                 let new_geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Shell", id, new_geo)),
-                    &mut self.model,
+                    &format!("Tebal {:.1} mm", thickness),
                 );
                 self.round_history.remove(&id);
                 self.selected_faces.clear();
@@ -453,36 +458,28 @@ impl DuCADApp {
             self.model_status = Some("Tebal shell tidak valid".to_string());
             return;
         };
-        if thickness <= 0.0 {
-            self.model_status = Some("Ketebalan shell harus lebih besar dari 0".to_string());
-            return;
-        }
         let Some(geo) = self.model.geometry.get(target_id) else {
-            self.model_status = Some("Geometri body target tidak ditemukan".to_string());
             return;
         };
 
         match ducad_kernel::shell_hollow_faces(&geo.shape, thickness, &[ray]) {
             Ok(shape) => {
                 let new_geo = BodyGeometry::from_shape(shape);
-                self.model_undo.execute(
-                    Box::new(ReplaceGeometryCommand::new("Shell", target_id, new_geo)),
-                    &mut self.model,
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new("Shell Face", target_id, new_geo)),
+                    &format!("Tebal {:.1} mm", thickness),
                 );
                 self.round_history.remove(&target_id);
                 self.active_face = None;
-                self.selected_faces.clear();
-                self.picking_mode = PickMode::None;
-                self.set_tool(crate::types::ToolKind::Select);
-                self.model_status = Some(format!("✓ Shell berhasil dibuat (tebal {:.1} mm)", thickness));
+                self.model_status = Some(format!("Shell face {:.1} mm sukses", thickness));
             }
             Err(e) => {
-                self.model_status = Some(format!("Shell gagal: {e}"));
+                self.model_status = Some(format!("Shell face gagal: {e}"));
             }
         }
     }
 
-    /// Extrude sisi/face 3D yang sedang aktif sepanjang `distance` mm.
+    /// Extrude sisi/face 3D yang sedang aktif sebesar jarak tertentu.
     pub fn extrude_active_face(&mut self, distance: f64) {
         let Some((target_id, ray, _hit)) = self.active_face else {
             self.model_status =
@@ -493,17 +490,18 @@ impl DuCADApp {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return;
         };
+
         match ducad_kernel::extrude_face(&target_geo.shape, ray, distance) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
-                let label = if distance > 0.0 {
+                let label = if distance >= 0.0 {
                     "Extrude Face"
                 } else {
                     "Cut Face"
                 };
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new(label, target_id, new_geo)),
-                    &mut self.model,
+                    &format!("Jarak {:.1} mm", distance),
                 );
                 self.round_history.remove(&target_id);
                 self.active_face = None;
@@ -542,9 +540,9 @@ impl DuCADApp {
         match ducad_kernel::revolve_face(&target_geo.shape, ray, axis_origin, axis_dir, angle_deg) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Revolve Face", target_id, new_geo)),
-                    &mut self.model,
+                    &format!("Sudut {:.0}°", angle_deg.unwrap_or(360.0)),
                 );
                 self.round_history.remove(&target_id);
                 self.active_face = None;
@@ -597,8 +595,11 @@ impl DuCADApp {
     /// Hapus semua body terpilih.
     pub fn delete_selected_bodies(&mut self) {
         for id in std::mem::take(&mut self.selected_bodies) {
-            self.model_undo
-                .execute(Box::new(DeleteBodyCommand::new(id)), &mut self.model);
+            let id_raw = id.data().as_ffi();
+            self.execute_model_command(
+                Box::new(DeleteBodyCommand::new(id)),
+                &format!("Hapus Body #{}", id_raw),
+            );
             self.round_history.remove(&id);
         }
         self.body_move_armed = false;

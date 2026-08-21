@@ -9,6 +9,7 @@ pub mod apple;
 pub mod app;
 pub mod document;
 pub mod file_io;
+pub mod history_db;
 pub mod import_worker;
 pub mod input;
 pub mod model;

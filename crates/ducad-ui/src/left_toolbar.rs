@@ -8,7 +8,7 @@
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT,
-    ICON_CROP_16_9, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
+    ICON_CROP_16_9, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
     ICON_LAYERS,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -144,28 +144,6 @@ impl LeftToolbar {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
                 }
-            }
-
-            // 3. Shared Utilities (Pengukuran & Riwayat/History)
-            ui.add_space(1.0);
-            ui.separator();
-            ui.add_space(1.0);
-
-
-            // History & Undo/Redo
-            let history_active = current_tool == ToolbarTool::History;
-            let hist_btn = square_btn(
-                ui,
-                ICON_HISTORY.codepoint,
-                history_active,
-                "Riwayat & Undo/Redo",
-                Some("H"),
-                Some("Lacak riwayat langkah & undo / redo model"),
-                None,
-                None,
-            );
-            if hist_btn.clicked() {
-                event = Some(ToolbarEvent::SelectTool(ToolbarTool::History));
             }
         });
 

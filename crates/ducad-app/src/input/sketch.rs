@@ -290,19 +290,22 @@ impl DuCADApp {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
-                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &format!("Geser ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
+                    );
                     self.model_status = Some(format!(
                         "Body diduplikasi & digeser ({:.1}, {:.1}, {:.1}) mm",
                         delta.x, delta.y, delta.z
                     ));
                 } else {
-                    self.model_undo.execute(
+                    self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(
                             "Geser Body",
                             target_id,
                             new_geo,
                         )),
-                        &mut self.model,
+                        &format!("Geser ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
                     self.round_history.remove(&target_id);
                     self.model_status = Some(format!(
@@ -332,16 +335,16 @@ impl DuCADApp {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
-                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.execute_model_command(Box::new(cmd), &format!("Putar {:.1}°", angle_deg));
                     self.model_status = Some(format!("Body diduplikasi & diputar {:.1}°", angle_deg));
                 } else {
-                    self.model_undo.execute(
+                    self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(
                             "Putar Body",
                             target_id,
                             new_geo,
                         )),
-                        &mut self.model,
+                        &format!("Putar {:.1}°", angle_deg),
                     );
                     self.round_history.remove(&target_id);
                     self.model_status = Some(format!("Body diputar {:.1}°", angle_deg));
@@ -358,10 +361,8 @@ impl DuCADApp {
     /// bikin nilai non-proporsional yg diam-diam ditolak & terkesan "tidak ngapa-ngapain").
     /// Faktor SELALU dihitung dari 1 sumbu yg diedit itu (`new_length_mm` / panjang sumbu
     /// itu sekarang) lalu diterapkan uniform ke X/Y/Z sekaligus — `ducad_kernel::scale_shape`
-    /// cuma dukung faktor seragam (lihat `vendor/README.md` Perubahan #10), jadi 2 sumbu lain
-    /// ikut proporsional otomatis (angkanya update sendiri di frame berikutnya, dihitung ulang
-    /// langsung dari mesh — bukan disimpan terpisah). Pivot = centroid bbox supaya body
-    /// tumbuh/menyusut simetris di tempat, tidak bergeser.
+    /// memakai uniform scaling murni OpenCASCADE `BRepBuilderAPI_Transform` yang stabil &
+    /// tidak merusak geometri.
     pub fn scale_selected_body_by_axis(&mut self, axis: usize, new_length_mm: f64) {
         let Some((target_id, center)) = self.selected_single_body_center() else {
             return;
@@ -369,7 +370,6 @@ impl DuCADApp {
         let Some(target_geo) = self.model.geometry.get(target_id) else {
             return;
         };
-
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
         for p in &target_geo.mesh.positions {
@@ -380,7 +380,7 @@ impl DuCADApp {
         }
         let old_len = (max[axis] - min[axis]).abs() as f64;
         if old_len < 1e-4 {
-            self.model_status = Some("Resize body gagal: bounding box terlalu kecil".to_string());
+            self.model_status = Some("Resize body gagal: ukuran awal terlalu kecil".to_string());
             return;
         }
         if new_length_mm <= 0.0 {
@@ -395,17 +395,20 @@ impl DuCADApp {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
-                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &format!("Skala {:.0}%", factor * 100.0),
+                    );
                     self.model_status =
                         Some(format!("Body diduplikasi & diresize {:.0}%", factor * 100.0));
                 } else {
-                    self.model_undo.execute(
+                    self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(
                             "Resize Body",
                             target_id,
                             new_geo,
                         )),
-                        &mut self.model,
+                        &format!("Skala {:.0}%", factor * 100.0),
                     );
                     self.round_history.remove(&target_id);
                     self.model_status =
@@ -445,17 +448,20 @@ impl DuCADApp {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
-                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &format!("Ubah Rusuk {:.2} mm", new_length_mm),
+                    );
                     self.model_status =
                         Some(format!("Body diduplikasi & diubah ukurannya ke {:.2} mm", new_length_mm));
                 } else {
-                    self.model_undo.execute(
+                    self.execute_model_command(
                         Box::new(ReplaceGeometryCommand::new(
                             "Ubah Ukuran Rusuk",
                             body_id,
                             new_geo,
                         )),
-                        &mut self.model,
+                        &format!("Ubah Rusuk {:.2} mm", new_length_mm),
                     );
                     self.round_history.remove(&body_id);
                     self.model_status =

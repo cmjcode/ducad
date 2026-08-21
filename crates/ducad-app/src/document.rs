@@ -41,8 +41,26 @@ impl DuCADApp {
 
     #[inline]
     pub fn execute_sketch_command(&mut self, cmd: Box<dyn Command<Sketch>>) {
+        let name = cmd.name().to_string();
         let idx = self.active_plane_index();
+        let plane_label = self.active_plane.kind.display_label().to_string();
         self.undos[idx].execute(cmd, &mut self.sketches[idx]);
+        self.record_activity(
+            ducad_ui::ActivityKindUi::Sketch2D,
+            &name,
+            &format!("Bidang {}", plane_label),
+        );
+    }
+
+    #[inline]
+    pub fn execute_model_command(&mut self, cmd: Box<dyn Command<ModelDoc>>, details: &str) {
+        let name = cmd.name().to_string();
+        self.model_undo.execute(cmd, &mut self.model);
+        self.record_activity(
+            ducad_ui::ActivityKindUi::Solid3D,
+            &name,
+            details,
+        );
     }
 
     #[inline]

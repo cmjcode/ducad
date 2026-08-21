@@ -205,7 +205,10 @@ impl DuCADApp {
                         Ok(shape) => {
                             let geo = BodyGeometry::from_shape_with_mesh(shape, mesh);
                             let cmd = crate::model::AddSolidCommand::new(res.name.clone(), geo);
-                            self.model_undo.execute(Box::new(cmd), &mut self.model);
+                            self.execute_model_command(
+                                Box::new(cmd),
+                                &format!("Impor {}", res.name),
+                            );
                             self.file_status =
                                 Some(format!("Sukses mengimpor STEP: {}", res.name));
                         }

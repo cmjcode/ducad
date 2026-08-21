@@ -10,8 +10,8 @@ use ducad_sketch::{
     SnapHit, UpdateEntity,
 };
 use ducad_ui::{
-    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, Entity2dItemInfo,
+    ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
+    ContextAction, ContextActionBar, Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     RadialMenu,
@@ -110,10 +110,14 @@ pub struct DuCADApp {
 
     pub left_toolbar: LeftToolbar,
     pub items_drawer: ItemsDrawer,
+    pub history_drawer: HistoryDrawer,
     pub viewcube: ViewCube,
     pub feature_inspector_open: bool,
     pub auto_hide_properties: bool,
     pub items_drawer_open: bool,
+    pub history_drawer_open: bool,
+    pub history_db: crate::history_db::HistoryDb,
+    pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
     pub left_toolbar_content_sig: Option<bool>,
     pub inspector_content_sig: Option<InspectorContentSig>,
@@ -212,6 +216,9 @@ impl DuCADApp {
         cc.egui_ctx
             .options_mut(|o| o.input_options.horizontal_scroll_modifier = egui::Modifiers::NONE);
 
+        let history_db = crate::history_db::HistoryDb::new();
+        let activity_cache = history_db.load_activities();
+
         Self {
             camera: OrbitCamera::default(),
             sketches: [Sketch::default(), Sketch::default(), Sketch::default()],
@@ -288,10 +295,14 @@ impl DuCADApp {
 
             left_toolbar: LeftToolbar::default(),
             items_drawer: ItemsDrawer::default(),
+            history_drawer: HistoryDrawer::default(),
             viewcube: ViewCube::default(),
             feature_inspector_open: true,
             auto_hide_properties: true,
             items_drawer_open: false,
+            history_drawer_open: false,
+            history_db,
+            activity_cache,
             plane_menu_open: false,
             left_toolbar_content_sig: None,
             inspector_content_sig: None,
@@ -361,6 +372,12 @@ impl DuCADApp {
             last_select_click: None,
             last_body_select_click: None,
         }
+    }
+
+    /// Catat aktivitas baru ke SQLite dan perbarui cache tampilan riwayat.
+    pub fn record_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
+        self.history_db.log_activity(kind, action, details);
+        self.activity_cache = self.history_db.load_activities();
     }
 
     /// Saat gizmo extrude/push-pull mulai di-drag di mode sketsa, otomatis pindah ke mode 3D
@@ -793,14 +810,20 @@ impl eframe::App for DuCADApp {
             })
             .collect();
 
-        let total_items = entities_2d.len() + bodies.len();
-        let max_drawer_h = (screen_rect.height() - 140.0).max(180.0);
+        let both_open = self.items_drawer_open && self.history_drawer_open;
+        let max_drawer_h = if both_open {
+            ((screen_rect.height() - 200.0) * 0.45).clamp(160.0, 320.0)
+        } else {
+            (screen_rect.height() - 140.0).clamp(180.0, 480.0)
+        };
 
+        // 1. Folder / Items Drawer (Pojok Kanan Bawah, tepat di atas tombol)
+        let mut folder_top_y = None;
         if self.items_drawer_open {
-            let drawer_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+            let folder_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 62.0);
 
-            egui::Area::new(egui::Id::new("ducad-items-drawer-area"))
-                .fixed_pos(drawer_pos)
+            let area_resp = egui::Area::new(egui::Id::new("ducad-items-drawer-area"))
+                .fixed_pos(folder_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
@@ -847,24 +870,72 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
-        } else {
-            // Floating folder button di pojok kanan bawah
-            let btn_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
-            egui::Area::new(egui::Id::new("ducad-items-floating-btn"))
-                .fixed_pos(btn_pos)
+
+            folder_top_y = Some(area_resp.response.rect.min.y);
+        }
+
+        // 2. History Drawer (Tersusun di atas tombol atau di atas Folder Drawer jika keduanya terbuka)
+        if self.history_drawer_open {
+            let hist_bottom_y = if self.items_drawer_open {
+                folder_top_y.unwrap_or(screen_rect.max.y - 62.0 - 200.0) - 8.0
+            } else {
+                screen_rect.max.y - 62.0
+            };
+            let hist_pos = egui::pos2(screen_rect.max.x - 16.0, hist_bottom_y);
+
+            egui::Area::new(egui::Id::new("ducad-history-drawer-area"))
+                .fixed_pos(hist_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.items_drawer.show_floating_button(ui, total_items) {
+                    if let Some(ev) = self.history_drawer.show(ui, &self.activity_cache, max_drawer_h) {
                         match ev {
-                            ItemsDrawerEvent::Open => {
-                                self.items_drawer_open = true;
+                            HistoryDrawerEvent::Close => {
+                                self.history_drawer_open = false;
                             }
-                            _ => {}
+                            HistoryDrawerEvent::ClearAll => {
+                                self.history_db.clear();
+                                self.activity_cache.clear();
+                            }
                         }
                     }
                 });
         }
+
+        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Icon History di Kiri, Icon Folder di Kanan)
+        let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+        egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
+            .fixed_pos(btns_pos)
+            .pivot(egui::Align2::RIGHT_BOTTOM)
+            .order(egui::Order::Foreground)
+            .show(&ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+
+                    // Tombol History (Kiri)
+                    let hist_resp = round_floating_icon_btn(
+                        ui,
+                        egui_material_icons::icons::ICON_HISTORY.codepoint,
+                        self.history_drawer_open,
+                        "Riwayat Aktivitas & Perubahan (2D & 3D)",
+                    );
+                    if hist_resp.clicked() {
+                        self.history_drawer_open = !self.history_drawer_open;
+                    }
+
+                    // Tombol Folder (Kanan)
+                    let folder_resp = round_floating_icon_btn(
+                        ui,
+                        egui_material_icons::icons::ICON_FOLDER.codepoint,
+                        self.items_drawer_open,
+                        "Properties Dokumen (Objek 2D & Solid Body 3D)",
+                    );
+                    if folder_resp.clicked() {
+                        self.items_drawer_open = !self.items_drawer_open;
+                    }
+                });
+            });
+
 
         let viewcube_y = 102.0;
         let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
@@ -1393,9 +1464,9 @@ impl DuCADApp {
         if let Some(staged_id) = self.loft_staged_body_id.take() {
             if let Some(geo) = self.model.geometry.remove(staged_id) {
                 self.model.doc.bodies.remove(staged_id);
-                self.model_undo.execute(
+                self.execute_model_command(
                     Box::new(crate::model::AddSolidCommand::new("Loft", geo)),
-                    &mut self.model,
+                    &format!("Tinggi {} mm", self.loft_height_input.trim()),
                 );
             }
             self.set_tool(ToolKind::Select);
@@ -1421,5 +1492,56 @@ impl DuCADApp {
         self.loft_alignment_dismissed = false;
     }
 }
+
+/// Helper tombol lingkaran mengambang di pojok kanan bawah bergaya Shapr3D.
+fn round_floating_icon_btn(
+    ui: &mut egui::Ui,
+    icon: &'static str,
+    is_active: bool,
+    tooltip: &str,
+) -> egui::Response {
+    let size = egui::Vec2::splat(38.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+
+    let is_hovered = resp.hovered();
+    let bg_color = if is_active {
+        egui::Color32::from_rgb(18, 48, 88)
+    } else if is_hovered {
+        egui::Color32::from_rgb(38, 44, 58)
+    } else {
+        egui::Color32::from_rgb(24, 27, 34)
+    };
+
+    let stroke_color = if is_active || is_hovered {
+        ducad_ui::ACCENT_BLUE
+    } else {
+        ducad_ui::BORDER_SUBTLE
+    };
+
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(19),
+        bg_color,
+        egui::Stroke::new(if is_active || is_hovered { 1.5 } else { 1.0 }, stroke_color),
+        egui::StrokeKind::Inside,
+    );
+
+    let icon_color = if is_active || is_hovered {
+        egui::Color32::WHITE
+    } else {
+        ducad_ui::ACCENT_BLUE
+    };
+
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        icon,
+        egui::FontId::proportional(19.0),
+        icon_color,
+    );
+
+    resp.on_hover_text(tooltip)
+}
+
 
 
