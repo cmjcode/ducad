@@ -14,8 +14,8 @@ use ducad_ui::{
     ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
     ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LoftPopup, LoftPopupState, RadialMenu, RevolvePopup,
-    RevolvePopupState, SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
+    LoftPopup, LoftPopupState, RadialMenu,
+    SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
     SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -1048,22 +1048,6 @@ impl eframe::App for DuCADApp {
                 popup_ev = ExtrudePopup::show(&ctx, &mut state, screen_rect);
                 self.extrude_distance_input = state.extrude_input;
                 self.face_extrude_distance_input = state.face_extrude_input;
-            }
-            ToolKind::Revolve => {
-                let mut state = RevolvePopupState {
-                    axis_preset: match self.revolve_dialog.axis_preset {
-                        ducad_ui::RevolveAxisPreset::YAxisOrigin => 0,
-                        ducad_ui::RevolveAxisPreset::XAxisOrigin => 1,
-                        ducad_ui::RevolveAxisPreset::BBoxLeft => 2,
-                        ducad_ui::RevolveAxisPreset::BBoxBottom => 3,
-                        _ => 4,
-                    },
-                    angle_input: self.revolve_dialog.angle_input.clone(),
-                    reverse: self.revolve_reverse,
-                };
-                popup_ev = RevolvePopup::show(&ctx, &mut state, screen_rect);
-                self.revolve_dialog.angle_input = state.angle_input;
-                self.revolve_reverse = state.reverse;
             }
             ToolKind::Loft => {
                 let mut state = LoftPopupState {
