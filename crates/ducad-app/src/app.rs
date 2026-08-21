@@ -14,7 +14,7 @@ use ducad_ui::{
     ContextAction, ContextActionBar,
     FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LoftPopup, LoftPopupState, RadialMenu,
+    RadialMenu,
     ShellPopup, ShellPopupState,
     SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
@@ -63,6 +63,9 @@ pub struct DuCADApp {
 
     pub pending_loft_bottom: Option<ducad_kernel::Profile>,
     pub loft_height_input: String,
+    pub loft_alignment_dismissed: bool,
+    pub loft_is_flipped: bool,
+    pub selection_box: Option<(glam::DVec2, glam::DVec2)>,
 
     pub picking_mode: PickMode,
     pub selected_edges: Vec<PickedEdge>,
@@ -240,7 +243,10 @@ impl DuCADApp {
             shell_direction: ducad_kernel::Direction::PosZ,
 
             pending_loft_bottom: None,
-            loft_height_input: "10".to_string(),
+            loft_height_input: "20.0".to_string(),
+            loft_alignment_dismissed: false,
+            loft_is_flipped: false,
+            selection_box: None,
             picking_mode: PickMode::default(),
             selected_edges: Vec::new(),
             selected_faces: Vec::new(),
@@ -868,14 +874,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::Loft => {
-                let mut state = LoftPopupState {
-                    loft_height_input: self.loft_height_input.clone(),
-                    loft_bottom_staged: self.pending_loft_bottom.is_some(),
-                };
-                popup_ev = LoftPopup::show(&ctx, &mut state, screen_rect);
-                self.loft_height_input = state.loft_height_input;
-            }
             ToolKind::FilletChamfer => {
                 let mut state = FilletPopupState {
                     fillet_input: self.fillet_radius_input.clone(),
@@ -954,9 +952,13 @@ impl eframe::App for DuCADApp {
                     ) {
                         Ok(profile) => {
                             self.pending_loft_bottom = Some(profile);
-                            self.model_status = None;
+                            self.selected.clear();
+                            self.model_status = Some(
+                                "✓ Profil bawah tersimpan! Sekarang klik profil kedua di kanvas lalu klik 'Eksekusi Loft'."
+                                    .to_string(),
+                            );
                         }
-                        Err(msg) => self.model_status = Some(msg),
+                        Err(msg) => self.model_status = Some(format!("Pilih profil di kanvas: {msg}")),
                     }
                 }
                 ToolPopupEvent::ApplyLoft { height } => {

@@ -172,11 +172,82 @@ impl DuCADApp {
         self.revolve_selected(axis_origin, effective_axis_dir, angle_opt)
     }
 
-    /// Loft antara `pending_loft_bottom` dan profil dari seleksi sketch saat ini.
+    /// Eksekusi Loft 3D langsung dari 2 ClosedRegion terpilih.
+    pub fn loft_selected_regions(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
+        if regions.len() != 2 {
+            self.model_status =
+                Some("Pilih tepat 2 profil tertutup untuk membuat Loft 3D".to_string());
+            return;
+        }
+        let height: f64 = match self.loft_height_input.trim().parse() {
+            Ok(v) if v > 0.0 => v,
+            _ => {
+                self.model_status = Some("Tinggi loft harus berupa angka positif".to_string());
+                return;
+            }
+        };
+
+        let (idx_b, idx_t) = if self.loft_is_flipped {
+            (1, 0)
+        } else {
+            (0, 1)
+        };
+
+        let bottom = match crate::model::build_profile_from_selection(
+            self.sketch(),
+            &regions[idx_b].entity_ids,
+        ) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.model_status = Some(format!("Profil bawah tidak valid: {msg}"));
+                return;
+            }
+        };
+
+        let top = match crate::model::build_profile_from_selection(
+            self.sketch(),
+            &regions[idx_t].entity_ids,
+        ) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.model_status = Some(format!("Profil atas tidak valid: {msg}"));
+                return;
+            }
+        };
+
+        match ducad_kernel::loft_profiles(&bottom, &top, height) {
+            Ok(shape) => {
+                let geo = BodyGeometry::from_shape(shape);
+                self.model_undo
+                    .execute(Box::new(AddSolidCommand::new("Loft", geo)), &mut self.model);
+                self.set_tool(crate::types::ToolKind::Select);
+                self.selected.clear();
+                self.selection_box = None;
+                self.loft_alignment_dismissed = false;
+                self.model_status = Some("✓ Loft 3D berhasil dibuat!".to_string());
+            }
+            Err(e) => self.model_status = Some(format!("Loft gagal: {e}")),
+        }
+    }
+
+    /// Loft antara `pending_loft_bottom` dan profil dari seleksi sketch saat ini (fallback).
     pub fn loft_selected(&mut self) {
+        let all_regions = ducad_sketch::region::find_closed_regions(self.sketch());
+        let selected_regions: Vec<ducad_sketch::region::ClosedRegion> = all_regions
+            .into_iter()
+            .filter(|r| {
+                !r.entity_ids.is_empty()
+                    && r.entity_ids.iter().all(|id| self.selected.contains(id))
+            })
+            .collect();
+        if selected_regions.len() == 2 {
+            self.loft_selected_regions(&selected_regions);
+            return;
+        }
+
         let Some(bottom) = self.pending_loft_bottom.clone() else {
             self.model_status =
-                Some("Set Profil Bawah dari Seleksi dulu sebelum Loft".to_string());
+                Some("Pilih 2 profil tertutup di kanvas sketsa 2D".to_string());
             return;
         };
         let height: f64 = match self.loft_height_input.trim().parse() {

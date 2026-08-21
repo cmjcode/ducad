@@ -574,6 +574,85 @@ impl DuCADApp {
                     self.cancel_staged_revolve();
                 }
             }
+        } else if self.tool == ToolKind::Loft {
+            let all_regions = ducad_sketch::region::find_closed_regions(self.sketch());
+            let selected_regions: Vec<ducad_sketch::region::ClosedRegion> = all_regions
+                .into_iter()
+                .filter(|r| {
+                    !r.entity_ids.is_empty()
+                        && r.entity_ids.iter().all(|id| self.selected.contains(id))
+                })
+                .collect();
+            let regions_count = selected_regions.len();
+            let centroids_offset = if regions_count == 2 {
+                Some((selected_regions[0].centroid - selected_regions[1].centroid).length())
+            } else {
+                None
+            };
+            let current_height = self.loft_height_input.trim().parse::<f64>().unwrap_or(20.0);
+
+            if let Some(action) = CanvasHud::render_loft_top_bar_hud(
+                ui,
+                rect,
+                regions_count,
+                current_height,
+                &mut self.loft_height_input,
+                centroids_offset,
+                self.loft_alignment_dismissed,
+                self.loft_is_flipped,
+            ) {
+                match action {
+                    ducad_ui::LoftHudAction::SetHeight(h) => {
+                        self.loft_height_input = format!("{:.1}", h);
+                    }
+                    ducad_ui::LoftHudAction::AlignCentroids => {
+                        if regions_count == 2 {
+                            let c1 = selected_regions[0].centroid;
+                            let c2 = selected_regions[1].centroid;
+                            let delta = c1 - c2;
+                            let ids: Vec<ducad_sketch::EntityId> =
+                                selected_regions[1].entity_ids.iter().copied().collect();
+                            self.execute_sketch_command(Box::new(
+                                ducad_sketch::TranslateEntities::new(
+                                    "Satukan Titik Tengah Loft",
+                                    ids,
+                                    delta,
+                                ),
+                            ));
+                            self.loft_alignment_dismissed = false;
+                        }
+                    }
+                    ducad_ui::LoftHudAction::DismissAlignmentDialog => {
+                        self.loft_alignment_dismissed = true;
+                    }
+                    ducad_ui::LoftHudAction::ToggleFlip => {
+                        self.loft_is_flipped = !self.loft_is_flipped;
+                    }
+                    ducad_ui::LoftHudAction::Commit => {
+                        self.loft_selected_regions(&selected_regions);
+                    }
+                    ducad_ui::LoftHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if regions_count == 2 {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.loft_selected_regions(&selected_regions);
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                !self.selected.is_empty(),
+                ui.input(|i| i.time),
+            );
         } else {
             ToolGuides::render_tool_guide(
                 ui,
@@ -669,8 +748,9 @@ impl DuCADApp {
             }
         }
 
-        if let Some(centroid) = self.selected_closed_region_centroid() {
-            let z_pos = if self.extruding_from_gizmo {
+        if self.tool == ToolKind::Select {
+            if let Some(centroid) = self.selected_closed_region_centroid() {
+                let z_pos = if self.extruding_from_gizmo {
                 self.gizmo_distance
             } else {
                 18.0
@@ -760,6 +840,7 @@ impl DuCADApp {
                 }
             }
         }
+    }
 
         if let Some((_, _, hit)) = &self.active_face {
             let anchor = hit.gizmo_anchor();

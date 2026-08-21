@@ -41,9 +41,10 @@ impl DuCADApp {
             }
         }
 
-        if let Some(centroid) = self.selected_closed_region_centroid() {
-            let c_base_pt = self.active_plane.to_world(centroid, 0.02);
-            let c_base = [c_base_pt.x, c_base_pt.y, c_base_pt.z];
+        if self.tool == ToolKind::Select {
+            if let Some(centroid) = self.selected_closed_region_centroid() {
+                let c_base_pt = self.active_plane.to_world(centroid, 0.02);
+                let c_base = [c_base_pt.x, c_base_pt.y, c_base_pt.z];
 
             if self.extruding_from_gizmo {
                 let c_top_pt = self
@@ -66,6 +67,27 @@ impl DuCADApp {
                     [0.15, 0.70, 1.0, 0.75],
                 ));
             }
+        }
+    }
+
+        if let Some((p1, p2)) = self.selection_box {
+            let min = p1.min(p2);
+            let max = p1.max(p2);
+            let c1 = self.active_plane.to_world(min, 0.05);
+            let c2 = self.active_plane.to_world(glam::DVec2::new(max.x, min.y), 0.05);
+            let c3 = self.active_plane.to_world(max, 0.05);
+            let c4 = self.active_plane.to_world(glam::DVec2::new(min.x, max.y), 0.05);
+
+            let p_c1 = [c1.x, c1.y, c1.z];
+            let p_c2 = [c2.x, c2.y, c2.z];
+            let p_c3 = [c3.x, c3.y, c3.z];
+            let p_c4 = [c4.x, c4.y, c4.z];
+
+            let color = [0.15, 0.65, 1.0, 0.90];
+            verts.extend(sketch_render::dashed_line_3d(p_c1, p_c2, 2.0, color));
+            verts.extend(sketch_render::dashed_line_3d(p_c2, p_c3, 2.0, color));
+            verts.extend(sketch_render::dashed_line_3d(p_c3, p_c4, 2.0, color));
+            verts.extend(sketch_render::dashed_line_3d(p_c4, p_c1, 2.0, color));
         }
 
         if self.sketch_move_dragging {

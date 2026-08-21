@@ -8,13 +8,23 @@ use crate::theme::{
     pill_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
-use egui::{Align2, Color32, FontId, Pos2, RichText, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_LOCK, ICON_STRAIGHTEN};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RevolveHudAction {
     SetAngle(f64),
     ToggleReverse,
+    Commit,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LoftHudAction {
+    SetHeight(f64),
+    AlignCentroids,
+    DismissAlignmentDialog,
+    ToggleFlip,
     Commit,
     Cancel,
 }
@@ -940,6 +950,239 @@ impl CanvasHud {
             Color32::WHITE,
             Stroke::new(1.2, Color32::BLACK),
         ));
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Loft 3D (seperti Revolve)
+    /// + modal dialog Penyelarasan Titik Pusat jika titik tengah belum menyatu.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_loft_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        selected_regions_count: usize,
+        current_height: f64,
+        height_input: &mut String,
+        centroids_offset: Option<f64>,
+        alignment_dismissed: bool,
+        is_flipped: bool,
+    ) -> Option<LoftHudAction> {
+        let mut hud_action = None;
+
+        // 1. Top Horizontal HUD Banner
+        let banner_w = 690.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 68.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+
+        let is_ready = selected_regions_count == 2;
+
+        ui.painter().rect_filled(
+            banner_rect,
+            18.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            18.0,
+            Stroke::new(
+                1.2,
+                if is_ready {
+                    ACCENT_GREEN
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = match selected_regions_count {
+            0 => "Pilih 2 profil sketsa 2D (klik / drag kotak)",
+            1 => "1 profil terpilih. Pilih profil ke-2 (klik / drag)",
+            2 => "2 Profil Siap! Atur Tinggi & Buat 3D",
+            _ => "Lebih dari 2 profil terpilih (pilih tepat 2 profil)",
+        };
+
+        // Layout horizontal di dalam banner
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(step_text)
+                    .size(11.5)
+                    .strong()
+                    .color(if is_ready {
+                        ACCENT_GREEN
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                if is_ready {
+                    // Tombol Buat 3D
+                    let create_btn = egui::Button::new(
+                        RichText::new("🚀 Buat 3D (Enter)")
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_BLUE);
+
+                    if ui.add(create_btn).clicked() {
+                        hud_action = Some(LoftHudAction::Commit);
+                    }
+
+                    // Tombol Batal
+                    let cancel_btn = egui::Button::new(
+                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
+                    )
+                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
+
+                    if ui.add(cancel_btn).clicked() {
+                        hud_action = Some(LoftHudAction::Cancel);
+                    }
+
+                    ui.add_space(6.0);
+
+                    // Tombol Balik Posisi Atas / Bawah
+                    let flip_label = if is_flipped {
+                        "↕ Bawah: Profil 2"
+                    } else {
+                        "↕ Bawah: Profil 1"
+                    };
+                    let flip_btn = egui::Button::new(
+                        RichText::new(flip_label)
+                            .size(10.5)
+                            .strong()
+                            .color(if is_flipped { ACCENT_ORANGE } else { TEXT_PRIMARY }),
+                    )
+                    .fill(if is_flipped {
+                        Color32::from_rgba_premultiplied(70, 45, 15, 200)
+                    } else {
+                        Color32::from_rgba_premultiplied(40, 44, 52, 180)
+                    });
+
+                    if ui
+                        .add(flip_btn)
+                        .on_hover_text("Tukar urutan profil bawah (Z=0) dan profil atas (Z=Tinggi)")
+                        .clicked()
+                    {
+                        hud_action = Some(LoftHudAction::ToggleFlip);
+                    }
+
+                    ui.add_space(6.0);
+                }
+
+                // Input Tinggi Kustom (Manual TextEdit misal 20.0 mm)
+                ui.label(RichText::new("mm").size(11.0).color(TEXT_SECONDARY));
+                let height_edit = egui::TextEdit::singleline(height_input)
+                    .desired_width(48.0)
+                    .font(egui::FontId::proportional(11.0))
+                    .margin(egui::Margin::symmetric(4, 3));
+                let resp = ui.add(height_edit);
+                if resp.changed() {
+                    if let Ok(val) = height_input.trim().parse::<f64>() {
+                        if val > 0.0 {
+                            hud_action = Some(LoftHudAction::SetHeight(val));
+                        }
+                    }
+                }
+
+                ui.add_space(4.0);
+
+                // Tombol Pilihan Tinggi Preset (10mm, 20mm, 30mm, 50mm, 100mm)
+                for &h in &[10.0, 20.0, 30.0, 50.0, 100.0] {
+                    let is_active = (current_height - h).abs() < 1e-3;
+                    let label = format!("{:.0}", h);
+                    let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(
+                        if is_active {
+                            Color32::WHITE
+                        } else {
+                            TEXT_SECONDARY
+                        },
+                    ))
+                    .fill(if is_active {
+                        ACCENT_BLUE
+                    } else {
+                        Color32::from_rgba_premultiplied(40, 44, 52, 180)
+                    });
+
+                    if ui.add(btn).clicked() {
+                        *height_input = format!("{:.1}", h);
+                        hud_action = Some(LoftHudAction::SetHeight(h));
+                    }
+                }
+                ui.label(RichText::new("Tinggi:").size(10.5).color(TEXT_SECONDARY));
+            });
+        });
+
+        // 2. Dialog Modal / Floating Card Penyelarasan Titik Pusat jika centroid offset > 0.1 mm
+        if is_ready && !alignment_dismissed {
+            if let Some(dist) = centroids_offset {
+                if dist > 0.1 {
+                    let modal_w = 400.0;
+                    let modal_h = 105.0;
+                    let modal_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 140.0);
+                    let modal_rect = egui::Rect::from_center_size(modal_pos, Vec2::new(modal_w, modal_h));
+
+                    ui.painter().rect_filled(
+                        modal_rect,
+                        10.0,
+                        Color32::from_rgba_premultiplied(20, 24, 34, 250),
+                    );
+                    ui.painter().rect_stroke(
+                        modal_rect,
+                        10.0,
+                        Stroke::new(1.2, ACCENT_ORANGE),
+                        StrokeKind::Inside,
+                    );
+
+                    let mut modal_ui = ui.new_child(egui::UiBuilder::new().max_rect(modal_rect.shrink(10.0)));
+                    modal_ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("⚠️ Titik Tengah Belum Menyatu")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(ACCENT_ORANGE),
+                            );
+                            ui.label(
+                                RichText::new(format!("(Offset: {:.1} mm)", dist))
+                                    .size(11.0)
+                                    .color(TEXT_SECONDARY),
+                            );
+                        });
+                        ui.add_space(3.0);
+                        ui.label(
+                            RichText::new("Ingin satukan titik tengah (simetris) atau biarkan menceng (offset)?")
+                                .size(10.5)
+                                .color(TEXT_PRIMARY),
+                        );
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            let align_btn = egui::Button::new(
+                                RichText::new("🎯 Satukan Titik Tengah").size(11.0).strong().color(Color32::WHITE),
+                            )
+                            .fill(ACCENT_BLUE);
+                            if ui.add(align_btn).clicked() {
+                                hud_action = Some(LoftHudAction::AlignCentroids);
+                            }
+
+                            ui.add_space(8.0);
+                            let keep_btn = egui::Button::new(
+                                RichText::new("Biarkan Menceng (Offset)").size(10.5).color(TEXT_PRIMARY),
+                            )
+                            .fill(Color32::from_rgba_premultiplied(50, 55, 65, 200));
+                            if ui.add(keep_btn).clicked() {
+                                hud_action = Some(LoftHudAction::DismissAlignmentDialog);
+                            }
+                        });
+                    });
+                }
+            }
+        }
 
         hud_action
     }

@@ -40,23 +40,44 @@ impl LoftPopup {
                 let mut ev = None;
 
                 ui.label(
-                    RichText::new("Bentuk transisi antar profil 2D:")
+                    RichText::new("Transisi bodi 3D dari 2 profil sketsa:")
                         .size(10.5)
                         .color(TEXT_SECONDARY),
+                );
+
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new("Langkah 1: Profil Bawah")
+                        .size(11.0)
+                        .strong(),
                 );
 
                 let staged_text = if state.loft_bottom_staged {
                     RichText::new("✓ Profil Bawah Tersimpan").color(ACCENT_GREEN).size(11.0)
                 } else {
-                    RichText::new("○ Profil Bawah Belum Diset").color(TEXT_SECONDARY).size(11.0)
+                    RichText::new("○ Klik profil 1 di kanvas lalu simpan:").color(TEXT_SECONDARY).size(10.5)
                 };
                 ui.label(staged_text);
 
-                if ui.button(RichText::new("Set Profil Bawah dari Seleksi").size(10.5)).clicked() {
+                if ui
+                    .button(RichText::new("📥 Set Profil Bawah dari Seleksi").size(10.5))
+                    .clicked()
+                {
                     ev = Some(ToolPopupEvent::StageLoftBottom);
                 }
 
-                ui.add_space(2.0);
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Langkah 2: Profil Atas & Tinggi")
+                        .size(11.0)
+                        .strong(),
+                );
+                ui.label(
+                    RichText::new("Klik profil 2 di kanvas, lalu eksekusi:")
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
+                );
+
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Tinggi (mm):").size(11.0));
                     ui.add_sized(
@@ -66,10 +87,12 @@ impl LoftPopup {
                 });
 
                 ui.add_space(3.0);
+                let btn_enabled = state.loft_bottom_staged;
                 if ui
-                    .add(
+                    .add_enabled(
+                        btn_enabled,
                         egui::Button::new(
-                            RichText::new("🚀 Eksekusi Loft").size(11.0).color(Color32::WHITE),
+                            RichText::new("🚀 Eksekusi Loft 3D").size(11.0).color(Color32::WHITE),
                         )
                         .fill(ACCENT_BLUE),
                     )

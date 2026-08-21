@@ -608,4 +608,41 @@ mod tests {
         let bbox = compute_profile_bbox(&sketch, &ids).unwrap();
         assert_eq!(bbox, [-3.0, -3.0, 15.0, 20.0]);
     }
+
+    #[test]
+    fn loft_two_closed_regions_profiles_build_correctly() {
+        let mut sketch = Sketch::default();
+        // Region 1: Rectangle 40x40 at (0, 0)
+        let min = DVec2::new(-20.0, -20.0);
+        let max = DVec2::new(20.0, 20.0);
+        let corners = [
+            DVec2::new(min.x, min.y),
+            DVec2::new(max.x, min.y),
+            DVec2::new(max.x, max.y),
+            DVec2::new(min.x, max.y),
+        ];
+        let mut r1_ids = HashSet::new();
+        for i in 0..4 {
+            let id = sketch.entities.insert(Entity::Line {
+                start: corners[i],
+                end: corners[(i + 1) % 4],
+            });
+            r1_ids.insert(id);
+        }
+
+        // Region 2: Circle radius 10 at (50, 0)
+        let mut r2_ids = HashSet::new();
+        let c_id = sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(50.0, 0.0),
+            radius: 10.0,
+        });
+        r2_ids.insert(c_id);
+
+        let p1 = build_profile_from_selection(&sketch, &r1_ids).unwrap();
+        let p2 = build_profile_from_selection(&sketch, &r2_ids).unwrap();
+
+        let shape = ducad_kernel::loft_profiles(&p1, &p2, 30.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
 }

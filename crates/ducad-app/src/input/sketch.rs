@@ -53,6 +53,8 @@ impl DuCADApp {
         self.sketch_move_target = None;
         self.body_move_armed = false;
         self.body_move_target = None;
+        self.loft_alignment_dismissed = false;
+        self.selection_box = None;
     }
 
     pub fn snapped_or(&self, raw: DVec2) -> DVec2 {
@@ -650,7 +652,7 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         match self.tool {
-            ToolKind::Select => {
+            ToolKind::Select | ToolKind::Loft => {
                 self.last_snap = None;
 
                 if self.extruding_from_gizmo {
@@ -849,7 +851,7 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
-                        if shift {
+                        if shift || self.tool == ToolKind::Loft {
                             let already_selected =
                                 reg.entity_ids.iter().all(|id| self.selected.contains(id));
                             if already_selected {
@@ -875,7 +877,7 @@ impl DuCADApp {
                     } else {
                         let cycled_hit =
                             click_pos.and_then(|pos| self.hit_test_click_cycled(rect, pos, tol));
-                        match (cycled_hit.or(self.hovered), shift) {
+                        match (cycled_hit.or(self.hovered), shift || self.tool == ToolKind::Loft) {
                             (Some(hit), true) => {
                                 if !self.selected.remove(&hit) {
                                     self.selected.insert(hit);
@@ -930,6 +932,79 @@ impl DuCADApp {
                         }
                     }
                     self.constraint_status = None;
+                }
+
+                // Drag box / rubber-band selection di kanvas sketsa 2D
+                if response.drag_started_by(egui::PointerButton::Primary)
+                    && !self.extruding_from_gizmo
+                    && !self.sketch_move_armed
+                    && self.body_move_target.is_none()
+                    && !click_hits_body_dim_pill
+                {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        if let Some(p) = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane) {
+                            self.selection_box = Some((p, p));
+                        }
+                    }
+                }
+                if response.dragged_by(egui::PointerButton::Primary) {
+                    if let Some((start_p, _)) = self.selection_box {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            if let Some(cur_p) = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane) {
+                                self.selection_box = Some((start_p, cur_p));
+                            }
+                        }
+                    }
+                }
+                if response.drag_stopped() {
+                    if let Some((p1, p2)) = self.selection_box.take() {
+                        let min = p1.min(p2);
+                        let max = p1.max(p2);
+                        let drag_dist = (p1 - p2).length();
+                        if drag_dist > 2.0 {
+                            let matched_ids: Vec<EntityId> = self
+                                .sketch()
+                                .entities
+                                .iter()
+                                .filter_map(|(id, entity)| {
+                                    let inside = match entity {
+                                        Entity::Line { start, end } => {
+                                            (start.x >= min.x && start.x <= max.x && start.y >= min.y && start.y <= max.y)
+                                                || (end.x >= min.x && end.x <= max.x && end.y >= min.y && end.y <= max.y)
+                                        }
+                                        Entity::Circle { center, radius } => {
+                                            center.x + radius >= min.x
+                                                && center.x - radius <= max.x
+                                                && center.y + radius >= min.y
+                                                && center.y - radius <= max.y
+                                        }
+                                        Entity::Ellipse { center, radius_x, radius_y, .. } => {
+                                            center.x + radius_x >= min.x
+                                                && center.x - radius_x <= max.x
+                                                && center.y + radius_y >= min.y
+                                                && center.y - radius_y <= max.y
+                                        }
+                                        Entity::Arc { center, radius, .. } => {
+                                            center.x + radius >= min.x
+                                                && center.x - radius <= max.x
+                                                && center.y + radius >= min.y
+                                                && center.y - radius <= max.y
+                                        }
+                                    };
+                                    if inside {
+                                        Some(id)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            for id in matched_ids {
+                                self.selected.insert(id);
+                            }
+                            self.loft_alignment_dismissed = false;
+                        }
+                    }
                 }
             }
             ToolKind::Line => {
@@ -1099,7 +1174,6 @@ impl DuCADApp {
                 }
             }
             ToolKind::Extrude
-            | ToolKind::Loft
             | ToolKind::FilletChamfer
             | ToolKind::Shell
             | ToolKind::Boolean

@@ -1125,51 +1125,90 @@ impl ToolGuides {
         _has_selection: bool,
         time: f64,
     ) {
-        let cycle = 3.4;
+        let cycle = 4.2;
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.33 {
-            ("1. Pilih Profil Bawah (Sketsa 1)", ACCENT_ORANGE)
+            ("1. Drag Kotak / Klik 2 Profil 2D", ACCENT_ORANGE)
         } else if phase < 0.66 {
-            ("2. Pilih Profil Atas (Sketsa 2)", ACCENT_ORANGE)
+            ("2. Opsi: Satukan Titik Tengah", ACCENT_BLUE)
         } else {
-            ("3. Transisi Loft 3D Terbentuk", ACCENT_GREEN)
+            ("3. Atur Tinggi di Top Bar & Buat 3D", ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Loft (Transisi Profil):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Menghubungkan 2 penampang sketsa berbeda secara mulus");
+        Self::draw_header(painter, card_rect, "Panduan Loft 3D (Mode 2D):", step_title, step_color);
+        Self::draw_footer(painter, card_rect, "💡 Pilih 2 profil di kanvas -> atur tinggi di Top Bar -> Enter");
 
-        let base_c = Pos2::new(card_rect.left() + 75.0, card_rect.bottom() - 38.0);
-        let top_c = Pos2::new(card_rect.left() + 75.0, card_rect.top() + 45.0);
+        let p1_orig = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 36.0);
+        let p2_orig = Pos2::new(card_rect.left() + 85.0, card_rect.bottom() - 36.0);
 
-        // Profil bawah (kotak isometrik)
-        let b1 = Pos2::new(base_c.x - 24.0, base_c.y);
-        let b2 = Pos2::new(base_c.x + 24.0, base_c.y);
-        painter.line_segment([b1, b2], Stroke::new(2.0, ACCENT_BLUE));
+        // Jika phase >= 0.33, lingkaran bergeser ke tengah persegi (alignment)
+        let circ_center = if phase < 0.33 {
+            p2_orig
+        } else if phase < 0.66 {
+            let t = ((phase - 0.33) / 0.33).clamp(0.0, 1.0);
+            Pos2::new(p2_orig.x + (p1_orig.x - p2_orig.x) * t, p2_orig.y)
+        } else {
+            p1_orig
+        };
 
-        // Profil atas (lingkaran elips)
-        painter.circle_stroke(top_c, 16.0, Stroke::new(1.5, if phase >= 0.66 { ACCENT_GREEN } else { ACCENT_ORANGE }));
+        let r_shape = Rect::from_center_size(p1_orig, Vec2::new(26.0, 24.0));
+
+        // Gambar kotak seleksi drag di fase 1
+        if phase < 0.33 {
+            let t = (phase / 0.33).clamp(0.0, 1.0);
+            let sel_min = Pos2::new(card_rect.left() + 25.0, card_rect.bottom() - 55.0);
+            let sel_max = Pos2::new(
+                sel_min.x + (card_rect.left() + 105.0 - sel_min.x) * t,
+                sel_min.y + (card_rect.bottom() - 20.0 - sel_min.y) * t,
+            );
+            let sel_rect = Rect::from_min_max(sel_min, sel_max);
+            painter.rect_filled(sel_rect, 2.0, ACCENT_BLUE.gamma_multiply(0.15));
+            painter.rect_stroke(sel_rect, 2.0, Stroke::new(1.0, ACCENT_BLUE), StrokeKind::Inside);
+        }
+
+        // Bentuk 1 (Persegi)
+        painter.rect_stroke(
+            r_shape,
+            2.0,
+            Stroke::new(1.8, if phase >= 0.25 { ACCENT_ORANGE } else { ACCENT_BLUE }),
+            StrokeKind::Inside,
+        );
+
+        // Bentuk 2 (Lingkaran)
+        painter.circle_stroke(
+            circ_center,
+            10.0,
+            Stroke::new(1.8, if phase >= 0.25 { ACCENT_ORANGE } else { ACCENT_GREEN }),
+        );
 
         let (cursor_pos, is_clicking) = if phase < 0.33 {
             let t = (phase / 0.33).clamp(0.0, 1.0);
-            (Pos2::new(base_c.x + (1.0 - t) * 15.0, base_c.y), t > 0.8)
+            (
+                Pos2::new(card_rect.left() + 25.0 + t * 80.0, card_rect.bottom() - 55.0 + t * 35.0),
+                true,
+            )
         } else if phase < 0.66 {
-            let t = ((phase - 0.33) / 0.33).clamp(0.0, 1.0);
-            (Pos2::new(top_c.x + (1.0 - t) * 15.0, top_c.y), t > 0.8)
+            (Pos2::new(card_rect.center().x, card_rect.top() + 48.0), false)
         } else {
-            (top_c, false)
+            (Pos2::new(card_rect.right() - 30.0, card_rect.top() + 20.0), true)
         };
 
         if phase >= 0.66 {
-            // Garis pembungkus loft 3D
-            painter.line_segment([b1, Pos2::new(top_c.x - 16.0, top_c.y)], Stroke::new(1.5, ACCENT_GREEN));
-            painter.line_segment([b2, Pos2::new(top_c.x + 16.0, top_c.y)], Stroke::new(1.5, ACCENT_GREEN));
+            // Representasi 3D Loft terangkat ke atas
+            let top_c = Pos2::new(card_rect.right() - 48.0, card_rect.top() + 42.0);
+            let b_base = Pos2::new(card_rect.right() - 48.0, card_rect.bottom() - 30.0);
+
+            // Garis transisi 3D
+            painter.line_segment([Pos2::new(b_base.x - 13.0, b_base.y), Pos2::new(top_c.x - 10.0, top_c.y)], Stroke::new(1.5, ACCENT_GREEN));
+            painter.line_segment([Pos2::new(b_base.x + 13.0, b_base.y), Pos2::new(top_c.x + 10.0, top_c.y)], Stroke::new(1.5, ACCENT_GREEN));
+            painter.circle_stroke(top_c, 10.0, Stroke::new(1.5, ACCENT_GREEN));
 
             let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "✓ Loft Siap",
+                "✓ Loft 3D",
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );

@@ -104,6 +104,7 @@ impl LeftToolbar {
                     (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
                     (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
                     (ToolbarTool::Ellipse, ICON_HOME_MINI.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
+                    (ToolbarTool::Loft, ICON_LAYERS.codepoint, "Loft 3D", None, Some("Bentuk transisi antara 2 profil sketsa 2D")),
                 ];
 
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {
@@ -125,7 +126,6 @@ impl LeftToolbar {
             } else {
                 // ==================== MODE 3D SOLID ====================
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::Loft, ICON_LAYERS.codepoint, "Loft 3D", None, Some("Bentuk transisi antara 2 profil profil/tinggi")),
                     (ToolbarTool::FilletChamfer, "⤹", "Fillet & Chamfer", Some("F"), Some("Lengkung atau serongkan tepi rusuk solid")),
                     (ToolbarTool::Shell, "⧉", "Shell / Hollow", Some("S"), Some("Ronggakan benda 3D dengan ketebalan dinding")),
                     (ToolbarTool::Boolean, ICON_CALL_MERGE.codepoint, "Boolean", Some("B"), Some("Gabung (Union), Potong (Subtract), Irisan")),
