@@ -390,11 +390,11 @@ impl Shape {
         results
     }
 
-    pub fn hollow<T: AsRef<Face>>(
+    pub fn try_hollow<T: AsRef<Face>>(
         self,
         offset: f64,
         faces_to_remove: impl IntoIterator<Item = T>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut faces_list = ffi::new_list_of_shape();
 
         for face in faces_to_remove.into_iter() {
@@ -402,12 +402,23 @@ impl Shape {
         }
 
         let mut solid_maker = ffi::BRepOffsetAPI_MakeThickSolid_ctor();
-        ffi::MakeThickSolidByJoin(solid_maker.pin_mut(), &self.inner, &faces_list, offset, 0.001);
+        ffi::MakeThickSolidByJoin(solid_maker.pin_mut(), &self.inner, &faces_list, offset, 0.001)
+            .map_err(|e| Error::HollowFailed(e.to_string()))?;
 
-        let hollowed_shape = solid_maker.pin_mut().Shape();
+        let hollowed_shape = ffi::BRepOffsetAPI_MakeThickSolid_shape_checked(solid_maker.pin_mut())
+            .map_err(|e| Error::HollowFailed(e.to_string()))?;
         let inner = ffi::TopoDS_Shape_to_owned(hollowed_shape);
 
-        Self { inner }
+        Ok(Self { inner })
+    }
+
+    pub fn hollow<T: AsRef<Face>>(
+        self,
+        offset: f64,
+        faces_to_remove: impl IntoIterator<Item = T>,
+    ) -> Self {
+        self.try_hollow(offset, faces_to_remove)
+            .unwrap_or_else(|e| panic!("Failed to hollow shape: {e}"))
     }
 
     pub fn offset_surface(self, offset: f64) -> Self {

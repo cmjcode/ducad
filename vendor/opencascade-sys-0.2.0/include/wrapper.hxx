@@ -75,6 +75,12 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
+[[noreturn]] inline void rethrow_standard_failure_as_runtime_error(const Standard_Failure &failure,
+                                                                    const char *fallback_message) {
+  const char *message = failure.GetMessageString();
+  throw std::runtime_error((message != nullptr && message[0] != '\0') ? message : fallback_message);
+}
+
 // Generic template constructor
 template <typename T, typename... Args> std::unique_ptr<T> construct_unique(Args... args) {
   return std::unique_ptr<T>(new T(args...));
@@ -199,7 +205,11 @@ inline bool BRepLibBuildCurves3d(const TopoDS_Shape &shape) { return BRepLib::Bu
 inline void MakeThickSolidByJoin(BRepOffsetAPI_MakeThickSolid &make_thick_solid, const TopoDS_Shape &shape,
                                  const TopTools_ListOfShape &closing_faces, const Standard_Real offset,
                                  const Standard_Real tolerance) {
-  make_thick_solid.MakeThickSolidByJoin(shape, closing_faces, offset, tolerance);
+  try {
+    make_thick_solid.MakeThickSolidByJoin(shape, closing_faces, offset, tolerance);
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "MakeThickSolidByJoin failed");
+  }
 }
 
 // Geometric processing
@@ -439,12 +449,6 @@ inline std::unique_ptr<gp_Dir> TColgp_Array1OfDir_Value(const TColgp_Array1OfDir
 // rethrow sebagai `std::runtime_error` (turunan std::exception) supaya
 // baru DI SITU cxx menerjemahkannya jadi `Result::Err` yang aman di Rust —
 // pola yang sama seperti `handle_try_deref` di atas.
-[[noreturn]] inline void rethrow_standard_failure_as_runtime_error(const Standard_Failure &failure,
-                                                                    const char *fallback_message) {
-  const char *message = failure.GetMessageString();
-  throw std::runtime_error((message != nullptr && message[0] != '\0') ? message : fallback_message);
-}
-
 // BRepAdaptor_Surface
 inline std::unique_ptr<BRepAdaptor_Surface> BRepAdaptor_Surface_ctor(const TopoDS_Face &face,
                                                                       bool restriction) {
@@ -563,6 +567,17 @@ inline const TopoDS_Shape &BRepFilletAPI_MakeChamfer_shape_checked(BRepFilletAPI
     return make_chamfer.Shape();
   } catch (const Standard_Failure &failure) {
     rethrow_standard_failure_as_runtime_error(failure, "BRepFilletAPI_MakeChamfer::Shape() failed: not done");
+  }
+}
+
+inline const TopoDS_Shape &BRepOffsetAPI_MakeThickSolid_shape_checked(BRepOffsetAPI_MakeThickSolid &make_thick_solid) {
+  try {
+    if (!make_thick_solid.IsDone()) {
+      throw std::runtime_error("BRepOffsetAPI_MakeThickSolid::Shape() failed: not done");
+    }
+    return make_thick_solid.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_MakeThickSolid::Shape() failed: not done");
   }
 }
 

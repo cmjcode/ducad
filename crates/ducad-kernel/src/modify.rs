@@ -218,7 +218,9 @@ pub fn shell_hollow(
         .faces()
         .try_farthest(remove_face_dir.to_occt())
         .ok_or_else(|| anyhow::anyhow!("shape tidak punya face untuk dihilangkan"))?;
-    let hollowed = cloned.hollow(-thickness.abs(), [face]);
+    let hollowed = cloned
+        .try_hollow(-thickness.abs(), [face])
+        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
     Ok(KernelShape::from_inner(hollowed))
 }
 
@@ -244,7 +246,9 @@ pub fn shell_hollow_faces(
         };
         faces.push(face);
     }
-    let hollowed = cloned.hollow(-thickness.abs(), faces);
+    let hollowed = cloned
+        .try_hollow(-thickness.abs(), faces)
+        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
     Ok(KernelShape::from_inner(hollowed))
 }
 

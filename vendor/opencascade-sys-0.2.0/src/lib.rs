@@ -746,13 +746,16 @@ pub mod ffi {
             closing_faces: &TopTools_ListOfShape,
             offset: f64,
             tolerance: f64,
-        );
+        ) -> Result<()>;
         pub fn Shape(self: Pin<&mut BRepOffsetAPI_MakeThickSolid>) -> &TopoDS_Shape;
         pub fn Build(
             self: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
             progress: &Message_ProgressRange,
         );
         pub fn IsDone(self: &BRepOffsetAPI_MakeThickSolid) -> bool;
+        pub fn BRepOffsetAPI_MakeThickSolid_shape_checked(
+            make_thick_solid: Pin<&mut BRepOffsetAPI_MakeThickSolid>,
+        ) -> Result<&TopoDS_Shape>;
 
         // Lofting
         type BRepOffsetAPI_ThruSections;

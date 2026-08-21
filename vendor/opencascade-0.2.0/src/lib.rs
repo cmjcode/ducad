@@ -48,5 +48,9 @@ pub enum Error {
     // (sumbu memotong interior profil, profil tidak tertutup, atau geometri tidak valid).
     #[error("BRepPrimAPI_MakeRevol gagal: {0}")]
     RevolveFailed(String),
+    // PATCH (DUCAD): variant baru untuk membungkus kegagalan BRepOffsetAPI_MakeThickSolid
+    // (mis. shape sudah berongga/shell, atau tebal dinding melebihi batas geometri).
+    #[error("BRepOffsetAPI_MakeThickSolid gagal: {0}")]
+    HollowFailed(String),
 }
 

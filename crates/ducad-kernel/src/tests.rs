@@ -733,6 +733,21 @@ fn shell_hollow_faces_empty_rays_errors() {
 }
 
 #[test]
+fn shell_hollow_already_hollow_shape_returns_err_without_crashing() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
+    let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
+    // Mencoba shell kedua kali pada shape yang sudah berongga akan gagal secara geometris di OCCT
+    // Fungsi harus mengembalikan Err rapi tanpa melempar uncaught C++ exception / abort
+    let ray_side = PickRay {
+        origin: (100.0, 15.0, 10.0),
+        dir: (-1.0, 0.0, 0.0),
+    };
+    let res = shell_hollow_faces(&hollowed, 2.0, &[ray_side]);
+    assert!(res.is_err());
+}
+
+#[test]
 fn extrude_vertical_front_xz_produces_solid() {
     let _guard = TEST_LOCK.lock().unwrap();
     let shape = extrude_profile_on_plane(
