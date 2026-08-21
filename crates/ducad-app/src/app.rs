@@ -10,11 +10,14 @@ use ducad_sketch::{
     SnapHit, UpdateEntity,
 };
 use ducad_ui::{
-    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette, ContextAction, ContextActionBar,
-    FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
-    InspectorEvent, InspectorPickMode, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent,
-    LeftToolbar, RadialMenu, SelectedBodyData, SelectedEntityData, SketchPlaneItemInfo, ThemeMode,
-    ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
+    BodyItemInfo, BooleanPopup, BooleanPopupState, CanvasHud, CanvasHudEvent, CommandPalette,
+    ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
+    ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
+    InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
+    LoftPopup, LoftPopupState, MeasurePopup, MeasurePopupState, RadialMenu, RevolvePopup,
+    RevolvePopupState, SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
+    SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
+    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -714,12 +717,24 @@ impl eframe::App for DuCADApp {
             .show(&ctx, |ui| {
                 if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
                     match tb_ev {
-                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::Revolve) => {
-                            self.feature_inspector_open = true;
-                            self.set_tool(ToolKind::Revolve);
+                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
+                            self.section_enabled = !self.section_enabled;
                         }
                         ToolbarEvent::SelectTool(t) => {
-                            self.set_tool(ToolKind::from_toolbar_tool(t));
+                            let kind = ToolKind::from_toolbar_tool(t);
+                            match kind {
+                                ToolKind::FilletChamfer => {
+                                    self.picking_mode = PickMode::Edge;
+                                }
+                                ToolKind::Shell => {
+                                    self.picking_mode = PickMode::Face;
+                                }
+                                ToolKind::Select => {
+                                    self.picking_mode = PickMode::None;
+                                }
+                                _ => {}
+                            }
+                            self.set_tool(kind);
                         }
                     }
                 }
@@ -812,20 +827,6 @@ impl eframe::App for DuCADApp {
                     }
                 });
         }
-
-        let is_editing_or_drawing = self.tool != ToolKind::Select;
-        let has_active_selection =
-            !self.selected.is_empty() || !self.selected_bodies.is_empty();
-        let measure_tool_active = matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
-        let has_measurements = !self.measurements.is_empty();
-        let show_right_sidebar = if self.auto_hide_properties {
-            ((!is_editing_or_drawing && has_active_selection)
-                || measure_tool_active
-                || has_measurements)
-                && self.feature_inspector_open
-        } else {
-            self.feature_inspector_open
-        };
 
         let viewcube_y = 102.0;
         let viewcube_pos = egui::pos2(screen_rect.max.x - topbar_margin_right - 42.0, viewcube_y);
@@ -1036,467 +1037,380 @@ impl eframe::App for DuCADApp {
             None
         };
 
-        if !show_right_sidebar {
-            egui::Area::new(egui::Id::new("ducad-inspector-toggle-area"))
-                .fixed_pos(egui::pos2(
-                    screen_rect.max.x - topbar_margin_right,
-                    screen_rect.center().y,
-                ))
-                .pivot(egui::Align2::RIGHT_CENTER)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    let btn = egui::Button::new(
-                        egui::RichText::new("⚙ Properties")
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(220, 230, 242)),
-                    )
-                    .fill(egui::Color32::from_rgba_premultiplied(22, 27, 34, 235))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(48, 54, 61)))
-                    .corner_radius(egui::CornerRadius::same(8));
-                    if ui.add(btn).clicked() {
-                        self.feature_inspector_open = true;
-                        self.auto_hide_properties = false;
-                    }
-                });
+        // =========================================================================
+        // MODULAR TOOL POPUPS DI POJOK KANAN BAWAH (BOTTOM-RIGHT)
+        // =========================================================================
+        let mut popup_ev: Option<ToolPopupEvent> = None;
+
+        match self.tool {
+            ToolKind::Extrude => {
+                let mut state = ExtrudePopupState {
+                    extrude_input: self.extrude_distance_input.clone(),
+                    is_face_extrude: self.active_face.is_some(),
+                    face_extrude_input: self.face_extrude_distance_input.clone(),
+                    has_2d_selection: !matches!(selected_entity_data, SelectedEntityData::None),
+                    has_face_selection: self.active_face.is_some(),
+                };
+                popup_ev = ExtrudePopup::show(&ctx, &mut state, screen_rect);
+                self.extrude_distance_input = state.extrude_input;
+                self.face_extrude_distance_input = state.face_extrude_input;
+            }
+            ToolKind::Revolve => {
+                let mut state = RevolvePopupState {
+                    axis_preset: match self.revolve_dialog.axis_preset {
+                        ducad_ui::RevolveAxisPreset::YAxisOrigin => 0,
+                        ducad_ui::RevolveAxisPreset::XAxisOrigin => 1,
+                        ducad_ui::RevolveAxisPreset::BBoxLeft => 2,
+                        ducad_ui::RevolveAxisPreset::BBoxBottom => 3,
+                        _ => 4,
+                    },
+                    angle_input: self.revolve_dialog.angle_input.clone(),
+                    reverse: self.revolve_reverse,
+                };
+                popup_ev = RevolvePopup::show(&ctx, &mut state, screen_rect);
+                self.revolve_dialog.angle_input = state.angle_input;
+                self.revolve_reverse = state.reverse;
+            }
+            ToolKind::Loft => {
+                let mut state = LoftPopupState {
+                    loft_height_input: self.loft_height_input.clone(),
+                    loft_bottom_staged: self.pending_loft_bottom.is_some(),
+                };
+                popup_ev = LoftPopup::show(&ctx, &mut state, screen_rect);
+                self.loft_height_input = state.loft_height_input;
+            }
+            ToolKind::FilletChamfer => {
+                let mut state = FilletPopupState {
+                    fillet_input: self.fillet_radius_input.clone(),
+                    chamfer_input: self.chamfer_distance_input.clone(),
+                    is_edge_picking_active: self.picking_mode == PickMode::Edge,
+                    selected_edges_count: self.selected_edges.len(),
+                    selected_bodies_count: self.selected_bodies.len(),
+                };
+                popup_ev = FilletPopup::show(&ctx, &mut state, screen_rect);
+                self.fillet_radius_input = state.fillet_input;
+                self.chamfer_distance_input = state.chamfer_input;
+            }
+            ToolKind::Shell => {
+                let mut state = ShellPopupState {
+                    shell_input: self.shell_thickness_input.clone(),
+                    is_face_picking_active: self.picking_mode == PickMode::Face,
+                    selected_faces_count: self.selected_faces.len(),
+                    selected_bodies_count: self.selected_bodies.len(),
+                };
+                popup_ev = ShellPopup::show(&ctx, &mut state, screen_rect);
+                self.shell_thickness_input = state.shell_input;
+            }
+            ToolKind::Boolean => {
+                let mut state = BooleanPopupState {
+                    selected_bodies_count: self.selected_bodies.len(),
+                };
+                popup_ev = BooleanPopup::show(&ctx, &mut state, screen_rect);
+            }
+            ToolKind::History => {
+                let mut state = HistoryPopupState {
+                    can_undo_model: self.model_undo.can_undo(),
+                    can_redo_model: self.model_undo.can_redo(),
+                    total_entities_count: self.sketch().entities.len(),
+                    total_bodies_count: self.model.doc.bodies.len(),
+                    status_message: self.model_status.clone(),
+                };
+                popup_ev = HistoryPopup::show(&ctx, &mut state, screen_rect);
+            }
+            ToolKind::Measure | ToolKind::MeasureAngle => {
+                let mut state = MeasurePopupState {
+                    show_all_dimensions: self.show_all_dimensions,
+                    measurements: self.measurements.iter().map(|m| m.label()).collect(),
+                };
+                popup_ev = MeasurePopup::show(&ctx, &mut state, screen_rect);
+            }
+            ToolKind::Select => {
+                if !matches!(selected_entity_data, SelectedEntityData::None) || selected_body_data.is_some() {
+                    let mut state = Entity2dPopupState {
+                        selected_entity: selected_entity_data.clone(),
+                        selected_body: selected_body_data.clone(),
+                        p1_x: self.prop_input_p1_x.clone(),
+                        p1_y: self.prop_input_p1_y.clone(),
+                        p2_x: self.prop_input_p2_x.clone(),
+                        p2_y: self.prop_input_p2_y.clone(),
+                        val_1: self.prop_input_val_1.clone(),
+                        val_2: self.prop_input_val_2.clone(),
+                        val_3: self.prop_input_val_3.clone(),
+                        rect_p: self.prop_input_rect_p.clone(),
+                        rect_l: self.prop_input_rect_l.clone(),
+                        rect_anchor: self.rect_anchor,
+                    };
+                    popup_ev = Entity2dPopup::show(&ctx, &mut state, screen_rect);
+                    self.prop_input_p1_x = state.p1_x;
+                    self.prop_input_p1_y = state.p1_y;
+                    self.prop_input_p2_x = state.p2_x;
+                    self.prop_input_p2_y = state.p2_y;
+                    self.prop_input_val_1 = state.val_1;
+                    self.prop_input_val_2 = state.val_2;
+                    self.prop_input_val_3 = state.val_3;
+                    self.prop_input_rect_p = state.rect_p;
+                    self.prop_input_rect_l = state.rect_l;
+                    self.rect_anchor = state.rect_anchor;
+                }
+            }
+            _ => {}
         }
 
-        let inspector_top_bound = viewcube_y + 52.0;
-        let inspector_bottom_margin = 12.0;
-        let inspector_max_h =
-            (screen_rect.max.y - inspector_top_bound - inspector_bottom_margin).max(120.0);
-        if show_right_sidebar {
-            let inspector_sig: InspectorContentSig = (
-                std::mem::discriminant(&selected_entity_data),
-                selected_body_data.is_some(),
-                self.selected_bodies.len(),
-                self.selected_edges.len(),
-                self.selected_faces.len(),
-                self.active_face.is_some(),
-                self.pending_loft_bottom.is_some(),
-                self.section_enabled,
-                self.picking_mode,
-                self.measurements.len(),
-                measure_tool_active,
-            );
-            let inspector_force_resize = self.inspector_content_sig != Some(inspector_sig);
-            self.inspector_content_sig = Some(inspector_sig);
-
-            let mut inspector_state = FeatureInspectorState {
-                auto_hide_enabled: self.auto_hide_properties,
-                selected_entity: selected_entity_data,
-                selected_body: selected_body_data,
-                selected_bodies_count: self.selected_bodies.len(),
-                selected_edges_count: self.selected_edges.len(),
-                selected_faces_count: self.selected_faces.len(),
-                total_entities_count: self.sketch().entities.len(),
-                total_bodies_count: self.model.doc.bodies.len(),
-
-                entity_p1_x: self.prop_input_p1_x.clone(),
-                entity_p1_y: self.prop_input_p1_y.clone(),
-                entity_p2_x: self.prop_input_p2_x.clone(),
-                entity_p2_y: self.prop_input_p2_y.clone(),
-                entity_val_1: self.prop_input_val_1.clone(),
-                entity_val_2: self.prop_input_val_2.clone(),
-                entity_val_3: self.prop_input_val_3.clone(),
-                rect_length_p_input: self.prop_input_rect_p.clone(),
-                rect_length_l_input: self.prop_input_rect_l.clone(),
-                rect_anchor: self.rect_anchor,
-
-                extrude_input: self.extrude_distance_input.clone(),
-                active_face_selected: self.active_face.is_some(),
-                face_extrude_input: self.face_extrude_distance_input.clone(),
-                revolve_angle_input: self.revolve_dialog.angle_input.clone(),
-                revolve_axis_preset: match self.revolve_dialog.axis_preset {
-                    ducad_ui::RevolveAxisPreset::YAxisOrigin => 0,
-                    ducad_ui::RevolveAxisPreset::XAxisOrigin => 1,
-                    ducad_ui::RevolveAxisPreset::BBoxLeft => 2,
-                    ducad_ui::RevolveAxisPreset::BBoxBottom => 3,
-                    _ => 4,
-                },
-                revolve_reverse: self.revolve_reverse,
-                loft_height_input: self.loft_height_input.clone(),
-                loft_bottom_staged: self.pending_loft_bottom.is_some(),
-                fillet_input: self.fillet_radius_input.clone(),
-                chamfer_input: self.chamfer_distance_input.clone(),
-                shell_input: self.shell_thickness_input.clone(),
-                picking_mode: match self.picking_mode {
-                    PickMode::None => InspectorPickMode::None,
-                    PickMode::Edge => InspectorPickMode::Edge,
-                    PickMode::Face => InspectorPickMode::Face,
-                },
-                can_undo_model: self.model_undo.can_undo(),
-                can_redo_model: self.model_undo.can_redo(),
-                status_message: self.model_status.clone(),
-                section_enabled: self.section_enabled,
-                section_axis: match self.section_axis {
-                    SectionAxis::X => 0,
-                    SectionAxis::Y => 1,
-                    SectionAxis::Z => 2,
-                },
-                section_offset: self.section_offset,
-                section_invert: self.section_invert,
-
-                measurements: self.measurements.iter().map(|m| m.label()).collect(),
-                measurement_tool_active: measure_tool_active,
-                show_all_dimensions: self.show_all_dimensions,
-
-                max_panel_height: inspector_max_h,
-            };
-
-            egui::Area::new(egui::Id::new("ducad-inspector-area"))
-                .fixed_pos(egui::pos2(
-                    screen_rect.max.x - topbar_margin_right,
-                    screen_rect.center().y,
-                ))
-                .pivot(egui::Align2::RIGHT_CENTER)
-                .constrain_to(screen_rect)
-                .default_size(egui::vec2(264.0, inspector_max_h))
-                .sizing_pass(inspector_force_resize)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    let insp_ev = FeatureInspector::show(ui, &mut inspector_state);
-
-                    // Sinkron balik SEMUA buffer teks tiap frame, bukan cuma pas ada
-                    // event (klik tombol/checkbox). `inspector_state` dibangun ULANG
-                    // dari `self.*` tiap frame di atas; `TextEdit` polos (P1/P2/radius/
-                    // P-L rectangle/ukuran body dst) tidak pernah mengembalikan
-                    // `InspectorEvent` sendiri — kalau sync-back cuma jalan di dalam
-                    // `if let Some(insp_ev)`, karakter yg baru diketik hilang lagi di
-                    // frame berikutnya (balik ke nilai lama) karena tidak sempat
-                    // tersimpan ke `self`. Root cause laporan "kotak properties tidak
-                    // bisa diubah, balik ke nilai awal lagi pas diketik".
-                    self.prop_input_p1_x = inspector_state.entity_p1_x;
-                    self.prop_input_p1_y = inspector_state.entity_p1_y;
-                    self.prop_input_p2_x = inspector_state.entity_p2_x;
-                    self.prop_input_p2_y = inspector_state.entity_p2_y;
-                    self.prop_input_val_1 = inspector_state.entity_val_1;
-                    self.prop_input_val_2 = inspector_state.entity_val_2;
-                    self.prop_input_val_3 = inspector_state.entity_val_3;
-                    self.prop_input_rect_p = inspector_state.rect_length_p_input;
-                    self.prop_input_rect_l = inspector_state.rect_length_l_input;
-                    self.rect_anchor = inspector_state.rect_anchor;
-                    self.face_extrude_distance_input = inspector_state.face_extrude_input;
-
-                    if let Some(insp_ev) = insp_ev {
-                        match insp_ev {
-                            InspectorEvent::CloseInspector => {
-                                self.feature_inspector_open = false;
-                            }
-                            InspectorEvent::ToggleAutoHide => {
-                                self.auto_hide_properties = !self.auto_hide_properties;
-                            }
-                            InspectorEvent::ToggleShowAllDimensions => {
-                                self.show_all_dimensions = !self.show_all_dimensions;
-                            }
-                            InspectorEvent::UpdateEntityLine {
-                                id_raw,
-                                start_x,
-                                start_y,
-                                end_x,
-                                end_y,
-                            } => {
-                                if let Some(&id) = self
-                                    .selected
-                                    .iter()
-                                    .find(|i| i.data().as_ffi() == id_raw)
-                                {
-                                    let new_entity = Entity::Line {
-                                        start: DVec2::new(start_x, start_y),
-                                        end: DVec2::new(end_x, end_y),
-                                    };
-                                    self.execute_sketch_command(Box::new(
-                                        UpdateEntity::new("Ubah Garis", id, new_entity),
-                                    ));
-                                }
-                            }
-                            InspectorEvent::UpdateEntityCircle {
-                                id_raw,
-                                center_x,
-                                center_y,
-                                radius,
-                            } => {
-                                if let Some(&id) = self
-                                    .selected
-                                    .iter()
-                                    .find(|i| i.data().as_ffi() == id_raw)
-                                {
-                                    let new_entity = Entity::Circle {
-                                        center: DVec2::new(center_x, center_y),
-                                        radius,
-                                    };
-                                    self.execute_sketch_command(Box::new(
-                                        UpdateEntity::new("Ubah Lingkaran", id, new_entity),
-                                    ));
-                                }
-                            }
-                            InspectorEvent::UpdateEntityArc {
-                                id_raw,
-                                center_x,
-                                center_y,
-                                radius,
-                                start_angle_deg,
-                                end_angle_deg,
-                            } => {
-                                if let Some(&id) = self
-                                    .selected
-                                    .iter()
-                                    .find(|i| i.data().as_ffi() == id_raw)
-                                {
-                                    let new_entity = Entity::Arc {
-                                        center: DVec2::new(center_x, center_y),
-                                        radius,
-                                        start_angle: start_angle_deg.to_radians(),
-                                        end_angle: end_angle_deg.to_radians(),
-                                    };
-                                    self.execute_sketch_command(Box::new(
-                                        UpdateEntity::new("Ubah Busur", id, new_entity),
-                                    ));
-                                }
-                            }
-                            InspectorEvent::UpdateEntityEllipse {
-                                id_raw,
-                                center_x,
-                                center_y,
-                                radius_x,
-                                radius_y,
-                            } => {
-                                if let Some(&id) = self
-                                    .selected
-                                    .iter()
-                                    .find(|i| i.data().as_ffi() == id_raw)
-                                {
-                                    let new_entity = Entity::Ellipse {
-                                        center: DVec2::new(center_x, center_y),
-                                        radius_x,
-                                        radius_y,
-                                    };
-                                    self.execute_sketch_command(Box::new(
-                                        UpdateEntity::new("Ubah Elips", id, new_entity),
-                                    ));
-                                }
-                            }
-                            InspectorEvent::UpdateEntityRectangle {
-                                entity_ids: _,
-                                length_p,
-                                length_l,
-                                anchor,
-                            } => {
-                                if let Some(rect) = detect_rectangle(self.sketch(), &self.selected)
-                                {
-                                    let anchor = match anchor {
-                                        InspectorRectAnchor::Center => RectAnchor::Center,
-                                        InspectorRectAnchor::Corner0 => RectAnchor::Corner0,
-                                        InspectorRectAnchor::Corner1 => RectAnchor::Corner1,
-                                        InspectorRectAnchor::Corner2 => RectAnchor::Corner2,
-                                        InspectorRectAnchor::Corner3 => RectAnchor::Corner3,
-                                    };
-                                    let new_lines = rect.resized_lines(length_p, length_l, anchor);
-                                    self.execute_sketch_command(Box::new(ResizeRectangle::new(
-                                        "Ubah Rectangle",
-                                        new_lines,
-                                    )));
-                                }
-                            }
-                            InspectorEvent::ApplyConstraint(act) => {
-                                let ids: Vec<EntityId> =
-                                    self.selected.iter().copied().collect();
-                                match act {
-                                    InspectorConstraintAction::Horizontal => {
-                                        if let [id] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::Horizontal {
-                                                line: *id,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::Vertical => {
-                                        if let [id] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::Vertical {
-                                                line: *id,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::Parallel => {
-                                        if let [a, b] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::Parallel {
-                                                a: *a,
-                                                b: *b,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::Perpendicular => {
-                                        if let [a, b] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::Perpendicular {
-                                                a: *a,
-                                                b: *b,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::EqualLength => {
-                                        if let [a, b] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::EqualLength {
-                                                a: *a,
-                                                b: *b,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::EqualRadius => {
-                                        if let [a, b] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::EqualRadius {
-                                                a: *a,
-                                                b: *b,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::Tangent => {
-                                        if let [a, b] = ids.as_slice() {
-                                            self.apply_constraint(Constraint::Tangent {
-                                                a: *a,
-                                                b: *b,
-                                            });
-                                        }
-                                    }
-                                    InspectorConstraintAction::Coincident => {
-                                        self.set_tool(ToolKind::CoincidentPick);
-                                    }
-                                    InspectorConstraintAction::Fixed => {
-                                        self.set_tool(ToolKind::FixedPick);
-                                    }
-                                    InspectorConstraintAction::Symmetric => {
-                                        self.set_tool(ToolKind::SymmetricPick);
-                                    }
-                                }
-                            }
-                            InspectorEvent::UndoModel => {
-                                self.model_undo.undo(&mut self.model);
-                                self.selected_bodies.clear();
-                            }
-                            InspectorEvent::RedoModel => {
-                                self.model_undo.redo(&mut self.model);
-                                self.selected_bodies.clear();
-                            }
-                            InspectorEvent::ApplyExtrude { distance } => {
-                                self.extrude_distance_input = distance.to_string();
-                                self.extrude_selected();
-                            }
-                            InspectorEvent::ApplyFaceExtrude { distance } => {
-                                self.face_extrude_distance_input = distance.to_string();
-                                self.extrude_active_face(distance);
-                            }
-                            InspectorEvent::SketchOnFace => {
-                                self.sketch_on_active_face();
-                            }
-                            InspectorEvent::ApplyRevolve => {
-                                self.feature_inspector_open = true;
-                                self.set_tool(ToolKind::Revolve);
-                            }
-                            InspectorEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
-                                let preset = match preset_idx {
-                                    0 => ducad_ui::RevolveAxisPreset::YAxisOrigin,
-                                    1 => ducad_ui::RevolveAxisPreset::XAxisOrigin,
-                                    2 => ducad_ui::RevolveAxisPreset::BBoxLeft,
-                                    3 => ducad_ui::RevolveAxisPreset::BBoxBottom,
-                                    _ => ducad_ui::RevolveAxisPreset::CustomTwoPoints,
-                                };
-                                self.revolve_selected_with_preset(preset, angle_deg);
-                            }
-                            InspectorEvent::StartManualRevolve => {
-                                self.set_tool(ToolKind::Revolve);
-                            }
-                            InspectorEvent::StageLoftBottom => {
-                                match crate::model::build_profile_from_selection(
-                                    self.sketch(),
-                                    &self.selected,
-                                ) {
-                                    Ok(profile) => {
-                                        self.pending_loft_bottom = Some(profile);
-                                        self.model_status = None;
-                                    }
-                                    Err(msg) => self.model_status = Some(msg),
-                                }
-                            }
-                            InspectorEvent::ApplyLoft { height } => {
-                                self.loft_height_input = height.to_string();
-                                self.loft_selected();
-                            }
-                            InspectorEvent::ApplyBoolean(kind) => {
-                                let (b_kind, label) = match kind {
-                                    InspectorBooleanKind::Union => {
-                                        (BooleanKind::Union, "Union")
-                                    }
-                                    InspectorBooleanKind::Subtract => {
-                                        (BooleanKind::Subtract, "Subtract")
-                                    }
-                                    InspectorBooleanKind::Intersect => {
-                                        (BooleanKind::Intersect, "Intersect")
-                                    }
-                                };
-                                self.boolean_selected(b_kind, label, label);
-                            }
-                            InspectorEvent::ToggleEdgePicking => {
-                                self.picking_mode = if self.picking_mode == PickMode::Edge {
-                                    PickMode::None
-                                } else {
-                                    PickMode::Edge
-                                };
-                            }
-                            InspectorEvent::ResetEdgePicking => {
-                                self.selected_edges.clear();
-                            }
-                            InspectorEvent::ApplyFillet { radius } => {
-                                self.fillet_radius_input = radius.to_string();
-                                self.fillet_selected_body();
-                            }
-                            InspectorEvent::ApplyChamfer { distance } => {
-                                self.chamfer_distance_input = distance.to_string();
-                                self.chamfer_selected_body();
-                            }
-                            InspectorEvent::ToggleFacePicking => {
-                                self.picking_mode = if self.picking_mode == PickMode::Face {
-                                    PickMode::None
-                                } else {
-                                    PickMode::Face
-                                };
-                            }
-                            InspectorEvent::ApplyShell { thickness } => {
-                                self.shell_thickness_input = thickness.to_string();
-                                self.shell_selected_body();
-                            }
-                            InspectorEvent::DeleteSelectedBodies => {
-                                self.delete_selected_bodies();
-                            }
-                            InspectorEvent::SectionViewChanged => {
-                                self.section_enabled = inspector_state.section_enabled;
-                                self.section_axis = match inspector_state.section_axis {
-                                    0 => SectionAxis::X,
-                                    1 => SectionAxis::Y,
-                                    _ => SectionAxis::Z,
-                                };
-                                self.section_offset = inspector_state.section_offset;
-                                self.section_invert = inspector_state.section_invert;
-                            }
-                            InspectorEvent::RemoveMeasurement(i) => {
-                                if i < self.measurements.len() {
-                                    self.measurements.remove(i);
-                                }
-                            }
-                            InspectorEvent::ClearMeasurements => {
-                                self.measurements.clear();
-                            }
-                        }
-                    }
-                    if let Ok(ang) = inspector_state.revolve_angle_input.trim().parse::<f64>() {
-                        self.revolve_angle_setting = ang;
-                    }
-                    self.revolve_reverse = inspector_state.revolve_reverse;
-                    self.revolve_dialog.angle_input = inspector_state.revolve_angle_input;
-                    self.revolve_dialog.axis_preset = match inspector_state.revolve_axis_preset {
+        if let Some(ev) = popup_ev {
+            match ev {
+                ToolPopupEvent::Close => {
+                    self.set_tool(ToolKind::Select);
+                    self.picking_mode = PickMode::None;
+                }
+                ToolPopupEvent::ApplyExtrude { distance } => {
+                    self.extrude_distance_input = distance.to_string();
+                    self.extrude_selected();
+                }
+                ToolPopupEvent::ApplyFaceExtrude { distance } => {
+                    self.face_extrude_distance_input = distance.to_string();
+                    self.extrude_active_face(distance);
+                }
+                ToolPopupEvent::SketchOnFace => {
+                    self.sketch_on_active_face();
+                }
+                ToolPopupEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
+                    let preset = match preset_idx {
                         0 => ducad_ui::RevolveAxisPreset::YAxisOrigin,
                         1 => ducad_ui::RevolveAxisPreset::XAxisOrigin,
                         2 => ducad_ui::RevolveAxisPreset::BBoxLeft,
                         3 => ducad_ui::RevolveAxisPreset::BBoxBottom,
                         _ => ducad_ui::RevolveAxisPreset::CustomTwoPoints,
                     };
-                });
+                    self.revolve_selected_with_preset(preset, angle_deg);
+                }
+                ToolPopupEvent::StartManualRevolve => {
+                    self.set_tool(ToolKind::Revolve);
+                }
+                ToolPopupEvent::StageLoftBottom => {
+                    match crate::model::build_profile_from_selection(
+                        self.sketch(),
+                        &self.selected,
+                    ) {
+                        Ok(profile) => {
+                            self.pending_loft_bottom = Some(profile);
+                            self.model_status = None;
+                        }
+                        Err(msg) => self.model_status = Some(msg),
+                    }
+                }
+                ToolPopupEvent::ApplyLoft { height } => {
+                    self.loft_height_input = height.to_string();
+                    self.loft_selected();
+                }
+                ToolPopupEvent::ToggleEdgePicking => {
+                    if self.picking_mode == PickMode::Edge {
+                        self.picking_mode = PickMode::None;
+                    } else {
+                        self.picking_mode = PickMode::Edge;
+                    }
+                }
+                ToolPopupEvent::ResetEdgePicking => {
+                    self.selected_edges.clear();
+                }
+                ToolPopupEvent::ApplyFillet { radius } => {
+                    self.fillet_radius_input = radius.to_string();
+                    self.fillet_selected_body();
+                }
+                ToolPopupEvent::ApplyChamfer { distance } => {
+                    self.chamfer_distance_input = distance.to_string();
+                    self.chamfer_selected_body();
+                }
+                ToolPopupEvent::ToggleFacePicking => {
+                    if self.picking_mode == PickMode::Face {
+                        self.picking_mode = PickMode::None;
+                    } else {
+                        self.picking_mode = PickMode::Face;
+                    }
+                }
+                ToolPopupEvent::ApplyShell { thickness } => {
+                    self.shell_thickness_input = thickness.to_string();
+                    self.shell_selected_body();
+                }
+                ToolPopupEvent::ApplyBooleanUnion => {
+                    self.boolean_selected(BooleanKind::Union, "Union", "Union");
+                }
+                ToolPopupEvent::ApplyBooleanSubtract => {
+                    self.boolean_selected(BooleanKind::Subtract, "Subtract", "Subtract");
+                }
+                ToolPopupEvent::ApplyBooleanIntersect => {
+                    self.boolean_selected(BooleanKind::Intersect, "Intersect", "Intersect");
+                }
+                ToolPopupEvent::UndoModel => {
+                    self.model_undo.undo(&mut self.model);
+                    self.selected_bodies.clear();
+                }
+                ToolPopupEvent::RedoModel => {
+                    self.model_undo.redo(&mut self.model);
+                    self.selected_bodies.clear();
+                }
+                ToolPopupEvent::ToggleShowAllDimensions => {
+                    self.show_all_dimensions = !self.show_all_dimensions;
+                }
+                ToolPopupEvent::RemoveMeasurement(i) => {
+                    if i < self.measurements.len() {
+                        self.measurements.remove(i);
+                    }
+                }
+                ToolPopupEvent::ClearMeasurements => {
+                    self.measurements.clear();
+                }
+                ToolPopupEvent::UpdateEntityLine {
+                    id_raw,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                } => {
+                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                        let new_entity = Entity::Line {
+                            start: DVec2::new(start_x, start_y),
+                            end: DVec2::new(end_x, end_y),
+                        };
+                        self.execute_sketch_command(Box::new(
+                            UpdateEntity::new("Ubah Garis", id, new_entity),
+                        ));
+                    }
+                }
+                ToolPopupEvent::UpdateEntityCircle {
+                    id_raw,
+                    center_x,
+                    center_y,
+                    radius,
+                } => {
+                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                        let new_entity = Entity::Circle {
+                            center: DVec2::new(center_x, center_y),
+                            radius,
+                        };
+                        self.execute_sketch_command(Box::new(
+                            UpdateEntity::new("Ubah Lingkaran", id, new_entity),
+                        ));
+                    }
+                }
+                ToolPopupEvent::UpdateEntityArc {
+                    id_raw,
+                    center_x,
+                    center_y,
+                    radius,
+                    start_angle_deg,
+                    end_angle_deg,
+                } => {
+                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                        let new_entity = Entity::Arc {
+                            center: DVec2::new(center_x, center_y),
+                            radius,
+                            start_angle: start_angle_deg.to_radians(),
+                            end_angle: end_angle_deg.to_radians(),
+                        };
+                        self.execute_sketch_command(Box::new(
+                            UpdateEntity::new("Ubah Busur", id, new_entity),
+                        ));
+                    }
+                }
+                ToolPopupEvent::UpdateEntityEllipse {
+                    id_raw,
+                    center_x,
+                    center_y,
+                    radius_x,
+                    radius_y,
+                } => {
+                    if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
+                        let new_entity = Entity::Ellipse {
+                            center: DVec2::new(center_x, center_y),
+                            radius_x,
+                            radius_y,
+                        };
+                        self.execute_sketch_command(Box::new(
+                            UpdateEntity::new("Ubah Elips", id, new_entity),
+                        ));
+                    }
+                }
+                ToolPopupEvent::UpdateEntityRectangle {
+                    entity_ids: _,
+                    length_p,
+                    length_l,
+                    anchor,
+                } => {
+                    if let Some(rect) = detect_rectangle(self.sketch(), &self.selected) {
+                        let anchor = match anchor {
+                            InspectorRectAnchor::Center => RectAnchor::Center,
+                            InspectorRectAnchor::Corner0 => RectAnchor::Corner0,
+                            InspectorRectAnchor::Corner1 => RectAnchor::Corner1,
+                            InspectorRectAnchor::Corner2 => RectAnchor::Corner2,
+                            InspectorRectAnchor::Corner3 => RectAnchor::Corner3,
+                        };
+                        let new_lines = rect.resized_lines(length_p, length_l, anchor);
+                        self.execute_sketch_command(Box::new(ResizeRectangle::new(
+                            "Ubah Rectangle",
+                            new_lines,
+                        )));
+                    }
+                }
+                ToolPopupEvent::ApplyConstraint(act) => {
+                    let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                    match act {
+                        InspectorConstraintAction::Horizontal => {
+                            if let [id] = ids.as_slice() {
+                                self.apply_constraint(Constraint::Horizontal { line: *id });
+                            }
+                        }
+                        InspectorConstraintAction::Vertical => {
+                            if let [id] = ids.as_slice() {
+                                self.apply_constraint(Constraint::Vertical { line: *id });
+                            }
+                        }
+                        InspectorConstraintAction::Parallel => {
+                            if let [a, b] = ids.as_slice() {
+                                self.apply_constraint(Constraint::Parallel { a: *a, b: *b });
+                            }
+                        }
+                        InspectorConstraintAction::Perpendicular => {
+                            if let [a, b] = ids.as_slice() {
+                                self.apply_constraint(Constraint::Perpendicular { a: *a, b: *b });
+                            }
+                        }
+                        InspectorConstraintAction::EqualLength => {
+                            if let [a, b] = ids.as_slice() {
+                                self.apply_constraint(Constraint::EqualLength { a: *a, b: *b });
+                            }
+                        }
+                        InspectorConstraintAction::EqualRadius => {
+                            if let [a, b] = ids.as_slice() {
+                                self.apply_constraint(Constraint::EqualRadius { a: *a, b: *b });
+                            }
+                        }
+                        InspectorConstraintAction::Tangent => {
+                            if let [a, b] = ids.as_slice() {
+                                self.apply_constraint(Constraint::Tangent { a: *a, b: *b });
+                            }
+                        }
+                        InspectorConstraintAction::Coincident => {
+                            self.set_tool(ToolKind::CoincidentPick);
+                        }
+                        InspectorConstraintAction::Fixed => {
+                            self.set_tool(ToolKind::FixedPick);
+                        }
+                        InspectorConstraintAction::Symmetric => {
+                            self.set_tool(ToolKind::SymmetricPick);
+                        }
+                    }
+                }
+                ToolPopupEvent::DeleteSelectedBodies => {
+                    self.delete_selected_bodies();
+                }
+                ToolPopupEvent::DeleteSelectedEntities => {
+                    if !self.selected.is_empty() {
+                        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                        self.execute_sketch_command(Box::new(DeleteEntities::new(ids)));
+                        self.selected.clear();
+                    }
+                }
+            }
         }
 
         let bottom_center = egui::pos2(screen_center_x, screen_rect.max.y);

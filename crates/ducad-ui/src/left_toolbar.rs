@@ -1,23 +1,22 @@
 //! Bilah Alat Vertikal Kiri (Left Floating Toolbar) bergaya Shapr3D.
 //!
 //! Menampilkan kolom vertikal ramping mengambang di sisi kiri kanvas, DIPUSATKAN
-//! SECARA VERTIKAL antara atas & bawah viewport (lihat pemosisian `Area`-nya di
-//! `main.rs`, meniru pola `FeatureInspectorState`). Isinya HANYA tool-tool yang
-//! spesifik per mode: tombol "Pilih" (selalu ada) dan tool-tool sketsa 2D
-//! (Line, Arc, Rectangle, dst — cuma muncul saat Sketch Mode). Kontrol yang
-//! selalu sama di kedua mode (mode switcher, Items, Search, Sketch Plane,
-//! Section View, Measurements, Delete) sudah dipindah ke `top_bar.rs`.
+//! SECARA VERTIKAL antara atas & bawah viewport.
+//! Isinya lengkap untuk kedua mode (Sketch Mode 2D dan Solid Mode 3D) serta
+//! menu utilitas seperti History (riwayat & undo/redo) dan Pengukuran.
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_HOME_MINI, ICON_FLIP, ICON_HORIZONTAL_RULE, ICON_OPEN_IN_FULL, ICON_REFRESH,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CIRCLE, ICON_CONTENT_CUT,
+    ICON_CROP_16_9, ICON_FLIP, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
+    ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_STRAIGHTEN,
 };
-use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, BG_HOVER_DARK, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarTool {
     Select,
+    // 2D Tools
     Line,
     Arc,
     Rectangle,
@@ -26,12 +25,21 @@ pub enum ToolbarTool {
     Offset,
     Mirror,
     Trim,
-    Revolve,
     PointCoincident,
     PointFixed,
     PointSymmetric,
+    // 3D Tools
+    Extrude,
+    Revolve,
+    Loft,
+    FilletChamfer,
+    Shell,
+    Boolean,
+    SectionView,
+    // Shared Tools
     Measure,
     MeasureAngle,
+    History,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,8 +66,7 @@ impl LeftToolbar {
         Self::default()
     }
 
-    /// Render bilah alat vertikal kiri bergaya Shapr3D — hanya tool "Pilih"
-    /// & tool-tool sketsa 2D (muncul saat Sketch Mode).
+    /// Render bilah alat vertikal kiri bergaya Shapr3D.
     #[allow(clippy::type_complexity)]
     pub fn show(&mut self, ui: &mut Ui, current_tool: ToolbarTool) -> Option<ToolbarEvent> {
         let mut event = None;
@@ -84,12 +91,13 @@ impl LeftToolbar {
                 event = Some(ToolbarEvent::SelectTool(ToolbarTool::Select));
             }
 
-            // 2. Tools 2D (Hanya muncul saat MODE SKETCH aktif)
-            if self.is_sketching {
-                ui.add_space(1.0);
-                ui.separator();
-                ui.add_space(1.0);
+            ui.add_space(1.0);
+            ui.separator();
+            ui.add_space(1.0);
 
+            // 2. Mode-Specific Tools
+            if self.is_sketching {
+                // ==================== MODE 2D SKETCH ====================
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (ToolbarTool::Line, ICON_HORIZONTAL_RULE.codepoint, "Line", Some("L"), Some("Garis lurus 2 titik")),
                     (ToolbarTool::Arc, ICON_ARCHITECTURE.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
@@ -99,7 +107,7 @@ impl LeftToolbar {
                     (ToolbarTool::Offset, ICON_OPEN_IN_FULL.codepoint, "Offset", Some("O"), Some("Geser paralel profil kurva")),
                     (ToolbarTool::Mirror, ICON_FLIP.codepoint, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
                     (ToolbarTool::Trim, ICON_CONTENT_CUT.codepoint, "Trim", Some("T"), Some("Potong segmen berpotongan")),
-                    (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve", Some("V"), Some("Putar profil 360° terhadap sumbu")),
+                    (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve 2D/3D", Some("V"), Some("Putar profil 360° terhadap sumbu")),
                 ];
 
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {
@@ -174,6 +182,71 @@ impl LeftToolbar {
                             });
                         });
                 }
+            } else {
+                // ==================== MODE 3D SOLID ====================
+                let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (ToolbarTool::Extrude, ICON_OPEN_IN_FULL.codepoint, "Extrude / Push-Pull", Some("E"), Some("Tarik profil 2D atau sisi face 3D")),
+                    (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve 3D", Some("V"), Some("Putar profil kurva menjadi benda putar")),
+                    (ToolbarTool::Loft, ICON_LAYERS.codepoint, "Loft 3D", None, Some("Bentuk transisi antara 2 profil profil/tinggi")),
+                    (ToolbarTool::FilletChamfer, "⤹", "Fillet & Chamfer", Some("F"), Some("Lengkung atau serongkan tepi rusuk solid")),
+                    (ToolbarTool::Shell, "⧉", "Shell / Hollow", Some("S"), Some("Ronggakan benda 3D dengan ketebalan dinding")),
+                    (ToolbarTool::Boolean, ICON_CALL_MERGE.codepoint, "Boolean", Some("B"), Some("Gabung (Union), Potong (Subtract), Irisan")),
+                    (ToolbarTool::SectionView, ICON_CONTENT_CUT.codepoint, "Section View", None, Some("Tampilan potongan bidang X/Y/Z")),
+                ];
+
+                for (tool, icon, title, shortcut, subtitle) in tools_3d {
+                    let is_active = current_tool == *tool;
+                    let btn = square_btn(
+                        ui,
+                        icon,
+                        is_active,
+                        title,
+                        *shortcut,
+                        *subtitle,
+                        None,
+                        None,
+                    );
+                    if btn.clicked() {
+                        event = Some(ToolbarEvent::SelectTool(*tool));
+                    }
+                }
+            }
+
+            // 3. Shared Utilities (Pengukuran & Riwayat/History)
+            ui.add_space(1.0);
+            ui.separator();
+            ui.add_space(1.0);
+
+            // Pengukuran
+            let measure_active = matches!(current_tool, ToolbarTool::Measure | ToolbarTool::MeasureAngle);
+            let meas_btn = square_btn(
+                ui,
+                ICON_STRAIGHTEN.codepoint,
+                measure_active,
+                "Pengukuran (Inspect)",
+                Some("I"),
+                Some("Ukur jarak & nominal dimensi"),
+                None,
+                None,
+            );
+            if meas_btn.clicked() {
+                event = Some(ToolbarEvent::SelectTool(ToolbarTool::Measure));
+            }
+
+            // History & Undo/Redo
+            let history_active = current_tool == ToolbarTool::History;
+            let hist_btn = square_btn(
+                ui,
+                ICON_HISTORY.codepoint,
+                history_active,
+                "Riwayat & Undo/Redo",
+                Some("H"),
+                Some("Lacak riwayat langkah & undo / redo model"),
+                None,
+                None,
+            );
+            if hist_btn.clicked() {
+                event = Some(ToolbarEvent::SelectTool(ToolbarTool::History));
             }
         });
 

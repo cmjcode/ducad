@@ -1097,6 +1097,15 @@ impl DuCADApp {
                     }
                 }
             }
+            ToolKind::Extrude
+            | ToolKind::Loft
+            | ToolKind::FilletChamfer
+            | ToolKind::Shell
+            | ToolKind::Boolean
+            | ToolKind::SectionView
+            | ToolKind::History => {
+                self.last_snap = None;
+            }
         }
     }
 }

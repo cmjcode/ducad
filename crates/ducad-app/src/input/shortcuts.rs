@@ -351,6 +351,13 @@ impl DuCADApp {
                 1 => "Ukur Sudut: klik titik sudut (vertex)".to_string(),
                 _ => "Ukur Sudut: klik titik akhir".to_string(),
             },
+            ToolKind::Extrude => "Extrude: atur jarak dan eksekusi pada popup kanan bawah (E)".to_string(),
+            ToolKind::Loft => "Loft: set profil bawah & tinggi pada popup kanan bawah".to_string(),
+            ToolKind::FilletChamfer => "Fillet & Chamfer: pilih rusuk pada objek lalu atur radius/jarak (F)".to_string(),
+            ToolKind::Shell => "Shell: pilih wajah terbuka lalu atur ketebalan dinding (S)".to_string(),
+            ToolKind::Boolean => "Boolean: pilih minimal 2 solid body lalu pilih operasi (B)".to_string(),
+            ToolKind::SectionView => "Section View: atur bidang potongan solid 3D".to_string(),
+            ToolKind::History => "Riwayat: lihat jejak langkah modeling dan lakukan Undo / Redo (H)".to_string(),
         };
         match &self.last_snap {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),

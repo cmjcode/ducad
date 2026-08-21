@@ -7,6 +7,7 @@ use glam::{DVec2, Vec3};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolKind {
     Select,
+    // 2D Sketch tools
     Line,
     Rectangle,
     Circle,
@@ -19,18 +20,28 @@ pub enum ToolKind {
     Mirror,
     /// Klik segmen Line yang mau dipotong.
     Trim,
-    /// Revolve 360° penuh.
-    Revolve,
     /// Constraint Coincident.
     CoincidentPick,
     /// Constraint Fixed.
     FixedPick,
     /// Constraint Symmetric.
     SymmetricPick,
+    // 3D Solid tools
+    Extrude,
+    /// Revolve 360° penuh atau sudut custom.
+    Revolve,
+    Loft,
+    FilletChamfer,
+    Shell,
+    Boolean,
+    SectionView,
+    // Shared Utilities
     /// Non-destruktif Ukur Jarak.
     Measure,
     /// Non-destruktif Ukur Sudut.
     MeasureAngle,
+    /// Riwayat Dokumen & Undo/Redo.
+    History,
 }
 
 impl ToolKind {
@@ -45,12 +56,19 @@ impl ToolKind {
             ToolKind::Offset => ToolbarTool::Offset,
             ToolKind::Mirror => ToolbarTool::Mirror,
             ToolKind::Trim => ToolbarTool::Trim,
-            ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::CoincidentPick => ToolbarTool::PointCoincident,
             ToolKind::FixedPick => ToolbarTool::PointFixed,
             ToolKind::SymmetricPick => ToolbarTool::PointSymmetric,
+            ToolKind::Extrude => ToolbarTool::Extrude,
+            ToolKind::Revolve => ToolbarTool::Revolve,
+            ToolKind::Loft => ToolbarTool::Loft,
+            ToolKind::FilletChamfer => ToolbarTool::FilletChamfer,
+            ToolKind::Shell => ToolbarTool::Shell,
+            ToolKind::Boolean => ToolbarTool::Boolean,
+            ToolKind::SectionView => ToolbarTool::SectionView,
             ToolKind::Measure => ToolbarTool::Measure,
             ToolKind::MeasureAngle => ToolbarTool::MeasureAngle,
+            ToolKind::History => ToolbarTool::History,
         }
     }
 
@@ -65,12 +83,19 @@ impl ToolKind {
             ToolbarTool::Offset => ToolKind::Offset,
             ToolbarTool::Mirror => ToolKind::Mirror,
             ToolbarTool::Trim => ToolKind::Trim,
-            ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::PointCoincident => ToolKind::CoincidentPick,
             ToolbarTool::PointFixed => ToolKind::FixedPick,
             ToolbarTool::PointSymmetric => ToolKind::SymmetricPick,
+            ToolbarTool::Extrude => ToolKind::Extrude,
+            ToolbarTool::Revolve => ToolKind::Revolve,
+            ToolbarTool::Loft => ToolKind::Loft,
+            ToolbarTool::FilletChamfer => ToolKind::FilletChamfer,
+            ToolbarTool::Shell => ToolKind::Shell,
+            ToolbarTool::Boolean => ToolKind::Boolean,
+            ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::Measure => ToolKind::Measure,
             ToolbarTool::MeasureAngle => ToolKind::MeasureAngle,
+            ToolbarTool::History => ToolKind::History,
         }
     }
 }
@@ -87,24 +112,27 @@ pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 ];
 
 #[allow(dead_code)]
-pub const KEYBOARD_SHORTCUTS: [(&str, &str); 17] = [
+pub const KEYBOARD_SHORTCUTS: [(&str, &str); 20] = [
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
-    ("E", "Tool Ellips"),
+    ("E", "Tool Ellips / Extrude"),
     ("A", "Tool Arc"),
     ("O", "Tool Offset"),
     ("M", "Tool Mirror"),
     ("T", "Tool Trim"),
     ("V", "Tool Revolve"),
+    ("F", "Tool Fillet & Chamfer"),
+    ("S", "Tool Shell / Hollow"),
+    ("B", "Tool Boolean"),
+    ("I", "Tool Pengukuran"),
+    ("H", "Riwayat & Undo/Redo"),
     ("Esc", "Batal titik pending, atau kembali ke tool Pilih"),
-    ("Delete / Backspace", "Hapus seleksi"),
-    ("Ctrl/Cmd+Z", "Undo sketch"),
-    ("Ctrl/Cmd+Shift+Z atau Ctrl+Y", "Redo sketch"),
-    ("Ctrl/Cmd+O", "Buka dokumen .ducad"),
-    ("Ctrl/Cmd+S", "Simpan dokumen"),
-    ("Ctrl/Cmd+Shift+S", "Simpan Sebagai…"),
-    ("Ctrl/Cmd+K", "Buka/tutup command palette"),
+    ("Tab", "Ganti plane sketsa aktif"),
+    ("Cmd+Z", "Undo langkah terakhir"),
+    ("Cmd+Shift+Z", "Redo langkah terakhir"),
+    ("Cmd+A", "Pilih semua entitas"),
+    ("Delete/Backspace", "Hapus entitas terpilih"),
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -153,7 +181,14 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Trim
         | ToolKind::CoincidentPick
         | ToolKind::FixedPick
-        | ToolKind::SymmetricPick => 0,
+        | ToolKind::SymmetricPick
+        | ToolKind::Extrude
+        | ToolKind::Loft
+        | ToolKind::FilletChamfer
+        | ToolKind::Shell
+        | ToolKind::Boolean
+        | ToolKind::SectionView
+        | ToolKind::History => 0,
     }
 }
 
@@ -254,8 +289,7 @@ pub enum RoundKind {
     Edge,
 }
 
-/// Gaya rounding: `Fillet` (bulat, dari gizmo DITARIK keluar) atau
-/// `Chamfer` (potong lurus/rata, dari gizmo DIDORONG masuk melewati nol).
+/// Gaya rounding: `Fillet` atau `Chamfer`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RoundStyle {
     Fillet,
@@ -268,8 +302,6 @@ pub struct RoundFeature {
     pub style: RoundStyle,
     pub ray: PickRay,
     pub anchor: (f64, f64, f64),
-    /// Magnitude selalu positif (radius fillet ATAU jarak chamfer,
-    /// tergantung `style`) — tanda ditentukan hanya lewat `style`.
     pub radius: f64,
     pub polyline: Vec<(f64, f64, f64)>,
 }

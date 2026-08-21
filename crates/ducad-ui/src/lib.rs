@@ -4,6 +4,7 @@
 //! - Bilah alat vertikal mengambang di sisi kiri (`left_toolbar`)
 //! - Outliner drawer pohon item (`items_drawer`)
 //! - Pohon fitur parametrik & inspektor 3D (`feature_inspector`)
+//! - Modular tool popups pojok kanan bawah (`tool_popups`)
 //! - Strip ikon constraint mengambang (`constraint_strip`)
 //! - In-Canvas HUD & Dimension Pills (`canvas_hud`)
 //! - Modern top bar & title header (`top_bar`)
@@ -20,6 +21,7 @@ pub mod left_toolbar;
 pub mod radial_menu;
 pub mod revolve_dialog;
 pub mod theme;
+pub mod tool_popups;
 pub mod top_bar;
 pub mod viewcube;
 
@@ -44,6 +46,11 @@ pub use theme::{
     BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
+pub use tool_popups::{
+    BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
+    ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState, LoftPopup,
+    LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
+    ShellPopupState, ToolPopupEvent,
+};
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};
-

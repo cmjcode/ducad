@@ -161,6 +161,9 @@ impl CanvasHud {
 
     /// Render badge dimensi mengambang putih langsung pada posisi 2D di kanvas.
     pub fn render_dimension_pill(ui: &mut Ui, pos_2d: Pos2, value_text: &str, locked: bool) {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return;
+        }
         let painter = ui.painter();
         let lock_icon = if locked {
             format!("{} ", ICON_LOCK.codepoint)
@@ -205,6 +208,9 @@ impl CanvasHud {
         angle_rad: f32,
         value_text: &str,
     ) {
+        if !center_2d.x.is_finite() || !center_2d.y.is_finite() || !angle_rad.is_finite() {
+            return;
+        }
         let painter = ui.painter();
         let font = FontId::proportional(11.0);
         let galley =
@@ -247,6 +253,9 @@ impl CanvasHud {
         value_text: &str,
         is_active: bool,
     ) -> egui::Response {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let font = FontId::proportional(11.5);
         let galley = ui.painter().layout_no_wrap(
             value_text.to_string(),
@@ -298,6 +307,9 @@ impl CanvasHud {
         value_text: &str,
         is_active: bool,
     ) -> egui::Response {
+        if !center_2d.x.is_finite() || !center_2d.y.is_finite() || !angle_rad.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let font = FontId::proportional(11.5);
         let galley = ui.painter().layout_no_wrap(
             value_text.to_string(),
@@ -354,6 +366,9 @@ impl CanvasHud {
         pos_2d: Pos2,
         is_copy_active: bool,
     ) -> egui::Response {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let font = FontId::proportional(12.0);
         let text = "Copy";
         let galley = ui.painter().layout_no_wrap(
@@ -412,6 +427,9 @@ impl CanvasHud {
         value_text: &str,
         is_active: bool,
     ) -> egui::Response {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let font = FontId::proportional(11.5);
         let galley = ui.painter().layout_no_wrap(
             value_text.to_string(),
@@ -454,25 +472,15 @@ impl CanvasHud {
     }
 
     /// Area sense-drag utk gizmo panah dua-sisi push/pull/extrude/rounding
-    /// (Fase 9 — Icon Gizmo Profesional). Dulu fungsi ini SEKALIGUS
-    /// menggambar badge lingkaran biru flat + icon panah `▲-▼` di atasnya
-    /// — badge itu sekarang DIHAPUS (terasa seperti tombol UI 2D yang
-    /// nempel aneh di tengah scene 3D, dobel dgn icon panah kerucut solid
-    /// yang juga digambar di scene). Icon visualnya sekarang TUNGGAL: mesh
-    /// solid ter-shading dari `sketch_render::solid_double_arrow_gizmo_mesh`
-    /// (lihat `DuCADApp::build_gizmo_mesh`), digambar sungguhan di scene
-    /// 3D lewat `SceneRenderer::set_gizmo_mesh`. Fungsi ini HANYA
-    /// menyediakan hit-area drag (posisinya PERSIS di titik yg sama dgn
-    /// pusat mesh solid itu) + ubah cursor icon sesuai arah proyeksi 3D —
-    /// area sense-nya sengaja dibiarkan sama besarnya dgn handle lama
-    /// (bukan cuma seukuran mesh solid yg lebih kecil) supaya tetap gampang
-    /// di-grab.
     pub fn render_draggable_double_arrow_handle(
         ui: &mut Ui,
         pos_2d: Pos2,
         is_dragging: bool,
         dir_2d: Option<Vec2>,
     ) -> egui::Response {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let handle_radius = if is_dragging { 18.0 } else { 16.0 };
         let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 8.0));
         let response = ui.allocate_rect(rect, egui::Sense::drag());
@@ -506,6 +514,9 @@ impl CanvasHud {
         is_dragging: bool,
         is_armed: bool,
     ) -> egui::Response {
+        if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
+            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+        }
         let active = is_dragging || is_armed;
         let handle_radius = if active { 9.0 } else { 7.0 };
         let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 20.0));
