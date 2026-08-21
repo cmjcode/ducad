@@ -50,7 +50,7 @@ pub use theme::{
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{
     BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
-    ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState, LoftPopup,
+    ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, ToolPopupEvent,
 };

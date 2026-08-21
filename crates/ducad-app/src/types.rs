@@ -31,7 +31,6 @@ pub enum ToolKind {
     /// Revolve 360° penuh atau sudut custom.
     Revolve,
     Loft,
-    FilletChamfer,
     Shell,
     Boolean,
     SectionView,
@@ -62,7 +61,6 @@ impl ToolKind {
             ToolKind::Extrude => ToolbarTool::Extrude,
             ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::Loft => ToolbarTool::Loft,
-            ToolKind::FilletChamfer => ToolbarTool::FilletChamfer,
             ToolKind::Shell => ToolbarTool::Shell,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
@@ -89,7 +87,6 @@ impl ToolKind {
             ToolbarTool::Extrude => ToolKind::Extrude,
             ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::Loft => ToolKind::Loft,
-            ToolbarTool::FilletChamfer => ToolKind::FilletChamfer,
             ToolbarTool::Shell => ToolKind::Shell,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
@@ -184,7 +181,6 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::SymmetricPick
         | ToolKind::Extrude
         | ToolKind::Loft
-        | ToolKind::FilletChamfer
         | ToolKind::Shell
         | ToolKind::Boolean
         | ToolKind::SectionView

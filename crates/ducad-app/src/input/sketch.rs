@@ -1181,7 +1181,6 @@ impl DuCADApp {
                 }
             }
             ToolKind::Extrude
-            | ToolKind::FilletChamfer
             | ToolKind::Shell
             | ToolKind::Boolean
             | ToolKind::SectionView

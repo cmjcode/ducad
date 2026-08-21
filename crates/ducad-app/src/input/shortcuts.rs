@@ -353,7 +353,6 @@ impl DuCADApp {
             },
             ToolKind::Extrude => "Extrude: tarik panah gizmo atau klik angka dimensi ruler untuk atur ketinggian".to_string(),
             ToolKind::Loft => "Loft: set profil bawah & tinggi pada popup kanan bawah".to_string(),
-            ToolKind::FilletChamfer => "Fillet & Chamfer: pilih rusuk pada objek lalu atur radius/jarak (F)".to_string(),
             ToolKind::Shell => "Shell: pilih wajah terbuka lalu atur ketebalan dinding (S)".to_string(),
             ToolKind::Boolean => "Boolean: pilih minimal 2 solid body lalu pilih operasi (B)".to_string(),
             ToolKind::SectionView => "Section View: atur bidang potongan solid 3D".to_string(),

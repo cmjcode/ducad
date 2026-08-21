@@ -32,7 +32,6 @@ pub enum ToolbarTool {
     Extrude,
     Revolve,
     Loft,
-    FilletChamfer,
     Shell,
     Boolean,
     SectionView,
@@ -126,7 +125,6 @@ impl LeftToolbar {
             } else {
                 // ==================== MODE 3D SOLID ====================
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::FilletChamfer, "⤹", "Fillet & Chamfer", Some("F"), Some("Lengkung atau serongkan tepi rusuk solid")),
                     (ToolbarTool::Shell, "⧉", "Shell / Hollow", Some("S"), Some("Ronggakan benda 3D dengan ketebalan dinding")),
                     (ToolbarTool::Boolean, ICON_CALL_MERGE.codepoint, "Boolean", Some("B"), Some("Gabung (Union), Potong (Subtract), Irisan")),
                     (ToolbarTool::SectionView, ICON_CONTENT_CUT.codepoint, "Section View", None, Some("Tampilan potongan bidang X/Y/Z")),

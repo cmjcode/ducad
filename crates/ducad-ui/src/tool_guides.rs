@@ -90,9 +90,6 @@ impl ToolGuides {
             ToolbarTool::Loft => {
                 Self::render_loft_anim(painter, card_rect, has_selection, time);
             }
-            ToolbarTool::FilletChamfer => {
-                Self::render_fillet_anim(painter, card_rect, has_selection, time);
-            }
             ToolbarTool::Shell => {
                 Self::render_shell_anim(painter, card_rect, has_selection, time);
             }
@@ -1209,67 +1206,6 @@ impl ToolGuides {
                 painter,
                 badge_pos,
                 "✓ Loft 3D",
-                Color32::from_rgba_premultiplied(15, 80, 40, 220),
-                Color32::WHITE,
-            );
-        }
-
-        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
-    }
-
-    /// Fillet & Chamfer Tool
-    fn render_fillet_anim(
-        painter: &egui::Painter,
-        card_rect: Rect,
-        _has_selection: bool,
-        time: f64,
-    ) {
-        let cycle = 3.2;
-        let phase = ((time % cycle) / cycle) as f32;
-
-        let (step_title, step_color) = if phase < 0.40 {
-            ("1. Pilih Tepi (Edge) 3D", ACCENT_ORANGE)
-        } else {
-            ("2. Geser Radius Lengkung (Fillet)", ACCENT_GREEN)
-        };
-
-        Self::draw_header(painter, card_rect, "Panduan Fillet & Chamfer:", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Fillet untuk lengkung halus, Chamfer untuk sudut miring");
-
-        let corner = Pos2::new(card_rect.left() + 65.0, card_rect.top() + 45.0);
-        let p_down = Pos2::new(corner.x, card_rect.bottom() - 36.0);
-        let p_right = Pos2::new(card_rect.left() + 130.0, corner.y);
-
-        let (cursor_pos, is_clicking, r_t) = if phase < 0.40 {
-            let t = (phase / 0.40).clamp(0.0, 1.0);
-            (Pos2::new(corner.x + (1.0 - t) * 15.0, corner.y + (1.0 - t) * 15.0), t > 0.8, 0.0)
-        } else {
-            let t = ((phase - 0.40) / 0.50).clamp(0.0, 1.0);
-            (Pos2::new(corner.x + 18.0 * t, corner.y + 18.0 * t), false, t)
-        };
-
-        let radius = 18.0 * r_t;
-
-        if radius < 2.0 {
-            // Sudut tajam
-            painter.line_segment([p_down, corner], Stroke::new(2.0, ACCENT_BLUE));
-            painter.line_segment([corner, p_right], Stroke::new(2.0, ACCENT_BLUE));
-        } else {
-            // Sudut membulat (Fillet)
-            let f_down = Pos2::new(corner.x, corner.y + radius);
-            let f_right = Pos2::new(corner.x + radius, corner.y);
-
-            painter.line_segment([p_down, f_down], Stroke::new(2.0, ACCENT_BLUE));
-            painter.line_segment([f_right, p_right], Stroke::new(2.0, ACCENT_BLUE));
-
-            // Busur fillet
-            painter.line_segment([f_down, f_right], Stroke::new(2.0, ACCENT_GREEN));
-
-            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
-            Self::draw_badge(
-                painter,
-                badge_pos,
-                "R = 5.0 mm",
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );

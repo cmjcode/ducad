@@ -6,7 +6,6 @@
 pub mod boolean_popup;
 pub mod entity_popup;
 pub mod extrude_popup;
-pub mod fillet_popup;
 pub mod history_popup;
 pub mod loft_popup;
 pub mod measure_popup;
@@ -21,7 +20,6 @@ use crate::theme::{glass_frame, TEXT_SECONDARY};
 pub use boolean_popup::{BooleanPopup, BooleanPopupState};
 pub use entity_popup::{Entity2dPopup, Entity2dPopupState};
 pub use extrude_popup::{ExtrudePopup, ExtrudePopupState};
-pub use fillet_popup::{FilletPopup, FilletPopupState};
 pub use history_popup::{HistoryPopup, HistoryPopupState};
 pub use loft_popup::{LoftPopup, LoftPopupState};
 pub use measure_popup::{MeasurePopup, MeasurePopupState};
@@ -42,11 +40,6 @@ pub enum ToolPopupEvent {
     // Loft
     StageLoftBottom,
     ApplyLoft { height: f64 },
-    // Fillet / Chamfer
-    ToggleEdgePicking,
-    ResetEdgePicking,
-    ApplyFillet { radius: f64 },
-    ApplyChamfer { distance: f64 },
     // Shell
     ToggleFacePicking,
     ApplyShell { thickness: f64 },

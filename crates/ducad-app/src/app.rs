@@ -12,7 +12,7 @@ use ducad_sketch::{
 use ducad_ui::{
     BodyItemInfo, BooleanPopup, BooleanPopupState, CanvasHud, CanvasHudEvent, CommandPalette,
     ContextAction, ContextActionBar,
-    FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
+    HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     RadialMenu,
     ShellPopup, ShellPopupState,
@@ -725,9 +725,6 @@ impl eframe::App for DuCADApp {
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
                             match kind {
-                                ToolKind::FilletChamfer => {
-                                    self.picking_mode = PickMode::Edge;
-                                }
                                 ToolKind::Shell => {
                                     self.picking_mode = PickMode::Face;
                                 }
@@ -876,18 +873,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::FilletChamfer => {
-                let mut state = FilletPopupState {
-                    fillet_input: self.fillet_radius_input.clone(),
-                    chamfer_input: self.chamfer_distance_input.clone(),
-                    is_edge_picking_active: self.picking_mode == PickMode::Edge,
-                    selected_edges_count: self.selected_edges.len(),
-                    selected_bodies_count: self.selected_bodies.len(),
-                };
-                popup_ev = FilletPopup::show(&ctx, &mut state, screen_rect);
-                self.fillet_radius_input = state.fillet_input;
-                self.chamfer_distance_input = state.chamfer_input;
-            }
             ToolKind::Shell => {
                 let mut state = ShellPopupState {
                     shell_input: self.shell_thickness_input.clone(),
@@ -966,24 +951,6 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::ApplyLoft { height } => {
                     self.loft_height_input = height.to_string();
                     self.loft_selected();
-                }
-                ToolPopupEvent::ToggleEdgePicking => {
-                    if self.picking_mode == PickMode::Edge {
-                        self.picking_mode = PickMode::None;
-                    } else {
-                        self.picking_mode = PickMode::Edge;
-                    }
-                }
-                ToolPopupEvent::ResetEdgePicking => {
-                    self.selected_edges.clear();
-                }
-                ToolPopupEvent::ApplyFillet { radius } => {
-                    self.fillet_radius_input = radius.to_string();
-                    self.fillet_selected_body();
-                }
-                ToolPopupEvent::ApplyChamfer { distance } => {
-                    self.chamfer_distance_input = distance.to_string();
-                    self.chamfer_selected_body();
                 }
                 ToolPopupEvent::ToggleFacePicking => {
                     if self.picking_mode == PickMode::Face {
