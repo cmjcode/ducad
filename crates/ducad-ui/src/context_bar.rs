@@ -55,9 +55,13 @@ impl ContextActionBar {
                 ui.separator();
                 ui.add_space(2.0);
 
-                // 2. Offset
+                // 1. Offset
                 let btn = ui.add(
-                    Button::new(RichText::new("Offset").size(11.5).color(TEXT_PRIMARY)),
+                    Button::new(
+                        RichText::new(format!("{} Offset", ICON_OPEN_IN_FULL.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
                 );
                 if btn.on_hover_text("Offset kurva / kontur terpilih (O)").clicked() {
                     action = Some(ContextAction::Offset);

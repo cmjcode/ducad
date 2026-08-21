@@ -8,7 +8,7 @@
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CIRCLE, ICON_CONTENT_CUT,
-    ICON_CROP_16_9, ICON_FLIP, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
+    ICON_CROP_16_9, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
     ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -97,16 +97,13 @@ impl LeftToolbar {
 
             // 2. Mode-Specific Tools
             if self.is_sketching {
-                // ==================== MODE 2D SKETCH ====================
+                // ==================== MODE 2D SKETCH (CREATE OBJECTS) ====================
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (ToolbarTool::Line, ICON_HORIZONTAL_RULE.codepoint, "Line", Some("L"), Some("Garis lurus 2 titik")),
                     (ToolbarTool::Arc, ICON_ARCHITECTURE.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
                     (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
                     (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
                     (ToolbarTool::Ellipse, ICON_HOME_MINI.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
-                    (ToolbarTool::Offset, ICON_OPEN_IN_FULL.codepoint, "Offset", Some("O"), Some("Geser paralel profil kurva")),
-                    (ToolbarTool::Mirror, ICON_FLIP.codepoint, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
-                    (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve 2D/3D", Some("V"), Some("Putar profil 360° terhadap sumbu")),
                 ];
 
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {
@@ -124,62 +121,6 @@ impl LeftToolbar {
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
-                }
-
-                // Point Constraint Tools
-                let is_point_active = matches!(
-                    current_tool,
-                    ToolbarTool::PointCoincident | ToolbarTool::PointFixed | ToolbarTool::PointSymmetric
-                );
-                let point_title = match current_tool {
-                    ToolbarTool::PointCoincident => "Titik (Coincident)",
-                    ToolbarTool::PointFixed => "Titik (Fixed)",
-                    ToolbarTool::PointSymmetric => "Titik (Symmetric)",
-                    _ => "Titik Constraint",
-                };
-                let pt_btn = square_btn(
-                    ui,
-                    "●",
-                    is_point_active,
-                    point_title,
-                    None,
-                    Some("Coincident / Fixed / Symmetric"),
-                    None,
-                    None,
-                );
-                if pt_btn.clicked() {
-                    self.point_menu_open = !self.point_menu_open;
-                }
-
-                if self.point_menu_open {
-                    let pt_rect = pt_btn.rect;
-                    let menu_pos = egui::pos2(pt_rect.right() + 6.0, pt_rect.top() - 4.0);
-                    egui::Area::new(egui::Id::new("ducad-point-tools-popup"))
-                        .fixed_pos(menu_pos)
-                        .order(egui::Order::Tooltip)
-                        .show(ui.ctx(), |ui| {
-                            glass_frame().show(ui, |ui| {
-                                ui.set_width(130.0);
-                                ui.spacing_mut().item_spacing = Vec2::new(2.0, 3.0);
-                                ui.label(RichText::new("Titik Constraint").strong().size(10.5).color(TEXT_SECONDARY));
-                                ui.separator();
-
-                                let pt_options = [
-                                    (ToolbarTool::PointCoincident, "● Coincident", "Berimpit (2 pt)"),
-                                    (ToolbarTool::PointFixed, "🔒 Fixed", "Terkunci (1 pt)"),
-                                    (ToolbarTool::PointSymmetric, "⫿ Symmetric", "Simetris (2 pt)"),
-                                ];
-
-                                for (t, label, sub) in pt_options {
-                                    let selected = current_tool == t;
-                                    let btn = ui.selectable_label(selected, RichText::new(label).size(11.5));
-                                    if btn.on_hover_text(sub).clicked() {
-                                        event = Some(ToolbarEvent::SelectTool(t));
-                                        self.point_menu_open = false;
-                                    }
-                                }
-                            });
-                        });
                 }
             } else {
                 // ==================== MODE 3D SOLID ====================
