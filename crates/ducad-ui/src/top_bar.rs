@@ -10,7 +10,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CLOUD, ICON_DELETE, ICON_DOWNLOAD, ICON_EDIT,
+    ICON_CATEGORY, ICON_CLOUD, ICON_DOWNLOAD, ICON_EDIT,
     ICON_FILE_OPEN, ICON_FOLDER, ICON_FOLDER_OPEN, ICON_HOME, ICON_LAYERS, ICON_NOTE_ADD,
     ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_UPLOAD,
 };
@@ -228,20 +228,6 @@ impl TopBar {
                 );
                 if meas_btn.clicked() {
                     event = Some(TopBarEvent::ToggleMeasurements);
-                }
-
-                let del_btn = header_icon_btn(
-                    ui,
-                    ICON_DELETE.codepoint,
-                    false,
-                    "Delete",
-                    Some("⌫"),
-                    Some("Hapus entitas atau body terpilih"),
-                    None,
-                    Some(Color32::from_rgb(255, 110, 110)),
-                );
-                if del_btn.clicked() {
-                    event = Some(TopBarEvent::DeleteSelection);
                 }
 
                 ui.add_space(4.0);

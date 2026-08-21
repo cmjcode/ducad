@@ -11,11 +11,11 @@ use ducad_sketch::{
 };
 use ducad_ui::{
     BodyItemInfo, BooleanPopup, BooleanPopupState, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState,
+    ContextAction, ContextActionBar,
     FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     LoftPopup, LoftPopupState, RadialMenu,
-    SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
+    ShellPopup, ShellPopupState,
     SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -862,175 +862,6 @@ impl eframe::App for DuCADApp {
                 });
         }
 
-        let selected_entity_data = if self.selected.len() == 1 {
-            let &id = self.selected.iter().next().unwrap();
-            let id_raw = id.data().as_ffi();
-            let entity_opt = self.sketch().entities.get(id).cloned();
-            match entity_opt {
-                Some(Entity::Line { start, end }) => {
-                    let length = (end - start).length();
-                    let angle_deg = (end - start).y.atan2((end - start).x).to_degrees();
-                    if self.last_inspected_entity_id != Some(id_raw) {
-                        self.prop_input_p1_x = format!("{:.2}", start.x);
-                        self.prop_input_p1_y = format!("{:.2}", start.y);
-                        self.prop_input_p2_x = format!("{:.2}", end.x);
-                        self.prop_input_p2_y = format!("{:.2}", end.y);
-                        self.prop_input_val_1 = format!("{:.2}", length);
-                        self.prop_input_val_2 = format!("{:.1}", angle_deg);
-                        self.last_inspected_entity_id = Some(id_raw);
-                    }
-                    SelectedEntityData::Line {
-                        id_raw,
-                        start_x: start.x,
-                        start_y: start.y,
-                        end_x: end.x,
-                        end_y: end.y,
-                        length,
-                        angle_deg,
-                    }
-                }
-                Some(Entity::Circle { center, radius }) => {
-                    let diameter = radius * 2.0;
-                    if self.last_inspected_entity_id != Some(id_raw) {
-                        self.prop_input_p1_x = format!("{:.2}", center.x);
-                        self.prop_input_p1_y = format!("{:.2}", center.y);
-                        self.prop_input_val_1 = format!("{:.2}", radius);
-                        self.prop_input_val_2 = format!("{:.2}", diameter);
-                        self.prop_input_val_3 = format!("{:.2}", diameter);
-                        self.last_inspected_entity_id = Some(id_raw);
-                    }
-                    SelectedEntityData::Circle {
-                        id_raw,
-                        center_x: center.x,
-                        center_y: center.y,
-                        radius,
-                        diameter,
-                    }
-                }
-                Some(Entity::Arc {
-                    center,
-                    radius,
-                    start_angle,
-                    end_angle,
-                }) => {
-                    let start_deg = start_angle.to_degrees();
-                    let end_deg = end_angle.to_degrees();
-                    if self.last_inspected_entity_id != Some(id_raw) {
-                        self.prop_input_p1_x = format!("{:.2}", center.x);
-                        self.prop_input_p1_y = format!("{:.2}", center.y);
-                        self.prop_input_val_1 = format!("{:.2}", radius);
-                        self.prop_input_val_2 = format!("{:.1}", start_deg);
-                        self.prop_input_p2_x = format!("{:.1}", end_deg);
-                        self.last_inspected_entity_id = Some(id_raw);
-                    }
-                    SelectedEntityData::Arc {
-                        id_raw,
-                        center_x: center.x,
-                        center_y: center.y,
-                        radius,
-                        start_angle_deg: start_deg,
-                        end_angle_deg: end_deg,
-                    }
-                }
-                Some(Entity::Ellipse {
-                    center,
-                    radius_x,
-                    radius_y,
-                }) => {
-                    if self.last_inspected_entity_id != Some(id_raw) {
-                        self.prop_input_p1_x = format!("{:.2}", center.x);
-                        self.prop_input_p1_y = format!("{:.2}", center.y);
-                        self.prop_input_val_1 = format!("{:.2}", radius_x);
-                        self.prop_input_val_2 = format!("{:.2}", radius_y);
-                        self.last_inspected_entity_id = Some(id_raw);
-                    }
-                    SelectedEntityData::Ellipse {
-                        id_raw,
-                        center_x: center.x,
-                        center_y: center.y,
-                        radius_x,
-                        radius_y,
-                    }
-                }
-                None => {
-                    self.last_inspected_entity_id = None;
-                    SelectedEntityData::None
-                }
-            }
-        } else if self.selected.len() > 1 {
-            // Klik satu sisi rectangle di kanvas menyeleksi ke-4 Line pembentuknya
-            // sekaligus (lihat input/sketch.rs region_hit) — deteksi itu di sini
-            // supaya panel kanan tampilkan card Rectangle (P/L + anchor) alih-alih
-            // MultipleEntities generik.
-            if let Some(rect) = detect_rectangle(self.sketch(), &self.selected) {
-                let entity_ids = [
-                    rect.entity_ids[0].data().as_ffi(),
-                    rect.entity_ids[1].data().as_ffi(),
-                    rect.entity_ids[2].data().as_ffi(),
-                    rect.entity_ids[3].data().as_ffi(),
-                ];
-                // Kunci "sudah pernah diinspeksi" pakai id sisi pertama — cukup
-                // untuk deteksi ganti-seleksi tanpa menimpa input P/L yg lagi diketik.
-                if self.last_inspected_entity_id != Some(entity_ids[0]) {
-                    self.prop_input_rect_p = format!("{:.2}", rect.length_p);
-                    self.prop_input_rect_l = format!("{:.2}", rect.length_l);
-                    self.last_inspected_entity_id = Some(entity_ids[0]);
-                }
-                SelectedEntityData::Rectangle {
-                    entity_ids,
-                    length_p: rect.length_p,
-                    length_l: rect.length_l,
-                }
-            } else {
-                self.last_inspected_entity_id = None;
-                SelectedEntityData::MultipleEntities {
-                    count: self.selected.len(),
-                }
-            }
-        } else {
-            self.last_inspected_entity_id = None;
-            SelectedEntityData::None
-        };
-
-        let selected_body_data = if self.selected_bodies.len() == 1 {
-            let &bid = self.selected_bodies.iter().next().unwrap();
-            let body_name = self
-                .model
-                .doc
-                .bodies
-                .get(bid)
-                .map(|b| b.name.clone())
-                .unwrap_or_else(|| "Solid Body".to_string());
-            if let Some(geo) = self.model.geometry.get(bid) {
-                let v_count = geo.mesh.positions.len();
-                let t_count = geo.mesh.indices.len() / 3;
-                let mut min_p = [f32::INFINITY; 3];
-                let mut max_p = [f32::NEG_INFINITY; 3];
-                for pos in &geo.mesh.positions {
-                    for i in 0..3 {
-                        min_p[i] = min_p[i].min(pos[i]);
-                        max_p[i] = max_p[i].max(pos[i]);
-                    }
-                }
-                let bbox_size = [
-                    (max_p[0] - min_p[0]).abs().max(0.0),
-                    (max_p[1] - min_p[1]).abs().max(0.0),
-                    (max_p[2] - min_p[2]).abs().max(0.0),
-                ];
-                Some(SelectedBodyData {
-                    id_raw: bid.data().as_ffi(),
-                    name: body_name,
-                    vertices_count: v_count,
-                    triangles_count: t_count,
-                    bbox_size,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
         // =========================================================================
         // MODULAR TOOL POPUPS DI POJOK KANAN BAWAH (BOTTOM-RIGHT)
         // =========================================================================
@@ -1082,36 +913,6 @@ impl eframe::App for DuCADApp {
                     status_message: self.model_status.clone(),
                 };
                 popup_ev = HistoryPopup::show(&ctx, &mut state, screen_rect);
-            }
-
-            ToolKind::Select => {
-                if (!matches!(selected_entity_data, SelectedEntityData::None | SelectedEntityData::Rectangle { .. })) || selected_body_data.is_some() {
-                    let mut state = Entity2dPopupState {
-                        selected_entity: selected_entity_data.clone(),
-                        selected_body: selected_body_data.clone(),
-                        p1_x: self.prop_input_p1_x.clone(),
-                        p1_y: self.prop_input_p1_y.clone(),
-                        p2_x: self.prop_input_p2_x.clone(),
-                        p2_y: self.prop_input_p2_y.clone(),
-                        val_1: self.prop_input_val_1.clone(),
-                        val_2: self.prop_input_val_2.clone(),
-                        val_3: self.prop_input_val_3.clone(),
-                        rect_p: self.prop_input_rect_p.clone(),
-                        rect_l: self.prop_input_rect_l.clone(),
-                        rect_anchor: self.rect_anchor,
-                    };
-                    popup_ev = Entity2dPopup::show(&ctx, &mut state, screen_rect);
-                    self.prop_input_p1_x = state.p1_x;
-                    self.prop_input_p1_y = state.p1_y;
-                    self.prop_input_p2_x = state.p2_x;
-                    self.prop_input_p2_y = state.p2_y;
-                    self.prop_input_val_1 = state.val_1;
-                    self.prop_input_val_2 = state.val_2;
-                    self.prop_input_val_3 = state.val_3;
-                    self.prop_input_rect_p = state.rect_p;
-                    self.prop_input_rect_l = state.rect_l;
-                    self.rect_anchor = state.rect_anchor;
-                }
             }
             _ => {}
         }
