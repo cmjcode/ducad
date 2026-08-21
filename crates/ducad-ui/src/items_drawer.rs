@@ -47,6 +47,7 @@ pub struct ItemsDrawer {
     pub search_query: String,
     pub objects_2d_expanded: bool,
     pub bodies_expanded: bool,
+    pub custom_height: Option<f32>,
 }
 
 impl Default for ItemsDrawer {
@@ -55,6 +56,7 @@ impl Default for ItemsDrawer {
             search_query: String::new(),
             objects_2d_expanded: true,
             bodies_expanded: true,
+            custom_height: None,
         }
     }
 }
@@ -126,13 +128,44 @@ impl ItemsDrawer {
         entities_2d: &[Entity2dItemInfo],
         bodies: &[BodyItemInfo],
         max_height: f32,
+        anchor_bottom_y: f32,
     ) -> Option<ItemsDrawerEvent> {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.set_width(260.0);
-                ui.spacing_mut().item_spacing = Vec2::new(4.0, 6.0);
+                ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+
+                // =========================================================================
+                // 0. TOP RESIZE HANDLE (Tarik ke atas / bawah untuk mengubah tinggi panel)
+                // =========================================================================
+                let (handle_rect, handle_resp) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), 10.0),
+                    egui::Sense::click_and_drag(),
+                );
+                if handle_resp.hovered() || handle_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                let pill_rect = egui::Rect::from_center_size(
+                    handle_rect.center(),
+                    Vec2::new(36.0, 4.0),
+                );
+                let pill_color = if handle_resp.dragged() {
+                    ACCENT_BLUE
+                } else if handle_resp.hovered() {
+                    TEXT_SECONDARY
+                } else {
+                    Color32::from_rgb(70, 75, 90)
+                };
+                ui.painter().rect_filled(pill_rect, CornerRadius::same(2), pill_color);
+
+                if handle_resp.dragged() {
+                    if let Some(ptr_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                        let desired_h = anchor_bottom_y - ptr_pos.y;
+                        self.custom_height = Some(desired_h.clamp(120.0, max_height));
+                    }
+                }
 
                 // =========================================================================
                 // 1. SEARCH BAR & CLOSE BUTTON (Compact Single Row, No Folder Icon)
@@ -187,11 +220,25 @@ impl ItemsDrawer {
                 // =========================================================================
                 // 2. SCROLLABLE ACCORDION SECTIONS
                 // =========================================================================
-                ScrollArea::vertical()
-                    .auto_shrink([false, true])
-                    .max_height(max_height)
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
+                let (scroll_h, auto_shrink_v) = if let Some(ch) = self.custom_height {
+                    ((ch - 55.0).clamp(60.0, max_height - 55.0), false)
+                } else {
+                    (max_height, true)
+                };
+
+                let mut scroll_area = ScrollArea::vertical()
+                    .auto_shrink([false, auto_shrink_v])
+                    .max_height(scroll_h);
+
+                if !auto_shrink_v {
+                    scroll_area = scroll_area.min_scrolled_height(scroll_h);
+                }
+
+                scroll_area.show(ui, |ui| {
+                    if !auto_shrink_v {
+                        ui.set_min_height(scroll_h);
+                    }
+                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
 
                     // -----------------------------------------------------------------
                     // ACCORDION A: 2D OBJECTS

@@ -45,12 +45,14 @@ pub enum HistoryDrawerEvent {
 
 pub struct HistoryDrawer {
     pub search_query: String,
+    pub custom_height: Option<f32>,
 }
 
 impl Default for HistoryDrawer {
     fn default() -> Self {
         Self {
             search_query: String::new(),
+            custom_height: None,
         }
     }
 }
@@ -66,13 +68,44 @@ impl HistoryDrawer {
         ui: &mut Ui,
         activities: &[ActivityItemInfo],
         max_height: f32,
+        anchor_bottom_y: f32,
     ) -> Option<HistoryDrawerEvent> {
         let mut event = None;
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.set_width(270.0);
-                ui.spacing_mut().item_spacing = Vec2::new(4.0, 5.0);
+                ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+
+                // =========================================================================
+                // 0. TOP RESIZE HANDLE (Tarik ke atas / bawah untuk mengubah tinggi panel)
+                // =========================================================================
+                let (handle_rect, handle_resp) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), 10.0),
+                    egui::Sense::click_and_drag(),
+                );
+                if handle_resp.hovered() || handle_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                let pill_rect = egui::Rect::from_center_size(
+                    handle_rect.center(),
+                    Vec2::new(36.0, 4.0),
+                );
+                let pill_color = if handle_resp.dragged() {
+                    ACCENT_BLUE
+                } else if handle_resp.hovered() {
+                    TEXT_SECONDARY
+                } else {
+                    Color32::from_rgb(70, 75, 90)
+                };
+                ui.painter().rect_filled(pill_rect, CornerRadius::same(2), pill_color);
+
+                if handle_resp.dragged() {
+                    if let Some(ptr_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                        let desired_h = anchor_bottom_y - ptr_pos.y;
+                        self.custom_height = Some(desired_h.clamp(120.0, max_height));
+                    }
+                }
 
                 // =========================================================================
                 // 1. SEARCH BAR, HEADER & CLOSE BUTTON
@@ -180,11 +213,25 @@ impl HistoryDrawer {
                 // =========================================================================
                 // 2. SCROLLABLE ACTIVITY LIST (Padat & Kompak)
                 // =========================================================================
-                ScrollArea::vertical()
-                    .auto_shrink([false, true])
-                    .max_height(max_height)
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
+                let (scroll_h, auto_shrink_v) = if let Some(ch) = self.custom_height {
+                    ((ch - 60.0).clamp(60.0, max_height - 60.0), false)
+                } else {
+                    (max_height, true)
+                };
+
+                let mut scroll_area = ScrollArea::vertical()
+                    .auto_shrink([false, auto_shrink_v])
+                    .max_height(scroll_h);
+
+                if !auto_shrink_v {
+                    scroll_area = scroll_area.min_scrolled_height(scroll_h);
+                }
+
+                scroll_area.show(ui, |ui| {
+                    if !auto_shrink_v {
+                        ui.set_min_height(scroll_h);
+                    }
+                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
                         let filtered: Vec<&ActivityItemInfo> = activities
                             .iter()

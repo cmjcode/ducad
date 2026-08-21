@@ -854,23 +854,25 @@ impl eframe::App for DuCADApp {
             .collect();
 
         let both_open = self.items_drawer_open && self.history_drawer_open;
+        let screen_avail_h = (screen_rect.height() - 140.0).max(300.0);
         let max_drawer_h = if both_open {
-            ((screen_rect.height() - 200.0) * 0.48).clamp(200.0, 420.0)
+            ((screen_rect.height() - 180.0) * 0.75).clamp(200.0, screen_avail_h)
         } else {
-            (screen_rect.height() - 140.0).clamp(320.0, 620.0)
+            screen_avail_h
         };
 
         // 1. Folder / Items Drawer (Pojok Kanan Bawah, tepat di atas tombol)
         let mut folder_top_y = None;
+        let folder_bottom_y = screen_rect.max.y - 62.0;
         if self.items_drawer_open {
-            let folder_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 62.0);
+            let folder_pos = egui::pos2(screen_rect.max.x - 16.0, folder_bottom_y);
 
             let area_resp = egui::Area::new(egui::Id::new("ducad-items-drawer-area"))
                 .fixed_pos(folder_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h) {
+                    if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h, folder_bottom_y) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
@@ -920,9 +922,9 @@ impl eframe::App for DuCADApp {
         // 2. History Drawer (Tersusun di atas tombol atau di atas Folder Drawer jika keduanya terbuka)
         if self.history_drawer_open {
             let hist_bottom_y = if self.items_drawer_open {
-                folder_top_y.unwrap_or(screen_rect.max.y - 62.0 - 200.0) - 8.0
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else {
-                screen_rect.max.y - 62.0
+                folder_bottom_y
             };
             let hist_pos = egui::pos2(screen_rect.max.x - 16.0, hist_bottom_y);
 
@@ -931,7 +933,7 @@ impl eframe::App for DuCADApp {
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.history_drawer.show(ui, &self.activity_cache, max_drawer_h) {
+                    if let Some(ev) = self.history_drawer.show(ui, &self.activity_cache, max_drawer_h, hist_bottom_y) {
                         match ev {
                             HistoryDrawerEvent::Close => {
                                 self.history_drawer_open = false;
