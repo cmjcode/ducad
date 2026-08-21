@@ -11,11 +11,11 @@ use ducad_sketch::{
 };
 use ducad_ui::{
     BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar,
+    ContextAction, ContextActionBar, Entity2dItemInfo,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     RadialMenu,
-    SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
+    ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
 use eframe::egui;
@@ -739,35 +739,47 @@ impl eframe::App for DuCADApp {
                 }
             });
 
-        let sketch_planes = vec![
-            SketchPlaneItemInfo {
-                index: 0,
-                name: format!(
-                    "Plane 01 - Top (XY) ({})",
-                    self.sketches[0].entities.len()
-                ),
-                active: self.active_plane.kind == PlaneKind::Top,
-                visible: true,
-            },
-            SketchPlaneItemInfo {
-                index: 1,
-                name: format!(
-                    "Plane 02 - Front (XZ) ({})",
-                    self.sketches[1].entities.len()
-                ),
-                active: self.active_plane.kind == PlaneKind::Front,
-                visible: true,
-            },
-            SketchPlaneItemInfo {
-                index: 2,
-                name: format!(
-                    "Plane 03 - Right (YZ) ({})",
-                    self.sketches[2].entities.len()
-                ),
-                active: self.active_plane.kind == PlaneKind::Right,
-                visible: true,
-            },
-        ];
+        let entities_2d: Vec<Entity2dItemInfo> = self
+            .sketch()
+            .entities
+            .iter()
+            .map(|(id, entity)| {
+                let (name, icon_str) = match entity {
+                    Entity::Line { start, end } => {
+                        let len = start.distance(*end);
+                        (
+                            format!("Garis ({:.1} mm)", len),
+                            egui_material_icons::icons::ICON_HORIZONTAL_RULE.codepoint,
+                        )
+                    }
+                    Entity::Circle { radius, .. } => {
+                        (
+                            format!("Lingkaran (R: {:.1} mm)", radius),
+                            egui_material_icons::icons::ICON_CIRCLE.codepoint,
+                        )
+                    }
+                    Entity::Arc { radius, .. } => {
+                        (
+                            format!("Busur (R: {:.1} mm)", radius),
+                            egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
+                        )
+                    }
+                    Entity::Ellipse {
+                        radius_x, radius_y, ..
+                    } => (
+                        format!("Elips ({:.1}x{:.1} mm)", radius_x, radius_y),
+                        egui_material_icons::icons::ICON_HOME_MINI.codepoint,
+                    ),
+                };
+                Entity2dItemInfo {
+                    id_raw: id.data().as_ffi(),
+                    name,
+                    icon: icon_str,
+                    selected: self.selected.contains(&id),
+                }
+            })
+            .collect();
+
         let bodies: Vec<BodyItemInfo> = self
             .model
             .doc
@@ -781,7 +793,7 @@ impl eframe::App for DuCADApp {
             })
             .collect();
 
-        let total_items = sketch_planes.len() + 3 + bodies.len();
+        let total_items = entities_2d.len() + bodies.len();
         let max_drawer_h = (screen_rect.height() - 140.0).max(180.0);
 
         if self.items_drawer_open {
@@ -792,7 +804,7 @@ impl eframe::App for DuCADApp {
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies, max_drawer_h) {
+                    if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
@@ -816,15 +828,15 @@ impl eframe::App for DuCADApp {
                                     }
                                 }
                             }
-                            ItemsDrawerEvent::ToggleSketchVisibility(_) => {}
-                            ItemsDrawerEvent::SelectSketchPlane(idx) => {
-                                let kind = match idx {
-                                    0 => PlaneKind::Top,
-                                    1 => PlaneKind::Front,
-                                    2 => PlaneKind::Right,
-                                    _ => PlaneKind::Top,
-                                };
-                                self.set_sketch_plane(kind);
+                            ItemsDrawerEvent::SelectEntity2d { id_raw, extend } => {
+                                if let Some(id) = self.sketch().entities.keys().find(|i| i.data().as_ffi() == id_raw) {
+                                    if !extend {
+                                        self.selected.clear();
+                                    }
+                                    if !self.selected.remove(&id) {
+                                        self.selected.insert(id);
+                                    }
+                                }
                             }
                             ItemsDrawerEvent::Close => {
                                 self.items_drawer_open = false;

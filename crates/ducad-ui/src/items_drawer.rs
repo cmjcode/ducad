@@ -1,16 +1,17 @@
 //! Outliner & Scene Properties Panel bergaya Shapr3D dengan Material Icons.
 //!
 //! Menampilkan panel dock di pojok kanan bawah kanvas untuk navigasi hierarki dokumen:
-//! sketsa aktif dan daftar solid body 3D dalam bentuk accordion yang rapi,
-//! search bar compact terintegrasi tombol close, badge angka lingkaran sempurna,
-//! dan seluruh baris clickable.
+//! objek sketsa 2D aktif (garis, lingkaran, busur, elips) dan daftar solid body 3D (BODIES)
+//! dalam bentuk accordion yang rapi, search bar compact terintegrasi tombol close,
+//! badge angka lingkaran sempurna, dan seluruh baris clickable.
 
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea,
     Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_EDIT, ICON_FOLDER,
+    ICON_CATEGORY, ICON_CIRCLE, ICON_CLEAR, ICON_CLOSE,
+    ICON_FOLDER, ICON_HORIZONTAL_RULE,
     ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH,
     ICON_VISIBILITY, ICON_VISIBILITY_OFF,
 };
@@ -26,26 +27,25 @@ pub struct BodyItemInfo {
     pub selected: bool,
 }
 
-pub struct SketchPlaneItemInfo {
-    pub index: usize,
+pub struct Entity2dItemInfo {
+    pub id_raw: u64,
     pub name: String,
-    pub active: bool,
-    pub visible: bool,
+    pub icon: &'static str,
+    pub selected: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum ItemsDrawerEvent {
     ToggleBodyVisibility(u64),
     SelectBody { id_raw: u64, extend: bool },
-    ToggleSketchVisibility(usize),
-    SelectSketchPlane(usize),
+    SelectEntity2d { id_raw: u64, extend: bool },
     Close,
     Open,
 }
 
 pub struct ItemsDrawer {
     pub search_query: String,
-    pub sketches_expanded: bool,
+    pub objects_2d_expanded: bool,
     pub bodies_expanded: bool,
 }
 
@@ -53,7 +53,7 @@ impl Default for ItemsDrawer {
     fn default() -> Self {
         Self {
             search_query: String::new(),
-            sketches_expanded: true,
+            objects_2d_expanded: true,
             bodies_expanded: true,
         }
     }
@@ -110,7 +110,7 @@ impl ItemsDrawer {
         );
 
         if resp
-            .on_hover_text("Buka Properties (Sketsa & Solid Body)")
+            .on_hover_text("Buka Properties (Objek 2D & Solid Body 3D)")
             .clicked()
         {
             event = Some(ItemsDrawerEvent::Open);
@@ -123,7 +123,7 @@ impl ItemsDrawer {
     pub fn show(
         &mut self,
         ui: &mut Ui,
-        sketch_planes: &[SketchPlaneItemInfo],
+        entities_2d: &[Entity2dItemInfo],
         bodies: &[BodyItemInfo],
         max_height: f32,
     ) -> Option<ItemsDrawerEvent> {
@@ -149,7 +149,7 @@ impl ItemsDrawer {
 
                 ui.add(
                     egui::TextEdit::singleline(&mut self.search_query)
-                        .hint_text("Cari sketsa, body 3D…")
+                        .hint_text("Cari objek 2D, body 3D…")
                         .desired_width(text_width),
                 );
 
@@ -193,20 +193,19 @@ impl ItemsDrawer {
                     ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
 
                     // -----------------------------------------------------------------
-                    // ACCORDION A: SKETCHES
+                    // ACCORDION A: 2D OBJECTS
                     // -----------------------------------------------------------------
-                    let sketches_matching: Vec<&SketchPlaneItemInfo> = sketch_planes
+                    let entities_matching: Vec<&Entity2dItemInfo> = entities_2d
                         .iter()
-                        .filter(|sp| query.is_empty() || sp.name.to_lowercase().contains(&query))
+                        .filter(|e| query.is_empty() || e.name.to_lowercase().contains(&query))
                         .collect();
 
-                    let sketch_chevron = if self.sketches_expanded {
+                    let obj_chevron = if self.objects_2d_expanded {
                         ICON_KEYBOARD_ARROW_DOWN.codepoint
                     } else {
                         ICON_KEYBOARD_ARROW_RIGHT.codepoint
                     };
 
-                    // Accordion Header
                     let header_frame = Frame {
                         inner_margin: Margin::symmetric(8, 6),
                         outer_margin: Margin::ZERO,
@@ -220,19 +219,19 @@ impl ItemsDrawer {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("{} {}", sketch_chevron, ICON_EDIT.codepoint))
+                                RichText::new(format!("{} {}", obj_chevron, ICON_CIRCLE.codepoint))
                                     .size(11.5)
                                     .color(ACCENT_BLUE),
                             );
                             ui.label(
-                                RichText::new("SKETCHES")
+                                RichText::new("2D OBJECTS")
                                     .size(11.0)
                                     .strong()
                                     .color(TEXT_PRIMARY),
                             );
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // Badge lingkaran sempurna (Perfect circle)
+                                // Badge lingkaran sempurna
                                 let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
                                 ui.painter().circle_filled(
                                     badge_rect.center(),
@@ -242,7 +241,7 @@ impl ItemsDrawer {
                                 ui.painter().text(
                                     badge_rect.center(),
                                     egui::Align2::CENTER_CENTER,
-                                    format!("{}", sketch_planes.len()),
+                                    format!("{}", entities_2d.len()),
                                     egui::FontId::proportional(10.0),
                                     Color32::from_rgb(160, 166, 178),
                                 );
@@ -251,104 +250,111 @@ impl ItemsDrawer {
                     }).response;
 
                     if header_resp.interact(egui::Sense::click()).clicked() {
-                        self.sketches_expanded = !self.sketches_expanded;
+                        self.objects_2d_expanded = !self.objects_2d_expanded;
                     }
 
-                    if self.sketches_expanded {
+                    if self.objects_2d_expanded {
                         ui.add_space(2.0);
-                        for sp in sketches_matching {
-                            let is_active = sp.active;
-                            let card_bg = if is_active {
-                                Color32::from_rgb(18, 38, 68)
-                            } else {
-                                Color32::from_rgb(26, 29, 36)
-                            };
-                            let card_stroke = if is_active {
-                                Stroke::new(1.0, ACCENT_BLUE)
-                            } else {
-                                Stroke::new(0.5, BORDER_SUBTLE)
-                            };
-
-                            let row_frame = Frame {
-                                inner_margin: Margin::symmetric(8, 6),
-                                outer_margin: Margin::symmetric(0, 1),
-                                corner_radius: CornerRadius::same(6),
-                                shadow: egui::Shadow::NONE,
-                                fill: card_bg,
-                                stroke: card_stroke,
-                            };
-
-                            let mut eye_toggled = false;
-                            let card_output = row_frame.show(ui, |ui| {
+                        if entities_2d.is_empty() {
+                            card_frame().show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                ui.horizontal(|ui| {
-                                    // Eye icon
-                                    let eye_icon = if sp.visible {
-                                        ICON_VISIBILITY.codepoint
-                                    } else {
-                                        ICON_VISIBILITY_OFF.codepoint
-                                    };
-                                    let eye_color = if sp.visible {
-                                        if is_active { Color32::WHITE } else { TEXT_PRIMARY }
-                                    } else {
-                                        TEXT_MUTED
-                                    };
-
-                                    if ui
-                                        .small_button(
-                                            RichText::new(eye_icon).size(12.0).color(eye_color),
-                                        )
-                                        .on_hover_text(if sp.visible {
-                                            "Sembunyikan Sketsa"
-                                        } else {
-                                            "Tampilkan Sketsa"
-                                        })
-                                        .clicked()
-                                    {
-                                        eye_toggled = true;
-                                    }
-
-                                    // Name with high contrast
-                                    let name_color = if is_active {
-                                        Color32::WHITE
-                                    } else {
-                                        TEXT_PRIMARY
-                                    };
-                                    let name_text = RichText::new(&sp.name)
-                                        .size(11.5)
-                                        .strong()
-                                        .color(name_color);
-
-                                    ui.label(name_text);
-
-                                    // Right-aligned status pill
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if is_active {
-                                            Frame {
-                                                inner_margin: Margin::symmetric(6, 1),
-                                                outer_margin: Margin::ZERO,
-                                                corner_radius: CornerRadius::same(4),
-                                                shadow: egui::Shadow::NONE,
-                                                fill: Color32::from_rgb(10, 132, 255),
-                                                stroke: Stroke::NONE,
-                                            }
-                                            .show(ui, |ui| {
-                                                ui.label(
-                                                    RichText::new("Aktif")
-                                                        .size(9.5)
-                                                        .strong()
-                                                        .color(Color32::WHITE),
-                                                );
-                                            });
-                                        }
-                                    });
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        RichText::new(ICON_HORIZONTAL_RULE.codepoint)
+                                            .size(20.0)
+                                            .color(TEXT_MUTED),
+                                    );
+                                    ui.label(
+                                        RichText::new("Belum ada objek 2D")
+                                            .size(11.5)
+                                            .strong()
+                                            .color(TEXT_SECONDARY),
+                                    );
+                                    ui.label(
+                                        RichText::new("Gunakan Line, Circle, atau Arc di toolbar")
+                                            .size(9.5)
+                                            .color(TEXT_MUTED),
+                                    );
+                                    ui.add_space(6.0);
                                 });
                             });
+                        } else {
+                            for e in entities_matching {
+                                let is_selected = e.selected;
+                                let card_bg = if is_selected {
+                                    Color32::from_rgb(18, 38, 68)
+                                } else {
+                                    Color32::from_rgb(26, 29, 36)
+                                };
+                                let card_stroke = if is_selected {
+                                    Stroke::new(1.0, ACCENT_BLUE)
+                                } else {
+                                    Stroke::new(0.5, BORDER_SUBTLE)
+                                };
 
-                            if eye_toggled {
-                                event = Some(ItemsDrawerEvent::ToggleSketchVisibility(sp.index));
-                            } else if card_output.response.interact(egui::Sense::click()).clicked() {
-                                event = Some(ItemsDrawerEvent::SelectSketchPlane(sp.index));
+                                let row_frame = Frame {
+                                    inner_margin: Margin::symmetric(8, 6),
+                                    outer_margin: Margin::symmetric(0, 1),
+                                    corner_radius: CornerRadius::same(6),
+                                    shadow: egui::Shadow::NONE,
+                                    fill: card_bg,
+                                    stroke: card_stroke,
+                                };
+
+                                let card_output = row_frame.show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(e.icon)
+                                                .size(13.0)
+                                                .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
+                                        );
+
+                                        let name_color = if is_selected {
+                                            Color32::WHITE
+                                        } else {
+                                            TEXT_PRIMARY
+                                        };
+                                        let label_text = RichText::new(&e.name)
+                                            .strong()
+                                            .size(11.5)
+                                            .color(name_color);
+
+                                        ui.label(label_text);
+
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            if is_selected {
+                                                Frame {
+                                                    inner_margin: Margin::symmetric(6, 1),
+                                                    outer_margin: Margin::ZERO,
+                                                    corner_radius: CornerRadius::same(4),
+                                                    shadow: egui::Shadow::NONE,
+                                                    fill: Color32::from_rgb(10, 132, 255),
+                                                    stroke: Stroke::NONE,
+                                                }
+                                                .show(ui, |ui| {
+                                                    ui.label(
+                                                        RichText::new("Terpilih")
+                                                            .size(9.5)
+                                                            .strong()
+                                                            .color(Color32::WHITE),
+                                                    );
+                                                });
+                                            }
+                                        });
+                                    });
+                                });
+
+                                if card_output.response.interact(egui::Sense::click()).clicked() {
+                                    let extend = ui.input(|i| {
+                                        i.modifiers.command || i.modifiers.shift
+                                    });
+                                    event = Some(ItemsDrawerEvent::SelectEntity2d {
+                                        id_raw: e.id_raw,
+                                        extend,
+                                    });
+                                }
                             }
                         }
                     }
@@ -389,7 +395,7 @@ impl ItemsDrawer {
                             );
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // Badge lingkaran sempurna (Perfect circle)
+                                // Badge lingkaran sempurna
                                 let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
                                 ui.painter().circle_filled(
                                     badge_rect.center(),

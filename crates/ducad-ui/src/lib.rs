@@ -37,7 +37,7 @@ pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
-pub use items_drawer::{BodyItemInfo, ItemsDrawer, ItemsDrawerEvent, SketchPlaneItemInfo};
+pub use items_drawer::{BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent};
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use radial_menu::RadialMenu;
 pub use revolve_dialog::{
