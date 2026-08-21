@@ -237,9 +237,9 @@ impl TopBar {
                     ui,
                     ICON_STRAIGHTEN.codepoint,
                     state.is_measure_active,
-                    "Measurements",
-                    None,
-                    Some("Ukur jarak & sudut"),
+                    "Tampilkan Semua Ukuran",
+                    Some("I"),
+                    Some("Tampilkan angka nominal dimensi tiap garis/rusuk di kanvas"),
                     None,
                     None,
                 );

@@ -14,7 +14,7 @@ use ducad_ui::{
     ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
     ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LoftPopup, LoftPopupState, MeasurePopup, MeasurePopupState, RadialMenu, RevolvePopup,
+    LoftPopup, LoftPopupState, RadialMenu, RevolvePopup,
     RevolvePopupState, SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
     SketchPlaneItemInfo, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
@@ -608,7 +608,7 @@ impl eframe::App for DuCADApp {
             is_sketching: self.is_sketching,
             items_drawer_open: self.items_drawer_open,
             section_view_active: self.section_enabled,
-            is_measure_active: matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle),
+            is_measure_active: self.show_all_dimensions,
             active_plane_name: self.active_plane.name().to_string(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
@@ -676,13 +676,7 @@ impl eframe::App for DuCADApp {
                             self.section_enabled = !self.section_enabled;
                         }
                         TopBarEvent::ToggleMeasurements => {
-                            let already_active =
-                                matches!(self.tool, ToolKind::Measure | ToolKind::MeasureAngle);
-                            self.set_tool(if already_active {
-                                ToolKind::Select
-                            } else {
-                                ToolKind::Measure
-                            });
+                            self.show_all_dimensions = !self.show_all_dimensions;
                         }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
@@ -1117,15 +1111,9 @@ impl eframe::App for DuCADApp {
                 };
                 popup_ev = HistoryPopup::show(&ctx, &mut state, screen_rect);
             }
-            ToolKind::Measure | ToolKind::MeasureAngle => {
-                let mut state = MeasurePopupState {
-                    show_all_dimensions: self.show_all_dimensions,
-                    measurements: self.measurements.iter().map(|m| m.label()).collect(),
-                };
-                popup_ev = MeasurePopup::show(&ctx, &mut state, screen_rect);
-            }
+
             ToolKind::Select => {
-                if !matches!(selected_entity_data, SelectedEntityData::None) || selected_body_data.is_some() {
+                if (!matches!(selected_entity_data, SelectedEntityData::None | SelectedEntityData::Rectangle { .. })) || selected_body_data.is_some() {
                     let mut state = Entity2dPopupState {
                         selected_entity: selected_entity_data.clone(),
                         selected_body: selected_body_data.clone(),

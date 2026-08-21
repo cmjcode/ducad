@@ -53,7 +53,7 @@ impl Entity2dPopup {
         screen_rect: Rect,
     ) -> Option<ToolPopupEvent> {
         let (title, icon) = match (&state.selected_entity, &state.selected_body) {
-            (SelectedEntityData::Rectangle { .. }, _) => ("Persegi Panjang", ICON_EDIT.codepoint),
+            (SelectedEntityData::Rectangle { .. }, _) => return None,
             (SelectedEntityData::Line { .. }, _) => ("Garis (Line)", ICON_EDIT.codepoint),
             (SelectedEntityData::Circle { .. }, _) => ("Lingkaran", ICON_EDIT.codepoint),
             (SelectedEntityData::Arc { .. }, _) => ("Busur (Arc)", ICON_EDIT.codepoint),
@@ -74,68 +74,7 @@ impl Entity2dPopup {
                 let mut ev = None;
 
                 match &state.selected_entity {
-                    SelectedEntityData::Rectangle {
-                        entity_ids,
-                        length_p,
-                        length_l,
-                    } => {
-                        let entity_ids = *entity_ids;
-                        let lp = *length_p;
-                        let ll = *length_l;
-
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Panjang (P):").size(10.5));
-                            ui.add_sized(
-                                Vec2::new(75.0, 18.0),
-                                egui::TextEdit::singleline(&mut state.rect_p),
-                            );
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Lebar (L):").size(10.5));
-                            ui.add_sized(
-                                Vec2::new(75.0, 18.0),
-                                egui::TextEdit::singleline(&mut state.rect_l),
-                            );
-                        });
-
-                        ui.add_space(2.0);
-                        ui.label(RichText::new("Titik Tetap (Anchor):").size(9.5).color(TEXT_SECONDARY));
-                        ui.horizontal_wrapped(|ui| {
-                            let anchors = [
-                                (InspectorRectAnchor::Center, "Tengah"),
-                                (InspectorRectAnchor::Corner0, "A (Kiri Bwh)"),
-                                (InspectorRectAnchor::Corner1, "B (Kanan Bwh)"),
-                                (InspectorRectAnchor::Corner2, "C (Kanan Atas)"),
-                                (InspectorRectAnchor::Corner3, "D (Kiri Atas)"),
-                            ];
-                            for (anc, lbl) in anchors {
-                                if ui.selectable_value(&mut state.rect_anchor, anc, RichText::new(lbl).size(10.0)).clicked() {
-                                    state.rect_anchor = anc;
-                                }
-                            }
-                        });
-
-                        ui.add_space(3.0);
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new("Terapkan Dimensi").size(11.0).color(Color32::WHITE),
-                                )
-                                .fill(ACCENT_BLUE),
-                            )
-                            .clicked()
-                        {
-                            let p = state.rect_p.trim().parse::<f64>().unwrap_or(lp);
-                            let l = state.rect_l.trim().parse::<f64>().unwrap_or(ll);
-                            ev = Some(ToolPopupEvent::UpdateEntityRectangle {
-                                entity_ids,
-                                length_p: p,
-                                length_l: l,
-                                anchor: state.rect_anchor,
-                            });
-                        }
-                    }
+                    SelectedEntityData::Rectangle { .. } => {}
                     SelectedEntityData::Line {
                         id_raw,
                         start_x: _,

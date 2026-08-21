@@ -9,7 +9,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, U
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CIRCLE, ICON_CONTENT_CUT,
     ICON_CROP_16_9, ICON_FLIP, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
-    ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_STRAIGHTEN,
+    ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -217,21 +217,6 @@ impl LeftToolbar {
             ui.separator();
             ui.add_space(1.0);
 
-            // Pengukuran
-            let measure_active = matches!(current_tool, ToolbarTool::Measure | ToolbarTool::MeasureAngle);
-            let meas_btn = square_btn(
-                ui,
-                ICON_STRAIGHTEN.codepoint,
-                measure_active,
-                "Pengukuran (Inspect)",
-                Some("I"),
-                Some("Ukur jarak & nominal dimensi"),
-                None,
-                None,
-            );
-            if meas_btn.clicked() {
-                event = Some(ToolbarEvent::SelectTool(ToolbarTool::Measure));
-            }
 
             // History & Undo/Redo
             let history_active = current_tool == ToolbarTool::History;
