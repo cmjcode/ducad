@@ -36,7 +36,7 @@ impl ContextActionBar {
     pub fn show_sketch_selection(
         ui: &mut Ui,
         selected_count: usize,
-        has_closed_profile: bool,
+        _has_closed_profile: bool,
     ) -> Option<ContextAction> {
         let mut action = None;
 
@@ -54,23 +54,6 @@ impl ContextActionBar {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
-
-                // 1. Extrude (bila profil tertutup / 2D siap 3D)
-                if has_closed_profile {
-                    let btn = ui.add(
-                        Button::new(
-                            RichText::new(format!("{} Extrude", ICON_OPEN_IN_FULL.codepoint))
-                                .size(11.5)
-                                .strong()
-                                .color(TEXT_PRIMARY),
-                        )
-                        .fill(ACCENT_BLUE.gamma_multiply(0.35))
-                        .stroke(egui::Stroke::new(1.0, ACCENT_BLUE)),
-                    );
-                    if btn.on_hover_text("Extrude profil terpilih jadi objek 3D (Shift+E)").clicked() {
-                        action = Some(ContextAction::Extrude);
-                    }
-                }
 
                 // 2. Offset
                 let btn = ui.add(
