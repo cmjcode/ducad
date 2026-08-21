@@ -9,7 +9,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, U
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CIRCLE, ICON_CONTENT_CUT,
     ICON_CROP_16_9, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
-    ICON_LAYERS, ICON_OPEN_IN_FULL, ICON_REFRESH,
+    ICON_LAYERS, ICON_REFRESH,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -125,7 +125,6 @@ impl LeftToolbar {
             } else {
                 // ==================== MODE 3D SOLID ====================
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::Extrude, ICON_OPEN_IN_FULL.codepoint, "Extrude / Push-Pull", Some("E"), Some("Tarik profil 2D atau sisi face 3D")),
                     (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve 3D", Some("V"), Some("Putar profil kurva menjadi benda putar")),
                     (ToolbarTool::Loft, ICON_LAYERS.codepoint, "Loft 3D", None, Some("Bentuk transisi antara 2 profil profil/tinggi")),
                     (ToolbarTool::FilletChamfer, "⤹", "Fillet & Chamfer", Some("F"), Some("Lengkung atau serongkan tepi rusuk solid")),

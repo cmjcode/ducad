@@ -11,8 +11,8 @@ use ducad_sketch::{
 };
 use ducad_ui::{
     BodyItemInfo, BooleanPopup, BooleanPopupState, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
-    ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
+    ContextAction, ContextActionBar, Entity2dPopup, Entity2dPopupState,
+    FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     LoftPopup, LoftPopupState, RadialMenu,
     SelectedBodyData, SelectedEntityData, ShellPopup, ShellPopupState,
@@ -1037,18 +1037,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::Extrude => {
-                let mut state = ExtrudePopupState {
-                    extrude_input: self.extrude_distance_input.clone(),
-                    is_face_extrude: self.active_face.is_some(),
-                    face_extrude_input: self.face_extrude_distance_input.clone(),
-                    has_2d_selection: !matches!(selected_entity_data, SelectedEntityData::None),
-                    has_face_selection: self.active_face.is_some(),
-                };
-                popup_ev = ExtrudePopup::show(&ctx, &mut state, screen_rect);
-                self.extrude_distance_input = state.extrude_input;
-                self.face_extrude_distance_input = state.face_extrude_input;
-            }
             ToolKind::Loft => {
                 let mut state = LoftPopupState {
                     loft_height_input: self.loft_height_input.clone(),

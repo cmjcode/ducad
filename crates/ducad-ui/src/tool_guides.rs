@@ -1049,7 +1049,7 @@ impl ToolGuides {
         };
 
         Self::draw_header(painter, card_rect, "Panduan Extrude (Tarik Padat 3D):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Tekan Enter atau atur jarak di popup properti");
+        Self::draw_footer(painter, card_rect, "💡 Tarik panah gizmo atau klik dimensi ruler");
 
         // Gambar prisma isometrik 3D
         let base_c = Pos2::new(card_rect.left() + 75.0, card_rect.bottom() - 40.0);

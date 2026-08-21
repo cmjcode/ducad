@@ -351,7 +351,7 @@ impl DuCADApp {
                 1 => "Ukur Sudut: klik titik sudut (vertex)".to_string(),
                 _ => "Ukur Sudut: klik titik akhir".to_string(),
             },
-            ToolKind::Extrude => "Extrude: atur jarak dan eksekusi pada popup kanan bawah (E)".to_string(),
+            ToolKind::Extrude => "Extrude: tarik panah gizmo atau klik angka dimensi ruler untuk atur ketinggian".to_string(),
             ToolKind::Loft => "Loft: set profil bawah & tinggi pada popup kanan bawah".to_string(),
             ToolKind::FilletChamfer => "Fillet & Chamfer: pilih rusuk pada objek lalu atur radius/jarak (F)".to_string(),
             ToolKind::Shell => "Shell: pilih wajah terbuka lalu atur ketebalan dinding (S)".to_string(),

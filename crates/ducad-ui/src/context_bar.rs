@@ -154,21 +154,6 @@ impl ContextActionBar {
                 ui.separator();
                 ui.add_space(2.0);
 
-                // Extrude / Push-Pull
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Extrude Face", ICON_OPEN_IN_FULL.codepoint))
-                            .size(11.5)
-                            .strong()
-                            .color(TEXT_PRIMARY),
-                    )
-                    .fill(ACCENT_BLUE.gamma_multiply(0.35))
-                    .stroke(egui::Stroke::new(1.0, ACCENT_BLUE)),
-                );
-                if btn.on_hover_text("Tarik / dorong bidang (Push-Pull)").clicked() {
-                    action = Some(ContextAction::Extrude);
-                }
-
                 // Sketch On Face
                 let btn = ui.add(
                     Button::new(

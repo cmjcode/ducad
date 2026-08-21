@@ -113,67 +113,8 @@ pub fn show_3d_cards(
         ui.add_space(3.0);
     }
 
-    // 3b. Face Extrude / Push-Pull Card (jika sisi 3D dipilih)
-    if state.active_face_selected {
-        card_frame().show(ui, |ui| {
-            ui.label(
-                RichText::new(format!("{} Extrude Sisi (Face)", ICON_OPEN_IN_FULL.codepoint))
-                    .strong()
-                    .size(11.5)
-                    .color(ACCENT_BLUE),
-            );
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Jarak (mm):").size(10.5).color(TEXT_SECONDARY));
-                ui.add_sized(
-                    Vec2::new(70.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.face_extrude_input),
-                );
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .button(RichText::new("Tarik Extrude (+ / -)").size(11.0))
-                    .clicked()
-                {
-                    if let Ok(dist) = state.face_extrude_input.trim().parse::<f64>() {
-                        *event = Some(InspectorEvent::ApplyFaceExtrude { distance: dist });
-                    }
-                }
-                if ui
-                    .button(RichText::new("✏ Sketsa pada Sisi Ini").size(11.0))
-                    .clicked()
-                {
-                    *event = Some(InspectorEvent::SketchOnFace);
-                }
-            });
-        });
-        ui.add_space(3.0);
-    }
-
-    // 4. Extrude Card (jika ada seleksi 2D untuk di-extrude)
     let has_2d_selection = !matches!(state.selected_entity, SelectedEntityData::None);
     if has_2d_selection {
-        card_frame().show(ui, |ui| {
-            ui.label(
-                RichText::new(format!("{} Extrude Profil (3D)", ICON_OPEN_IN_FULL.codepoint))
-                    .strong()
-                    .size(11.5)
-                    .color(ACCENT_BLUE),
-            );
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Jarak (mm):").size(10.5).color(TEXT_SECONDARY));
-                ui.add_sized(
-                    Vec2::new(70.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.extrude_input),
-                );
-            });
-            if ui.button(RichText::new("Eksekusi Extrude").size(11.0)).clicked() {
-                if let Ok(dist) = state.extrude_input.trim().parse::<f64>() {
-                    *event = Some(InspectorEvent::ApplyExtrude { distance: dist });
-                }
-            }
-        });
-        ui.add_space(3.0);
-
         // Revolve Card (Properties Panel Kanan)
         card_frame().show(ui, |ui| {
             ui.label(
