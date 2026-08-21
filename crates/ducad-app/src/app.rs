@@ -1141,7 +1141,7 @@ impl eframe::App for DuCADApp {
 
         if has_sketch_sel || has_face_sel || has_body_sel {
             egui::Area::new(egui::Id::new("ducad-context-action-bar-area"))
-                .fixed_pos(egui::pos2(screen_center_x, screen_rect.max.y - 56.0))
+                .fixed_pos(egui::pos2(screen_center_x, screen_rect.max.y - 18.0))
                 .pivot(egui::Align2::CENTER_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
