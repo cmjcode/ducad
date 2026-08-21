@@ -745,6 +745,15 @@ impl DuCADApp {
             } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.set_tool(ToolKind::Select);
             }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                !self.selected.is_empty(),
+                ui.input(|i| i.time),
+            );
         } else {
             ToolGuides::render_tool_guide(
                 ui,

@@ -1267,168 +1267,68 @@ impl ToolGuides {
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }
 
-    /// Boolean Tool (Select 2 Objects -> Bottom Menu -> Top HUD Op -> Apply)
+    /// Boolean Tool (Union, Subtract, Intersect)
     fn render_boolean_anim(
         painter: &egui::Painter,
         card_rect: Rect,
         time: f64,
     ) {
-        let cycle = 5.0;
+        let cycle = 4.2;
         let phase = ((time % cycle) / cycle) as f32;
 
-        let (step_title, step_color) = if phase < 0.28 {
-            ("1. Pilih 2 Objek 3D (Shift+Klik)", ACCENT_ORANGE)
-        } else if phase < 0.54 {
-            ("2. Klik Tombol 'Boolean' di Bawah", ACCENT_BLUE)
-        } else if phase < 0.78 {
-            ("3. Pilih Operasi di Top HUD", ACCENT_ORANGE)
+        let (step_title, step_color, op_name) = if phase < 0.33 {
+            ("1. Mode: Union ∪ (Gabung Bodi)", ACCENT_BLUE, "∪ Gabung")
+        } else if phase < 0.66 {
+            ("2. Mode: Subtract - (Potong Bodi)", ACCENT_ORANGE, "- Potong")
         } else {
-            ("4. Klik 'Terapkan' (Enter)", ACCENT_GREEN)
+            ("3. Mode: Intersect ∩ (Irisan)", ACCENT_GREEN, "∩ Irisan")
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Operasi Boolean 3D:", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Shift+Klik 2 bodi bersinggungan lalu jalankan Boolean");
+        Self::draw_header(painter, card_rect, "Panduan Boolean 3D:", step_title, step_color);
+        Self::draw_footer(painter, card_rect, "💡 Pilih mode di Top HUD lalu klik Terapkan (Enter)");
 
-        // Objek 1 & Objek 2 (Dua Kubus Beririsan)
-        let c1 = Pos2::new(card_rect.left() + 55.0, card_rect.center().y - 2.0);
-        let c2 = Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 8.0);
+        let c1 = Pos2::new(card_rect.left() + 65.0, card_rect.center().y + 4.0);
+        let c2 = Pos2::new(card_rect.left() + 85.0, card_rect.center().y + 4.0);
 
-        let r1 = Rect::from_center_size(c1, Vec2::new(32.0, 32.0));
-        let r2 = Rect::from_center_size(c2, Vec2::new(32.0, 32.0));
+        let r1 = Rect::from_center_size(c1, Vec2::new(36.0, 36.0));
+        let r2 = Rect::from_center_size(c2, Vec2::new(36.0, 36.0));
 
-        let body1_selected = phase >= 0.12;
-        let body2_selected = phase >= 0.24;
+        if phase < 0.33 {
+            // Union: kedua kubus digabung utuh
+            let union_r = r1.union(r2);
+            painter.rect_filled(union_r, 3.0, ACCENT_BLUE.gamma_multiply(0.35));
+            painter.rect_stroke(union_r, 3.0, Stroke::new(1.4, ACCENT_BLUE), StrokeKind::Inside);
 
-        if phase < 0.82 {
-            // Render 2 kotak individual
-            painter.rect_filled(
-                r1,
-                3.0,
-                if body1_selected {
-                    ACCENT_BLUE.gamma_multiply(0.40)
-                } else {
-                    Color32::from_rgba_premultiplied(40, 44, 52, 140)
-                },
-            );
-            painter.rect_stroke(
-                r1,
-                3.0,
-                Stroke::new(1.2, if body1_selected { ACCENT_BLUE } else { TEXT_MUTED }),
-                StrokeKind::Inside,
-            );
+            // Garis batas antar bodi
+            painter.rect_stroke(r1, 3.0, Stroke::new(1.0, ACCENT_BLUE.gamma_multiply(0.5)), StrokeKind::Inside);
+            painter.rect_stroke(r2, 3.0, Stroke::new(1.0, ACCENT_BLUE.gamma_multiply(0.5)), StrokeKind::Inside);
+        } else if phase < 0.66 {
+            // Subtract: bodi 1 dipotong bodi 2
+            painter.rect_filled(r1, 3.0, ACCENT_ORANGE.gamma_multiply(0.35));
+            painter.rect_stroke(r1, 3.0, Stroke::new(1.4, ACCENT_ORANGE), StrokeKind::Inside);
 
-            painter.rect_filled(
-                r2,
-                3.0,
-                if body2_selected {
-                    ACCENT_ORANGE.gamma_multiply(0.40)
-                } else {
-                    Color32::from_rgba_premultiplied(40, 44, 52, 140)
-                },
-            );
-            painter.rect_stroke(
-                r2,
-                3.0,
-                Stroke::new(1.2, if body2_selected { ACCENT_ORANGE } else { TEXT_MUTED }),
-                StrokeKind::Inside,
-            );
+            // Bodi 2 digambar putus-putus sebagai pemotong
+            painter.rect_filled(r2, 3.0, Color32::from_rgba_premultiplied(40, 44, 52, 100));
+            painter.rect_stroke(r2, 3.0, Stroke::new(1.0, TEXT_MUTED), StrokeKind::Inside);
         } else {
-            // Hasil Boolean (Union menyatu)
-            let union_rect = r1.union(r2);
-            painter.rect_filled(union_rect, 4.0, ACCENT_GREEN.gamma_multiply(0.35));
-            painter.rect_stroke(union_rect, 4.0, Stroke::new(1.5, ACCENT_GREEN), StrokeKind::Inside);
+            // Intersect: hanya bagian irisan yang dipertahankan
+            let intersect_r = r1.intersect(r2);
+            painter.rect_filled(intersect_r, 2.0, ACCENT_GREEN.gamma_multiply(0.50));
+            painter.rect_stroke(intersect_r, 2.0, Stroke::new(1.5, ACCENT_GREEN), StrokeKind::Inside);
+
+            // Garis luar kedua bodi samar
+            painter.rect_stroke(r1, 3.0, Stroke::new(1.0, TEXT_MUTED.gamma_multiply(0.6)), StrokeKind::Inside);
+            painter.rect_stroke(r2, 3.0, Stroke::new(1.0, TEXT_MUTED.gamma_multiply(0.6)), StrokeKind::Inside);
         }
 
-        // Mini preview widget UI sesuai fase
-        let (cursor_pos, is_clicking) = if phase < 0.14 {
-            // Menuju & klik body 1
-            let t = (phase / 0.14).clamp(0.0, 1.0);
-            let pos = Pos2::new(c1.x - 10.0 + t * 10.0, c1.y + (1.0 - t) * 10.0);
-            (pos, t > 0.8)
-        } else if phase < 0.28 {
-            // Menuju & klik body 2
-            let t = ((phase - 0.14) / 0.14).clamp(0.0, 1.0);
-            let pos = Pos2::new(c1.x + t * (c2.x - c1.x), c1.y + t * (c2.y - c1.y));
-            (pos, t > 0.8)
-        } else if phase < 0.54 {
-            // Gambar mini bottom menu pill
-            let pill_rect = Rect::from_center_size(
-                Pos2::new(card_rect.right() - 55.0, card_rect.center().y + 16.0),
-                Vec2::new(88.0, 20.0),
-            );
-            painter.rect_filled(pill_rect, 6.0, Color32::from_rgba_premultiplied(18, 22, 30, 230));
-            painter.rect_stroke(pill_rect, 6.0, Stroke::new(1.0, ACCENT_BLUE), StrokeKind::Inside);
-
-            Self::draw_badge(
-                painter,
-                pill_rect.center(),
-                "⤹ Boolean",
-                Color32::from_rgba_premultiplied(30, 70, 120, 220),
-                Color32::WHITE,
-            );
-
-            // Menuju & klik tombol Boolean
-            let t = ((phase - 0.28) / 0.26).clamp(0.0, 1.0);
-            let target = pill_rect.center();
-            let pos = Pos2::new(c2.x + t * (target.x - c2.x), c2.y + t * (target.y - c2.y));
-            (pos, t > 0.8)
-        } else if phase < 0.78 {
-            // Gambar mini Top HUD bar [Union] [Subtract] [Intersect]
-            let hud_rect = Rect::from_center_size(
-                Pos2::new(card_rect.right() - 55.0, card_rect.center().y - 10.0),
-                Vec2::new(94.0, 22.0),
-            );
-            painter.rect_filled(hud_rect, 6.0, Color32::from_rgba_premultiplied(18, 22, 30, 240));
-            painter.rect_stroke(hud_rect, 6.0, Stroke::new(1.0, ACCENT_ORANGE), StrokeKind::Inside);
-
-            Self::draw_badge(
-                painter,
-                hud_rect.center(),
-                "Union | Subtract",
-                Color32::from_rgba_premultiplied(60, 40, 10, 220),
-                Color32::WHITE,
-            );
-
-            // Menuju & klik pilihan operasi di Top HUD
-            let t = ((phase - 0.54) / 0.24).clamp(0.0, 1.0);
-            let start = Pos2::new(card_rect.right() - 55.0, card_rect.center().y + 16.0);
-            let target = hud_rect.center();
-            let pos = Pos2::new(start.x + t * (target.x - start.x), start.y + t * (target.y - start.y));
-            (pos, t > 0.8)
-        } else {
-            // Gambar mini Top HUD tombol Terapkan
-            let apply_rect = Rect::from_center_size(
-                Pos2::new(card_rect.right() - 50.0, card_rect.center().y - 8.0),
-                Vec2::new(76.0, 22.0),
-            );
-            painter.rect_filled(apply_rect, 6.0, ACCENT_GREEN);
-
-            Self::draw_badge(
-                painter,
-                apply_rect.center(),
-                "🚀 Terapkan",
-                ACCENT_GREEN,
-                Color32::WHITE,
-            );
-
-            let success_badge_pos = Pos2::new(card_rect.right() - 50.0, card_rect.center().y + 16.0);
-            Self::draw_badge(
-                painter,
-                success_badge_pos,
-                "✓ Berhasil",
-                Color32::from_rgba_premultiplied(20, 80, 40, 220),
-                Color32::WHITE,
-            );
-
-            // Menuju & klik tombol Terapkan
-            let t = ((phase - 0.78) / 0.22).clamp(0.0, 1.0);
-            let start = Pos2::new(card_rect.right() - 55.0, card_rect.center().y - 10.0);
-            let target = apply_rect.center();
-            let pos = Pos2::new(start.x + t * (target.x - start.x), start.y + t * (target.y - start.y));
-            (pos, t > 0.4 && t < 0.8)
-        };
-
-        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+        let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+        Self::draw_badge(
+            painter,
+            badge_pos,
+            op_name,
+            step_color.gamma_multiply(0.3),
+            Color32::WHITE,
+        );
     }
 
     /// Section View Tool
