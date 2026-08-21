@@ -294,8 +294,8 @@ impl DuCADApp {
             },
             ToolKind::Arc => match self.pending_points.len() {
                 0 => "Arc: klik titik awal (A)".to_string(),
-                1 => "Arc: klik titik akhir".to_string(),
-                _ => "Arc: klik titik di busur (menentukan sisi)".to_string(),
+                1 => "Arc: klik titik lengkungan busur".to_string(),
+                _ => "Arc: klik titik akhir busur".to_string(),
             },
             ToolKind::Offset => match self.offset_source {
                 None => "Offset: klik entitas sumber (O)".to_string(),

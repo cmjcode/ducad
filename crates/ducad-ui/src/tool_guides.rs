@@ -421,74 +421,172 @@ impl ToolGuides {
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }
 
-    /// Arc Tool (3-Points)
+    /// Arc Tool (3-Points: Titik Awal -> Titik Lengkungan -> Titik Akhir)
     fn render_arc_anim(
         painter: &egui::Painter,
         card_rect: Rect,
-        _pending_points: usize,
+        pending_points: usize,
         time: f64,
     ) {
-        let cycle = 3.6;
+        let cycle = 3.8;
         let phase = ((time % cycle) / cycle) as f32;
 
-        let (step_title, step_color) = if phase < 0.30 {
+        let (step_title, step_color) = if pending_points == 1 {
+            ("2. Klik Titik Lengkungan (Langkah Aktif)", ACCENT_GREEN)
+        } else if pending_points >= 2 {
+            ("3. Klik Titik Akhir Busur (Langkah Aktif)", ACCENT_GREEN)
+        } else if phase < 0.28 {
             ("1. Klik Titik Awal Busur", ACCENT_ORANGE)
-        } else if phase < 0.60 {
-            ("2. Klik Titik Akhir Busur", ACCENT_ORANGE)
+        } else if phase < 0.62 {
+            ("2. Klik Titik Lengkungan (Kurva)", ACCENT_ORANGE)
+        } else if phase < 0.90 {
+            ("3. Klik Titik Akhir Busur", ACCENT_ORANGE)
         } else {
-            ("3. Tentukan Lengkungan (Apex)", ACCENT_GREEN)
+            ("Busur Terbentuk (3 Titik)", ACCENT_GREEN)
         };
 
         Self::draw_header(painter, card_rect, "Panduan Arc (Busur 3-Titik):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 3 Titik membentuk kurva busur mulus");
+        Self::draw_footer(painter, card_rect, "💡 Urutan: Titik Awal → Lengkungan → Titik Akhir");
 
+        // Tiga titik kunci busur
         let p1 = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 36.0);
-        let p2 = Pos2::new(card_rect.right() - 60.0, card_rect.bottom() - 36.0);
-        let p3_target = Pos2::new((p1.x + p2.x) * 0.5, card_rect.top() + 45.0);
+        let p2 = Pos2::new(card_rect.center().x - 5.0, card_rect.top() + 46.0);
+        let p3 = Pos2::new(card_rect.right() - 45.0, card_rect.bottom() - 36.0);
 
-        let (cursor_pos, is_clicking, curve_t) = if phase < 0.30 {
-            let t = (phase / 0.30).clamp(0.0, 1.0);
-            let pos = Pos2::new(p1.x + (1.0 - t) * 15.0, p1.y + (1.0 - t) * 10.0);
-            (pos, t > 0.8, 0.0)
-        } else if phase < 0.60 {
-            let t = ((phase - 0.30) / 0.30).clamp(0.0, 1.0);
-            let pos = Pos2::new(p1.x + (p2.x - p1.x) * t, p1.y);
-            (pos, t > 0.85, 0.0)
+        let (cursor_pos, is_clicking, step_phase) = if phase < 0.28 {
+            let t = (phase / 0.28).clamp(0.0, 1.0);
+            let pos = Pos2::new(p1.x - (1.0 - t) * 14.0, p1.y + (1.0 - t) * 10.0);
+            (pos, t > 0.78, 1)
+        } else if phase < 0.62 {
+            let t = ((phase - 0.28) / 0.34).clamp(0.0, 1.0);
+            let pos = Pos2::new(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+            (pos, t > 0.85, 2)
+        } else if phase < 0.90 {
+            let t = ((phase - 0.62) / 0.28).clamp(0.0, 1.0);
+            let pos = Pos2::new(p2.x + (p3.x - p2.x) * t, p2.y + (p3.y - p2.y) * t);
+            (pos, t > 0.85, 3)
         } else {
-            let t = ((phase - 0.60) / 0.30).clamp(0.0, 1.0);
-            let p_mid_base = Pos2::new((p1.x + p2.x) * 0.5, p1.y);
-            let pos = Pos2::new(p_mid_base.x, p_mid_base.y + (p3_target.y - p_mid_base.y) * t);
-            (pos, t > 0.85, t)
+            (Pos2::new(p3.x + 8.0, p3.y + 6.0), false, 4)
         };
 
-        painter.circle_filled(p1, 3.5, if phase >= 0.25 { ACCENT_ORANGE } else { TEXT_MUTED });
-        if phase >= 0.55 {
-            painter.circle_filled(p2, 3.5, ACCENT_ORANGE);
+        // Render preview grafis sesuai step
+        match step_phase {
+            1 => {
+                // Langkah 1: Kursor menuju & klik titik awal
+                painter.circle_filled(p1, 3.5, if phase >= 0.22 { ACCENT_ORANGE } else { TEXT_MUTED });
+            }
+            2 => {
+                // Langkah 2: Garis lurus preview dari p1 ke kursor
+                painter.circle_filled(p1, 3.5, ACCENT_ORANGE);
+                painter.line_segment([p1, cursor_pos], Stroke::new(1.3, ACCENT_BLUE.gamma_multiply(0.75)));
+                if phase >= 0.55 {
+                    painter.circle_filled(p2, 3.5, ACCENT_ORANGE);
+                }
+            }
+            3 => {
+                // Langkah 3: Kurva busur sejati yang terbentuk dari p1, p2, ke posisi kursor saat ini
+                painter.circle_filled(p1, 3.5, ACCENT_ORANGE);
+                painter.circle_filled(p2, 3.5, ACCENT_ORANGE);
+                Self::draw_arc_three_points(painter, p1, p2, cursor_pos, Stroke::new(2.0, ACCENT_BLUE));
+                if phase >= 0.85 {
+                    painter.circle_filled(p3, 3.5, ACCENT_ORANGE);
+                }
+            }
+            _ => {
+                // Langkah Selesai: Tampilkan busur penuh dan badge ukuran
+                painter.circle_filled(p1, 3.5, ACCENT_ORANGE);
+                painter.circle_filled(p2, 3.5, ACCENT_ORANGE);
+                painter.circle_filled(p3, 3.5, ACCENT_ORANGE);
+                Self::draw_arc_three_points(painter, p1, p2, p3, Stroke::new(2.0, ACCENT_BLUE));
+
+                let badge_pos = Pos2::new(card_rect.center().x - 5.0, card_rect.center().y + 8.0);
+                Self::draw_badge(
+                    painter,
+                    badge_pos,
+                    "R = 35 mm",
+                    Color32::from_rgba_premultiplied(20, 60, 110, 220),
+                    Color32::WHITE,
+                );
+            }
         }
 
-        if phase >= 0.55 {
-            // Gambar kurva busur kuadratik sederhana
-            let current_apex_y = p1.y + (p3_target.y - p1.y) * curve_t;
-            let segments = 16;
-            let mut arc_pts = Vec::with_capacity(segments + 1);
-            for i in 0..=segments {
-                let u = i as f32 / segments as f32;
-                let x = p1.x + (p2.x - p1.x) * u;
-                // Parabola arc
-                let y = p1.y - 4.0 * (p1.y - current_apex_y) * u * (1.0 - u);
-                arc_pts.push(Pos2::new(x, y));
+        // Tampilkan nomor urutan langkah di tiap titik
+        let draw_point_label = |p: Pos2, num: &str, is_active: bool| {
+            if is_active {
+                painter.text(
+                    Pos2::new(p.x, p.y - 9.0),
+                    Align2::CENTER_CENTER,
+                    num,
+                    FontId::proportional(10.0),
+                    TEXT_PRIMARY,
+                );
             }
-            for w in arc_pts.windows(2) {
-                painter.line_segment([w[0], w[1]], Stroke::new(2.0, ACCENT_BLUE));
-            }
+        };
 
-            if curve_t > 0.3 {
-                let apex_pos = Pos2::new((p1.x + p2.x) * 0.5, current_apex_y);
-                painter.circle_filled(apex_pos, 3.0, ACCENT_GREEN);
-            }
-        }
+        draw_point_label(p1, "1", phase >= 0.22);
+        draw_point_label(p2, "2", phase >= 0.55);
+        draw_point_label(p3, "3", phase >= 0.85);
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Helper untuk menggambar kurva busur lingkaran 3 titik sejati (p1 -> p2 -> p3)
+    fn draw_arc_three_points(
+        painter: &egui::Painter,
+        p1: Pos2,
+        p2: Pos2,
+        p3: Pos2,
+        stroke: Stroke,
+    ) {
+        let (ax, ay) = (p1.x, p1.y);
+        let (bx, by) = (p2.x, p2.y);
+        let (cx, cy) = (p3.x, p3.y);
+        let d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+        if d.abs() < 1e-2 {
+            painter.line_segment([p1, p2], stroke);
+            painter.line_segment([p2, p3], stroke);
+            return;
+        }
+        let a2 = ax * ax + ay * ay;
+        let b2 = bx * bx + by * by;
+        let c2 = cx * cx + cy * cy;
+        let ux = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / d;
+        let uy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / d;
+        let center = Pos2::new(ux, uy);
+        let radius = (p1 - center).length();
+
+        let a1 = (p1.y - center.y).atan2(p1.x - center.x);
+        let a2_angle = (p2.y - center.y).atan2(p2.x - center.x);
+        let a3 = (p3.y - center.y).atan2(p3.x - center.x);
+
+        let ccw_span = |from: f32, to: f32| {
+            let diff = to - from;
+            if diff < 0.0 {
+                diff + std::f32::consts::TAU
+            } else {
+                diff
+            }
+        };
+
+        let span12 = ccw_span(a1, a2_angle);
+        let span13 = ccw_span(a1, a3);
+
+        let (start_angle, span) = if span12 <= span13 {
+            (a1, span13)
+        } else {
+            (a3, ccw_span(a3, a1))
+        };
+
+        let segments = 24;
+        let mut pts = Vec::with_capacity(segments + 1);
+        for i in 0..=segments {
+            let t = i as f32 / segments as f32;
+            let ang = start_angle + t * span;
+            pts.push(Pos2::new(center.x + radius * ang.cos(), center.y + radius * ang.sin()));
+        }
+        for w in pts.windows(2) {
+            painter.line_segment([w[0], w[1]], stroke);
+        }
     }
 
     /// Ellipse Tool
