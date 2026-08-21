@@ -6,7 +6,7 @@ use ducad_sketch::{
     detect_rectangle, find_region_containing_entity, find_snap, Entity, EntityId, RectAnchor,
     ResizeRectangle, UpdateEntity,
 };
-use ducad_ui::CanvasHud;
+use ducad_ui::{CanvasHud, ToolGuides};
 use eframe::egui;
 use glam::{DVec2, Vec3};
 use slotmap::Key;
@@ -573,6 +573,15 @@ impl DuCADApp {
                     self.cancel_staged_revolve();
                 }
             }
+        } else {
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                !self.selected.is_empty(),
+                ui.input(|i| i.time),
+            );
         }
 
         if let Some(raw) = raw_cursor {

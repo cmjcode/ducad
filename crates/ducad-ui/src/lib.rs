@@ -21,6 +21,7 @@ pub mod left_toolbar;
 pub mod radial_menu;
 pub mod revolve_dialog;
 pub mod theme;
+pub mod tool_guides;
 pub mod tool_popups;
 pub mod top_bar;
 pub mod viewcube;
@@ -46,6 +47,7 @@ pub use theme::{
     BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
+pub use tool_guides::ToolGuides;
 pub use tool_popups::{
     BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
     ExtrudePopupState, FilletPopup, FilletPopupState, HistoryPopup, HistoryPopupState, LoftPopup,
