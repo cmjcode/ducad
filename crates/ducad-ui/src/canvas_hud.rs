@@ -972,7 +972,7 @@ impl CanvasHud {
 
         // 1. Top Horizontal HUD Banner
         let banner_w = 720.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 68.0);
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
         let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
 
         let is_ready = selected_regions_count == 2;
@@ -1133,7 +1133,7 @@ impl CanvasHud {
                 if dist > 0.1 {
                     let modal_w = 400.0;
                     let modal_h = 105.0;
-                    let modal_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 140.0);
+                    let modal_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 160.0);
                     let modal_rect = egui::Rect::from_center_size(modal_pos, Vec2::new(modal_w, modal_h));
 
                     ui.painter().rect_filled(
