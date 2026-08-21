@@ -365,23 +365,11 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
             if *radius_x <= 0.0 || *radius_y <= 0.0 {
                 return Err("Radius ellips harus bernilai positif".to_string());
             }
-            const SAMPLES: usize = 48;
-            let mut segs = Vec::with_capacity(SAMPLES);
-            let tau = std::f64::consts::TAU;
-            for i in 0..SAMPLES {
-                let t1 = tau * (i as f64 / SAMPLES as f64);
-                let t2 = tau * ((i + 1) as f64 / SAMPLES as f64);
-                let p1 = (
-                    center.x + radius_x * t1.cos(),
-                    center.y + radius_y * t1.sin(),
-                );
-                let p2 = (
-                    center.x + radius_x * t2.cos(),
-                    center.y + radius_y * t2.sin(),
-                );
-                segs.push(ProfileSegment::Line { start: p1, end: p2 });
-            }
-            return Ok(Profile::Loop(segs));
+            return Ok(Profile::Ellipse {
+                center: (center.x, center.y),
+                radius_x: *radius_x,
+                radius_y: *radius_y,
+            });
         }
     }
 
@@ -702,5 +690,33 @@ mod tests {
         let shape = ducad_kernel::loft_profiles(&p1, &p2, 20.0).unwrap();
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn extrude_ellipse_horizontal_and_vertical() {
+        let mut sketch = Sketch::default();
+        let e1 = sketch.entities.insert(Entity::Ellipse {
+            center: DVec2::new(0.0, 0.0),
+            radius_x: 30.0,
+            radius_y: 10.0,
+        });
+        let mut set1 = HashSet::new();
+        set1.insert(e1);
+        let p1 = build_profile_from_selection(&sketch, &set1).unwrap();
+        let shape1 = ducad_kernel::extrude_profile(&p1, 25.0).unwrap();
+        let mesh1 = shape1.tessellate();
+        assert!(mesh1.triangle_count() > 0);
+
+        let e2 = sketch.entities.insert(Entity::Ellipse {
+            center: DVec2::new(50.0, 0.0),
+            radius_x: 10.0,
+            radius_y: 30.0,
+        });
+        let mut set2 = HashSet::new();
+        set2.insert(e2);
+        let p2 = build_profile_from_selection(&sketch, &set2).unwrap();
+        let shape2 = ducad_kernel::extrude_profile(&p2, 25.0).unwrap();
+        let mesh2 = shape2.tessellate();
+        assert!(mesh2.triangle_count() > 0);
     }
 }

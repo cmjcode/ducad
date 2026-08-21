@@ -69,6 +69,7 @@
 #include <gp_Circ.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Cylinder.hxx>
+#include <gp_Elips.hxx>
 #include <gp_Lin.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
@@ -214,6 +215,10 @@ inline std::unique_ptr<gp_Ax1> gp_Ax1_ctor(const gp_Pnt &origin, const gp_Dir &m
 
 inline std::unique_ptr<gp_Ax2> gp_Ax2_ctor(const gp_Pnt &origin, const gp_Dir &main_dir) {
   return std::unique_ptr<gp_Ax2>(new gp_Ax2(origin, main_dir));
+}
+
+inline std::unique_ptr<gp_Ax2> gp_Ax2_ctor_with_x_dir(const gp_Pnt &origin, const gp_Dir &main_dir, const gp_Dir &x_dir) {
+  return std::unique_ptr<gp_Ax2>(new gp_Ax2(origin, main_dir, x_dir));
 }
 
 inline std::unique_ptr<gp_Ax3> gp_Ax3_from_gp_Ax2(const gp_Ax2 &axis) {

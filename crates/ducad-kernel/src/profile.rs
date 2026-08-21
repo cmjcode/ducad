@@ -23,6 +23,12 @@ pub enum ProfileSegment {
 pub enum Profile {
     /// Lingkaran penuh — jadi silinder saat di-extrude.
     Circle { center: (f64, f64), radius: f64 },
+    /// Elips penuh parametrik analitik — jadi silinder elips mulus saat di-extrude.
+    Ellipse {
+        center: (f64, f64),
+        radius_x: f64,
+        radius_y: f64,
+    },
     /// Loop tertutup segmen Line/Arc; segmen harus sudah berurutan
     /// end-to-end kembali ke titik awal (verifikasi kontinuitas jadi
     /// tanggung jawab pemanggil — lihat pembangun chain di `ducad-app`).
@@ -58,6 +64,25 @@ pub(crate) fn build_wire_on_plane(
             let edge = Edge::circle(c3, norm, *radius);
             Ok(Wire::from_edges([&edge]))
         }
+        Profile::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => {
+            if *radius_x <= 0.0 || *radius_y <= 0.0 {
+                bail!("radius ellips profil harus > 0");
+            }
+            let c3 = to_3d(*center);
+            let u3 = dvec3(u_axis[0], u_axis[1], u_axis[2]).normalize();
+            let v3 = dvec3(v_axis[0], v_axis[1], v_axis[2]).normalize();
+            let (major_r, minor_r, x_dir) = if *radius_x >= *radius_y {
+                (*radius_x, *radius_y, u3)
+            } else {
+                (*radius_y, *radius_x, v3)
+            };
+            let edge = Edge::ellipse(c3, norm, x_dir, major_r, minor_r);
+            Ok(Wire::from_edges([&edge]))
+        }
         Profile::Loop(segments) => {
             if segments.is_empty() {
                 bail!("profil loop kosong");
@@ -89,6 +114,24 @@ pub(crate) fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
                 bail!("radius lingkaran profil harus > 0");
             }
             let edge = Edge::circle(dvec3(center.0, center.1, z), dvec3(0.0, 0.0, 1.0), *radius);
+            Ok(Wire::from_edges([&edge]))
+        }
+        Profile::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => {
+            if *radius_x <= 0.0 || *radius_y <= 0.0 {
+                bail!("radius ellips profil harus > 0");
+            }
+            let c3 = dvec3(center.0, center.1, z);
+            let norm = dvec3(0.0, 0.0, 1.0);
+            let (major_r, minor_r, x_dir) = if *radius_x >= *radius_y {
+                (*radius_x, *radius_y, dvec3(1.0, 0.0, 0.0))
+            } else {
+                (*radius_y, *radius_x, dvec3(0.0, 1.0, 0.0))
+            };
+            let edge = Edge::ellipse(c3, norm, x_dir, major_r, minor_r);
             Ok(Wire::from_edges([&edge]))
         }
         Profile::Loop(segments) => {

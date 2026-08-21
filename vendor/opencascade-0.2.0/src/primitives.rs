@@ -107,6 +107,10 @@ fn make_axis_2(origin: DVec3, dir: DVec3) -> UniquePtr<ffi::gp_Ax2> {
     ffi::gp_Ax2_ctor(&make_point(origin), &make_dir(dir))
 }
 
+fn make_axis_2_with_x_dir(origin: DVec3, normal: DVec3, x_dir: DVec3) -> UniquePtr<ffi::gp_Ax2> {
+    ffi::gp_Ax2_ctor_with_x_dir(&make_point(origin), &make_dir(normal), &make_dir(x_dir))
+}
+
 pub struct EdgeIterator {
     explorer: UniquePtr<ffi::TopExp_Explorer>,
 }

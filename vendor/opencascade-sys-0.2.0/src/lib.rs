@@ -321,6 +321,16 @@ pub mod ffi {
         #[cxx_name = "construct_unique"]
         pub fn gp_Circ_ctor(axis: &gp_Ax2, radius: f64) -> UniquePtr<gp_Circ>;
 
+        // Ellipses
+        type gp_Elips;
+
+        #[cxx_name = "construct_unique"]
+        pub fn gp_Elips_ctor(
+            axis: &gp_Ax2,
+            major_radius: f64,
+            minor_radius: f64,
+        ) -> UniquePtr<gp_Elips>;
+
         // Shapes
         type TopoDS_Vertex;
         type TopoDS_Edge;
@@ -431,6 +441,11 @@ pub mod ffi {
         #[cxx_name = "construct_unique"]
         pub fn BRepBuilderAPI_MakeEdge_circle(
             circle: &gp_Circ,
+        ) -> UniquePtr<BRepBuilderAPI_MakeEdge>;
+
+        #[cxx_name = "construct_unique"]
+        pub fn BRepBuilderAPI_MakeEdge_elips(
+            elips: &gp_Elips,
         ) -> UniquePtr<BRepBuilderAPI_MakeEdge>;
 
         #[cxx_name = "construct_unique"]
@@ -909,6 +924,12 @@ pub mod ffi {
 
         #[cxx_name = "construct_unique"]
         pub fn gp_Ax2_ctor(origin: &gp_Pnt, main_dir: &gp_Dir) -> UniquePtr<gp_Ax2>;
+
+        pub fn gp_Ax2_ctor_with_x_dir(
+            origin: &gp_Pnt,
+            main_dir: &gp_Dir,
+            x_dir: &gp_Dir,
+        ) -> UniquePtr<gp_Ax2>;
 
         #[cxx_name = "construct_unique"]
         pub fn gp_Ax3_from_gp_Ax2(axis: &gp_Ax2) -> UniquePtr<gp_Ax3>;

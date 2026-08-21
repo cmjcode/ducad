@@ -1,4 +1,4 @@
-use crate::primitives::{make_axis_2, make_point};
+use crate::primitives::{make_axis_2, make_axis_2_with_x_dir, make_point};
 use cxx::UniquePtr;
 use glam::{dvec3, DVec3};
 use opencascade_sys::ffi;
@@ -37,7 +37,19 @@ impl Edge {
         Self::from_make_edge(make_edge)
     }
 
-    pub fn ellipse() {}
+    pub fn ellipse(
+        center: DVec3,
+        normal: DVec3,
+        x_dir: DVec3,
+        major_radius: f64,
+        minor_radius: f64,
+    ) -> Self {
+        let axis = make_axis_2_with_x_dir(center, normal, x_dir);
+        let make_ellipse = ffi::gp_Elips_ctor(&axis, major_radius, minor_radius);
+        let make_edge = ffi::BRepBuilderAPI_MakeEdge_elips(&make_ellipse);
+
+        Self::from_make_edge(make_edge)
+    }
 
     pub fn spline() {}
 
