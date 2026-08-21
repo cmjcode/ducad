@@ -356,6 +356,33 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                 radius: *radius,
             });
         }
+        if let Some(Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        }) = sketch.entities.get(id)
+        {
+            if *radius_x <= 0.0 || *radius_y <= 0.0 {
+                return Err("Radius ellips harus bernilai positif".to_string());
+            }
+            const SAMPLES: usize = 48;
+            let mut segs = Vec::with_capacity(SAMPLES);
+            let tau = std::f64::consts::TAU;
+            for i in 0..SAMPLES {
+                let t1 = tau * (i as f64 / SAMPLES as f64);
+                let t2 = tau * ((i + 1) as f64 / SAMPLES as f64);
+                let p1 = (
+                    center.x + radius_x * t1.cos(),
+                    center.y + radius_y * t1.sin(),
+                );
+                let p2 = (
+                    center.x + radius_x * t2.cos(),
+                    center.y + radius_y * t2.sin(),
+                );
+                segs.push(ProfileSegment::Line { start: p1, end: p2 });
+            }
+            return Ok(Profile::Loop(segs));
+        }
     }
 
     struct Seg {
@@ -399,7 +426,10 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                 )
             }
             Some(Entity::Ellipse { .. }) => {
-                return Err("Ellips belum didukung untuk profil 3D".to_string())
+                return Err(
+                    "Tidak bisa campur Ellips dengan entitas lain — pilih Ellips sendirian, atau Line/Arc yang membentuk loop tertutup"
+                        .to_string(),
+                )
             }
             None => {}
         }
@@ -642,6 +672,34 @@ mod tests {
         let p2 = build_profile_from_selection(&sketch, &r2_ids).unwrap();
 
         let shape = ducad_kernel::loft_profiles(&p1, &p2, 30.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn loft_ellipse_profile_build_and_loft_correctly() {
+        let mut sketch = Sketch::default();
+        // Region 1: Ellipse at (0, 0)
+        let mut r1_ids = HashSet::new();
+        let e_id = sketch.entities.insert(Entity::Ellipse {
+            center: DVec2::new(0.0, 0.0),
+            radius_x: 25.0,
+            radius_y: 15.0,
+        });
+        r1_ids.insert(e_id);
+
+        // Region 2: Circle at (0, 0)
+        let mut r2_ids = HashSet::new();
+        let c_id = sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 10.0,
+        });
+        r2_ids.insert(c_id);
+
+        let p1 = build_profile_from_selection(&sketch, &r1_ids).unwrap();
+        let p2 = build_profile_from_selection(&sketch, &r2_ids).unwrap();
+
+        let shape = ducad_kernel::loft_profiles(&p1, &p2, 20.0).unwrap();
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
     }
