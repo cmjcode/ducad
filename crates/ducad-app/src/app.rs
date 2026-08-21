@@ -65,6 +65,7 @@ pub struct DuCADApp {
     pub loft_height_input: String,
     pub loft_alignment_dismissed: bool,
     pub loft_is_flipped: bool,
+    pub loft_staged_body_id: Option<BodyId>,
     pub selection_box: Option<(glam::DVec2, glam::DVec2)>,
 
     pub picking_mode: PickMode,
@@ -246,6 +247,7 @@ impl DuCADApp {
             loft_height_input: "20.0".to_string(),
             loft_alignment_dismissed: false,
             loft_is_flipped: false,
+            loft_staged_body_id: None,
             selection_box: None,
             picking_mode: PickMode::default(),
             selected_edges: Vec::new(),
@@ -1334,6 +1336,94 @@ impl DuCADApp {
     pub fn cancel_staged_revolve(&mut self) {
         self.revolve_staged_axis = None;
         self.set_tool(ToolKind::Select);
+    }
+
+    /// Eksekusi / perbarui loft 3D yang sedang di-stage (live preview) dari 2 region.
+    pub fn update_staged_loft(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
+        if regions.len() != 2 {
+            return;
+        }
+        let height: f64 = match self.loft_height_input.trim().parse() {
+            Ok(v) if v > 0.0 => v,
+            _ => return,
+        };
+
+        let (idx_b, idx_t) = if self.loft_is_flipped {
+            (1, 0)
+        } else {
+            (0, 1)
+        };
+
+        let bottom = match crate::model::build_profile_from_selection(
+            self.sketch(),
+            &regions[idx_b].entity_ids,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                self.model_status = Some(format!("Profil 1 error: {e}"));
+                return;
+            }
+        };
+
+        let top = match crate::model::build_profile_from_selection(
+            self.sketch(),
+            &regions[idx_t].entity_ids,
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                self.model_status = Some(format!("Profil 2 error: {e}"));
+                return;
+            }
+        };
+
+        match ducad_kernel::loft_profiles(&bottom, &top, height) {
+            Ok(shape) => {
+                let geo = crate::model::BodyGeometry::from_shape(shape);
+                if let Some(existing_id) = self.loft_staged_body_id {
+                    self.model.geometry.insert(existing_id, geo);
+                } else {
+                    let id = self.model.doc.add_body("Loft");
+                    self.model.geometry.insert(id, geo);
+                    self.loft_staged_body_id = Some(id);
+                }
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Loft gagal: {e}"));
+            }
+        }
+    }
+
+    /// Terapkan (commit) loft yang sedang di-stage ke model dan catat ke undo history.
+    pub fn commit_staged_loft(&mut self, regions: &[ducad_sketch::region::ClosedRegion]) {
+        if let Some(staged_id) = self.loft_staged_body_id.take() {
+            if let Some(geo) = self.model.geometry.remove(staged_id) {
+                self.model.doc.bodies.remove(staged_id);
+                self.model_undo.execute(
+                    Box::new(crate::model::AddSolidCommand::new("Loft", geo)),
+                    &mut self.model,
+                );
+            }
+            self.set_tool(ToolKind::Select);
+            self.selected.clear();
+            self.selection_box = None;
+            self.loft_alignment_dismissed = false;
+            self.model_status = Some("✓ Loft 3D berhasil dibuat!".to_string());
+        } else if regions.len() == 2 {
+            self.update_staged_loft(regions);
+            self.commit_staged_loft(regions);
+        }
+    }
+
+    /// Batalkan loft yang sedang di-stage (hapus preview body).
+    pub fn cancel_staged_loft(&mut self) {
+        if let Some(staged_id) = self.loft_staged_body_id.take() {
+            self.model.geometry.remove(staged_id);
+            self.model.doc.bodies.remove(staged_id);
+        }
+        self.set_tool(ToolKind::Select);
+        self.selected.clear();
+        self.selection_box = None;
+        self.loft_alignment_dismissed = false;
     }
 }
 

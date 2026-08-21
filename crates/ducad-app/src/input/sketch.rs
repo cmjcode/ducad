@@ -40,6 +40,12 @@ impl DuCADApp {
     pub const LINE_CHAIN_DEGENERATE_EPS: f64 = 1e-6;
 
     pub fn set_tool(&mut self, tool: ToolKind) {
+        if self.tool == ToolKind::Loft && tool != ToolKind::Loft {
+            if let Some(staged_id) = self.loft_staged_body_id.take() {
+                self.model.geometry.remove(staged_id);
+                self.model.doc.bodies.remove(staged_id);
+            }
+        }
         self.tool = tool;
         self.pending_points.clear();
         self.pending_point_refs.clear();
@@ -54,6 +60,7 @@ impl DuCADApp {
         self.body_move_armed = false;
         self.body_move_target = None;
         self.loft_alignment_dismissed = false;
+        self.loft_staged_body_id = None;
         self.selection_box = None;
     }
 

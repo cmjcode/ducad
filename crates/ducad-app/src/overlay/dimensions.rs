@@ -590,6 +590,7 @@ impl DuCADApp {
                 None
             };
             let current_height = self.loft_height_input.trim().parse::<f64>().unwrap_or(20.0);
+            let is_staged = self.loft_staged_body_id.is_some();
 
             if let Some(action) = CanvasHud::render_loft_top_bar_hud(
                 ui,
@@ -600,10 +601,14 @@ impl DuCADApp {
                 centroids_offset,
                 self.loft_alignment_dismissed,
                 self.loft_is_flipped,
+                is_staged,
             ) {
                 match action {
                     ducad_ui::LoftHudAction::SetHeight(h) => {
                         self.loft_height_input = format!("{:.1}", h);
+                        if self.loft_staged_body_id.is_some() && regions_count == 2 {
+                            self.update_staged_loft(&selected_regions);
+                        }
                     }
                     ducad_ui::LoftHudAction::AlignCentroids => {
                         if regions_count == 2 {
@@ -620,6 +625,18 @@ impl DuCADApp {
                                 ),
                             ));
                             self.loft_alignment_dismissed = false;
+
+                            let new_all = ducad_sketch::region::find_closed_regions(self.sketch());
+                            let new_regions: Vec<ducad_sketch::region::ClosedRegion> = new_all
+                                .into_iter()
+                                .filter(|r| {
+                                    !r.entity_ids.is_empty()
+                                        && r.entity_ids.iter().all(|id| self.selected.contains(id))
+                                })
+                                .collect();
+                            if self.loft_staged_body_id.is_some() && new_regions.len() == 2 {
+                                self.update_staged_loft(&new_regions);
+                            }
                         }
                     }
                     ducad_ui::LoftHudAction::DismissAlignmentDialog => {
@@ -627,21 +644,34 @@ impl DuCADApp {
                     }
                     ducad_ui::LoftHudAction::ToggleFlip => {
                         self.loft_is_flipped = !self.loft_is_flipped;
+                        if regions_count == 2 {
+                            self.update_staged_loft(&selected_regions);
+                        }
                     }
                     ducad_ui::LoftHudAction::Commit => {
-                        self.loft_selected_regions(&selected_regions);
+                        if is_staged {
+                            self.commit_staged_loft(&selected_regions);
+                        } else if regions_count == 2 {
+                            self.update_staged_loft(&selected_regions);
+                            self.model_status = Some("✓ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
+                        }
                     }
                     ducad_ui::LoftHudAction::Cancel => {
-                        self.set_tool(ToolKind::Select);
+                        self.cancel_staged_loft();
                     }
                 }
             }
 
             if regions_count == 2 {
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.loft_selected_regions(&selected_regions);
+                    if is_staged {
+                        self.commit_staged_loft(&selected_regions);
+                    } else {
+                        self.update_staged_loft(&selected_regions);
+                        self.model_status = Some("✓ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
+                    }
                 } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.set_tool(ToolKind::Select);
+                    self.cancel_staged_loft();
                 }
             }
 

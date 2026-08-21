@@ -966,11 +966,12 @@ impl CanvasHud {
         centroids_offset: Option<f64>,
         alignment_dismissed: bool,
         is_flipped: bool,
+        is_staged: bool,
     ) -> Option<LoftHudAction> {
         let mut hud_action = None;
 
         // 1. Top Horizontal HUD Banner
-        let banner_w = 690.0;
+        let banner_w = 720.0;
         let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 68.0);
         let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
 
@@ -986,8 +987,10 @@ impl CanvasHud {
             18.0,
             Stroke::new(
                 1.2,
-                if is_ready {
+                if is_staged {
                     ACCENT_GREEN
+                } else if is_ready {
+                    ACCENT_BLUE
                 } else {
                     ACCENT_BLUE.gamma_multiply(0.8)
                 },
@@ -998,6 +1001,7 @@ impl CanvasHud {
         let step_text = match selected_regions_count {
             0 => "Pilih 2 profil sketsa 2D (klik / drag kotak)",
             1 => "1 profil terpilih. Pilih profil ke-2 (klik / drag)",
+            2 if is_staged => "✨ Loft 3D Terbentuk — Ubah Tinggi / Balik Profil / Selesai",
             2 => "2 Profil Siap! Atur Tinggi & Buat 3D",
             _ => "Lebih dari 2 profil terpilih (pilih tepat 2 profil)",
         };
@@ -1010,7 +1014,7 @@ impl CanvasHud {
                 RichText::new(step_text)
                     .size(11.5)
                     .strong()
-                    .color(if is_ready {
+                    .color(if is_staged || is_ready {
                         ACCENT_GREEN
                     } else {
                         Color32::WHITE
@@ -1021,14 +1025,19 @@ impl CanvasHud {
                 ui.add_space(8.0);
 
                 if is_ready {
-                    // Tombol Buat 3D
+                    // Tombol Selesai (Commit)
+                    let main_label = if is_staged {
+                        "✓ Selesai (Enter)"
+                    } else {
+                        "🚀 Buat 3D (Enter)"
+                    };
                     let create_btn = egui::Button::new(
-                        RichText::new("🚀 Buat 3D (Enter)")
+                        RichText::new(main_label)
                             .size(11.0)
                             .strong()
                             .color(Color32::WHITE),
                     )
-                    .fill(ACCENT_BLUE);
+                    .fill(if is_staged { ACCENT_GREEN } else { ACCENT_BLUE });
 
                     if ui.add(create_btn).clicked() {
                         hud_action = Some(LoftHudAction::Commit);
