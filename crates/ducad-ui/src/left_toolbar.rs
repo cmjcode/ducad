@@ -106,7 +106,6 @@ impl LeftToolbar {
                     (ToolbarTool::Ellipse, ICON_HOME_MINI.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
                     (ToolbarTool::Offset, ICON_OPEN_IN_FULL.codepoint, "Offset", Some("O"), Some("Geser paralel profil kurva")),
                     (ToolbarTool::Mirror, ICON_FLIP.codepoint, "Mirror", Some("M"), Some("Cermin terhadap garis sumbu")),
-                    (ToolbarTool::Trim, ICON_CONTENT_CUT.codepoint, "Trim", Some("T"), Some("Potong segmen berpotongan")),
                     (ToolbarTool::Revolve, ICON_REFRESH.codepoint, "Revolve 2D/3D", Some("V"), Some("Putar profil 360° terhadap sumbu")),
                 ];
 

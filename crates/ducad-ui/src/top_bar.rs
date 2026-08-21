@@ -10,7 +10,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CLOUD, ICON_CONTENT_CUT, ICON_DELETE, ICON_DOWNLOAD, ICON_EDIT,
+    ICON_CATEGORY, ICON_CLOUD, ICON_DELETE, ICON_DOWNLOAD, ICON_EDIT,
     ICON_FILE_OPEN, ICON_FOLDER, ICON_FOLDER_OPEN, ICON_HOME, ICON_LAYERS, ICON_NOTE_ADD,
     ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_UPLOAD,
 };
@@ -213,25 +213,8 @@ impl TopBar {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // 4. Utilities (Section View, Measurements, Delete) — Selalu
+                // 4. Utilities (Measurements, Delete) — Selalu
                 // Ada di Kedua Mode
-                let sec_btn = header_icon_btn(
-                    ui,
-                    ICON_CONTENT_CUT.codepoint,
-                    state.section_view_active,
-                    "Section View",
-                    None,
-                    Some("Potong tampilan visual 3D"),
-                    if state.section_view_active {
-                        Some(Color32::from_rgba_premultiplied(190, 100, 15, 230))
-                    } else {
-                        None
-                    },
-                    if state.section_view_active { Some(Color32::WHITE) } else { None },
-                );
-                if sec_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleSectionView);
-                }
 
                 let meas_btn = header_icon_btn(
                     ui,
