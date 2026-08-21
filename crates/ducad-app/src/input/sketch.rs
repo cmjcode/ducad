@@ -292,7 +292,7 @@ impl DuCADApp {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
                     self.execute_model_command(
                         Box::new(cmd),
-                        &format!("Geser ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
+                        &format!("Menduplikasi & menggeser ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
                     self.model_status = Some(format!(
                         "Body diduplikasi & digeser ({:.1}, {:.1}, {:.1}) mm",
@@ -305,7 +305,7 @@ impl DuCADApp {
                             target_id,
                             new_geo,
                         )),
-                        &format!("Geser ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
+                        &format!("Menggeser posisi objek sejauh ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
                     self.round_history.remove(&target_id);
                     self.model_status = Some(format!(
@@ -335,7 +335,7 @@ impl DuCADApp {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 if self.body_copy_mode {
                     let cmd = AddSolidCommand::new("Salin Body", new_geo);
-                    self.execute_model_command(Box::new(cmd), &format!("Putar {:.1}°", angle_deg));
+                    self.execute_model_command(Box::new(cmd), &format!("Menduplikasi & memutar rotasi {:.1}°", angle_deg));
                     self.model_status = Some(format!("Body diduplikasi & diputar {:.1}°", angle_deg));
                 } else {
                     self.execute_model_command(
@@ -344,7 +344,7 @@ impl DuCADApp {
                             target_id,
                             new_geo,
                         )),
-                        &format!("Putar {:.1}°", angle_deg),
+                        &format!("Memutar rotasi objek sebesar {:.1}°", angle_deg),
                     );
                     self.round_history.remove(&target_id);
                     self.model_status = Some(format!("Body diputar {:.1}°", angle_deg));

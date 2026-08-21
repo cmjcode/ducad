@@ -45,20 +45,56 @@ impl DuCADApp {
         let idx = self.active_plane_index();
         let plane_label = self.active_plane.kind.display_label().to_string();
         self.undos[idx].execute(cmd, &mut self.sketches[idx]);
+
+        let (action_title, detail_desc) = match name.as_str() {
+            "Line" => ("Sketsa Garis 2D", format!("Menggambar segmen garis di Bidang {}", plane_label)),
+            "Circle" => ("Sketsa Lingkaran 2D", format!("Menggambar lingkaran di Bidang {}", plane_label)),
+            "Arc" => ("Sketsa Busur 2D", format!("Menggambar busur 3-titik di Bidang {}", plane_label)),
+            "Rectangle" => ("Sketsa Persegi 2D", format!("Menggambar kotak/persegi di Bidang {}", plane_label)),
+            "Ellipse" => ("Sketsa Elips 2D", format!("Menggambar elips di Bidang {}", plane_label)),
+            "Trim" => ("Potong Garis (Trim)", format!("Memotong segmen garis di Bidang {}", plane_label)),
+            "Offset" => ("Offset Garis / Kurva", format!("Menduplikasi garis sejajar di Bidang {}", plane_label)),
+            "Mirror" => ("Cermin Sketsa (Mirror)", format!("Mencerminkan entitas sketsa di Bidang {}", plane_label)),
+            "Delete" => ("Hapus Entitas Sketsa", format!("Menghapus elemen 2D di Bidang {}", plane_label)),
+            "Move" => ("Geser Sketsa 2D", format!("Memindahkan posisi elemen di Bidang {}", plane_label)),
+            _ => ("Aktivitas Sketsa 2D", format!("{} di Bidang {}", name, plane_label)),
+        };
+
         self.record_activity(
             ducad_ui::ActivityKindUi::Sketch2D,
-            &name,
-            &format!("Bidang {}", plane_label),
+            action_title,
+            &detail_desc,
         );
     }
 
     #[inline]
     pub fn execute_model_command(&mut self, cmd: Box<dyn Command<ModelDoc>>, details: &str) {
         let name = cmd.name().to_string();
+        let action_title = match name.as_str() {
+            "Extrude" => "Extrude Solid 3D",
+            "Cut Extrude" => "Cut Extrude (Potong Solid)",
+            "Extrude Face" => "Tarik Sisi Solid (Push-Pull)",
+            "Revolve" => "Revolve Solid 3D",
+            "Revolve Face" => "Putar Sisi Solid 3D",
+            "Loft" => "Loft Solid 3D",
+            "Fillet" => "Fillet Sudut Lengkung",
+            "Chamfer" => "Chamfer Sudut Bevel",
+            "Shell" => "Shell / Hollow Berongga",
+            "Shell Face" => "Shell Berlubang Sisi",
+            "Boolean Union" => "Boolean Gabung (Union)",
+            "Boolean Subtract" => "Boolean Potong (Subtract)",
+            "Boolean Intersect" => "Boolean Irisan (Intersect)",
+            "Delete Body" => "Hapus Objek Solid 3D",
+            "Translate Body" => "Geser Objek Solid 3D",
+            "Rotate Body" => "Putar Objek Solid 3D",
+            "Scale Body" => "Ubah Skala / Resize 3D",
+            _ => &name,
+        };
+
         self.model_undo.execute(cmd, &mut self.model);
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
-            &name,
+            action_title,
             details,
         );
     }
@@ -142,6 +178,8 @@ impl DuCADApp {
         self.model_undo = ducad_core::UndoStack::default();
         self.selected_bodies.clear();
         self.current_file_path = None;
+        self.history_db.clear();
+        self.activity_cache.clear();
         self.file_status = Some("Dokumen baru".to_string());
         self.measurements.clear();
         self.set_tool(ToolKind::Select);

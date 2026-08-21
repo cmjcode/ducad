@@ -74,7 +74,7 @@ impl HistoryDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.set_width(270.0);
+                ui.set_width(280.0);
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
 
                 // =========================================================================
@@ -338,22 +338,26 @@ impl HistoryDrawer {
                                         });
                                     });
 
-                                    // Baris bawah (kompak): Detail ringkas + Timestamp
+                                    // Baris bawah (kompak): Detail deskripsi informatif + Timestamp
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
 
                                         if !item.details.is_empty() {
-                                            ui.label(
-                                                RichText::new(&item.details)
-                                                    .size(9.0)
-                                                    .color(TEXT_SECONDARY),
-                                            );
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(&item.details)
+                                                        .size(9.0)
+                                                        .color(TEXT_SECONDARY),
+                                                )
+                                                .truncate(),
+                                            )
+                                            .on_hover_text(&item.details);
                                         }
 
                                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                             ui.label(
                                                 RichText::new(&item.timestamp)
-                                                    .size(8.0)
+                                                    .size(8.5)
                                                     .color(TEXT_MUTED),
                                             );
                                         });

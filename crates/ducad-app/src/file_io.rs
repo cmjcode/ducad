@@ -143,9 +143,17 @@ impl DuCADApp {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("dokumen");
+                    .unwrap_or("dokumen")
+                    .to_string();
                 self.file_status = Some(format!("Dibuka: {name}"));
                 self.current_file_path = Some(path);
+                self.history_db.clear();
+                self.activity_cache.clear();
+                self.record_activity(
+                    ducad_ui::ActivityKindUi::Solid3D,
+                    "Buka Berkas",
+                    &format!("Membuka dokumen {}", name),
+                );
                 self.set_tool(ToolKind::Select);
             }
             Err(e) => {

@@ -107,7 +107,7 @@ impl DuCADApp {
                                             target_id,
                                             new_geo,
                                         )),
-                                        &format!("Jarak {:.1} mm", self.gizmo_distance),
+                                        &format!("Memotong solid 3D sedalam {:.1} mm", self.gizmo_distance),
                                     );
                                     self.round_history.remove(&target_id);
                                 }
@@ -118,7 +118,7 @@ impl DuCADApp {
                         let cmd = AddSolidCommand::new("Extrude", geo);
                         self.execute_model_command(
                             Box::new(cmd),
-                            &format!("Tinggi {:.1} mm", self.gizmo_distance),
+                            &format!("Membuat solid baru setinggi {:.1} mm", self.gizmo_distance),
                         );
                     }
                     self.selected.clear();
