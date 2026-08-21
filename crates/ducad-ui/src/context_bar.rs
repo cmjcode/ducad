@@ -6,7 +6,7 @@
 
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_EDIT, ICON_FLIP,
+    ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_EDIT, ICON_FLIP,
     ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -19,6 +19,7 @@ pub enum ContextAction {
     Trim,
     Revolve,
     Shell,
+    Boolean,
     Fillet,
     SketchOnFace,
     Delete,
@@ -229,6 +230,27 @@ impl ContextActionBar {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
+
+                // Operasi Boolean jika minimal 2 body dipilih
+                if count >= 2 {
+                    let bool_btn = ui.add(
+                        Button::new(
+                            RichText::new(format!("{} Boolean", ICON_CALL_MERGE.codepoint))
+                                .size(11.5)
+                                .color(TEXT_PRIMARY),
+                        ),
+                    );
+                    if bool_btn
+                        .on_hover_text("Operasi Boolean: Union (Gabung), Subtract (Potong), Intersect (Irisan)")
+                        .clicked()
+                    {
+                        action = Some(ContextAction::Boolean);
+                    }
+
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+                }
 
                 // Delete Body
                 let del_btn = ui.add(

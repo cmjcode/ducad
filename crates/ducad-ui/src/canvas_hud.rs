@@ -37,6 +37,20 @@ pub enum ShellHudAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BooleanHudAction {
+    SelectOp(BooleanOpKind),
+    Commit,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BooleanOpKind {
+    Union,
+    Subtract,
+    Intersect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
     TurnOffSectionView,
@@ -1332,6 +1346,134 @@ impl CanvasHud {
                         }
                     }
                     ui.label(RichText::new("Tebal:").size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Operasi Boolean 3D (Union, Subtract, Intersect)
+    pub fn render_boolean_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        selected_bodies_count: usize,
+        selected_op: BooleanOpKind,
+    ) -> Option<BooleanHudAction> {
+        let mut hud_action = None;
+
+        let has_enough_bodies = selected_bodies_count >= 2;
+        let banner_w = 660.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            18.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            18.0,
+            Stroke::new(
+                1.2,
+                if has_enough_bodies {
+                    ACCENT_GREEN
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = if has_enough_bodies {
+            format!("Operasi Boolean ({} Body Terpilih)", selected_bodies_count)
+        } else {
+            "Pilih minimal 2 solid body (Tahan Shift + Klik)".to_string()
+        };
+
+        // Layout horizontal di dalam banner
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(step_text)
+                    .size(11.5)
+                    .strong()
+                    .color(if has_enough_bodies {
+                        ACCENT_GREEN
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                if has_enough_bodies {
+                    // Tombol Eksekusi / Terapkan (Commit)
+                    let exec_btn = egui::Button::new(
+                        RichText::new("🚀 Terapkan (Enter)")
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_GREEN);
+
+                    if ui.add(exec_btn).clicked() {
+                        hud_action = Some(BooleanHudAction::Commit);
+                    }
+
+                    // Tombol Batal
+                    let cancel_btn = egui::Button::new(
+                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
+                    )
+                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
+
+                    if ui.add(cancel_btn).clicked() {
+                        hud_action = Some(BooleanHudAction::Cancel);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Pilihan Operasi Boolean: Union, Subtract, Intersect
+                    let ops = [
+                        (BooleanOpKind::Intersect, "Intersect (Irisan)"),
+                        (BooleanOpKind::Subtract, "Subtract (Potong)"),
+                        (BooleanOpKind::Union, "Union (Gabung)"),
+                    ];
+
+                    for (op, label) in ops {
+                        let is_active = selected_op == op;
+                        let btn = egui::Button::new(
+                            RichText::new(label)
+                                .size(11.0)
+                                .strong()
+                                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
+                        )
+                        .fill(if is_active {
+                            ACCENT_BLUE
+                        } else {
+                            Color32::from_rgba_premultiplied(40, 44, 52, 180)
+                        });
+
+                        if ui.add(btn).clicked() {
+                            hud_action = Some(BooleanHudAction::SelectOp(op));
+                        }
+                    }
+
+                    ui.label(RichText::new("Operasi:").size(10.5).color(TEXT_SECONDARY));
+                } else {
+                    let cancel_btn = egui::Button::new(
+                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
+                    )
+                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
+
+                    if ui.add(cancel_btn).clicked() {
+                        hud_action = Some(BooleanHudAction::Cancel);
+                    }
                 }
             });
         });

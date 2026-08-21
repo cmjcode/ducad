@@ -10,7 +10,7 @@ use ducad_sketch::{
     SnapHit, UpdateEntity,
 };
 use ducad_ui::{
-    BodyItemInfo, BooleanPopup, BooleanPopupState, CanvasHud, CanvasHudEvent, CommandPalette,
+    BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
     ContextAction, ContextActionBar,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
@@ -59,6 +59,7 @@ pub struct DuCADApp {
     pub chamfer_distance_input: String,
     pub shell_thickness_input: String,
     pub shell_direction: ducad_kernel::Direction,
+    pub boolean_op: ducad_ui::BooleanOpKind,
 
     pub pending_loft_bottom: Option<ducad_kernel::Profile>,
     pub loft_height_input: String,
@@ -241,6 +242,7 @@ impl DuCADApp {
             chamfer_distance_input: "2".to_string(),
             shell_thickness_input: "2".to_string(),
             shell_direction: ducad_kernel::Direction::PosZ,
+            boolean_op: ducad_ui::BooleanOpKind::Union,
 
             pending_loft_bottom: None,
             loft_height_input: "20.0".to_string(),
@@ -872,12 +874,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::Boolean => {
-                let mut state = BooleanPopupState {
-                    selected_bodies_count: self.selected_bodies.len(),
-                };
-                popup_ev = BooleanPopup::show(&ctx, &mut state, screen_rect);
-            }
             ToolKind::History => {
                 let mut state = HistoryPopupState {
                     can_undo_model: self.model_undo.can_undo(),
@@ -1194,6 +1190,9 @@ impl eframe::App for DuCADApp {
                     } else if has_body_sel {
                         if let Some(act) = ContextActionBar::show_body_selection(ui, self.selected_bodies.len()) {
                             match act {
+                                ContextAction::Boolean => {
+                                    self.set_tool(ToolKind::Boolean);
+                                }
                                 ContextAction::Delete => {
                                     self.delete_selected_bodies();
                                 }

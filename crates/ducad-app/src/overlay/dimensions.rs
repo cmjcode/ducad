@@ -714,6 +714,37 @@ impl DuCADApp {
                     self.set_tool(ToolKind::Select);
                 }
             }
+        } else if self.tool == ToolKind::Boolean {
+            let selected_count = self.selected_bodies.len();
+
+            if let Some(action) = CanvasHud::render_boolean_top_bar_hud(
+                ui,
+                rect,
+                selected_count,
+                self.boolean_op,
+            ) {
+                match action {
+                    ducad_ui::BooleanHudAction::SelectOp(op) => {
+                        self.boolean_op = op;
+                    }
+                    ducad_ui::BooleanHudAction::Commit => {
+                        self.apply_current_boolean_op();
+                    }
+                    ducad_ui::BooleanHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if selected_count >= 2 {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.apply_current_boolean_op();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
+            }
         } else {
             ToolGuides::render_tool_guide(
                 ui,

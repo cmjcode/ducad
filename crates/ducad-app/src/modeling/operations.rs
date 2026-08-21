@@ -297,6 +297,22 @@ impl DuCADApp {
         }
     }
 
+    /// Eksekusi operasi boolean aktif (Union, Subtract, Intersect) dari Top HUD.
+    pub fn apply_current_boolean_op(&mut self) {
+        match self.boolean_op {
+            ducad_ui::BooleanOpKind::Union => {
+                self.boolean_selected(BooleanKind::Union, "Union", "Union");
+            }
+            ducad_ui::BooleanOpKind::Subtract => {
+                self.boolean_selected(BooleanKind::Subtract, "Subtract", "Subtract");
+            }
+            ducad_ui::BooleanOpKind::Intersect => {
+                self.boolean_selected(BooleanKind::Intersect, "Intersect", "Intersect");
+            }
+        }
+        self.set_tool(crate::types::ToolKind::Select);
+    }
+
     /// Fillet SEMUA tepi atau tepi terpilih pada 1 body.
     pub fn fillet_selected_body(&mut self) {
         let Some(&id) = self

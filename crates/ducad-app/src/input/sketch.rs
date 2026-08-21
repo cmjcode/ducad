@@ -708,16 +708,37 @@ impl DuCADApp {
                     self.body_move_armed = false;
                     self.body_move_target = None;
                     let shift = ui.input(|i| i.modifiers.shift);
+                    let cmd = ui.input(|i| i.modifiers.command);
+                    let is_multi = shift || cmd;
                     let click_pos = response
                         .hover_pos()
                         .or_else(|| ui.input(|i| i.pointer.latest_pos()))
                         .or_else(|| ui.input(|i| i.pointer.interact_pos()));
 
-                    let face_pick_3d = if !self.is_sketching && !shift {
+                    let face_pick_3d = if !self.is_sketching {
                         click_pos.and_then(|pos| self.pick_body_face_at_cursor(rect, pos))
                     } else {
                         None
                     };
+
+                    if is_multi && !self.is_sketching {
+                        if let Some((b_id, ..)) = face_pick_3d {
+                            self.selected.clear();
+                            if let Some((prev_id, ..)) = self.active_face.take() {
+                                self.selected_bodies.insert(prev_id);
+                            }
+                            self.active_vertex = None;
+                            self.active_edge = None;
+                            self.editing_round = None;
+                            self.body_move_target = None;
+                            if !self.selected_bodies.remove(&b_id) {
+                                self.selected_bodies.insert(b_id);
+                            }
+                            let count = self.selected_bodies.len();
+                            self.model_status = Some(format!("{} body terpilih", count));
+                            return;
+                        }
+                    }
 
                     let round_edit = face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
                         self.find_round_feature_near(

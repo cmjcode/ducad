@@ -7,7 +7,7 @@
 
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CIRCLE, ICON_CONTENT_CUT,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT,
     ICON_CROP_16_9, ICON_HISTORY, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
     ICON_LAYERS,
 };
@@ -125,7 +125,6 @@ impl LeftToolbar {
             } else {
                 // ==================== MODE 3D SOLID ====================
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::Boolean, ICON_CALL_MERGE.codepoint, "Boolean", Some("B"), Some("Gabung (Union), Potong (Subtract), Irisan")),
                     (ToolbarTool::SectionView, ICON_CONTENT_CUT.codepoint, "Section View", None, Some("Tampilan potongan bidang X/Y/Z")),
                 ];
 
