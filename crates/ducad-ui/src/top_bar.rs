@@ -11,7 +11,7 @@
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CATEGORY, ICON_CLOUD, ICON_DOWNLOAD, ICON_EDIT,
-    ICON_FILE_OPEN, ICON_FOLDER, ICON_FOLDER_OPEN, ICON_HOME, ICON_LAYERS, ICON_NOTE_ADD,
+    ICON_FILE_OPEN, ICON_HOME, ICON_LAYERS, ICON_NOTE_ADD,
     ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_UPLOAD,
 };
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -130,22 +130,6 @@ impl TopBar {
                     } else {
                         TopBarEvent::EnterSketching
                     });
-                }
-
-                let folder_icon = if state.items_drawer_open { ICON_FOLDER_OPEN.codepoint } else { ICON_FOLDER.codepoint };
-                let items_btn = header_icon_btn(
-                    ui,
-                    folder_icon,
-                    state.items_drawer_open,
-                    "Items",
-                    None,
-                    Some("Daftar sketch & solid body"),
-                    None,
-                    None,
-                );
-                state.items_button_rect = items_btn.rect;
-                if items_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleItemsDrawer);
                 }
 
                 let search_btn = header_icon_btn(

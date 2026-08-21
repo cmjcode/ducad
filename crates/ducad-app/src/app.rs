@@ -705,7 +705,6 @@ impl eframe::App for DuCADApp {
             });
 
         self.plane_menu_open = topbar_state.plane_menu_open;
-        let items_button_rect = topbar_state.items_button_rect;
 
         self.left_toolbar.is_sketching = self.is_sketching;
         let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
@@ -740,56 +739,60 @@ impl eframe::App for DuCADApp {
                 }
             });
 
-        if self.items_drawer_open {
-            let sketch_planes = vec![
-                SketchPlaneItemInfo {
-                    index: 0,
-                    name: format!(
-                        "Plane 01 - Top (XY) ({})",
-                        self.sketches[0].entities.len()
-                    ),
-                    active: self.active_plane.kind == PlaneKind::Top,
-                    visible: true,
-                },
-                SketchPlaneItemInfo {
-                    index: 1,
-                    name: format!(
-                        "Plane 02 - Front (XZ) ({})",
-                        self.sketches[1].entities.len()
-                    ),
-                    active: self.active_plane.kind == PlaneKind::Front,
-                    visible: true,
-                },
-                SketchPlaneItemInfo {
-                    index: 2,
-                    name: format!(
-                        "Plane 03 - Right (YZ) ({})",
-                        self.sketches[2].entities.len()
-                    ),
-                    active: self.active_plane.kind == PlaneKind::Right,
-                    visible: true,
-                },
-            ];
-            let bodies: Vec<BodyItemInfo> = self
-                .model
-                .doc
-                .bodies
-                .iter()
-                .map(|(id, b)| BodyItemInfo {
-                    id_raw: id.data().as_ffi(),
-                    name: b.name.clone(),
-                    visible: b.visible,
-                    selected: self.selected_bodies.contains(&id),
-                })
-                .collect();
+        let sketch_planes = vec![
+            SketchPlaneItemInfo {
+                index: 0,
+                name: format!(
+                    "Plane 01 - Top (XY) ({})",
+                    self.sketches[0].entities.len()
+                ),
+                active: self.active_plane.kind == PlaneKind::Top,
+                visible: true,
+            },
+            SketchPlaneItemInfo {
+                index: 1,
+                name: format!(
+                    "Plane 02 - Front (XZ) ({})",
+                    self.sketches[1].entities.len()
+                ),
+                active: self.active_plane.kind == PlaneKind::Front,
+                visible: true,
+            },
+            SketchPlaneItemInfo {
+                index: 2,
+                name: format!(
+                    "Plane 03 - Right (YZ) ({})",
+                    self.sketches[2].entities.len()
+                ),
+                active: self.active_plane.kind == PlaneKind::Right,
+                visible: true,
+            },
+        ];
+        let bodies: Vec<BodyItemInfo> = self
+            .model
+            .doc
+            .bodies
+            .iter()
+            .map(|(id, b)| BodyItemInfo {
+                id_raw: id.data().as_ffi(),
+                name: b.name.clone(),
+                visible: b.visible,
+                selected: self.selected_bodies.contains(&id),
+            })
+            .collect();
 
-            let drawer_pos =
-                egui::pos2(items_button_rect.left(), items_button_rect.bottom() + 6.0);
+        let total_items = sketch_planes.len() + 3 + bodies.len();
+        let max_drawer_h = (screen_rect.height() - 140.0).max(180.0);
+
+        if self.items_drawer_open {
+            let drawer_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+
             egui::Area::new(egui::Id::new("ducad-items-drawer-area"))
                 .fixed_pos(drawer_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies) {
+                    if let Some(ev) = self.items_drawer.show(ui, &sketch_planes, &bodies, max_drawer_h) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
@@ -823,13 +826,37 @@ impl eframe::App for DuCADApp {
                                 };
                                 self.set_sketch_plane(kind);
                             }
+                            ItemsDrawerEvent::Close => {
+                                self.items_drawer_open = false;
+                            }
+                            ItemsDrawerEvent::Open => {
+                                self.items_drawer_open = true;
+                            }
+                        }
+                    }
+                });
+        } else {
+            // Floating folder button di pojok kanan bawah
+            let btn_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+            egui::Area::new(egui::Id::new("ducad-items-floating-btn"))
+                .fixed_pos(btn_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = self.items_drawer.show_floating_button(ui, total_items) {
+                        match ev {
+                            ItemsDrawerEvent::Open => {
+                                self.items_drawer_open = true;
+                            }
+                            _ => {}
                         }
                     }
                 });
         }
 
         let viewcube_y = 102.0;
-        let viewcube_pos = egui::pos2(screen_rect.max.x - topbar_margin_right - 42.0, viewcube_y);
+        let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
+        let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
         egui::Area::new(egui::Id::new("ducad-viewcube-area"))
             .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
             .order(egui::Order::Foreground)
