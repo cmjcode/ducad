@@ -5,13 +5,14 @@
 //! Isinya lengkap untuk kedua mode (Sketch Mode 2D dan Solid Mode 3D) serta
 //! menu utilitas seperti History (riwayat & undo/redo) dan Pengukuran.
 
+use crate::theme::{
+    glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
+};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT,
-    ICON_CROP_16_9, ICON_HOME_MINI, ICON_HORIZONTAL_RULE,
-    ICON_LAYERS,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
+    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS,
 };
-use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarTool {
@@ -98,48 +99,72 @@ impl LeftToolbar {
             if self.is_sketching {
                 // ==================== MODE 2D SKETCH (CREATE OBJECTS) ====================
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::Line, ICON_HORIZONTAL_RULE.codepoint, "Line", Some("L"), Some("Garis lurus 2 titik")),
-                    (ToolbarTool::Arc, ICON_ARCHITECTURE.codepoint, "Arc", Some("A"), Some("Busur lengkung 3 titik")),
-                    (ToolbarTool::Rectangle, ICON_CROP_16_9.codepoint, "Rectangle", Some("R"), Some("Persegi panjang 2 titik")),
-                    (ToolbarTool::Circle, ICON_CIRCLE.codepoint, "Circle", Some("C"), Some("Lingkaran pusat & radius")),
-                    (ToolbarTool::Ellipse, ICON_HOME_MINI.codepoint, "Ellipse", Some("E"), Some("Elips pusat & sumbu")),
-                    (ToolbarTool::Loft, ICON_LAYERS.codepoint, "Loft 3D", None, Some("Bentuk transisi antara 2 profil sketsa 2D")),
+                    (
+                        ToolbarTool::Line,
+                        ICON_HORIZONTAL_RULE.codepoint,
+                        "Line",
+                        Some("L"),
+                        Some("Garis lurus 2 titik"),
+                    ),
+                    (
+                        ToolbarTool::Arc,
+                        ICON_ARCHITECTURE.codepoint,
+                        "Arc",
+                        Some("A"),
+                        Some("Busur lengkung 3 titik"),
+                    ),
+                    (
+                        ToolbarTool::Rectangle,
+                        ICON_CROP_16_9.codepoint,
+                        "Rectangle",
+                        Some("R"),
+                        Some("Persegi panjang 2 titik"),
+                    ),
+                    (
+                        ToolbarTool::Circle,
+                        ICON_CIRCLE.codepoint,
+                        "Circle",
+                        Some("C"),
+                        Some("Lingkaran pusat & radius"),
+                    ),
+                    (
+                        ToolbarTool::Ellipse,
+                        ICON_ELLIPSE_OUTLINE.codepoint,
+                        "Ellipse",
+                        Some("E"),
+                        Some("Elips pusat & sumbu"),
+                    ),
+                    (
+                        ToolbarTool::Loft,
+                        ICON_LAYERS.codepoint,
+                        "Loft 3D",
+                        None,
+                        Some("Bentuk transisi antara 2 profil sketsa 2D"),
+                    ),
                 ];
 
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {
                     let is_active = current_tool == *tool;
-                    let btn = square_btn(
-                        ui,
-                        icon,
-                        is_active,
-                        title,
-                        *shortcut,
-                        *subtitle,
-                        None,
-                        None,
-                    );
+                    let btn =
+                        square_btn(ui, icon, is_active, title, *shortcut, *subtitle, None, None);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
                 }
             } else {
                 // ==================== MODE 3D SOLID ====================
-                let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (ToolbarTool::SectionView, ICON_CONTENT_CUT.codepoint, "Section View", None, Some("Tampilan potongan bidang X/Y/Z")),
-                ];
+                let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[(
+                    ToolbarTool::SectionView,
+                    ICON_CONTENT_CUT.codepoint,
+                    "Section View",
+                    None,
+                    Some("Tampilan potongan bidang X/Y/Z"),
+                )];
 
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {
                     let is_active = current_tool == *tool;
-                    let btn = square_btn(
-                        ui,
-                        icon,
-                        is_active,
-                        title,
-                        *shortcut,
-                        *subtitle,
-                        None,
-                        None,
-                    );
+                    let btn =
+                        square_btn(ui, icon, is_active, title, *shortcut, *subtitle, None, None);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -187,7 +212,13 @@ fn square_btn(
             )
         };
 
-        ui.painter().rect(rect, CornerRadius::same(7), bg_fill, stroke, StrokeKind::Inside);
+        ui.painter().rect(
+            rect,
+            CornerRadius::same(7),
+            bg_fill,
+            stroke,
+            StrokeKind::Inside,
+        );
 
         let font_id = egui::FontId::proportional(15.5);
         ui.painter().text(
@@ -203,7 +234,12 @@ fn square_btn(
     response.on_hover_ui(|ui| {
         ui.spacing_mut().item_spacing = Vec2::new(6.0, 2.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(title).strong().size(12.0).color(Color32::WHITE));
+            ui.label(
+                RichText::new(title)
+                    .strong()
+                    .size(12.0)
+                    .color(Color32::WHITE),
+            );
             if let Some(sc) = shortcut {
                 if !sc.is_empty() {
                     Frame::NONE
@@ -212,12 +248,7 @@ fn square_btn(
                         .inner_margin(Margin::symmetric(4, 1))
                         .stroke(Stroke::new(0.5, BORDER_SUBTLE))
                         .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(sc)
-                                    .size(9.5)
-                                    .strong()
-                                    .color(TEXT_PRIMARY),
-                            );
+                            ui.label(RichText::new(sc).size(9.5).strong().color(TEXT_PRIMARY));
                         });
                 }
             }
