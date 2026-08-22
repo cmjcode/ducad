@@ -120,34 +120,36 @@ impl DuCADApp {
             }
         }
 
-        if let Some((_, _, hit)) = &self.active_face {
-            let anchor = hit.gizmo_anchor();
-            let c_base = [anchor.0 as f32, anchor.1 as f32, anchor.2 as f32];
-            let pull_dir = Vec3::new(
-                hit.pull_dir.0 as f32,
-                hit.pull_dir.1 as f32,
-                hit.pull_dir.2 as f32,
-            );
+        if let Some((active_id, _, hit)) = &self.active_face {
+            if self.model.doc.bodies.get(*active_id).is_some_and(|b| b.visible) {
+                let anchor = hit.gizmo_anchor();
+                let c_base = [anchor.0 as f32, anchor.1 as f32, anchor.2 as f32];
+                let pull_dir = Vec3::new(
+                    hit.pull_dir.0 as f32,
+                    hit.pull_dir.1 as f32,
+                    hit.pull_dir.2 as f32,
+                );
 
-            if self.extruding_face_from_gizmo {
-                let dist = self.face_gizmo_distance as f32;
-                let c_top = Vec3::from(c_base) + pull_dir * dist;
-                let c_top_arr = [c_top.x, c_top.y, c_top.z];
-                verts.extend(sketch_render::dashed_line_3d(
-                    c_base,
-                    c_top_arr,
-                    4.0,
-                    [0.15, 0.80, 1.0, 0.95],
-                ));
-            } else {
-                let gizmo_pt = Vec3::from(c_base) + pull_dir * 18.0;
-                let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
-                verts.extend(sketch_render::dashed_line_3d(
-                    c_base,
-                    gizmo_pos,
-                    2.5,
-                    [0.15, 0.80, 1.0, 0.85],
-                ));
+                if self.extruding_face_from_gizmo {
+                    let dist = self.face_gizmo_distance as f32;
+                    let c_top = Vec3::from(c_base) + pull_dir * dist;
+                    let c_top_arr = [c_top.x, c_top.y, c_top.z];
+                    verts.extend(sketch_render::dashed_line_3d(
+                        c_base,
+                        c_top_arr,
+                        4.0,
+                        [0.15, 0.80, 1.0, 0.95],
+                    ));
+                } else {
+                    let gizmo_pt = Vec3::from(c_base) + pull_dir * 18.0;
+                    let gizmo_pos = [gizmo_pt.x, gizmo_pt.y, gizmo_pt.z];
+                    verts.extend(sketch_render::dashed_line_3d(
+                        c_base,
+                        gizmo_pos,
+                        2.5,
+                        [0.15, 0.80, 1.0, 0.85],
+                    ));
+                }
             }
         }
 
@@ -511,29 +513,31 @@ impl DuCADApp {
             );
         }
 
-        if let Some((_, _, hit)) = &self.active_face {
-            let anchor = hit.gizmo_anchor();
-            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
-            let pull_dir = Vec3::new(
-                hit.pull_dir.0 as f32,
-                hit.pull_dir.1 as f32,
-                hit.pull_dir.2 as f32,
-            );
-            let dist = if self.extruding_face_from_gizmo {
-                self.face_gizmo_distance as f32
-            } else {
-                18.0
-            };
-            let p = c_base + pull_dir * dist;
-            push_mesh(
-                &mut positions,
-                &mut normals,
-                &mut colors,
-                &mut indices,
-                [p.x, p.y, p.z],
-                FACE_GIZMO_COLOR,
-                pull_dir,
-            );
+        if let Some((active_id, _, hit)) = &self.active_face {
+            if self.model.doc.bodies.get(*active_id).is_some_and(|b| b.visible) {
+                let anchor = hit.gizmo_anchor();
+                let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+                let pull_dir = Vec3::new(
+                    hit.pull_dir.0 as f32,
+                    hit.pull_dir.1 as f32,
+                    hit.pull_dir.2 as f32,
+                );
+                let dist = if self.extruding_face_from_gizmo {
+                    self.face_gizmo_distance as f32
+                } else {
+                    18.0
+                };
+                let p = c_base + pull_dir * dist;
+                push_mesh(
+                    &mut positions,
+                    &mut normals,
+                    &mut colors,
+                    &mut indices,
+                    [p.x, p.y, p.z],
+                    FACE_GIZMO_COLOR,
+                    pull_dir,
+                );
+            }
         }
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {

@@ -95,15 +95,24 @@ impl SketchPlane {
     pub fn from_origin_normal(origin: Vec3, normal: Vec3) -> Self {
         let norm = normal.normalize_or_zero();
         let normal = if norm.length_squared() > 1e-6 { norm } else { Vec3::Z };
-        let arbitrary = if normal.x.abs() < 0.8 && normal.y.abs() < 0.8 {
-            Vec3::Z
+
+        let (kind, arbitrary) = if normal.z.abs() > 0.8 {
+            (PlaneKind::Top, Vec3::Y)
+        } else if normal.y.abs() > 0.8 {
+            (PlaneKind::Front, Vec3::Z)
         } else {
-            Vec3::Y
+            (PlaneKind::Right, Vec3::Z)
         };
-        let u_axis = normal.cross(arbitrary).normalize();
+
+        let mut u_axis = arbitrary.cross(normal).normalize_or_zero();
+        if u_axis.length_squared() < 1e-6 {
+            let alt_arbitrary = if normal.x.abs() > 0.8 { Vec3::Y } else { Vec3::X };
+            u_axis = alt_arbitrary.cross(normal).normalize_or_zero();
+        }
         let v_axis = normal.cross(u_axis).normalize();
+
         Self {
-            kind: PlaneKind::Top,
+            kind,
             origin,
             u_axis,
             v_axis,
@@ -166,10 +175,24 @@ impl SketchPlane {
 
     /// Preset orientasi kamera standar CAD untuk memandang tegak lurus ke bidang ini.
     pub fn camera_preset(&self) -> ViewPreset {
-        match self.kind {
-            PlaneKind::Top => ViewPreset::Top,
-            PlaneKind::Front => ViewPreset::Front,
-            PlaneKind::Right => ViewPreset::Right,
+        if self.normal.z > 0.5 {
+            ViewPreset::Top
+        } else if self.normal.z < -0.5 {
+            ViewPreset::Bottom
+        } else if self.normal.y < -0.5 {
+            ViewPreset::Front
+        } else if self.normal.y > 0.5 {
+            ViewPreset::Back
+        } else if self.normal.x > 0.5 {
+            ViewPreset::Right
+        } else if self.normal.x < -0.5 {
+            ViewPreset::Left
+        } else {
+            match self.kind {
+                PlaneKind::Top => ViewPreset::Top,
+                PlaneKind::Front => ViewPreset::Front,
+                PlaneKind::Right => ViewPreset::Right,
+            }
         }
     }
 }
@@ -177,6 +200,45 @@ impl SketchPlane {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_from_origin_normal_valid_axes() {
+        let origins = [Vec3::ZERO, Vec3::new(10.0, 20.0, 30.0)];
+        let normals = [
+            Vec3::Z,
+            -Vec3::Z,
+            Vec3::Y,
+            -Vec3::Y,
+            Vec3::X,
+            -Vec3::X,
+            Vec3::new(1.0, 1.0, 1.0).normalize(),
+        ];
+
+        for origin in origins {
+            for normal in normals {
+                let plane = SketchPlane::from_origin_normal(origin, normal);
+                assert!(!plane.u_axis.is_nan(), "u_axis is NaN for normal {:?}", normal);
+                assert!(!plane.v_axis.is_nan(), "v_axis is NaN for normal {:?}", normal);
+                assert!(plane.u_axis.length_squared() > 0.99, "u_axis not unit length for normal {:?}", normal);
+                assert!(plane.v_axis.length_squared() > 0.99, "v_axis not unit length for normal {:?}", normal);
+                assert!(
+                    plane.u_axis.dot(plane.v_axis).abs() < 1e-4,
+                    "u and v not orthogonal for normal {:?}",
+                    normal
+                );
+                assert!(
+                    plane.u_axis.dot(plane.normal).abs() < 1e-4,
+                    "u and normal not orthogonal for normal {:?}",
+                    normal
+                );
+                assert!(
+                    plane.v_axis.dot(plane.normal).abs() < 1e-4,
+                    "v and normal not orthogonal for normal {:?}",
+                    normal
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_top_plane_projection() {

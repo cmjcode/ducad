@@ -22,6 +22,12 @@ impl DuCADApp {
         else {
             return;
         };
+        let Some(body) = self.model.doc.bodies.get(id) else {
+            return;
+        };
+        if !body.visible {
+            return;
+        }
         let Some(geo) = self.model.geometry.get(id) else {
             return;
         };

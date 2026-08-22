@@ -144,6 +144,9 @@ impl DuCADApp {
 
     pub fn active_vertex_gizmo_dir(&self) -> Option<(Vec3, Vec3)> {
         let (body_id, _, vhit) = self.active_vertex?;
+        if !self.model.doc.bodies.get(body_id).is_some_and(|b| b.visible) {
+            return None;
+        }
         let vertex = Vec3::new(vhit.0 as f32, vhit.1 as f32, vhit.2 as f32);
         let geo = self.model.geometry.get(body_id)?;
         let mut min = [f32::INFINITY; 3];
@@ -168,6 +171,9 @@ impl DuCADApp {
 
     pub fn active_edge_gizmo_dir(&self) -> Option<(Vec3, Vec3)> {
         let (body_id, _, point) = self.active_edge?;
+        if !self.model.doc.bodies.get(body_id).is_some_and(|b| b.visible) {
+            return None;
+        }
         let anchor = Vec3::new(point.0 as f32, point.1 as f32, point.2 as f32);
         let geo = self.model.geometry.get(body_id)?;
         let mut min = [f32::INFINITY; 3];
@@ -205,6 +211,9 @@ impl DuCADApp {
             return None;
         }
         let body_id = *self.selected_bodies.iter().next()?;
+        if !self.model.doc.bodies.get(body_id).is_some_and(|b| b.visible) {
+            return None;
+        }
         let geo = self.model.geometry.get(body_id)?;
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];

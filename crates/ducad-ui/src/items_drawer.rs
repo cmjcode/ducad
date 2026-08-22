@@ -329,80 +329,82 @@ impl ItemsDrawer {
                             });
                         } else {
                             for e in entities_matching {
-                                let is_selected = e.selected;
-                                let card_bg = if is_selected {
-                                    Color32::from_rgb(18, 38, 68)
-                                } else {
-                                    Color32::from_rgb(26, 29, 36)
-                                };
-                                let card_stroke = if is_selected {
-                                    Stroke::new(1.0, ACCENT_BLUE)
-                                } else {
-                                    Stroke::new(0.5, BORDER_SUBTLE)
-                                };
+                                ui.push_id(e.id_raw, |ui| {
+                                    let is_selected = e.selected;
+                                    let card_bg = if is_selected {
+                                        Color32::from_rgb(18, 38, 68)
+                                    } else {
+                                        Color32::from_rgb(26, 29, 36)
+                                    };
+                                    let card_stroke = if is_selected {
+                                        Stroke::new(1.0, ACCENT_BLUE)
+                                    } else {
+                                        Stroke::new(0.5, BORDER_SUBTLE)
+                                    };
 
-                                let row_frame = Frame {
-                                    inner_margin: Margin::symmetric(8, 6),
-                                    outer_margin: Margin::symmetric(0, 1),
-                                    corner_radius: CornerRadius::same(6),
-                                    shadow: egui::Shadow::NONE,
-                                    fill: card_bg,
-                                    stroke: card_stroke,
-                                };
+                                    let row_frame = Frame {
+                                        inner_margin: Margin::symmetric(8, 6),
+                                        outer_margin: Margin::symmetric(0, 1),
+                                        corner_radius: CornerRadius::same(6),
+                                        shadow: egui::Shadow::NONE,
+                                        fill: card_bg,
+                                        stroke: card_stroke,
+                                    };
 
-                                let card_output = row_frame.show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(e.icon)
-                                                .size(13.0)
-                                                .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
-                                        );
+                                    let card_output = row_frame.show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(e.icon)
+                                                    .size(13.0)
+                                                    .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
+                                            );
 
-                                        let name_color = if is_selected {
-                                            Color32::WHITE
-                                        } else {
-                                            TEXT_PRIMARY
-                                        };
-                                        let label_text = RichText::new(&e.name)
-                                            .strong()
-                                            .size(11.5)
-                                            .color(name_color);
+                                            let name_color = if is_selected {
+                                                Color32::WHITE
+                                            } else {
+                                                TEXT_PRIMARY
+                                            };
+                                            let label_text = RichText::new(&e.name)
+                                                .strong()
+                                                .size(11.5)
+                                                .color(name_color);
 
-                                        ui.label(label_text);
+                                            ui.label(label_text);
 
-                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            if is_selected {
-                                                Frame {
-                                                    inner_margin: Margin::symmetric(6, 1),
-                                                    outer_margin: Margin::ZERO,
-                                                    corner_radius: CornerRadius::same(4),
-                                                    shadow: egui::Shadow::NONE,
-                                                    fill: Color32::from_rgb(10, 132, 255),
-                                                    stroke: Stroke::NONE,
+                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                if is_selected {
+                                                    Frame {
+                                                        inner_margin: Margin::symmetric(6, 1),
+                                                        outer_margin: Margin::ZERO,
+                                                        corner_radius: CornerRadius::same(4),
+                                                        shadow: egui::Shadow::NONE,
+                                                        fill: Color32::from_rgb(10, 132, 255),
+                                                        stroke: Stroke::NONE,
+                                                    }
+                                                    .show(ui, |ui| {
+                                                        ui.label(
+                                                            RichText::new("Terpilih")
+                                                                .size(9.5)
+                                                                .strong()
+                                                                .color(Color32::WHITE),
+                                                        );
+                                                    });
                                                 }
-                                                .show(ui, |ui| {
-                                                    ui.label(
-                                                        RichText::new("Terpilih")
-                                                            .size(9.5)
-                                                            .strong()
-                                                            .color(Color32::WHITE),
-                                                    );
-                                                });
-                                            }
+                                            });
                                         });
                                     });
-                                });
 
-                                if card_output.response.interact(egui::Sense::click()).clicked() {
-                                    let extend = ui.input(|i| {
-                                        i.modifiers.command || i.modifiers.shift
-                                    });
-                                    event = Some(ItemsDrawerEvent::SelectEntity2d {
-                                        id_raw: e.id_raw,
-                                        extend,
-                                    });
-                                }
+                                    if card_output.response.interact(egui::Sense::click()).clicked() {
+                                        let extend = ui.input(|i| {
+                                            i.modifiers.command || i.modifiers.shift
+                                        });
+                                        event = Some(ItemsDrawerEvent::SelectEntity2d {
+                                            id_raw: e.id_raw,
+                                            extend,
+                                        });
+                                    }
+                                });
                             }
                         }
                     }
@@ -497,111 +499,129 @@ impl ItemsDrawer {
                                     continue;
                                 }
 
-                                let is_selected = b.selected;
-                                let card_bg = if is_selected {
-                                    Color32::from_rgb(18, 38, 68)
-                                } else {
-                                    Color32::from_rgb(26, 29, 36)
-                                };
-                                let card_stroke = if is_selected {
-                                    Stroke::new(1.0, ACCENT_BLUE)
-                                } else {
-                                    Stroke::new(0.5, BORDER_SUBTLE)
-                                };
+                                ui.push_id(b.id_raw, |ui| {
+                                    let is_selected = b.selected;
+                                    let card_bg = if is_selected {
+                                        Color32::from_rgb(18, 38, 68)
+                                    } else {
+                                        Color32::from_rgb(26, 29, 36)
+                                    };
+                                    let card_stroke = if is_selected {
+                                        Stroke::new(1.0, ACCENT_BLUE)
+                                    } else {
+                                        Stroke::new(0.5, BORDER_SUBTLE)
+                                    };
 
-                                let row_frame = Frame {
-                                    inner_margin: Margin::symmetric(8, 6),
-                                    outer_margin: Margin::symmetric(0, 1),
-                                    corner_radius: CornerRadius::same(6),
-                                    shadow: egui::Shadow::NONE,
-                                    fill: card_bg,
-                                    stroke: card_stroke,
-                                };
+                                    let row_frame = Frame {
+                                        inner_margin: Margin::symmetric(8, 6),
+                                        outer_margin: Margin::symmetric(0, 1),
+                                        corner_radius: CornerRadius::same(6),
+                                        shadow: egui::Shadow::NONE,
+                                        fill: card_bg,
+                                        stroke: card_stroke,
+                                    };
 
-                                let mut eye_toggled = false;
-                                let card_output = row_frame.show(ui, |ui| {
-                                    ui.set_width(ui.available_width());
-                                    ui.horizontal(|ui| {
-                                        let eye = if b.visible {
-                                            ICON_VISIBILITY.codepoint
-                                        } else {
-                                            ICON_VISIBILITY_OFF.codepoint
-                                        };
-                                        let eye_color = if b.visible {
-                                            if is_selected { Color32::WHITE } else { TEXT_PRIMARY }
-                                        } else {
-                                            TEXT_MUTED
-                                        };
+                                    let mut eye_toggled = false;
+                                    let card_output = row_frame.show(ui, |ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            let eye = if b.visible {
+                                                ICON_VISIBILITY.codepoint
+                                            } else {
+                                                ICON_VISIBILITY_OFF.codepoint
+                                            };
+                                            let eye_color = if b.visible {
+                                                if is_selected { Color32::WHITE } else { TEXT_PRIMARY }
+                                            } else {
+                                                TEXT_MUTED
+                                            };
 
-                                        if ui
-                                            .small_button(
-                                                RichText::new(eye).size(12.0).color(eye_color),
+                                            let eye_btn = ui.add(
+                                                egui::Button::new(
+                                                    RichText::new(eye).size(13.0).color(eye_color),
+                                                )
+                                                .fill(if b.visible {
+                                                    Color32::from_rgb(38, 43, 56)
+                                                } else {
+                                                    Color32::from_rgb(24, 26, 32)
+                                                })
+                                                .stroke(Stroke::new(
+                                                    0.5,
+                                                    if b.visible {
+                                                        Color32::from_rgb(60, 68, 85)
+                                                    } else {
+                                                        Color32::from_rgb(40, 44, 54)
+                                                    },
+                                                ))
+                                                .corner_radius(CornerRadius::same(4))
+                                                .min_size(Vec2::new(24.0, 20.0)),
                                             )
                                             .on_hover_text(if b.visible {
                                                 "Sembunyikan Body"
                                             } else {
                                                 "Tampilkan Body"
-                                            })
-                                            .clicked()
-                                        {
-                                            eye_toggled = true;
-                                        }
+                                            });
 
-                                        let icon_shape = ICON_CATEGORY.codepoint;
-                                        ui.label(
-                                            RichText::new(icon_shape)
-                                                .size(13.0)
-                                                .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
-                                        );
-
-                                        let name_color = if is_selected {
-                                            Color32::WHITE
-                                        } else {
-                                            TEXT_PRIMARY
-                                        };
-                                        let text = RichText::new(&b.name)
-                                            .strong()
-                                            .size(11.5)
-                                            .color(name_color);
-
-                                        ui.label(text);
-
-                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            if is_selected {
-                                                Frame {
-                                                    inner_margin: Margin::symmetric(6, 1),
-                                                    outer_margin: Margin::ZERO,
-                                                    corner_radius: CornerRadius::same(4),
-                                                    shadow: egui::Shadow::NONE,
-                                                    fill: Color32::from_rgb(10, 132, 255),
-                                                    stroke: Stroke::NONE,
-                                                }
-                                                .show(ui, |ui| {
-                                                    ui.label(
-                                                        RichText::new("Terpilih")
-                                                            .size(9.5)
-                                                            .strong()
-                                                            .color(Color32::WHITE),
-                                                    );
-                                                });
+                                            if eye_btn.clicked() {
+                                                eye_toggled = true;
                                             }
+
+                                            let icon_shape = ICON_CATEGORY.codepoint;
+                                            ui.label(
+                                                RichText::new(icon_shape)
+                                                    .size(13.0)
+                                                    .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
+                                            );
+
+                                            let name_color = if is_selected {
+                                                Color32::WHITE
+                                            } else {
+                                                TEXT_PRIMARY
+                                            };
+                                            let text = RichText::new(&b.name)
+                                                .strong()
+                                                .size(11.5)
+                                                .color(name_color);
+
+                                            ui.label(text);
+
+                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                if is_selected {
+                                                    Frame {
+                                                        inner_margin: Margin::symmetric(6, 1),
+                                                        outer_margin: Margin::ZERO,
+                                                        corner_radius: CornerRadius::same(4),
+                                                        shadow: egui::Shadow::NONE,
+                                                        fill: Color32::from_rgb(10, 132, 255),
+                                                        stroke: Stroke::NONE,
+                                                    }
+                                                    .show(ui, |ui| {
+                                                        ui.label(
+                                                            RichText::new("Terpilih")
+                                                                .size(9.5)
+                                                                .strong()
+                                                                .color(Color32::WHITE),
+                                                        );
+                                                    });
+                                                }
+                                            });
                                         });
                                     });
-                                });
 
-                                if eye_toggled {
-                                    event = Some(
-                                        ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw),
-                                    );
-                                } else if card_output.response.interact(egui::Sense::click()).clicked() {
-                                    let extend = ui.input(|i| {
-                                        i.modifiers.command || i.modifiers.shift
-                                    });
-                                    event = Some(ItemsDrawerEvent::SelectBody {
-                                        id_raw: b.id_raw,
-                                        extend,
-                                    });
-                                }
+                                    if eye_toggled {
+                                        event = Some(
+                                            ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw),
+                                        );
+                                    } else if card_output.response.interact(egui::Sense::click()).clicked() {
+                                        let extend = ui.input(|i| {
+                                            i.modifiers.command || i.modifiers.shift
+                                        });
+                                        event = Some(ItemsDrawerEvent::SelectBody {
+                                            id_raw: b.id_raw,
+                                            extend,
+                                        });
+                                    }
+                                });
                             }
                         }
                     }

@@ -878,6 +878,23 @@ impl eframe::App for DuCADApp {
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
                                     if id.data().as_ffi() == raw_id {
                                         b.visible = !b.visible;
+                                        if !b.visible {
+                                            if let Some((active_id, _, _)) = self.active_face {
+                                                if active_id == id {
+                                                    self.active_face = None;
+                                                }
+                                            }
+                                            if let Some((active_id, _, _)) = self.active_vertex {
+                                                if active_id == id {
+                                                    self.active_vertex = None;
+                                                }
+                                            }
+                                            if let Some((active_id, _, _)) = self.active_edge {
+                                                if active_id == id {
+                                                    self.active_edge = None;
+                                                }
+                                            }
+                                        }
                                         break;
                                     }
                                 }
