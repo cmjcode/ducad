@@ -499,7 +499,8 @@ impl ItemsDrawer {
                                     continue;
                                 }
 
-                                ui.push_id(b.id_raw, |ui| {
+                                // Render kartu item body
+                                let push_id_resp = ui.push_id(b.id_raw, |ui| {
                                     let is_selected = b.selected;
                                     let card_bg = if is_selected {
                                         Color32::from_rgb(18, 38, 68)
@@ -521,11 +522,17 @@ impl ItemsDrawer {
                                         stroke: card_stroke,
                                     };
 
-                                    let mut eye_toggled = false;
-                                    let card_output = row_frame.show(ui, |ui| {
+                                    // Render card body — eye button di luar row_frame agar tidak tertutup
+                                    let card_resp = row_frame.show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
-                                            let eye = if b.visible {
+                                            // Reserve space untuk eye button
+                                            let (eye_rect, _) = ui.allocate_exact_size(
+                                                Vec2::new(24.0, 20.0),
+                                                egui::Sense::focusable_noninteractive(),
+                                            );
+
+                                            let eye_icon = if b.visible {
                                                 ICON_VISIBILITY.codepoint
                                             } else {
                                                 ICON_VISIBILITY_OFF.codepoint
@@ -536,35 +543,19 @@ impl ItemsDrawer {
                                                 TEXT_MUTED
                                             };
 
-                                            let eye_btn = ui.add(
-                                                egui::Button::new(
-                                                    RichText::new(eye).size(13.0).color(eye_color),
-                                                )
-                                                .fill(if b.visible {
-                                                    Color32::from_rgb(38, 43, 56)
-                                                } else {
-                                                    Color32::from_rgb(24, 26, 32)
-                                                })
-                                                .stroke(Stroke::new(
-                                                    0.5,
-                                                    if b.visible {
-                                                        Color32::from_rgb(60, 68, 85)
-                                                    } else {
-                                                        Color32::from_rgb(40, 44, 54)
-                                                    },
-                                                ))
-                                                .corner_radius(CornerRadius::same(4))
-                                                .min_size(Vec2::new(24.0, 20.0)),
-                                            )
-                                            .on_hover_text(if b.visible {
-                                                "Sembunyikan Body"
-                                            } else {
-                                                "Tampilkan Body"
-                                            });
-
-                                            if eye_btn.clicked() {
-                                                eye_toggled = true;
-                                            }
+                                            // Draw background dan icon via painter (painter dari layer ini)
+                                            ui.painter().rect_filled(
+                                                eye_rect,
+                                                CornerRadius::same(4),
+                                                Color32::from_rgb(38, 43, 56),
+                                            );
+                                            ui.painter().text(
+                                                eye_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                eye_icon,
+                                                egui::FontId::proportional(13.0),
+                                                eye_color,
+                                            );
 
                                             let icon_shape = ICON_CATEGORY.codepoint;
                                             ui.label(
@@ -578,12 +569,12 @@ impl ItemsDrawer {
                                             } else {
                                                 TEXT_PRIMARY
                                             };
-                                            let text = RichText::new(&b.name)
-                                                .strong()
-                                                .size(11.5)
-                                                .color(name_color);
-
-                                            ui.label(text);
+                                            ui.label(
+                                                RichText::new(&b.name)
+                                                    .strong()
+                                                    .size(11.5)
+                                                    .color(name_color),
+                                            );
 
                                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                                 if is_selected {
@@ -605,23 +596,85 @@ impl ItemsDrawer {
                                                     });
                                                 }
                                             });
-                                        });
+
+                                            eye_rect
+                                        }).inner
                                     });
 
-                                    if eye_toggled {
-                                        event = Some(
-                                            ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw),
-                                        );
-                                    } else if card_output.response.interact(egui::Sense::click()).clicked() {
-                                        let extend = ui.input(|i| {
-                                            i.modifiers.command || i.modifiers.shift
-                                        });
-                                        event = Some(ItemsDrawerEvent::SelectBody {
-                                            id_raw: b.id_raw,
-                                            extend,
-                                        });
+                                    // Eye button — pakai ctx.layer_painter di layer Foreground terpisah
+                                    // agar tidak terhalang frame atau widget lain
+                                    let eye_rect_screen = card_resp.inner;
+
+                                    // Gambar ulang eye di atas dengan Layer Debug untuk memastikan posisi
+                                    let eye_layer = egui::LayerId::new(egui::Order::Foreground, ui.id().with("eye_overlay").with(b.id_raw));
+                                    let painter = ui.ctx().layer_painter(eye_layer);
+                                    let ptr = ui.ctx().pointer_interact_pos();
+                                    let is_hovered = ptr.map(|p| eye_rect_screen.contains(p)).unwrap_or(false);
+
+                                    let eye_bg = if is_hovered {
+                                        Color32::from_rgb(60, 75, 100)
+                                    } else if b.visible {
+                                        Color32::from_rgb(38, 43, 56)
+                                    } else {
+                                        Color32::from_rgb(24, 26, 32)
+                                    };
+
+                                    let eye_icon = if b.visible {
+                                        ICON_VISIBILITY.codepoint
+                                    } else {
+                                        ICON_VISIBILITY_OFF.codepoint
+                                    };
+                                    let eye_color = if b.visible {
+                                        if is_selected { Color32::WHITE } else { TEXT_PRIMARY }
+                                    } else {
+                                        TEXT_MUTED
+                                    };
+
+                                    painter.rect_filled(eye_rect_screen, CornerRadius::same(4), eye_bg);
+                                    painter.text(
+                                        eye_rect_screen.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        eye_icon,
+                                        egui::FontId::proportional(13.0),
+                                        eye_color,
+                                    );
+
+                                    if is_hovered {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                     }
+
+                                    // Detect klik pada eye rect — pakai input pointer events langsung
+                                    let eye_clicked = ui.ctx().input(|i| {
+                                        is_hovered
+                                            && i.pointer.primary_clicked()
+                                            && i.pointer.interact_pos()
+                                                .map(|p| eye_rect_screen.contains(p))
+                                                .unwrap_or(false)
+                                    });
+
+                                    if eye_clicked {
+                                        println!("[DUCAD UI] KLIK TERDETEKSI pada icon mata body='{}'", b.name);
+                                    }
+
+                                    let card_clicked = !is_hovered
+                                        && card_resp.response.interact(egui::Sense::click()).clicked();
+
+                                    (eye_clicked, card_clicked)
                                 });
+
+                                let (eye_clicked, card_clicked) = push_id_resp.inner;
+
+                                if eye_clicked {
+                                    event = Some(ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw));
+                                } else if card_clicked {
+                                    let extend = ui.input(|i| {
+                                        i.modifiers.command || i.modifiers.shift
+                                    });
+                                    event = Some(ItemsDrawerEvent::SelectBody {
+                                        id_raw: b.id_raw,
+                                        extend,
+                                    });
+                                }
                             }
                         }
                     }

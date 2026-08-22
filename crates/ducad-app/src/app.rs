@@ -875,10 +875,21 @@ impl eframe::App for DuCADApp {
                     if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h, folder_bottom_y) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
+                                println!("[DUCAD APP] Event ToggleBodyVisibility diterima untuk raw_id: {}", raw_id);
+                                let mut found = false;
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
                                     if id.data().as_ffi() == raw_id {
+                                        found = true;
+                                        let old_vis = b.visible;
                                         b.visible = !b.visible;
+                                        println!("[DUCAD APP] Visibilitas body '{}' diubah: {} -> {}", b.name, old_vis, b.visible);
+                                        self.model_status = Some(format!(
+                                            "Body '{}' {}",
+                                            b.name,
+                                            if b.visible { "ditampilkan" } else { "disembunyikan" }
+                                        ));
                                         if !b.visible {
+                                            self.selected_bodies.remove(&id);
                                             if let Some((active_id, _, _)) = self.active_face {
                                                 if active_id == id {
                                                     self.active_face = None;
@@ -895,8 +906,12 @@ impl eframe::App for DuCADApp {
                                                 }
                                             }
                                         }
+                                        ctx.request_repaint();
                                         break;
                                     }
+                                }
+                                if !found {
+                                    println!("[DUCAD APP] Body dengan raw_id: {} tidak ditemukan di doc.bodies! (Total bodies: {})", raw_id, self.model.doc.bodies.len());
                                 }
                             }
                             ItemsDrawerEvent::SelectBody { id_raw, extend } => {
