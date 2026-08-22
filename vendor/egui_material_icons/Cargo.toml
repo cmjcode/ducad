@@ -1,0 +1,31 @@
+[package]
+name = "egui_material_icons"
+version = "0.8.0"
+edition = "2021"
+description = "Material icons for egui."
+readme = "README.md"
+keywords = ["egui", "icons", "material"]
+categories = ["gui"]
+license = "MIT"
+repository = "https://github.com/lucasmerlin/hello_egui/tree/main/crates/egui_material_icons"
+
+[features]
+default = ["filled"]
+filled = []
+outline = []
+compressed = ["dep:include-flate"]
+
+[lib]
+name = "egui_material_icons"
+path = "src/lib.rs"
+
+[[example]]
+name = "icon-browser"
+path = "examples/icon-browser.rs"
+
+[dependencies]
+egui = { version = "0.36", default-features = false }
+include-flate = { version = "0.3.2", optional = true }
+
+[dev-dependencies]
+eframe = { version = "0.36", default-features = true }

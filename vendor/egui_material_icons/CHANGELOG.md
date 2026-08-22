@@ -1,0 +1,38 @@
+# Changelog
+
+## 0.8.0
+
+- Update egui to 0.36
+- Add release-plz to automate releases ([#105](https://github.com/lucasmerlin/hello_egui/pull/105))
+
+## 0.7.0
+
+- Update egui to 0.35
+
+## 0.6.0
+
+- Add outline icon variants
+- Add DEFLATE compression for icon data
+- Update egui to 0.34
+
+## 0.5.0
+
+- Update egui to 0.33.0
+
+## 0.4.0
+
+- Update egui to 0.32
+
+## 0.3.0
+
+- Update egui to 0.31
+- Updated `initialize`, to not overwrite existing fonts
+- Added `font_insert`, so you can easily add it with `Context::add_font`
+
+## 0.2.0
+
+- Update to egui 0.30.0
+
+## 0.1.0
+
+- Initial release

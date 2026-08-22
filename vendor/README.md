@@ -310,3 +310,27 @@ keempat perubahan di atas (binding `BRepAdaptor_Surface` +
 `Standard_Failure`→`Result` dan pola dobel-deklarasi enum), pastikan
 `tests/surface_and_offset.rs` masih lolos, update nomor versi di
 `[patch.crates-io]` root `Cargo.toml` & di sini.
+
+---
+
+## `egui_material_icons`
+
+Salinan lokal dari crate [`egui_material_icons`](https://crates.io/crates/egui_material_icons)
+0.8.0, di-patch lewat `[patch.crates-io]` di root `Cargo.toml` workspace.
+
+**Fitur & Sumber Font**:
+1. **Google Material Symbols (Resmi Terbaru)**: 4.271 ikon (`MaterialSymbolsRounded_Filled-Regular.ttf` & `MaterialSymbolsRounded-Regular.ttf`).
+2. **Pictogrammers Material Design Icons (MDI v7.4.47)**: 7.447 ikon (`materialdesignicons-webfont.ttf`), termasuk ikon-ikon CAD/3D seperti `ICON_CUBE`, `ICON_CUBE_OUTLINE`, `ICON_AXIS_ARROW`, `ICON_VECTOR_LINE`, `ICON_RULER`, dll.
+3. Total lebih dari **11.000+ konstanta ikon** yang bisa diakses via prefix `ICON_<NAME>` (universal) maupun `MDI_<NAME>` (eksplisit namespace).
+
+**Kenapa di-vendor**:
+1. Upstream crate hanya membawa Google Material Symbols versi lama dan tidak mendukung Pictogrammers MDI.
+2. Memungkinkan DUCAD menggabungkan font Google Material Symbols dan Pictogrammers MDI v7.4.47 ke dalam satu crate terpadu.
+3. Mempermudah regenerasi `src/icons.rs` kapan pun ada ikon baru yang dirilis.
+
+**Cara regenerate icons**:
+1. Siapkan file `.codepoints` Google dan/atau `materialdesignicons.scss` MDI.
+2. Jalankan `rustc vendor/egui_material_icons/gen_codepoints.rs -o /tmp/gen_codepoints && /tmp/gen_codepoints` untuk membuat ulang `src/icons.rs`.
+3. Verifikasi dengan `cargo check` dan `cargo test`.
+
+

@@ -111,3 +111,5 @@ opt-level = 2
 [patch.crates-io]
 opencascade = { path = "vendor/opencascade-0.2.0" }
 opencascade-sys = { path = "vendor/opencascade-sys-0.2.0" }
+egui_material_icons = { path = "vendor/egui_material_icons" }
+
