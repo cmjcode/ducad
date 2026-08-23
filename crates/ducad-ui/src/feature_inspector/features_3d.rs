@@ -1,3 +1,4 @@
+use ducad_i18n::t;
 use egui::{Color32, RichText, Slider, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
@@ -19,15 +20,15 @@ pub fn show_measurements_card(
 ) {
     card_frame().show(ui, |ui| {
         ui.label(
-            RichText::new(format!("{} Pengukuran", ICON_STRAIGHTEN.codepoint))
+            RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, t!("tool-measure-name")))
                 .strong()
                 .size(11.5)
                 .color(ACCENT_ORANGE),
         );
 
         if ui
-            .checkbox(&mut state.show_all_dimensions, "Tampilkan Semua Ukuran")
-            .on_hover_text("Tampilkan nominal ukuran tiap garis/rusuk elemen di kanvas")
+            .checkbox(&mut state.show_all_dimensions, t!("hud-show-dimensions"))
+            .on_hover_text(t!("inspector-show-all-dim-tooltip"))
             .changed()
         {
             *event = Some(InspectorEvent::ToggleShowAllDimensions);
@@ -38,7 +39,7 @@ pub fn show_measurements_card(
         }
         if state.measurement_tool_active && state.measurements.is_empty() {
             ui.label(
-                RichText::new("Klik 2 titik untuk jarak, 3 titik untuk sudut")
+                RichText::new(t!("inspector-measure-hint"))
                     .size(10.0)
                     .color(TEXT_SECONDARY),
             );
@@ -57,7 +58,7 @@ pub fn show_measurements_card(
         }
         if !state.measurements.is_empty() {
             ui.separator();
-            if ui.button(RichText::new("Hapus Semua").size(10.5)).clicked() {
+            if ui.button(RichText::new(t!("inspector-clear-all")).size(10.5)).clicked() {
                 *event = Some(InspectorEvent::ClearMeasurements);
             }
         }
@@ -98,13 +99,13 @@ pub fn show_3d_cards(
 
             ui.add_space(3.0);
             ui.label(
-                RichText::new("💡 Resize: aktifkan \"Tampilkan Semua Ukuran\" (kartu Pengukuran di atas), lalu klik angka X/Y/Z yg muncul langsung di objek → ketik → Enter.")
+                RichText::new(t!("inspector-resize-tip"))
                     .size(9.0)
                     .italics()
                     .color(TEXT_SECONDARY),
             );
             ui.label(
-                RichText::new("Catatan: scale seragam (proporsional) — fillet/chamfer bisa ikut berubah bentuk kalau ukurannya besar sekali.")
+                RichText::new(t!("inspector-uniform-scale-note"))
                     .size(8.5)
                     .italics()
                     .color(TEXT_SECONDARY),
@@ -118,7 +119,7 @@ pub fn show_3d_cards(
         // Revolve Card (Properties Panel Kanan)
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Revolve 3D (Benda Putar)", ICON_REFRESH.codepoint))
+                RichText::new(format!("{} {}", ICON_REFRESH.codepoint, t!("inspector-revolve-3d")))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_BLUE),
@@ -126,18 +127,18 @@ pub fn show_3d_cards(
             ui.add_space(2.0);
 
             // Pilihan Sumbu
-            ui.label(RichText::new("Poros Sumbu:").size(10.5).color(TEXT_SECONDARY));
-            ui.radio_value(&mut state.revolve_axis_preset, 0, RichText::new("Sumbu Y (Vertikal)").size(10.5));
-            ui.radio_value(&mut state.revolve_axis_preset, 1, RichText::new("Sumbu X (Horizontal)").size(10.5));
-            ui.radio_value(&mut state.revolve_axis_preset, 2, RichText::new("Tepi Kiri Sketsa").size(10.5));
-            ui.radio_value(&mut state.revolve_axis_preset, 3, RichText::new("Tepi Bawah Sketsa").size(10.5));
-            ui.radio_value(&mut state.revolve_axis_preset, 4, RichText::new("✏️ Gambar 2 Titik Manual").size(10.5));
+            ui.label(RichText::new(t!("inspector-revolve-axis")).size(10.5).color(TEXT_SECONDARY));
+            ui.radio_value(&mut state.revolve_axis_preset, 0, RichText::new(t!("inspector-axis-y-vert")).size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 1, RichText::new(t!("inspector-axis-x-horiz")).size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 2, RichText::new(t!("inspector-axis-sketch-left")).size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 3, RichText::new(t!("inspector-axis-sketch-bottom")).size(10.5));
+            ui.radio_value(&mut state.revolve_axis_preset, 4, RichText::new(t!("inspector-draw-2-points-manual")).size(10.5));
 
             ui.add_space(3.0);
 
             // Sudut
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.5).color(TEXT_SECONDARY));
                 if ui.small_button("360°").clicked() {
                     state.revolve_angle_input = "360.0".to_string();
                 }
@@ -149,7 +150,7 @@ pub fn show_3d_cards(
                 }
             });
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Derajat:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.5).color(TEXT_SECONDARY));
                 ui.add_sized(
                     Vec2::new(60.0, 18.0),
                     egui::TextEdit::singleline(&mut state.revolve_angle_input),
@@ -161,8 +162,8 @@ pub fn show_3d_cards(
 
             // Arah Putar (CW vs CCW)
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Arah:").size(10.5).color(TEXT_SECONDARY));
-                let dir_label = if state.revolve_reverse { "↻ Balik Arah (CW)" } else { "↺ Normal (CCW)" };
+                ui.label(RichText::new(format!("{}:", t!("param-direction"))).size(10.5).color(TEXT_SECONDARY));
+                let dir_label = if state.revolve_reverse { "↻ CW" } else { "↺ CCW" };
                 if ui
                     .button(RichText::new(dir_label).size(10.5).color(if state.revolve_reverse { ACCENT_ORANGE } else { TEXT_PRIMARY }))
                     .clicked()
@@ -178,7 +179,7 @@ pub fn show_3d_cards(
                 if ui
                     .add(
                         egui::Button::new(
-                            RichText::new("✏️ Klik 2 Titik di Kanvas")
+                            RichText::new(t!("inspector-click-2-points-canvas"))
                                 .size(11.0)
                                 .color(Color32::WHITE),
                         )
@@ -192,7 +193,7 @@ pub fn show_3d_cards(
                 if ui
                     .add(
                         egui::Button::new(
-                            RichText::new("🚀 Eksekusi Revolve")
+                            RichText::new(t!("inspector-exec-revolve"))
                                 .size(11.0)
                                 .color(Color32::WHITE),
                         )
@@ -213,30 +214,30 @@ pub fn show_3d_cards(
         // Loft Card
         card_frame().show(ui, |ui| {
             ui.label(
-                RichText::new(format!("{} Loft 3D", ICON_REFRESH.codepoint))
+                RichText::new(format!("{} {}", ICON_REFRESH.codepoint, t!("tool-loft-name")))
                     .strong()
                     .size(11.5)
                     .color(ACCENT_BLUE),
             );
             ui.separator();
-            ui.label(RichText::new("Loft:").size(10.5).color(TEXT_SECONDARY));
+            ui.label(RichText::new(format!("{}:", t!("tool-loft-name"))).size(10.5).color(TEXT_SECONDARY));
             let staged_label = if state.loft_bottom_staged {
-                "Profil bawah: ✓ Staged"
+                t!("inspector-loft-staged")
             } else {
-                "Profil bawah: Belum diset"
+                t!("inspector-loft-unstaged")
             };
             ui.weak(staged_label);
-            if ui.button(RichText::new("Set Profil Bawah").size(10.5)).clicked() {
+            if ui.button(RichText::new(t!("inspector-set-bottom-profile")).size(10.5)).clicked() {
                 *event = Some(InspectorEvent::StageLoftBottom);
             }
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Tinggi:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-height"))).size(10.5).color(TEXT_SECONDARY));
                 ui.add_sized(
                     Vec2::new(60.0, 18.0),
                     egui::TextEdit::singleline(&mut state.loft_height_input),
                 );
             });
-            if ui.button(RichText::new("Eksekusi Loft").size(11.0)).clicked() {
+            if ui.button(RichText::new(t!("inspector-exec-loft")).size(11.0)).clicked() {
                 if let Ok(h) = state.loft_height_input.trim().parse::<f64>() {
                     *event = Some(InspectorEvent::ApplyLoft { height: h });
                 }
@@ -257,13 +258,13 @@ pub fn show_3d_cards(
                 .color(ACCENT_BLUE),
             );
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("Union").size(10.5)).clicked() {
+                if ui.button(RichText::new(t!("boolean-union")).size(10.5)).clicked() {
                     *event = Some(InspectorEvent::ApplyBoolean(InspectorBooleanKind::Union));
                 }
-                if ui.button(RichText::new("Subtract").size(10.5)).clicked() {
+                if ui.button(RichText::new(t!("boolean-subtract")).size(10.5)).clicked() {
                     *event = Some(InspectorEvent::ApplyBoolean(InspectorBooleanKind::Subtract));
                 }
-                if ui.button(RichText::new("Intersect").size(10.5)).clicked() {
+                if ui.button(RichText::new(t!("boolean-intersect")).size(10.5)).clicked() {
                     *event = Some(InspectorEvent::ApplyBoolean(InspectorBooleanKind::Intersect));
                 }
             });
@@ -279,9 +280,9 @@ pub fn show_3d_cards(
             );
 
             let edge_btn_label = if state.picking_mode == InspectorPickMode::Edge {
-                "[x] Mode Pilih Tepi (Aktif)"
+                t!("inspector-edge-pick-active")
             } else {
-                "[ ] Mode Pilih Tepi Manual"
+                t!("inspector-edge-pick-manual")
             };
             ui.horizontal(|ui| {
                 let single = state.selected_bodies_count == 1;
@@ -295,24 +296,24 @@ pub fn show_3d_cards(
                     *event = Some(InspectorEvent::ToggleEdgePicking);
                 }
                 ui.label(
-                    RichText::new(format!("{} tepi", state.selected_edges_count))
+                    RichText::new(t!("inspector-edge-count", count = state.selected_edges_count))
                         .size(10.5)
                         .color(TEXT_SECONDARY),
                 );
             });
 
-            if state.selected_edges_count > 0 && ui.small_button("Reset Seleksi Tepi").clicked() {
+            if state.selected_edges_count > 0 && ui.small_button(t!("inspector-reset-edge-pick")).clicked() {
                 *event = Some(InspectorEvent::ResetEdgePicking);
             }
 
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Radius:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-radius"))).size(10.5).color(TEXT_SECONDARY));
                 ui.add_sized(
                     Vec2::new(55.0, 18.0),
                     egui::TextEdit::singleline(&mut state.fillet_input),
                 );
-                if ui.button(RichText::new("Fillet").size(10.5)).clicked() {
+                if ui.button(RichText::new(t!("tool-fillet-name")).size(10.5)).clicked() {
                     if let Ok(r) = state.fillet_input.trim().parse::<f64>() {
                         *event = Some(InspectorEvent::ApplyFillet { radius: r });
                     }
@@ -320,12 +321,12 @@ pub fn show_3d_cards(
             });
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Jarak:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-distance"))).size(10.5).color(TEXT_SECONDARY));
                 ui.add_sized(
                     Vec2::new(55.0, 18.0),
                     egui::TextEdit::singleline(&mut state.chamfer_input),
                 );
-                if ui.button(RichText::new("Chamfer").size(10.5)).clicked() {
+                if ui.button(RichText::new(t!("tool-chamfer-name")).size(10.5)).clicked() {
                     if let Ok(d) = state.chamfer_input.trim().parse::<f64>() {
                         *event = Some(InspectorEvent::ApplyChamfer { distance: d });
                     }
@@ -336,7 +337,7 @@ pub fn show_3d_cards(
 
 
         // Hapus Body
-        let del_text = format!("{} Hapus Body Terpilih", ICON_DELETE.codepoint);
+        let del_text = format!("{} {}", ICON_DELETE.codepoint, t!("inspector-delete-selected-bodies"));
         if ui
             .button(
                 RichText::new(del_text)
@@ -353,16 +354,16 @@ pub fn show_3d_cards(
     // 6. Section View Card
     card_frame().show(ui, |ui| {
         ui.label(
-            RichText::new(format!("{} Section View", ICON_CONTENT_CUT.codepoint))
+            RichText::new(format!("{} {}", ICON_CONTENT_CUT.codepoint, t!("tool-section-view-name")))
                 .strong()
                 .color(ACCENT_ORANGE),
         );
-        if ui.checkbox(&mut state.section_enabled, "Aktifkan Potongan").changed() {
+        if ui.checkbox(&mut state.section_enabled, t!("inspector-enable-section")).changed() {
             *event = Some(InspectorEvent::SectionViewChanged);
         }
         if state.section_enabled {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Sumbu:").size(10.5));
+                ui.label(RichText::new(format!("{}:", t!("inspector-revolve-axis"))).size(10.5));
                 if ui.selectable_value(&mut state.section_axis, 0, "X").changed() {
                     *event = Some(InspectorEvent::SectionViewChanged);
                 }
@@ -379,7 +380,7 @@ pub fn show_3d_cards(
                     *event = Some(InspectorEvent::SectionViewChanged);
                 }
             });
-            if ui.checkbox(&mut state.section_invert, "Balik arah").changed() {
+            if ui.checkbox(&mut state.section_invert, t!("inspector-invert-direction")).changed() {
                 *event = Some(InspectorEvent::SectionViewChanged);
             }
         }
@@ -388,15 +389,15 @@ pub fn show_3d_cards(
 
     // 7. Model History (Undo / Redo 3D Model)
     card_frame().show(ui, |ui| {
-        ui.label(RichText::new("Riwayat Model 3D:").size(10.5).color(TEXT_SECONDARY));
+        ui.label(RichText::new(t!("inspector-model-history")).size(10.5).color(TEXT_SECONDARY));
         ui.horizontal(|ui| {
-            let undo_label = format!("{} Undo", ICON_UNDO.codepoint);
+            let undo_label = format!("{} {}", ICON_UNDO.codepoint, t!("drawer-undo"));
             let undo_btn = egui::Button::new(RichText::new(undo_label).size(10.5));
             if ui.add_enabled(state.can_undo_model, undo_btn).clicked() {
                 *event = Some(InspectorEvent::UndoModel);
             }
 
-            let redo_label = format!("{} Redo", ICON_REDO.codepoint);
+            let redo_label = format!("{} {}", ICON_REDO.codepoint, t!("drawer-redo"));
             if ui
                 .add_enabled(
                     state.can_redo_model,
@@ -413,25 +414,20 @@ pub fn show_3d_cards(
     if !has_2d_selection && state.selected_bodies_count == 0 {
         ui.add_space(2.0);
         card_frame().show(ui, |ui| {
-            ui.label(RichText::new("Dokumen DUCAD").strong().size(11.0).color(TEXT_PRIMARY));
+            ui.label(RichText::new(t!("file-doc-ducad")).strong().size(11.0).color(TEXT_PRIMARY));
             ui.label(
-                RichText::new(format!(
-                    "• 2D Entitas: {} objek",
-                    state.total_entities_count
-                ))
+                RichText::new(t!("inspector-entities-count", count = state.total_entities_count))
                 .size(10.0)
                 .color(TEXT_SECONDARY),
             );
             ui.label(
-                RichText::new(format!("• 3D Bodies: {} objek", state.total_bodies_count))
+                RichText::new(t!("inspector-bodies-count", count = state.total_bodies_count))
                     .size(10.0)
                     .color(TEXT_SECONDARY),
             );
             ui.separator();
             ui.label(
-                RichText::new(
-                    "Pilih objek di kanvas atau pohon item untuk melihat & mengubah dimensinya.",
-                )
+                RichText::new(t!("inspector-select-object-hint"))
                 .italics()
                 .size(9.5)
                 .color(TEXT_SECONDARY),

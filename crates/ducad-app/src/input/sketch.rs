@@ -219,19 +219,22 @@ impl DuCADApp {
                 let (axis_origin, axis_end) = (pts[0], pts[1]);
                 let raw_dir = axis_end - axis_origin;
                 if raw_dir.length() < 1e-6 {
+                    let err_title = ducad_i18n::t!("revolve-axis-too-short-title");
+                    let err_desc = ducad_i18n::t!("revolve-axis-too-short-desc");
+                    let tip_1 = ducad_i18n::t!("revolve-axis-tip-1");
+                    let tip_2 = ducad_i18n::t!("revolve-axis-tip-2");
                     self.alert_modal.show_error(
-                        "Revolve Gagal: Sumbu Terlalu Pendek",
-                        "Dua titik sumbu yang Anda klik berada di posisi yang sama atau terlalu dekat.",
+                        err_title.clone(),
+                        err_desc,
                         vec![
-                            "Klik dua titik yang berjarak jelas untuk membentuk garis sumbu.",
-                            "Atau gunakan preset 'Sumbu Y' / 'Sumbu X' di jendela opsi Revolve.",
+                            tip_1.as_str(),
+                            tip_2.as_str(),
                         ],
                     );
-                    self.model_status =
-                        Some("Revolve gagal: dua titik axis sama/terlalu dekat".to_string());
+                    self.model_status = Some(err_title);
                 } else {
                     self.revolve_staged_axis = Some((axis_origin, axis_end));
-                    self.model_status = Some("Sumbu poros terpasang. Sesuaikan sudut & arah lalu klik Terapkan (atau tekan Enter)".to_string());
+                    self.model_status = Some(ducad_i18n::t!("revolve-axis-staged-status"));
                 }
                 None
             }

@@ -1,5 +1,4 @@
-//! Boolean Operations Tool Popup.
-
+use ducad_i18n::t;
 use egui::{Context, Rect, RichText};
 use egui_material_icons::icons::ICON_CALL_MERGE;
 
@@ -30,7 +29,7 @@ impl BooleanPopup {
         let (event_opt, close) = render_bottom_right_popup(
             ctx,
             "ducad-boolean-popup",
-            "Operasi Boolean 3D",
+            &t!("popup-boolean-title"),
             ICON_CALL_MERGE.codepoint,
             ACCENT_BLUE,
             screen_rect,
@@ -38,10 +37,7 @@ impl BooleanPopup {
                 let mut ev = None;
 
                 ui.label(
-                    RichText::new(format!(
-                        "Body terpilih: {} objek (butuh minimal 2)",
-                        state.selected_bodies_count
-                    ))
+                    RichText::new(t!("popup-boolean-desc", count = state.selected_bodies_count))
                     .size(10.5)
                     .color(TEXT_SECONDARY),
                 );
@@ -51,21 +47,21 @@ impl BooleanPopup {
                     let has_min_2 = state.selected_bodies_count >= 2;
 
                     if ui
-                        .add_enabled(has_min_2, egui::Button::new(RichText::new("Union (Gabung)").size(11.0)))
+                        .add_enabled(has_min_2, egui::Button::new(RichText::new(t!("boolean-union")).size(11.0)))
                         .clicked()
                     {
                         ev = Some(ToolPopupEvent::ApplyBooleanUnion);
                     }
 
                     if ui
-                        .add_enabled(has_min_2, egui::Button::new(RichText::new("Subtract (Potong)").size(11.0)))
+                        .add_enabled(has_min_2, egui::Button::new(RichText::new(t!("boolean-subtract")).size(11.0)))
                         .clicked()
                     {
                         ev = Some(ToolPopupEvent::ApplyBooleanSubtract);
                     }
 
                     if ui
-                        .add_enabled(has_min_2, egui::Button::new(RichText::new("Intersect (Irisan)").size(11.0)))
+                        .add_enabled(has_min_2, egui::Button::new(RichText::new(t!("boolean-intersect")).size(11.0)))
                         .clicked()
                     {
                         ev = Some(ToolPopupEvent::ApplyBooleanIntersect);

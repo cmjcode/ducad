@@ -631,16 +631,17 @@ impl CanvasHud {
     }
 
     /// Render animasi interaktif panduan Revolve di atas kanvas beserta tombol cepat pengaturan sudut dan arah putar.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_revolve_animated_guide(
         ui: &mut Ui,
-        canvas_rect: egui::Rect,
+        canvas_rect: Rect,
         pending_points_count: usize,
         has_selection: bool,
         current_angle: f64,
         angle_input: &mut String,
         is_reversed: bool,
         is_staged: bool,
-        time: f64,
+        _time: f64,
     ) -> Option<RevolveHudAction> {
         ui.ctx().request_repaint();
 
@@ -675,13 +676,13 @@ impl CanvasHud {
         );
 
         let step_text = if !has_selection {
-            "Pilih profil sketsa 2D tertutup dulu"
+            t!("hud-revolve-prompt-select")
         } else if is_staged {
-            "Sumbu Siap! Atur Sudut & Terapkan"
+            t!("hud-revolve-prompt-ready")
         } else if pending_points_count == 0 {
-            "Langkah 1: Klik Titik 1 Sumbu Poros"
+            t!("hud-revolve-prompt-step-1")
         } else {
-            "Langkah 2: Klik Titik 2 Sumbu Poros"
+            t!("hud-revolve-prompt-step-2")
         };
 
         // Layout horizontal di dalam banner
@@ -689,7 +690,7 @@ impl CanvasHud {
         banner_ui.horizontal_centered(|ui| {
             ui.add_space(14.0);
             ui.label(
-                RichText::new(step_text)
+                RichText::new(&step_text)
                     .size(11.5)
                     .strong()
                     .color(if is_staged {
@@ -705,7 +706,7 @@ impl CanvasHud {
                 if is_staged {
                     // Tombol Konfirmasi Selesai / Terapkan
                     let apply_btn = egui::Button::new(
-                        RichText::new("Terapkan (Enter)")
+                        RichText::new(t!("hud-apply-enter"))
                             .size(11.0)
                             .strong()
                             .color(Color32::WHITE),
@@ -721,9 +722,9 @@ impl CanvasHud {
 
                 // Tombol Toggle Arah Putar (CW vs CCW)
                 let dir_text = if is_reversed {
-                    "Arah: Balik (CW)"
+                    format!("{}: CW", t!("param-direction"))
                 } else {
-                    "Arah: Normal (CCW)"
+                    format!("{}: CCW", t!("param-direction"))
                 };
                 let dir_btn = egui::Button::new(RichText::new(dir_text).size(10.5).strong().color(
                     if is_reversed {
@@ -747,7 +748,7 @@ impl CanvasHud {
                 // Input Sudut Kustom (Manual TextEdit misal 27°)
                 ui.label(RichText::new("°").size(11.0).color(TEXT_SECONDARY));
                 let angle_edit = egui::TextEdit::singleline(angle_input)
-                    .desired_width(42.0)
+                    .desired_width(44.0)
                     .font(egui::FontId::proportional(11.0))
                     .margin(egui::Margin::symmetric(4, 3));
                 let resp = ui.add(angle_edit);
@@ -762,7 +763,7 @@ impl CanvasHud {
                 ui.add_space(4.0);
 
                 // Tombol Pilihan Sudut Preset (360°, 270°, 180°, 90°)
-                for &deg in &[90.0, 180.0, 270.0, 360.0] {
+                for &deg in &[360.0, 270.0, 180.0, 90.0] {
                     let is_active = (current_angle - deg).abs() < 1e-3;
                     let label = format!("{:.0}°", deg);
                     let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(
@@ -783,7 +784,7 @@ impl CanvasHud {
                         hud_action = Some(RevolveHudAction::SetAngle(deg));
                     }
                 }
-                ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.5).color(TEXT_SECONDARY));
             });
         });
 
@@ -809,183 +810,78 @@ impl CanvasHud {
             StrokeKind::Inside,
         );
 
-        // Waktu animasi siklus (3.4 detik)
-        let cycle = 3.4;
-        let phase = ((time % cycle) / cycle) as f32; // 0.0 .. 1.0
-
-        // Subtitle status langkah animasi dinamis
-        let (step_title, step_color) = if phase < 0.28 {
-            ("1. Klik Titik 1 Sumbu", ACCENT_ORANGE)
-        } else if phase < 0.58 {
-            ("2. Klik Titik 2 Sumbu", ACCENT_ORANGE)
-        } else {
-            ("3. Putar Sudut & Arah (↺/↻)", ACCENT_GREEN)
-        };
-
+        let p_top = Pos2::new(card_rect.left() + 10.0, card_rect.top() + 8.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.top() + 8.0),
+            p_top,
             Align2::LEFT_TOP,
-            "Panduan Revolve & Arah Putar:",
-            FontId::proportional(10.0),
+            &t!("tool-revolve-name"),
+            egui::FontId::proportional(10.0),
             TEXT_SECONDARY,
         );
+
+        let p_step = Pos2::new(card_rect.left() + 10.0, card_rect.top() + 21.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.top() + 21.0),
+            p_step,
             Align2::LEFT_TOP,
-            step_title,
-            FontId::proportional(11.0),
-            step_color,
+            &step_text,
+            egui::FontId::proportional(11.0),
+            if is_staged { ACCENT_GREEN } else { ACCENT_ORANGE },
         );
 
-        // Ilustrasi Diagram: Sumbu + Profil Kotak + Panah Putaran 3D
-        let axis_x = card_rect.left() + 48.0;
-        let p1 = Pos2::new(axis_x, card_rect.bottom() - 36.0);
-        let p2 = Pos2::new(axis_x, card_rect.top() + 38.0);
+        let c_sketch = Pos2::new(card_rect.left() + 65.0, card_rect.center().y + 8.0);
+        let axis_x = card_rect.left() + 115.0;
+        let r_sketch = egui::Rect::from_center_size(c_sketch, Vec2::new(32.0, 42.0));
 
-        // Gambar profil 2D demo di kanan sumbu
-        let profile_rect = egui::Rect::from_min_max(
-            Pos2::new(axis_x + 10.0, card_rect.top() + 40.0),
-            Pos2::new(axis_x + 52.0, card_rect.bottom() - 38.0),
+        painter.rect_filled(
+            r_sketch,
+            2.0,
+            if has_selection {
+                ACCENT_BLUE.gamma_multiply(0.35)
+            } else {
+                Color32::from_rgba_premultiplied(40, 44, 52, 100)
+            },
         );
-        painter.rect_filled(profile_rect, 3.0, ACCENT_BLUE.gamma_multiply(0.25));
         painter.rect_stroke(
-            profile_rect,
-            3.0,
-            Stroke::new(1.2, ACCENT_BLUE),
+            r_sketch,
+            2.0,
+            Stroke::new(
+                1.5,
+                if has_selection {
+                    ACCENT_BLUE
+                } else {
+                    TEXT_MUTED
+                },
+            ),
             StrokeKind::Inside,
         );
 
-        let (pointer_pos, is_clicking, axis_progress, show_spin, spin_deg_label, anim_dir_cw) =
-            if phase < 0.28 {
-                // Bergerak ke Titik 1 lalu klik
-                let t = (phase / 0.28).clamp(0.0, 1.0);
-                let pos = Pos2::new(p1.x + (1.0 - t) * 20.0, p1.y + (1.0 - t) * 10.0);
-                (pos, t > 0.7, 0.0, false, "360°", is_reversed)
-            } else if phase < 0.58 {
-                // Bergerak dari Titik 1 ke Titik 2
-                let t = ((phase - 0.28) / 0.30).clamp(0.0, 1.0);
-                let pos = Pos2::new(p1.x, p1.y + (p2.y - p1.y) * t);
-                (pos, t > 0.85, t, false, "360°", is_reversed)
-            } else if phase < 0.88 {
-                // Putar revolusi 3D dengan sudut dan arah dinamis
-                let t = ((phase - 0.58) / 0.30).clamp(0.0, 1.0);
-                let deg_str = if t < 0.33 {
-                    "90°"
-                } else if t < 0.66 {
-                    "180°"
+        let a1 = Pos2::new(axis_x, card_rect.top() + 40.0);
+        let a2 = Pos2::new(axis_x, card_rect.bottom() - 35.0);
+        painter.line_segment(
+            [a1, a2],
+            Stroke::new(
+                1.5,
+                if is_staged {
+                    ACCENT_GREEN
                 } else {
-                    "360°"
-                };
-                (p2, false, 1.0, true, deg_str, is_reversed)
-            } else {
-                // Selesai loop
-                (p2, false, 1.0, true, "360°", is_reversed)
-            };
-
-        // Garis sumbu yang sedang digambar
-        if axis_progress > 0.0 {
-            let current_p2 = Pos2::new(p1.x, p1.y + (p2.y - p1.y) * axis_progress);
-            painter.line_segment([p1, current_p2], Stroke::new(2.0, ACCENT_ORANGE));
-        }
-
-        // Titik 1 & Titik 2 indicator
-        painter.circle_filled(
-            p1,
-            3.5,
-            if phase >= 0.22 {
-                ACCENT_ORANGE
-            } else {
-                TEXT_MUTED
-            },
-        );
-        painter.circle_filled(
-            p2,
-            3.5,
-            if phase >= 0.55 {
-                ACCENT_ORANGE
-            } else {
-                TEXT_MUTED
-            },
+                    ACCENT_ORANGE
+                },
+            ),
         );
 
-        // Efek ripple klik saat pointer mengklik titik
-        if is_clicking {
-            let ripple_radius = 4.0 + (time * 15.0).sin().abs() as f32 * 6.0;
-            painter.circle_stroke(
-                pointer_pos,
-                ripple_radius,
-                Stroke::new(1.5, ACCENT_BLUE.gamma_multiply(0.8)),
-            );
+        if is_staged {
+            let rot_c = Pos2::new(axis_x, card_rect.center().y + 8.0);
+            painter.circle_stroke(rot_c, 18.0, Stroke::new(1.2, ACCENT_GREEN.gamma_multiply(0.8)));
         }
 
-        // Panah revolusi 3D melingkari sumbu + label sudut & arah
-        if show_spin {
-            let spin_center = Pos2::new(axis_x + 31.0, card_rect.center().y + 4.0);
-            let dir_mult = if anim_dir_cw { -1.0 } else { 1.0 };
-            let angle = (time * 6.0 * dir_mult) as f32;
-            let rx = 26.0;
-            let ry = 9.0;
-            let arc_p = Pos2::new(
-                spin_center.x + rx * angle.cos(),
-                spin_center.y + ry * angle.sin(),
-            );
-            let spin_color = if anim_dir_cw {
-                ACCENT_ORANGE
-            } else {
-                ACCENT_GREEN
-            };
-            painter.circle_stroke(
-                spin_center,
-                rx,
-                Stroke::new(1.2, spin_color.gamma_multiply(0.5)),
-            );
-            painter.circle_filled(arc_p, 3.5, spin_color);
-
-            // Badge Sudut & Arah Putar yang sedang didemonstrasikan
-            let badge_pos = Pos2::new(card_rect.right() - 40.0, card_rect.center().y + 4.0);
-            let badge_rect = egui::Rect::from_center_size(badge_pos, Vec2::new(56.0, 22.0));
-            painter.rect_filled(badge_rect, 4.0, spin_color.gamma_multiply(0.25));
-            painter.rect_stroke(
-                badge_rect,
-                4.0,
-                Stroke::new(1.0, spin_color),
-                StrokeKind::Inside,
-            );
-
-            let dir_symbol = if anim_dir_cw { "↻" } else { "↺" };
-            painter.text(
-                badge_pos,
-                Align2::CENTER_CENTER,
-                format!("{dir_symbol} {spin_deg_label}"),
-                FontId::proportional(10.5),
-                Color32::WHITE,
-            );
-        }
-
-        // Footer penjelasan
+        let p_tip = Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0),
+            p_tip,
             Align2::LEFT_BOTTOM,
-            "💡 Arah: tombol 🔄 Balik / balik urutan titik 1 & 2",
-            FontId::proportional(9.0),
+            &t!("hud-revolve-prompt-ready"),
+            egui::FontId::proportional(9.0),
             TEXT_MUTED,
         );
-
-        // Gambar Pointer Cursor Animasi (Stylized Arrow)
-        let arrow_points = [
-            pointer_pos,
-            pointer_pos + Vec2::new(11.0, 9.0),
-            pointer_pos + Vec2::new(5.0, 10.0),
-            pointer_pos + Vec2::new(8.0, 16.0),
-            pointer_pos + Vec2::new(5.0, 17.0),
-            pointer_pos + Vec2::new(2.0, 11.0),
-            pointer_pos + Vec2::new(-2.0, 14.0),
-        ];
-        painter.add(egui::Shape::convex_polygon(
-            arrow_points.to_vec(),
-            Color32::WHITE,
-            Stroke::new(1.2, Color32::BLACK),
-        ));
 
         hud_action
     }
@@ -1005,13 +901,12 @@ impl CanvasHud {
         is_staged: bool,
     ) -> Option<LoftHudAction> {
         let mut hud_action = None;
+        let is_ready = selected_regions_count == 2;
 
         // 1. Top Horizontal HUD Banner
-        let banner_w = 720.0;
+        let banner_w = 680.0;
         let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
         let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
-
-        let is_ready = selected_regions_count == 2;
 
         ui.painter().rect_filled(
             banner_rect,
@@ -1023,10 +918,8 @@ impl CanvasHud {
             18.0,
             Stroke::new(
                 1.2,
-                if is_staged {
+                if is_staged || is_ready {
                     ACCENT_GREEN
-                } else if is_ready {
-                    ACCENT_BLUE
                 } else {
                     ACCENT_BLUE.gamma_multiply(0.8)
                 },
@@ -1035,18 +928,16 @@ impl CanvasHud {
         );
 
         let step_text = match selected_regions_count {
-            0 => "Pilih 2 profil sketsa 2D (klik / drag kotak)",
-            1 => "1 profil terpilih. Pilih profil ke-2 (klik / drag)",
-            2 if is_staged => "✨ Loft 3D Terbentuk — Ubah Tinggi / Balik Profil / Selesai",
-            2 => "2 Profil Siap! Atur Tinggi & Buat 3D",
-            _ => "Lebih dari 2 profil terpilih (pilih tepat 2 profil)",
+            0 => t!("hud-loft-prompt-0"),
+            1 => t!("hud-loft-prompt-1"),
+            _ => t!("hud-loft-prompt-ready"),
         };
 
         // Layout horizontal di dalam banner
         let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
         banner_ui.horizontal_centered(|ui| {
             ui.add_space(14.0);
-            ui.label(RichText::new(step_text).size(11.5).strong().color(
+            ui.label(RichText::new(&step_text).size(11.5).strong().color(
                 if is_staged || is_ready {
                     ACCENT_GREEN
                 } else {
@@ -1059,11 +950,7 @@ impl CanvasHud {
 
                 if is_ready {
                     // Tombol Selesai (Commit)
-                    let main_label = if is_staged {
-                        "✓ Selesai (Enter)"
-                    } else {
-                        "🚀 Buat 3D (Enter)"
-                    };
+                    let main_label = t!("hud-loft-create-enter");
                     let create_btn = egui::Button::new(
                         RichText::new(main_label)
                             .size(11.0)
@@ -1080,9 +967,9 @@ impl CanvasHud {
 
                     // Tombol Balik Posisi Atas / Bawah
                     let flip_label = if is_flipped {
-                        "↕ Bawah: Profil 2"
+                        format!("↕ {}: 2", t!("param-direction"))
                     } else {
-                        "↕ Bawah: Profil 1"
+                        format!("↕ {}: 1", t!("param-direction"))
                     };
                     let flip_btn =
                         egui::Button::new(RichText::new(flip_label).size(10.5).strong().color(
@@ -1100,7 +987,6 @@ impl CanvasHud {
 
                     if ui
                         .add(flip_btn)
-                        .on_hover_text("Tukar urutan profil bawah (Z=0) dan profil atas (Z=Tinggi)")
                         .clicked()
                     {
                         hud_action = Some(LoftHudAction::ToggleFlip);
@@ -1148,7 +1034,7 @@ impl CanvasHud {
                         hud_action = Some(LoftHudAction::SetHeight(h));
                     }
                 }
-                ui.label(RichText::new("Tinggi:").size(10.5).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("{}:", t!("param-height"))).size(10.5).color(TEXT_SECONDARY));
             });
         });
 
@@ -1179,7 +1065,7 @@ impl CanvasHud {
                     modal_ui.vertical_centered(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new("⚠️ Titik Tengah Belum Menyatu")
+                                RichText::new(t!("hud-loft-warn-unaligned"))
                                     .size(12.0)
                                     .strong()
                                     .color(ACCENT_ORANGE),
@@ -1192,14 +1078,14 @@ impl CanvasHud {
                         });
                         ui.add_space(3.0);
                         ui.label(
-                            RichText::new("Ingin satukan titik tengah (simetris) atau biarkan menceng (offset)?")
+                            RichText::new(t!("hud-loft-align-question"))
                                 .size(10.5)
                                 .color(TEXT_PRIMARY),
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             let align_btn = egui::Button::new(
-                                RichText::new("🎯 Satukan Titik Tengah").size(11.0).strong().color(Color32::WHITE),
+                                RichText::new(t!("hud-loft-align-center")).size(11.0).strong().color(Color32::WHITE),
                             )
                             .fill(ACCENT_BLUE);
                             if ui.add(align_btn).clicked() {
@@ -1208,7 +1094,7 @@ impl CanvasHud {
 
                             ui.add_space(8.0);
                             let keep_btn = egui::Button::new(
-                                RichText::new("Biarkan Menceng (Offset)").size(10.5).color(TEXT_PRIMARY),
+                                RichText::new(t!("hud-loft-keep-offset")).size(10.5).color(TEXT_PRIMARY),
                             )
                             .fill(Color32::from_rgba_premultiplied(50, 55, 65, 200));
                             if ui.add(keep_btn).clicked() {
@@ -1257,9 +1143,9 @@ impl CanvasHud {
         );
 
         let step_text = if has_face_selection {
-            "Atur Ketebalan Dinding"
+            t!("hud-shell-prompt-ready")
         } else {
-            "Pilih salah satu sisi objek 3D"
+            t!("hud-shell-prompt-select")
         };
 
         // Layout horizontal di dalam banner
@@ -1267,7 +1153,7 @@ impl CanvasHud {
         banner_ui.horizontal_centered(|ui| {
             ui.add_space(14.0);
             ui.label(
-                RichText::new(step_text)
+                RichText::new(&step_text)
                     .size(11.5)
                     .strong()
                     .color(if has_face_selection {
@@ -1283,7 +1169,7 @@ impl CanvasHud {
                 if has_face_selection {
                     // Tombol Eksekusi Shell (Commit)
                     let exec_btn = egui::Button::new(
-                        RichText::new("🚀 Eksekusi Shell (Enter)")
+                        RichText::new(t!("hud-shell-exec-enter"))
                             .size(11.0)
                             .strong()
                             .color(Color32::WHITE),
@@ -1330,7 +1216,7 @@ impl CanvasHud {
                             hud_action = Some(ShellHudAction::SetThickness(t));
                         }
                     }
-                    ui.label(RichText::new("Tebal:").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
                 }
             });
         });
@@ -1372,9 +1258,9 @@ impl CanvasHud {
         );
 
         let step_text = if has_enough_bodies {
-            format!("({} Body Terpilih)", selected_bodies_count)
+            t!("hud-boolean-prompt-ready")
         } else {
-            "Pilih min 2 body (Tahan Shift + Klik)".to_string()
+            t!("hud-boolean-prompt-select")
         };
 
         // Layout horizontal di dalam banner
@@ -1382,7 +1268,7 @@ impl CanvasHud {
         banner_ui.horizontal_centered(|ui| {
             ui.add_space(14.0);
             ui.label(
-                RichText::new(step_text)
+                RichText::new(&step_text)
                     .size(11.5)
                     .strong()
                     .color(if has_enough_bodies {
@@ -1398,7 +1284,7 @@ impl CanvasHud {
                 if has_enough_bodies {
                     // Tombol Eksekusi / Terapkan (Commit)
                     let exec_btn = egui::Button::new(
-                        RichText::new("🚀 Terapkan (Enter)")
+                        RichText::new(t!("hud-apply-enter"))
                             .size(11.0)
                             .strong()
                             .color(Color32::WHITE),
@@ -1415,9 +1301,9 @@ impl CanvasHud {
 
                     // Pilihan Operasi Boolean: Union, Subtract, Intersect
                     let ops = [
-                        (BooleanOpKind::Intersect, "Intersect (Irisan)"),
-                        (BooleanOpKind::Subtract, "Subtract (Potong)"),
-                        (BooleanOpKind::Union, "Union (Gabung)"),
+                        (BooleanOpKind::Intersect, t!("boolean-intersect")),
+                        (BooleanOpKind::Subtract, t!("boolean-subtract")),
+                        (BooleanOpKind::Union, t!("boolean-union")),
                     ];
 
                     for (op, label) in ops {
@@ -1441,7 +1327,7 @@ impl CanvasHud {
                         }
                     }
 
-                    ui.label(RichText::new("Operasi:").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(format!("{}:", t!("param-operation"))).size(10.5).color(TEXT_SECONDARY));
                 }
             });
         });

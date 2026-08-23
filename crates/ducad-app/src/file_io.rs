@@ -83,12 +83,13 @@ impl DuCADApp {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("dokumen");
-                self.file_status = Some(format!("Tersimpan ke {name}"));
+                    .unwrap_or("model.ducad");
+                self.file_status = Some(ducad_i18n::t!("file-saved-to", name = name));
                 self.current_file_path = Some(path);
             }
             Err(e) => {
-                self.file_status = Some(format!("Gagal menyimpan: {e}"));
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-save-failed", error = err_str.as_str()));
             }
         }
     }
@@ -102,13 +103,15 @@ impl DuCADApp {
     }
 
     pub fn save_native_as(&mut self) {
-        if let Some(path) = self.pick_save_path("Dokumen DUCAD", &["ducad"], "model.ducad") {
+        let filter_name = ducad_i18n::t!("file-doc-ducad");
+        if let Some(path) = self.pick_save_path(&filter_name, &["ducad"], "model.ducad") {
             self.save_native_to(path);
         }
     }
 
     pub fn open_native(&mut self) {
-        let Some(path) = self.pick_open_path("Dokumen DUCAD", &["ducad"]) else {
+        let filter_name = ducad_i18n::t!("file-doc-ducad");
+        let Some(path) = self.pick_open_path(&filter_name, &["ducad"]) else {
             return;
         };
         match ducad_io::native::load(&path) {
@@ -143,32 +146,36 @@ impl DuCADApp {
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("dokumen")
+                    .unwrap_or("document")
                     .to_string();
-                self.file_status = Some(format!("Dibuka: {name}"));
+                self.file_status = Some(ducad_i18n::t!("file-opened", name = name.as_str()));
                 self.current_file_path = Some(path);
                 self.history_db.clear();
                 self.activity_cache.clear();
+                let act_title = ducad_i18n::t!("file-act-open");
+                let act_desc = ducad_i18n::t!("file-act-open-desc", name = name.as_str());
                 self.record_activity(
                     ducad_ui::ActivityKindUi::Solid3D,
-                    "Buka Berkas",
-                    &format!("Membuka dokumen {}", name),
+                    &act_title,
+                    &act_desc,
                 );
                 self.set_tool(ToolKind::Select);
             }
             Err(e) => {
-                self.file_status = Some(format!("Gagal membuka: {e}"));
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-open-failed", error = err_str.as_str()));
             }
         }
     }
 
     pub fn export_step(&mut self) {
-        let Some(path) = self.pick_save_path("STEP 3D CAD", &["step", "stp"], "model.step") else {
+        let filter_name = ducad_i18n::t!("file-step-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["step", "stp"], "model.step") else {
             return;
         };
         let shapes = self.all_body_shapes();
         if shapes.is_empty() {
-            self.file_status = Some("Tak ada body 3D untuk diekspor ke STEP".to_string());
+            self.file_status = Some(ducad_i18n::t!("file-no-bodies-step"));
             return;
         }
         match ducad_io::step_io::export(&shapes, &path) {
@@ -177,16 +184,18 @@ impl DuCADApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.step");
-                self.file_status = Some(format!("Diekspor ke STEP: {name}"));
+                self.file_status = Some(ducad_i18n::t!("file-exported-step", name = name));
             }
             Err(e) => {
-                self.file_status = Some(format!("Gagal ekspor STEP: {e}"));
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-step-failed", error = err_str.as_str()));
             }
         }
     }
 
     pub fn import_step(&mut self) {
-        let Some(path) = self.pick_open_path("STEP 3D CAD", &["step", "stp"]) else {
+        let filter_name = ducad_i18n::t!("file-step-filter");
+        let Some(path) = self.pick_open_path(&filter_name, &["step", "stp"]) else {
             return;
         };
         let name = path
@@ -198,7 +207,7 @@ impl DuCADApp {
             name: name.clone(),
             path: path.clone(),
         });
-        self.file_status = Some(format!("Mengimpor STEP di latar belakang: {name}…"));
+        self.file_status = Some(ducad_i18n::t!("file-importing-step", name = name.as_str()));
         self.pending_imports += 1;
     }
 
@@ -212,34 +221,38 @@ impl DuCADApp {
                     match KernelShape::from_step_string(&step_str) {
                         Ok(shape) => {
                             let geo = BodyGeometry::from_shape_with_mesh(shape, mesh);
+                            let act_import = ducad_i18n::t!("file-act-import-step", name = res.name.as_str());
                             let cmd = crate::model::AddSolidCommand::new(res.name.clone(), geo);
                             self.execute_model_command(
                                 Box::new(cmd),
-                                &format!("Impor {}", res.name),
+                                &act_import,
                             );
                             self.file_status =
-                                Some(format!("Sukses mengimpor STEP: {}", res.name));
+                                Some(ducad_i18n::t!("file-imported-step", name = res.name.as_str()));
                         }
                         Err(e) => {
+                            let err_str = e.to_string();
                             self.file_status =
-                                Some(format!("Gagal membangun solid dari STEP: {e}"));
+                                Some(ducad_i18n::t!("file-import-step-build-failed", error = err_str.as_str()));
                         }
                     }
                 }
                 Err(e) => {
-                    self.file_status = Some(format!("Gagal mengimpor STEP: {e}"));
+                    let err_str = e.to_string();
+                    self.file_status = Some(ducad_i18n::t!("file-import-step-failed", error = err_str.as_str()));
                 }
             }
         }
     }
 
     pub fn export_stl(&mut self) {
-        let Some(path) = self.pick_save_path("STL Mesh", &["stl"], "model.stl") else {
+        let filter_name = ducad_i18n::t!("file-stl-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["stl"], "model.stl") else {
             return;
         };
         let meshes = self.visible_body_meshes();
         if meshes.is_empty() {
-            self.file_status = Some("Tak ada mesh 3D tampak untuk diekspor ke STL".to_string());
+            self.file_status = Some(ducad_i18n::t!("file-no-meshes-stl"));
             return;
         }
         let mesh_refs: Vec<&ducad_kernel::KernelMesh> =
@@ -251,19 +264,23 @@ impl DuCADApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.stl");
-                self.file_status = Some(format!("Diekspor ke STL: {name}"));
+                self.file_status = Some(ducad_i18n::t!("file-exported-stl", name = name));
             }
-            Err(e) => self.file_status = Some(format!("Gagal ekspor STL: {e}")),
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-stl-failed", error = err_str.as_str()));
+            }
         }
     }
 
     pub fn export_obj(&mut self) {
-        let Some(path) = self.pick_save_path("Wavefront OBJ", &["obj"], "model.obj") else {
+        let filter_name = ducad_i18n::t!("file-obj-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["obj"], "model.obj") else {
             return;
         };
         let meshes = self.visible_body_meshes();
         if meshes.is_empty() {
-            self.file_status = Some("Tak ada mesh 3D tampak untuk diekspor ke OBJ".to_string());
+            self.file_status = Some(ducad_i18n::t!("file-no-meshes-obj"));
             return;
         }
         match ducad_io::mesh_export::write_obj(&meshes, &path) {
@@ -272,19 +289,23 @@ impl DuCADApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.obj");
-                self.file_status = Some(format!("Diekspor ke OBJ: {name}"));
+                self.file_status = Some(ducad_i18n::t!("file-exported-obj", name = name));
             }
-            Err(e) => self.file_status = Some(format!("Gagal ekspor OBJ: {e}")),
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-obj-failed", error = err_str.as_str()));
+            }
         }
     }
 
     pub fn export_dxf(&mut self) {
         if self.sketch().entities.is_empty() {
             self.file_status =
-                Some("Sketsa aktif kosong — tak ada entitas untuk diekspor".to_string());
+                Some(ducad_i18n::t!("file-sketch-empty-dxf"));
             return;
         }
-        let Some(path) = self.pick_save_path("AutoCAD DXF R12", &["dxf"], "sketch.dxf") else {
+        let filter_name = ducad_i18n::t!("file-dxf-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["dxf"], "sketch.dxf") else {
             return;
         };
         match ducad_io::dxf::export(self.sketch(), &path) {
@@ -293,37 +314,41 @@ impl DuCADApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("sketch.dxf");
-                self.file_status = Some(format!("Diekspor ke DXF: {name}"));
+                self.file_status = Some(ducad_i18n::t!("file-exported-dxf", name = name));
             }
-            Err(e) => self.file_status = Some(format!("Gagal ekspor DXF: {e}")),
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-dxf-failed", error = err_str.as_str()));
+            }
         }
     }
 
     pub fn import_dxf(&mut self) {
-        let Some(path) = self.pick_open_path("AutoCAD DXF", &["dxf"]) else {
+        let filter_name = ducad_i18n::t!("file-dxf-filter");
+        let Some(path) = self.pick_open_path(&filter_name, &["dxf"]) else {
             return;
         };
         match ducad_io::dxf::import(&path) {
             Ok(res) => {
                 let count = res.entities.len();
                 if count == 0 {
-                    self.file_status = Some(
-                        "File DXF terbaca tapi tidak memuat entitas 2D yang didukung"
-                            .to_string(),
-                    );
+                    self.file_status = Some(ducad_i18n::t!("file-dxf-no-entities"));
                     return;
                 }
                 self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::new(
-                    "Impor DXF",
+                    "Import DXF",
                     res.entities,
                 )));
                 let name = path
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("file.dxf");
-                self.file_status = Some(format!("Diimpor dari {name}: {count} entitas"));
+                self.file_status = Some(ducad_i18n::t!("file-imported-dxf", name = name, count = count));
             }
-            Err(e) => self.file_status = Some(format!("Gagal impor DXF: {e}")),
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-import-dxf-failed", error = err_str.as_str()));
+            }
         }
     }
 }

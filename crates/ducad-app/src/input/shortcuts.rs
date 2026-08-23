@@ -270,93 +270,83 @@ impl DuCADApp {
 
     pub fn status_text(&self) -> String {
         let hint = match self.tool {
-            ToolKind::Select => {
-                "Pilih: klik entitas, Shift+klik multi-pilih, Delete hapus".to_string()
-            }
+            ToolKind::Select => ducad_i18n::t!("status-prompt-select"),
             ToolKind::Line => match self.pending_points.len() {
-                0 => "Garis: klik titik awal (L)".to_string(),
+                0 => ducad_i18n::t!("status-prompt-line-0"),
                 _ if self.line_chain_segments >= 2 => {
-                    "Garis: klik titik berikutnya, klik titik awal untuk tutup loop, atau ESC untuk selesai".to_string()
+                    ducad_i18n::t!("status-prompt-line-close")
                 }
-                _ => "Garis: klik titik berikutnya, atau ESC untuk selesai".to_string(),
+                _ => ducad_i18n::t!("status-prompt-line-next"),
             },
             ToolKind::Rectangle => match self.pending_points.len() {
-                0 => "Persegi: klik sudut pertama (R)".to_string(),
-                _ => "Persegi: klik sudut berlawanan".to_string(),
+                0 => ducad_i18n::t!("status-prompt-rect-0"),
+                _ => ducad_i18n::t!("status-prompt-rect-opp"),
             },
             ToolKind::Circle => match self.pending_points.len() {
-                0 => "Lingkaran: klik titik pusat (C)".to_string(),
-                _ => "Lingkaran: klik untuk radius, atau ketik radius lalu Enter".to_string(),
+                0 => ducad_i18n::t!("status-prompt-circle-0"),
+                _ => ducad_i18n::t!("status-prompt-circle-rad"),
             },
             ToolKind::Ellipse => match self.pending_points.len() {
-                0 => "Ellips: klik titik pusat (E)".to_string(),
-                _ => "Ellips: klik sudut kotak pembatas".to_string(),
+                0 => ducad_i18n::t!("status-prompt-ellipse-0"),
+                _ => ducad_i18n::t!("status-prompt-ellipse-box"),
             },
             ToolKind::Arc => match self.pending_points.len() {
-                0 => "Arc: klik titik awal (A)".to_string(),
-                1 => "Arc: klik titik lengkungan busur".to_string(),
-                _ => "Arc: klik titik akhir busur".to_string(),
+                0 => ducad_i18n::t!("status-prompt-arc-0"),
+                1 => ducad_i18n::t!("status-prompt-arc-1"),
+                _ => ducad_i18n::t!("status-prompt-arc-2"),
             },
             ToolKind::Offset => match self.offset_source {
-                None => "Offset: klik entitas sumber (O)".to_string(),
-                Some(_) => "Offset: klik sisi & jarak hasil offset".to_string(),
+                None => ducad_i18n::t!("status-prompt-offset-none"),
+                Some(_) => ducad_i18n::t!("status-prompt-offset-side"),
             },
             ToolKind::Mirror => {
                 if self.selected.is_empty() {
-                    "Mirror: pilih entitas di tool Pilih dulu, lalu tekan M".to_string()
+                    ducad_i18n::t!("status-prompt-mirror-empty")
                 } else {
                     match self.pending_points.len() {
-                        0 => format!(
-                            "Mirror: klik titik 1 sumbu cermin ({} entitas terpilih)",
-                            self.selected.len()
-                        ),
-                        _ => "Mirror: klik titik 2 sumbu cermin".to_string(),
+                        0 => ducad_i18n::t!("status-prompt-mirror-p1", count = self.selected.len()),
+                        _ => ducad_i18n::t!("status-prompt-mirror-p2"),
                     }
                 }
             }
-            ToolKind::Trim => "Trim: klik segmen garis yang mau dipotong (T)".to_string(),
+            ToolKind::Trim => ducad_i18n::t!("status-prompt-trim"),
             ToolKind::Revolve => {
                 if self.selected.is_empty() {
-                    "Revolve: pilih profil di tool Pilih dulu, lalu tekan V".to_string()
+                    ducad_i18n::t!("status-prompt-revolve-empty")
                 } else {
                     match self.pending_points.len() {
-                        0 => format!(
-                            "Revolve: klik titik 1 sumbu ({} entitas terpilih, 360°)",
-                            self.selected.len()
-                        ),
-                        _ => "Revolve: klik titik 2 sumbu".to_string(),
+                        0 => ducad_i18n::t!("status-prompt-revolve-p1", count = self.selected.len()),
+                        _ => ducad_i18n::t!("status-prompt-revolve-p2"),
                     }
                 }
             }
             ToolKind::CoincidentPick => match self.pending_point_refs.len() {
-                0 => "Coincident: klik titik pertama (endpoint/center)".to_string(),
-                _ => "Coincident: klik titik kedua".to_string(),
+                0 => ducad_i18n::t!("status-prompt-coincident-0"),
+                _ => ducad_i18n::t!("status-prompt-coincident-1"),
             },
-            ToolKind::FixedPick => {
-                "Fixed: klik titik (endpoint/center) untuk menahannya di posisi sekarang".to_string()
-            }
+            ToolKind::FixedPick => ducad_i18n::t!("status-prompt-fixed"),
             ToolKind::SymmetricPick => match self.symmetric_axis() {
-                None => "Symmetric: pilih 1 Line jadi sumbu di tool Pilih dulu".to_string(),
+                None => ducad_i18n::t!("status-prompt-symmetric-axis"),
                 Some(_) => match self.pending_point_refs.len() {
-                    0 => "Symmetric: klik titik pertama (endpoint/center)".to_string(),
-                    _ => "Symmetric: klik titik kedua".to_string(),
+                    0 => ducad_i18n::t!("status-prompt-symmetric-0"),
+                    _ => ducad_i18n::t!("status-prompt-symmetric-1"),
                 },
             },
             ToolKind::Measure => match self.pending_points.len() {
-                0 => "Ukur: klik titik pertama".to_string(),
-                _ => "Ukur: klik titik kedua".to_string(),
+                0 => ducad_i18n::t!("status-prompt-measure-0"),
+                _ => ducad_i18n::t!("status-prompt-measure-1"),
             },
             ToolKind::MeasureAngle => match self.pending_points.len() {
-                0 => "Ukur Sudut: klik titik awal".to_string(),
-                1 => "Ukur Sudut: klik titik sudut (vertex)".to_string(),
-                _ => "Ukur Sudut: klik titik akhir".to_string(),
+                0 => ducad_i18n::t!("status-prompt-measure-ang-0"),
+                1 => ducad_i18n::t!("status-prompt-measure-ang-1"),
+                _ => ducad_i18n::t!("status-prompt-measure-ang-2"),
             },
-            ToolKind::Extrude => "Extrude: tarik panah gizmo atau klik angka dimensi ruler untuk atur ketinggian".to_string(),
-            ToolKind::Loft => "Loft: set profil bawah & tinggi pada popup kanan bawah".to_string(),
-            ToolKind::Shell => "Shell: pilih wajah terbuka lalu atur ketebalan dinding (S)".to_string(),
-            ToolKind::Boolean => "Boolean: pilih minimal 2 solid body lalu pilih operasi (B)".to_string(),
-            ToolKind::SectionView => "Section View: atur bidang potongan solid 3D".to_string(),
-            ToolKind::History => "Riwayat: lihat jejak langkah modeling dan lakukan Undo / Redo (H)".to_string(),
+            ToolKind::Extrude => ducad_i18n::t!("status-prompt-extrude"),
+            ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
+            ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
+            ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
+            ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
+            ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
         match &self.last_snap {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),

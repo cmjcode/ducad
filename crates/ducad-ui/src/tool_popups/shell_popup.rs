@@ -1,5 +1,4 @@
-//! Shell / Hollow Tool Popup.
-
+use ducad_i18n::t;
 use egui::{Color32, Context, Rect, RichText, Vec2};
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
@@ -35,7 +34,7 @@ impl ShellPopup {
         let (event_opt, close) = render_bottom_right_popup(
             ctx,
             "ducad-shell-popup",
-            "Shell / Hollow",
+            &t!("popup-shell-title"),
             "⧉",
             ACCENT_BLUE,
             screen_rect,
@@ -43,9 +42,9 @@ impl ShellPopup {
                 let mut ev = None;
 
                 let face_btn_label = if state.is_face_picking_active {
-                    "✓ Mode Pilih Wajah (Aktif)"
+                    t!("popup-shell-face-active")
                 } else {
-                    "○ Aktifkan Pilih Wajah Terbuka"
+                    t!("popup-shell-face-enable")
                 };
 
                 let single = state.selected_bodies_count == 1;
@@ -57,7 +56,7 @@ impl ShellPopup {
                         ev = Some(ToolPopupEvent::ToggleFacePicking);
                     }
                     ui.label(
-                        RichText::new(format!("{} wajah", state.selected_faces_count))
+                        RichText::new(t!("popup-shell-faces-count", count = state.selected_faces_count))
                             .size(11.0)
                             .color(TEXT_SECONDARY),
                     );
@@ -65,7 +64,7 @@ impl ShellPopup {
 
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Tebal Dinding (mm):").size(11.0));
+                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(11.0));
                     ui.add_sized(
                         Vec2::new(60.0, 18.0),
                         egui::TextEdit::singleline(&mut state.shell_input),
@@ -76,7 +75,7 @@ impl ShellPopup {
                 if ui
                     .add(
                         egui::Button::new(
-                            RichText::new("🚀 Eksekusi Shell").size(11.0).color(Color32::WHITE),
+                            RichText::new(format!("🚀 {}", t!("tool-shell-name"))).size(11.0).color(Color32::WHITE),
                         )
                         .fill(ACCENT_BLUE),
                     )

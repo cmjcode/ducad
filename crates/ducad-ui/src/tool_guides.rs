@@ -4,6 +4,7 @@
 //! dengan demonstrasi langkah interaktif, kursor animasi, feedback klik,
 //! dan visualisasi hasil secara real-time.
 
+use ducad_i18n::t;
 use egui::{
     Align2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2,
 };
@@ -33,165 +34,135 @@ impl ToolGuides {
 
         ui.ctx().request_repaint();
 
-        let card_w = 240.0;
-        let card_h = 145.0;
-        let guide_center = Pos2::new(
-            canvas_rect.left() + card_w * 0.5 + 20.0,
-            canvas_rect.bottom() - card_h * 0.5 - 20.0,
+        // Posisi kartu: pojok kiri bawah kanvas, di atas status bar
+        let card_width = 310.0;
+        let card_height = 148.0;
+        let margin_bottom = 44.0;
+        let margin_left = 68.0; // Di sebelah kanan left toolbar
+
+        let card_rect = Rect::from_min_size(
+            Pos2::new(
+                canvas_rect.left() + margin_left,
+                canvas_rect.bottom() - card_height - margin_bottom,
+            ),
+            Vec2::new(card_width, card_height),
         );
-        let card_rect = Rect::from_center_size(guide_center, Vec2::new(card_w, card_h));
 
-        let painter = ui.painter();
+        let painter = ui.painter_at(card_rect);
 
-        // 1. Gambar latar belakang kartu glassmorphism
-        Self::draw_card_base(painter, card_rect);
+        // Latar belakang kartu semi-transparan modern dengan border halus
+        painter.rect_filled(
+            card_rect,
+            8.0,
+            Color32::from_rgba_premultiplied(12, 14, 18, 230),
+        );
+        painter.rect_stroke(
+            card_rect,
+            8.0,
+            Stroke::new(1.0, BORDER_SUBTLE),
+            StrokeKind::Inside,
+        );
 
         // 2. Render konten diagram animasi sesuai tool
         match tool {
-            ToolbarTool::Line => {
-                Self::render_line_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Rectangle => {
-                Self::render_rectangle_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Circle => {
-                Self::render_circle_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Arc => {
-                Self::render_arc_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Ellipse => {
-                Self::render_ellipse_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Offset => {
-                Self::render_offset_anim(painter, card_rect, has_selection, time);
-            }
-            ToolbarTool::Mirror => {
-                Self::render_mirror_anim(painter, card_rect, has_selection, pending_points_count, time);
-            }
-            ToolbarTool::Trim => {
-                Self::render_trim_anim(painter, card_rect, time);
-            }
-            ToolbarTool::PointCoincident => {
-                Self::render_coincident_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::PointFixed => {
-                Self::render_fixed_anim(painter, card_rect, time);
-            }
-            ToolbarTool::PointSymmetric => {
-                Self::render_symmetric_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::Extrude => {
-                Self::render_extrude_anim(painter, card_rect, has_selection, time);
-            }
-            ToolbarTool::Revolve => {
-                // Revolve ditangani secara khusus dengan kontrol sudut & arah di canvas_hud
-            }
-            ToolbarTool::Loft => {
-                Self::render_loft_anim(painter, card_rect, has_selection, time);
-            }
-            ToolbarTool::Shell => {
-                Self::render_shell_anim(painter, card_rect, has_selection, time);
-            }
-            ToolbarTool::Boolean => {
-                Self::render_boolean_anim(painter, card_rect, time);
-            }
-            ToolbarTool::SectionView => {
-                Self::render_section_anim(painter, card_rect, time);
-            }
-            ToolbarTool::Measure => {
-                Self::render_measure_dist_anim(painter, card_rect, pending_points_count, time);
-            }
-            ToolbarTool::MeasureAngle => {
-                Self::render_measure_angle_anim(painter, card_rect, pending_points_count, time);
-            }
+            ToolbarTool::Line => Self::render_line_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Rectangle => Self::render_rectangle_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Circle => Self::render_circle_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Arc => Self::render_arc_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Ellipse => Self::render_ellipse_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Offset => Self::render_offset_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Mirror => Self::render_mirror_anim(&painter, card_rect, has_selection, pending_points_count, time),
+            ToolbarTool::Trim => Self::render_trim_anim(&painter, card_rect, time),
+            ToolbarTool::PointCoincident => Self::render_coincident_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::PointFixed => Self::render_fixed_anim(&painter, card_rect, time),
+            ToolbarTool::PointSymmetric => Self::render_symmetric_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Extrude => Self::render_extrude_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Loft => Self::render_loft_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
+            ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
+            ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
             _ => {}
         }
     }
 
-    /// Gambar frame kartu dasar bergaya dark glassmorphic.
-    fn draw_card_base(painter: &egui::Painter, card_rect: Rect) {
-        painter.rect_filled(
-            card_rect,
-            10.0,
-            Color32::from_rgba_premultiplied(18, 20, 26, 235),
-        );
-        painter.rect_stroke(
-            card_rect,
-            10.0,
-            Stroke::new(1.0, BORDER_SUBTLE),
-            StrokeKind::Inside,
-        );
-    }
+    // ==========================================
+    // HELPER RENDERING (KOMPONEN VISUAL)
+    // ==========================================
 
-    /// Gambar header teks judul tool dan sub-langkah dinamis.
+    /// Header judul dan langkah aktif
     fn draw_header(
         painter: &egui::Painter,
         card_rect: Rect,
-        tool_name: &str,
-        step_title: &str,
+        title: &str,
+        step_text: &str,
         step_color: Color32,
     ) {
+        let pos_title = Pos2::new(card_rect.left() + 10.0, card_rect.top() + 10.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.top() + 8.0),
+            pos_title,
             Align2::LEFT_TOP,
-            tool_name,
-            FontId::proportional(10.0),
+            title,
+            FontId::proportional(11.0),
             TEXT_SECONDARY,
         );
+
+        let pos_step = Pos2::new(card_rect.left() + 10.0, card_rect.top() + 24.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.top() + 21.0),
+            pos_step,
             Align2::LEFT_TOP,
-            step_title,
-            FontId::proportional(11.0),
+            step_text,
+            FontId::proportional(12.0),
             step_color,
         );
     }
 
-    /// Gambar footer berisi tips shortcut atau panduan singkat.
-    fn draw_footer(painter: &egui::Painter, card_rect: Rect, hint: &str) {
+    /// Footer tips navigasi & pintasan
+    fn draw_footer(painter: &egui::Painter, card_rect: Rect, tip_text: &str) {
+        let pos_tip = Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 14.0);
         painter.text(
-            Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0),
+            pos_tip,
             Align2::LEFT_BOTTOM,
-            hint,
-            FontId::proportional(9.0),
+            tip_text,
+            FontId::proportional(10.0),
             TEXT_MUTED,
         );
     }
 
-    /// Gambar kursor mouse bergaya panah putih tajam beserta efek ripple klik.
-    fn draw_cursor(
-        painter: &egui::Painter,
-        pos: Pos2,
-        is_clicking: bool,
-        time: f64,
-    ) {
+    /// Kursor panah interaktif dengan efek klik (gelombang lingkaran)
+    fn draw_cursor(painter: &egui::Painter, pos: Pos2, is_clicking: bool, time: f64) {
+        // Efek ripple klik
         if is_clicking {
-            let ripple_radius = 4.0 + (time * 15.0).sin().abs() as f32 * 6.0;
+            let click_wave = ((time * 4.0).sin() * 0.5 + 0.5) as f32;
+            let radius = 6.0 + click_wave * 8.0;
+            let alpha = ((1.0 - click_wave) * 200.0) as u8;
             painter.circle_stroke(
                 pos,
-                ripple_radius,
-                Stroke::new(1.5, ACCENT_BLUE.gamma_multiply(0.85)),
+                radius,
+                Stroke::new(1.5, Color32::from_rgba_premultiplied(50, 150, 255, alpha)),
             );
         }
 
-        let arrow_points = [
+        // Gambar panah kursor mouse (vektor)
+        let pts = [
             pos,
-            pos + Vec2::new(11.0, 9.0),
-            pos + Vec2::new(5.0, 10.0),
-            pos + Vec2::new(8.0, 16.0),
-            pos + Vec2::new(5.0, 17.0),
-            pos + Vec2::new(2.0, 11.0),
-            pos + Vec2::new(-2.0, 14.0),
+            Pos2::new(pos.x + 9.0, pos.y + 11.0),
+            Pos2::new(pos.x + 4.5, pos.y + 10.5),
+            Pos2::new(pos.x + 6.5, pos.y + 15.0),
+            Pos2::new(pos.x + 4.0, pos.y + 16.0),
+            Pos2::new(pos.x + 2.0, pos.y + 11.5),
+            Pos2::new(pos.x - 2.0, pos.y + 13.5),
         ];
+
         painter.add(egui::Shape::convex_polygon(
-            arrow_points.to_vec(),
-            Color32::WHITE,
-            Stroke::new(1.2, Color32::BLACK),
+            pts.to_vec(),
+            if is_clicking { ACCENT_ORANGE } else { Color32::WHITE },
+            Stroke::new(1.0, Color32::BLACK),
         ));
     }
 
-    /// Gambar pill badge informasi kecil (misal dimensi/label).
+    /// Badge status hasil / dimensi
     fn draw_badge(
         painter: &egui::Painter,
         pos: Pos2,
@@ -199,7 +170,15 @@ impl ToolGuides {
         bg_color: Color32,
         text_color: Color32,
     ) {
-        let badge_rect = Rect::from_center_size(pos, Vec2::new(64.0, 18.0));
+        let galley = painter.layout_no_wrap(
+            text.to_string(),
+            FontId::proportional(10.5),
+            text_color,
+        );
+        let badge_rect = Rect::from_center_size(
+            pos,
+            Vec2::new(galley.size().x + 12.0, galley.size().y + 6.0),
+        );
         painter.rect_filled(badge_rect, 4.0, bg_color);
         painter.rect_stroke(
             badge_rect,
@@ -207,11 +186,12 @@ impl ToolGuides {
             Stroke::new(1.0, bg_color.gamma_multiply(1.5)),
             StrokeKind::Inside,
         );
-        painter.text(
-            pos,
-            Align2::CENTER_CENTER,
-            text,
-            FontId::proportional(10.0),
+        painter.galley(
+            Pos2::new(
+                badge_rect.center().x - galley.size().x * 0.5,
+                badge_rect.center().y - galley.size().y * 0.5,
+            ),
+            galley,
             text_color,
         );
     }
@@ -231,21 +211,21 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if pending_points > 0 {
-            ("2. Tarik & Klik Titik Akhir (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-line-step-2-active"), ACCENT_GREEN)
         } else if phase < 0.35 {
-            ("1. Klik Titik Awal", ACCENT_ORANGE)
+            (t!("guide-line-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Tarik & Klik Titik Akhir", ACCENT_ORANGE)
+            (t!("guide-line-step-2"), ACCENT_ORANGE)
         };
 
         Self::draw_header(
             painter,
             card_rect,
-            "Panduan Line (Garis):",
-            step_title,
+            &t!("guide-line-header"),
+            &step_title,
             step_color,
         );
-        Self::draw_footer(painter, card_rect, "💡 Tahan Shift untuk snap garis lurus 0°/45°/90°");
+        Self::draw_footer(painter, card_rect, &t!("guide-line-tip"));
 
         let p1 = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 40.0);
         let p2 = Pos2::new(card_rect.right() - 55.0, card_rect.top() + 48.0);
@@ -298,21 +278,21 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if pending_points > 0 {
-            ("2. Tarik ke Sudut Lawan (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-rect-step-2-active"), ACCENT_GREEN)
         } else if phase < 0.35 {
-            ("1. Klik Sudut Pertama", ACCENT_ORANGE)
+            (t!("guide-rect-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Tarik ke Sudut Diagonal", ACCENT_ORANGE)
+            (t!("guide-rect-step-2"), ACCENT_ORANGE)
         };
 
         Self::draw_header(
             painter,
             card_rect,
-            "Panduan Rectangle (Kotak):",
-            step_title,
+            &t!("guide-rect-header"),
+            &step_title,
             step_color,
         );
-        Self::draw_footer(painter, card_rect, "💡 Sudut awal menjadi jangkar posisi kotak");
+        Self::draw_footer(painter, card_rect, &t!("guide-rect-tip"));
 
         let p1 = Pos2::new(card_rect.left() + 45.0, card_rect.top() + 45.0);
         let p2 = Pos2::new(card_rect.right() - 55.0, card_rect.bottom() - 38.0);
@@ -364,21 +344,21 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if pending_points > 0 {
-            ("2. Tarik Radius Jari-Jari (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-circle-step-2-active"), ACCENT_GREEN)
         } else if phase < 0.35 {
-            ("1. Klik Titik Pusat Lingkaran", ACCENT_ORANGE)
+            (t!("guide-circle-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Tarik & Tentukan Radius (R)", ACCENT_ORANGE)
+            (t!("guide-circle-step-2"), ACCENT_ORANGE)
         };
 
         Self::draw_header(
             painter,
             card_rect,
-            "Panduan Circle (Lingkaran):",
-            step_title,
+            &t!("guide-circle-header"),
+            &step_title,
             step_color,
         );
-        Self::draw_footer(painter, card_rect, "💡 Ukuran radius dapat disesuaikan di popup");
+        Self::draw_footer(painter, card_rect, &t!("guide-circle-tip"));
 
         let center = Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0);
         let max_r = 28.0;
@@ -429,21 +409,21 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if pending_points == 1 {
-            ("2. Klik Titik Lengkungan (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-arc-step-2-active"), ACCENT_GREEN)
         } else if pending_points >= 2 {
-            ("3. Klik Titik Akhir Busur (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-arc-step-3-active"), ACCENT_GREEN)
         } else if phase < 0.28 {
-            ("1. Klik Titik Awal Busur", ACCENT_ORANGE)
+            (t!("guide-arc-step-1"), ACCENT_ORANGE)
         } else if phase < 0.62 {
-            ("2. Klik Titik Lengkungan (Kurva)", ACCENT_ORANGE)
+            (t!("guide-arc-step-2"), ACCENT_ORANGE)
         } else if phase < 0.90 {
-            ("3. Klik Titik Akhir Busur", ACCENT_ORANGE)
+            (t!("guide-arc-step-3"), ACCENT_ORANGE)
         } else {
-            ("Busur Terbentuk (3 Titik)", ACCENT_GREEN)
+            (t!("guide-arc-step-done"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Arc (Busur 3-Titik):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Urutan: Titik Awal → Lengkungan → Titik Akhir");
+        Self::draw_header(painter, card_rect, &t!("guide-arc-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-arc-tip"));
 
         // Tiga titik kunci busur
         let p1 = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 36.0);
@@ -597,15 +577,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.33 {
-            ("1. Klik Titik Pusat", ACCENT_ORANGE)
+            (t!("guide-ellipse-step-1"), ACCENT_ORANGE)
         } else if phase < 0.66 {
-            ("2. Tarik Radius Mayor (Rx)", ACCENT_ORANGE)
+            (t!("guide-ellipse-step-2"), ACCENT_ORANGE)
         } else {
-            ("3. Tarik Radius Minor (Ry)", ACCENT_GREEN)
+            (t!("guide-ellipse-step-3"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Ellipse (Elips):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Rx & Ry mengatur kelonjongan elips");
+        Self::draw_header(painter, card_rect, &t!("guide-ellipse-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-ellipse-tip"));
 
         let center = Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0);
         let max_rx = 34.0;
@@ -672,13 +652,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.40 {
-            ("1. Klik Kurva Sumber", ACCENT_ORANGE)
+            (t!("guide-offset-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Geser Jarak & Sisi Offset", ACCENT_GREEN)
+            (t!("guide-offset-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Offset Sketsa:", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Arah geser mouse menentukan sisi luar/dalam");
+        Self::draw_header(painter, card_rect, &t!("guide-offset-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-offset-tip"));
 
         let p1 = Pos2::new(card_rect.left() + 40.0, card_rect.center().y + 12.0);
         let p2 = Pos2::new(card_rect.right() - 60.0, card_rect.center().y + 12.0);
@@ -735,15 +715,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.30 {
-            ("1. Pilih Sketsa Sumber", ACCENT_ORANGE)
+            (t!("guide-mirror-step-1"), ACCENT_ORANGE)
         } else if phase < 0.65 {
-            ("2. Klik 2 Titik Sumbu Cermin", ACCENT_ORANGE)
+            (t!("guide-mirror-step-2"), ACCENT_ORANGE)
         } else {
-            ("3. Hasil Cermin Terduplikasi", ACCENT_GREEN)
+            (t!("guide-mirror-step-3"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Mirror (Cermin):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Garis sumbu mendefinisikan bidang simetri");
+        Self::draw_header(painter, card_rect, &t!("guide-mirror-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-mirror-tip"));
 
         let axis_x = card_rect.left() + 110.0;
         let a1 = Pos2::new(axis_x, card_rect.top() + 38.0);
@@ -788,11 +768,11 @@ impl ToolGuides {
             painter.line_segment([m2, m3], Stroke::new(1.5, ACCENT_GREEN));
             painter.line_segment([m3, m1], Stroke::new(1.5, ACCENT_GREEN));
 
-            let badge_pos = Pos2::new(card_rect.right() - 36.0, card_rect.top() + 45.0);
+            let badge_pos = Pos2::new(card_rect.right() - 44.0, card_rect.center().y + 4.0);
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "⇄ Simetris",
+                &t!("guide-mirror-symmetric"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );
@@ -811,13 +791,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.45 {
-            ("1. Arahkan ke Garis Berpotongan", ACCENT_ORANGE)
+            (t!("guide-trim-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Klik Segmen yang Mau Dipotong", ACCENT_GREEN)
+            (t!("guide-trim-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Trim (Gunting):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Memotong segmen garis hingga titik potong terdekat");
+        Self::draw_header(painter, card_rect, &t!("guide-trim-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-trim-tip"));
 
         let inter_x = card_rect.left() + 90.0;
         let inter_y = card_rect.center().y + 4.0;
@@ -854,7 +834,7 @@ impl ToolGuides {
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "✂ Terpotong",
+                &t!("guide-trim-badge"),
                 Color32::from_rgba_premultiplied(100, 30, 30, 220),
                 Color32::WHITE,
             );
@@ -874,15 +854,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.35 {
-            ("1. Klik Titik Pertama", ACCENT_ORANGE)
+            (t!("guide-coincident-step-1"), ACCENT_ORANGE)
         } else if phase < 0.70 {
-            ("2. Klik Titik Target / Garis", ACCENT_ORANGE)
+            (t!("guide-coincident-step-2"), ACCENT_ORANGE)
         } else {
-            ("3. Titik Menyatu (Coincident)", ACCENT_GREEN)
+            (t!("guide-coincident-step-done"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Coincident (Penyatuan Titik):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Menempelkan 2 titik atau titik ke garis secara permanen");
+        Self::draw_header(painter, card_rect, &t!("guide-coincident-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-coincident-tip"));
 
         let p1_orig = Pos2::new(card_rect.left() + 50.0, card_rect.center().y - 10.0);
         let p2 = Pos2::new(card_rect.right() - 70.0, card_rect.center().y + 10.0);
@@ -911,7 +891,7 @@ impl ToolGuides {
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "🔗 Menyatu",
+                &t!("guide-coincident-badge"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );
@@ -930,13 +910,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.45 {
-            ("1. Klik Titik yang Mau Dikunci", ACCENT_ORANGE)
+            (t!("guide-fixed-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Posisi Terkunci (Anchor)", ACCENT_GREEN)
+            (t!("guide-fixed-step-done"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Fixed (Kunci Posisi):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Titik fixed tidak akan bergeser oleh solver sketsa");
+        Self::draw_header(painter, card_rect, &t!("guide-fixed-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-fixed-tip"));
 
         let p = Pos2::new(card_rect.center().x - 20.0, card_rect.center().y + 4.0);
 
@@ -957,7 +937,7 @@ impl ToolGuides {
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "⚓ Terkunci",
+                &t!("guide-fixed-badge"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );
@@ -977,15 +957,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.33 {
-            ("1. Klik Titik 1 & Titik 2", ACCENT_ORANGE)
+            (t!("guide-symmetric-step-1"), ACCENT_ORANGE)
         } else if phase < 0.66 {
-            ("2. Klik Garis Sumbu Simetri", ACCENT_ORANGE)
+            (t!("guide-symmetric-step-2"), ACCENT_ORANGE)
         } else {
-            ("3. Jarak Terikat Simetris", ACCENT_GREEN)
+            (t!("guide-symmetric-step-done"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Symmetric (Simetris):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Menjaga jarak kedua titik seimbang terhadap sumbu");
+        Self::draw_header(painter, card_rect, &t!("guide-symmetric-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-symmetric-tip"));
 
         let axis_x = card_rect.left() + 105.0;
         let p_left = Pos2::new(axis_x - 40.0, card_rect.center().y + 4.0);
@@ -1005,18 +985,18 @@ impl ToolGuides {
             (Pos2::new(p_left.x + (1.0 - t) * 15.0, p_left.y), t > 0.8)
         } else if phase < 0.66 {
             let t = ((phase - 0.33) / 0.33).clamp(0.0, 1.0);
-            (Pos2::new(axis_x, card_rect.top() + 45.0 + t * 25.0), t > 0.8)
+            (Pos2::new(axis_x, card_rect.center().y + (1.0 - t) * 15.0), t > 0.85)
         } else {
-            (Pos2::new(axis_x, card_rect.center().y + 4.0), false)
+            (p_right, false)
         };
 
         if phase >= 0.66 {
-            painter.line_segment([p_left, p_right], Stroke::new(1.0, ACCENT_GREEN.gamma_multiply(0.6)));
-            let badge_pos = Pos2::new(card_rect.right() - 40.0, card_rect.top() + 45.0);
+            painter.line_segment([p_left, p_right], Stroke::new(1.0, ACCENT_GREEN));
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "↔ Simetris",
+                &t!("guide-symmetric-badge"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );
@@ -1040,13 +1020,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.35 {
-            ("1. Pilih Profil 2D Tertutup", ACCENT_ORANGE)
+            (t!("guide-extrude-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Tarik Panah Ketinggian 3D", ACCENT_GREEN)
+            (t!("guide-extrude-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Extrude (Tarik Padat 3D):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Tarik panah gizmo atau klik dimensi ruler");
+        Self::draw_header(painter, card_rect, &t!("guide-extrude-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-extrude-tip"));
 
         // Gambar prisma isometrik 3D
         let base_c = Pos2::new(card_rect.left() + 75.0, card_rect.bottom() - 40.0);
@@ -1126,15 +1106,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.33 {
-            ("1. Drag Kotak / Klik 2 Profil 2D", ACCENT_ORANGE)
+            (t!("guide-loft-step-1"), ACCENT_ORANGE)
         } else if phase < 0.66 {
-            ("2. Opsi: Satukan Titik Tengah", ACCENT_BLUE)
+            (t!("guide-loft-step-2"), ACCENT_BLUE)
         } else {
-            ("3. Atur Tinggi di Top Bar & Buat 3D", ACCENT_GREEN)
+            (t!("guide-loft-step-done"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Loft 3D (Mode 2D):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Pilih 2 profil di kanvas -> atur tinggi di Top Bar -> Enter");
+        Self::draw_header(painter, card_rect, &t!("guide-loft-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-loft-tip"));
 
         let p1_orig = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 36.0);
         let p2_orig = Pos2::new(card_rect.left() + 85.0, card_rect.bottom() - 36.0);
@@ -1205,7 +1185,7 @@ impl ToolGuides {
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "✓ Loft 3D",
+                &t!("guide-loft-badge"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );
@@ -1225,13 +1205,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.40 {
-            ("1. Pilih Face Terbuka (Open Face)", ACCENT_ORANGE)
+            (t!("guide-shell-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Bentuk Dinding Tipis (Hollow)", ACCENT_GREEN)
+            (t!("guide-shell-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Shell (Bodi Berongga):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Mengosongkan bagian dalam benda padat dengan ketebalan t");
+        Self::draw_header(painter, card_rect, &t!("guide-shell-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-shell-tip"));
 
         let box_rect = Rect::from_center_size(
             Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0),
@@ -1277,15 +1257,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color, op_name) = if phase < 0.33 {
-            ("1. Mode: Union ∪ (Gabung Bodi)", ACCENT_BLUE, "∪ Gabung")
+            (t!("boolean-union-desc"), ACCENT_BLUE, t!("boolean-union-badge"))
         } else if phase < 0.66 {
-            ("2. Mode: Subtract - (Potong Bodi)", ACCENT_ORANGE, "- Potong")
+            (t!("boolean-subtract-desc"), ACCENT_ORANGE, t!("boolean-subtract-badge"))
         } else {
-            ("3. Mode: Intersect ∩ (Irisan)", ACCENT_GREEN, "∩ Irisan")
+            (t!("boolean-intersect-desc"), ACCENT_GREEN, t!("boolean-intersect-badge"))
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Boolean 3D:", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Pilih mode di Top HUD lalu klik Terapkan (Enter)");
+        Self::draw_header(painter, card_rect, &t!("guide-boolean-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-boolean-tip"));
 
         let c1 = Pos2::new(card_rect.left() + 65.0, card_rect.center().y + 4.0);
         let c2 = Pos2::new(card_rect.left() + 85.0, card_rect.center().y + 4.0);
@@ -1325,7 +1305,7 @@ impl ToolGuides {
         Self::draw_badge(
             painter,
             badge_pos,
-            op_name,
+            &op_name,
             step_color.gamma_multiply(0.3),
             Color32::WHITE,
         );
@@ -1341,13 +1321,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.40 {
-            ("1. Pilih Bidang Potong (XY/XZ/YZ)", ACCENT_ORANGE)
+            (t!("guide-section-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Geser Jarak Penampang Dalam", ACCENT_GREEN)
+            (t!("guide-section-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Section View (Irisan Dalam):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Menginspeksi rongga internal tanpa merusak 3D");
+        Self::draw_header(painter, card_rect, &t!("guide-section-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-section-tip"));
 
         let box_rect = Rect::from_center_size(
             Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0),
@@ -1368,7 +1348,7 @@ impl ToolGuides {
         Self::draw_badge(
             painter,
             badge_pos,
-            "🔍 Potongan",
+            &t!("guide-section-badge"),
             Color32::from_rgba_premultiplied(70, 45, 15, 220),
             Color32::WHITE,
         );
@@ -1389,15 +1369,15 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if pending > 0 {
-            ("2. Klik Titik Kedua (Langkah Aktif)", ACCENT_GREEN)
+            (t!("guide-measure-step-2-active"), ACCENT_GREEN)
         } else if phase < 0.40 {
-            ("1. Klik Titik Pertama", ACCENT_ORANGE)
+            (t!("guide-measure-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Klik Titik Kedua", ACCENT_ORANGE)
+            (t!("guide-measure-step-2"), ACCENT_ORANGE)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Measure (Ukur Jarak):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Pengukuran non-destruktif untuk inspeksi dimensi");
+        Self::draw_header(painter, card_rect, &t!("guide-measure-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-measure-tip"));
 
         let p1 = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 38.0);
         let p2 = Pos2::new(card_rect.right() - 65.0, card_rect.top() + 45.0);
@@ -1439,13 +1419,13 @@ impl ToolGuides {
         let phase = ((time % cycle) / cycle) as f32;
 
         let (step_title, step_color) = if phase < 0.40 {
-            ("1. Klik Garis Pertama", ACCENT_ORANGE)
+            (t!("guide-measure-angle-step-1"), ACCENT_ORANGE)
         } else {
-            ("2. Klik Garis Kedua", ACCENT_GREEN)
+            (t!("guide-measure-angle-step-2"), ACCENT_GREEN)
         };
 
-        Self::draw_header(painter, card_rect, "Panduan Measure Angle (Ukur Sudut):", step_title, step_color);
-        Self::draw_footer(painter, card_rect, "💡 Mengukur sudut presisi dalam satuan derajat (°)");
+        Self::draw_header(painter, card_rect, &t!("guide-measure-angle-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-measure-angle-tip"));
 
         let vertex = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 36.0);
         let l1_end = Pos2::new(card_rect.left() + 110.0, vertex.y);

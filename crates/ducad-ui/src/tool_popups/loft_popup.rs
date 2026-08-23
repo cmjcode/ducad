@@ -1,5 +1,4 @@
-//! Loft 3D Tool Popup.
-
+use ducad_i18n::t;
 use egui::{Color32, Context, Rect, RichText, Vec2};
 use egui_material_icons::icons::ICON_LAYERS;
 
@@ -32,7 +31,7 @@ impl LoftPopup {
         let (event_opt, close) = render_bottom_right_popup(
             ctx,
             "ducad-loft-popup",
-            "Loft 3D",
+            &t!("popup-loft-title"),
             ICON_LAYERS.codepoint,
             ACCENT_BLUE,
             screen_rect,
@@ -40,27 +39,27 @@ impl LoftPopup {
                 let mut ev = None;
 
                 ui.label(
-                    RichText::new("Transisi bodi 3D dari 2 profil sketsa:")
+                    RichText::new(t!("popup-loft-desc"))
                         .size(10.5)
                         .color(TEXT_SECONDARY),
                 );
 
                 ui.add_space(2.0);
                 ui.label(
-                    RichText::new("Langkah 1: Profil Bawah")
+                    RichText::new(t!("popup-loft-step-1"))
                         .size(11.0)
                         .strong(),
                 );
 
                 let staged_text = if state.loft_bottom_staged {
-                    RichText::new("✓ Profil Bawah Tersimpan").color(ACCENT_GREEN).size(11.0)
+                    RichText::new(t!("popup-loft-bottom-saved")).color(ACCENT_GREEN).size(11.0)
                 } else {
-                    RichText::new("○ Klik profil 1 di kanvas lalu simpan:").color(TEXT_SECONDARY).size(10.5)
+                    RichText::new(t!("popup-loft-click-p1")).color(TEXT_SECONDARY).size(10.5)
                 };
                 ui.label(staged_text);
 
                 if ui
-                    .button(RichText::new("📥 Set Profil Bawah dari Seleksi").size(10.5))
+                    .button(RichText::new(t!("popup-loft-set-bottom")).size(10.5))
                     .clicked()
                 {
                     ev = Some(ToolPopupEvent::StageLoftBottom);
@@ -68,18 +67,18 @@ impl LoftPopup {
 
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Langkah 2: Profil Atas & Tinggi")
+                    RichText::new(t!("popup-loft-step-2"))
                         .size(11.0)
                         .strong(),
                 );
                 ui.label(
-                    RichText::new("Klik profil 2 di kanvas, lalu eksekusi:")
+                    RichText::new(t!("popup-loft-click-p2"))
                         .size(10.5)
                         .color(TEXT_SECONDARY),
                 );
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Tinggi (mm):").size(11.0));
+                    ui.label(RichText::new(format!("{}:", t!("param-height"))).size(11.0));
                     ui.add_sized(
                         Vec2::new(70.0, 20.0),
                         egui::TextEdit::singleline(&mut state.loft_height_input),
@@ -92,7 +91,7 @@ impl LoftPopup {
                     .add_enabled(
                         btn_enabled,
                         egui::Button::new(
-                            RichText::new("🚀 Eksekusi Loft 3D").size(11.0).color(Color32::WHITE),
+                            RichText::new(format!("🚀 {}", t!("tool-loft-name"))).size(11.0).color(Color32::WHITE),
                         )
                         .fill(ACCENT_BLUE),
                     )

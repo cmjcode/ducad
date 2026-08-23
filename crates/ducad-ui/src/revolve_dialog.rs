@@ -5,6 +5,7 @@
 //!    (pilihan preset sumbu, sudut putaran, status deteksi profil).
 //! 2. `AlertModal`: Modal popup peringatan untuk operasi yang gagal atau salah pakai.
 
+use ducad_i18n::t;
 use egui::{Align2, Color32, RichText, Vec2, Window};
 use egui_material_icons::icons::{
     ICON_CHECK_CIRCLE, ICON_INFO, ICON_REFRESH, ICON_WARNING,
@@ -89,7 +90,8 @@ impl RevolveDialog {
         let mut event = None;
         let mut is_open = state.is_open;
 
-        let window_response = Window::new("✨ Fitur Revolve (Putar 3D)")
+        let window_title = t!("revolve-dialog-window-title");
+        let window_response = Window::new(window_title)
             .open(&mut is_open)
             .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, 0.0))
             .resizable(false)
@@ -108,13 +110,13 @@ impl RevolveDialog {
                     );
                     ui.vertical(|ui| {
                         ui.label(
-                            RichText::new("Revolve 3D — Buat Benda Putar")
+                            RichText::new(t!("revolve-dialog-header-title"))
                                 .size(14.0)
                                 .strong()
                                 .color(TEXT_PRIMARY),
                         );
                         ui.label(
-                            RichText::new("Memutar sketsa 2D mengelilingi poros sumbu.")
+                            RichText::new(t!("revolve-dialog-header-desc"))
                                 .size(11.0)
                                 .color(TEXT_SECONDARY),
                         );
@@ -135,10 +137,7 @@ impl RevolveDialog {
                                     .color(ACCENT_GREEN),
                             );
                             ui.label(
-                                RichText::new(format!(
-                                    "Profil Sketsa Siap ({} entitas terpilih)",
-                                    state.profile_entities_count
-                                ))
+                                RichText::new(t!("revolve-dialog-profile-ready", count = state.profile_entities_count))
                                 .size(11.5)
                                 .strong()
                                 .color(ACCENT_GREEN),
@@ -151,13 +150,13 @@ impl RevolveDialog {
                             );
                             ui.vertical(|ui| {
                                 ui.label(
-                                    RichText::new("Belum Ada Profil Tertutup Terpilih")
+                                    RichText::new(t!("revolve-dialog-no-profile"))
                                         .size(11.5)
                                         .strong()
                                         .color(ACCENT_ORANGE),
                                 );
                                 ui.label(
-                                    RichText::new("Pilih sketsa tertutup (lingkaran, persegi, atau loop garis) terlebih dahulu.")
+                                    RichText::new(t!("revolve-dialog-select-hint"))
                                         .size(10.5)
                                         .color(TEXT_SECONDARY),
                                 );
@@ -170,7 +169,7 @@ impl RevolveDialog {
 
                 // 2. Pilihan Sumbu Putar (Poros)
                 ui.label(
-                    RichText::new("1. Pilih Poros Sumbu Putar:")
+                    RichText::new(t!("revolve-dialog-select-axis-prompt"))
                         .size(12.0)
                         .strong()
                         .color(TEXT_PRIMARY),
@@ -181,27 +180,27 @@ impl RevolveDialog {
                     ui.radio_value(
                         &mut state.axis_preset,
                         RevolveAxisPreset::YAxisOrigin,
-                        RichText::new("Sumbu Y (Vertikal Origin X=0)").size(11.0),
+                        RichText::new(t!("revolve-dialog-axis-y-origin")).size(11.0),
                     );
                     ui.radio_value(
                         &mut state.axis_preset,
                         RevolveAxisPreset::XAxisOrigin,
-                        RichText::new("Sumbu X (Horizontal Origin Y=0)").size(11.0),
+                        RichText::new(t!("revolve-dialog-axis-x-origin")).size(11.0),
                     );
                     ui.radio_value(
                         &mut state.axis_preset,
                         RevolveAxisPreset::BBoxLeft,
-                        RichText::new("Tepi Kiri Sketsa (Poros Silinder/Tabung)").size(11.0),
+                        RichText::new(t!("revolve-dialog-axis-bbox-left")).size(11.0),
                     );
                     ui.radio_value(
                         &mut state.axis_preset,
                         RevolveAxisPreset::BBoxBottom,
-                        RichText::new("Tepi Bawah Sketsa").size(11.0),
+                        RichText::new(t!("revolve-dialog-axis-bbox-bottom")).size(11.0),
                     );
                     ui.radio_value(
                         &mut state.axis_preset,
                         RevolveAxisPreset::CustomTwoPoints,
-                        RichText::new("✏️ Gambar Manual (Klik 2 Titik di Kanvas)").size(11.0),
+                        RichText::new(t!("revolve-dialog-axis-manual")).size(11.0),
                     );
                 });
 
@@ -209,7 +208,7 @@ impl RevolveDialog {
 
                 // 3. Pilihan Sudut Putaran
                 ui.label(
-                    RichText::new("2. Sudut Putaran (Derajat):")
+                    RichText::new(t!("revolve-dialog-select-angle-prompt"))
                         .size(12.0)
                         .strong()
                         .color(TEXT_PRIMARY),
@@ -218,22 +217,22 @@ impl RevolveDialog {
 
                 card_frame().show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.selectable_label(state.angle_deg == 360.0, "360° Penuh").clicked() {
+                        if ui.selectable_label(state.angle_deg == 360.0, t!("revolve-dialog-angle-360")).clicked() {
                             state.angle_deg = 360.0;
                             state.angle_input = "360.0".to_string();
                         }
-                        if ui.selectable_label(state.angle_deg == 180.0, "180° Setengah").clicked() {
+                        if ui.selectable_label(state.angle_deg == 180.0, t!("revolve-dialog-angle-180")).clicked() {
                             state.angle_deg = 180.0;
                             state.angle_input = "180.0".to_string();
                         }
-                        if ui.selectable_label(state.angle_deg == 90.0, "90° Siku").clicked() {
+                        if ui.selectable_label(state.angle_deg == 90.0, t!("revolve-dialog-angle-90")).clicked() {
                             state.angle_deg = 90.0;
                             state.angle_input = "90.0".to_string();
                         }
                     });
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Kustom Derajat:").size(11.0).color(TEXT_SECONDARY));
+                        ui.label(RichText::new(t!("revolve-dialog-custom-deg")).size(11.0).color(TEXT_SECONDARY));
                         let resp = ui.add_sized(
                             Vec2::new(70.0, 20.0),
                             egui::TextEdit::singleline(&mut state.angle_input),
@@ -259,7 +258,7 @@ impl RevolveDialog {
                             .color(ACCENT_BLUE),
                     );
                     ui.label(
-                        RichText::new("Tips: Garis poros sumbu tidak boleh memotong bagian dalam profil.")
+                        RichText::new(t!("revolve-dialog-tip"))
                             .size(10.0)
                             .color(TEXT_SECONDARY),
                     );
@@ -275,7 +274,7 @@ impl RevolveDialog {
                         let btn = ui.add_enabled(
                             state.has_valid_profile,
                             egui::Button::new(
-                                RichText::new("✏️ Mulai Klik 2 Titik Sumbu")
+                                RichText::new(t!("revolve-dialog-start-manual-btn"))
                                     .size(11.5)
                                     .strong()
                                     .color(if state.has_valid_profile {
@@ -295,7 +294,7 @@ impl RevolveDialog {
                         let btn = ui.add_enabled(
                             state.has_valid_profile,
                             egui::Button::new(
-                                RichText::new("🚀 Eksekusi Revolve")
+                                RichText::new(t!("inspector-exec-revolve"))
                                     .size(11.5)
                                     .strong()
                                     .color(if state.has_valid_profile {
@@ -354,7 +353,7 @@ impl Default for AlertModalState {
     fn default() -> Self {
         Self {
             is_open: false,
-            title: "Peringatan Operasi".to_string(),
+            title: t!("alert-modal-default-title"),
             message: String::new(),
             suggestions: Vec::new(),
         }
@@ -422,7 +421,7 @@ impl AlertModal {
                     ui.add_space(8.0);
                     card_frame().show(ui, |ui| {
                         ui.label(
-                            RichText::new("💡 Tips Solusi:")
+                            RichText::new(t!("alert-modal-tips-title"))
                                 .size(11.0)
                                 .strong()
                                 .color(ACCENT_BLUE),
@@ -446,7 +445,7 @@ impl AlertModal {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("  Mengerti  ")
+                                RichText::new(t!("alert-modal-dismiss-btn"))
                                     .size(11.5)
                                     .strong()
                                     .color(Color32::WHITE),

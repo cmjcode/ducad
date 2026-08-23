@@ -1,5 +1,6 @@
 //! Extrude & Face Push-Pull Tool Popup.
 
+use ducad_i18n::t;
 use egui::{Color32, Context, Rect, RichText, Vec2};
 use egui_material_icons::icons::ICON_OPEN_IN_FULL;
 
@@ -36,15 +37,15 @@ impl ExtrudePopup {
         screen_rect: Rect,
     ) -> Option<ToolPopupEvent> {
         let title = if state.is_face_extrude || state.has_face_selection {
-            "Extrude Sisi (Push-Pull)"
+            t!("popup-extrude-face-title")
         } else {
-            "Extrude Profil (3D)"
+            t!("popup-extrude-profile-title")
         };
 
         let (event_opt, close) = render_bottom_right_popup(
             ctx,
             "ducad-extrude-popup",
-            title,
+            &title,
             ICON_OPEN_IN_FULL.codepoint,
             ACCENT_BLUE,
             screen_rect,
@@ -54,13 +55,13 @@ impl ExtrudePopup {
                 if state.is_face_extrude || state.has_face_selection {
                     // Mode Face Extrude
                     ui.label(
-                        RichText::new("Tarik atau dorong sisi model 3D:")
+                        RichText::new(t!("popup-extrude-face-desc"))
                             .size(10.5)
                             .color(TEXT_SECONDARY),
                     );
 
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Jarak (mm):").size(11.0));
+                        ui.label(RichText::new(format!("{}:", t!("param-distance"))).size(11.0));
                         ui.add_sized(
                             Vec2::new(75.0, 20.0),
                             egui::TextEdit::singleline(&mut state.face_extrude_input),
@@ -72,7 +73,7 @@ impl ExtrudePopup {
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("🚀 Eksekusi Extrude").size(11.0).color(Color32::WHITE),
+                                    RichText::new(format!("🚀 {}", t!("tool-extrude-name"))).size(11.0).color(Color32::WHITE),
                                 )
                                 .fill(ACCENT_BLUE),
                             )
@@ -83,20 +84,20 @@ impl ExtrudePopup {
                             }
                         }
 
-                        if ui.button(RichText::new("✏ Sketsa di Sisi").size(11.0)).clicked() {
+                        if ui.button(RichText::new(t!("popup-sketch-on-face")).size(11.0)).clicked() {
                             ev = Some(ToolPopupEvent::SketchOnFace);
                         }
                     });
                 } else {
                     // Mode 2D Profile Extrude
                     ui.label(
-                        RichText::new("Tarik kurva / profil 2D menjadi solid 3D:")
+                        RichText::new(t!("popup-extrude-profile-desc"))
                             .size(10.5)
                             .color(TEXT_SECONDARY),
                     );
 
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Jarak (mm):").size(11.0));
+                        ui.label(RichText::new(format!("{}:", t!("param-distance"))).size(11.0));
                         ui.add_sized(
                             Vec2::new(75.0, 20.0),
                             egui::TextEdit::singleline(&mut state.extrude_input),
@@ -107,7 +108,7 @@ impl ExtrudePopup {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("🚀 Eksekusi Extrude").size(11.0).color(Color32::WHITE),
+                                RichText::new(format!("🚀 {}", t!("tool-extrude-name"))).size(11.0).color(Color32::WHITE),
                             )
                             .fill(ACCENT_BLUE),
                         )

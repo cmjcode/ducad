@@ -1,3 +1,4 @@
+use ducad_i18n::t;
 use egui::{RichText, Ui, Vec2};
 use egui_material_icons::icons::{ICON_EDIT, ICON_LOCK};
 
@@ -27,14 +28,14 @@ pub fn show_2d_entity_cards(
             let angle_deg = *angle_deg;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Garis (Line)", ICON_EDIT.codepoint))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("tool-line-name")))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
                 );
 
                 ui.add_space(2.0);
-                ui.label(RichText::new("Titik Awal (Start):").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-start-point")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("X:").size(10.5));
                     ui.add_sized(
@@ -48,7 +49,7 @@ pub fn show_2d_entity_cards(
                     );
                 });
 
-                ui.label(RichText::new("Titik Akhir (End):").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-end-point")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("X:").size(10.5));
                     ui.add_sized(
@@ -65,19 +66,19 @@ pub fn show_2d_entity_cards(
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("Panjang: {:.2} mm", length))
+                        RichText::new(format!("{}: {:.2} mm", t!("param-length"), length))
                             .size(10.5)
                             .color(TEXT_SECONDARY),
                     );
                     ui.label(
-                        RichText::new(format!("Sudut: {:.1}°", angle_deg))
+                        RichText::new(format!("{}: {:.1}°", t!("param-angle"), angle_deg))
                             .size(10.5)
                             .color(TEXT_SECONDARY),
                     );
                 });
 
                 ui.add_space(2.0);
-                if ui.button(RichText::new("Terapkan Koordinat").size(11.0)).clicked() {
+                if ui.button(RichText::new(t!("inspector-apply-coords")).size(11.0)).clicked() {
                     if let (Ok(x1), Ok(y1), Ok(x2), Ok(y2)) = (
                         state.entity_p1_x.trim().parse::<f64>(),
                         state.entity_p1_y.trim().parse::<f64>(),
@@ -95,11 +96,10 @@ pub fn show_2d_entity_cards(
                 }
 
                 ui.separator();
-                ui.label(RichText::new("Constraint Cepat:").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-quick-constraints")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new("— Horiz").size(10.5))
-                        .on_hover_text("Bikin garis horizontal")
+                        .button(RichText::new(t!("inspector-horiz")).size(10.5))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -107,8 +107,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new("| Vert").size(10.5))
-                        .on_hover_text("Bikin garis vertikal")
+                        .button(RichText::new(t!("inspector-vert")).size(10.5))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -116,8 +115,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new(format!("{} Lock", ICON_LOCK.codepoint)).size(10.5))
-                        .on_hover_text("Kunci posisi")
+                        .button(RichText::new(format!("{} {}", ICON_LOCK.codepoint, t!("inspector-fix"))).size(10.5))
                         .clicked()
                     {
                         *event =
@@ -138,14 +136,14 @@ pub fn show_2d_entity_cards(
             let id_raw = *id_raw;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Lingkaran (Circle)", ICON_EDIT.codepoint))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("tool-circle-name")))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
                 );
 
                 ui.add_space(2.0);
-                ui.label(RichText::new("Pusat (Center):").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-center-point")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("X:").size(10.5));
                     ui.add_sized(
@@ -159,10 +157,7 @@ pub fn show_2d_entity_cards(
                     );
                 });
 
-                // Radius & Diameter — dua field yang bisa diedit langsung, saling sinkron.
-                // Field yang baru saja diketik jadi sumber kebenaran; yang lain dihitung ulang
-                // tiap frame dari situ (r = d/2), supaya user bebas pilih mau isi r atau d.
-                ui.label(RichText::new("Radius (R) / Diameter (Ø), mm:").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-radius-diameter")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("R:").size(10.5));
                     let r_resp = ui.add_sized(
@@ -187,7 +182,7 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.add_space(2.0);
-                if ui.button(RichText::new("Terapkan Dimensi").size(11.0)).clicked() {
+                if ui.button(RichText::new(t!("inspector-apply-dimensions")).size(11.0)).clicked() {
                     if let (Ok(cx), Ok(cy), Ok(r)) = (
                         state.entity_p1_x.trim().parse::<f64>(),
                         state.entity_p1_y.trim().parse::<f64>(),
@@ -204,7 +199,7 @@ pub fn show_2d_entity_cards(
 
                 ui.separator();
                 if ui
-                    .button(RichText::new(format!("{} Lock Pusat", ICON_LOCK.codepoint)).size(10.5))
+                    .button(RichText::new(format!("{} {}", ICON_LOCK.codepoint, t!("inspector-fix"))).size(10.5))
                     .clicked()
                 {
                     *event =
@@ -225,14 +220,14 @@ pub fn show_2d_entity_cards(
             let id_raw = *id_raw;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Busur (Arc)", ICON_EDIT.codepoint))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("tool-arc-name")))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
                 );
 
                 ui.add_space(2.0);
-                ui.label(RichText::new("Pusat (Center):").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-center-point")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("X:").size(10.5));
                     ui.add_sized(
@@ -247,7 +242,7 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Radius:").size(10.5));
+                    ui.label(RichText::new(format!("{}:", t!("param-radius"))).size(10.5));
                     ui.add_sized(
                         Vec2::new(80.0, 18.0),
                         egui::TextEdit::singleline(&mut state.entity_val_1),
@@ -255,12 +250,12 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Sudut:").size(10.5));
+                    ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.5));
                     ui.add_sized(
                         Vec2::new(50.0, 18.0),
                         egui::TextEdit::singleline(&mut state.entity_val_2),
                     );
-                    ui.label(RichText::new("s/d").size(10.0));
+                    ui.label(RichText::new("..").size(10.0));
                     ui.add_sized(
                         Vec2::new(50.0, 18.0),
                         egui::TextEdit::singleline(&mut state.entity_p2_x),
@@ -268,7 +263,7 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.add_space(2.0);
-                if ui.button(RichText::new("Terapkan Dimensi").size(11.0)).clicked() {
+                if ui.button(RichText::new(t!("inspector-apply-dimensions")).size(11.0)).clicked() {
                     if let (Ok(cx), Ok(cy), Ok(r), Ok(a1), Ok(a2)) = (
                         state.entity_p1_x.trim().parse::<f64>(),
                         state.entity_p1_y.trim().parse::<f64>(),
@@ -300,14 +295,14 @@ pub fn show_2d_entity_cards(
             let id_raw = *id_raw;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Elips (Ellipse)", ICON_EDIT.codepoint))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("tool-ellipse-name")))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
                 );
 
                 ui.add_space(2.0);
-                ui.label(RichText::new("Pusat (Center):").size(10.0).color(TEXT_SECONDARY));
+                ui.label(RichText::new(t!("inspector-center-point")).size(10.0).color(TEXT_SECONDARY));
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("X:").size(10.5));
                     ui.add_sized(
@@ -335,7 +330,7 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.add_space(2.0);
-                if ui.button(RichText::new("Terapkan Dimensi").size(11.0)).clicked() {
+                if ui.button(RichText::new(t!("inspector-apply-dimensions")).size(11.0)).clicked() {
                     if let (Ok(cx), Ok(cy), Ok(rx), Ok(ry)) = (
                         state.entity_p1_x.trim().parse::<f64>(),
                         state.entity_p1_y.trim().parse::<f64>(),
@@ -363,7 +358,7 @@ pub fn show_2d_entity_cards(
             let entity_ids = *entity_ids;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} Persegi Panjang (Rectangle)", ICON_EDIT.codepoint))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("tool-rect-name")))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -371,14 +366,14 @@ pub fn show_2d_entity_cards(
 
                 ui.add_space(2.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Panjang (P):").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(t!("inspector-length-p")).size(10.5).color(TEXT_SECONDARY));
                     ui.add_sized(
                         Vec2::new(70.0, 18.0),
                         egui::TextEdit::singleline(&mut state.rect_length_p_input),
                     );
                 });
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Lebar (L):").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(t!("inspector-width-w")).size(10.5).color(TEXT_SECONDARY));
                     ui.add_sized(
                         Vec2::new(70.0, 18.0),
                         egui::TextEdit::singleline(&mut state.rect_length_l_input),
@@ -387,15 +382,15 @@ pub fn show_2d_entity_cards(
 
                 ui.add_space(3.0);
                 ui.label(
-                    RichText::new("Anchor (titik yg tetap diam saat resize):")
+                    RichText::new(t!("inspector-anchor-help"))
                         .size(9.5)
                         .color(TEXT_SECONDARY),
                 );
                 ui.horizontal(|ui| {
                     let options = [
-                        (InspectorRectAnchor::Center, "Tengah"),
-                        (InspectorRectAnchor::Corner0, "Sudut A"),
-                        (InspectorRectAnchor::Corner1, "Sudut B"),
+                        (InspectorRectAnchor::Center, "Center"),
+                        (InspectorRectAnchor::Corner0, "Corner A"),
+                        (InspectorRectAnchor::Corner1, "Corner B"),
                     ];
                     for (anchor, label) in options {
                         if ui
@@ -408,8 +403,8 @@ pub fn show_2d_entity_cards(
                 });
                 ui.horizontal(|ui| {
                     let options = [
-                        (InspectorRectAnchor::Corner2, "Sudut C"),
-                        (InspectorRectAnchor::Corner3, "Sudut D"),
+                        (InspectorRectAnchor::Corner2, "Corner C"),
+                        (InspectorRectAnchor::Corner3, "Corner D"),
                     ];
                     for (anchor, label) in options {
                         if ui
@@ -422,7 +417,7 @@ pub fn show_2d_entity_cards(
                 });
 
                 ui.add_space(2.0);
-                if ui.button(RichText::new("Terapkan Dimensi").size(11.0)).clicked() {
+                if ui.button(RichText::new(t!("inspector-apply-dimensions")).size(11.0)).clicked() {
                     if let (Ok(p), Ok(l)) = (
                         state.rect_length_p_input.trim().parse::<f64>(),
                         state.rect_length_l_input.trim().parse::<f64>(),
@@ -443,7 +438,7 @@ pub fn show_2d_entity_cards(
             let count = *count;
             card_frame().show(ui, |ui| {
                 ui.label(
-                    RichText::new(format!("{} {} Entitas 2D Terpilih", ICON_EDIT.codepoint, count))
+                    RichText::new(format!("{} {}", ICON_EDIT.codepoint, t!("inspector-multi-selection", count = count)))
                         .strong()
                         .size(11.5)
                         .color(ACCENT_BLUE),
@@ -451,15 +446,14 @@ pub fn show_2d_entity_cards(
 
                 ui.add_space(2.0);
                 ui.label(
-                    RichText::new("Terapkan Constraint Bersama:")
+                    RichText::new(t!("inspector-apply-joint-constraints"))
                         .size(10.0)
                         .color(TEXT_SECONDARY),
                 );
 
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new("// Sejajar").size(10.0))
-                        .on_hover_text("Parallel (2 Garis)")
+                        .button(RichText::new(format!("// {}", t!("inspector-parallel"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -467,8 +461,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new("⊥ Siku").size(10.0))
-                        .on_hover_text("Perpendicular (2 Garis)")
+                        .button(RichText::new(format!("⊥ {}", t!("inspector-perpendicular"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -476,8 +469,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new("== Panjang").size(10.0))
-                        .on_hover_text("Equal Length")
+                        .button(RichText::new(format!("== {}", t!("inspector-equal"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -488,8 +480,7 @@ pub fn show_2d_entity_cards(
 
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new("=R Radius").size(10.0))
-                        .on_hover_text("Equal Radius")
+                        .button(RichText::new(format!("=R {}", t!("constraint-equal-radius"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -497,8 +488,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new("tan Singgung").size(10.0))
-                        .on_hover_text("Tangent")
+                        .button(RichText::new(format!("tan {}", t!("inspector-tangent"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
@@ -506,8 +496,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new(">< Berimpit").size(10.0))
-                        .on_hover_text("Coincident")
+                        .button(RichText::new(format!(">< {}", t!("inspector-coincident"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
