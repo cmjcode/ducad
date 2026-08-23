@@ -89,7 +89,7 @@ impl RevolveDialog {
         let mut event = None;
         let mut is_open = state.is_open;
 
-        Window::new("✨ Fitur Revolve (Putar 3D)")
+        let window_response = Window::new("✨ Fitur Revolve (Putar 3D)")
             .open(&mut is_open)
             .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, 0.0))
             .resizable(false)
@@ -270,57 +270,67 @@ impl RevolveDialog {
                 ui.add_space(6.0);
 
                 // Action Buttons
-                ui.horizontal(|ui| {
-                    if ui.button(RichText::new("Batal").size(11.5)).clicked() {
-                        event = Some(RevolveDialogEvent::Close);
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if state.axis_preset == RevolveAxisPreset::CustomTwoPoints {
-                            let btn = ui.add_enabled(
-                                state.has_valid_profile,
-                                egui::Button::new(
-                                    RichText::new("✏️ Mulai Klik 2 Titik Sumbu")
-                                        .size(11.5)
-                                        .strong()
-                                        .color(if state.has_valid_profile {
-                                            Color32::WHITE
-                                        } else {
-                                            TEXT_MUTED
-                                        }),
-                                )
-                                .fill(ACCENT_BLUE),
-                            );
-                            if btn.clicked() {
-                                event = Some(RevolveDialogEvent::StartManualAxisPicking {
-                                    angle_deg: state.angle_deg,
-                                });
-                            }
-                        } else {
-                            let btn = ui.add_enabled(
-                                state.has_valid_profile,
-                                egui::Button::new(
-                                    RichText::new("🚀 Eksekusi Revolve")
-                                        .size(11.5)
-                                        .strong()
-                                        .color(if state.has_valid_profile {
-                                            Color32::WHITE
-                                        } else {
-                                            TEXT_MUTED
-                                        }),
-                                )
-                                .fill(ACCENT_BLUE),
-                            );
-                            if btn.clicked() {
-                                event = Some(RevolveDialogEvent::Execute {
-                                    axis: state.axis_preset,
-                                    angle_deg: state.angle_deg,
-                                });
-                            }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if state.axis_preset == RevolveAxisPreset::CustomTwoPoints {
+                        let btn = ui.add_enabled(
+                            state.has_valid_profile,
+                            egui::Button::new(
+                                RichText::new("✏️ Mulai Klik 2 Titik Sumbu")
+                                    .size(11.5)
+                                    .strong()
+                                    .color(if state.has_valid_profile {
+                                        Color32::WHITE
+                                    } else {
+                                        TEXT_MUTED
+                                    }),
+                            )
+                            .fill(ACCENT_BLUE),
+                        );
+                        if btn.clicked() {
+                            event = Some(RevolveDialogEvent::StartManualAxisPicking {
+                                angle_deg: state.angle_deg,
+                            });
                         }
-                    });
+                    } else {
+                        let btn = ui.add_enabled(
+                            state.has_valid_profile,
+                            egui::Button::new(
+                                RichText::new("🚀 Eksekusi Revolve")
+                                    .size(11.5)
+                                    .strong()
+                                    .color(if state.has_valid_profile {
+                                        Color32::WHITE
+                                    } else {
+                                        TEXT_MUTED
+                                    }),
+                            )
+                            .fill(ACCENT_BLUE),
+                        );
+                        if btn.clicked() {
+                            event = Some(RevolveDialogEvent::Execute {
+                                axis: state.axis_preset,
+                                angle_deg: state.angle_deg,
+                            });
+                        }
+                    }
                 });
             });
+
+        // ESC listener
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            event = Some(RevolveDialogEvent::Close);
+        }
+
+        // Tap/click-outside dialog
+        if event.is_none() {
+            if let Some(ref resp) = window_response {
+                if let Some(pointer_pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                    if ctx.input(|i| i.pointer.any_pressed()) && !resp.response.rect.contains(pointer_pos) {
+                        event = Some(RevolveDialogEvent::Close);
+                    }
+                }
+            }
+        }
 
         state.is_open = is_open;
         if !is_open && event.is_none() {

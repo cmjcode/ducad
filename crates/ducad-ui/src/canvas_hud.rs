@@ -9,7 +9,7 @@ use crate::theme::{
     TEXT_SECONDARY,
 };
 use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
-use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_CHECK, ICON_CLOSE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN};
+use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RevolveHudAction {
@@ -715,16 +715,6 @@ impl CanvasHud {
                         hud_action = Some(RevolveHudAction::Commit);
                     }
 
-                    // Tombol Batal
-                    let cancel_btn = egui::Button::new(
-                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
-
-                    if ui.add(cancel_btn).clicked() {
-                        hud_action = Some(RevolveHudAction::Cancel);
-                    }
-
                     ui.add_space(6.0);
                 }
 
@@ -1085,16 +1075,6 @@ impl CanvasHud {
                         hud_action = Some(LoftHudAction::Commit);
                     }
 
-                    // Tombol Batal
-                    let cancel_btn = egui::Button::new(
-                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
-
-                    if ui.add(cancel_btn).clicked() {
-                        hud_action = Some(LoftHudAction::Cancel);
-                    }
-
                     ui.add_space(6.0);
 
                     // Tombol Balik Posisi Atas / Bawah
@@ -1313,16 +1293,6 @@ impl CanvasHud {
                         hud_action = Some(ShellHudAction::Commit);
                     }
 
-                    // Tombol Batal
-                    let cancel_btn = egui::Button::new(
-                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
-
-                    if ui.add(cancel_btn).clicked() {
-                        hud_action = Some(ShellHudAction::Cancel);
-                    }
-
                     ui.add_space(4.0);
                     ui.separator();
                     ui.add_space(4.0);
@@ -1438,16 +1408,6 @@ impl CanvasHud {
                         hud_action = Some(BooleanHudAction::Commit);
                     }
 
-                    // Tombol Batal
-                    let cancel_btn = egui::Button::new(
-                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
-
-                    if ui.add(cancel_btn).clicked() {
-                        hud_action = Some(BooleanHudAction::Cancel);
-                    }
-
                     ui.add_space(4.0);
                     ui.separator();
                     ui.add_space(4.0);
@@ -1481,15 +1441,6 @@ impl CanvasHud {
                     }
 
                     ui.label(RichText::new("Operasi:").size(10.5).color(TEXT_SECONDARY));
-                } else {
-                    let cancel_btn = egui::Button::new(
-                        RichText::new("Batal (Esc)").size(10.5).color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(65, 25, 25, 200));
-
-                    if ui.add(cancel_btn).clicked() {
-                        hud_action = Some(BooleanHudAction::Cancel);
-                    }
                 }
             });
         });
@@ -1513,8 +1464,8 @@ impl CanvasHud {
 
         let mut event = None;
 
-        glass_frame().show(ui, |ui| {
-            ui.set_width(340.0);
+        let frame_resp = glass_frame().show(ui, |ui| {
+            ui.set_width(320.0);
             ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
 
             ui.horizontal(|ui| {
@@ -1554,18 +1505,17 @@ impl CanvasHud {
                 if ui.add(save_btn).on_hover_text("Simpan nama (Enter)").clicked() {
                     event = Some(RenamePopupEvent::Confirm(input_buf.trim().to_string()));
                 }
-
-                // Tombol Batal
-                let cancel_btn = egui::Button::new(
-                    RichText::new(ICON_CLOSE.codepoint)
-                        .size(12.0)
-                        .color(TEXT_SECONDARY),
-                );
-                if ui.add(cancel_btn).on_hover_text("Batal (Esc)").clicked() {
-                    event = Some(RenamePopupEvent::Cancel);
-                }
             });
         });
+
+        // Tap/click di luar area popup untuk batal
+        if event.is_none() {
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if ui.input(|i| i.pointer.any_pressed()) && !frame_resp.response.rect.contains(pointer_pos) {
+                    event = Some(RenamePopupEvent::Cancel);
+                }
+            }
+        }
 
         // Tekan Esc untuk batal juga di level global
         if event.is_none() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {

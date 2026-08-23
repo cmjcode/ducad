@@ -111,7 +111,7 @@ pub fn render_bottom_right_popup<R>(
     let margin_bottom = 28.0;
     let pos = Pos2::new(screen_rect.max.x - margin_right, screen_rect.max.y - margin_bottom);
 
-    egui::Area::new(Id::new(id_str))
+    let area_response = egui::Area::new(Id::new(id_str))
         .fixed_pos(pos)
         .pivot(Align2::RIGHT_BOTTOM)
         .constrain_to(screen_rect)
@@ -150,6 +150,20 @@ pub fn render_bottom_right_popup<R>(
                 }
             });
         });
+
+    // ESC key untuk tutup popup
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        close_clicked = true;
+    }
+
+    // Tap / click di luar area popup untuk tutup
+    if !close_clicked {
+        if let Some(pointer_pos) = ctx.input(|i| i.pointer.interact_pos()) {
+            if ctx.input(|i| i.pointer.any_pressed()) && !area_response.response.rect.contains(pointer_pos) {
+                close_clicked = true;
+            }
+        }
+    }
 
     (result, close_clicked)
 }
