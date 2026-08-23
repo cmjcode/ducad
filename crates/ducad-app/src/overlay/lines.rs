@@ -338,6 +338,15 @@ impl DuCADApp {
                         verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
+                ToolKind::Spline => {
+                    let effective = self.snapped_or(raw);
+                    let mut pts = self.pending_points.clone();
+                    pts.push(effective);
+                    if pts.len() >= 2 {
+                        let preview = Entity::Spline { points: pts };
+                        verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+                    }
+                }
                 ToolKind::Arc => {
                     let effective = self.snapped_or(raw);
                     match self.pending_points.len() {

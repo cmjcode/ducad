@@ -12,6 +12,7 @@ fn entity_dof(entity: &Entity) -> usize {
         Entity::Circle { .. } => 3,
         Entity::Arc { .. } => 5,
         Entity::Ellipse { .. } => 4,
+        Entity::Spline { points } => points.len() * 2,
     }
 }
 
@@ -30,6 +31,11 @@ fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
             radius_x,
             radius_y,
         } => out.extend([center.x, center.y, *radius_x, *radius_y]),
+        Entity::Spline { points } => {
+            for p in points {
+                out.extend([p.x, p.y]);
+            }
+        }
     }
 }
 
@@ -62,6 +68,13 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
             *center = DVec2::new(params[0], params[1]);
             *radius_x = params[2];
             *radius_y = params[3];
+        }
+        Entity::Spline { points } => {
+            for (i, p) in points.iter_mut().enumerate() {
+                if 2 * i + 1 < params.len() {
+                    *p = DVec2::new(params[2 * i], params[2 * i + 1]);
+                }
+            }
         }
     }
 }
@@ -112,7 +125,10 @@ enum EntityKind {
 fn entity_kind(entity: &Entity) -> EntityKind {
     match entity {
         Entity::Line { .. } => EntityKind::Line,
-        Entity::Circle { .. } | Entity::Arc { .. } | Entity::Ellipse { .. } => EntityKind::Radial,
+        Entity::Circle { .. }
+        | Entity::Arc { .. }
+        | Entity::Ellipse { .. }
+        | Entity::Spline { .. } => EntityKind::Radial,
     }
 }
 

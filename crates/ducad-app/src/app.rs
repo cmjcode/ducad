@@ -856,6 +856,10 @@ impl eframe::App for DuCADApp {
                         format!("Elips ({:.1}x{:.1} mm)", radius_x, radius_y),
                         egui_material_icons::icons::ICON_HOME_MINI.codepoint,
                     ),
+                    Entity::Spline { points } => (
+                        format!("Spline ({} titik)", points.len()),
+                        egui_material_icons::icons::ICON_TIMELINE.codepoint,
+                    ),
                 };
                 Entity2dItemInfo {
                     id_raw: id.data().as_ffi(),

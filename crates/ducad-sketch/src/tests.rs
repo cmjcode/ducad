@@ -409,3 +409,101 @@ fn test_entity_visibility_toggle_and_hit_test() {
     assert!(sketch.hit_test(DVec2::new(5.0, 0.1), 0.5).is_some());
 }
 
+#[test]
+fn test_spline_endpoints_hit_test_and_transform() {
+    let mut sketch = Sketch::default();
+    let pts = vec![
+        DVec2::new(0.0, 0.0),
+        DVec2::new(10.0, 5.0),
+        DVec2::new(20.0, -5.0),
+        DVec2::new(30.0, 0.0),
+    ];
+    let spline = Entity::Spline { points: pts.clone() };
+
+    assert_eq!(
+        spline.endpoints(),
+        vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(30.0, 0.0),
+            DVec2::new(10.0, 5.0),
+            DVec2::new(20.0, -5.0),
+        ]
+    );
+    assert_eq!(spline.center(), Some(DVec2::new(15.0, 0.0)));
+
+    let id = sketch.entities.insert(spline);
+
+    // Snap to start point, end point, and intermediate control points
+    let snap_start = find_snap(&sketch, DVec2::new(0.1, 0.1), 0.5, 100.0, None).unwrap();
+    assert_eq!(snap_start.kind, SnapKind::Endpoint);
+    assert_eq!(snap_start.point, DVec2::new(0.0, 0.0));
+
+    let snap_mid = find_snap(&sketch, DVec2::new(10.1, 4.9), 0.5, 100.0, None).unwrap();
+    assert_eq!(snap_mid.kind, SnapKind::Endpoint);
+    assert_eq!(snap_mid.point, DVec2::new(10.0, 5.0));
+
+    // Hit test near fit points
+    assert!(sketch.hit_test(DVec2::new(10.0, 5.1), 0.5).is_some());
+    assert!(sketch.hit_test(DVec2::new(20.0, -4.9), 0.5).is_some());
+    assert!(sketch.hit_test(DVec2::new(100.0, 100.0), 1.0).is_none());
+
+    // Test snap with extra/pending points (e.g. while drawing)
+    let pending = vec![DVec2::new(50.0, 50.0)];
+    let snap_extra = find_snap_with_extra(&sketch, DVec2::new(50.1, 49.9), 0.5, 100.0, None, &pending).unwrap();
+    assert_eq!(snap_extra.kind, SnapKind::Endpoint);
+    assert_eq!(snap_extra.point, DVec2::new(50.0, 50.0));
+
+    // Translate
+    let translated = translate_entity(sketch.entities.get(id).unwrap(), DVec2::new(5.0, 10.0));
+    if let Entity::Spline { points } = translated {
+        assert_eq!(points[0], DVec2::new(5.0, 10.0));
+        assert_eq!(points[3], DVec2::new(35.0, 10.0));
+    } else {
+        panic!("expected Spline");
+    }
+
+    // Mirror across Y axis (axis along X=0, from (0,0) to (0,1))
+    let mirrored = mirror_entity(sketch.entities.get(id).unwrap(), DVec2::ZERO, DVec2::new(0.0, 1.0)).unwrap();
+    if let Entity::Spline { points } = mirrored {
+        assert_eq!(points[0], DVec2::new(0.0, 0.0));
+        assert_eq!(points[1], DVec2::new(-10.0, 5.0));
+        assert_eq!(points[3], DVec2::new(-30.0, 0.0));
+    } else {
+        panic!("expected Spline");
+    }
+}
+
+#[test]
+fn test_spline_closed_region() {
+    let mut sketch = Sketch::default();
+    // Spline curve from (0,0) to (30,0) with a dip
+    sketch.entities.insert(Entity::Spline {
+        points: vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 10.0),
+            DVec2::new(20.0, 10.0),
+            DVec2::new(30.0, 0.0),
+        ],
+    });
+    // Line 1: (30, 0) to (30, -10)
+    sketch.entities.insert(Entity::Line {
+        start: DVec2::new(30.0, 0.0),
+        end: DVec2::new(30.0, -10.0),
+    });
+    // Line 2: (30, -10) to (0, -10)
+    sketch.entities.insert(Entity::Line {
+        start: DVec2::new(30.0, -10.0),
+        end: DVec2::new(0.0, -10.0),
+    });
+    // Line 3: (0, -10) to (0, 0)
+    sketch.entities.insert(Entity::Line {
+        start: DVec2::new(0.0, -10.0),
+        end: DVec2::new(0.0, 0.0),
+    });
+
+    let regions = crate::region::find_closed_regions(&sketch);
+    assert_eq!(regions.len(), 1);
+    assert!(regions[0].contains_point(DVec2::new(15.0, 0.0)));
+    assert!(regions[0].contains_point(DVec2::new(15.0, -5.0)));
+}
+

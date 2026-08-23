@@ -117,6 +117,29 @@ pub(crate) fn push_entity(
             radius_x,
             radius_y,
         } => push_ellipse(verts, *center, *radius_x, *radius_y, color, plane),
+        Entity::Spline { points } => push_spline(verts, points, color, plane),
+    }
+}
+
+pub(crate) fn push_spline(
+    verts: &mut Vec<LineVertex>,
+    points: &[DVec2],
+    color: [f32; 4],
+    plane: &SketchPlane,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    let sampled = ducad_sketch::entity::sample_catmull_rom(points, 16);
+    for w in sampled.windows(2) {
+        verts.push(LineVertex {
+            position: to3(plane, w[0]),
+            color,
+        });
+        verts.push(LineVertex {
+            position: to3(plane, w[1]),
+            color,
+        });
     }
 }
 

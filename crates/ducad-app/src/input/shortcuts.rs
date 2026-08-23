@@ -290,6 +290,11 @@ impl DuCADApp {
                 0 => ducad_i18n::t!("status-prompt-ellipse-0"),
                 _ => ducad_i18n::t!("status-prompt-ellipse-box"),
             },
+            ToolKind::Spline => match self.pending_points.len() {
+                0 => "Klik titik awal kurva Spline".to_string(),
+                1 => "Klik titik berikutnya untuk membentuk kurva".to_string(),
+                _ => "Klik titik berikutnya, klik titik awal untuk menutup, atau klik ulang titik akhir".to_string(),
+            },
             ToolKind::Arc => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-arc-0"),
                 1 => ducad_i18n::t!("status-prompt-arc-1"),

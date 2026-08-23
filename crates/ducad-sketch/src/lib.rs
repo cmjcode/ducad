@@ -28,4 +28,4 @@ pub use region::{
     ClosedRegion, RectAnchor, RectangleShape,
 };
 pub use sketch::Sketch;
-pub use snap::{find_snap, SnapHit, SnapKind};
+pub use snap::{find_snap, find_snap_with_extra, SnapHit, SnapKind};

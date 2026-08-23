@@ -331,18 +331,80 @@ fn reverse_segment(seg: ProfileSegment) -> ProfileSegment {
     }
 }
 
+/// Konversi Spline (Catmull-Rom) menjadi kurva-kurva Arc parametrik analitik halus (Bi-Arc / 3-point Arcs)
+/// agar saat diextrude oleh OpenCASCADE menghasilkan permukaan silinder B-Rep yang kontinu dan mulus
+/// (bukan jajaran prisma segi banyak terpatah-patah).
+pub fn convert_spline_to_smooth_segments(points: &[DVec2]) -> Vec<(DVec2, DVec2, ProfileSegment)> {
+    if points.len() < 2 {
+        return Vec::new();
+    }
+    let mut result = Vec::new();
+    let n = points.len();
+
+    let get_pt = |idx: isize| -> DVec2 {
+        if idx < 0 {
+            points[0]
+        } else if idx >= n as isize {
+            points[n - 1]
+        } else {
+            points[idx as usize]
+        }
+    };
+
+    let eval_cr = |p0: DVec2, p1: DVec2, p2: DVec2, p3: DVec2, t: f64| -> DVec2 {
+        let t2 = t * t;
+        let t3 = t2 * t;
+        0.5 * ((2.0 * p1)
+            + (-p0 + p2) * t
+            + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+            + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+    };
+
+    for i in 0..n - 1 {
+        let p0 = get_pt(i as isize - 1);
+        let p1 = get_pt(i as isize);
+        let p2 = get_pt(i as isize + 1);
+        let p3 = get_pt(i as isize + 2);
+
+        // 2 sub-arcs per rentang fit point untuk aproksimasi kurvatur sangat tinggi dan mulus
+        let t_splits = [(0.0, 0.25, 0.5), (0.5, 0.75, 1.0)];
+        for (t_start, t_mid, t_end) in t_splits {
+            let start = eval_cr(p0, p1, p2, p3, t_start);
+            let via = eval_cr(p0, p1, p2, p3, t_mid);
+            let end = eval_cr(p0, p1, p2, p3, t_end);
+
+            if (start - end).length() < 1e-5 {
+                continue;
+            }
+
+            // Cek kelurusan / kolinearitas
+            let cross = (via.x - start.x) * (end.y - start.y) - (via.y - start.y) * (end.x - start.x);
+            let seg = if cross.abs() < 1e-4 {
+                ProfileSegment::Line {
+                    start: (start.x, start.y),
+                    end: (end.x, end.y),
+                }
+            } else {
+                ProfileSegment::Arc {
+                    start: (start.x, start.y),
+                    via: (via.x, via.y),
+                    end: (end.x, end.y),
+                }
+            };
+            result.push((start, end, seg));
+        }
+    }
+
+    result
+}
+
 /// Bangun `Profile` kernel (siap Extrude) dari seleksi entitas sketch.
 ///
-/// Dua kasus didukung:
+/// Kasus didukung:
 /// - Seleksi tunggal berisi 1 `Circle` → `Profile::Circle` langsung.
-/// - Seleksi berisi ≥3 `Line`/`Arc` yang, kalau dirangkai lewat
-///   titik-ujungnya (toleransi 1e-6), membentuk SATU loop tertutup —
-///   urutan pemilihan tidak masalah, chain-builder mencari sambungan
-///   sendiri lalu membalik arah segmen kalau perlu.
-///
-/// `Ellipse` dan campuran Circle+entitas lain sengaja ditolak dengan
-/// pesan error (bukan didiamkan) — lihat docs/PLAN.md untuk kenapa belum
-/// didukung.
+/// - Seleksi tunggal berisi 1 `Ellipse` → `Profile::Ellipse` langsung.
+/// - Seleksi tunggal berisi 1 `Spline` tertutup mandiri → `Profile::Loop` (smooth arcs).
+/// - Seleksi berisi rantai `Line`/`Arc`/`Spline` yang membentuk loop tertutup.
 pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Profile, String> {
     if ids.is_empty() {
         return Err("Pilih dulu entitas sketch yang membentuk profil tertutup".to_string());
@@ -370,6 +432,22 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                 radius_x: *radius_x,
                 radius_y: *radius_y,
             });
+        }
+        if let Some(Entity::Spline { points }) = sketch.entities.get(id) {
+            if points.len() >= 3 {
+                let first = points[0];
+                let last = *points.last().unwrap();
+                if (first - last).length() < 0.05 {
+                    let smooth_segs: Vec<ProfileSegment> =
+                        convert_spline_to_smooth_segments(points)
+                            .into_iter()
+                            .map(|(_, _, s)| s)
+                            .collect();
+                    if !smooth_segs.is_empty() {
+                        return Ok(Profile::Loop(smooth_segs));
+                    }
+                }
+            }
         }
     }
 
@@ -407,15 +485,20 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                     },
                 });
             }
+            Some(Entity::Spline { points }) => {
+                for (start, end, seg) in convert_spline_to_smooth_segments(points) {
+                    segs.push(Seg { start, end, seg });
+                }
+            }
             Some(Entity::Circle { .. }) => {
                 return Err(
-                    "Tidak bisa campur Lingkaran dengan entitas lain — pilih Lingkaran sendirian, atau Line/Arc yang membentuk loop tertutup"
+                    "Tidak bisa campur Lingkaran dengan entitas lain — pilih Lingkaran sendirian, atau Line/Arc/Spline yang membentuk loop tertutup"
                         .to_string(),
                 )
             }
             Some(Entity::Ellipse { .. }) => {
                 return Err(
-                    "Tidak bisa campur Ellips dengan entitas lain — pilih Ellips sendirian, atau Line/Arc yang membentuk loop tertutup"
+                    "Tidak bisa campur Ellips dengan entitas lain — pilih Ellips sendirian, atau Line/Arc/Spline yang membentuk loop tertutup"
                         .to_string(),
                 )
             }
@@ -423,8 +506,8 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
         }
     }
 
-    if segs.len() < 3 {
-        return Err("Profil butuh minimal 3 segmen Line/Arc yang membentuk loop tertutup".to_string());
+    if segs.len() < 2 {
+        return Err("Profil butuh minimal 2 segmen Line/Arc/Spline yang membentuk loop tertutup".to_string());
     }
 
     // Rantai dirangkai dari DUA ujung (append di ekor, prepend di kepala),
@@ -433,7 +516,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     // sepihak (cuma ekor) gagal mendeteksi ujung yang tak nyambung kalau
     // kebetulan mulai dari tengah (ditemukan lewat test, bukan teori —
     // lihat `build_profile_open_chain_errors`).
-    const EPS: f64 = 1e-6;
+    const EPS: f64 = 0.05;
     let mut remaining = segs;
     let mut ordered = vec![remaining.remove(0)];
 
@@ -519,6 +602,14 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
                     max_x = max_x.max(center.x + radius_x);
                     min_y = min_y.min(center.y - radius_y);
                     max_y = max_y.max(center.y + radius_y);
+                }
+                Entity::Spline { points } => {
+                    for p in points {
+                        min_x = min_x.min(p.x);
+                        max_x = max_x.max(p.x);
+                        min_y = min_y.min(p.y);
+                        max_y = max_y.max(p.y);
+                    }
                 }
             }
         }
@@ -718,5 +809,57 @@ mod tests {
         let shape2 = ducad_kernel::extrude_profile(&p2, 25.0).unwrap();
         let mesh2 = shape2.tessellate();
         assert!(mesh2.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_extrude_spline_and_arc_profile() {
+        let mut sketch = Sketch::default();
+        // Spline from (20, 0) to (-20, 0) bending upwards
+        let spline_id = sketch.entities.insert(Entity::Spline {
+            points: vec![
+                DVec2::new(20.0, 0.0),
+                DVec2::new(10.0, 15.0),
+                DVec2::new(-10.0, 15.0),
+                DVec2::new(-20.0, 0.0),
+            ],
+        });
+        // Arc (semicircle) below X axis from (-20, 0) to (20, 0), center at (0, 0), radius 20
+        // angle PI (left, (-20,0)) to 0 (right, (20,0)) passing through (0, -20)
+        let arc_id = sketch.entities.insert(Entity::Arc {
+            center: DVec2::new(0.0, 0.0),
+            radius: 20.0,
+            start_angle: std::f64::consts::PI,
+            end_angle: std::f64::consts::TAU,
+        });
+
+        let mut sel = HashSet::new();
+        sel.insert(spline_id);
+        sel.insert(arc_id);
+
+        let profile = build_profile_from_selection(&sketch, &sel).unwrap();
+        let shape = ducad_kernel::extrude_profile(&profile, 20.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_extrude_self_closed_spline() {
+        let mut sketch = Sketch::default();
+        let spline_id = sketch.entities.insert(Entity::Spline {
+            points: vec![
+                DVec2::new(0.0, 0.0),
+                DVec2::new(10.0, 15.0),
+                DVec2::new(20.0, 0.0),
+                DVec2::new(10.0, -15.0),
+                DVec2::new(0.0, 0.0),
+            ],
+        });
+        let mut sel = HashSet::new();
+        sel.insert(spline_id);
+
+        let profile = build_profile_from_selection(&sketch, &sel).unwrap();
+        let shape = ducad_kernel::extrude_profile(&profile, 15.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
     }
 }

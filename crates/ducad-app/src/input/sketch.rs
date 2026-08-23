@@ -2,9 +2,9 @@ use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
     arc_from_three_points, find_region_at_point, find_region_containing_entity, find_snap,
-    line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t, trim_segments,
-    ClosedRegion, DeleteEntities, Entity, EntityId, InsertEntities, ReplaceEntities, Sketch,
-    TranslateEntities,
+    find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
+    project_t, trim_segments, ClosedRegion, DeleteEntities, Entity, EntityId, InsertEntities,
+    ReplaceEntities, Sketch, TranslateEntities,
 };
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -38,6 +38,23 @@ pub fn trim_removal_preview(
 
 impl DuCADApp {
     pub const LINE_CHAIN_DEGENERATE_EPS: f64 = 1e-6;
+
+    pub fn find_current_snap(
+        &self,
+        raw: DVec2,
+        tol: f64,
+        grid_step: f64,
+        exclude: Option<EntityId>,
+    ) -> Option<ducad_sketch::SnapHit> {
+        find_snap_with_extra(
+            self.sketch(),
+            raw,
+            tol,
+            grid_step,
+            exclude,
+            &self.pending_points,
+        )
+    }
 
     pub fn set_tool(&mut self, tool: ToolKind) {
         if self.tool == ToolKind::Loft && tool != ToolKind::Loft {
@@ -156,6 +173,29 @@ impl DuCADApp {
         }
     }
 
+    pub fn handle_spline_click(&mut self, p: DVec2, close_tol: f64) {
+        if self.pending_points.is_empty() {
+            self.pending_points.push(p);
+            return;
+        }
+
+        let first = self.pending_points[0];
+        let closing = self.pending_points.len() >= 2 && (p - first).length() <= close_tol;
+        let is_last_repeat = self
+            .pending_points
+            .last()
+            .is_some_and(|last| (*last - p).length() < 1e-6);
+
+        if closing {
+            self.pending_points.push(first);
+            self.finish_multipoint();
+        } else if is_last_repeat {
+            self.finish_multipoint();
+        } else {
+            self.pending_points.push(p);
+        }
+    }
+
     pub fn finish_multipoint(&mut self) {
         let pts = std::mem::take(&mut self.pending_points);
         let cmd: Option<Box<dyn Command<Sketch>>> = match self.tool {
@@ -199,6 +239,14 @@ impl DuCADApp {
                             radius_x,
                             radius_y,
                         }],
+                    )) as Box<dyn Command<Sketch>>
+                })
+            }
+            ToolKind::Spline => {
+                (pts.len() >= 2).then(|| {
+                    Box::new(InsertEntities::new(
+                        "Spline",
+                        vec![Entity::Spline { points: pts }],
                     )) as Box<dyn Command<Sketch>>
                 })
             }
@@ -1028,6 +1076,11 @@ impl DuCADApp {
                                                 && center.y + radius >= min.y
                                                 && center.y - radius <= max.y
                                         }
+                                        Entity::Spline { points } => {
+                                            points.iter().any(|pt| {
+                                                pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y
+                                            })
+                                        }
                                     };
                                     if inside {
                                         Some(id)
@@ -1049,11 +1102,22 @@ impl DuCADApp {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
-                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
+                    .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
                 if response.clicked() {
                     let effective = self.snapped_or(raw);
                     self.handle_line_chain_click(effective, tol);
+                }
+            }
+            ToolKind::Spline => {
+                self.hovered = None;
+                self.last_snap = response
+                    .hovered()
+                    .then(|| self.find_current_snap(raw, tol, grid_step, None))
+                    .flatten();
+                if response.clicked() {
+                    let effective = self.snapped_or(raw);
+                    self.handle_spline_click(effective, tol);
                 }
             }
             ToolKind::Rectangle
@@ -1065,7 +1129,7 @@ impl DuCADApp {
                 self.hovered = None;
                 self.last_snap = response
                     .hovered()
-                    .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
+                    .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
                 if response.clicked() {
                     let effective = self.snapped_or(raw);
@@ -1079,7 +1143,7 @@ impl DuCADApp {
                 if has_target {
                     self.last_snap = response
                         .hovered()
-                        .then(|| find_snap(self.sketch(), raw, tol, grid_step, None))
+                        .then(|| self.find_current_snap(raw, tol, grid_step, None))
                         .flatten();
                     if response.clicked() {
                         let effective = self.snapped_or(raw);

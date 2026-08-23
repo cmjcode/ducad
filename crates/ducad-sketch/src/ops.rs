@@ -88,7 +88,7 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
                 end_angle: *end_angle,
             })
         }
-        Entity::Ellipse { .. } => None,
+        Entity::Ellipse { .. } | Entity::Spline { .. } => None,
     }
 }
 
@@ -142,6 +142,9 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
             radius_x: *radius_x,
             radius_y: *radius_y,
         },
+        Entity::Spline { points } => Entity::Spline {
+            points: points.iter().map(|p| reflect(*p)).collect(),
+        },
     })
 }
 
@@ -175,6 +178,9 @@ pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
             center: *center + delta,
             radius_x: *radius_x,
             radius_y: *radius_y,
+        },
+        Entity::Spline { points } => Entity::Spline {
+            points: points.iter().map(|p| *p + delta).collect(),
         },
     }
 }

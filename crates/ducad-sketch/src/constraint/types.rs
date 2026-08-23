@@ -34,6 +34,15 @@ pub fn point_ref_position(sketch: &Sketch, pr: &PointRef) -> Option<DVec2> {
             | Entity::Ellipse { center, .. },
             PointRef::Center(_),
         ) => Some(*center),
+        (Entity::Spline { points }, PointRef::LineStart(_)) => points.first().copied(),
+        (Entity::Spline { points }, PointRef::LineEnd(_)) => points.last().copied(),
+        (Entity::Spline { points }, PointRef::Center(_)) => {
+            if points.is_empty() {
+                None
+            } else {
+                Some(points.iter().copied().sum::<DVec2>() / (points.len() as f64))
+            }
+        }
         _ => None,
     }
 }

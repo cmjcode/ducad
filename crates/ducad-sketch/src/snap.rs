@@ -31,6 +31,18 @@ pub fn find_snap(
     grid_step: f64,
     exclude: Option<EntityId>,
 ) -> Option<SnapHit> {
+    find_snap_with_extra(sketch, cursor, tolerance, grid_step, exclude, &[])
+}
+
+/// Cari titik snap terbaik di sekitar kursor dengan tambahan titik-titik kandidat (mis. titik awal/pending saat menggambar).
+pub fn find_snap_with_extra(
+    sketch: &Sketch,
+    cursor: DVec2,
+    tolerance: f64,
+    grid_step: f64,
+    exclude: Option<EntityId>,
+    extra_points: &[DVec2],
+) -> Option<SnapHit> {
     let nearest = |kind: SnapKind, pts: Vec<(DVec2, Option<PointRef>)>| -> Option<SnapHit> {
         pts.into_iter()
             .map(|(p, src)| (p, src, (p - cursor).length()))
@@ -46,13 +58,16 @@ pub fn find_snap(
             .filter(move |(id, _)| Some(*id) != exclude && !sketch.is_hidden(*id))
     };
 
-    if let Some(hit) = nearest(
-        SnapKind::Endpoint,
-        others()
-            .flat_map(|(id, e)| e.endpoint_refs(id))
-            .map(|(r, p)| (p, Some(r)))
-            .collect(),
-    ) {
+    let mut endpoints: Vec<(DVec2, Option<PointRef>)> = others()
+        .flat_map(|(id, e)| e.endpoint_refs(id))
+        .map(|(r, p)| (p, Some(r)))
+        .collect();
+
+    for ep in extra_points {
+        endpoints.push((*ep, None));
+    }
+
+    if let Some(hit) = nearest(SnapKind::Endpoint, endpoints) {
         return Some(hit);
     }
     if let Some(hit) = nearest(

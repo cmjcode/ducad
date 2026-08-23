@@ -212,7 +212,6 @@ fn sample_arc_points(center: DVec2, radius: f64, start_angle: f64, end_angle: f6
 /// Cari seluruh closed region pada `Sketch`.
 pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
     let mut regions = Vec::new();
-    const EPS: f64 = 1e-4;
 
     // 1. Lingkaran mandiri (Circle)
     for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
@@ -252,10 +251,29 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     area: std::f64::consts::PI * radius_x * radius_y,
                 });
             }
+        } else if let Entity::Spline { points } = entity {
+            if points.len() >= 3 {
+                let first = points[0];
+                let last = *points.last().unwrap();
+                if (first - last).length() < 0.05 {
+                    let sampled = crate::entity::sample_catmull_rom(points, 24);
+                    let (centroid, area) = polygon_centroid_and_area(&sampled);
+                    if area > 1e-4 {
+                        let mut ids = HashSet::new();
+                        ids.insert(id);
+                        regions.push(ClosedRegion {
+                            entity_ids: ids,
+                            boundary_points: sampled,
+                            centroid,
+                            area,
+                        });
+                    }
+                }
+            }
         }
     }
 
-    // 2. Loop dari rantai Line & Arc
+    // 2. Loop dari rantai Line, Arc, dan Spline
     struct SegmentInfo {
         id: EntityId,
         start: DVec2,
@@ -263,11 +281,12 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
         sampled_pts: Vec<DVec2>, // Dari start ke end
     }
 
+    const CHAIN_EPS: f64 = 0.05;
     let mut segments = Vec::new();
     for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
         match entity {
             Entity::Line { start, end } => {
-                if (*start - *end).length() > EPS {
+                if (*start - *end).length() > 1e-4 {
                     segments.push(SegmentInfo {
                         id,
                         start: *start,
@@ -287,11 +306,24 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     });
                 }
             }
+            Entity::Spline { points } => {
+                if points.len() >= 2 {
+                    let sampled = crate::entity::sample_catmull_rom(points, 16);
+                    if let (Some(&s), Some(&e)) = (sampled.first(), sampled.last()) {
+                        segments.push(SegmentInfo {
+                            id,
+                            start: s,
+                            end: e,
+                            sampled_pts: sampled,
+                        });
+                    }
+                }
+            }
             _ => {}
         }
     }
 
-    if segments.len() >= 3 {
+    if segments.len() >= 2 {
         // Cari simple cycles
         let mut used_in_region = HashSet::new();
 
@@ -310,7 +342,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
             let mut success = false;
 
             for _ in 0..segments.len() {
-                if (current_tail - target_head).length() < EPS && chain.len() >= 3 {
+                if (current_tail - target_head).length() < CHAIN_EPS && chain.len() >= 2 {
                     success = true;
                     break;
                 }
@@ -321,13 +353,13 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     if visited.contains(&next_idx) {
                         continue;
                     }
-                    if (seg.start - current_tail).length() < EPS {
+                    if (seg.start - current_tail).length() < CHAIN_EPS {
                         chain.push((next_idx, false));
                         visited.insert(next_idx);
                         current_tail = seg.end;
                         found_next = true;
                         break;
-                    } else if (seg.end - current_tail).length() < EPS {
+                    } else if (seg.end - current_tail).length() < CHAIN_EPS {
                         chain.push((next_idx, true));
                         visited.insert(next_idx);
                         current_tail = seg.start;

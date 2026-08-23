@@ -42,7 +42,7 @@ pub fn export(sketch: &Sketch, path: impl AsRef<Path>) -> Result<usize> {
             Entity::Arc { center, radius, start_angle, end_angle } => {
                 push_arc(&mut out, *center, *radius, *start_angle, *end_angle)
             }
-            Entity::Ellipse { .. } => skipped += 1,
+            Entity::Ellipse { .. } | Entity::Spline { .. } => skipped += 1,
         }
     }
 

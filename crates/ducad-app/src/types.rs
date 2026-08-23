@@ -12,6 +12,8 @@ pub enum ToolKind {
     Rectangle,
     Circle,
     Ellipse,
+    /// Kurva Spline multi-titik (Catmull-Rom).
+    Spline,
     /// 3 titik: awal, akhir, titik di busur.
     Arc,
     /// Klik entitas sumber, lalu klik sisi & jarak hasil offset.
@@ -52,6 +54,7 @@ impl ToolKind {
             ToolKind::Rectangle => ToolbarTool::Rectangle,
             ToolKind::Circle => ToolbarTool::Circle,
             ToolKind::Ellipse => ToolbarTool::Ellipse,
+            ToolKind::Spline => ToolbarTool::Spline,
             ToolKind::Offset => ToolbarTool::Offset,
             ToolKind::Mirror => ToolbarTool::Mirror,
             ToolKind::Trim => ToolbarTool::Trim,
@@ -78,6 +81,7 @@ impl ToolKind {
             ToolbarTool::Rectangle => ToolKind::Rectangle,
             ToolbarTool::Circle => ToolKind::Circle,
             ToolbarTool::Ellipse => ToolKind::Ellipse,
+            ToolbarTool::Spline => ToolKind::Spline,
             ToolbarTool::Offset => ToolKind::Offset,
             ToolbarTool::Mirror => ToolKind::Mirror,
             ToolbarTool::Trim => ToolKind::Trim,
@@ -174,6 +178,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         ToolKind::Arc | ToolKind::MeasureAngle => 3,
         ToolKind::Select
         | ToolKind::Line
+        | ToolKind::Spline
         | ToolKind::Offset
         | ToolKind::Trim
         | ToolKind::CoincidentPick

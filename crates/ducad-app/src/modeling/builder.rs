@@ -61,17 +61,45 @@ impl DuCADApp {
             .iter()
             .filter(|r| r.entity_ids.is_subset(&self.selected))
             .collect();
-        if selected_regions.is_empty() {
-            return None;
+        if !selected_regions.is_empty() {
+            let total_area: f64 = selected_regions.iter().map(|r| r.area.max(1e-4)).sum();
+            let mut cx = 0.0;
+            let mut cy = 0.0;
+            for r in &selected_regions {
+                cx += r.centroid.x * r.area.max(1e-4);
+                cy += r.centroid.y * r.area.max(1e-4);
+            }
+            return Some(DVec2::new(cx / total_area, cy / total_area));
         }
-        let total_area: f64 = selected_regions.iter().map(|r| r.area.max(1e-4)).sum();
-        let mut cx = 0.0;
-        let mut cy = 0.0;
-        for r in &selected_regions {
-            cx += r.centroid.x * r.area.max(1e-4);
-            cy += r.centroid.y * r.area.max(1e-4);
+
+        // Fallback: hitung centroid dari profile jika entitas terpilih membentuk loop tertutup
+        if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
+            match profile {
+                ducad_kernel::Profile::Circle { center, .. } | ducad_kernel::Profile::Ellipse { center, .. } => {
+                    return Some(DVec2::new(center.0, center.1));
+                }
+                ducad_kernel::Profile::Loop(segments) => {
+                    let mut sum = DVec2::ZERO;
+                    let mut count = 0.0;
+                    for seg in &segments {
+                        match seg {
+                            ducad_kernel::ProfileSegment::Line { start, end } => {
+                                sum += DVec2::new(start.0, start.1) + DVec2::new(end.0, end.1);
+                                count += 2.0;
+                            }
+                            ducad_kernel::ProfileSegment::Arc { start, via, end } => {
+                                sum += DVec2::new(start.0, start.1) + DVec2::new(via.0, via.1) + DVec2::new(end.0, end.1);
+                                count += 3.0;
+                            }
+                        }
+                    }
+                    if count > 0.0 {
+                        return Some(sum / count);
+                    }
+                }
+            }
         }
-        Some(DVec2::new(cx / total_area, cy / total_area))
+        None
     }
 
     /// Grup-grup entitas yang MASING-MASING dapat titik "+" SENDIRI di sketch aktif.

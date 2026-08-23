@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS,
+    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub enum ToolbarTool {
     Rectangle,
     Circle,
     Ellipse,
+    Spline,
     Offset,
     Mirror,
     Trim,
@@ -111,6 +112,8 @@ impl LeftToolbar {
                 let circle_desc = t!("tool-circle-desc");
                 let ellipse_title = t!("tool-ellipse");
                 let ellipse_desc = t!("tool-ellipse-desc");
+                let spline_title = t!("tool-spline");
+                let spline_desc = t!("tool-spline-desc");
                 let loft_title = t!("tool-loft");
                 let loft_desc = t!("tool-loft-desc");
 
@@ -149,6 +152,13 @@ impl LeftToolbar {
                         &ellipse_title,
                         Some("E"),
                         Some(&ellipse_desc),
+                    ),
+                    (
+                        ToolbarTool::Spline,
+                        ICON_TIMELINE.codepoint,
+                        &spline_title,
+                        Some("S"),
+                        Some(&spline_desc),
                     ),
                     (
                         ToolbarTool::Loft,
