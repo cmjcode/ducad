@@ -29,6 +29,8 @@ pub struct Entity2dItemInfo {
     pub name: String,
     pub icon: &'static str,
     pub selected: bool,
+    /// Nama grup yang ditetapkan user. `None` = entitas flat tanpa grup.
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,7 @@ pub enum ItemsDrawerEvent {
     SelectEntity2d { id_raw: u64, extend: bool },
     Close,
     Open,
+    ToggleGroup(String),
 }
 
 pub struct ItemsDrawer {
@@ -45,6 +48,8 @@ pub struct ItemsDrawer {
     pub objects_2d_expanded: bool,
     pub bodies_expanded: bool,
     pub custom_height: Option<f32>,
+    /// Expanded state per nama grup 2D.
+    pub expanded_groups: std::collections::HashMap<String, bool>,
 }
 
 impl Default for ItemsDrawer {
@@ -54,6 +59,7 @@ impl Default for ItemsDrawer {
             objects_2d_expanded: true,
             bodies_expanded: true,
             custom_height: None,
+            expanded_groups: std::collections::HashMap::new(),
         }
     }
 }
@@ -324,7 +330,155 @@ impl ItemsDrawer {
                                 });
                             });
                         } else {
-                            for e in entities_matching {
+                            // Pisahkan entitas menjadi: bernama grup vs flat
+                            // Kumpulkan grup unik (urutan stabil via BTreeMap)
+                            use std::collections::BTreeMap;
+                            let mut groups: BTreeMap<String, Vec<&Entity2dItemInfo>> = BTreeMap::new();
+                            let mut ungrouped: Vec<&Entity2dItemInfo> = Vec::new();
+
+                            for e in &entities_matching {
+                                if query.is_empty() || e.name.to_lowercase().contains(&query)
+                                    || e.group_name.as_ref().map(|g| g.to_lowercase().contains(&query)).unwrap_or(false)
+                                {
+                                    match &e.group_name {
+                                        Some(g) => groups.entry(g.clone()).or_default().push(e),
+                                        None => ungrouped.push(e),
+                                    }
+                                }
+                            }
+
+                            // Render grup-grup terlebih dahulu
+                            for (group_name, members) in &groups {
+                                let is_expanded = *self.expanded_groups.get(group_name).unwrap_or(&true);
+                                let chevron = if is_expanded {
+                                    ICON_KEYBOARD_ARROW_DOWN.codepoint
+                                } else {
+                                    ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                                };
+                                let any_selected = members.iter().any(|e| e.selected);
+
+                                let group_frame = Frame {
+                                    inner_margin: Margin::symmetric(8, 5),
+                                    outer_margin: Margin::symmetric(0, 1),
+                                    corner_radius: CornerRadius::same(6),
+                                    shadow: egui::Shadow::NONE,
+                                    fill: if any_selected {
+                                        Color32::from_rgb(18, 35, 60)
+                                    } else {
+                                        Color32::from_rgb(28, 32, 42)
+                                    },
+                                    stroke: Stroke::new(
+                                        if any_selected { 1.0 } else { 0.5 },
+                                        if any_selected { ACCENT_BLUE } else { BORDER_SUBTLE },
+                                    ),
+                                };
+
+                                let header_output = group_frame.show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.horizontal(|ui| {
+                                        // Chevron
+                                        ui.label(
+                                            RichText::new(chevron)
+                                                .size(13.0)
+                                                .color(TEXT_SECONDARY),
+                                        );
+                                        // Folder icon
+                                        ui.label(
+                                            RichText::new(ICON_FOLDER.codepoint)
+                                                .size(13.0)
+                                                .color(if any_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
+                                        );
+                                        // Nama grup
+                                        ui.label(
+                                            RichText::new(group_name.as_str())
+                                                .size(11.5)
+                                                .strong()
+                                                .color(if any_selected { Color32::WHITE } else { TEXT_PRIMARY }),
+                                        );
+                                        // Badge jumlah anggota (kanan)
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            let (badge_rect, _) = ui.allocate_exact_size(
+                                                Vec2::splat(18.0),
+                                                egui::Sense::hover(),
+                                            );
+                                            ui.painter().circle_filled(
+                                                badge_rect.center(),
+                                                9.0,
+                                                Color32::from_rgb(46, 50, 62),
+                                            );
+                                            ui.painter().text(
+                                                badge_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                format!("{}", members.len()),
+                                                egui::FontId::proportional(10.0),
+                                                Color32::from_rgb(160, 166, 178),
+                                            );
+                                        });
+                                    });
+                                });
+
+                                if header_output.response.interact(egui::Sense::click()).clicked() {
+                                    event = Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
+                                }
+
+                                if is_expanded {
+                                    // Render anggota grup dengan indentasi
+                                    for e in members {
+                                        ui.push_id(e.id_raw, |ui| {
+                                            ui.horizontal(|ui| {
+                                                // Indentasi
+                                                ui.add_space(16.0);
+                                                // Render kartu entitas
+                                                let is_selected = e.selected;
+                                                let card_bg = if is_selected {
+                                                    Color32::from_rgb(18, 38, 68)
+                                                } else {
+                                                    Color32::from_rgb(22, 25, 33)
+                                                };
+                                                let card_stroke = if is_selected {
+                                                    Stroke::new(1.0, ACCENT_BLUE)
+                                                } else {
+                                                    Stroke::new(0.5, BORDER_SUBTLE)
+                                                };
+
+                                                let row_frame = Frame {
+                                                    inner_margin: Margin::symmetric(6, 5),
+                                                    outer_margin: Margin::symmetric(0, 1),
+                                                    corner_radius: CornerRadius::same(5),
+                                                    shadow: egui::Shadow::NONE,
+                                                    fill: card_bg,
+                                                    stroke: card_stroke,
+                                                };
+
+                                                let card_output = row_frame.show(ui, |ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(RichText::new(e.icon).size(12.0).color(
+                                                            if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY },
+                                                        ));
+                                                        ui.label(
+                                                            RichText::new(&e.name)
+                                                                .size(11.0)
+                                                                .color(if is_selected { Color32::WHITE } else { TEXT_PRIMARY }),
+                                                        );
+                                                    });
+                                                });
+
+                                                if card_output.response.interact(egui::Sense::click()).clicked() {
+                                                    let extend = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+                                                    event = Some(ItemsDrawerEvent::SelectEntity2d {
+                                                        id_raw: e.id_raw,
+                                                        extend,
+                                                    });
+                                                }
+                                            });
+                                        });
+                                    }
+                                }
+                            }
+
+                            // Render entitas flat (tanpa grup)
+                            for e in ungrouped {
                                 ui.push_id(e.id_raw, |ui| {
                                     let is_selected = e.selected;
                                     let card_bg = if is_selected {

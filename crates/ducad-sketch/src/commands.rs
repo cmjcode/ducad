@@ -235,3 +235,56 @@ impl Command<Sketch> for TranslateEntities {
         }
     }
 }
+
+/// Beri nama grup pada sekumpulan entitas secara serentak (undoable).
+///
+/// Jika `new_name` kosong, entri nama untuk masing-masing entity dihapus
+/// (entity kembali ke tampilan flat tanpa grup).
+pub struct RenameEntities {
+    ids: Vec<EntityId>,
+    new_name: String,
+    /// Nama lama per-entity sebelum command ini diaplikasikan (untuk revert).
+    old_names: std::collections::HashMap<EntityId, Option<String>>,
+}
+
+impl RenameEntities {
+    pub fn new(ids: Vec<EntityId>, new_name: impl Into<String>) -> Self {
+        Self {
+            ids,
+            new_name: new_name.into(),
+            old_names: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl Command<Sketch> for RenameEntities {
+    fn name(&self) -> &str {
+        "Beri Nama Grup"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        self.old_names.clear();
+        for &id in &self.ids {
+            // Simpan nama lama untuk revert
+            let old = sketch.entity_names.get(&id).cloned();
+            self.old_names.insert(id, old);
+
+            if self.new_name.is_empty() {
+                sketch.entity_names.remove(&id);
+            } else {
+                sketch.entity_names.insert(id, self.new_name.clone());
+            }
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        for (&id, old_opt) in &self.old_names {
+            match old_opt {
+                Some(old_name) => {
+                    sketch.entity_names.insert(id, old_name.clone());
+                }
+                None => {
+                    sketch.entity_names.remove(&id);
+                }
+            }
+        }
+    }
+}

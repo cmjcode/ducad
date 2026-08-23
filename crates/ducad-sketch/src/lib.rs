@@ -15,8 +15,8 @@ pub mod snap;
 mod tests;
 
 pub use commands::{
-    DeleteEntities, InsertEntities, ReplaceEntities, ResizeRectangle, TranslateEntities,
-    UndoStack, UpdateEntity,
+    DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
+    TranslateEntities, UndoStack, UpdateEntity,
 };
 pub use entity::{Entity, EntityId};
 pub use ops::{

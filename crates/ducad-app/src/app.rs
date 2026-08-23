@@ -6,15 +6,15 @@ use ducad_kernel::{FaceHit, PickRay};
 use ducad_render::{OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, ViewPreset};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    detect_rectangle, DeleteEntities, Entity, EntityId, RectAnchor, ResizeRectangle, Sketch,
-    SnapHit, UpdateEntity,
+    detect_rectangle, DeleteEntities, Entity, EntityId, RectAnchor, RenameEntities,
+    ResizeRectangle, Sketch, SnapHit, UpdateEntity,
 };
 use ducad_ui::{
     ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
     ContextAction, ContextActionBar, Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu,
+    RadialMenu, RenamePopupEvent,
     ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -191,6 +191,21 @@ pub struct DuCADApp {
 
     pub last_select_click: Option<(egui::Pos2, usize)>,
     pub last_body_select_click: Option<(BodyId, std::time::Instant)>,
+
+    // Rename popup state
+    pub rename_popup_open: bool,
+    pub rename_input: String,
+    pub rename_target: RenameTarget,
+}
+
+/// Target objek yang sedang di-rename.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameTarget {
+    None,
+    /// Rename/group semua entitas 2D yang saat ini terpilih.
+    Sketch2d,
+    /// Rename body 3D tertentu.
+    Body3d(BodyId),
 }
 
 impl DuCADApp {
@@ -372,6 +387,10 @@ impl DuCADApp {
             body_copy_mode: false,
             last_select_click: None,
             last_body_select_click: None,
+
+            rename_popup_open: false,
+            rename_input: String::new(),
+            rename_target: RenameTarget::None,
         }
     }
 
@@ -837,6 +856,7 @@ impl eframe::App for DuCADApp {
                     name,
                     icon: icon_str,
                     selected: self.selected.contains(&id),
+                    group_name: self.sketch().entity_names.get(&id).cloned(),
                 }
             })
             .collect();
@@ -944,6 +964,10 @@ impl eframe::App for DuCADApp {
                             }
                             ItemsDrawerEvent::Open => {
                                 self.items_drawer_open = true;
+                            }
+                            ItemsDrawerEvent::ToggleGroup(name) => {
+                                let current = *self.items_drawer.expanded_groups.get(&name).unwrap_or(&true);
+                                self.items_drawer.expanded_groups.insert(name, !current);
                             }
                         }
                     }
@@ -1364,6 +1388,24 @@ impl eframe::App for DuCADApp {
                                     }
                                 }
                                 ContextAction::ClearSelection => self.selected.clear(),
+                                ContextAction::Rename => {
+                                    // Buka popup rename untuk grup 2D
+                                    // Isi input dengan nama grup saat ini (jika semua entitas punya nama yang sama)
+                                    let current_name = {
+                                        let sketch = self.sketch();
+                                        let mut names = self.selected.iter()
+                                            .filter_map(|id| sketch.entity_names.get(id).cloned())
+                                            .collect::<std::collections::HashSet<_>>();
+                                        if names.len() == 1 {
+                                            names.drain().next().unwrap_or_default()
+                                        } else {
+                                            String::new()
+                                        }
+                                    };
+                                    self.rename_input = current_name;
+                                    self.rename_target = RenameTarget::Sketch2d;
+                                    self.rename_popup_open = true;
+                                }
                                 _ => {}
                             }
                         }
@@ -1404,9 +1446,79 @@ impl eframe::App for DuCADApp {
                                 ContextAction::ClearSelection => {
                                     self.selected_bodies.clear();
                                 }
+                                ContextAction::Rename => {
+                                    // Buka popup rename untuk body 3D pertama yang dipilih
+                                    if let Some(&body_id) = self.selected_bodies.iter().next() {
+                                        let current_name = self.model.doc.bodies
+                                            .get(body_id)
+                                            .map(|b| b.name.clone())
+                                            .unwrap_or_default();
+                                        self.rename_input = current_name;
+                                        self.rename_target = RenameTarget::Body3d(body_id);
+                                        self.rename_popup_open = true;
+                                    }
+                                }
                                 _ => {}
                             }
                         }
+                    }
+                });
+        }
+
+        // =========================================================================
+        // RENAME POPUP (top-center HUD, muncul saat tombol Nama diklik)
+        // =========================================================================
+        if self.rename_popup_open {
+            let popup_label = match &self.rename_target {
+                RenameTarget::Sketch2d => "Nama Grup Objek 2D",
+                RenameTarget::Body3d(_) => "Nama Body 3D",
+                RenameTarget::None => "Nama",
+            };
+            let rename_input_clone = self.rename_input.clone();
+            let rename_target_clone = self.rename_target.clone();
+
+            let popup_x = screen_center_x;
+            let popup_y = screen_rect.min.y + 60.0;
+
+            egui::Area::new(egui::Id::new("ducad-rename-popup-area"))
+                .fixed_pos(egui::pos2(popup_x, popup_y))
+                .pivot(egui::Align2::CENTER_TOP)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    let mut input_buf = rename_input_clone.clone();
+                    if let Some(ev) = CanvasHud::show_rename_popup(ui, popup_label, &mut input_buf) {
+                        match ev {
+                            RenamePopupEvent::Confirm(new_name) => {
+                                match &rename_target_clone {
+                                    RenameTarget::Sketch2d => {
+                                        let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                                        if !ids.is_empty() {
+                                            self.execute_sketch_command(Box::new(
+                                                RenameEntities::new(ids, new_name.clone()),
+                                            ));
+                                        }
+                                    }
+                                    RenameTarget::Body3d(body_id) => {
+                                        if let Some(b) = self.model.doc.bodies.get_mut(*body_id) {
+                                            b.name = new_name.clone();
+                                            self.model.doc.dirty = true;
+                                        }
+                                    }
+                                    RenameTarget::None => {}
+                                }
+                                self.rename_popup_open = false;
+                                self.rename_target = RenameTarget::None;
+                                self.rename_input.clear();
+                            }
+                            RenamePopupEvent::Cancel => {
+                                self.rename_popup_open = false;
+                                self.rename_target = RenameTarget::None;
+                                self.rename_input.clear();
+                            }
+                        }
+                    } else {
+                        // Popup masih terbuka — sync buffer
+                        self.rename_input = input_buf;
                     }
                 });
         }

@@ -6,8 +6,8 @@
 
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_EDIT, ICON_FLIP,
-    ICON_OPEN_IN_FULL, ICON_REFRESH,
+    ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE,
+    ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -24,6 +24,7 @@ pub enum ContextAction {
     SketchOnFace,
     Delete,
     ClearSelection,
+    Rename,
 }
 
 #[derive(Default)]
@@ -103,6 +104,22 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Putar profil 360° mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // Rename / Beri Nama Grup
+                let rename_btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Nama", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint))
+                            .size(11.5)
+                            .color(ACCENT_BLUE),
+                    ),
+                );
+                if rename_btn.on_hover_text("Beri nama / kelompokkan entitas terpilih").clicked() {
+                    action = Some(ContextAction::Rename);
                 }
 
                 ui.add_space(2.0);
@@ -251,6 +268,22 @@ impl ContextActionBar {
                     ui.separator();
                     ui.add_space(2.0);
                 }
+
+                // Rename Body
+                let rename_btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Nama", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint))
+                            .size(11.5)
+                            .color(ACCENT_BLUE),
+                    ),
+                );
+                if rename_btn.on_hover_text("Beri nama / ganti nama body terpilih").clicked() {
+                    action = Some(ContextAction::Rename);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
 
                 // Delete Body
                 let del_btn = ui.add(

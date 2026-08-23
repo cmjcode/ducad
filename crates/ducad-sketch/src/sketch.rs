@@ -1,5 +1,6 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::constraint::Constraint;
 use crate::entity::{Entity, EntityId};
@@ -11,6 +12,11 @@ pub struct Sketch {
     /// Constraint aktif (lihat modul `constraint`) — solver menulis balik
     /// geometri `entities` di atas saat constraint berubah.
     pub constraints: Vec<Constraint>,
+    /// Nama grup yang ditetapkan pengguna untuk entitas.
+    /// Entitas yang berbagi nama yang sama dikelompokkan sebagai satu grup di UI.
+    /// Entitas tanpa entry di sini ditampilkan flat tanpa grup.
+    #[serde(default)]
+    pub entity_names: HashMap<EntityId, String>,
 }
 
 impl Sketch {

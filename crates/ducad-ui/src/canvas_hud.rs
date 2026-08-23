@@ -9,7 +9,7 @@ use crate::theme::{
     TEXT_SECONDARY,
 };
 use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
-use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_LOCK, ICON_STRAIGHTEN};
+use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_CHECK, ICON_CLOSE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RevolveHudAction {
@@ -55,6 +55,15 @@ pub enum CanvasHudEvent {
     OrientNormalToSketch,
     TurnOffSectionView,
     OpenMeasurements,
+}
+
+/// Event dari popup rename yang muncul di area top HUD.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenamePopupEvent {
+    /// User mengklik Simpan / tekan Enter — berisi nama baru.
+    Confirm(String),
+    /// User mengklik Batal / tekan Esc.
+    Cancel,
 }
 
 /// Titik-titik poligon konveks rounded-rect berpusat di origin (belum
@@ -1486,5 +1495,83 @@ impl CanvasHud {
         });
 
         hud_action
+    }
+
+    /// Render popup rename mengambang di area top-center kanvas.
+    ///
+    /// `label` — judul yang ditampilkan (mis. "Nama Grup 2D" atau "Nama Body 3D").
+    /// `input_buf` — buffer teks yang dibaca+ditulis secara langsung (mutable ref).
+    ///
+    /// Mengembalikan `Some(RenamePopupEvent::Confirm(nama))` saat user klik Simpan/Enter,
+    /// `Some(RenamePopupEvent::Cancel)` saat Batal/Esc, atau `None` saat popup masih aktif.
+    pub fn show_rename_popup(
+        ui: &mut Ui,
+        label: &str,
+        input_buf: &mut String,
+    ) -> Option<RenamePopupEvent> {
+        use crate::theme::glass_frame;
+
+        let mut event = None;
+
+        glass_frame().show(ui, |ui| {
+            ui.set_width(340.0);
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{} {}", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, label))
+                        .size(12.0)
+                        .strong()
+                        .color(ACCENT_BLUE),
+                );
+            });
+
+            ui.separator();
+
+            ui.horizontal(|ui| {
+                let te = egui::TextEdit::singleline(input_buf)
+                    .hint_text("Ketik nama…")
+                    .desired_width(220.0)
+                    .font(egui::FontId::proportional(13.0));
+                let te_resp = ui.add(te);
+
+                // Auto-focus saat baru muncul
+                te_resp.request_focus();
+
+                // Tekan Enter untuk konfirmasi
+                if te_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    event = Some(RenamePopupEvent::Confirm(input_buf.trim().to_string()));
+                }
+
+                // Tombol Simpan
+                let save_btn = egui::Button::new(
+                    RichText::new(format!("{} Simpan", ICON_CHECK.codepoint))
+                        .size(11.5)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(ACCENT_BLUE);
+                if ui.add(save_btn).on_hover_text("Simpan nama (Enter)").clicked() {
+                    event = Some(RenamePopupEvent::Confirm(input_buf.trim().to_string()));
+                }
+
+                // Tombol Batal
+                let cancel_btn = egui::Button::new(
+                    RichText::new(ICON_CLOSE.codepoint)
+                        .size(12.0)
+                        .color(TEXT_SECONDARY),
+                );
+                if ui.add(cancel_btn).on_hover_text("Batal (Esc)").clicked() {
+                    event = Some(RenamePopupEvent::Cancel);
+                }
+            });
+        });
+
+        // Tekan Esc untuk batal juga di level global
+        if event.is_none() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            event = Some(RenamePopupEvent::Cancel);
+        }
+
+        event
     }
 }

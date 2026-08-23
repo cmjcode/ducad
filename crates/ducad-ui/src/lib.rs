@@ -28,8 +28,8 @@ pub mod top_bar;
 pub mod viewcube;
 
 pub use canvas_hud::{
-    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, LoftHudAction, RevolveHudAction,
-    ShellHudAction,
+    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, LoftHudAction, RenamePopupEvent,
+    RevolveHudAction, ShellHudAction,
 };
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
