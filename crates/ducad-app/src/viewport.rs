@@ -83,6 +83,7 @@ pub fn hit_test_cycled(sketch: &Sketch, p: DVec2, tolerance: f64, cycle: usize) 
     let mut candidates: Vec<(EntityId, f64)> = sketch
         .entities
         .iter()
+        .filter(|(id, _)| !sketch.is_hidden(*id))
         .map(|(id, e)| (id, e.distance_to(p)))
         .filter(|(_, d)| *d <= tolerance)
         .collect();

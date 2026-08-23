@@ -378,3 +378,34 @@ fn translate_entities_undo_roundtrip_preserves_id() {
         }
     );
 }
+
+#[test]
+fn test_entity_visibility_toggle_and_hit_test() {
+    let mut sketch = Sketch::default();
+    let id = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(0.0, 0.0),
+        end: DVec2::new(10.0, 0.0),
+    });
+
+    assert!(sketch.is_visible(id));
+    assert!(!sketch.is_hidden(id));
+    assert!(sketch.hit_test(DVec2::new(5.0, 0.1), 0.5).is_some());
+
+    // Sembunyikan entitas
+    let now_visible = sketch.toggle_visibility(id);
+    assert!(!now_visible);
+    assert!(sketch.is_hidden(id));
+    assert!(!sketch.is_visible(id));
+    assert!(sketch.hit_test(DVec2::new(5.0, 0.1), 0.5).is_none());
+
+    // Snap juga harus mengabaikan entitas yang disembunyikan
+    let snap = find_snap(&sketch, DVec2::new(0.1, 0.0), 0.5, 100.0, None);
+    assert!(snap.is_none() || snap.unwrap().kind == SnapKind::Grid);
+
+    // Tampilkan kembali
+    let now_visible2 = sketch.toggle_visibility(id);
+    assert!(now_visible2);
+    assert!(sketch.is_visible(id));
+    assert!(sketch.hit_test(DVec2::new(5.0, 0.1), 0.5).is_some());
+}
+

@@ -855,6 +855,7 @@ impl eframe::App for DuCADApp {
                     id_raw: id.data().as_ffi(),
                     name,
                     icon: icon_str,
+                    visible: self.sketch().is_visible(id),
                     selected: self.selected.contains(&id),
                     group_name: self.sketch().entity_names.get(&id).cloned(),
                 }
@@ -935,9 +936,64 @@ impl eframe::App for DuCADApp {
                                     println!("[DUCAD APP] Body dengan raw_id: {} tidak ditemukan di doc.bodies! (Total bodies: {})", raw_id, self.model.doc.bodies.len());
                                 }
                             }
+                            ItemsDrawerEvent::ToggleEntity2dVisibility(raw_id) => {
+                                let mut found = false;
+                                for sketch in self.sketches.iter_mut() {
+                                    if let Some(id) = sketch.entities.keys().find(|i| i.data().as_ffi() == raw_id) {
+                                        let is_now_visible = sketch.toggle_visibility(id);
+                                        if !is_now_visible {
+                                            self.selected.remove(&id);
+                                            if self.hovered == Some(id) {
+                                                self.hovered = None;
+                                            }
+                                        }
+                                        let name = sketch.entity_names.get(&id).cloned().unwrap_or_else(|| "Objek 2D".to_string());
+                                        self.model_status = Some(format!(
+                                            "Objek 2D '{}' {}",
+                                            name,
+                                            if is_now_visible { "ditampilkan" } else { "disembunyikan" }
+                                        ));
+                                        found = true;
+                                        ctx.request_repaint();
+                                        break;
+                                    }
+                                }
+                                if !found {
+                                    println!("[DUCAD APP] Entity 2D dengan raw_id: {} tidak ditemukan!", raw_id);
+                                }
+                            }
+                            ItemsDrawerEvent::ToggleGroupVisibility(group_name) => {
+                                for sketch in self.sketches.iter_mut() {
+                                    let member_ids: Vec<_> = sketch
+                                        .entity_names
+                                        .iter()
+                                        .filter(|(_, name)| *name == &group_name)
+                                        .map(|(id, _)| *id)
+                                        .collect();
+                                    if !member_ids.is_empty() {
+                                        let any_visible = member_ids.iter().any(|id| sketch.is_visible(*id));
+                                        for id in &member_ids {
+                                            sketch.set_visible(*id, !any_visible);
+                                            if any_visible {
+                                                self.selected.remove(id);
+                                                if self.hovered == Some(*id) {
+                                                    self.hovered = None;
+                                                }
+                                            }
+                                        }
+                                        self.model_status = Some(format!(
+                                            "Grup '{}' {}",
+                                            group_name,
+                                            if !any_visible { "ditampilkan" } else { "disembunyikan" }
+                                        ));
+                                        ctx.request_repaint();
+                                        break;
+                                    }
+                                }
+                            }
                             ItemsDrawerEvent::SelectBody { id_raw, extend } => {
-                                for (id, _) in self.model.doc.bodies.iter() {
-                                    if id.data().as_ffi() == id_raw {
+                                for (id, body) in self.model.doc.bodies.iter() {
+                                    if id.data().as_ffi() == id_raw && body.visible {
                                         if !extend {
                                             self.selected_bodies.clear();
                                         }
@@ -951,11 +1007,13 @@ impl eframe::App for DuCADApp {
                             }
                             ItemsDrawerEvent::SelectEntity2d { id_raw, extend } => {
                                 if let Some(id) = self.sketch().entities.keys().find(|i| i.data().as_ffi() == id_raw) {
-                                    if !extend {
-                                        self.selected.clear();
-                                    }
-                                    if !self.selected.remove(&id) {
-                                        self.selected.insert(id);
+                                    if self.sketch().is_visible(id) {
+                                        if !extend {
+                                            self.selected.clear();
+                                        }
+                                        if !self.selected.remove(&id) {
+                                            self.selected.insert(id);
+                                        }
                                     }
                                 }
                             }

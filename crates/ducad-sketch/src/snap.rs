@@ -43,7 +43,7 @@ pub fn find_snap(
         sketch
             .entities
             .iter()
-            .filter(move |(id, _)| Some(*id) != exclude)
+            .filter(move |(id, _)| Some(*id) != exclude && !sketch.is_hidden(*id))
     };
 
     if let Some(hit) = nearest(
@@ -99,7 +99,7 @@ pub(crate) fn find_intersections(sketch: &Sketch, exclude: Option<EntityId>) -> 
     let lines: Vec<(DVec2, DVec2)> = sketch
         .entities
         .iter()
-        .filter(|(id, _)| Some(*id) != exclude)
+        .filter(|(id, _)| Some(*id) != exclude && !sketch.is_hidden(*id))
         .filter_map(|(_, e)| match e {
             Entity::Line { start, end } => Some((*start, *end)),
             _ => None,

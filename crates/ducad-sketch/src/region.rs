@@ -215,7 +215,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
     const EPS: f64 = 1e-4;
 
     // 1. Lingkaran mandiri (Circle)
-    for (id, entity) in sketch.entities.iter() {
+    for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
         if let Entity::Circle { center, radius } = entity {
             if *radius > 1e-6 {
                 const SAMPLES: usize = 48;
@@ -264,7 +264,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
     }
 
     let mut segments = Vec::new();
-    for (id, entity) in sketch.entities.iter() {
+    for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
         match entity {
             Entity::Line { start, end } => {
                 if (*start - *end).length() > EPS {
@@ -502,6 +502,9 @@ pub fn detect_rectangle(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<Rect
 
     let mut segs: Vec<Seg> = Vec::with_capacity(4);
     for &id in ids {
+        if sketch.is_hidden(id) {
+            return None;
+        }
         match sketch.entities.get(id) {
             Some(Entity::Line { start, end }) if (*start - *end).length() > EPS => {
                 segs.push(Seg { id, start: *start, end: *end });

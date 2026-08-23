@@ -52,6 +52,9 @@ pub fn entity_lines(
 ) -> Vec<LineVertex> {
     let mut verts = Vec::new();
     for (id, entity) in sketch.entities.iter() {
+        if sketch.is_hidden(id) {
+            continue;
+        }
         let color = if Some(id) == hovered {
             COLOR_HOVER
         } else if selected.contains(&id) {
@@ -67,7 +70,10 @@ pub fn entity_lines(
 /// Garis untuk seluruh entitas sketch pada bidang non-aktif, dirender di koordinat 3D aslinya.
 pub fn inactive_entity_lines(sketch: &Sketch, plane: &SketchPlane) -> Vec<LineVertex> {
     let mut verts = Vec::new();
-    for (_id, entity) in sketch.entities.iter() {
+    for (id, entity) in sketch.entities.iter() {
+        if sketch.is_hidden(id) {
+            continue;
+        }
         push_entity(&mut verts, entity, COLOR_INACTIVE_PLANE, plane);
     }
     verts

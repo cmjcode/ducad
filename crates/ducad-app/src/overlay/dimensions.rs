@@ -318,8 +318,13 @@ impl DuCADApp {
         // 2. Render entitas sketch 2D:
         // - Di mode sketch (`is_sketching`): interaktif & bebas diedit.
         // - Di mode 3D (`!is_sketching`): hanya digambar jika TIDAK berhimpit dengan rusuk 3D solid body.
-        let entities: Vec<(EntityId, Entity)> =
-            self.sketch().entities.iter().map(|(id, e)| (id, e.clone())).collect();
+        let entities: Vec<(EntityId, Entity)> = self
+            .sketch()
+            .entities
+            .iter()
+            .filter(|(id, _)| !self.sketch().is_hidden(*id))
+            .map(|(id, e)| (id, e.clone()))
+            .collect();
         let mut commit: Option<(EntityId, f64)> = None;
 
         for (id, entity) in &entities {

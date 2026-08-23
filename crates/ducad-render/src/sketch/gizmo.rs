@@ -740,7 +740,7 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
         }
     };
 
-    let push_tri = |pos: &mut Vec<[f32; 3]>,
+    let _push_tri = |pos: &mut Vec<[f32; 3]>,
                     norm: &mut Vec<[f32; 3]>,
                     col: &mut Vec<[f32; 4]>,
                     ind: &mut Vec<u32>,

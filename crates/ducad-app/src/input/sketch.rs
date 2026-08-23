@@ -1000,6 +1000,7 @@ impl DuCADApp {
                                 .sketch()
                                 .entities
                                 .iter()
+                                .filter(|(id, _)| !self.sketch().is_hidden(*id))
                                 .filter_map(|(id, entity)| {
                                     let inside = match entity {
                                         Entity::Line { start, end } => {
