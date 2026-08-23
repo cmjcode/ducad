@@ -20,6 +20,13 @@ pub enum RevolveHudAction {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SweepHudAction {
+    Commit,
+    ResetProfile,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LoftHudAction {
     SetHeight(f64),
@@ -1368,6 +1375,121 @@ impl CanvasHud {
                     }
 
                     ui.label(RichText::new(format!("{}:", t!("param-operation"))).size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode 3D Sweep (Sapu Profil 2D Menyusuri Jalur)
+    pub fn render_sweep_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        has_profile: bool,
+        has_path: bool,
+    ) -> Option<SweepHudAction> {
+        let mut hud_action = None;
+        let is_ready = has_profile && has_path;
+
+        let banner_w = 680.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            18.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            18.0,
+            Stroke::new(
+                1.2,
+                if is_ready {
+                    ACCENT_GREEN
+                } else if has_profile {
+                    ACCENT_BLUE
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = if is_ready {
+            t!("hud-sweep-prompt-ready")
+        } else if has_profile {
+            t!("hud-sweep-prompt-path")
+        } else {
+            t!("hud-sweep-prompt-profile")
+        };
+
+        // Layout horizontal di dalam banner
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(&step_text)
+                    .size(11.5)
+                    .strong()
+                    .color(if is_ready {
+                        ACCENT_GREEN
+                    } else if has_profile {
+                        ACCENT_BLUE
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                // Tombol Batal
+                let cancel_btn = egui::Button::new(
+                    RichText::new(t!("hud-sweep-cancel"))
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
+                )
+                .fill(Color32::from_rgba_premultiplied(40, 44, 52, 180));
+                if ui.add(cancel_btn).clicked() {
+                    hud_action = Some(SweepHudAction::Cancel);
+                }
+
+                ui.add_space(4.0);
+
+                if is_ready {
+                    // Tombol Eksekusi Sweep (Commit)
+                    let exec_btn = egui::Button::new(
+                        RichText::new(t!("hud-sweep-exec-btn"))
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_GREEN);
+
+                    if ui.add(exec_btn).clicked() {
+                        hud_action = Some(SweepHudAction::Commit);
+                    }
+
+                    ui.add_space(4.0);
+                }
+
+                if has_profile {
+                    // Tombol Ganti Profil
+                    let reset_btn = egui::Button::new(
+                        RichText::new(t!("hud-sweep-reset-profile"))
+                            .size(10.5)
+                            .color(TEXT_PRIMARY),
+                    )
+                    .fill(Color32::from_rgba_premultiplied(40, 44, 52, 180));
+
+                    if ui.add(reset_btn).clicked() {
+                        hud_action = Some(SweepHudAction::ResetProfile);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
                 }
             });
         });

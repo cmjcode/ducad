@@ -760,6 +760,66 @@ impl DuCADApp {
                 !self.selected.is_empty(),
                 ui.input(|i| i.time),
             );
+        } else if self.tool == ToolKind::Sweep {
+            let has_profile = self.pending_sweep_profile.is_some();
+            let has_path = self.pending_sweep_path.is_some();
+
+            if let Some(action) = CanvasHud::render_sweep_top_bar_hud(
+                ui,
+                rect,
+                has_profile,
+                has_path,
+            ) {
+                match action {
+                    ducad_ui::SweepHudAction::Commit => {
+                        self.sweep_selected();
+                    }
+                    ducad_ui::SweepHudAction::ResetProfile => {
+                        self.pending_sweep_profile = None;
+                        self.pending_sweep_path = None;
+                        self.sweep_path_plane_idx = None;
+                        self.selected.clear();
+                        self.model_status = Some("Pilih profil 2D tertutup pada bidang manapun di kanvas.".to_string());
+                    }
+                    ducad_ui::SweepHudAction::Cancel => {
+                        self.pending_sweep_profile = None;
+                        self.pending_sweep_path = None;
+                        self.sweep_path_plane_idx = None;
+                        self.hovered_plane_idx = None;
+                        self.selected.clear();
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if has_profile && has_path {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.sweep_selected();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.pending_sweep_profile = None;
+                    self.pending_sweep_path = None;
+                    self.sweep_path_plane_idx = None;
+                    self.hovered_plane_idx = None;
+                    self.selected.clear();
+                    self.set_tool(ToolKind::Select);
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.pending_sweep_profile = None;
+                self.pending_sweep_path = None;
+                self.sweep_path_plane_idx = None;
+                self.hovered_plane_idx = None;
+                self.selected.clear();
+                self.set_tool(ToolKind::Select);
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                has_profile || has_path,
+                ui.input(|i| i.time),
+            );
         } else {
             ToolGuides::render_tool_guide(
                 ui,

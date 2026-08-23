@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
@@ -131,6 +132,12 @@ impl DuCADApp {
                 self.model.geometry.remove(staged_id);
                 self.model.doc.bodies.remove(staged_id);
             }
+        }
+        if self.tool == ToolKind::Sweep && tool != ToolKind::Sweep {
+            self.pending_sweep_profile = None;
+            self.pending_sweep_path = None;
+            self.sweep_path_plane_idx = None;
+            self.hovered_plane_idx = None;
         }
         self.tool = tool;
         self.pending_points.clear();
@@ -290,6 +297,15 @@ impl DuCADApp {
         hit_test_cycled(self.sketch(), p, tolerance, 0)
     }
 
+    pub fn hit_test_hover_multi_plane(
+        &self,
+        rect: egui::Rect,
+        pos: egui::Pos2,
+        tolerance: f64,
+    ) -> Option<(usize, EntityId)> {
+        hit_test_multi_plane(&self.camera, rect, &self.sketches, pos, tolerance, 0)
+    }
+
     pub fn hit_test_click_cycled(
         &mut self,
         rect: egui::Rect,
@@ -308,6 +324,25 @@ impl DuCADApp {
         self.last_select_click = Some((pos, cycle));
         let p = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)?;
         hit_test_cycled(self.sketch(), p, tolerance, cycle)
+    }
+
+    pub fn hit_test_click_multi_plane(
+        &mut self,
+        rect: egui::Rect,
+        pos: egui::Pos2,
+        tolerance: f64,
+    ) -> Option<(usize, EntityId)> {
+        const SELECT_CYCLE_CLICK_PX: f32 = 4.0;
+        let cycle = match self.last_select_click {
+            Some((last_pos, last_cycle))
+                if last_pos.distance(pos) < SELECT_CYCLE_CLICK_PX =>
+            {
+                last_cycle + 1
+            }
+            _ => 0,
+        };
+        self.last_select_click = Some((pos, cycle));
+        hit_test_multi_plane(&self.camera, rect, &self.sketches, pos, tolerance, cycle)
     }
 
     pub fn on_click_point(&mut self, p: DVec2) {
@@ -910,34 +945,51 @@ impl DuCADApp {
                     return;
                 }
 
-                let corner_hover_2d = if self.is_sketching && response.hovered() && !self.sketch().entities.is_empty() {
-                    find_corner_lines_at_point(self.sketch(), raw, tol * 2.5)
-                } else {
-                    None
-                };
-                self.hovered_corner_2d = corner_hover_2d.map(|(_, _, pt)| pt);
+                let mut region_hit: Option<ClosedRegion> = None;
 
-                let region_hit: Option<ClosedRegion> =
-                    if corner_hover_2d.is_none() && !self.sketch().entities.is_empty() && response.hovered() {
-                        if let Some(r) = find_region_at_point(self.sketch(), raw) {
-                            Some(r)
-                        } else if let Some(hit) = self.hit_test_hover(rect, response, tol) {
-                            find_region_containing_entity(self.sketch(), hit)
+                if self.tool == ToolKind::Sweep {
+                    self.hovered_vertex_marker = None;
+                    self.hovered_corner_2d = None;
+                    if let Some(pos) = response.hover_pos() {
+                        if let Some((plane_idx, ent_id)) = self.hit_test_hover_multi_plane(rect, pos, tol) {
+                            self.hovered = Some(ent_id);
+                            self.hovered_plane_idx = Some(plane_idx);
                         } else {
-                            None
+                            self.hovered = None;
+                            self.hovered_plane_idx = None;
                         }
+                    }
+                } else {
+                    let corner_hover_2d = if self.is_sketching && response.hovered() && !self.sketch().entities.is_empty() {
+                        find_corner_lines_at_point(self.sketch(), raw, tol * 2.5)
                     } else {
                         None
                     };
+                    self.hovered_corner_2d = corner_hover_2d.map(|(_, _, pt)| pt);
 
-                self.hovered = if region_hit.is_some() || corner_hover_2d.is_some() {
-                    None
-                } else {
-                    response
-                        .hovered()
-                        .then(|| self.hit_test_hover(rect, response, tol))
-                        .flatten()
-                };
+                    region_hit =
+                        if corner_hover_2d.is_none() && !self.sketch().entities.is_empty() && response.hovered() {
+                            if let Some(r) = find_region_at_point(self.sketch(), raw) {
+                                Some(r)
+                            } else if let Some(hit) = self.hit_test_hover(rect, response, tol) {
+                                find_region_containing_entity(self.sketch(), hit)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                    self.hovered = if region_hit.is_some() || corner_hover_2d.is_some() {
+                        None
+                    } else {
+                        response
+                            .hovered()
+                            .then(|| self.hit_test_hover(rect, response, tol))
+                            .flatten()
+                    };
+                    self.hovered_plane_idx = Some(self.active_plane_index());
+                }
 
                 self.hovered_vertex_marker = if !self.is_sketching
                     && response.hovered()
@@ -1153,6 +1205,58 @@ impl DuCADApp {
                             self.model_status = Some(
                                 "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string(),
                             );
+                        }
+                    } else if self.tool == ToolKind::Sweep {
+                        self.active_face = None;
+                        self.active_vertex = None;
+                        self.active_edge = None;
+                        self.editing_round = None;
+                        let multi_hit = click_pos.and_then(|pos| self.hit_test_click_multi_plane(rect, pos, tol));
+                        let target = multi_hit.or_else(|| self.hovered.and_then(|h| self.hovered_plane_idx.map(|p| (p, h))));
+                        if let Some((plane_idx, ent_id)) = target {
+                            let plane = Self::plane_for_index(plane_idx);
+                            if self.pending_sweep_profile.is_none() {
+                                if let Some(r) = find_region_containing_entity(&self.sketches[plane_idx], ent_id) {
+                                    let ids: HashSet<EntityId> = r.entity_ids.into_iter().collect();
+                                    if let Ok(profile) = crate::model::build_profile_from_selection(&self.sketches[plane_idx], &ids) {
+                                        self.pending_sweep_profile = Some((profile, plane));
+                                        self.selected.clear();
+                                        self.sweep_path_plane_idx = None;
+                                        self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
+                                    }
+                                } else if let Ok(profile) = crate::model::build_profile_from_selection(&self.sketches[plane_idx], &std::iter::once(ent_id).collect()) {
+                                    self.pending_sweep_profile = Some((profile, plane));
+                                    self.selected.clear();
+                                    self.sweep_path_plane_idx = None;
+                                    self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
+                                } else {
+                                    self.model_status = Some("Entitas ini bukan profil 2D tertutup. Pilih profil tertutup.".to_string());
+                                }
+                            } else {
+                                if self.sweep_path_plane_idx != Some(plane_idx) {
+                                    self.selected.clear();
+                                    self.sweep_path_plane_idx = Some(plane_idx);
+                                }
+                                if shift {
+                                    if !self.selected.remove(&ent_id) {
+                                        self.selected.insert(ent_id);
+                                    }
+                                } else {
+                                    self.selected.clear();
+                                    self.selected.insert(ent_id);
+                                }
+
+                                if let Ok(path) = crate::model::build_path_from_selection_on_plane(&self.sketches[plane_idx], &self.selected, &plane) {
+                                    self.pending_sweep_path = Some(path);
+                                    self.model_status = Some("✓ Profil & Jalur terpilih! Tekan 'Buat Sweep 3D' di atas atau tekan Enter".to_string());
+                                } else {
+                                    self.pending_sweep_path = None;
+                                }
+                            }
+                        } else if !shift {
+                            self.selected.clear();
+                            self.pending_sweep_path = None;
+                            self.sweep_path_plane_idx = None;
                         }
                     } else if let Some(reg) = region_hit {
                         self.active_face = None;
@@ -1663,5 +1767,69 @@ impl DuCADApp {
                 self.last_snap = None;
             }
         }
+    }
+}
+
+/// Cari entitas yang kena ray kursor di antara 3 bidang kerja (Top, Front, Right).
+pub fn hit_test_multi_plane(
+    camera: &ducad_render::OrbitCamera,
+    rect: egui::Rect,
+    sketches: &[Sketch; 3],
+    pos: egui::Pos2,
+    tolerance: f64,
+    cycle: usize,
+) -> Option<(usize, EntityId)> {
+    let (p_near, dir) = crate::viewport::screen_to_ray(camera, rect, pos);
+    let mut best: Option<(usize, EntityId, f32)> = None;
+
+    for idx in 0..3 {
+        let plane = DuCADApp::plane_for_index(idx);
+        let Some(uv) = plane.ray_intersection(p_near, dir) else {
+            continue;
+        };
+        if let Some(id) = hit_test_cycled(&sketches[idx], uv, tolerance, cycle) {
+            let hit_3d = plane.to_world(uv, 0.0);
+            let dist = (hit_3d - p_near).length();
+            if best.as_ref().map_or(true, |(_, _, d)| dist < *d) {
+                best = Some((idx, id, dist));
+            }
+        }
+    }
+
+    best.map(|(idx, id, _)| (idx, id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::DVec2;
+
+    #[test]
+    fn test_multi_plane_hit_testing_detects_entities_on_different_planes() {
+        let mut sketches = [Sketch::default(), Sketch::default(), Sketch::default()];
+        let mut camera = ducad_render::OrbitCamera::default();
+        camera.orbit(-0.5, 0.4);
+
+        // Top sketch (plane 0) has a circle
+        let c_id = sketches[0].entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 10.0,
+        });
+        // Front sketch (plane 1) has a line along Z
+        let l_id = sketches[1].entities.insert(Entity::Line {
+            start: DVec2::new(0.0, 0.0),
+            end: DVec2::new(0.0, 40.0),
+        });
+
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 600.0));
+        // Hit on front sketch (plane 1) line at Z=20
+        let p_screen = crate::viewport::world_to_screen_pos(&camera, rect, glam::vec3(0.0, 0.0, 20.0)).unwrap();
+        let hit = hit_test_multi_plane(&camera, rect, &sketches, p_screen, 2.0, 0);
+        assert_eq!(hit, Some((1, l_id)));
+
+        // Hit on top sketch (plane 0) circle boundary at (10, 0, 0)
+        let p_circle_screen = crate::viewport::world_to_screen_pos(&camera, rect, glam::vec3(10.0, 0.0, 0.0)).unwrap();
+        let hit_c = hit_test_multi_plane(&camera, rect, &sketches, p_circle_screen, 2.0, 0);
+        assert_eq!(hit_c, Some((0, c_id)));
     }
 }

@@ -14,7 +14,7 @@ use ducad_ui::{
     ContextAction, ContextActionBar, Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu, RenamePopupEvent, SweepPopup, SweepPopupState,
+    RadialMenu, RenamePopupEvent,
     ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -79,6 +79,8 @@ pub struct DuCADApp {
     pub loft_staged_body_id: Option<BodyId>,
     pub pending_sweep_profile: Option<(ducad_kernel::Profile, ducad_render::SketchPlane)>,
     pub pending_sweep_path: Option<Vec<ducad_kernel::PathSegment>>,
+    pub sweep_path_plane_idx: Option<usize>,
+    pub hovered_plane_idx: Option<usize>,
     pub selection_box: Option<(glam::DVec2, glam::DVec2)>,
 
     pub picking_mode: PickMode,
@@ -298,6 +300,8 @@ impl DuCADApp {
             loft_staged_body_id: None,
             pending_sweep_profile: None,
             pending_sweep_path: None,
+            sweep_path_plane_idx: None,
+            hovered_plane_idx: None,
             selection_box: None,
             picking_mode: PickMode::default(),
             selected_edges: Vec::new(),
@@ -1197,13 +1201,6 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
-            ToolKind::Sweep => {
-                let mut state = SweepPopupState {
-                    sweep_profile_staged: self.pending_sweep_profile.is_some(),
-                    sweep_path_staged: self.pending_sweep_path.is_some(),
-                };
-                popup_ev = SweepPopup::show(&ctx, &mut state, screen_rect);
-            }
             ToolKind::History => {
                 let mut state = HistoryPopupState {
                     can_undo_model: self.model_undo.can_undo(),
@@ -1266,42 +1263,6 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::ApplyLoft { height } => {
                     self.loft_height_input = height.to_string();
                     self.loft_selected();
-                }
-                ToolPopupEvent::StageSweepProfile => {
-                    match crate::model::build_profile_from_selection(
-                        self.sketch(),
-                        &self.selected,
-                    ) {
-                        Ok(profile) => {
-                            self.pending_sweep_profile = Some((profile, self.active_plane));
-                            self.selected.clear();
-                            self.model_status = Some(
-                                "✓ Profil tersimpan! Sekarang ganti bidang sketsa (mis. Front/Right Plane) untuk membuat kurva jalur, lalu klik 'Set Jalur'."
-                                    .to_string(),
-                            );
-                        }
-                        Err(msg) => self.model_status = Some(format!("Pilih profil tertutup di kanvas: {msg}")),
-                    }
-                }
-                ToolPopupEvent::StageSweepPath => {
-                    match crate::model::build_path_from_selection_on_plane(
-                        self.sketch(),
-                        &self.selected,
-                        &self.active_plane,
-                    ) {
-                        Ok(path) => {
-                            self.pending_sweep_path = Some(path);
-                            self.selected.clear();
-                            self.model_status = Some(
-                                "✓ Jalur kurva pemandu tersimpan! Sekarang klik '🚀 Buat 3D Sweep'."
-                                    .to_string(),
-                            );
-                        }
-                        Err(msg) => self.model_status = Some(format!("Pilih jalur di kanvas: {msg}")),
-                    }
-                }
-                ToolPopupEvent::ApplySweep => {
-                    self.sweep_selected();
                 }
                 ToolPopupEvent::ToggleFacePicking => {
                     if self.picking_mode == PickMode::Face {
@@ -1517,7 +1478,20 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
                                 ContextAction::Revolve => self.open_revolve_dialog(),
-                                ContextAction::Sweep => self.set_tool(ToolKind::Sweep),
+                                ContextAction::Sweep => {
+                                    if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
+                                        self.pending_sweep_profile = Some((profile, self.active_plane));
+                                        self.selected.clear();
+                                        self.pending_sweep_path = None;
+                                        self.sweep_path_plane_idx = None;
+                                        self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang manapun di kanvas.".to_string());
+                                    } else {
+                                        self.pending_sweep_profile = None;
+                                        self.pending_sweep_path = None;
+                                        self.sweep_path_plane_idx = None;
+                                    }
+                                    self.set_tool(ToolKind::Sweep);
+                                }
                                 ContextAction::Delete => {
                                     if !self.selected.is_empty() {
                                         let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();

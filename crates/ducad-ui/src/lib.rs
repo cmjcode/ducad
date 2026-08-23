@@ -29,7 +29,7 @@ pub mod viewcube;
 
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, LoftHudAction, RenamePopupEvent,
-    RevolveHudAction, ShellHudAction,
+    RevolveHudAction, ShellHudAction, SweepHudAction,
 };
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
@@ -59,7 +59,7 @@ pub use tool_popups::{
     BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
     ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
-    ShellPopupState, SweepPopup, SweepPopupState, ToolPopupEvent,
+    ShellPopupState, ToolPopupEvent,
 };
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};

@@ -278,10 +278,12 @@ impl DuCADApp {
         };
 
         let Some(path_segments) = self.pending_sweep_path.clone().or_else(|| {
+            let path_plane_idx = self.sweep_path_plane_idx.unwrap_or_else(|| self.active_plane_index());
+            let path_plane = Self::plane_for_index(path_plane_idx);
             crate::model::build_path_from_selection_on_plane(
-                self.sketch(),
+                &self.sketches[path_plane_idx],
                 &self.selected,
-                &self.active_plane,
+                &path_plane,
             )
             .ok()
         }) else {
@@ -326,7 +328,10 @@ impl DuCADApp {
                 );
                 self.pending_sweep_profile = None;
                 self.pending_sweep_path = None;
-                self.model_status = None;
+                self.sweep_path_plane_idx = None;
+                self.hovered_plane_idx = None;
+                self.selected.clear();
+                self.model_status = Some("✓ Solid Sweep 3D berhasil dibuat".to_string());
                 self.set_tool(ToolKind::Select);
             }
             Err(e) => self.model_status = Some(format!("Sweep gagal: {e}")),

@@ -566,12 +566,19 @@ guide-loft-tip = 💡 Select 2 profiles on canvas -> set height in Top Bar -> En
 guide-loft-badge = ✓ Loft 3D
 
 guide-sweep-header = 3D Sweep Guide:
-guide-sweep-step-1 = 1. Select 2D Profile (Plane 1)
-guide-sweep-step-2 = 2. Select Guide Path (Plane 2)
-guide-sweep-step-done = Swept Solid Created
-guide-sweep-tip = 💡 Draw Profile on plane 1 (e.g. Top), then switch to plane 2 (e.g. Front) for Path!
+guide-sweep-step-1 = 1. Draw Profile & Path on Different Planes
+guide-sweep-step-2 = 2. Select 2D Profile & Click Sweep
+guide-sweep-step-3 = 3. Select Path Curve on Canvas
+guide-sweep-step-done = 4. Confirm in HUD (Enter)
+guide-sweep-tip = 💡 Click Sweep on closed profile, then directly select path curve on any plane without manual plane switching!
 guide-sweep-badge = ✓ 3D Sweep
-status-prompt-sweep = Sweep: set cross-section profile & guide curve in bottom-right popup
+status-prompt-sweep = Sweep: Select closed profile & guide path on any plane, then confirm in HUD (Enter)
+hud-sweep-prompt-profile = 1️⃣ Select closed 2D profile on any plane on canvas
+hud-sweep-prompt-path = 2️⃣ Select guide path curve (line, arc, or spline) on another plane
+hud-sweep-prompt-ready = ✓ Profile & Path selected! Click 'Create 3D Sweep' or press Enter
+hud-sweep-exec-btn = 🚀 Create 3D Sweep
+hud-sweep-reset-profile = ↺ Change Profile
+hud-sweep-cancel = ✕ Cancel
 
 
 guide-shell-header = Shell Guide:

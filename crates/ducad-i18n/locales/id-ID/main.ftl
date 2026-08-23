@@ -566,12 +566,19 @@ guide-loft-tip = 💡 Pilih 2 profil di kanvas -> atur tinggi di Top Bar -> Ente
 guide-loft-badge = ✓ Loft 3D
 
 guide-sweep-header = Panduan Sweep 3D:
-guide-sweep-step-1 = 1. Pilih Profil 2D (Bidang 1)
-guide-sweep-step-2 = 2. Pilih Jalur Kurva (Bidang 2)
-guide-sweep-step-done = Solid Sweep Terbentuk
-guide-sweep-tip = 💡 Gambar Profil di bidang 1 (mis. Top), lalu ganti ke bidang lain (mis. Front) untuk Jalur!
+guide-sweep-step-1 = 1. Buat Profil & Jalur di Bidang Berbeda
+guide-sweep-step-2 = 2. Pilih Profil 2D & Klik Sweep
+guide-sweep-step-3 = 3. Pilih Kurva Jalur di Kanvas
+guide-sweep-step-done = 4. Konfirmasi di HUD (Enter)
+guide-sweep-tip = 💡 Klik Sweep pada profil tertutup, lalu langsung pilih kurva jalur di bidang manapun tanpa perlu ganti bidang manual!
 guide-sweep-badge = ✓ Sweep 3D
-status-prompt-sweep = Sweep: tetapkan profil penampang & jalur kurva di popup kanan bawah
+status-prompt-sweep = Sweep: Pilih profil tertutup & kurva jalur pada bidang manapun, lalu konfirmasi di HUD (Enter)
+hud-sweep-prompt-profile = 1️⃣ Pilih profil 2D tertutup pada bidang manapun di kanvas
+hud-sweep-prompt-path = 2️⃣ Pilih kurva jalur pemandu (garis, busur, atau spline) pada bidang lain
+hud-sweep-prompt-ready = ✓ Profil & Jalur terpilih! Klik 'Buat Sweep 3D' atau tekan Enter
+hud-sweep-exec-btn = 🚀 Buat Sweep 3D
+hud-sweep-reset-profile = ↺ Ganti Profil
+hud-sweep-cancel = ✕ Batal
 
 
 guide-shell-header = Panduan Shell (Bodi Berongga):

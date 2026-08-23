@@ -1313,13 +1313,15 @@ impl ToolGuides {
         card_rect: Rect,
         time: f64,
     ) {
-        let cycle = 3.6;
+        let cycle = 4.8;
         let phase = ((time % cycle) / cycle) as f32;
 
-        let (step_title, step_color) = if phase < 0.35 {
-            (t!("guide-sweep-step-1"), ACCENT_ORANGE)
-        } else if phase < 0.70 {
-            (t!("guide-sweep-step-2"), ACCENT_BLUE)
+        let (step_title, step_color) = if phase < 0.25 {
+            (t!("guide-sweep-step-1"), ACCENT_BLUE)
+        } else if phase < 0.50 {
+            (t!("guide-sweep-step-2"), ACCENT_ORANGE)
+        } else if phase < 0.75 {
+            (t!("guide-sweep-step-3"), ACCENT_BLUE)
         } else {
             (t!("guide-sweep-step-done"), ACCENT_GREEN)
         };
@@ -1327,46 +1329,88 @@ impl ToolGuides {
         Self::draw_header(painter, card_rect, &t!("guide-sweep-header"), &step_title, step_color);
         Self::draw_footer(painter, card_rect, &t!("guide-sweep-tip"));
 
-        let start_pt = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 32.0);
-        let ctrl_pt = Pos2::new(card_rect.left() + 75.0, card_rect.top() + 50.0);
-        let end_pt = Pos2::new(card_rect.left() + 115.0, card_rect.top() + 45.0);
+        // 3D Isometric View Center
+        let origin = Pos2::new(card_rect.left() + 65.0, card_rect.bottom() - 36.0);
 
-        // Profil penampang (lingkaran di start_pt)
-        let profile_color = if phase < 0.35 { ACCENT_ORANGE } else { ACCENT_BLUE };
-        painter.circle_stroke(start_pt, 7.0, Stroke::new(1.5, profile_color));
+        // 1. Draw 3D Isometric Reference Planes (XY horizontal & XZ vertical)
+        let xy_p1 = Pos2::new(origin.x - 35.0, origin.y + 10.0);
+        let xy_p2 = Pos2::new(origin.x + 20.0, origin.y + 10.0);
+        let xy_p3 = Pos2::new(origin.x + 55.0, origin.y - 12.0);
+        let xy_p4 = Pos2::new(origin.x, origin.y - 12.0);
+        painter.line_segment([xy_p1, xy_p2], Stroke::new(0.8, TEXT_MUTED.gamma_multiply(0.35)));
+        painter.line_segment([xy_p2, xy_p3], Stroke::new(0.8, TEXT_MUTED.gamma_multiply(0.35)));
+        painter.line_segment([xy_p3, xy_p4], Stroke::new(0.8, TEXT_MUTED.gamma_multiply(0.35)));
+        painter.line_segment([xy_p4, xy_p1], Stroke::new(0.8, TEXT_MUTED.gamma_multiply(0.35)));
 
-        // Kurva jalur (path)
+        // Profile Center & Geometry (Ellipse on XY plane)
+        let prof_center = Pos2::new(origin.x - 10.0, origin.y - 2.0);
+        let profile_color = if phase < 0.25 {
+            TEXT_PRIMARY
+        } else if phase < 0.50 {
+            ACCENT_ORANGE
+        } else {
+            ACCENT_GREEN
+        };
+        // Draw profile ellipse on horizontal plane
+        let rx = 9.0;
+        let ry = 4.5;
+        let prof_pts: Vec<Pos2> = (0..=24)
+            .map(|i| {
+                let ang = (i as f32) * std::f32::consts::TAU / 24.0;
+                Pos2::new(prof_center.x + ang.cos() * rx, prof_center.y + ang.sin() * ry)
+            })
+            .collect();
+        for w in prof_pts.windows(2) {
+            painter.line_segment([w[0], w[1]], Stroke::new(1.8, profile_color));
+        }
+
+        // Guide Path Curve (Spline rising into XZ vertical plane)
+        let path_start = prof_center;
+        let path_ctrl = Pos2::new(origin.x + 15.0, origin.y - 48.0);
+        let path_end = Pos2::new(origin.x + 65.0, origin.y - 52.0);
+
+        let segments = 24;
         let mut path_pts = Vec::new();
-        let segments = 16;
         for i in 0..=segments {
             let t = i as f32 / segments as f32;
-            let x = (1.0 - t).powi(2) * start_pt.x + 2.0 * (1.0 - t) * t * ctrl_pt.x + t.powi(2) * end_pt.x;
-            let y = (1.0 - t).powi(2) * start_pt.y + 2.0 * (1.0 - t) * t * ctrl_pt.y + t.powi(2) * end_pt.y;
+            let x = (1.0 - t).powi(2) * path_start.x + 2.0 * (1.0 - t) * t * path_ctrl.x + t.powi(2) * path_end.x;
+            let y = (1.0 - t).powi(2) * path_start.y + 2.0 * (1.0 - t) * t * path_ctrl.y + t.powi(2) * path_end.y;
             path_pts.push(Pos2::new(x, y));
         }
 
-        let path_color = if (0.35..0.70).contains(&phase) {
-            ACCENT_BLUE
-        } else if phase >= 0.70 {
-            ACCENT_GREEN
-        } else {
+        let path_color = if phase < 0.50 {
             TEXT_MUTED
+        } else if phase < 0.75 {
+            ACCENT_BLUE
+        } else {
+            ACCENT_GREEN
         };
         for w in path_pts.windows(2) {
-            painter.line_segment([w[0], w[1]], Stroke::new(1.5, path_color));
+            painter.line_segment([w[0], w[1]], Stroke::new(1.8, path_color));
         }
 
-        let (cursor_pos, is_clicking) = if phase < 0.35 {
-            let t = (phase / 0.35).clamp(0.0, 1.0);
-            (Pos2::new(start_pt.x + (1.0 - t) * 15.0, start_pt.y), t > 0.8)
-        } else if phase < 0.70 {
-            let t = ((phase - 0.35) / 0.35).clamp(0.0, 1.0);
-            (Pos2::new(ctrl_pt.x + (1.0 - t) * 15.0, ctrl_pt.y), t > 0.8)
-        } else {
-            (Pos2::new(end_pt.x, end_pt.y - 10.0), false)
-        };
+        // 3D Swept Volume Animation (When Phase >= 0.75)
+        if phase >= 0.75 {
+            let sweep_progress = ((phase - 0.75) / 0.25).clamp(0.0, 1.0);
+            let active_count = ((segments as f32 * sweep_progress).ceil() as usize).max(1);
 
-        if phase >= 0.70 {
+            for i in 1..=active_count.min(path_pts.len() - 1) {
+                let p_curr = path_pts[i];
+                let p_prev = path_pts[i - 1];
+                let tangent = (p_curr - p_prev).normalized();
+                let normal = Vec2::new(-tangent.y, tangent.x) * 4.0;
+
+                // Draw swept tube hull lines
+                let top1 = p_prev + normal;
+                let top2 = p_curr + normal;
+                let bot1 = p_prev - normal;
+                let bot2 = p_curr - normal;
+
+                painter.line_segment([top1, top2], Stroke::new(1.4, ACCENT_GREEN));
+                painter.line_segment([bot1, bot2], Stroke::new(1.4, ACCENT_GREEN));
+                painter.line_segment([top2, bot2], Stroke::new(0.8, ACCENT_GREEN.gamma_multiply(0.4)));
+            }
+
             let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
             Self::draw_badge(
                 painter,
@@ -1376,6 +1420,59 @@ impl ToolGuides {
                 Color32::WHITE,
             );
         }
+
+        // Bottom Menu mini pill (Step 2)
+        if (0.25..0.50).contains(&phase) {
+            let bottom_pill_rect = Rect::from_center_size(
+                Pos2::new(card_rect.center().x + 25.0, card_rect.bottom() - 16.0),
+                Vec2::new(76.0, 16.0),
+            );
+            painter.rect_filled(bottom_pill_rect, 8.0, Color32::from_rgba_premultiplied(20, 24, 32, 230));
+            painter.rect_stroke(bottom_pill_rect, 8.0, Stroke::new(1.0, ACCENT_ORANGE), StrokeKind::Inside);
+            painter.text(
+                bottom_pill_rect.center(),
+                Align2::CENTER_CENTER,
+                "⚡ Sweep",
+                FontId::proportional(9.5),
+                ACCENT_ORANGE,
+            );
+        }
+
+        // Top HUD mini pill (Step 4)
+        if phase >= 0.75 {
+            let top_hud_rect = Rect::from_center_size(
+                Pos2::new(card_rect.center().x + 10.0, card_rect.top() + 32.0),
+                Vec2::new(108.0, 15.0),
+            );
+            painter.rect_filled(top_hud_rect, 7.5, Color32::from_rgba_premultiplied(15, 60, 30, 230));
+            painter.rect_stroke(top_hud_rect, 7.5, Stroke::new(1.0, ACCENT_GREEN), StrokeKind::Inside);
+            painter.text(
+                top_hud_rect.center(),
+                Align2::CENTER_CENTER,
+                "🚀 Buat Sweep 3D",
+                FontId::proportional(9.0),
+                Color32::WHITE,
+            );
+        }
+
+        // Cursor Movement
+        let (cursor_pos, is_clicking) = if phase < 0.25 {
+            (Pos2::new(prof_center.x - 20.0, prof_center.y - 15.0), false)
+        } else if phase < 0.50 {
+            let t = ((phase - 0.25) / 0.25).clamp(0.0, 1.0);
+            if t < 0.5 {
+                (prof_center, t > 0.35)
+            } else {
+                let pill_target = Pos2::new(card_rect.center().x + 25.0, card_rect.bottom() - 16.0);
+                (pill_target, t > 0.85)
+            }
+        } else if phase < 0.75 {
+            let t = ((phase - 0.50) / 0.25).clamp(0.0, 1.0);
+            (Pos2::new(path_ctrl.x + (1.0 - t) * 12.0, path_ctrl.y), t > 0.75)
+        } else {
+            let top_hud_target = Pos2::new(card_rect.center().x + 30.0, card_rect.top() + 32.0);
+            (top_hud_target, false)
+        };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }

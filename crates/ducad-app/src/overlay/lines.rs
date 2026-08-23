@@ -14,13 +14,41 @@ impl DuCADApp {
     ) -> Vec<LineVertex> {
         let mut verts = Vec::new();
 
+        let empty_set = std::collections::HashSet::new();
         for idx in 0..3 {
             let plane = Self::plane_for_index(idx);
-            if idx == self.active_plane_index() {
+            let is_active_plane = idx == self.active_plane_index();
+            let is_sweep = self.tool == ToolKind::Sweep;
+
+            if is_active_plane || is_sweep {
+                let h = if is_sweep {
+                    if self.hovered_plane_idx == Some(idx) {
+                        self.hovered
+                    } else {
+                        None
+                    }
+                } else if is_active_plane {
+                    self.hovered
+                } else {
+                    None
+                };
+
+                let sel = if is_sweep {
+                    if self.sweep_path_plane_idx == Some(idx) {
+                        &self.selected
+                    } else {
+                        &empty_set
+                    }
+                } else if is_active_plane {
+                    &self.selected
+                } else {
+                    &empty_set
+                };
+
                 verts.extend(sketch_render::entity_lines(
                     &self.sketches[idx],
-                    self.hovered,
-                    &self.selected,
+                    h,
+                    sel,
                     &plane,
                 ));
             } else {
@@ -28,6 +56,9 @@ impl DuCADApp {
                     &self.sketches[idx],
                     &plane,
                 ));
+            }
+
+            if !is_active_plane {
                 let outline_color: [f32; 4] = if self.is_sketching {
                     [0.10, 0.55, 0.95, 0.30]
                 } else {
@@ -38,6 +69,56 @@ impl DuCADApp {
                     ducad_render::grid::INACTIVE_PLANE_HALF_EXTENT,
                     outline_color,
                 ));
+            }
+        }
+
+        if self.tool == ToolKind::Sweep {
+            if let Some((profile, profile_plane)) = &self.pending_sweep_profile {
+                let color_staged = [0.15, 0.85, 0.40, 1.0];
+                match profile {
+                    ducad_kernel::Profile::Circle { center, radius } => {
+                        let segs = 32;
+                        for i in 0..segs {
+                            let a1 = i as f64 * std::f64::consts::TAU / segs as f64;
+                            let a2 = (i + 1) as f64 * std::f64::consts::TAU / segs as f64;
+                            let p1 = profile_plane.to_world(glam::DVec2::new(center.0 + a1.cos() * radius, center.1 + a1.sin() * radius), 0.05);
+                            let p2 = profile_plane.to_world(glam::DVec2::new(center.0 + a2.cos() * radius, center.1 + a2.sin() * radius), 0.05);
+                            verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: color_staged });
+                            verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: color_staged });
+                        }
+                    }
+                    ducad_kernel::Profile::Ellipse { center, radius_x, radius_y } => {
+                        let segs = 32;
+                        for i in 0..segs {
+                            let a1 = i as f64 * std::f64::consts::TAU / segs as f64;
+                            let a2 = (i + 1) as f64 * std::f64::consts::TAU / segs as f64;
+                            let p1 = profile_plane.to_world(glam::DVec2::new(center.0 + a1.cos() * radius_x, center.1 + a1.sin() * radius_y), 0.05);
+                            let p2 = profile_plane.to_world(glam::DVec2::new(center.0 + a2.cos() * radius_x, center.1 + a2.sin() * radius_y), 0.05);
+                            verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: color_staged });
+                            verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: color_staged });
+                        }
+                    }
+                    ducad_kernel::Profile::Loop(segments) => {
+                        for seg in segments {
+                            match seg {
+                                ducad_kernel::ProfileSegment::Line { start, end } => {
+                                    let p1 = profile_plane.to_world(glam::DVec2::new(start.0, start.1), 0.05);
+                                    let p2 = profile_plane.to_world(glam::DVec2::new(end.0, end.1), 0.05);
+                                    verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: color_staged });
+                                    verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: color_staged });
+                                }
+                                ducad_kernel::ProfileSegment::Arc { start, via, end } => {
+                                    let s = glam::DVec2::new(start.0, start.1);
+                                    let v = glam::DVec2::new(via.0, via.1);
+                                    let e = glam::DVec2::new(end.0, end.1);
+                                    if let Some(arc) = ducad_sketch::arc_from_three_points(s, v, e) {
+                                        verts.extend(sketch_render::preview_lines(&arc, profile_plane));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
