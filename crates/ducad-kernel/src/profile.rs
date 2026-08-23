@@ -155,3 +155,55 @@ pub(crate) fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
         }
     }
 }
+
+/// Satu segmen kurva jalur pemandu 3D (spine path) untuk operasi Sweep.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathSegment {
+    Line { start: [f64; 3], end: [f64; 3] },
+    Arc {
+        start: [f64; 3],
+        via: [f64; 3],
+        end: [f64; 3],
+    },
+    Polyline(Vec<[f64; 3]>),
+}
+
+pub(crate) fn build_spine_wire(segments: &[PathSegment]) -> Result<Wire> {
+    if segments.is_empty() {
+        bail!("jalur sweep kosong");
+    }
+    let mut edges: Vec<Edge> = Vec::new();
+    for seg in segments {
+        match seg {
+            PathSegment::Line { start, end } => {
+                edges.push(Edge::segment(
+                    dvec3(start[0], start[1], start[2]),
+                    dvec3(end[0], end[1], end[2]),
+                ));
+            }
+            PathSegment::Arc { start, via, end } => {
+                edges.push(Edge::arc(
+                    dvec3(start[0], start[1], start[2]),
+                    dvec3(via[0], via[1], via[2]),
+                    dvec3(end[0], end[1], end[2]),
+                ));
+            }
+            PathSegment::Polyline(pts) => {
+                if pts.len() < 2 {
+                    continue;
+                }
+                for window in pts.windows(2) {
+                    edges.push(Edge::segment(
+                        dvec3(window[0][0], window[0][1], window[0][2]),
+                        dvec3(window[1][0], window[1][1], window[1][2]),
+                    ));
+                }
+            }
+        }
+    }
+    if edges.is_empty() {
+        bail!("tidak ada edge valid pada jalur sweep");
+    }
+    Ok(Wire::from_edges(edges.iter()))
+}
+

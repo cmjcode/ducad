@@ -12,6 +12,9 @@ impl DuCADApp {
         let rect_label = format!("{} (R)", t!("tool-rectangle"));
         let circle_label = format!("{} (C)", t!("tool-circle"));
         let ellipse_label = format!("{} (E)", t!("tool-ellipse"));
+        let spline_label = format!("{} (S)", t!("tool-spline"));
+        let fillet_label = format!("{} (F)", t!("tool-fillet-2d"));
+        let chamfer_label = t!("tool-chamfer-2d");
         let arc_label = format!("{} (A)", t!("tool-arc"));
         let offset_label = format!("{} (O)", t!("tool-offset"));
         let mirror_label = format!("{} (M)", t!("tool-mirror"));
@@ -24,6 +27,9 @@ impl DuCADApp {
             (ToolKind::Rectangle, rect_label.as_str()),
             (ToolKind::Circle, circle_label.as_str()),
             (ToolKind::Ellipse, ellipse_label.as_str()),
+            (ToolKind::Spline, spline_label.as_str()),
+            (ToolKind::Fillet2D, fillet_label.as_str()),
+            (ToolKind::Chamfer2D, chamfer_label.as_str()),
             (ToolKind::Arc, arc_label.as_str()),
             (ToolKind::Offset, offset_label.as_str()),
             (ToolKind::Mirror, mirror_label.as_str()),

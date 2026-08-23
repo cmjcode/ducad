@@ -6,7 +6,7 @@ use opencascade::primitives::{Face, IntoShape, Solid};
 
 use crate::lock_kernel;
 use crate::mesh::tessellate_shape;
-use crate::profile::{build_wire, build_wire_at_z, build_wire_on_plane, Profile};
+use crate::profile::{build_spine_wire, build_wire, build_wire_at_z, build_wire_on_plane, PathSegment, Profile};
 use crate::shape::{deep_clone, KernelShape};
 
 /// Extrude profil pada bidang 3D sembarang (origin, u_axis, v_axis, normal) sepanjang `distance` mm
@@ -93,6 +93,56 @@ pub fn loft_profiles(bottom: &Profile, top: &Profile, height: f64) -> Result<Ker
     let solid = Solid::loft([&bottom_wire, &top_wire]);
     Ok(KernelShape::from_inner(solid.into_shape()))
 }
+
+/// Menyapu (sweep / pipe) profil 2D tertutup di sepanjang kurva jalur (spine wire) 3D.
+/// Menghasilkan bentuk solid B-rep 3D baru.
+pub fn sweep_profile_along_wire(
+    profile: &Profile,
+    spine_wire: &opencascade::primitives::Wire,
+) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let profile_wire = build_wire(profile)?;
+    let profile_face = Face::from_wire(&profile_wire);
+    let shape = profile_face
+        .pipe(spine_wire)
+        .map_err(|e| anyhow!("Operasi 3D Sweep gagal: pastikan profil tertutup dan jalur kurva valid ({e})"))?;
+    Ok(KernelShape::from_inner(shape))
+}
+
+/// Menyapu (sweep / pipe) profil 2D tertutup di sepanjang daftar segmen jalur (spine path) 3D.
+pub fn sweep_profile_along_path(
+    profile: &Profile,
+    spine_segments: &[PathSegment],
+) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let spine_wire = build_spine_wire(spine_segments)?;
+    let profile_wire = build_wire(profile)?;
+    let profile_face = Face::from_wire(&profile_wire);
+    let shape = profile_face
+        .pipe(&spine_wire)
+        .map_err(|e| anyhow!("Operasi 3D Sweep gagal: pastikan profil tertutup dan jalur kurva valid ({e})"))?;
+    Ok(KernelShape::from_inner(shape))
+}
+
+/// Menyapu (sweep / pipe) profil 2D tertutup yang didefinisikan pada bidang (workplane) di sepanjang jalur 3D.
+pub fn sweep_profile_on_plane_along_path(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+    spine_segments: &[PathSegment],
+) -> Result<KernelShape> {
+    let _guard = lock_kernel();
+    let spine_wire = build_spine_wire(spine_segments)?;
+    let profile_wire = build_wire_on_plane(profile, origin, u_axis, v_axis, normal)?;
+    let profile_face = Face::from_wire(&profile_wire);
+    let shape = profile_face
+        .pipe(&spine_wire)
+        .map_err(|e| anyhow!("Operasi 3D Sweep gagal: pastikan profil tertutup dan jalur kurva valid ({e})"))?;
+    Ok(KernelShape::from_inner(shape))
+}
+
 
 /// Union (gabung material) dua shape. `.clean()` (`ShapeUpgrade_
 /// UnifySameDomain` OCCT) di-panggil sesudahnya supaya face/edge yang

@@ -9,7 +9,7 @@ use crate::model::{
     AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind, DeleteBodyCommand,
     ReplaceGeometryCommand,
 };
-use crate::types::PickMode;
+use crate::types::{PickMode, ToolKind};
 
 impl DuCADApp {
     /// Terapkan constraint pada entitas terpilih di sketch aktif.
@@ -265,6 +265,75 @@ impl DuCADApp {
             Err(e) => self.model_status = Some(format!("Loft gagal: {e}")),
         }
     }
+
+    /// Sweep profil di sepanjang jalur kurva yang telah ditentukan.
+    pub fn sweep_selected(&mut self) {
+        let Some((profile, profile_plane)) = self.pending_sweep_profile.clone().or_else(|| {
+            crate::model::build_profile_from_selection(self.sketch(), &self.selected)
+                .ok()
+                .map(|p| (p, self.active_plane))
+        }) else {
+            self.model_status = Some("Pilih profil tertutup untuk operasi sweep".to_string());
+            return;
+        };
+
+        let Some(path_segments) = self.pending_sweep_path.clone().or_else(|| {
+            crate::model::build_path_from_selection_on_plane(
+                self.sketch(),
+                &self.selected,
+                &self.active_plane,
+            )
+            .ok()
+        }) else {
+            self.model_status = Some("Pilih garis/busur/spline sebagai kurva jalur sweep".to_string());
+            return;
+        };
+
+        let origin = [
+            profile_plane.origin.x as f64,
+            profile_plane.origin.y as f64,
+            profile_plane.origin.z as f64,
+        ];
+        let u_axis = [
+            profile_plane.u_axis.x as f64,
+            profile_plane.u_axis.y as f64,
+            profile_plane.u_axis.z as f64,
+        ];
+        let v_axis = [
+            profile_plane.v_axis.x as f64,
+            profile_plane.v_axis.y as f64,
+            profile_plane.v_axis.z as f64,
+        ];
+        let normal = [
+            profile_plane.normal.x as f64,
+            profile_plane.normal.y as f64,
+            profile_plane.normal.z as f64,
+        ];
+
+        match ducad_kernel::sweep_profile_on_plane_along_path(
+            &profile,
+            origin,
+            u_axis,
+            v_axis,
+            normal,
+            &path_segments,
+        ) {
+            Ok(shape) => {
+                let geo = BodyGeometry::from_shape(shape);
+                self.execute_model_command(
+                    Box::new(AddSolidCommand::new("Sweep", geo)),
+                    "Menyapu profil 2D di sepanjang kurva jalur 3D",
+                );
+                self.pending_sweep_profile = None;
+                self.pending_sweep_path = None;
+                self.model_status = None;
+                self.set_tool(ToolKind::Select);
+            }
+            Err(e) => self.model_status = Some(format!("Sweep gagal: {e}")),
+        }
+    }
+
+
 
     /// Union/Subtract/Intersect dua body terpilih.
     pub fn boolean_selected(&mut self, kind: BooleanKind, label: &'static str, result_name: &str) {

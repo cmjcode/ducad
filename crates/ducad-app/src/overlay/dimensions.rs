@@ -942,27 +942,28 @@ impl DuCADApp {
                                 } else if resp.lost_focus() {
                                     self.gizmo_dimension_editing = false;
                                 }
+                                });
                             });
-                        });
+                    }
                 }
             }
         }
-    }
 
-        if let Some((_, _, hit)) = &self.active_face {
-            let anchor = hit.gizmo_anchor();
-            let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
-            let pull_dir = Vec3::new(
-                hit.pull_dir.0 as f32,
-                hit.pull_dir.1 as f32,
-                hit.pull_dir.2 as f32,
-            );
-            let surface_kind = hit.surface_kind;
-            let z_pos = if self.extruding_face_from_gizmo {
-                self.face_gizmo_distance as f32
-            } else {
-                18.0
-            };
+        if self.active_vertex.is_none() && self.active_edge.is_none() && self.active_sketch_corner.is_none() {
+            if let Some((_, _, hit)) = &self.active_face {
+                let anchor = hit.gizmo_anchor();
+                let c_base = Vec3::new(anchor.0 as f32, anchor.1 as f32, anchor.2 as f32);
+                let pull_dir = Vec3::new(
+                    hit.pull_dir.0 as f32,
+                    hit.pull_dir.1 as f32,
+                    hit.pull_dir.2 as f32,
+                );
+                let surface_kind = hit.surface_kind;
+                let z_pos = if self.extruding_face_from_gizmo {
+                    self.face_gizmo_distance as f32
+                } else {
+                    18.0
+                };
             let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
@@ -1063,6 +1064,7 @@ impl DuCADApp {
                 }
             }
         }
+        }
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
             let z_pos = if self.filleting_vertex_from_gizmo {
@@ -1120,8 +1122,26 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.commit_vertex_fillet();
-                    self.filleting_vertex_from_gizmo = false;
+                    self.model_status = Some(format!(
+                        "✓ Fillet Vertex diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
+                        if self.vertex_gizmo_radius >= 0.0 {
+                            format!("R {}", self.unit.format(self.vertex_gizmo_radius))
+                        } else {
+                            format!("C {}", self.unit.format(-self.vertex_gizmo_radius))
+                        }
+                    ));
+                }
+
+                if self.filleting_vertex_from_gizmo && !self.vertex_gizmo_dimension_editing {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.commit_vertex_fillet();
+                        self.filleting_vertex_from_gizmo = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.clear_round_gizmo(RoundKind::Vertex);
+                        self.filleting_vertex_from_gizmo = false;
+                        self.vertex_gizmo_dimension_editing = false;
+                        self.model_status = Some("Fillet Vertex dibatalkan".to_string());
+                    }
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
@@ -1169,6 +1189,7 @@ impl DuCADApp {
                                         self.vertex_gizmo_radius =
                                             self.unit.to_internal_mm(val).max(0.0);
                                         self.commit_vertex_fillet();
+                                        self.filleting_vertex_from_gizmo = false;
                                     }
                                     self.vertex_gizmo_dimension_editing = false;
                                 } else if resp.lost_focus() {
@@ -1235,8 +1256,26 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.commit_edge_fillet_single();
-                    self.filleting_edge_from_gizmo = false;
+                    self.model_status = Some(format!(
+                        "✓ Fillet Edge diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
+                        if self.edge_gizmo_radius >= 0.0 {
+                            format!("R {}", self.unit.format(self.edge_gizmo_radius))
+                        } else {
+                            format!("C {}", self.unit.format(-self.edge_gizmo_radius))
+                        }
+                    ));
+                }
+
+                if self.filleting_edge_from_gizmo && !self.edge_gizmo_dimension_editing {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.commit_edge_fillet_single();
+                        self.filleting_edge_from_gizmo = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.clear_round_gizmo(RoundKind::Edge);
+                        self.filleting_edge_from_gizmo = false;
+                        self.edge_gizmo_dimension_editing = false;
+                        self.model_status = Some("Fillet Edge dibatalkan".to_string());
+                    }
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
@@ -1283,6 +1322,7 @@ impl DuCADApp {
                                         self.edge_gizmo_radius =
                                             self.unit.to_internal_mm(val).max(0.0);
                                         self.commit_edge_fillet_single();
+                                        self.filleting_edge_from_gizmo = false;
                                     }
                                     self.edge_gizmo_dimension_editing = false;
                                 } else if resp.lost_focus() {
@@ -1760,5 +1800,190 @@ impl DuCADApp {
                 }
             }
         }
+
+        // ==========================================
+        // 2D SKETCH CORNER FILLET & CHAMFER GIZMOS
+        // Tampil di mode Sketsa MAUPUN mode 3D selama tool Select aktif
+        // ==========================================
+        if self.tool == ToolKind::Select && !self.sketch().entities.is_empty() {
+        let all_targets = ducad_sketch::find_all_fillet_targets(self.sketch());
+        for target in all_targets {
+            let (id1, id2, arc_id_opt, corner_2d, bisector_2d, base_radius) = match target {
+                ducad_sketch::FilletTarget::SharpCorner {
+                    line1,
+                    line2,
+                    corner,
+                    bisector,
+                } => (line1, line2, None, corner, bisector, 5.0),
+                ducad_sketch::FilletTarget::ExistingFillet {
+                    arc_id,
+                    line1,
+                    line2,
+                    apex,
+                    bisector,
+                    radius,
+                    ..
+                } => (line1, line2, Some(arc_id), apex, bisector, radius),
+            };
+
+            let is_this_corner_active = self.active_sketch_corner.as_ref().is_some_and(|(a1, a2, pt)| {
+                (*a1 == id1 && *a2 == id2 || *a1 == id2 && *a2 == id1) || (*pt - corner_2d).length() < 1e-2
+            });
+
+            let corner_3d = self.active_plane.to_world(corner_2d, 0.0);
+            let b_end_3d = self.active_plane.to_world(corner_2d + bisector_2d, 0.0);
+            let pull_dir_3d = (b_end_3d - corner_3d).normalize_or_zero();
+            if pull_dir_3d == Vec3::ZERO {
+                continue;
+            }
+
+            let z_pos = if is_this_corner_active && self.sketch_corner_gizmo_active {
+                self.sketch_corner_gizmo_radius.abs().max(0.1) as f32
+            } else {
+                base_radius.abs().max(1.0) as f32
+            };
+            let handle_3d = corner_3d + pull_dir_3d * z_pos;
+
+            if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
+                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(
+                    rect,
+                    corner_3d,
+                    pull_dir_3d,
+                    egui::Vec2::ZERO,
+                );
+
+                let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
+                    ui,
+                    handle_2d,
+                    is_this_corner_active && self.sketch_corner_gizmo_active,
+                    arrow_vec_opt,
+                );
+
+                if handle_resp.drag_started() {
+                    self.active_sketch_corner = Some((id1, id2, corner_2d));
+                    self.active_sketch_fillet_arc = arc_id_opt;
+                    self.sketch_corner_gizmo_active = true;
+                    if self.sketch_corner_gizmo_radius.abs() < 0.1 {
+                        self.sketch_corner_gizmo_radius = base_radius;
+                    }
+                }
+
+                if is_this_corner_active && handle_resp.dragged() {
+                    self.sketch_corner_gizmo_active = true;
+                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(
+                        rect,
+                        corner_3d,
+                        pull_dir_3d,
+                        handle_resp.drag_delta(),
+                    );
+                    self.sketch_corner_gizmo_radius += delta_mm;
+                    self.sketch_corner_edit_input = format!(
+                        "{:.1}",
+                        self.unit.to_display_val(self.sketch_corner_gizmo_radius.abs())
+                    );
+                }
+
+                if is_this_corner_active && handle_resp.drag_stopped() {
+                    self.model_status = Some(format!(
+                        "✓ {} diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
+                        if self.sketch_corner_gizmo_radius >= 0.0 { "Fillet 2D" } else { "Chamfer 2D" },
+                        if self.sketch_corner_gizmo_radius >= 0.0 {
+                            format!("R {}", self.unit.format(self.sketch_corner_gizmo_radius))
+                        } else {
+                            format!("C {}", self.unit.format(-self.sketch_corner_gizmo_radius))
+                        }
+                    ));
+                }
+
+                if is_this_corner_active && self.sketch_corner_gizmo_active && !self.sketch_corner_dimension_editing {
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.commit_sketch_corner_fillet_or_chamfer();
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.active_sketch_corner = None;
+                        self.active_sketch_fillet_arc = None;
+                        self.sketch_corner_gizmo_active = false;
+                        self.sketch_corner_dimension_editing = false;
+                        self.model_status = Some("Fillet/Chamfer 2D dibatalkan".to_string());
+                    }
+                }
+
+                let pill_pos = handle_2d + egui::vec2(0.0, -30.0);
+                let is_hovering_combined = handle_resp.hovered()
+                    || (ui.rect_contains_pointer(egui::Rect::from_center_size(
+                        pill_pos,
+                        egui::vec2(90.0, 32.0),
+                    )));
+
+                if is_this_corner_active || is_hovering_combined {
+                    let display_r = if is_this_corner_active && self.sketch_corner_gizmo_radius.abs() >= 0.1 {
+                        self.sketch_corner_gizmo_radius
+                    } else {
+                        base_radius
+                    };
+
+                    let text = if display_r >= 0.0 {
+                        format!("R {}", self.unit.format(display_r))
+                    } else {
+                        format!("C {}", self.unit.format(-display_r))
+                    };
+
+                    let pill_resp = CanvasHud::render_interactive_dimension_pill(
+                        ui,
+                        pill_pos,
+                        &text,
+                        is_this_corner_active && self.sketch_corner_dimension_editing,
+                    );
+
+                    if pill_resp.clicked() {
+                        self.active_sketch_corner = Some((id1, id2, corner_2d));
+                        self.active_sketch_fillet_arc = arc_id_opt;
+                        self.sketch_corner_gizmo_radius = display_r;
+                        self.sketch_corner_gizmo_active = true;
+                        self.sketch_corner_dimension_editing = !self.sketch_corner_dimension_editing;
+                        self.sketch_corner_edit_input = format!(
+                            "{:.1}",
+                            self.unit.to_display_val(display_r.abs())
+                        );
+                    }
+
+                    if is_this_corner_active && self.sketch_corner_dimension_editing {
+                        let popup_rect = egui::Rect::from_center_size(
+                            pill_pos + egui::vec2(0.0, 28.0),
+                            egui::vec2(100.0, 32.0),
+                        );
+                        egui::Area::new(egui::Id::new("ducad-sketch-corner-gizmo-edit-popup"))
+                            .fixed_pos(popup_rect.min)
+                            .order(egui::Order::Foreground)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    let resp =
+                                        ui.text_edit_singleline(&mut self.sketch_corner_edit_input);
+                                    resp.request_focus();
+                                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                        self.sketch_corner_dimension_editing = false;
+                                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                        if let Ok(val) =
+                                            self.sketch_corner_edit_input.trim().parse::<f64>()
+                                        {
+                                            let target_r = self.unit.to_internal_mm(val).max(0.0);
+                                            self.sketch_corner_gizmo_radius =
+                                                if self.sketch_corner_gizmo_radius < 0.0 {
+                                                    -target_r
+                                                } else {
+                                                    target_r
+                                                };
+                                            self.commit_sketch_corner_fillet_or_chamfer();
+                                        }
+                                        self.sketch_corner_dimension_editing = false;
+                                    } else if resp.lost_focus() {
+                                        self.sketch_corner_dimension_editing = false;
+                                    }
+                                });
+                            });
+                    }
+                }
+            }
+        }
+        } // end if self.is_sketching
     }
 }

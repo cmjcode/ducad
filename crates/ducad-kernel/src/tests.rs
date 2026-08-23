@@ -1352,3 +1352,77 @@ fn transform_shape_translates_and_rotates() {
     assert!((avg.y - 55.0).abs() < 1.0, "avg.y = {}", avg.y);
     assert!((avg.z - 25.0).abs() < 1.0, "avg.z = {}", avg.z);
 }
+
+#[test]
+fn sweep_circle_along_line_produces_cylinder() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
+    let path = vec![
+        PathSegment::Line {
+            start: [0.0, 0.0, 0.0],
+            end: [0.0, 0.0, 50.0],
+        },
+    ];
+    let swept = sweep_profile_along_path(&profile, &path).expect("sweep circle along line harus berhasil");
+    let mesh = swept.tessellate();
+    assert!(mesh.triangle_count() > 0);
+    assert!(mesh.positions.len() > 10);
+    // Bounding Z harus mencakup [0, 50]
+    let mut min_z = f32::INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    for p in &mesh.positions {
+        min_z = min_z.min(p[2]);
+        max_z = max_z.max(p[2]);
+    }
+    assert!((min_z - 0.0).abs() < 0.1, "min_z = {min_z}");
+    assert!((max_z - 50.0).abs() < 0.1, "max_z = {max_z}");
+}
+
+#[test]
+fn sweep_circle_along_arc_produces_curved_pipe() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = Profile::Circle { center: (0.0, 0.0), radius: 3.0 };
+    // Busur 90 derajat di bidang XZ dari (0,0,0) via (29.29, 0, 70.71) ke (100, 0, 100) (radius 100)
+    let path = vec![
+        PathSegment::Arc {
+            start: [0.0, 0.0, 0.0],
+            via: [29.289, 0.0, 70.711],
+            end: [100.0, 0.0, 100.0],
+        },
+    ];
+    let swept = sweep_profile_along_path(&profile, &path).expect("sweep circle along arc harus berhasil");
+    let mesh = swept.tessellate();
+    assert!(mesh.triangle_count() > 0);
+    // Verifikasi bounding box
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+    for p in &mesh.positions {
+        max_x = max_x.max(p[0]);
+        max_z = max_z.max(p[2]);
+    }
+    assert!(max_x >= 95.0, "max_x = {max_x}");
+    assert!(max_z >= 95.0, "max_z = {max_z}");
+}
+
+#[test]
+fn sweep_rectangle_along_polyline_path() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(10.0, 6.0);
+    let path = vec![
+        PathSegment::Line { start: [0.0, 0.0, 0.0], end: [0.0, 0.0, 30.0] },
+        PathSegment::Line { start: [0.0, 0.0, 30.0], end: [20.0, 0.0, 50.0] },
+    ];
+    let swept = sweep_profile_along_path(&profile, &path).expect("sweep rect along polyline path harus berhasil");
+    let mesh = swept.tessellate();
+    assert!(mesh.triangle_count() > 0);
+}
+
+#[test]
+fn sweep_empty_path_fails_gracefully() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
+    let path = vec![];
+    let res = sweep_profile_along_path(&profile, &path);
+    assert!(res.is_err());
+}
+

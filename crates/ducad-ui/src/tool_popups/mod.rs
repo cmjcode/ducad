@@ -11,6 +11,7 @@ pub mod loft_popup;
 pub mod measure_popup;
 pub mod revolve_popup;
 pub mod shell_popup;
+pub mod sweep_popup;
 
 use ducad_i18n::t;
 use egui::{Align2, Color32, Context, Id, Pos2, Rect, RichText, Ui, Vec2};
@@ -26,6 +27,7 @@ pub use loft_popup::{LoftPopup, LoftPopupState};
 pub use measure_popup::{MeasurePopup, MeasurePopupState};
 pub use revolve_popup::{RevolvePopup, RevolvePopupState};
 pub use shell_popup::{ShellPopup, ShellPopupState};
+pub use sweep_popup::{SweepPopup, SweepPopupState};
 
 /// Event umum yang dihasilkan oleh berbagai Tool Popup.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +43,10 @@ pub enum ToolPopupEvent {
     // Loft
     StageLoftBottom,
     ApplyLoft { height: f64 },
+    // Sweep
+    StageSweepProfile,
+    StageSweepPath,
+    ApplySweep,
     // Shell
     ToggleFacePicking,
     ApplyShell { thickness: f64 },

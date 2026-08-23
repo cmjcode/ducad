@@ -560,6 +560,46 @@ impl CanvasHud {
             ui.ctx().set_cursor_icon(cursor);
         }
 
+        // --- VISUAL ---
+        let painter = ui.painter();
+        let accent = if is_dragging {
+            Color32::from_rgb(0, 210, 180)
+        } else if is_hovered {
+            Color32::from_rgb(80, 200, 255)
+        } else {
+            Color32::from_rgb(0, 180, 255)
+        };
+        let bg = Color32::from_rgba_premultiplied(10, 20, 35, 220);
+
+        // Diamond background
+        let r = if is_dragging { 9.0 } else { 7.0 };
+        let diamond = vec![
+            pos_2d + Vec2::new(0.0, -r),
+            pos_2d + Vec2::new(r, 0.0),
+            pos_2d + Vec2::new(0.0, r),
+            pos_2d + Vec2::new(-r, 0.0),
+        ];
+        painter.add(egui::Shape::convex_polygon(diamond.clone(), bg, Stroke::new(1.5, accent)));
+
+        // Double arrow along dir_u
+        let arrow_len = if is_dragging { 13.0 } else { 11.0 };
+        let perp = Vec2::new(-dir_u.y, dir_u.x) * 2.5;
+
+        for sign in [-1.0f32, 1.0f32] {
+            let tip = pos_2d + dir_u * (r + arrow_len) * sign;
+            let base = pos_2d + dir_u * r * sign;
+            painter.line_segment([base, tip], Stroke::new(1.5, accent));
+            // Arrowhead
+            let head_size = 5.0;
+            let side1 = tip - dir_u * head_size * sign + perp;
+            let side2 = tip - dir_u * head_size * sign - perp;
+            painter.add(egui::Shape::convex_polygon(
+                vec![tip, side1, side2],
+                accent,
+                Stroke::NONE,
+            ));
+        }
+
         response
     }
 

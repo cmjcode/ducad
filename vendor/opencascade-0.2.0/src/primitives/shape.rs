@@ -500,4 +500,18 @@ impl Shape {
 
         Ok(Self { inner })
     }
+
+    /// Menghasilkan bentuk 3D baru dengan menyapu (sweep / pipe) profil di sepanjang kurva jalur (spine wire).
+    /// Jika `profile` adalah Face (wajah 2D tertutup), hasilnya adalah Solid 3D.
+    pub fn pipe(spine: &Wire, profile: &Shape) -> Result<Self, crate::Error> {
+        let mut make_pipe = ffi::BRepOffsetAPI_MakePipe_ctor_checked(&spine.inner, &profile.inner)
+            .map_err(|e| crate::Error::PipeFailed(e.what().to_string()))?;
+
+        let result_shape = ffi::BRepOffsetAPI_MakePipe_shape_checked(make_pipe.pin_mut())
+            .map_err(|e| crate::Error::PipeFailed(e.what().to_string()))?;
+
+        let inner = ffi::TopoDS_Shape_to_owned(result_shape);
+        Ok(Self { inner })
+    }
 }
+

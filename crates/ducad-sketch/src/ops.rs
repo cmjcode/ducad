@@ -235,3 +235,434 @@ pub fn trim_segments(
         .map(|w| (start + (end - start) * w[0], start + (end - start) * w[1]))
         .collect()
 }
+
+/// Hasil kalkulasi 2D Fillet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fillet2DResult {
+    pub trimmed_line1: Entity,
+    pub trimmed_line2: Entity,
+    pub arc: Entity,
+    pub tangent1: DVec2,
+    pub tangent2: DVec2,
+    pub center: DVec2,
+}
+
+/// Hasil kalkulasi 2D Chamfer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chamfer2DResult {
+    pub trimmed_line1: Entity,
+    pub trimmed_line2: Entity,
+    pub bevel_line: Entity,
+    pub tangent1: DVec2,
+    pub tangent2: DVec2,
+}
+
+/// Helper untuk mencari titik sudut perpotongan/pertemuan dua segmen garis dan ujung terjauhnya.
+fn resolve_corner_and_far_ends(
+    line1: (DVec2, DVec2),
+    line2: (DVec2, DVec2),
+) -> Option<(DVec2, DVec2, DVec2, bool, bool)> {
+    let (a, b) = line1;
+    let (c, d) = line2;
+    const ENDPOINT_TOL: f64 = 1e-4;
+
+    // 1. Cek apakah langsung berbagi ujung yang sama
+    if (a - c).length() < ENDPOINT_TOL {
+        return Some((a, b, d, true, true));
+    }
+    if (a - d).length() < ENDPOINT_TOL {
+        return Some((a, b, c, true, false));
+    }
+    if (b - c).length() < ENDPOINT_TOL {
+        return Some((b, a, d, false, true));
+    }
+    if (b - d).length() < ENDPOINT_TOL {
+        return Some((b, a, c, false, false));
+    }
+
+    // 2. Jika tidak persis berbagi titik ujung, hitung titik potong garis tak hingga
+    let d1 = b - a;
+    let d2 = d - c;
+    let det = d1.x * d2.y - d1.y * d2.x;
+    if det.abs() < 1e-9 {
+        return None; // Garis sejajar / kolinear
+    }
+
+    let t = ((c - a).x * d2.y - (c - a).y * d2.x) / det;
+    let u = ((c - a).x * d1.y - (c - a).y * d1.x) / det;
+    let v = a + d1 * t;
+
+    let (p1, l1_start_is_v) = if t <= 0.5 { (b, true) } else { (a, false) };
+    let (p2, l2_start_is_v) = if u <= 0.5 { (d, true) } else { (c, false) };
+
+    Some((v, p1, p2, l1_start_is_v, l2_start_is_v))
+}
+
+/// Hitung 2D Fillet (busur tangensial) antara dua garis dengan radius `radius`.
+pub fn compute_fillet_2d(
+    line1: (DVec2, DVec2),
+    line2: (DVec2, DVec2),
+    radius: f64,
+) -> Option<Fillet2DResult> {
+    if radius <= 1e-6 {
+        return None;
+    }
+
+    let (v, p1, p2, l1_start_is_v, l2_start_is_v) = resolve_corner_and_far_ends(line1, line2)?;
+
+    let len1 = (p1 - v).length();
+    let len2 = (p2 - v).length();
+    if len1 < 1e-6 || len2 < 1e-6 {
+        return None;
+    }
+
+    let u1 = (p1 - v) / len1;
+    let u2 = (p2 - v) / len2;
+
+    let dot = u1.dot(u2).clamp(-1.0, 1.0);
+    // Tolak sudut yang terlalu kolinear (0 atau 180 derajat)
+    if dot > 0.9999 || dot < -0.9999 {
+        return None;
+    }
+
+    let alpha = dot.acos();
+    let tan_half = (alpha * 0.5).tan();
+    if tan_half.abs() < 1e-6 {
+        return None;
+    }
+
+    let d_t = radius / tan_half;
+    if d_t > len1 + 1e-5 || d_t > len2 + 1e-5 {
+        return None; // Radius terlalu besar untuk panjang segmen
+    }
+
+    let t1 = v + u1 * d_t;
+    let t2 = v + u2 * d_t;
+
+    let sin_half = (alpha * 0.5).sin();
+    let d_c = radius / sin_half;
+    let bisector = (u1 + u2).normalize();
+    let center = v + bisector * d_c;
+
+    // Hitung sudut awal dan akhir busur
+    let phi1 = (t1 - center).y.atan2((t1 - center).x);
+    let phi2 = (t2 - center).y.atan2((t2 - center).x);
+
+    let cross = (t1.x - center.x) * (t2.y - center.y) - (t1.y - center.y) * (t2.x - center.x);
+    let (start_angle, end_angle) = if cross > 0.0 {
+        (phi1, phi2)
+    } else {
+        (phi2, phi1)
+    };
+
+    let arc = Entity::Arc {
+        center,
+        radius,
+        start_angle,
+        end_angle,
+    };
+
+    let trimmed_line1 = if l1_start_is_v {
+        Entity::Line { start: t1, end: p1 }
+    } else {
+        Entity::Line { start: p1, end: t1 }
+    };
+
+    let trimmed_line2 = if l2_start_is_v {
+        Entity::Line { start: t2, end: p2 }
+    } else {
+        Entity::Line { start: p2, end: t2 }
+    };
+
+    Some(Fillet2DResult {
+        trimmed_line1,
+        trimmed_line2,
+        arc,
+        tangent1: t1,
+        tangent2: t2,
+        center,
+    })
+}
+
+/// Hitung 2D Chamfer (garis miring/bevel) antara dua garis dengan jarak pemotongan `dist1` dan `dist2`.
+pub fn compute_chamfer_2d(
+    line1: (DVec2, DVec2),
+    line2: (DVec2, DVec2),
+    dist1: f64,
+    dist2: f64,
+) -> Option<Chamfer2DResult> {
+    if dist1 <= 1e-6 || dist2 <= 1e-6 {
+        return None;
+    }
+
+    let (v, p1, p2, l1_start_is_v, l2_start_is_v) = resolve_corner_and_far_ends(line1, line2)?;
+
+    let len1 = (p1 - v).length();
+    let len2 = (p2 - v).length();
+    if len1 < 1e-6 || len2 < 1e-6 {
+        return None;
+    }
+
+    let u1 = (p1 - v) / len1;
+    let u2 = (p2 - v) / len2;
+
+    let dot = u1.dot(u2).clamp(-1.0, 1.0);
+    if dot > 0.9999 || dot < -0.9999 {
+        return None;
+    }
+
+    if dist1 > len1 + 1e-5 || dist2 > len2 + 1e-5 {
+        return None; // Jarak pemotongan melebihi panjang garis
+    }
+
+    let t1 = v + u1 * dist1;
+    let t2 = v + u2 * dist2;
+
+    let bevel_line = Entity::Line { start: t1, end: t2 };
+
+    let trimmed_line1 = if l1_start_is_v {
+        Entity::Line { start: t1, end: p1 }
+    } else {
+        Entity::Line { start: p1, end: t1 }
+    };
+
+    let trimmed_line2 = if l2_start_is_v {
+        Entity::Line { start: t2, end: p2 }
+    } else {
+        Entity::Line { start: p2, end: t2 }
+    };
+
+    Some(Chamfer2DResult {
+        trimmed_line1,
+        trimmed_line2,
+        bevel_line,
+        tangent1: t1,
+        tangent2: t2,
+    })
+}
+
+/// Cari pasangan garis yang bertemu pada atau dekat titik `point` dalam toleransi `tolerance`.
+pub fn find_corner_lines_at_point(
+    sketch: &Sketch,
+    point: DVec2,
+    tolerance: f64,
+) -> Option<(EntityId, EntityId, DVec2)> {
+    let lines: Vec<(EntityId, DVec2, DVec2)> = sketch
+        .entities
+        .iter()
+        .filter(|(id, _)| !sketch.is_hidden(*id))
+        .filter_map(|(id, entity)| match *entity {
+            Entity::Line { start, end } => Some((id, start, end)),
+            _ => None,
+        })
+        .collect();
+
+    let mut candidate_corners: Vec<(EntityId, EntityId, DVec2, f64)> = Vec::new();
+
+    for i in 0..lines.len() {
+        for j in (i + 1)..lines.len() {
+            let (id1, s1, e1) = lines[i];
+            let (id2, s2, e2) = lines[j];
+
+            let pairs = [
+                (s1, s2, (s1 + s2) * 0.5),
+                (s1, e2, (s1 + e2) * 0.5),
+                (e1, s2, (e1 + s2) * 0.5),
+                (e1, e2, (e1 + e2) * 0.5),
+            ];
+
+            for (p1, p2, corner) in pairs {
+                if (p1 - p2).length() <= (tolerance * 0.5).max(1e-2) {
+                    let d = (corner - point).length();
+                    if d <= tolerance {
+                        candidate_corners.push((id1, id2, corner, d));
+                    }
+                }
+            }
+        }
+    }
+
+    candidate_corners.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+    candidate_corners.first().map(|(id1, id2, corner, _)| (*id1, *id2, *corner))
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilletTarget {
+    /// Sudut tajam pertemuan 2 garis lurus (belum difillet)
+    SharpCorner {
+        line1: EntityId,
+        line2: EntityId,
+        corner: DVec2,
+        bisector: DVec2,
+    },
+    /// Fillet arc yang sudah ada menghubungkan 2 garis
+    ExistingFillet {
+        arc_id: EntityId,
+        line1: EntityId,
+        line2: EntityId,
+        apex: DVec2,
+        bisector: DVec2,
+        radius: f64,
+        far1: DVec2,
+        far2: DVec2,
+    },
+}
+
+/// Cari semua target fillet pada sketch:
+/// 1. Sudut tajam pertemuan 2 garis lurus.
+/// 2. Arc yang merupakan fillet dari 2 garis lurus (untuk revisi radius langsung).
+pub fn find_all_fillet_targets(sketch: &Sketch) -> Vec<FilletTarget> {
+    const SNAP_TOL: f64 = 0.5;
+
+    let lines: Vec<(EntityId, DVec2, DVec2)> = sketch
+        .entities
+        .iter()
+        .filter(|(id, _)| !sketch.is_hidden(*id))
+        .filter_map(|(id, e)| match e {
+            Entity::Line { start, end } => Some((id, *start, *end)),
+            _ => None,
+        })
+        .collect();
+
+    let arcs: Vec<(EntityId, DVec2, f64, f64, f64, DVec2, DVec2)> = sketch
+        .entities
+        .iter()
+        .filter(|(id, _)| !sketch.is_hidden(*id))
+        .filter_map(|(id, e)| match e {
+            Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            } => {
+                let p1 = *center + DVec2::new(*radius * start_angle.cos(), *radius * start_angle.sin());
+                let p2 = *center + DVec2::new(*radius * end_angle.cos(), *radius * end_angle.sin());
+                Some((id, *center, *radius, *start_angle, *end_angle, p1, p2))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let mut targets = Vec::new();
+    let mut consumed_line_endpoints: Vec<(EntityId, DVec2)> = Vec::new();
+
+    // 1. Deteksi Arc yang menghubungkan 2 garis lurus (Existing Fillet)
+    for (arc_id, center, radius, _, _, ap1, ap2) in arcs {
+        let mut conn1: Option<(EntityId, DVec2, DVec2)> = None; // (line_id, near_pt, far_pt)
+        let mut conn2: Option<(EntityId, DVec2, DVec2)> = None;
+
+        for &(lid, ls, le) in &lines {
+            if (ls - ap1).length() <= SNAP_TOL {
+                conn1 = Some((lid, ls, le));
+            } else if (le - ap1).length() <= SNAP_TOL {
+                conn1 = Some((lid, le, ls));
+            }
+            if (ls - ap2).length() <= SNAP_TOL {
+                conn2 = Some((lid, ls, le));
+            } else if (le - ap2).length() <= SNAP_TOL {
+                conn2 = Some((lid, le, ls));
+            }
+        }
+
+        if let (Some((l1_id, n1, f1)), Some((l2_id, n2, f2))) = (conn1, conn2) {
+            if l1_id != l2_id {
+                // Hitung perpotongan garis tak hingga (f1 -> n1) dan (f2 -> n2) untuk cari apex
+                let d1 = n1 - f1;
+                let d2 = n2 - f2;
+                let det = d1.x * d2.y - d1.y * d2.x;
+                if det.abs() > 1e-6 {
+                    let t = ((f2 - f1).x * d2.y - (f2 - f1).y * d2.x) / det;
+                    let apex = f1 + d1 * t;
+                    let bisector = (center - apex).normalize_or_zero();
+                    if bisector.length() > 0.01 {
+                        consumed_line_endpoints.push((l1_id, n1));
+                        consumed_line_endpoints.push((l2_id, n2));
+                        targets.push(FilletTarget::ExistingFillet {
+                            arc_id,
+                            line1: l1_id,
+                            line2: l2_id,
+                            apex,
+                            bisector,
+                            radius,
+                            far1: f1,
+                            far2: f2,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Deteksi sudut tajam pertemuan 2 garis lurus (Sharp Line Corner)
+    for i in 0..lines.len() {
+        for j in (i + 1)..lines.len() {
+            let (id1, s1, e1) = lines[i];
+            let (id2, s2, e2) = lines[j];
+
+            let pairs: [(DVec2, DVec2, DVec2, DVec2); 4] = [
+                (s1, s2, e1, e2),
+                (s1, e2, e1, s2),
+                (e1, s2, s1, e2),
+                (e1, e2, s1, s2),
+            ];
+
+            for (p1, p2, far1, far2) in pairs {
+                if (p1 - p2).length() <= SNAP_TOL {
+                    let corner = (p1 + p2) * 0.5;
+                    // Abaikan jika endpoint ini adalah bagian dari existing fillet
+                    if consumed_line_endpoints
+                        .iter()
+                        .any(|(id, pt)| (*id == id1 || *id == id2) && (*pt - corner).length() <= SNAP_TOL)
+                    {
+                        continue;
+                    }
+
+                    let u1 = (far1 - corner).normalize_or_zero();
+                    let u2 = (far2 - corner).normalize_or_zero();
+                    let dot = u1.dot(u2).clamp(-1.0, 1.0);
+                    // Hindari garis lurus (dot ~ -1) atau segmen bertumpuk (dot ~ 1)
+                    if dot.abs() < 0.999 {
+                        let b = (u1 + u2).normalize_or_zero();
+                        let bisector = if b.length() > 0.01 {
+                            b
+                        } else {
+                            DVec2::new(-u1.y, u1.x)
+                        };
+
+                        if !targets.iter().any(|t| match t {
+                            FilletTarget::SharpCorner { corner: c, .. } => (*c - corner).length() < SNAP_TOL,
+                            FilletTarget::ExistingFillet { apex, .. } => (*apex - corner).length() < SNAP_TOL,
+                        }) {
+                            targets.push(FilletTarget::SharpCorner {
+                                line1: id1,
+                                line2: id2,
+                                corner,
+                                bisector,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    targets
+}
+
+/// Temukan semua sudut pertemuan antar garis pada sketch.
+/// Khusus untuk sudut tajam antar 2 garis lurus (bukan sambungan tangen busur).
+pub fn find_all_corners(sketch: &Sketch) -> Vec<(EntityId, EntityId, DVec2, DVec2)> {
+    find_all_fillet_targets(sketch)
+        .into_iter()
+        .filter_map(|t| match t {
+            FilletTarget::SharpCorner {
+                line1,
+                line2,
+                corner,
+                bisector,
+            } => Some((line1, line2, corner, bisector)),
+            _ => None,
+        })
+        .collect()
+}

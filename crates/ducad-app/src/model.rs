@@ -560,6 +560,181 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     Ok(Profile::Loop(ordered.into_iter().map(|s| s.seg).collect()))
 }
 
+/// Bangun kurva jalur (spine path) untuk Sweep dari seleksi entitas sketch (Line, Arc, Spline, Circle)
+/// dengan transformasi ke koordinat 3D dunia berdasarkan `SketchPlane`.
+/// Spline Catmull-Rom dipecah menjadi busur-busur analitik kontinu tangensial (smooth arcs)
+/// agar tidak terbentuk patahan/miter tajam saat disapu oleh OpenCASCADE.
+pub fn build_path_from_selection_on_plane(
+    sketch: &Sketch,
+    ids: &HashSet<EntityId>,
+    plane: &ducad_render::SketchPlane,
+) -> Result<Vec<ducad_kernel::PathSegment>, String> {
+    if ids.is_empty() {
+        return Err("Pilih dulu entitas garis, busur, atau spline sebagai jalur sweep".to_string());
+    }
+
+    // Kasus khusus 1 Circle penuh sebagai jalur
+    if ids.len() == 1 {
+        let id = *ids.iter().next().unwrap();
+        if let Some(Entity::Circle { center, radius }) = sketch.entities.get(id) {
+            let (cx, cy, r) = (center.x, center.y, *radius);
+            let p1 = plane.to_world_f64((cx + r, cy), 0.0);
+            let p2 = plane.to_world_f64((cx, cy + r), 0.0);
+            let p3 = plane.to_world_f64((cx - r, cy), 0.0);
+            let p4 = plane.to_world_f64((cx, cy - r), 0.0);
+            return Ok(vec![
+                ducad_kernel::PathSegment::Arc {
+                    start: p1,
+                    via: p2,
+                    end: p3,
+                },
+                ducad_kernel::PathSegment::Arc {
+                    start: p3,
+                    via: p4,
+                    end: p1,
+                },
+            ]);
+        }
+    }
+
+    struct PathSeg2D {
+        start: DVec2,
+        end: DVec2,
+        seg: ProfileSegment,
+    }
+
+    let mut segs: Vec<PathSeg2D> = Vec::new();
+    for id in ids {
+        match sketch.entities.get(*id) {
+            Some(Entity::Line { start, end }) => segs.push(PathSeg2D {
+                start: *start,
+                end: *end,
+                seg: ProfileSegment::Line {
+                    start: (start.x, start.y),
+                    end: (end.x, end.y),
+                },
+            }),
+            Some(Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+            }) => {
+                let (s, via, e) = arc_endpoints_and_via(*center, *radius, *start_angle, *end_angle);
+                segs.push(PathSeg2D {
+                    start: s,
+                    end: e,
+                    seg: ProfileSegment::Arc {
+                        start: (s.x, s.y),
+                        via: (via.x, via.y),
+                        end: (e.x, e.y),
+                    },
+                });
+            }
+            Some(Entity::Spline { points }) => {
+                for (start, end, seg) in convert_spline_to_smooth_segments(points) {
+                    segs.push(PathSeg2D { start, end, seg });
+                }
+            }
+            Some(Entity::Circle { center, radius }) => {
+                let (cx, cy, r) = (center.x, center.y, *radius);
+                let p1 = DVec2::new(cx + r, cy);
+                let p2 = DVec2::new(cx, cy + r);
+                let p3 = DVec2::new(cx - r, cy);
+                let p4 = DVec2::new(cx, cy - r);
+                segs.push(PathSeg2D {
+                    start: p1,
+                    end: p3,
+                    seg: ProfileSegment::Arc {
+                        start: (p1.x, p1.y),
+                        via: (p2.x, p2.y),
+                        end: (p3.x, p3.y),
+                    },
+                });
+                segs.push(PathSeg2D {
+                    start: p3,
+                    end: p1,
+                    seg: ProfileSegment::Arc {
+                        start: (p3.x, p3.y),
+                        via: (p4.x, p4.y),
+                        end: (p1.x, p1.y),
+                    },
+                });
+            }
+            Some(Entity::Ellipse { .. }) | None => {}
+        }
+    }
+
+    if segs.is_empty() {
+        return Err("Tidak ada kurva jalur yang valid dari seleksi".to_string());
+    }
+
+    // Urutkan dan rangkai segmen (head-to-tail chaining)
+    const EPS: f64 = 0.05;
+    let mut remaining = segs;
+    let mut ordered = vec![remaining.remove(0)];
+
+    while !remaining.is_empty() {
+        let tail = ordered.last().unwrap().end;
+        if let Some(i) = remaining.iter().position(|s| (s.start - tail).length() < EPS) {
+            ordered.push(remaining.remove(i));
+            continue;
+        }
+        if let Some(i) = remaining.iter().position(|s| (s.end - tail).length() < EPS) {
+            let mut s = remaining.remove(i);
+            std::mem::swap(&mut s.start, &mut s.end);
+            s.seg = reverse_segment(s.seg);
+            ordered.push(s);
+            continue;
+        }
+        let head = ordered.first().unwrap().start;
+        if let Some(i) = remaining.iter().position(|s| (s.end - head).length() < EPS) {
+            ordered.insert(0, remaining.remove(i));
+            continue;
+        }
+        if let Some(i) = remaining.iter().position(|s| (s.start - head).length() < EPS) {
+            let mut s = remaining.remove(i);
+            std::mem::swap(&mut s.start, &mut s.end);
+            s.seg = reverse_segment(s.seg);
+            ordered.insert(0, s);
+            continue;
+        }
+        break;
+    }
+
+    // Konversi ordered segments ke 3D PathSegment
+    let mut path_3d = Vec::new();
+    for s in ordered {
+        match s.seg {
+            ProfileSegment::Line { start, end } => {
+                path_3d.push(ducad_kernel::PathSegment::Line {
+                    start: plane.to_world_f64(start, 0.0),
+                    end: plane.to_world_f64(end, 0.0),
+                });
+            }
+            ProfileSegment::Arc { start, via, end } => {
+                path_3d.push(ducad_kernel::PathSegment::Arc {
+                    start: plane.to_world_f64(start, 0.0),
+                    via: plane.to_world_f64(via, 0.0),
+                    end: plane.to_world_f64(end, 0.0),
+                });
+            }
+        }
+    }
+
+    Ok(path_3d)
+}
+
+/// Fallback versi planar XY untuk kompatibilitas fungsi lama / test sederhana.
+pub fn build_path_from_selection(
+    sketch: &Sketch,
+    ids: &HashSet<EntityId>,
+) -> Result<Vec<ducad_kernel::PathSegment>, String> {
+    build_path_from_selection_on_plane(sketch, ids, &ducad_render::SketchPlane::top())
+}
+
+
+
 /// Hitung bounding box 2D `[min_x, min_y, max_x, max_y]` dari seleksi entitas sketch.
 pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<[f64; 4]> {
     if ids.is_empty() {
@@ -859,6 +1034,118 @@ mod tests {
 
         let profile = build_profile_from_selection(&sketch, &sel).unwrap();
         let shape = ducad_kernel::extrude_profile(&profile, 15.0).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_sweep_from_selection() {
+        let mut sketch = Sketch::default();
+        let c_id = sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 5.0,
+        });
+        let mut prof_sel = HashSet::new();
+        prof_sel.insert(c_id);
+        let profile = build_profile_from_selection(&sketch, &prof_sel).unwrap();
+
+        let l_id = sketch.entities.insert(Entity::Line {
+            start: DVec2::new(0.0, 0.0),
+            end: DVec2::new(0.0, 40.0),
+        });
+        let mut path_sel = HashSet::new();
+        path_sel.insert(l_id);
+        let path = build_path_from_selection(&sketch, &path_sel).unwrap();
+
+        let shape = ducad_kernel::sweep_profile_along_path(&profile, &path).unwrap();
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_sweep_multi_plane_profile_top_path_front() {
+        let mut top_sketch = Sketch::default();
+        let c_id = top_sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 8.0,
+        });
+        let mut prof_sel = HashSet::new();
+        prof_sel.insert(c_id);
+        let profile = build_profile_from_selection(&top_sketch, &prof_sel).unwrap();
+        let top_plane = ducad_render::SketchPlane::top();
+
+        let mut front_sketch = Sketch::default();
+        // Path on Front plane (XZ): goes from origin (0, 0) up along Z (0, 50)
+        let l_id = front_sketch.entities.insert(Entity::Line {
+            start: DVec2::new(0.0, 0.0),
+            end: DVec2::new(0.0, 50.0),
+        });
+        let mut path_sel = HashSet::new();
+        path_sel.insert(l_id);
+        let front_plane = ducad_render::SketchPlane::front();
+        let path = build_path_from_selection_on_plane(&front_sketch, &path_sel, &front_plane).unwrap();
+
+        let origin = [top_plane.origin.x as f64, top_plane.origin.y as f64, top_plane.origin.z as f64];
+        let u_axis = [top_plane.u_axis.x as f64, top_plane.u_axis.y as f64, top_plane.u_axis.z as f64];
+        let v_axis = [top_plane.v_axis.x as f64, top_plane.v_axis.y as f64, top_plane.v_axis.z as f64];
+        let normal = [top_plane.normal.x as f64, top_plane.normal.y as f64, top_plane.normal.z as f64];
+
+        let shape = ducad_kernel::sweep_profile_on_plane_along_path(
+            &profile,
+            origin,
+            u_axis,
+            v_axis,
+            normal,
+            &path,
+        )
+        .unwrap();
+
+        let mesh = shape.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_sweep_along_smooth_spline_path() {
+        let mut top_sketch = Sketch::default();
+        let c_id = top_sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(0.0, 0.0),
+            radius: 5.0,
+        });
+        let mut prof_sel = HashSet::new();
+        prof_sel.insert(c_id);
+        let profile = build_profile_from_selection(&top_sketch, &prof_sel).unwrap();
+        let top_plane = ducad_render::SketchPlane::top();
+
+        let mut front_sketch = Sketch::default();
+        // Curving S-path on Front Plane (XZ)
+        let s_id = front_sketch.entities.insert(Entity::Spline {
+            points: vec![
+                DVec2::new(0.0, 0.0),
+                DVec2::new(0.0, 30.0),
+                DVec2::new(30.0, 60.0),
+                DVec2::new(60.0, 60.0),
+            ],
+        });
+        let mut path_sel = HashSet::new();
+        path_sel.insert(s_id);
+        let front_plane = ducad_render::SketchPlane::front();
+        let path = build_path_from_selection_on_plane(&front_sketch, &path_sel, &front_plane).unwrap();
+
+        let origin = [top_plane.origin.x as f64, top_plane.origin.y as f64, top_plane.origin.z as f64];
+        let u_axis = [top_plane.u_axis.x as f64, top_plane.u_axis.y as f64, top_plane.u_axis.z as f64];
+        let v_axis = [top_plane.v_axis.x as f64, top_plane.v_axis.y as f64, top_plane.v_axis.z as f64];
+        let normal = [top_plane.normal.x as f64, top_plane.normal.y as f64, top_plane.normal.z as f64];
+
+        let shape = ducad_kernel::sweep_profile_on_plane_along_path(
+            &profile,
+            origin,
+            u_axis,
+            v_axis,
+            normal,
+            &path,
+        )
+        .unwrap();
+
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
     }

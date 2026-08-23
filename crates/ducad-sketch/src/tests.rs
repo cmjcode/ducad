@@ -507,3 +507,104 @@ fn test_spline_closed_region() {
     assert!(regions[0].contains_point(DVec2::new(15.0, -5.0)));
 }
 
+#[test]
+fn test_fillet_2d_right_angle() {
+    use crate::ops::compute_fillet_2d;
+
+    // Line 1: (0, 0) to (10, 0)
+    // Line 2: (10, 0) to (10, 10)
+    // Corner at (10, 0)
+    let l1 = (DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
+    let l2 = (DVec2::new(10.0, 0.0), DVec2::new(10.0, 10.0));
+
+    let res = compute_fillet_2d(l1, l2, 2.0).expect("fillet should succeed");
+    assert!((res.tangent1 - DVec2::new(8.0, 0.0)).length() < 1e-6);
+    assert!((res.tangent2 - DVec2::new(10.0, 2.0)).length() < 1e-6);
+    assert!((res.center - DVec2::new(8.0, 2.0)).length() < 1e-6);
+
+    if let Entity::Line { start, end } = res.trimmed_line1 {
+        assert!((start - DVec2::new(0.0, 0.0)).length() < 1e-6);
+        assert!((end - DVec2::new(8.0, 0.0)).length() < 1e-6);
+    } else {
+        panic!("expected Line");
+    }
+
+    if let Entity::Line { start, end } = res.trimmed_line2 {
+        assert!((start - DVec2::new(10.0, 2.0)).length() < 1e-6);
+        assert!((end - DVec2::new(10.0, 10.0)).length() < 1e-6);
+    } else {
+        panic!("expected Line");
+    }
+
+    if let Entity::Arc { center, radius, .. } = res.arc {
+        assert!((center - DVec2::new(8.0, 2.0)).length() < 1e-6);
+        assert!((radius - 2.0).abs() < 1e-6);
+    } else {
+        panic!("expected Arc");
+    }
+
+    // Radius too large (exceeds segment length) -> None
+    assert!(compute_fillet_2d(l1, l2, 15.0).is_none());
+}
+
+#[test]
+fn test_fillet_2d_acute_and_obtuse() {
+    use crate::ops::compute_fillet_2d;
+
+    // Angle of 60 degrees (acute)
+    let l1 = (DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
+    let l2 = (DVec2::new(10.0, 0.0), DVec2::new(15.0, 5.0 * 3.0f64.sqrt()));
+
+    let res = compute_fillet_2d(l1, l2, 1.5);
+    assert!(res.is_some());
+
+    // Parallel lines -> None
+    let p1 = (DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
+    let p2 = (DVec2::new(0.0, 5.0), DVec2::new(10.0, 5.0));
+    assert!(compute_fillet_2d(p1, p2, 1.0).is_none());
+}
+
+#[test]
+fn test_chamfer_2d() {
+    use crate::ops::compute_chamfer_2d;
+
+    let l1 = (DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
+    let l2 = (DVec2::new(10.0, 0.0), DVec2::new(10.0, 10.0));
+
+    let res = compute_chamfer_2d(l1, l2, 3.0, 4.0).expect("chamfer should succeed");
+    assert_eq!(res.tangent1, DVec2::new(7.0, 0.0));
+    assert_eq!(res.tangent2, DVec2::new(10.0, 4.0));
+
+    if let Entity::Line { start, end } = res.bevel_line {
+        assert_eq!(start, DVec2::new(7.0, 0.0));
+        assert_eq!(end, DVec2::new(10.0, 4.0));
+    } else {
+        panic!("expected Line");
+    }
+
+    // Chamfer distance exceeds length -> None
+    assert!(compute_chamfer_2d(l1, l2, 12.0, 2.0).is_none());
+}
+
+#[test]
+fn test_find_corner_lines_at_point() {
+    use crate::ops::find_corner_lines_at_point;
+
+    let mut sketch = Sketch::default();
+    let id1 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(0.0, 0.0),
+        end: DVec2::new(10.0, 0.0),
+    });
+    let id2 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(10.0, 0.0),
+        end: DVec2::new(10.0, 10.0),
+    });
+
+    let found = find_corner_lines_at_point(&sketch, DVec2::new(10.0, 0.0), 0.5);
+    assert!(found.is_some());
+    let (f1, f2, corner) = found.unwrap();
+    assert_eq!(corner, DVec2::new(10.0, 0.0));
+    assert!((f1 == id1 && f2 == id2) || (f1 == id2 && f2 == id1));
+}
+
+

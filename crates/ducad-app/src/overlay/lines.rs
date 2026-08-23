@@ -3,7 +3,7 @@ use ducad_sketch::{arc_from_three_points, mirror_entity, offset_entity, Entity};
 use glam::{DVec2, Vec3};
 
 use crate::app::DuCADApp;
-use crate::input::trim_removal_preview;
+use crate::input::{chamfer_2d_preview, fillet_2d_preview, trim_removal_preview};
 use crate::types::{RoundKind, ToolKind};
 
 impl DuCADApp {
@@ -262,6 +262,56 @@ impl DuCADApp {
             }
         }
 
+        let all_corners = ducad_sketch::find_all_corners(self.sketch());
+        for (_, _, corner_2d, _) in &all_corners {
+            verts.extend(sketch_render::picked_point_glyph(*corner_2d, &self.active_plane));
+        }
+
+        if let Some((id1, id2, corner_2d)) = self.active_sketch_corner {
+            verts.extend(sketch_render::picked_point_glyph(corner_2d, &self.active_plane));
+            let r = self.sketch_corner_gizmo_radius;
+            let (e1_opt, e2_opt) = (
+                self.sketch().entities.get(id1),
+                self.sketch().entities.get(id2),
+            );
+            if let (
+                Some(Entity::Line { start: s1, end: e1 }),
+                Some(Entity::Line { start: s2, end: e2 }),
+            ) = (e1_opt, e2_opt)
+            {
+                if let Some(arc_id) = self.active_sketch_fillet_arc {
+                    if let Some(Entity::Arc { center, radius: _, start_angle, end_angle: _ }) =
+                        self.sketch().entities.get(arc_id)
+                    {
+                        let ap1 = *center + glam::DVec2::new(start_angle.cos(), start_angle.sin());
+                        let (n1, f1) = if (*s1 - ap1).length() < (*e1 - ap1).length() { (*s1, *e1) } else { (*e1, *s1) };
+                        let (n2, f2) = if (*s2 - ap1).length() < (*e2 - ap1).length() { (*s2, *e2) } else { (*e2, *s2) };
+                        let d1 = n1 - f1;
+                        let d2 = n2 - f2;
+                        let det = d1.x * d2.y - d1.y * d2.x;
+                        if det.abs() > 1e-6 {
+                            let t = ((f2 - f1).x * d2.y - (f2 - f1).y * d2.x) / det;
+                            let apex = f1 + d1 * t;
+                            if r > 0.1 {
+                                if let Some(res) = ducad_sketch::compute_fillet_2d((f1, apex), (f2, apex), r) {
+                                    verts.extend(sketch_render::preview_lines(&res.arc, &self.active_plane));
+                                }
+                            }
+                        }
+                    }
+                } else if r > 0.1 {
+                    if let Some(res) = ducad_sketch::compute_fillet_2d((*s1, *e1), (*s2, *e2), r) {
+                        verts.extend(sketch_render::preview_lines(&res.arc, &self.active_plane));
+                    }
+                } else if r < -0.1 {
+                    let d = -r;
+                    if let Some(res) = ducad_sketch::compute_chamfer_2d((*s1, *e1), (*s2, *e2), d, d) {
+                        verts.extend(sketch_render::preview_lines(&res.bevel_line, &self.active_plane));
+                    }
+                }
+            }
+        }
+
         if let Some(raw) = raw_cursor {
             let offset_dist = (14.0 * world_scale).max(8.0);
             match self.tool {
@@ -448,6 +498,36 @@ impl DuCADApp {
                                 &self.active_plane,
                             ));
                         }
+                    }
+                }
+                ToolKind::Fillet2D => {
+                    let tol = 12.0 * world_scale;
+                    if let Some(res) = fillet_2d_preview(
+                        self.sketch(),
+                        raw,
+                        self.fillet_2d_radius,
+                        tol,
+                        self.fillet_chamfer_first_line,
+                    ) {
+                        verts.extend(sketch_render::preview_lines(
+                            &res.arc,
+                            &self.active_plane,
+                        ));
+                    }
+                }
+                ToolKind::Chamfer2D => {
+                    let tol = 12.0 * world_scale;
+                    if let Some(res) = chamfer_2d_preview(
+                        self.sketch(),
+                        raw,
+                        self.chamfer_2d_dist,
+                        tol,
+                        self.fillet_chamfer_first_line,
+                    ) {
+                        verts.extend(sketch_render::preview_lines(
+                            &res.bevel_line,
+                            &self.active_plane,
+                        ));
                     }
                 }
                 ToolKind::Measure | ToolKind::MeasureAngle => {

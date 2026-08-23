@@ -127,6 +127,15 @@ impl Face {
             .expect("Face::revolve failed (use try_revolve for safe error handling)")
     }
 
+    /// Menghasilkan bentuk 3D solid baru dengan menyapu (sweep / pipe) wajah (face) ini di sepanjang kurva jalur (spine wire).
+    pub fn pipe(&self, spine: &Wire) -> Result<Shape, crate::Error> {
+        let profile_shape: Shape = Shape::from(Face {
+            inner: ffi::TopoDS_Face_to_owned(&self.inner),
+        });
+        Shape::pipe(spine, &profile_shape)
+    }
+
+
     /// Fillets the face edges by a given radius at each vertex
     pub fn fillet(&mut self, radius: f64) {
         let mut make_fillet = ffi::BRepFilletAPI_MakeFillet2d_ctor(&self.inner);

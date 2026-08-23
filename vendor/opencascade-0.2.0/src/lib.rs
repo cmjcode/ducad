@@ -52,5 +52,10 @@ pub enum Error {
     // (mis. shape sudah berongga/shell, atau tebal dinding melebihi batas geometri).
     #[error("BRepOffsetAPI_MakeThickSolid gagal: {0}")]
     HollowFailed(String),
+    // PATCH (DUCAD): variant baru untuk membungkus kegagalan BRepOffsetAPI_MakePipe
+    // (mis. profil atau jalur kurva bermasalah).
+    #[error("BRepOffsetAPI_MakePipe gagal: {0}")]
+    PipeFailed(String),
 }
+
 

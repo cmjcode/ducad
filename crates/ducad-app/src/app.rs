@@ -14,7 +14,7 @@ use ducad_ui::{
     ContextAction, ContextActionBar, Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent,
     HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu, RenamePopupEvent,
+    RadialMenu, RenamePopupEvent, SweepPopup, SweepPopupState,
     ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
     TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
 };
@@ -61,11 +61,24 @@ pub struct DuCADApp {
     pub shell_direction: ducad_kernel::Direction,
     pub boolean_op: ducad_ui::BooleanOpKind,
 
+    pub fillet_2d_radius: f64,
+    pub chamfer_2d_dist: f64,
+    pub fillet_chamfer_first_line: Option<EntityId>,
+
+    pub active_sketch_corner: Option<(EntityId, EntityId, glam::DVec2)>,
+    pub active_sketch_fillet_arc: Option<EntityId>,
+    pub sketch_corner_gizmo_radius: f64,
+    pub sketch_corner_gizmo_active: bool,
+    pub sketch_corner_dimension_editing: bool,
+    pub sketch_corner_edit_input: String,
+
     pub pending_loft_bottom: Option<ducad_kernel::Profile>,
     pub loft_height_input: String,
     pub loft_alignment_dismissed: bool,
     pub loft_is_flipped: bool,
     pub loft_staged_body_id: Option<BodyId>,
+    pub pending_sweep_profile: Option<(ducad_kernel::Profile, ducad_render::SketchPlane)>,
+    pub pending_sweep_path: Option<Vec<ducad_kernel::PathSegment>>,
     pub selection_box: Option<(glam::DVec2, glam::DVec2)>,
 
     pub picking_mode: PickMode,
@@ -164,6 +177,7 @@ pub struct DuCADApp {
     pub vertex_gizmo_edit_input: String,
 
     pub hovered_vertex_marker: Option<(BodyId, (f64, f64, f64))>,
+    pub hovered_corner_2d: Option<glam::DVec2>,
     pub active_edge: Option<(BodyId, PickRay, (f64, f64, f64))>,
 
     pub filleting_edge_from_gizmo: bool,
@@ -267,12 +281,23 @@ impl DuCADApp {
             shell_thickness_input: "2".to_string(),
             shell_direction: ducad_kernel::Direction::PosZ,
             boolean_op: ducad_ui::BooleanOpKind::Union,
+            fillet_2d_radius: 5.0,
+            chamfer_2d_dist: 5.0,
+            fillet_chamfer_first_line: None,
+            active_sketch_corner: None,
+            active_sketch_fillet_arc: None,
+            sketch_corner_gizmo_radius: 5.0,
+            sketch_corner_gizmo_active: false,
+            sketch_corner_dimension_editing: false,
+            sketch_corner_edit_input: "5.0".to_string(),
 
             pending_loft_bottom: None,
             loft_height_input: "20.0".to_string(),
             loft_alignment_dismissed: false,
             loft_is_flipped: false,
             loft_staged_body_id: None,
+            pending_sweep_profile: None,
+            pending_sweep_path: None,
             selection_box: None,
             picking_mode: PickMode::default(),
             selected_edges: Vec::new(),
@@ -363,6 +388,7 @@ impl DuCADApp {
             vertex_gizmo_edit_input: "3".to_string(),
 
             hovered_vertex_marker: None,
+            hovered_corner_2d: None,
             active_edge: None,
             filleting_edge_from_gizmo: false,
             edge_gizmo_radius: 3.0,
@@ -1171,6 +1197,13 @@ impl eframe::App for DuCADApp {
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
         match self.tool {
+            ToolKind::Sweep => {
+                let mut state = SweepPopupState {
+                    sweep_profile_staged: self.pending_sweep_profile.is_some(),
+                    sweep_path_staged: self.pending_sweep_path.is_some(),
+                };
+                popup_ev = SweepPopup::show(&ctx, &mut state, screen_rect);
+            }
             ToolKind::History => {
                 let mut state = HistoryPopupState {
                     can_undo_model: self.model_undo.can_undo(),
@@ -1233,6 +1266,42 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::ApplyLoft { height } => {
                     self.loft_height_input = height.to_string();
                     self.loft_selected();
+                }
+                ToolPopupEvent::StageSweepProfile => {
+                    match crate::model::build_profile_from_selection(
+                        self.sketch(),
+                        &self.selected,
+                    ) {
+                        Ok(profile) => {
+                            self.pending_sweep_profile = Some((profile, self.active_plane));
+                            self.selected.clear();
+                            self.model_status = Some(
+                                "✓ Profil tersimpan! Sekarang ganti bidang sketsa (mis. Front/Right Plane) untuk membuat kurva jalur, lalu klik 'Set Jalur'."
+                                    .to_string(),
+                            );
+                        }
+                        Err(msg) => self.model_status = Some(format!("Pilih profil tertutup di kanvas: {msg}")),
+                    }
+                }
+                ToolPopupEvent::StageSweepPath => {
+                    match crate::model::build_path_from_selection_on_plane(
+                        self.sketch(),
+                        &self.selected,
+                        &self.active_plane,
+                    ) {
+                        Ok(path) => {
+                            self.pending_sweep_path = Some(path);
+                            self.selected.clear();
+                            self.model_status = Some(
+                                "✓ Jalur kurva pemandu tersimpan! Sekarang klik '🚀 Buat 3D Sweep'."
+                                    .to_string(),
+                            );
+                        }
+                        Err(msg) => self.model_status = Some(format!("Pilih jalur di kanvas: {msg}")),
+                    }
+                }
+                ToolPopupEvent::ApplySweep => {
+                    self.sweep_selected();
                 }
                 ToolPopupEvent::ToggleFacePicking => {
                     if self.picking_mode == PickMode::Face {
@@ -1448,6 +1517,7 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
                                 ContextAction::Revolve => self.open_revolve_dialog(),
+                                ContextAction::Sweep => self.set_tool(ToolKind::Sweep),
                                 ContextAction::Delete => {
                                     if !self.selected.is_empty() {
                                         let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();

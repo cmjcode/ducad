@@ -1,10 +1,11 @@
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    arc_from_three_points, find_region_at_point, find_region_containing_entity, find_snap,
-    find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
-    project_t, trim_segments, ClosedRegion, DeleteEntities, Entity, EntityId, InsertEntities,
-    ReplaceEntities, Sketch, TranslateEntities,
+    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, find_corner_lines_at_point,
+    find_region_at_point, find_region_containing_entity, find_snap, find_snap_with_extra,
+    line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t, trim_segments,
+    Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId, Fillet2DResult,
+    InsertEntities, ReplaceEntities, Sketch, TranslateEntities,
 };
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -34,6 +35,74 @@ pub fn trim_removal_preview(
     ts.windows(2)
         .find(|w| click_t >= w[0] && click_t <= w[1])
         .map(|w| (start + (end - start) * w[0], start + (end - start) * w[1]))
+}
+
+/// Untuk tool Fillet2D: hasil kalkulasi fillet jika hover di dekat sudut atau garis.
+pub fn fillet_2d_preview(
+    sketch: &Sketch,
+    hover: DVec2,
+    radius: f64,
+    tol: f64,
+    first_selected: Option<EntityId>,
+) -> Option<Fillet2DResult> {
+    if let Some((id1, id2, _corner)) = find_corner_lines_at_point(sketch, hover, tol) {
+        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+            return None;
+        };
+        let Entity::Line { start: s2, end: e2 } = sketch.entities.get(id2)?.clone() else {
+            return None;
+        };
+        compute_fillet_2d((s1, e1), (s2, e2), radius)
+    } else if let Some(id1) = first_selected {
+        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+            return None;
+        };
+        let hovered_id = sketch.hit_test(hover, tol)?;
+        if hovered_id != id1 {
+            let Entity::Line { start: s2, end: e2 } = sketch.entities.get(hovered_id)?.clone() else {
+                return None;
+            };
+            compute_fillet_2d((s1, e1), (s2, e2), radius)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Untuk tool Chamfer2D: hasil kalkulasi chamfer jika hover di dekat sudut atau garis.
+pub fn chamfer_2d_preview(
+    sketch: &Sketch,
+    hover: DVec2,
+    dist: f64,
+    tol: f64,
+    first_selected: Option<EntityId>,
+) -> Option<Chamfer2DResult> {
+    if let Some((id1, id2, _corner)) = find_corner_lines_at_point(sketch, hover, tol) {
+        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+            return None;
+        };
+        let Entity::Line { start: s2, end: e2 } = sketch.entities.get(id2)?.clone() else {
+            return None;
+        };
+        compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+    } else if let Some(id1) = first_selected {
+        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+            return None;
+        };
+        let hovered_id = sketch.hit_test(hover, tol)?;
+        if hovered_id != id1 {
+            let Entity::Line { start: s2, end: e2 } = sketch.entities.get(hovered_id)?.clone() else {
+                return None;
+            };
+            compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }
 
 impl DuCADApp {
@@ -79,6 +148,124 @@ impl DuCADApp {
         self.loft_alignment_dismissed = false;
         self.loft_staged_body_id = None;
         self.selection_box = None;
+        self.fillet_chamfer_first_line = None;
+        self.active_sketch_corner = None;
+        self.active_sketch_fillet_arc = None;
+        self.sketch_corner_gizmo_active = false;
+        self.sketch_corner_dimension_editing = false;
+    }
+
+    /// Eksekusi commit Fillet 2D atau Chamfer 2D saat drag gizmo sudut 2D selesai atau angka dimasukkan.
+    pub fn commit_sketch_corner_fillet_or_chamfer(&mut self) {
+        if let Some((id1, id2, _corner)) = self.active_sketch_corner {
+            let r = self.sketch_corner_gizmo_radius;
+
+            // Jika ini revisi fillet arc yang sudah ada
+            if let Some(arc_id) = self.active_sketch_fillet_arc {
+                let arc_opt = self.sketch().entities.get(arc_id).cloned();
+                let (e1_opt, e2_opt) = (
+                    self.sketch().entities.get(id1).cloned(),
+                    self.sketch().entities.get(id2).cloned(),
+                );
+                if let (
+                    Some(Entity::Arc { center, radius: _, start_angle, end_angle }),
+                    Some(Entity::Line { start: s1, end: e1 }),
+                    Some(Entity::Line { start: s2, end: e2 }),
+                ) = (arc_opt, e1_opt, e2_opt) {
+                    let ap1 = center + glam::DVec2::new(start_angle.cos(), start_angle.sin()) * 1.0;
+                    let _ap2 = center + glam::DVec2::new(end_angle.cos(), end_angle.sin()) * 1.0;
+
+                    let (n1, f1) = if (s1 - ap1).length() < (e1 - ap1).length() { (s1, e1) } else { (e1, s1) };
+                    let (n2, f2) = if (s2 - ap1).length() < (e2 - ap1).length() { (s2, e2) } else { (e2, s2) };
+
+                    let d1 = n1 - f1;
+                    let d2 = n2 - f2;
+                    let det = d1.x * d2.y - d1.y * d2.x;
+                    if det.abs() > 1e-6 {
+                        let t = ((f2 - f1).x * d2.y - (f2 - f1).y * d2.x) / det;
+                        let apex = f1 + d1 * t;
+
+                        if r > 0.1 {
+                            if let Some(res) = compute_fillet_2d((f1, apex), (f2, apex), r) {
+                                self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                    "Revisi Fillet 2D",
+                                    vec![id1, id2, arc_id],
+                                    vec![res.trimmed_line1, res.trimmed_line2, res.arc],
+                                )));
+                                self.model_status = Some(format!(
+                                    "✓ Fillet 2D direvisi — R {}", self.unit.format(r)
+                                ));
+                            }
+                        } else {
+                            // Radius <= 0.1 -> Kembalikan ke sudut tajam
+                            self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                "Hapus Fillet 2D",
+                                vec![id1, id2, arc_id],
+                                vec![
+                                    Entity::Line { start: f1, end: apex },
+                                    Entity::Line { start: f2, end: apex },
+                                ],
+                            )));
+                            self.model_status = Some("✓ Fillet 2D dihapus — dikembalikan ke sudut tajam".to_string());
+                        }
+                    }
+                }
+                self.active_sketch_corner = None;
+                self.active_sketch_fillet_arc = None;
+                self.sketch_corner_gizmo_active = false;
+                self.sketch_corner_dimension_editing = false;
+                return;
+            }
+
+            if r.abs() < 0.1 {
+                self.active_sketch_corner = None;
+                self.active_sketch_fillet_arc = None;
+                self.sketch_corner_gizmo_active = false;
+                self.sketch_corner_dimension_editing = false;
+                return;
+            }
+            let (e1_opt, e2_opt) = (
+                self.sketch().entities.get(id1).cloned(),
+                self.sketch().entities.get(id2).cloned(),
+            );
+            match (e1_opt, e2_opt) {
+                (Some(Entity::Line { start: s1, end: e1 }), Some(Entity::Line { start: s2, end: e2 })) => {
+                    if r > 0.0 {
+                        if let Some(res) = compute_fillet_2d((s1, e1), (s2, e2), r) {
+                            self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                "Fillet 2D",
+                                vec![id1, id2],
+                                vec![res.trimmed_line1, res.trimmed_line2, res.arc],
+                            )));
+                            self.model_status = Some(format!(
+                                "✓ Fillet 2D diterapkan — R {}", self.unit.format(r)
+                            ));
+                        }
+                    } else {
+                        let d = -r;
+                        if let Some(res) = compute_chamfer_2d((s1, e1), (s2, e2), d, d) {
+                            self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                "Chamfer 2D",
+                                vec![id1, id2],
+                                vec![res.trimmed_line1, res.trimmed_line2, res.bevel_line],
+                            )));
+                            self.model_status = Some(format!(
+                                "✓ Chamfer 2D diterapkan — C {}", self.unit.format(d)
+                            ));
+                        }
+                    }
+                }
+                _ => {
+                    self.model_status = Some(
+                        "⚠ Fillet/Chamfer 2D hanya bisa diterapkan pada pertemuan dua garis lurus".to_string(),
+                    );
+                }
+            }
+        }
+        self.active_sketch_corner = None;
+        self.active_sketch_fillet_arc = None;
+        self.sketch_corner_gizmo_active = false;
+        self.sketch_corner_dimension_editing = false;
     }
 
     pub fn snapped_or(&self, raw: DVec2) -> DVec2 {
@@ -716,15 +903,22 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         match self.tool {
-            ToolKind::Select | ToolKind::Loft => {
+            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep => {
                 self.last_snap = None;
 
                 if self.extruding_from_gizmo {
                     return;
                 }
 
+                let corner_hover_2d = if self.is_sketching && response.hovered() && !self.sketch().entities.is_empty() {
+                    find_corner_lines_at_point(self.sketch(), raw, tol * 2.5)
+                } else {
+                    None
+                };
+                self.hovered_corner_2d = corner_hover_2d.map(|(_, _, pt)| pt);
+
                 let region_hit: Option<ClosedRegion> =
-                    if !self.sketch().entities.is_empty() && response.hovered() {
+                    if corner_hover_2d.is_none() && !self.sketch().entities.is_empty() && response.hovered() {
                         if let Some(r) = find_region_at_point(self.sketch(), raw) {
                             Some(r)
                         } else if let Some(hit) = self.hit_test_hover(rect, response, tol) {
@@ -736,7 +930,7 @@ impl DuCADApp {
                         None
                     };
 
-                self.hovered = if region_hit.is_some() {
+                self.hovered = if region_hit.is_some() || corner_hover_2d.is_some() {
                     None
                 } else {
                     response
@@ -771,6 +965,35 @@ impl DuCADApp {
                         .hover_pos()
                         .or_else(|| ui.input(|i| i.pointer.latest_pos()))
                         .or_else(|| ui.input(|i| i.pointer.interact_pos()));
+
+                    // Prioritas 1: Jika mengklik sudut pertemuan 2 garis sketsa 2D
+                    let corner_pick_2d = if !shift && self.is_sketching && !self.sketch().entities.is_empty() {
+                        find_corner_lines_at_point(self.sketch(), raw, tol * 2.5)
+                    } else {
+                        None
+                    };
+
+                    if let Some((id1, id2, corner)) = corner_pick_2d {
+                        self.selected.clear();
+                        self.selected_bodies.clear();
+                        self.active_face = None;
+                        self.active_vertex = None;
+                        self.active_edge = None;
+                        self.editing_round = None;
+                        self.body_move_target = None;
+                        self.active_sketch_corner = Some((id1, id2, corner));
+                        self.sketch_corner_gizmo_radius = 5.0;
+                        self.sketch_corner_edit_input = "5.0".to_string();
+                        self.sketch_corner_dimension_editing = false;
+                        self.model_status = Some(
+                            "Sudut sketsa 2D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
+                        );
+                        return;
+                    }
+
+                    if !self.sketch_corner_gizmo_active && !self.sketch_corner_dimension_editing {
+                        self.active_sketch_corner = None;
+                    }
 
                     let face_pick_3d = if !self.is_sketching {
                         click_pos.and_then(|pos| self.pick_body_face_at_cursor(rect, pos))
@@ -936,7 +1159,7 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
-                        if shift || self.tool == ToolKind::Loft {
+                        if shift || self.tool == ToolKind::Loft || self.tool == ToolKind::Sweep {
                             let already_selected =
                                 reg.entity_ids.iter().all(|id| self.selected.contains(id));
                             if already_selected {
@@ -962,7 +1185,8 @@ impl DuCADApp {
                     } else {
                         let cycled_hit =
                             click_pos.and_then(|pos| self.hit_test_click_cycled(rect, pos, tol));
-                        match (cycled_hit.or(self.hovered), shift || self.tool == ToolKind::Loft) {
+
+                        match (cycled_hit.or(self.hovered), shift || self.tool == ToolKind::Loft || self.tool == ToolKind::Sweep) {
                             (Some(hit), true) => {
                                 if !self.selected.remove(&hit) {
                                     self.selected.insert(hit);
@@ -1212,6 +1436,162 @@ impl DuCADApp {
                                 new_lines,
                             )));
                             self.hovered = None;
+                        }
+                    }
+                }
+            }
+            ToolKind::Fillet2D => {
+                self.last_snap = None;
+                if let Ok(val) = self.dynamic_input.trim().parse::<f64>() {
+                    if val > 0.0 {
+                        self.fillet_2d_radius = val;
+                    }
+                }
+                let corner_hit = find_corner_lines_at_point(self.sketch(), raw, tol * 2.0);
+                if let Some((id1, _id2, _corner)) = corner_hit {
+                    self.hovered = Some(id1);
+                } else {
+                    self.hovered = response
+                        .hovered()
+                        .then(|| self.hit_test_hover(rect, response, tol))
+                        .flatten()
+                        .filter(|id| {
+                            matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
+                        });
+                }
+                if response.clicked() {
+                    if let Some((id1, id2, _corner)) = corner_hit {
+                        if let (
+                            Some(Entity::Line { start: s1, end: e1 }),
+                            Some(Entity::Line { start: s2, end: e2 }),
+                        ) = (
+                            self.sketch().entities.get(id1).cloned(),
+                            self.sketch().entities.get(id2).cloned(),
+                        ) {
+                            if let Some(res) =
+                                compute_fillet_2d((s1, e1), (s2, e2), self.fillet_2d_radius)
+                            {
+                                self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                    "Fillet 2D",
+                                    vec![id1, id2],
+                                    vec![res.trimmed_line1, res.trimmed_line2, res.arc],
+                                )));
+                                self.fillet_chamfer_first_line = None;
+                                self.hovered = None;
+                            }
+                        }
+                    } else if let Some(clicked_id) = self.hovered {
+                        if let Some(first_id) = self.fillet_chamfer_first_line {
+                            if first_id != clicked_id {
+                                if let (
+                                    Some(Entity::Line { start: s1, end: e1 }),
+                                    Some(Entity::Line { start: s2, end: e2 }),
+                                ) = (
+                                    self.sketch().entities.get(first_id).cloned(),
+                                    self.sketch().entities.get(clicked_id).cloned(),
+                                ) {
+                                    if let Some(res) =
+                                        compute_fillet_2d((s1, e1), (s2, e2), self.fillet_2d_radius)
+                                    {
+                                        self.execute_sketch_command(Box::new(
+                                            ReplaceEntities::new(
+                                                "Fillet 2D",
+                                                vec![first_id, clicked_id],
+                                                vec![
+                                                    res.trimmed_line1,
+                                                    res.trimmed_line2,
+                                                    res.arc,
+                                                ],
+                                            ),
+                                        ));
+                                    }
+                                }
+                                self.fillet_chamfer_first_line = None;
+                                self.hovered = None;
+                            }
+                        } else {
+                            self.fillet_chamfer_first_line = Some(clicked_id);
+                        }
+                    }
+                }
+            }
+            ToolKind::Chamfer2D => {
+                self.last_snap = None;
+                if let Ok(val) = self.dynamic_input.trim().parse::<f64>() {
+                    if val > 0.0 {
+                        self.chamfer_2d_dist = val;
+                    }
+                }
+                let corner_hit = find_corner_lines_at_point(self.sketch(), raw, tol * 2.0);
+                if let Some((id1, _id2, _corner)) = corner_hit {
+                    self.hovered = Some(id1);
+                } else {
+                    self.hovered = response
+                        .hovered()
+                        .then(|| self.hit_test_hover(rect, response, tol))
+                        .flatten()
+                        .filter(|id| {
+                            matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
+                        });
+                }
+                if response.clicked() {
+                    if let Some((id1, id2, _corner)) = corner_hit {
+                        if let (
+                            Some(Entity::Line { start: s1, end: e1 }),
+                            Some(Entity::Line { start: s2, end: e2 }),
+                        ) = (
+                            self.sketch().entities.get(id1).cloned(),
+                            self.sketch().entities.get(id2).cloned(),
+                        ) {
+                            if let Some(res) = compute_chamfer_2d(
+                                (s1, e1),
+                                (s2, e2),
+                                self.chamfer_2d_dist,
+                                self.chamfer_2d_dist,
+                            ) {
+                                self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                    "Chamfer 2D",
+                                    vec![id1, id2],
+                                    vec![res.trimmed_line1, res.trimmed_line2, res.bevel_line],
+                                )));
+                                self.fillet_chamfer_first_line = None;
+                                self.hovered = None;
+                            }
+                        }
+                    } else if let Some(clicked_id) = self.hovered {
+                        if let Some(first_id) = self.fillet_chamfer_first_line {
+                            if first_id != clicked_id {
+                                if let (
+                                    Some(Entity::Line { start: s1, end: e1 }),
+                                    Some(Entity::Line { start: s2, end: e2 }),
+                                ) = (
+                                    self.sketch().entities.get(first_id).cloned(),
+                                    self.sketch().entities.get(clicked_id).cloned(),
+                                ) {
+                                    if let Some(res) = compute_chamfer_2d(
+                                        (s1, e1),
+                                        (s2, e2),
+                                        self.chamfer_2d_dist,
+                                        self.chamfer_2d_dist,
+                                    ) {
+                                        self.execute_sketch_command(Box::new(
+                                            ReplaceEntities::new(
+                                                "Chamfer 2D",
+                                                vec![first_id, clicked_id],
+                                                vec![
+                                                    res.trimmed_line1,
+                                                    res.trimmed_line2,
+                                                    res.bevel_line,
+                                                ],
+                                            ),
+                                        ));
+                                    }
+                                }
+                                self.fillet_chamfer_first_line = None;
+                                self.hovered = None;
+                            }
+                        } else {
+                            self.fillet_chamfer_first_line = Some(clicked_id);
                         }
                     }
                 }

@@ -6,7 +6,7 @@ use glam::Vec3;
 use crate::app::DuCADApp;
 use crate::model::{BodyGeometry, ReplaceGeometryCommand};
 use crate::types::{RoundFeature, RoundHistory, RoundKind, RoundStyle};
-use crate::viewport::{pixel_tolerance_to_world, screen_to_ray};
+use crate::viewport::{pixel_tolerance_to_world, screen_to_ray, world_to_screen_pos};
 
 impl DuCADApp {
     pub const EDGE_REAPPLY_TOLERANCE_MM: f64 = 5.0;
@@ -87,7 +87,37 @@ impl DuCADApp {
             origin: (origin.x as f64, origin.y as f64, origin.z as f64),
             dir: (dir.x as f64, dir.y as f64, dir.z as f64),
         };
-        let tolerance = pixel_tolerance_to_world(&self.camera, rect) * 18.0;
+
+        // 1. Prioritas utama: Deteksi kedekatan layar 2D (screen-space, toleransi 28px)
+        let mut best_screen: Option<(BodyId, (f64, f64, f64), f32, f64)> = None;
+        for (id, geo) in self.model.geometry.iter() {
+            let Some(body) = self.model.doc.bodies.get(id) else {
+                continue;
+            };
+            if !body.visible {
+                continue;
+            }
+            for (x, y, z) in ducad_kernel::shape_vertices(&geo.shape) {
+                let v3 = Vec3::new(x as f32, y as f32, z as f32);
+                if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
+                    let s_dist = (sp - pos).length();
+                    if s_dist <= 28.0 {
+                        let cam_dist = (v3 - self.camera.eye()).length_squared() as f64;
+                        if best_screen.as_ref().is_none_or(|(_, _, best_s, best_d)| {
+                            s_dist < *best_s || (s_dist == *best_s && cam_dist < *best_d)
+                        }) {
+                            best_screen = Some((id, (x, y, z), s_dist, cam_dist));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((id, hit, ..)) = best_screen {
+            return Some((id, ray, hit));
+        }
+
+        // 2. Fallback: Ray-cast kernel OCCT
+        let tolerance = pixel_tolerance_to_world(&self.camera, rect) * 24.0;
         let mut closest: Option<(BodyId, PickRay, (f64, f64, f64), f64)> = None;
         for (id, geo) in self.model.geometry.iter() {
             let Some(body) = self.model.doc.bodies.get(id) else {

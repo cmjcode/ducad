@@ -70,6 +70,7 @@ impl ToolGuides {
             ToolbarTool::Circle => Self::render_circle_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Arc => Self::render_arc_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Ellipse => Self::render_ellipse_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Spline => Self::render_spline_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Offset => Self::render_offset_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Mirror => Self::render_mirror_anim(&painter, card_rect, has_selection, pending_points_count, time),
             ToolbarTool::Trim => Self::render_trim_anim(&painter, card_rect, time),
@@ -78,6 +79,7 @@ impl ToolGuides {
             ToolbarTool::PointSymmetric => Self::render_symmetric_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Extrude => Self::render_extrude_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Loft => Self::render_loft_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Sweep => Self::render_sweep_anim(&painter, card_rect, time),
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
@@ -637,6 +639,117 @@ impl ToolGuides {
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }
 
+    /// Spline Tool (Kurva Organik Multi-Titik Catmull-Rom)
+    fn render_spline_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        pending_points: usize,
+        time: f64,
+    ) {
+        let cycle = 4.2;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if pending_points > 0 {
+            (t!("guide-spline-step-active"), ACCENT_GREEN)
+        } else if phase < 0.25 {
+            (t!("guide-spline-step-1"), ACCENT_ORANGE)
+        } else if phase < 0.70 {
+            (t!("guide-spline-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-spline-step-3"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(
+            painter,
+            card_rect,
+            &t!("guide-spline-header"),
+            &step_title,
+            step_color,
+        );
+        Self::draw_footer(painter, card_rect, &t!("guide-spline-tip"));
+
+        // 4 titik kontrol untuk kurva S halus yang indah
+        let p0 = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 38.0);
+        let p1 = Pos2::new(card_rect.left() + 105.0, card_rect.top() + 48.0);
+        let p2 = Pos2::new(card_rect.right() - 110.0, card_rect.bottom() - 42.0);
+        let p3 = Pos2::new(card_rect.right() - 45.0, card_rect.top() + 46.0);
+
+        let (cursor_pos, is_clicking, pts_count, progress) = if phase < 0.25 {
+            let t = (phase / 0.25).clamp(0.0, 1.0);
+            let pos = Pos2::new(p0.x - (1.0 - t) * 15.0, p0.y + (1.0 - t) * 10.0);
+            (pos, t > 0.8, 1, 0.0)
+        } else if phase < 0.50 {
+            let t = ((phase - 0.25) / 0.25).clamp(0.0, 1.0);
+            let pos = Pos2::new(p0.x + (p1.x - p0.x) * t, p0.y + (p1.y - p0.y) * t);
+            (pos, t > 0.85, 2, t)
+        } else if phase < 0.75 {
+            let t = ((phase - 0.50) / 0.25).clamp(0.0, 1.0);
+            let pos = Pos2::new(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+            (pos, t > 0.85, 3, t)
+        } else {
+            let t = ((phase - 0.75) / 0.25).clamp(0.0, 1.0);
+            let pos = Pos2::new(p2.x + (p3.x - p2.x) * t, p2.y + (p3.y - p2.y) * t);
+            (pos, t > 0.85, 4, t)
+        };
+
+        // Render titik-titik jangkar
+        let all_pts = [p0, p1, p2, p3];
+        for i in 0..pts_count {
+            painter.circle_filled(all_pts[i], 3.0, ACCENT_BLUE);
+            painter.circle_stroke(all_pts[i], 3.0, Stroke::new(1.0, Color32::WHITE));
+        }
+
+        // Gambar kurva spline bertahap
+        if pts_count >= 2 {
+            let active_pts: Vec<Pos2> = if pts_count == 2 {
+                vec![p0, Pos2::new(p0.x + (p1.x - p0.x) * progress, p0.y + (p1.y - p0.y) * progress)]
+            } else if pts_count == 3 {
+                vec![p0, p1, Pos2::new(p1.x + (p2.x - p1.x) * progress, p1.y + (p2.y - p1.y) * progress)]
+            } else {
+                vec![p0, p1, p2, Pos2::new(p2.x + (p3.x - p2.x) * progress, p2.y + (p3.y - p2.y) * progress)]
+            };
+
+            let num_samples = 40;
+            let mut curve_pts = Vec::with_capacity(num_samples + 1);
+            let n = active_pts.len();
+            for s in 0..=num_samples {
+                let t_curve = s as f32 / num_samples as f32;
+                if n == 2 {
+                    curve_pts.push(Pos2::new(
+                        active_pts[0].x + (active_pts[1].x - active_pts[0].x) * t_curve,
+                        active_pts[0].y + (active_pts[1].y - active_pts[0].y) * t_curve,
+                    ));
+                } else if n == 3 {
+                    let u = 1.0 - t_curve;
+                    let x = u * u * active_pts[0].x + 2.0 * u * t_curve * active_pts[1].x + t_curve * t_curve * active_pts[2].x;
+                    let y = u * u * active_pts[0].y + 2.0 * u * t_curve * active_pts[1].y + t_curve * t_curve * active_pts[2].y;
+                    curve_pts.push(Pos2::new(x, y));
+                } else {
+                    let u = 1.0 - t_curve;
+                    let x = u * u * u * active_pts[0].x + 3.0 * u * u * t_curve * active_pts[1].x + 3.0 * u * t_curve * t_curve * active_pts[2].x + t_curve * t_curve * t_curve * active_pts[3].x;
+                    let y = u * u * u * active_pts[0].y + 3.0 * u * u * t_curve * active_pts[1].y + 3.0 * u * t_curve * t_curve * active_pts[2].y + t_curve * t_curve * t_curve * active_pts[3].y;
+                    curve_pts.push(Pos2::new(x, y));
+                }
+            }
+
+            for w in curve_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], Stroke::new(2.2, ACCENT_BLUE));
+            }
+        }
+
+        if phase > 0.82 {
+            Self::draw_badge(
+                painter,
+                Pos2::new(card_rect.center().x, card_rect.top() + 40.0),
+                "Enter: Selesai",
+                Color32::from_rgba_premultiplied(10, 132, 255, 60),
+                Color32::from_rgb(120, 200, 255),
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
     // ==========================================
     // MODIFIERS & CONSTRAINTS
     // ==========================================
@@ -1186,6 +1299,79 @@ impl ToolGuides {
                 painter,
                 badge_pos,
                 &t!("guide-loft-badge"),
+                Color32::from_rgba_premultiplied(15, 80, 40, 220),
+                Color32::WHITE,
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Sweep Tool
+    fn render_sweep_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        time: f64,
+    ) {
+        let cycle = 3.6;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.35 {
+            (t!("guide-sweep-step-1"), ACCENT_ORANGE)
+        } else if phase < 0.70 {
+            (t!("guide-sweep-step-2"), ACCENT_BLUE)
+        } else {
+            (t!("guide-sweep-step-done"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-sweep-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-sweep-tip"));
+
+        let start_pt = Pos2::new(card_rect.left() + 45.0, card_rect.bottom() - 32.0);
+        let ctrl_pt = Pos2::new(card_rect.left() + 75.0, card_rect.top() + 50.0);
+        let end_pt = Pos2::new(card_rect.left() + 115.0, card_rect.top() + 45.0);
+
+        // Profil penampang (lingkaran di start_pt)
+        let profile_color = if phase < 0.35 { ACCENT_ORANGE } else { ACCENT_BLUE };
+        painter.circle_stroke(start_pt, 7.0, Stroke::new(1.5, profile_color));
+
+        // Kurva jalur (path)
+        let mut path_pts = Vec::new();
+        let segments = 16;
+        for i in 0..=segments {
+            let t = i as f32 / segments as f32;
+            let x = (1.0 - t).powi(2) * start_pt.x + 2.0 * (1.0 - t) * t * ctrl_pt.x + t.powi(2) * end_pt.x;
+            let y = (1.0 - t).powi(2) * start_pt.y + 2.0 * (1.0 - t) * t * ctrl_pt.y + t.powi(2) * end_pt.y;
+            path_pts.push(Pos2::new(x, y));
+        }
+
+        let path_color = if (0.35..0.70).contains(&phase) {
+            ACCENT_BLUE
+        } else if phase >= 0.70 {
+            ACCENT_GREEN
+        } else {
+            TEXT_MUTED
+        };
+        for w in path_pts.windows(2) {
+            painter.line_segment([w[0], w[1]], Stroke::new(1.5, path_color));
+        }
+
+        let (cursor_pos, is_clicking) = if phase < 0.35 {
+            let t = (phase / 0.35).clamp(0.0, 1.0);
+            (Pos2::new(start_pt.x + (1.0 - t) * 15.0, start_pt.y), t > 0.8)
+        } else if phase < 0.70 {
+            let t = ((phase - 0.35) / 0.35).clamp(0.0, 1.0);
+            (Pos2::new(ctrl_pt.x + (1.0 - t) * 15.0, ctrl_pt.y), t > 0.8)
+        } else {
+            (Pos2::new(end_pt.x, end_pt.y - 10.0), false)
+        };
+
+        if phase >= 0.70 {
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                &t!("guide-sweep-badge"),
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );

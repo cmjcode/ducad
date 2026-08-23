@@ -14,6 +14,10 @@ pub enum ToolKind {
     Ellipse,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
+    /// 2D Fillet (busur sudut tangensial).
+    Fillet2D,
+    /// 2D Chamfer (garis sudut bevel).
+    Chamfer2D,
     /// 3 titik: awal, akhir, titik di busur.
     Arc,
     /// Klik entitas sumber, lalu klik sisi & jarak hasil offset.
@@ -33,6 +37,7 @@ pub enum ToolKind {
     /// Revolve 360° penuh atau sudut custom.
     Revolve,
     Loft,
+    Sweep,
     Shell,
     Boolean,
     SectionView,
@@ -55,6 +60,8 @@ impl ToolKind {
             ToolKind::Circle => ToolbarTool::Circle,
             ToolKind::Ellipse => ToolbarTool::Ellipse,
             ToolKind::Spline => ToolbarTool::Spline,
+            ToolKind::Fillet2D => ToolbarTool::Fillet2D,
+            ToolKind::Chamfer2D => ToolbarTool::Chamfer2D,
             ToolKind::Offset => ToolbarTool::Offset,
             ToolKind::Mirror => ToolbarTool::Mirror,
             ToolKind::Trim => ToolbarTool::Trim,
@@ -64,6 +71,7 @@ impl ToolKind {
             ToolKind::Extrude => ToolbarTool::Extrude,
             ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::Loft => ToolbarTool::Loft,
+            ToolKind::Sweep => ToolbarTool::Sweep,
             ToolKind::Shell => ToolbarTool::Shell,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
@@ -82,6 +90,8 @@ impl ToolKind {
             ToolbarTool::Circle => ToolKind::Circle,
             ToolbarTool::Ellipse => ToolKind::Ellipse,
             ToolbarTool::Spline => ToolKind::Spline,
+            ToolbarTool::Fillet2D => ToolKind::Fillet2D,
+            ToolbarTool::Chamfer2D => ToolKind::Chamfer2D,
             ToolbarTool::Offset => ToolKind::Offset,
             ToolbarTool::Mirror => ToolKind::Mirror,
             ToolbarTool::Trim => ToolKind::Trim,
@@ -91,6 +101,7 @@ impl ToolKind {
             ToolbarTool::Extrude => ToolKind::Extrude,
             ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::Loft => ToolKind::Loft,
+            ToolbarTool::Sweep => ToolKind::Sweep,
             ToolbarTool::Shell => ToolKind::Shell,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
@@ -179,6 +190,8 @@ pub fn required_points(tool: ToolKind) -> usize {
         ToolKind::Select
         | ToolKind::Line
         | ToolKind::Spline
+        | ToolKind::Fillet2D
+        | ToolKind::Chamfer2D
         | ToolKind::Offset
         | ToolKind::Trim
         | ToolKind::CoincidentPick
@@ -186,6 +199,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::SymmetricPick
         | ToolKind::Extrude
         | ToolKind::Loft
+        | ToolKind::Sweep
         | ToolKind::Shell
         | ToolKind::Boolean
         | ToolKind::SectionView

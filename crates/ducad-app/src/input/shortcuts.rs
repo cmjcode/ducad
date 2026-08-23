@@ -104,9 +104,24 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Trim),
             ),
             (
+                "Fillet 2D".to_string(),
+                "F".to_string(),
+                PaletteAction::SetTool(ToolKind::Fillet2D),
+            ),
+            (
+                "Chamfer 2D".to_string(),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::Chamfer2D),
+            ),
+            (
                 "Revolve (Putar 3D)".to_string(),
                 "V".to_string(),
                 PaletteAction::OpenRevolveDialog,
+            ),
+            (
+                "Sweep 3D (Sapu Sepanjang Jalur)".to_string(),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::Sweep),
             ),
             (
                 "Coincident (titik)".to_string(),
@@ -315,6 +330,8 @@ impl DuCADApp {
                 }
             }
             ToolKind::Trim => ducad_i18n::t!("status-prompt-trim"),
+            ToolKind::Fillet2D => ducad_i18n::t!("status-prompt-fillet-2d"),
+            ToolKind::Chamfer2D => ducad_i18n::t!("status-prompt-chamfer-2d"),
             ToolKind::Revolve => {
                 if self.selected.is_empty() {
                     ducad_i18n::t!("status-prompt-revolve-empty")
@@ -348,6 +365,7 @@ impl DuCADApp {
             },
             ToolKind::Extrude => ducad_i18n::t!("status-prompt-extrude"),
             ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
+            ToolKind::Sweep => ducad_i18n::t!("status-prompt-sweep"),
             ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
             ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
             ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),

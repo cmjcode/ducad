@@ -7,7 +7,7 @@
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE,
-    ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH,
+    ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -18,6 +18,7 @@ pub enum ContextAction {
     Mirror,
     Trim,
     Revolve,
+    Sweep,
     Shell,
     Boolean,
     Fillet,
@@ -105,6 +106,19 @@ impl ContextActionBar {
                 if btn.on_hover_text("Putar profil 360° mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
                 }
+
+                // 6. Sweep
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Sweep", ICON_ROUTE.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Sapu profil 2D menyusuri kurva jalur pemandu (Sweep)").clicked() {
+                    action = Some(ContextAction::Sweep);
+                }
+
 
                 ui.add_space(2.0);
                 ui.separator();

@@ -51,7 +51,8 @@ pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
 // Re-exports for public API compatibility
 pub use csg::{
     extrude_profile, extrude_profile_on_plane, intersect, loft_profiles, revolve_profile,
-    subtract, union,
+    subtract, sweep_profile_along_path, sweep_profile_along_wire,
+    sweep_profile_on_plane_along_path, union,
 };
 pub use mesh::KernelMesh;
 pub use modify::{
@@ -63,7 +64,7 @@ pub use picking::{
     edge_dimensions, pick_edge, pick_face, pick_face_details, pick_vertex, shape_vertices,
     EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
 };
-pub use profile::{Profile, ProfileSegment};
+pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use shape::{
     clone_shape, rotate_shape, scale_shape, transform_shape, translate_shape, KernelShape,
 };

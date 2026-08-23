@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_TIMELINE,
+    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +25,8 @@ pub enum ToolbarTool {
     Circle,
     Ellipse,
     Spline,
+    Fillet2D,
+    Chamfer2D,
     Offset,
     Mirror,
     Trim,
@@ -35,6 +37,7 @@ pub enum ToolbarTool {
     Extrude,
     Revolve,
     Loft,
+    Sweep,
     Shell,
     Boolean,
     SectionView,
@@ -181,14 +184,25 @@ impl LeftToolbar {
                 // ==================== MODE 3D SOLID ====================
                 let section_title = t!("tool-section");
                 let section_desc = t!("tool-section-desc");
+                let sweep_title = t!("tool-sweep");
+                let sweep_desc = t!("tool-sweep-desc");
 
-                let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[(
-                    ToolbarTool::SectionView,
-                    ICON_CONTENT_CUT.codepoint,
-                    &section_title,
-                    None,
-                    Some(&section_desc),
-                )];
+                let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (
+                        ToolbarTool::Sweep,
+                        ICON_ROUTE.codepoint,
+                        &sweep_title,
+                        None,
+                        Some(&sweep_desc),
+                    ),
+                    (
+                        ToolbarTool::SectionView,
+                        ICON_CONTENT_CUT.codepoint,
+                        &section_title,
+                        None,
+                        Some(&section_desc),
+                    ),
+                ];
 
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {
                     let is_active = current_tool == *tool;

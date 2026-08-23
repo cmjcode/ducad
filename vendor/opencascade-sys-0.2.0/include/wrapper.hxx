@@ -22,6 +22,7 @@
 #include <BRepLib.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepOffset_MakeOffset.hxx>
@@ -680,4 +681,26 @@ inline const TopoDS_Shape &BRepPrimAPI_MakeRevol_shape_checked(BRepPrimAPI_MakeR
     rethrow_standard_failure_as_runtime_error(failure, "BRepPrimAPI_MakeRevol::Shape() gagal: not done");
   }
 }
+
+// BRepOffsetAPI_MakePipe — operasi sweep 3D penampang di sepanjang kurva jalur (spine).
+inline std::unique_ptr<BRepOffsetAPI_MakePipe> BRepOffsetAPI_MakePipe_ctor_checked(const TopoDS_Wire &spine,
+                                                                                    const TopoDS_Shape &profile) {
+  try {
+    return std::unique_ptr<BRepOffsetAPI_MakePipe>(new BRepOffsetAPI_MakePipe(spine, profile));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_MakePipe: konstruksi sweep gagal (profil atau jalur kurva tidak valid)");
+  }
+}
+
+inline const TopoDS_Shape &BRepOffsetAPI_MakePipe_shape_checked(BRepOffsetAPI_MakePipe &make_pipe) {
+  try {
+    if (!make_pipe.IsDone()) {
+      throw std::runtime_error("BRepOffsetAPI_MakePipe::Shape() gagal: operasi sweep tidak selesai (jalur kurva atau profil bermasalah)");
+    }
+    return make_pipe.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_MakePipe::Shape() gagal: not done");
+  }
+}
+
 

@@ -59,7 +59,7 @@ pub use tool_popups::{
     BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
     ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
-    ShellPopupState, ToolPopupEvent,
+    ShellPopupState, SweepPopup, SweepPopupState, ToolPopupEvent,
 };
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};

@@ -771,6 +771,18 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepOffsetAPI_ThruSections>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepOffsetAPI_ThruSections) -> bool;
 
+        // Pipe / Sweep (DUCAD Fase 1) — sweep penampang di sepanjang kurva jalur (spine)
+        type BRepOffsetAPI_MakePipe;
+
+        pub fn BRepOffsetAPI_MakePipe_ctor_checked(
+            spine: &TopoDS_Wire,
+            profile: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepOffsetAPI_MakePipe>>;
+        pub fn BRepOffsetAPI_MakePipe_shape_checked(
+            make_pipe: Pin<&mut BRepOffsetAPI_MakePipe>,
+        ) -> Result<&TopoDS_Shape>;
+        pub fn IsDone(self: &BRepOffsetAPI_MakePipe) -> bool;
+
         // BRepOffset_MakeOffset (DUCAD Fase 2) — shell offset per-face
         // (dipakai utk preview/validasi ketebalan sebelum commit ke solid).
         // Semua langkah yang bisa gagal secara geometris di OCCT

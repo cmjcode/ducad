@@ -199,8 +199,11 @@ mod tests {
     use super::*;
     use fluent_syntax::ast::Entry;
 
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_default_language_is_english() {
+        let _guard = TEST_LOCK.lock().unwrap();
         set_language(Language::En);
         assert_eq!(current_language(), Language::En);
         let line_text = t!("tool-line");
@@ -209,6 +212,7 @@ mod tests {
 
     #[test]
     fn test_language_switch_to_indonesian() {
+        let _guard = TEST_LOCK.lock().unwrap();
         set_language(Language::Id);
         assert_eq!(current_language(), Language::Id);
         let line_text = t!("tool-line");
@@ -221,6 +225,7 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
+        let _guard = TEST_LOCK.lock().unwrap();
         set_language(Language::En);
         let formatted = t!("topbar-unit", unit = "mm");
         assert_eq!(formatted, "Unit: mm");
