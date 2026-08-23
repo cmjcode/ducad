@@ -9,11 +9,12 @@
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_HOME,
-    ICON_LAYERS, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE,
-    ICON_STRAIGHTEN, ICON_UPLOAD,
+    ICON_LANGUAGE, ICON_LAYERS, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
+    ICON_SHARE, ICON_STRAIGHTEN, ICON_UPLOAD,
 };
 
 use ducad_core::LengthUnit;
@@ -39,6 +40,7 @@ pub enum TopBarEvent {
     ToggleTheme,
     OpenCommandPalette,
     SetUnit(LengthUnit),
+    SetLanguage(Language),
     ToggleItemsDrawer,
     OpenSearch,
     EnterSketching,
@@ -86,7 +88,7 @@ impl TopBar {
                 // 1. Home Button
                 if ui
                     .button(RichText::new(ICON_HOME.codepoint).size(14.0))
-                    .on_hover_text("Dokumen Baru")
+                    .on_hover_text(t!("topbar-home-tooltip"))
                     .clicked()
                 {
                     event = Some(TopBarEvent::HomeClicked);
@@ -102,11 +104,17 @@ impl TopBar {
                 };
 
                 ui.horizontal(|ui| {
+                    let cloud_tooltip = if state.status_saved {
+                        t!("topbar-saved-tooltip")
+                    } else {
+                        t!("topbar-unsaved-tooltip")
+                    };
                     ui.label(
                         RichText::new(ICON_CLOUD.codepoint)
                             .size(14.0)
                             .color(cloud_color),
-                    );
+                    )
+                    .on_hover_text(cloud_tooltip);
                     ui.label(
                         RichText::new(&state.document_name)
                             .strong()
@@ -124,25 +132,25 @@ impl TopBar {
                 let (mode_icon, mode_title, mode_shortcut, mode_sub) = if state.is_sketching {
                     (
                         ICON_EDIT.codepoint,
-                        "Sketch Mode",
+                        t!("topbar-sketch-mode"),
                         "⌘⇧3",
-                        "Klik atau ⌘⇧3 untuk ke Mode 3D",
+                        t!("topbar-switch-to-solid"),
                     )
                 } else {
                     (
                         ICON_CUBE_OUTLINE.codepoint,
-                        "3D Mode",
+                        t!("topbar-solid-mode"),
                         "⌘⇧2",
-                        "Klik atau ⌘⇧2 untuk ke Mode Sketch",
+                        t!("topbar-switch-to-sketch"),
                     )
                 };
                 let mode_btn = header_icon_btn(
                     ui,
                     mode_icon,
                     true,
-                    mode_title,
+                    &mode_title,
                     Some(mode_shortcut),
-                    Some(mode_sub),
+                    Some(&mode_sub),
                     Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
                     Some(ACCENT_BLUE),
                 );
@@ -154,13 +162,15 @@ impl TopBar {
                     });
                 }
 
+                let search_title = t!("menu-command-palette");
+                let search_sub = t!("topbar-search-tooltip");
                 let search_btn = header_icon_btn(
                     ui,
                     ICON_SEARCH.codepoint,
                     false,
-                    "Search",
+                    &search_title,
                     Some("⌘K"),
-                    Some("Cari tool & perintah"),
+                    Some(&search_sub),
                     None,
                     None,
                 );
@@ -173,7 +183,7 @@ impl TopBar {
                         ui,
                         ICON_LAYERS.codepoint,
                         state.plane_menu_open,
-                        "Sketch Plane",
+                        &t!("topbar-sketch-plane", plane = state.active_plane_name.as_str()),
                         None,
                         Some(state.active_plane_name.as_str()),
                         Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
@@ -194,7 +204,7 @@ impl TopBar {
                                     ui.set_width(170.0);
                                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 4.0);
                                     ui.label(
-                                        RichText::new("PILIH BIDANG SKETSA")
+                                        RichText::new(t!("topbar-sketch-plane", plane = ""))
                                             .strong()
                                             .size(10.0)
                                             .color(TEXT_SECONDARY),
@@ -202,14 +212,14 @@ impl TopBar {
                                     ui.separator();
 
                                     let planes = [
-                                        (0, "Top Plane (XY)", "Bidang Horizontal"),
-                                        (1, "Front Plane (XZ)", "Bidang Vertikal Depan"),
-                                        (2, "Right Plane (YZ)", "Bidang Vertikal Samping"),
+                                        (0, t!("plane-top"), "Top Plane"),
+                                        (1, t!("plane-front"), "Front Plane"),
+                                        (2, t!("plane-right"), "Right Plane"),
                                     ];
 
                                     for (idx, label, sub) in planes {
                                         let plane_active =
-                                            state.active_plane_name.contains(&label[..5]);
+                                            state.active_plane_name.contains(&label[..3]);
                                         let btn = ui.selectable_label(
                                             plane_active,
                                             RichText::new(format!(
@@ -232,16 +242,16 @@ impl TopBar {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // 4. Utilities (Measurements, Delete) — Selalu
-                // Ada di Kedua Mode
-
+                // 4. Utilities (Measurements) — Selalu Ada di Kedua Mode
+                let meas_title = t!("hud-show-dimensions");
+                let meas_sub = t!("hud-click-to-edit");
                 let meas_btn = header_icon_btn(
                     ui,
                     ICON_STRAIGHTEN.codepoint,
                     state.is_measure_active,
-                    "Tampilkan Semua Ukuran",
+                    &meas_title,
                     Some("I"),
-                    Some("Tampilkan angka nominal dimensi tiap garis/rusuk di kanvas"),
+                    Some(&meas_sub),
                     None,
                     None,
                 );
@@ -254,30 +264,30 @@ impl TopBar {
                 ui.add_space(4.0);
 
                 // 5. File Menu
-                ui.menu_button(RichText::new("Berkas").size(11.5), |ui| {
+                ui.menu_button(RichText::new(t!("menu-file")).size(11.5), |ui| {
                     if ui
-                        .button(format!("{} Dokumen Baru", ICON_NOTE_ADD.codepoint))
+                        .button(format!("{} {}", ICON_NOTE_ADD.codepoint, t!("menu-new")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::New));
                         ui.close();
                     }
                     if ui
-                        .button(format!("{} Buka… (⌘O)", ICON_FILE_OPEN.codepoint))
+                        .button(format!("{} {} (⌘O)", ICON_FILE_OPEN.codepoint, t!("menu-open")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::Open));
                         ui.close();
                     }
                     if ui
-                        .button(format!("{} Simpan (⌘S)", ICON_SAVE.codepoint))
+                        .button(format!("{} {} (⌘S)", ICON_SAVE.codepoint, t!("menu-save")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::Save));
                         ui.close();
                     }
                     if ui
-                        .button(format!("{} Simpan Sebagai… (⌘⇧S)", ICON_SAVE.codepoint))
+                        .button(format!("{} {} (⌘⇧S)", ICON_SAVE.codepoint, t!("menu-save-as")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::SaveAs));
@@ -285,14 +295,14 @@ impl TopBar {
                     }
                     ui.separator();
                     if ui
-                        .button(format!("{} Impor STEP…", ICON_DOWNLOAD.codepoint))
+                        .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-step")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
                         ui.close();
                     }
                     if ui
-                        .button(format!("{} Impor DXF (2D)…", ICON_DOWNLOAD.codepoint))
+                        .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-dxf")))
                         .clicked()
                     {
                         event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
@@ -302,12 +312,13 @@ impl TopBar {
 
                 // 6. Settings Menu
                 ui.menu_button(
-                    RichText::new(format!("{} Pengaturan", ICON_SETTINGS.codepoint)).size(11.5),
+                    RichText::new(format!("{} {}", ICON_SETTINGS.codepoint, t!("menu-settings"))).size(11.5),
                     |ui| {
                         if ui
                             .button(format!(
-                                "{} Ganti Tema (Terang/Gelap)",
-                                ICON_PALETTE.codepoint
+                                "{} {}",
+                                ICON_PALETTE.codepoint,
+                                t!("menu-theme")
                             ))
                             .clicked()
                         {
@@ -315,15 +326,30 @@ impl TopBar {
                             ui.close();
                         }
                         if ui
-                            .button(format!("{} Command Palette (⌘K)", ICON_SEARCH.codepoint))
+                            .button(format!("{} {} (⌘K)", ICON_SEARCH.codepoint, t!("menu-command-palette")))
                             .clicked()
                         {
                             event = Some(TopBarEvent::OpenCommandPalette);
                             ui.close();
                         }
                         ui.separator();
+                        // Language selector
                         ui.menu_button(
-                            format!("📏 Satuan ({})", state.current_unit.suffix()),
+                            format!("{} {} ({})", ICON_LANGUAGE.codepoint, t!("lang-current"), current_language().display_name()),
+                            |ui| {
+                                for lang in Language::all() {
+                                    let is_sel = current_language() == *lang;
+                                    let prefix = if is_sel { "✓ " } else { "   " };
+                                    if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
+                                        event = Some(TopBarEvent::SetLanguage(*lang));
+                                        ui.close();
+                                    }
+                                }
+                            },
+                        );
+                        ui.separator();
+                        ui.menu_button(
+                            format!("📏 {} ({})", t!("topbar-unit", unit = state.current_unit.suffix()), state.current_unit.suffix()),
                             |ui| {
                                 for unit in [
                                     LengthUnit::Millimeters,
@@ -346,15 +372,16 @@ impl TopBar {
                 // 7. Right-aligned Export / Share Button (Shapr3D blue accent)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button(
-                        RichText::new(format!("{} Share", ICON_SHARE.codepoint))
+                        RichText::new(format!("{} {}", ICON_SHARE.codepoint, t!("topbar-share")))
                             .strong()
                             .size(11.5)
                             .color(Color32::WHITE),
                         |ui| {
                             if ui
                                 .button(format!(
-                                    "{} Ekspor STEP (Solid B-Rep)…",
-                                    ICON_UPLOAD.codepoint
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
+                                    t!("menu-export-step")
                                 ))
                                 .clicked()
                             {
@@ -362,14 +389,14 @@ impl TopBar {
                                 ui.close();
                             }
                             if ui
-                                .button(format!("{} Ekspor STL (Mesh 3D)…", ICON_UPLOAD.codepoint))
+                                .button(format!("{} {}", ICON_UPLOAD.codepoint, t!("menu-export-stl")))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
                                 ui.close();
                             }
                             if ui
-                                .button(format!("{} Ekspor OBJ (Mesh 3D)…", ICON_UPLOAD.codepoint))
+                                .button(format!("{} {}", ICON_UPLOAD.codepoint, t!("menu-export-obj")))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));
@@ -377,8 +404,9 @@ impl TopBar {
                             }
                             if ui
                                 .button(format!(
-                                    "{} Ekspor DXF (Sketch 2D)…",
-                                    ICON_UPLOAD.codepoint
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
+                                    t!("menu-export-dxf")
                                 ))
                                 .clicked()
                             {

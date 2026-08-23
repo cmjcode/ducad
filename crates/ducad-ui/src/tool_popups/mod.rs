@@ -12,6 +12,7 @@ pub mod measure_popup;
 pub mod revolve_popup;
 pub mod shell_popup;
 
+use ducad_i18n::t;
 use egui::{Align2, Color32, Context, Id, Pos2, Rect, RichText, Ui, Vec2};
 use egui_material_icons::icons::ICON_CLOSE;
 
@@ -133,7 +134,7 @@ pub fn render_bottom_right_popup<R>(
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .small_button(RichText::new(ICON_CLOSE.codepoint).size(12.0).color(TEXT_SECONDARY))
-                            .on_hover_text("Tutup Popup (Esc)")
+                            .on_hover_text(t!("guide-cancel"))
                             .clicked()
                         {
                             close_clicked = true;

@@ -8,6 +8,7 @@
 use crate::theme::{
     glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
+use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
@@ -77,13 +78,15 @@ impl LeftToolbar {
 
             // 1. Tool List: Selalu ada "Pilih"
             let select_active = current_tool == ToolbarTool::Select;
+            let sel_title = t!("tool-select");
+            let sel_desc = t!("tool-select-desc");
             let sel_btn = square_btn(
                 ui,
                 ICON_ADS_CLICK.codepoint,
                 select_active,
-                "Pilih",
+                &sel_title,
                 Some("Esc"),
-                Some("Seleksi entitas atau elemen"),
+                Some(&sel_desc),
                 None,
                 None,
             );
@@ -98,48 +101,61 @@ impl LeftToolbar {
             // 2. Mode-Specific Tools
             if self.is_sketching {
                 // ==================== MODE 2D SKETCH (CREATE OBJECTS) ====================
+                let line_title = t!("tool-line");
+                let line_desc = t!("tool-line-desc");
+                let arc_title = t!("tool-arc");
+                let arc_desc = t!("tool-arc-desc");
+                let rect_title = t!("tool-rectangle");
+                let rect_desc = t!("tool-rectangle-desc");
+                let circle_title = t!("tool-circle");
+                let circle_desc = t!("tool-circle-desc");
+                let ellipse_title = t!("tool-ellipse");
+                let ellipse_desc = t!("tool-ellipse-desc");
+                let loft_title = t!("tool-loft");
+                let loft_desc = t!("tool-loft-desc");
+
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
                         ToolbarTool::Line,
                         ICON_HORIZONTAL_RULE.codepoint,
-                        "Line",
+                        &line_title,
                         Some("L"),
-                        Some("Garis lurus 2 titik"),
+                        Some(&line_desc),
                     ),
                     (
                         ToolbarTool::Arc,
                         ICON_ARCHITECTURE.codepoint,
-                        "Arc",
+                        &arc_title,
                         Some("A"),
-                        Some("Busur lengkung 3 titik"),
+                        Some(&arc_desc),
                     ),
                     (
                         ToolbarTool::Rectangle,
                         ICON_CROP_16_9.codepoint,
-                        "Rectangle",
+                        &rect_title,
                         Some("R"),
-                        Some("Persegi panjang 2 titik"),
+                        Some(&rect_desc),
                     ),
                     (
                         ToolbarTool::Circle,
                         ICON_CIRCLE.codepoint,
-                        "Circle",
+                        &circle_title,
                         Some("C"),
-                        Some("Lingkaran pusat & radius"),
+                        Some(&circle_desc),
                     ),
                     (
                         ToolbarTool::Ellipse,
                         ICON_ELLIPSE_OUTLINE.codepoint,
-                        "Ellipse",
+                        &ellipse_title,
                         Some("E"),
-                        Some("Elips pusat & sumbu"),
+                        Some(&ellipse_desc),
                     ),
                     (
                         ToolbarTool::Loft,
                         ICON_LAYERS.codepoint,
-                        "Loft 3D",
+                        &loft_title,
                         None,
-                        Some("Bentuk transisi antara 2 profil sketsa 2D"),
+                        Some(&loft_desc),
                     ),
                 ];
 
@@ -153,12 +169,15 @@ impl LeftToolbar {
                 }
             } else {
                 // ==================== MODE 3D SOLID ====================
+                let section_title = t!("tool-section");
+                let section_desc = t!("tool-section-desc");
+
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[(
                     ToolbarTool::SectionView,
                     ICON_CONTENT_CUT.codepoint,
-                    "Section View",
+                    &section_title,
                     None,
-                    Some("Tampilan potongan bidang X/Y/Z"),
+                    Some(&section_desc),
                 )];
 
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {

@@ -79,6 +79,7 @@ pub struct DuCADApp {
     pub current_file_path: Option<PathBuf>,
     pub file_status: Option<String>,
 
+    pub language: ducad_i18n::Language,
     pub theme: ThemeMode,
     pub palette: CommandPalette,
     pub radial_menu: RadialMenu,
@@ -283,6 +284,7 @@ impl DuCADApp {
             current_file_path: None,
             file_status: None,
 
+            language: ducad_i18n::Language::default(),
             theme,
             palette: CommandPalette::default(),
             radial_menu: RadialMenu::default(),
@@ -716,6 +718,10 @@ impl eframe::App for DuCADApp {
                         TopBarEvent::SetUnit(u) => {
                             self.unit = u;
                             self.model.doc.unit = u;
+                        }
+                        TopBarEvent::SetLanguage(lang) => {
+                            self.language = lang;
+                            ducad_i18n::set_language(lang);
                         }
                         TopBarEvent::File(op) => match op {
                             TopBarFileOp::New => self.new_document(),

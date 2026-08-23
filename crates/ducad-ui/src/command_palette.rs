@@ -10,6 +10,7 @@
 //! ke daftar yang sama saat satu entri dieksekusi, lalu memutuskan sendiri
 //! aksi konkretnya lewat match. Pola yang sama dengan `RadialMenu`.
 
+use ducad_i18n::t;
 use egui::{Align2, Key, RichText};
 
 #[derive(Default)]
@@ -128,7 +129,7 @@ impl CommandPalette {
                                     });
                                 }
                                 if filtered.is_empty() {
-                                    ui.weak("Tidak ada aksi cocok");
+                                    ui.weak(t!("cmd-no-match"));
                                 }
                             });
                     });

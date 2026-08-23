@@ -16,6 +16,7 @@ use crate::theme::{
     card_frame, glass_frame, ACCENT_BLUE,
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
+use ducad_i18n::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityKindUi {
@@ -120,10 +121,9 @@ impl HistoryDrawer {
                     let clear_btn_w = if has_query { 22.0 } else { 0.0 };
                     let close_btn_w = 26.0;
                     let text_width = (ui.available_width() - clear_btn_w - close_btn_w).max(80.0);
-
                     ui.add(
                         egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text("Cari riwayat aktivitas…")
+                            .hint_text(t!("history-search-placeholder"))
                             .desired_width(text_width),
                     );
 
@@ -134,7 +134,7 @@ impl HistoryDrawer {
                                     .size(11.0)
                                     .color(TEXT_SECONDARY),
                             )
-                            .on_hover_text("Hapus pencarian")
+                            .on_hover_text(t!("history-clear-search"))
                             .clicked()
                         {
                             self.search_query.clear();
@@ -147,7 +147,7 @@ impl HistoryDrawer {
                                 .size(12.0)
                                 .color(TEXT_SECONDARY),
                         )
-                        .on_hover_text("Tutup Riwayat");
+                        .on_hover_text(t!("history-close"));
                     if close_btn.clicked() {
                         event = Some(HistoryDrawerEvent::Close);
                     }
@@ -161,7 +161,7 @@ impl HistoryDrawer {
                             .color(ACCENT_BLUE),
                     );
                     ui.label(
-                        RichText::new("RIWAYAT AKTIVITAS")
+                        RichText::new(t!("drawer-history-title").to_uppercase())
                             .size(10.5)
                             .strong()
                             .color(TEXT_PRIMARY),
@@ -184,7 +184,7 @@ impl HistoryDrawer {
                                 egui::FontId::proportional(12.5),
                                 del_color,
                             );
-                            if del_resp.on_hover_text("Kosongkan Riwayat").clicked() {
+                            if del_resp.on_hover_text(t!("drawer-clear-history")).clicked() {
                                 event = Some(HistoryDrawerEvent::ClearAll);
                             }
                         }
@@ -194,54 +194,50 @@ impl HistoryDrawer {
                         ui.painter().circle_filled(
                             badge_rect.center(),
                             9.0,
-                            Color32::from_rgb(46, 50, 62),
+                            Color32::from_rgba_premultiplied(10, 132, 255, 45),
+                        );
+                        ui.painter().circle_stroke(
+                            badge_rect.center(),
+                            9.0,
+                            Stroke::new(0.5, ACCENT_BLUE),
                         );
                         ui.painter().text(
                             badge_rect.center(),
                             egui::Align2::CENTER_CENTER,
                             format!("{}", activities.len()),
-                            egui::FontId::proportional(10.0),
-                            Color32::from_rgb(160, 166, 178),
+                            egui::FontId::proportional(9.0),
+                            ACCENT_BLUE,
                         );
                     });
                 });
 
-                ui.separator();
-
-                let query = self.search_query.to_lowercase().trim().to_string();
+                ui.add_space(2.0);
 
                 // =========================================================================
-                // 2. SCROLLABLE ACTIVITY LIST (Padat & Kompak)
+                // 2. LIST AKTIVITAS DENGAN SCROLL AREA
                 // =========================================================================
-                let (scroll_h, auto_shrink_v) = if let Some(ch) = self.custom_height {
-                    ((ch - 60.0).clamp(60.0, max_height - 60.0), false)
-                } else {
-                    (max_height, true)
-                };
+                let panel_h = self.custom_height.unwrap_or(max_height);
+                let query = self.search_query.trim().to_lowercase();
+                let filtered: Vec<&ActivityItemInfo> = activities
+                    .iter()
+                    .filter(|item| {
+                        if query.is_empty() {
+                            true
+                        } else {
+                            item.action.to_lowercase().contains(&query)
+                                || item.details.to_lowercase().contains(&query)
+                                || item.timestamp.to_lowercase().contains(&query)
+                        }
+                    })
+                    .collect();
 
-                let mut scroll_area = ScrollArea::vertical()
-                    .auto_shrink([false, auto_shrink_v])
-                    .max_height(scroll_h);
+                let scroll_height = (panel_h - 90.0).max(60.0);
 
-                if !auto_shrink_v {
-                    scroll_area = scroll_area.min_scrolled_height(scroll_h);
-                }
-
-                scroll_area.show(ui, |ui| {
-                    if !auto_shrink_v {
-                        ui.set_min_height(scroll_h);
-                    }
-                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
-
-                        let filtered: Vec<&ActivityItemInfo> = activities
-                            .iter()
-                            .filter(|a| {
-                                query.is_empty()
-                                    || a.action.to_lowercase().contains(&query)
-                                    || a.details.to_lowercase().contains(&query)
-                                    || a.timestamp.contains(&query)
-                            })
-                            .collect();
+                ScrollArea::vertical()
+                    .max_height(scroll_height)
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
                         if filtered.is_empty() {
                             card_frame().show(ui, |ui| {
@@ -255,16 +251,16 @@ impl HistoryDrawer {
                                     );
                                     ui.label(
                                         RichText::new(if query.is_empty() {
-                                            "Belum ada catatan aktivitas"
+                                            t!("drawer-history-empty")
                                         } else {
-                                            "Tidak ditemukan hasil pencarian"
+                                            t!("history-no-match")
                                         })
                                         .size(10.5)
                                         .strong()
                                         .color(TEXT_SECONDARY),
                                     );
                                     ui.label(
-                                        RichText::new("Aktivitas 2D & 3D akan tercatat otomatis")
+                                        RichText::new(t!("history-auto-record"))
                                             .size(9.0)
                                             .color(TEXT_MUTED),
                                     );
@@ -375,7 +371,7 @@ impl HistoryDrawer {
                                 }
 
                                 if interact
-                                    .on_hover_text(format!("Klik untuk memulihkan keadaan pada {}", item.timestamp))
+                                    .on_hover_text(t!("history-jump-tooltip", time = item.timestamp.as_str()))
                                     .clicked()
                                 {
                                     event = Some(HistoryDrawerEvent::JumpTo {

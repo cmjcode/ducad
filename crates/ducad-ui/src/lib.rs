@@ -63,3 +63,4 @@ pub use tool_popups::{
 };
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
 pub use viewcube::{ViewCube, ViewCubeAction};
+pub use ducad_i18n::{current_language, set_language, t, Language};

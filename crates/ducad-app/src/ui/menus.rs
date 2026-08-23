@@ -1,3 +1,4 @@
+use ducad_i18n::{current_language, set_language, t, Language};
 use eframe::egui;
 
 use crate::app::DuCADApp;
@@ -6,17 +7,28 @@ use crate::types::{ToolKind, KEYBOARD_SHORTCUTS};
 impl DuCADApp {
     #[allow(dead_code)]
     pub fn tool_buttons(&mut self, ui: &mut egui::Ui) {
+        let select_label = t!("tool-select");
+        let line_label = format!("{} (L)", t!("tool-line"));
+        let rect_label = format!("{} (R)", t!("tool-rectangle"));
+        let circle_label = format!("{} (C)", t!("tool-circle"));
+        let ellipse_label = format!("{} (E)", t!("tool-ellipse"));
+        let arc_label = format!("{} (A)", t!("tool-arc"));
+        let offset_label = format!("{} (O)", t!("tool-offset"));
+        let mirror_label = format!("{} (M)", t!("tool-mirror"));
+        let trim_label = format!("{} (T)", t!("tool-trim"));
+        let revolve_label = format!("{} (V)", t!("tool-revolve"));
+
         for (kind, label) in [
-            (ToolKind::Select, "Pilih"),
-            (ToolKind::Line, "Garis (L)"),
-            (ToolKind::Rectangle, "Persegi (R)"),
-            (ToolKind::Circle, "Lingkaran (C)"),
-            (ToolKind::Ellipse, "Ellips (E)"),
-            (ToolKind::Arc, "Arc (A)"),
-            (ToolKind::Offset, "Offset (O)"),
-            (ToolKind::Mirror, "Mirror (M)"),
-            (ToolKind::Trim, "Trim (T)"),
-            (ToolKind::Revolve, "Revolve (V)"),
+            (ToolKind::Select, select_label.as_str()),
+            (ToolKind::Line, line_label.as_str()),
+            (ToolKind::Rectangle, rect_label.as_str()),
+            (ToolKind::Circle, circle_label.as_str()),
+            (ToolKind::Ellipse, ellipse_label.as_str()),
+            (ToolKind::Arc, arc_label.as_str()),
+            (ToolKind::Offset, offset_label.as_str()),
+            (ToolKind::Mirror, mirror_label.as_str()),
+            (ToolKind::Trim, trim_label.as_str()),
+            (ToolKind::Revolve, revolve_label.as_str()),
         ] {
             if ui.selectable_label(self.tool == kind, label).clicked() {
                 if kind == ToolKind::Revolve {
@@ -28,16 +40,19 @@ impl DuCADApp {
         }
         ui.separator();
 
+        let pt_coincident = format!("{} ({})", t!("tool-coincident"), t!("param-axis"));
+        let pt_fixed = format!("{} ({})", t!("tool-fixed"), t!("param-axis"));
+        let pt_symmetric = format!("{} ({})", t!("tool-symmetric"), t!("param-axis"));
         let point_tools = [
-            (ToolKind::CoincidentPick, "Coincident (titik)"),
-            (ToolKind::FixedPick, "Fixed (titik)"),
-            (ToolKind::SymmetricPick, "Symmetric (titik)"),
+            (ToolKind::CoincidentPick, pt_coincident.as_str()),
+            (ToolKind::FixedPick, pt_fixed.as_str()),
+            (ToolKind::SymmetricPick, pt_symmetric.as_str()),
         ];
         let active_label = point_tools
             .iter()
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
-            .unwrap_or_else(|| "Titik ▾".to_string());
+            .unwrap_or_else(|| format!("{} ▾", t!("tool-coincident")));
         ui.menu_button(active_label, |ui| {
             for (kind, label) in point_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
@@ -47,15 +62,17 @@ impl DuCADApp {
             }
         });
 
+        let measure_dist = t!("tool-measure");
+        let measure_ang = t!("tool-measure-angle");
         let measure_tools = [
-            (ToolKind::Measure, "Ukur Jarak"),
-            (ToolKind::MeasureAngle, "Ukur Sudut"),
+            (ToolKind::Measure, measure_dist.as_str()),
+            (ToolKind::MeasureAngle, measure_ang.as_str()),
         ];
         let measure_active_label = measure_tools
             .iter()
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
-            .unwrap_or_else(|| "📏 Ukur ▾".to_string());
+            .unwrap_or_else(|| format!("📏 {} ▾", t!("tool-measure")));
         ui.menu_button(measure_active_label, |ui| {
             for (kind, label) in measure_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
@@ -68,49 +85,49 @@ impl DuCADApp {
 
     #[allow(dead_code)]
     pub fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("📄 File", |ui| {
-            if ui.button("Baru").clicked() {
+        ui.menu_button(format!("📄 {}", t!("menu-file")), |ui| {
+            if ui.button(t!("menu-new")).clicked() {
                 self.new_document();
                 ui.close();
             }
             ui.separator();
-            if ui.button("Buka… (⌘O)").clicked() {
+            if ui.button(format!("{} (⌘O)", t!("menu-open"))).clicked() {
                 self.open_native();
                 ui.close();
             }
-            if ui.button("Simpan (⌘S)").clicked() {
+            if ui.button(format!("{} (⌘S)", t!("menu-save"))).clicked() {
                 self.save_native();
                 ui.close();
             }
-            if ui.button("Simpan Sebagai… (⌘⇧S)").clicked() {
+            if ui.button(format!("{} (⌘⇧S)", t!("menu-save-as"))).clicked() {
                 self.save_native_as();
                 ui.close();
             }
             ui.separator();
-            ui.menu_button("Import", |ui| {
-                if ui.button("STEP…").clicked() {
+            ui.menu_button(t!("menu-import"), |ui| {
+                if ui.button(t!("menu-import-step")).clicked() {
                     self.import_step();
                     ui.close();
                 }
-                if ui.button("DXF…").clicked() {
+                if ui.button(t!("menu-import-dxf")).clicked() {
                     self.import_dxf();
                     ui.close();
                 }
             });
-            ui.menu_button("Export", |ui| {
-                if ui.button("STEP… (semua body)").clicked() {
+            ui.menu_button(t!("menu-export"), |ui| {
+                if ui.button(t!("menu-export-step")).clicked() {
                     self.export_step();
                     ui.close();
                 }
-                if ui.button("STL… (body visible)").clicked() {
+                if ui.button(t!("menu-export-stl")).clicked() {
                     self.export_stl();
                     ui.close();
                 }
-                if ui.button("OBJ… (body visible)").clicked() {
+                if ui.button(t!("menu-export-obj")).clicked() {
                     self.export_obj();
                     ui.close();
                 }
-                if ui.button("DXF… (sketch)").clicked() {
+                if ui.button(t!("menu-export-dxf")).clicked() {
                     self.export_dxf();
                     ui.close();
                 }
@@ -120,21 +137,37 @@ impl DuCADApp {
 
     #[allow(dead_code)]
     pub fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("⚙ Pengaturan", |ui| {
-            ui.label("Tema");
+        ui.menu_button(format!("⚙ {}", t!("menu-settings")), |ui| {
+            ui.label(t!("menu-theme"));
             if ui.button(self.theme.label()).clicked() {
                 self.theme = self.theme.toggled();
                 ducad_ui::apply_theme(ui.ctx(), self.theme);
             }
 
             ui.separator();
-            if ui.button("⌘K Buka Command Palette").clicked() {
+            ui.menu_button(
+                format!("🌐 {} ({})", t!("lang-current"), current_language().display_name()),
+                |ui| {
+                    for lang in Language::all() {
+                        let is_sel = current_language() == *lang;
+                        let prefix = if is_sel { "✓ " } else { "   " };
+                        if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
+                            self.language = *lang;
+                            set_language(*lang);
+                            ui.close();
+                        }
+                    }
+                },
+            );
+
+            ui.separator();
+            if ui.button(format!("⌘K {}", t!("menu-command-palette"))).clicked() {
                 self.palette.open();
                 ui.close();
             }
 
             ui.separator();
-            ui.collapsing("Pintasan Keyboard", |ui| {
+            ui.collapsing(t!("menu-shortcuts"), |ui| {
                 egui::Grid::new("settings-keyboard-shortcuts")
                     .num_columns(2)
                     .striped(true)

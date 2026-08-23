@@ -8,6 +8,7 @@
 use crate::theme::{
     card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
+use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
@@ -404,7 +405,7 @@ impl ItemsDrawer {
                         ui.add_space(2.0);
 
                         let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text(RichText::new("Cari objek...").size(11.0).color(TEXT_MUTED))
+                            .hint_text(RichText::new(t!("drawer-search-placeholder")).size(11.0).color(TEXT_MUTED))
                             .text_color(TEXT_PRIMARY)
                             .font(egui::TextStyle::Body)
                             .desired_width(ui.available_width() - 44.0);
@@ -542,7 +543,7 @@ impl ItemsDrawer {
                                             .color(TEXT_MUTED),
                                     );
                                     ui.label(
-                                        RichText::new("Belum ada objek 2D")
+                                        RichText::new(t!("drawer-empty-sketches"))
                                             .size(11.5)
                                             .strong()
                                             .color(TEXT_SECONDARY),
@@ -911,7 +912,7 @@ impl ItemsDrawer {
                                             .color(TEXT_MUTED),
                                     );
                                     ui.label(
-                                        RichText::new("Belum ada body 3D")
+                                        RichText::new(t!("drawer-empty-bodies"))
                                             .size(11.5)
                                             .strong()
                                             .color(TEXT_SECONDARY),

@@ -197,12 +197,16 @@ impl Measurement {
     pub fn label(&self) -> String {
         match self {
             Measurement::Distance { a, b } => {
-                format!("Jarak: {:.3} mm", ducad_sketch::measure::distance(*a, *b))
+                let dist_str = format!("{:.3} mm", ducad_sketch::measure::distance(*a, *b));
+                ducad_i18n::t!("param-distance-val", val = dist_str.as_str())
             }
             Measurement::Angle { a, vertex, b } => {
                 match ducad_sketch::measure::angle_degrees(*a, *vertex, *b) {
-                    Some(angle) => format!("Sudut: {angle:.2}°"),
-                    None => "Sudut: tidak terdefinisi (titik berimpit)".to_string(),
+                    Some(angle) => {
+                        let angle_str = format!("{angle:.2}°");
+                        ducad_i18n::t!("param-angle-val", val = angle_str.as_str())
+                    }
+                    None => ducad_i18n::t!("measure-angle-undefined"),
                 }
             }
         }

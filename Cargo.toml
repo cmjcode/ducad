@@ -15,6 +15,11 @@ ducad-kernel = { path = "crates/ducad-kernel" }
 ducad-render = { path = "crates/ducad-render" }
 ducad-io = { path = "crates/ducad-io" }
 ducad-ui = { path = "crates/ducad-ui" }
+ducad-i18n = { path = "crates/ducad-i18n" }
+
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+unic-langid = { version = "0.9", features = ["macros"] }
 
 glam = { version = "0.33", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }

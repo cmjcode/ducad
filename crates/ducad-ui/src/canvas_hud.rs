@@ -8,6 +8,7 @@ use crate::theme::{
     pill_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
+use ducad_i18n::t;
 use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN};
 
@@ -116,7 +117,7 @@ impl CanvasHud {
         let mut event = None;
         pill_frame().show(ui, |ui| {
             let btn = ui.button(
-                RichText::new(format!("{} Normal to Sketch", ICON_3D_ROTATION.codepoint))
+                RichText::new(format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")))
                     .size(12.0)
                     .strong()
                     .color(TEXT_PRIMARY),
@@ -134,12 +135,12 @@ impl CanvasHud {
         pill_frame().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Turn off Section View to show hidden parts")
+                    RichText::new(t!("hud-section-banner"))
                         .size(11.0)
                         .color(ACCENT_ORANGE),
                 );
                 if ui
-                    .small_button(RichText::new("Turn off").size(10.0))
+                    .small_button(RichText::new(t!("hud-turn-off")).size(10.0))
                     .clicked()
                 {
                     event = Some(CanvasHudEvent::TurnOffSectionView);
@@ -171,7 +172,7 @@ impl CanvasHud {
                 if show_normal_to_sketch {
                     ui.label(RichText::new("|").color(TEXT_SECONDARY));
                     let btn = ui.button(
-                        RichText::new(format!("{} Normal to Sketch", ICON_3D_ROTATION.codepoint))
+                        RichText::new(format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")))
                             .size(11.0)
                             .strong()
                             .color(TEXT_PRIMARY),
