@@ -51,11 +51,16 @@ impl DuCADApp {
                     .active_plane
                     .to_world(centroid, self.gizmo_distance as f32);
                 let c_top = [c_top_pt.x, c_top_pt.y, c_top_pt.z];
+                let line_color = if self.gizmo_is_cutting {
+                    [1.0, 0.35, 0.25, 0.95]
+                } else {
+                    [0.15, 0.70, 1.0, 0.95]
+                };
                 verts.extend(sketch_render::dashed_line_3d(
                     c_base,
                     c_top,
                     4.0,
-                    [0.15, 0.70, 1.0, 0.95],
+                    line_color,
                 ));
             } else {
                 let gizmo_pt = self.active_plane.to_world(centroid, 18.0);
@@ -134,11 +139,16 @@ impl DuCADApp {
                     let dist = self.face_gizmo_distance as f32;
                     let c_top = Vec3::from(c_base) + pull_dir * dist;
                     let c_top_arr = [c_top.x, c_top.y, c_top.z];
+                    let line_color = if self.face_gizmo_distance < 0.0 {
+                        [1.0, 0.35, 0.25, 0.95]
+                    } else {
+                        [0.15, 0.80, 1.0, 0.95]
+                    };
                     verts.extend(sketch_render::dashed_line_3d(
                         c_base,
                         c_top_arr,
                         4.0,
-                        [0.15, 0.80, 1.0, 0.95],
+                        line_color,
                     ));
                 } else {
                     let gizmo_pt = Vec3::from(c_base) + pull_dir * 18.0;
@@ -502,13 +512,18 @@ impl DuCADApp {
                 18.0
             };
             let p = self.active_plane.to_world(centroid, z);
+            let arrow_color = if self.extruding_from_gizmo && self.gizmo_is_cutting {
+                [1.0, 0.35, 0.25, 1.0]
+            } else {
+                GIZMO_ARROW_COLOR
+            };
             push_mesh(
                 &mut positions,
                 &mut normals,
                 &mut colors,
                 &mut indices,
                 [p.x, p.y, p.z],
-                GIZMO_ARROW_COLOR,
+                arrow_color,
                 self.active_plane.normal,
             );
         }
@@ -528,13 +543,18 @@ impl DuCADApp {
                     18.0
                 };
                 let p = c_base + pull_dir * dist;
+                let arrow_color = if self.extruding_face_from_gizmo && self.face_gizmo_distance < 0.0 {
+                    [1.0, 0.35, 0.25, 1.0]
+                } else {
+                    FACE_GIZMO_COLOR
+                };
                 push_mesh(
                     &mut positions,
                     &mut normals,
                     &mut colors,
                     &mut indices,
                     [p.x, p.y, p.z],
-                    FACE_GIZMO_COLOR,
+                    arrow_color,
                     pull_dir,
                 );
             }
@@ -849,18 +869,22 @@ impl DuCADApp {
                             }
                         }
 
-                        const PREVIEW_CYAN: [f32; 4] = [0.0, 0.85, 1.0, 0.90];
+                        let preview_color = if self.face_gizmo_distance < 0.0 {
+                            [0.95, 0.25, 0.20, 0.85]
+                        } else {
+                            [0.0, 0.85, 1.0, 0.90]
+                        };
                         let prev_len = prev_positions.len();
                         positions.extend(prev_positions);
                         normals.extend(prev_normals);
                         indices.extend(prev_indices.into_iter().map(|idx| idx + preview_start_idx));
-                        colors.extend(std::iter::repeat_n(PREVIEW_CYAN, prev_len));
+                        colors.extend(std::iter::repeat_n(preview_color, prev_len));
                     }
                 }
             }
         }
 
-        if self.extruding_from_gizmo && !self.gizmo_is_cutting {
+        if self.extruding_from_gizmo {
             if let Ok(profile) =
                 crate::model::build_profile_from_selection(self.sketch(), &self.selected)
             {
@@ -872,8 +896,12 @@ impl DuCADApp {
                     positions.extend(&tess.positions);
                     normals.extend(&tess.normals);
                     indices.extend(tess.indices.iter().map(|i| i + base_idx));
-                    const PREVIEW_CYAN: [f32; 4] = [0.10, 0.70, 0.95, 0.75];
-                    colors.extend(std::iter::repeat_n(PREVIEW_CYAN, tess.positions.len()));
+                    let preview_color = if self.gizmo_is_cutting {
+                        [0.95, 0.25, 0.20, 0.85]
+                    } else {
+                        [0.10, 0.70, 0.95, 0.75]
+                    };
+                    colors.extend(std::iter::repeat_n(preview_color, tess.positions.len()));
                 }
             }
         }

@@ -55,18 +55,43 @@ impl DuCADApp {
             if let Ok(swept) =
                 self.extrude_profile_active_plane(&profile, self.gizmo_distance)
             {
+                let swept_tess = swept.tessellate();
+                if swept_tess.positions.is_empty() {
+                    self.gizmo_is_cutting = false;
+                    self.gizmo_target_body = None;
+                    return;
+                }
+
+                let mut swept_min = glam::Vec3::splat(f32::INFINITY);
+                let mut swept_max = glam::Vec3::splat(f32::NEG_INFINITY);
+                for p in &swept_tess.positions {
+                    let v = glam::Vec3::from_slice(p);
+                    swept_min = swept_min.min(v);
+                    swept_max = swept_max.max(v);
+                }
+
                 let mut is_cutting = false;
                 for (b_id, b_geo) in self.model.geometry.iter() {
                     if let Some(body) = self.model.doc.bodies.get(b_id) {
-                        if body.visible {
-                            if let Ok(intersect_shape) =
-                                ducad_kernel::intersect(&b_geo.shape, &swept)
-                            {
-                                let tri_count = intersect_shape.tessellate().triangle_count();
-                                if tri_count > 0 {
-                                    if let Ok(_cut_res) =
-                                        ducad_kernel::subtract(&b_geo.shape, &swept)
-                                    {
+                        if body.visible && !b_geo.mesh.positions.is_empty() {
+                            let mut b_min = glam::Vec3::splat(f32::INFINITY);
+                            let mut b_max = glam::Vec3::splat(f32::NEG_INFINITY);
+                            for p in &b_geo.mesh.positions {
+                                let v = glam::Vec3::from_slice(p);
+                                b_min = b_min.min(v);
+                                b_max = b_max.max(v);
+                            }
+
+                            let overlaps = swept_min.x <= b_max.x && swept_max.x >= b_min.x
+                                && swept_min.y <= b_max.y && swept_max.y >= b_min.y
+                                && swept_min.z <= b_max.z && swept_max.z >= b_min.z;
+
+                            if overlaps {
+                                if let Ok(intersect_shape) =
+                                    ducad_kernel::intersect(&b_geo.shape, &swept)
+                                {
+                                    let tri_count = intersect_shape.tessellate().triangle_count();
+                                    if tri_count > 0 {
                                         is_cutting = true;
                                         self.gizmo_is_cutting = true;
                                         self.gizmo_target_body = Some(b_id);
