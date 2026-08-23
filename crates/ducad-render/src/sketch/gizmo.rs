@@ -693,11 +693,16 @@ pub fn shapr3d_transform_gizmo_lines(
 /// - 3 Kotak translasi planar solid double-sided
 /// - 3 Busur rotasi tabung melengkung solid (torus arc) dengan panah kerucut solid
 /// - 1 Bola pivot pusat solid
+///
+/// `eye_pos`: posisi kamera opsional — jika diberikan, setiap panah sumbu akan
+/// di-flip agar selalu **mengarah menjauhi kamera** (camera-facing), sehingga
+/// gizmo tidak pernah terlihat terbalik dari sudut pandang manapun.
 #[allow(clippy::type_complexity)]
 pub fn solid_shapr3d_transform_gizmo_mesh(
     center_pos: [f32; 3],
     gizmo_scale: f32,
     active_part: Option<TransformGizmoPart>,
+    eye_pos: Option<Vec3>,
 ) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
     let mut positions = Vec::new();
     let mut normals = Vec::new();
@@ -708,11 +713,24 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
     let s = gizmo_scale.max(10.0);
     let tau = std::f32::consts::TAU;
 
-    const COLOR_BASE: [f32; 4] = [0.92, 0.92, 0.95, 0.90];
-    const COLOR_ACTIVE: [f32; 4] = [1.0, 0.85, 0.15, 1.0];
-    const COLOR_X: [f32; 4] = [0.96, 0.25, 0.25, 1.0];
-    const COLOR_Y: [f32; 4] = [0.25, 0.85, 0.32, 1.0];
-    const COLOR_Z: [f32; 4] = [0.15, 0.65, 1.0, 1.0];
+    // Modern premium color palette — lebih vibrant, alpha tinggi
+    const COLOR_ACTIVE: [f32; 4] = [1.0, 0.88, 0.15, 1.0];  // highlight kuning emas
+    const COLOR_X: [f32; 4] = [0.98, 0.22, 0.22, 1.0];       // merah coral vibrant
+    const COLOR_Y: [f32; 4] = [0.15, 0.92, 0.35, 1.0];       // hijau neon mint
+    const COLOR_Z: [f32; 4] = [0.20, 0.60, 1.0, 1.0];        // biru langit cerah
+
+    // Hitung per-sumbu apakah harus di-flip agar panah menghadap ke kamera.
+    // dot(eye - center, axis) < 0 artinya kamera berada di sisi negatif sumbu →
+    // flip sehingga panah selalu menunjuk ke arah kamera (camera-facing).
+    let (dir_x, dir_y, dir_z) = if let Some(eye) = eye_pos {
+        let to_eye = eye - c;
+        let dx = if to_eye.dot(Vec3::X) >= 0.0 { Vec3::X } else { Vec3::NEG_X };
+        let dy = if to_eye.dot(Vec3::Y) >= 0.0 { Vec3::Y } else { Vec3::NEG_Y };
+        let dz = if to_eye.dot(Vec3::Z) >= 0.0 { Vec3::Z } else { Vec3::NEG_Z };
+        (dx, dy, dz)
+    } else {
+        (Vec3::X, Vec3::Y, Vec3::Z)
+    };
 
     let color_for = |part: TransformGizmoPart, fallback: [f32; 4]| -> [f32; 4] {
         if active_part == Some(part) {
@@ -748,6 +766,7 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
         ind.extend_from_slice(&[base_idx, base_idx + 1, base_idx + 2]);
     };
 
+    // push_cone: kerucut solid dengan smooth vertex normals (lebih halus dari flat-shading).
     let push_cone = |pos: &mut Vec<[f32; 3]>,
                      norm: &mut Vec<[f32; 3]>,
                      col: &mut Vec<[f32; 4]>,
@@ -757,6 +776,7 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
                      radius: f32,
                      color: [f32; 4]| {
         let dir = (apex - base_center).normalize_or_zero();
+        if dir == Vec3::ZERO { return; }
         let (t1, t2) = if dir.z.abs() < 0.9 {
             let t1 = dir.cross(Vec3::Z).normalize();
             let t2 = dir.cross(t1).normalize();
@@ -766,18 +786,40 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
             let t2 = dir.cross(t1).normalize();
             (t1, t2)
         };
-        let segs = 10;
+        let height = (apex - base_center).length();
+        // sin/cos dari sudut semi-angle kerucut untuk normal miring
+        let cone_sin = radius / (radius * radius + height * height).sqrt();
+        let cone_cos = height / (radius * radius + height * height).sqrt();
+        let segs: u32 = 24; // sangat halus
         for i in 0..segs {
             let a0 = tau * (i as f32 / segs as f32);
             let a1 = tau * ((i + 1) as f32 / segs as f32);
-            let b0 = base_center + t1 * (radius * a0.cos()) + t2 * (radius * a0.sin());
-            let b1 = base_center + t1 * (radius * a1.cos()) + t2 * (radius * a1.sin());
-            let radial_hint = (b0 - base_center) + (b1 - base_center);
-            push_tri(pos, norm, col, ind, apex, b0, b1, color, radial_hint + dir * 0.5);
-            push_tri(pos, norm, col, ind, base_center, b1, b0, color, -dir);
+            let rad0 = t1 * a0.cos() + t2 * a0.sin();
+            let rad1 = t1 * a1.cos() + t2 * a1.sin();
+            let b0 = base_center + rad0 * radius;
+            let b1 = base_center + rad1 * radius;
+            // Normal miring (smooth) untuk kerucut: campuran radial + axial
+            let sn_apex = dir; // di apex, normal ≈ axial
+            let sn0 = (rad0 * cone_cos + dir * cone_sin).normalize_or_zero();
+            let sn1 = (rad1 * cone_cos + dir * cone_sin).normalize_or_zero();
+            // Sisi kerucut — per-vertex normal
+            let base_idx = pos.len() as u32;
+            pos.push([apex.x, apex.y, apex.z]); norm.push([sn_apex.x, sn_apex.y, sn_apex.z]); col.push(color);
+            pos.push([b0.x, b0.y, b0.z]);       norm.push([sn0.x, sn0.y, sn0.z]);             col.push(color);
+            pos.push([b1.x, b1.y, b1.z]);       norm.push([sn1.x, sn1.y, sn1.z]);             col.push(color);
+            ind.extend_from_slice(&[base_idx, base_idx + 1, base_idx + 2]);
+            // Cap bawah (flat)
+            let cap_n = -dir;
+            let bi = pos.len() as u32;
+            pos.push([base_center.x, base_center.y, base_center.z]); norm.push([cap_n.x, cap_n.y, cap_n.z]); col.push(color);
+            pos.push([b0.x, b0.y, b0.z]);                           norm.push([cap_n.x, cap_n.y, cap_n.z]); col.push(color);
+            pos.push([b1.x, b1.y, b1.z]);                           norm.push([cap_n.x, cap_n.y, cap_n.z]); col.push(color);
+            ind.extend_from_slice(&[bi, bi + 2, bi + 1]); // winding berlawanan untuk cap
         }
     };
 
+
+    // push_cylinder: silinder solid dengan smooth vertex normals + end caps.
     let push_cylinder = |pos: &mut Vec<[f32; 3]>,
                          norm: &mut Vec<[f32; 3]>,
                          col: &mut Vec<[f32; 4]>,
@@ -787,6 +829,7 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
                          radius: f32,
                          color: [f32; 4]| {
         let dir = (end - start).normalize_or_zero();
+        if dir == Vec3::ZERO { return; }
         let (t1, t2) = if dir.z.abs() < 0.9 {
             let t1 = dir.cross(Vec3::Z).normalize();
             let t2 = dir.cross(t1).normalize();
@@ -796,34 +839,38 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
             let t2 = dir.cross(t1).normalize();
             (t1, t2)
         };
-        let segs = 8;
+        let segs: u32 = 20; // sangat halus
         for i in 0..segs {
             let a0 = tau * (i as f32 / segs as f32);
             let a1 = tau * ((i + 1) as f32 / segs as f32);
-            let r0 = t1 * (radius * a0.cos()) + t2 * (radius * a0.sin());
-            let r1 = t1 * (radius * a1.cos()) + t2 * (radius * a1.sin());
-            let hint = r0 + r1;
-            push_tri(pos, norm, col, ind, start + r0, end + r0, end + r1, color, hint);
-            push_tri(pos, norm, col, ind, start + r0, end + r1, start + r1, color, hint);
+            let rad0 = t1 * a0.cos() + t2 * a0.sin();
+            let rad1 = t1 * a1.cos() + t2 * a1.sin();
+            let ps0 = start + rad0 * radius;
+            let pe0 = end   + rad0 * radius;
+            let ps1 = start + rad1 * radius;
+            let pe1 = end   + rad1 * radius;
+            // Sisi silinder: smooth radial normals per-vertex
+            let bi = pos.len() as u32;
+            pos.extend([[ps0.x,ps0.y,ps0.z],[pe0.x,pe0.y,pe0.z],[pe1.x,pe1.y,pe1.z],[ps1.x,ps1.y,ps1.z]]);
+            norm.extend([[rad0.x,rad0.y,rad0.z],[rad0.x,rad0.y,rad0.z],[rad1.x,rad1.y,rad1.z],[rad1.x,rad1.y,rad1.z]]);
+            col.extend([color; 4]);
+            ind.extend_from_slice(&[bi,bi+1,bi+2, bi,bi+2,bi+3]);
+            // Cap start (flat)
+            let ns = [-dir.x,-dir.y,-dir.z];
+            let ci = pos.len() as u32;
+            pos.extend([[start.x,start.y,start.z],[ps0.x,ps0.y,ps0.z],[ps1.x,ps1.y,ps1.z]]);
+            norm.extend([ns,ns,ns]); col.extend([color;3]);
+            ind.extend_from_slice(&[ci,ci+2,ci+1]);
+            // Cap end (flat)
+            let ne = [dir.x,dir.y,dir.z];
+            let ei = pos.len() as u32;
+            pos.extend([[end.x,end.y,end.z],[pe0.x,pe0.y,pe0.z],[pe1.x,pe1.y,pe1.z]]);
+            norm.extend([ne,ne,ne]); col.extend([color;3]);
+            ind.extend_from_slice(&[ei,ei+1,ei+2]);
         }
     };
 
-    let push_quad = |pos: &mut Vec<[f32; 3]>,
-                     norm: &mut Vec<[f32; 3]>,
-                     col: &mut Vec<[f32; 4]>,
-                     ind: &mut Vec<u32>,
-                     p0: Vec3,
-                     p1: Vec3,
-                     p2: Vec3,
-                     p3: Vec3,
-                     color: [f32; 4]| {
-        let n = (p1 - p0).cross(p2 - p0).normalize_or_zero();
-        push_tri(pos, norm, col, ind, p0, p1, p2, color, n);
-        push_tri(pos, norm, col, ind, p0, p2, p3, color, n);
-        // Sisi sebaliknya (double-sided)
-        push_tri(pos, norm, col, ind, p0, p2, p1, color, -n);
-        push_tri(pos, norm, col, ind, p0, p3, p2, color, -n);
-    };
+
 
     let push_torus_arc = |pos: &mut Vec<[f32; 3]>,
                           norm: &mut Vec<[f32; 3]>,
@@ -838,8 +885,8 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
                           ang_end: f32,
                           arrow_size: f32,
                           color: [f32; 4]| {
-        let arc_segs = 12;
-        let ring_segs = 6;
+        let arc_segs = 28;  // busur sangat halus
+        let ring_segs = 12; // penampang lingkaran sangat halus
         let axis_n = u_axis.cross(v_axis).normalize_or_zero();
 
         for i in 0..arc_segs {
@@ -856,15 +903,25 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
                 let phi0 = tau * (j as f32 / ring_segs as f32);
                 let phi1 = tau * ((j + 1) as f32 / ring_segs as f32);
 
+                // Posisi titik di permukaan torus
                 let r0_0 = rad_dir0 * (tube_r * phi0.cos()) + axis_n * (tube_r * phi0.sin());
                 let r0_1 = rad_dir0 * (tube_r * phi1.cos()) + axis_n * (tube_r * phi1.sin());
-
                 let r1_0 = rad_dir1 * (tube_r * phi0.cos()) + axis_n * (tube_r * phi0.sin());
                 let r1_1 = rad_dir1 * (tube_r * phi1.cos()) + axis_n * (tube_r * phi1.sin());
 
-                let hint = (r0_0 + r1_1).normalize_or_zero();
-                push_tri(pos, norm, col, ind, c0 + r0_0, c1 + r1_0, c1 + r1_1, color, hint);
-                push_tri(pos, norm, col, ind, c0 + r0_0, c1 + r1_1, c0 + r0_1, color, hint);
+                // Normal outward per vertex (smooth shading)
+                let n00 = r0_0.normalize_or_zero();
+                let n01 = r0_1.normalize_or_zero();
+                let n10 = r1_0.normalize_or_zero();
+                let n11 = r1_1.normalize_or_zero();
+
+                let bi = pos.len() as u32;
+                let p00 = c0 + r0_0; let p01 = c0 + r0_1;
+                let p10 = c1 + r1_0; let p11 = c1 + r1_1;
+                pos.extend([[p00.x,p00.y,p00.z],[p10.x,p10.y,p10.z],[p11.x,p11.y,p11.z],[p01.x,p01.y,p01.z]]);
+                norm.extend([[n00.x,n00.y,n00.z],[n10.x,n10.y,n10.z],[n11.x,n11.y,n11.z],[n01.x,n01.y,n01.z]]);
+                col.extend([color; 4]);
+                ind.extend_from_slice(&[bi,bi+1,bi+2, bi,bi+2,bi+3]);
             }
         }
 
@@ -878,71 +935,58 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
         push_cone(pos, norm, col, ind, p_end + tan_end * (arrow_size * 1.1), p_end, arrow_size * 0.45, color);
     };
 
+
     // 1. Tiga panah translasi linier solid (X, Y, Z)
-    let arrow_len = s * 1.55;
-    let head_size = s * 0.38;
-    let cone_r = s * 0.13;
-    let shaft_r = s * 0.042;
+    // Gunakan dir_x/dir_y/dir_z yang sudah di-flip agar selalu camera-facing.
+    let arrow_len = s * 1.60;
+    let head_size = s * 0.42;
+    let cone_r = s * 0.15;   // kepala lebih besar — lebih mudah diklik
+    let shaft_r = s * 0.048; // batang lebih tebal — lebih visible
 
     for (part, dir, col) in [
-        (TransformGizmoPart::TranslateX, Vec3::X, COLOR_X),
-        (TransformGizmoPart::TranslateY, Vec3::Y, COLOR_Y),
-        (TransformGizmoPart::TranslateZ, Vec3::Z, COLOR_Z),
+        (TransformGizmoPart::TranslateX, dir_x, COLOR_X),
+        (TransformGizmoPart::TranslateY, dir_y, COLOR_Y),
+        (TransformGizmoPart::TranslateZ, dir_z, COLOR_Z),
     ] {
         let color = color_for(part, col);
-        let shaft_start = c + dir * (s * 0.12);
+        let shaft_start = c + dir * (s * 0.14);
         let shaft_end = c + dir * (arrow_len - head_size);
         let apex = c + dir * arrow_len;
         push_cylinder(&mut positions, &mut normals, &mut colors, &mut indices, shaft_start, shaft_end, shaft_r, color);
         push_cone(&mut positions, &mut normals, &mut colors, &mut indices, apex, shaft_end, cone_r, color);
     }
 
-    // 2. Tiga kotak translasi planar solid (XY, YZ, ZX)
-    let plane_offset = s * 0.55;
-    let plane_size = s * 0.36;
-    for (part, u, v, _col) in [
-        (TransformGizmoPart::PlaneXY, Vec3::X, Vec3::Y, COLOR_Z),
-        (TransformGizmoPart::PlaneYZ, Vec3::Y, Vec3::Z, COLOR_X),
-        (TransformGizmoPart::PlaneZX, Vec3::Z, Vec3::X, COLOR_Y),
-    ] {
-        let color = color_for(part, COLOR_BASE);
-        let p0 = c + u * plane_offset + v * plane_offset;
-        let p1 = p0 + u * plane_size;
-        let p2 = p0 + u * plane_size + v * plane_size;
-        let p3 = p0 + v * plane_size;
-        push_quad(&mut positions, &mut normals, &mut colors, &mut indices, p0, p1, p2, p3, color);
-    }
-
     // 3. Tiga busur rotasi solid melengkung (Rotate X, Y, Z)
-    let rot_radius = s * 1.05;
-    let rot_tube_r = s * 0.038;
-    let rot_arrow_size = s * 0.20;
-    let (ang_start, ang_end) = (0.24, 1.33);
+    // Busur juga menggunakan dir_* yang camera-facing agar tampil di kuadran yang visible.
+    let rot_radius = s * 1.08;
+    let rot_tube_r = s * 0.042;  // tabung lebih tebal
+    let rot_arrow_size = s * 0.22;
+    let (ang_start, ang_end) = (0.22, 1.35);
 
-    // Rotate Z di bidang XY
+    // Rotate Z di bidang camera-facing XY
     push_torus_arc(
         &mut positions, &mut normals, &mut colors, &mut indices,
-        c, Vec3::X, Vec3::Y, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        c, dir_x, dir_y, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
         color_for(TransformGizmoPart::RotateZ, COLOR_Z),
     );
-    // Rotate X di bidang YZ
+    // Rotate X di bidang camera-facing YZ
     push_torus_arc(
         &mut positions, &mut normals, &mut colors, &mut indices,
-        c, Vec3::Y, Vec3::Z, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        c, dir_y, dir_z, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
         color_for(TransformGizmoPart::RotateX, COLOR_X),
     );
-    // Rotate Y di bidang ZX
+    // Rotate Y di bidang camera-facing ZX
     push_torus_arc(
         &mut positions, &mut normals, &mut colors, &mut indices,
-        c, Vec3::Z, Vec3::X, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
+        c, dir_z, dir_x, rot_radius, rot_tube_r, ang_start, ang_end, rot_arrow_size,
         color_for(TransformGizmoPart::RotateY, COLOR_Y),
     );
 
-    // 4. Center Pivot Solid Sphere
-    let pivot_color = color_for(TransformGizmoPart::CenterPivot, [1.0, 1.0, 1.0, 1.0]);
-    let pivot_r = s * 0.10;
-    let lat_segs = 6;
-    let lon_segs = 10;
+    // 4. Center Pivot Solid Sphere — smooth dengan 16×24 segmen
+    let pivot_color = color_for(TransformGizmoPart::CenterPivot, [0.96, 0.96, 1.0, 1.0]);
+    let pivot_r = s * 0.13;
+    let lat_segs = 16; // dari 6 → 16
+    let lon_segs = 24; // dari 10 → 24
     for i in 0..lat_segs {
         let lat0 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * (i as f32 / lat_segs as f32);
         let lat1 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * ((i + 1) as f32 / lat_segs as f32);
@@ -953,14 +997,21 @@ pub fn solid_shapr3d_transform_gizmo_mesh(
             let get_p = |lat: f32, lon: f32| -> Vec3 {
                 c + Vec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()) * pivot_r
             };
-            let p00 = get_p(lat0, lon0);
-            let p10 = get_p(lat1, lon0);
-            let p11 = get_p(lat1, lon1);
-            let p01 = get_p(lat0, lon1);
+            let get_n = |lat: f32, lon: f32| -> [f32; 3] {
+                // Normal = arah radial (outward) untuk smooth sphere
+                [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()]
+            };
 
-            let hint = ((p00 + p11) * 0.5 - c).normalize_or_zero();
-            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, p00, p10, p11, pivot_color, hint);
-            push_tri(&mut positions, &mut normals, &mut colors, &mut indices, p00, p11, p01, pivot_color, hint);
+            let p00 = get_p(lat0, lon0); let n00 = get_n(lat0, lon0);
+            let p10 = get_p(lat1, lon0); let n10 = get_n(lat1, lon0);
+            let p11 = get_p(lat1, lon1); let n11 = get_n(lat1, lon1);
+            let p01 = get_p(lat0, lon1); let n01 = get_n(lat0, lon1);
+
+            let bi = positions.len() as u32;
+            positions.extend([[p00.x,p00.y,p00.z],[p10.x,p10.y,p10.z],[p11.x,p11.y,p11.z],[p01.x,p01.y,p01.z]]);
+            normals.extend([n00, n10, n11, n01]);
+            colors.extend([pivot_color; 4]);
+            indices.extend_from_slice(&[bi,bi+1,bi+2, bi,bi+2,bi+3]);
         }
     }
 

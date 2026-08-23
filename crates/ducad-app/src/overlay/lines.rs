@@ -589,10 +589,15 @@ impl DuCADApp {
         if let Some((_, center)) = self.selected_single_body_center() {
             if !self.feature_pick_active() {
                 let gizmo_scale = (55.0 * world_scale) as f32;
+                // Geser gizmo ke atas di world-space agar tidak tumpang-tindih dengan badan benda.
+                // Offset sebesar ~25% dari gizmo_scale ke arah Z global (atas).
+                let gizmo_center = center + glam::Vec3::Z * (gizmo_scale * 0.25);
+                let eye = self.camera.eye();
                 let (gp, gn, gc, gi) = sketch_render::solid_shapr3d_transform_gizmo_mesh(
-                    [center.x, center.y, center.z],
+                    [gizmo_center.x, gizmo_center.y, gizmo_center.z],
                     gizmo_scale,
                     self.body_transform_part,
+                    Some(eye),
                 );
                 let base = positions.len() as u32;
                 positions.extend(gp);
@@ -601,6 +606,7 @@ impl DuCADApp {
                 indices.extend(gi.into_iter().map(|idx| idx + base));
             }
         }
+
 
         (positions, normals, colors, indices)
     }

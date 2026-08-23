@@ -1439,8 +1439,11 @@ impl DuCADApp {
                     }
                 }
 
-                // 1. Tombol Badge "Copy" mengambang di bawah widget (diberi jarak aman agar tidak menutupi panah rotasi)
-                let s_copy = s_center + egui::vec2(0.0, 95.0);
+                // 1. Tombol Badge "Copy" mengambang di bawah gizmo (bukan center badan,
+                // agar sejajar dengan posisi gizmo yang sudah digeser ke atas).
+                // s_center dipakai sebagai fallback \u2014 gizmo_center_3d belum dihitung di sini,
+                // jadi offset screen-space sederhana cukup: +110px ke bawah dari s_center.
+                let s_copy = s_center + egui::vec2(0.0, 110.0);
                 let copy_resp = CanvasHud::render_copy_toggle_badge(ui, s_copy, self.body_copy_mode);
                 if copy_resp.clicked() {
                     self.body_copy_mode = !self.body_copy_mode;
@@ -1452,27 +1455,28 @@ impl DuCADApp {
                 }
 
                 // 2. Posisi 2D Handle sumbu translasi
-                let p_x = center + Vec3::X * (s * 1.5);
-                let p_y = center + Vec3::Y * (s * 1.5);
-                let p_z = center + Vec3::Z * (s * 1.5);
+                // Gunakan gizmo_center (dengan offset ke atas) dan arah camera-facing
+                // agar titik hit 2D cocok dengan posisi panah yang dirender.
+                let gizmo_scale = s;
+                let gizmo_center_3d = center + Vec3::Z * (gizmo_scale * 0.25);
+                let eye = self.camera.eye();
+                let to_eye = eye - gizmo_center_3d;
+                let dir_x = if to_eye.dot(Vec3::X) >= 0.0 { Vec3::X } else { Vec3::NEG_X };
+                let dir_y = if to_eye.dot(Vec3::Y) >= 0.0 { Vec3::Y } else { Vec3::NEG_Y };
+                let dir_z = if to_eye.dot(Vec3::Z) >= 0.0 { Vec3::Z } else { Vec3::NEG_Z };
+
+                let p_x = gizmo_center_3d + dir_x * (s * 1.60);
+                let p_y = gizmo_center_3d + dir_y * (s * 1.60);
+                let p_z = gizmo_center_3d + dir_z * (s * 1.60);
 
                 let s_x = world_to_screen_pos(&self.camera, rect, p_x);
                 let s_y = world_to_screen_pos(&self.camera, rect, p_y);
                 let s_z = world_to_screen_pos(&self.camera, rect, p_z);
 
-                // 3. Posisi 2D Handle kotak planar
-                let p_xy = center + (Vec3::X + Vec3::Y) * (s * 0.65);
-                let p_yz = center + (Vec3::Y + Vec3::Z) * (s * 0.65);
-                let p_zx = center + (Vec3::Z + Vec3::X) * (s * 0.65);
-
-                let s_xy = world_to_screen_pos(&self.camera, rect, p_xy);
-                let s_yz = world_to_screen_pos(&self.camera, rect, p_yz);
-                let s_zx = world_to_screen_pos(&self.camera, rect, p_zx);
-
-                // 4. Posisi 2D Handle busur rotasi
-                let p_rot_z = center + (Vec3::X + Vec3::Y).normalize() * (s * 1.05);
-                let p_rot_x = center + (Vec3::Y + Vec3::Z).normalize() * (s * 1.05);
-                let p_rot_y = center + (Vec3::Z + Vec3::X).normalize() * (s * 1.05);
+                // 4. Posisi 2D Handle busur rotasi (camera-facing)
+                let p_rot_z = gizmo_center_3d + (dir_x + dir_y).normalize() * (s * 1.08);
+                let p_rot_x = gizmo_center_3d + (dir_y + dir_z).normalize() * (s * 1.08);
+                let p_rot_y = gizmo_center_3d + (dir_z + dir_x).normalize() * (s * 1.08);
 
                 let s_rot_z = world_to_screen_pos(&self.camera, rect, p_rot_z);
                 let s_rot_x = world_to_screen_pos(&self.camera, rect, p_rot_x);
@@ -1480,9 +1484,9 @@ impl DuCADApp {
 
                 let mut current_hover_part: Option<TransformGizmoPart> = None;
 
-                // Handle Translation X
+                // Hit rect Translation X — 44px (standar touch target Apple HIG)
                 if let Some(sx) = s_x {
-                    let rx = egui::Rect::from_center_size(sx, egui::Vec2::splat(22.0));
+                    let rx = egui::Rect::from_center_size(sx, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(rx, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::TranslateX);
@@ -1513,9 +1517,9 @@ impl DuCADApp {
                     }
                 }
 
-                // Handle Translation Y
+                // Hit rect Translation Y — 44px
                 if let Some(sy) = s_y {
-                    let ry = egui::Rect::from_center_size(sy, egui::Vec2::splat(22.0));
+                    let ry = egui::Rect::from_center_size(sy, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(ry, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::TranslateY);
@@ -1546,9 +1550,9 @@ impl DuCADApp {
                     }
                 }
 
-                // Handle Translation Z
+                // Hit rect Translation Z — 44px
                 if let Some(sz) = s_z {
-                    let rz = egui::Rect::from_center_size(sz, egui::Vec2::splat(22.0));
+                    let rz = egui::Rect::from_center_size(sz, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(rz, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::TranslateZ);
@@ -1579,114 +1583,13 @@ impl DuCADApp {
                     }
                 }
 
-                // Handle Planar XY
-                if let Some(sxy) = s_xy {
-                    let rxy = egui::Rect::from_center_size(sxy, egui::Vec2::splat(18.0));
-                    let resp = ui.allocate_rect(rxy, egui::Sense::drag());
-                    if resp.hovered() || resp.dragged() {
-                        current_hover_part = Some(TransformGizmoPart::PlaneXY);
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-                    }
-                    if resp.drag_started() {
-                        self.body_move_target = Some(body_id);
-                        self.body_move_dragging = true;
-                        self.body_transform_part = Some(TransformGizmoPart::PlaneXY);
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if resp.dragged() {
-                        let (dx, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::X, resp.drag_delta());
-                        let (dy, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Y, resp.drag_delta());
-                        self.body_move_delta.x += dx as f32;
-                        self.body_move_delta.y += dy as f32;
-                        ui.ctx().request_repaint();
-                    }
-                    if resp.drag_stopped() {
-                        if self.body_move_delta.length_squared() > 1e-6 {
-                            self.translate_selected_body(self.body_move_delta);
-                        }
-                        self.body_move_dragging = false;
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneXY) {
-                        let pill_pos = sxy + egui::vec2(0.0, -24.0);
-                        let val_str = format!("ΔX:{:+0.0} ΔY:{:+0.0}", self.body_move_delta.x, self.body_move_delta.y);
-                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
-                    }
-                }
+                // ── Rotation handles dialokasi LEBIH DAHULU (z-order lebih rendah) ────────────
+                // Planar tiles akan dialokasi setelahnya, sehingga saat overlap,
+                // planar tile menang (egui: widget terakhir = prioritas input tertinggi).
 
-                // Handle Planar YZ
-                if let Some(syz) = s_yz {
-                    let ryz = egui::Rect::from_center_size(syz, egui::Vec2::splat(18.0));
-                    let resp = ui.allocate_rect(ryz, egui::Sense::drag());
-                    if resp.hovered() || resp.dragged() {
-                        current_hover_part = Some(TransformGizmoPart::PlaneYZ);
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-                    }
-                    if resp.drag_started() {
-                        self.body_move_target = Some(body_id);
-                        self.body_move_dragging = true;
-                        self.body_transform_part = Some(TransformGizmoPart::PlaneYZ);
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if resp.dragged() {
-                        let (dy, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Y, resp.drag_delta());
-                        let (dz, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, resp.drag_delta());
-                        self.body_move_delta.y += dy as f32;
-                        self.body_move_delta.z += dz as f32;
-                        ui.ctx().request_repaint();
-                    }
-                    if resp.drag_stopped() {
-                        if self.body_move_delta.length_squared() > 1e-6 {
-                            self.translate_selected_body(self.body_move_delta);
-                        }
-                        self.body_move_dragging = false;
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneYZ) {
-                        let pill_pos = syz + egui::vec2(0.0, -24.0);
-                        let val_str = format!("ΔY:{:+0.0} ΔZ:{:+0.0}", self.body_move_delta.y, self.body_move_delta.z);
-                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
-                    }
-                }
-
-                // Handle Planar ZX
-                if let Some(szx) = s_zx {
-                    let rzx = egui::Rect::from_center_size(szx, egui::Vec2::splat(18.0));
-                    let resp = ui.allocate_rect(rzx, egui::Sense::drag());
-                    if resp.hovered() || resp.dragged() {
-                        current_hover_part = Some(TransformGizmoPart::PlaneZX);
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-                    }
-                    if resp.drag_started() {
-                        self.body_move_target = Some(body_id);
-                        self.body_move_dragging = true;
-                        self.body_transform_part = Some(TransformGizmoPart::PlaneZX);
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if resp.dragged() {
-                        let (dz, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::Z, resp.drag_delta());
-                        let (dx, _) = self.project_screen_drag_to_world_axis(rect, center, Vec3::X, resp.drag_delta());
-                        self.body_move_delta.z += dz as f32;
-                        self.body_move_delta.x += dx as f32;
-                        ui.ctx().request_repaint();
-                    }
-                    if resp.drag_stopped() {
-                        if self.body_move_delta.length_squared() > 1e-6 {
-                            self.translate_selected_body(self.body_move_delta);
-                        }
-                        self.body_move_dragging = false;
-                        self.body_move_delta = Vec3::ZERO;
-                    }
-                    if self.body_move_dragging && self.body_transform_part == Some(TransformGizmoPart::PlaneZX) {
-                        let pill_pos = szx + egui::vec2(0.0, -24.0);
-                        let val_str = format!("ΔZ:{:+0.0} ΔX:{:+0.0}", self.body_move_delta.z, self.body_move_delta.x);
-                        CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &val_str, true);
-                    }
-                }
-
-                // Handle Rotation Z
+                // Hit rect Rotation Z — 44px
                 if let Some(srz) = s_rot_z {
-                    let rrz = egui::Rect::from_center_size(srz, egui::Vec2::splat(22.0));
+                    let rrz = egui::Rect::from_center_size(srz, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(rrz, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::RotateZ);
@@ -1725,9 +1628,9 @@ impl DuCADApp {
                     }
                 }
 
-                // Handle Rotation X
+                // Hit rect Rotation X — 44px
                 if let Some(srx) = s_rot_x {
-                    let rrx = egui::Rect::from_center_size(srx, egui::Vec2::splat(22.0));
+                    let rrx = egui::Rect::from_center_size(srx, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(rrx, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::RotateX);
@@ -1766,9 +1669,9 @@ impl DuCADApp {
                     }
                 }
 
-                // Handle Rotation Y
+                // Hit rect Rotation Y — 44px
                 if let Some(sry) = s_rot_y {
-                    let rry = egui::Rect::from_center_size(sry, egui::Vec2::splat(22.0));
+                    let rry = egui::Rect::from_center_size(sry, egui::Vec2::splat(44.0));
                     let resp = ui.allocate_rect(rry, egui::Sense::drag());
                     if resp.hovered() || resp.dragged() {
                         current_hover_part = Some(TransformGizmoPart::RotateY);
@@ -1807,8 +1710,10 @@ impl DuCADApp {
                     }
                 }
 
-                // Center Pivot Handle
-                let r_center = egui::Rect::from_center_size(s_center, egui::Vec2::splat(16.0));
+                // Center Pivot — hit area 36px, selaraskan ke gizmo_center_3d
+                let s_gizmo_center = world_to_screen_pos(&self.camera, rect, gizmo_center_3d)
+                    .unwrap_or(s_center);
+                let r_center = egui::Rect::from_center_size(s_gizmo_center, egui::Vec2::splat(36.0));
                 let resp_center = ui.allocate_rect(r_center, egui::Sense::click_and_drag());
                 if resp_center.hovered() || resp_center.dragged() {
                     current_hover_part = Some(TransformGizmoPart::CenterPivot);

@@ -5,19 +5,16 @@
 //! dalam bentuk accordion yang rapi, search bar compact terintegrasi tombol close,
 //! badge angka lingkaran sempurna, dan seluruh baris clickable.
 
+use crate::theme::{
+    card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+};
 use egui::{
-    Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea,
-    Stroke, Ui, Vec2,
+    Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CIRCLE, ICON_CLEAR, ICON_CLOSE,
-    ICON_FOLDER, ICON_HORIZONTAL_RULE,
-    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH,
-    ICON_VISIBILITY, ICON_VISIBILITY_OFF,
-};
-use crate::theme::{
-    card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    ICON_CATEGORY, ICON_CIRCLE, ICON_CLEAR, ICON_CLOSE, ICON_FOLDER, ICON_HORIZONTAL_RULE,
+    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH, ICON_VISIBILITY,
+    ICON_VISIBILITY_OFF,
 };
 
 pub struct BodyItemInfo {
@@ -134,7 +131,7 @@ impl ItemsDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.set_width(260.0);
+                ui.set_width(280.0);
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
 
                 // =========================================================================
@@ -147,10 +144,8 @@ impl ItemsDrawer {
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
-                let pill_rect = egui::Rect::from_center_size(
-                    handle_rect.center(),
-                    Vec2::new(36.0, 4.0),
-                );
+                let pill_rect =
+                    egui::Rect::from_center_size(handle_rect.center(), Vec2::new(36.0, 4.0));
                 let pill_color = if handle_resp.dragged() {
                     ACCENT_BLUE
                 } else if handle_resp.hovered() {
@@ -158,7 +153,8 @@ impl ItemsDrawer {
                 } else {
                     Color32::from_rgb(70, 75, 90)
                 };
-                ui.painter().rect_filled(pill_rect, CornerRadius::same(2), pill_color);
+                ui.painter()
+                    .rect_filled(pill_rect, CornerRadius::same(2), pill_color);
 
                 if handle_resp.dragged() {
                     if let Some(ptr_pos) = ui.input(|i| i.pointer.hover_pos()) {
@@ -263,39 +259,39 @@ impl ItemsDrawer {
                         stroke: Stroke::new(0.5, BORDER_SUBTLE),
                     };
 
-                    let header_resp = header_frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!("{} {}", obj_chevron, ICON_CIRCLE.codepoint))
-                                    .size(11.5)
-                                    .color(ACCENT_BLUE),
-                            );
-                            ui.label(
-                                RichText::new("2D OBJECTS")
-                                    .size(11.0)
-                                    .strong()
-                                    .color(TEXT_PRIMARY),
-                            );
+                    let header_resp = header_frame
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("2D OBJECTS")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(TEXT_PRIMARY),
+                                );
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // Badge lingkaran sempurna
-                                let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
-                                ui.painter().circle_filled(
-                                    badge_rect.center(),
-                                    9.0,
-                                    Color32::from_rgb(46, 50, 62),
-                                );
-                                ui.painter().text(
-                                    badge_rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    format!("{}", entities_2d.len()),
-                                    egui::FontId::proportional(10.0),
-                                    Color32::from_rgb(160, 166, 178),
-                                );
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    // Badge lingkaran sempurna
+                                    let (badge_rect, _) = ui.allocate_exact_size(
+                                        Vec2::splat(18.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().circle_filled(
+                                        badge_rect.center(),
+                                        9.0,
+                                        Color32::from_rgb(46, 50, 62),
+                                    );
+                                    ui.painter().text(
+                                        badge_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{}", entities_2d.len()),
+                                        egui::FontId::proportional(10.0),
+                                        Color32::from_rgb(160, 166, 178),
+                                    );
+                                });
                             });
-                        });
-                    }).response;
+                        })
+                        .response;
 
                     if header_resp.interact(egui::Sense::click()).clicked() {
                         self.objects_2d_expanded = !self.objects_2d_expanded;
@@ -354,11 +350,13 @@ impl ItemsDrawer {
                                     let card_output = row_frame.show(ui, |ui| {
                                         ui.set_width(ui.available_width());
                                         ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(e.icon)
-                                                    .size(13.0)
-                                                    .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
-                                            );
+                                            ui.label(RichText::new(e.icon).size(13.0).color(
+                                                if is_selected {
+                                                    ACCENT_BLUE
+                                                } else {
+                                                    TEXT_SECONDARY
+                                                },
+                                            ));
 
                                             let name_color = if is_selected {
                                                 Color32::WHITE
@@ -372,33 +370,39 @@ impl ItemsDrawer {
 
                                             ui.label(label_text);
 
-                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                if is_selected {
-                                                    Frame {
-                                                        inner_margin: Margin::symmetric(6, 1),
-                                                        outer_margin: Margin::ZERO,
-                                                        corner_radius: CornerRadius::same(4),
-                                                        shadow: egui::Shadow::NONE,
-                                                        fill: Color32::from_rgb(10, 132, 255),
-                                                        stroke: Stroke::NONE,
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    if is_selected {
+                                                        Frame {
+                                                            inner_margin: Margin::symmetric(6, 1),
+                                                            outer_margin: Margin::ZERO,
+                                                            corner_radius: CornerRadius::same(4),
+                                                            shadow: egui::Shadow::NONE,
+                                                            fill: Color32::from_rgb(10, 132, 255),
+                                                            stroke: Stroke::NONE,
+                                                        }
+                                                        .show(ui, |ui| {
+                                                            ui.label(
+                                                                RichText::new("Terpilih")
+                                                                    .size(9.5)
+                                                                    .strong()
+                                                                    .color(Color32::WHITE),
+                                                            );
+                                                        });
                                                     }
-                                                    .show(ui, |ui| {
-                                                        ui.label(
-                                                            RichText::new("Terpilih")
-                                                                .size(9.5)
-                                                                .strong()
-                                                                .color(Color32::WHITE),
-                                                        );
-                                                    });
-                                                }
-                                            });
+                                                },
+                                            );
                                         });
                                     });
 
-                                    if card_output.response.interact(egui::Sense::click()).clicked() {
-                                        let extend = ui.input(|i| {
-                                            i.modifiers.command || i.modifiers.shift
-                                        });
+                                    if card_output
+                                        .response
+                                        .interact(egui::Sense::click())
+                                        .clicked()
+                                    {
+                                        let extend =
+                                            ui.input(|i| i.modifiers.command || i.modifiers.shift);
                                         event = Some(ItemsDrawerEvent::SelectEntity2d {
                                             id_raw: e.id_raw,
                                             extend,
@@ -429,39 +433,39 @@ impl ItemsDrawer {
                         stroke: Stroke::new(0.5, BORDER_SUBTLE),
                     };
 
-                    let bodies_header_resp = bodies_header_frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!("{} {}", bodies_chevron, ICON_CATEGORY.codepoint))
-                                    .size(11.5)
-                                    .color(ACCENT_BLUE),
-                            );
-                            ui.label(
-                                RichText::new("BODIES")
-                                    .size(11.0)
-                                    .strong()
-                                    .color(TEXT_PRIMARY),
-                            );
+                    let bodies_header_resp = bodies_header_frame
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("BODIES")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(TEXT_PRIMARY),
+                                );
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                // Badge lingkaran sempurna
-                                let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
-                                ui.painter().circle_filled(
-                                    badge_rect.center(),
-                                    9.0,
-                                    Color32::from_rgb(46, 50, 62),
-                                );
-                                ui.painter().text(
-                                    badge_rect.center(),
-                                    egui::Align2::CENTER_CENTER,
-                                    format!("{}", bodies.len()),
-                                    egui::FontId::proportional(10.0),
-                                    Color32::from_rgb(160, 166, 178),
-                                );
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    // Badge lingkaran sempurna
+                                    let (badge_rect, _) = ui.allocate_exact_size(
+                                        Vec2::splat(18.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().circle_filled(
+                                        badge_rect.center(),
+                                        9.0,
+                                        Color32::from_rgb(46, 50, 62),
+                                    );
+                                    ui.painter().text(
+                                        badge_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{}", bodies.len()),
+                                        egui::FontId::proportional(10.0),
+                                        Color32::from_rgb(160, 166, 178),
+                                    );
+                                });
                             });
-                        });
-                    }).response;
+                        })
+                        .response;
 
                     if bodies_header_resp.interact(egui::Sense::click()).clicked() {
                         self.bodies_expanded = !self.bodies_expanded;
@@ -538,7 +542,11 @@ impl ItemsDrawer {
                                                 ICON_VISIBILITY_OFF.codepoint
                                             };
                                             let eye_color = if b.visible {
-                                                if is_selected { Color32::WHITE } else { TEXT_PRIMARY }
+                                                if is_selected {
+                                                    Color32::WHITE
+                                                } else {
+                                                    TEXT_PRIMARY
+                                                }
                                             } else {
                                                 TEXT_MUTED
                                             };
@@ -558,11 +566,13 @@ impl ItemsDrawer {
                                             );
 
                                             let icon_shape = ICON_CATEGORY.codepoint;
-                                            ui.label(
-                                                RichText::new(icon_shape)
-                                                    .size(13.0)
-                                                    .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
-                                            );
+                                            ui.label(RichText::new(icon_shape).size(13.0).color(
+                                                if is_selected {
+                                                    ACCENT_BLUE
+                                                } else {
+                                                    TEXT_SECONDARY
+                                                },
+                                            ));
 
                                             let name_color = if is_selected {
                                                 Color32::WHITE
@@ -576,29 +586,33 @@ impl ItemsDrawer {
                                                     .color(name_color),
                                             );
 
-                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                if is_selected {
-                                                    Frame {
-                                                        inner_margin: Margin::symmetric(6, 1),
-                                                        outer_margin: Margin::ZERO,
-                                                        corner_radius: CornerRadius::same(4),
-                                                        shadow: egui::Shadow::NONE,
-                                                        fill: Color32::from_rgb(10, 132, 255),
-                                                        stroke: Stroke::NONE,
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    if is_selected {
+                                                        Frame {
+                                                            inner_margin: Margin::symmetric(6, 1),
+                                                            outer_margin: Margin::ZERO,
+                                                            corner_radius: CornerRadius::same(4),
+                                                            shadow: egui::Shadow::NONE,
+                                                            fill: Color32::from_rgb(10, 132, 255),
+                                                            stroke: Stroke::NONE,
+                                                        }
+                                                        .show(ui, |ui| {
+                                                            ui.label(
+                                                                RichText::new("Terpilih")
+                                                                    .size(9.5)
+                                                                    .strong()
+                                                                    .color(Color32::WHITE),
+                                                            );
+                                                        });
                                                     }
-                                                    .show(ui, |ui| {
-                                                        ui.label(
-                                                            RichText::new("Terpilih")
-                                                                .size(9.5)
-                                                                .strong()
-                                                                .color(Color32::WHITE),
-                                                        );
-                                                    });
-                                                }
-                                            });
+                                                },
+                                            );
 
                                             eye_rect
-                                        }).inner
+                                        })
+                                        .inner
                                     });
 
                                     // Eye button — pakai ctx.layer_painter di layer Foreground terpisah
@@ -606,10 +620,14 @@ impl ItemsDrawer {
                                     let eye_rect_screen = card_resp.inner;
 
                                     // Gambar ulang eye di atas dengan Layer Debug untuk memastikan posisi
-                                    let eye_layer = egui::LayerId::new(egui::Order::Foreground, ui.id().with("eye_overlay").with(b.id_raw));
+                                    let eye_layer = egui::LayerId::new(
+                                        egui::Order::Foreground,
+                                        ui.id().with("eye_overlay").with(b.id_raw),
+                                    );
                                     let painter = ui.ctx().layer_painter(eye_layer);
                                     let ptr = ui.ctx().pointer_interact_pos();
-                                    let is_hovered = ptr.map(|p| eye_rect_screen.contains(p)).unwrap_or(false);
+                                    let is_hovered =
+                                        ptr.map(|p| eye_rect_screen.contains(p)).unwrap_or(false);
 
                                     let eye_bg = if is_hovered {
                                         Color32::from_rgb(60, 75, 100)
@@ -625,12 +643,20 @@ impl ItemsDrawer {
                                         ICON_VISIBILITY_OFF.codepoint
                                     };
                                     let eye_color = if b.visible {
-                                        if is_selected { Color32::WHITE } else { TEXT_PRIMARY }
+                                        if is_selected {
+                                            Color32::WHITE
+                                        } else {
+                                            TEXT_PRIMARY
+                                        }
                                     } else {
                                         TEXT_MUTED
                                     };
 
-                                    painter.rect_filled(eye_rect_screen, CornerRadius::same(4), eye_bg);
+                                    painter.rect_filled(
+                                        eye_rect_screen,
+                                        CornerRadius::same(4),
+                                        eye_bg,
+                                    );
                                     painter.text(
                                         eye_rect_screen.center(),
                                         egui::Align2::CENTER_CENTER,
@@ -647,17 +673,24 @@ impl ItemsDrawer {
                                     let eye_clicked = ui.ctx().input(|i| {
                                         is_hovered
                                             && i.pointer.primary_clicked()
-                                            && i.pointer.interact_pos()
+                                            && i.pointer
+                                                .interact_pos()
                                                 .map(|p| eye_rect_screen.contains(p))
                                                 .unwrap_or(false)
                                     });
 
                                     if eye_clicked {
-                                        println!("[DUCAD UI] KLIK TERDETEKSI pada icon mata body='{}'", b.name);
+                                        println!(
+                                            "[DUCAD UI] KLIK TERDETEKSI pada icon mata body='{}'",
+                                            b.name
+                                        );
                                     }
 
                                     let card_clicked = !is_hovered
-                                        && card_resp.response.interact(egui::Sense::click()).clicked();
+                                        && card_resp
+                                            .response
+                                            .interact(egui::Sense::click())
+                                            .clicked();
 
                                     (eye_clicked, card_clicked)
                                 });
@@ -667,9 +700,8 @@ impl ItemsDrawer {
                                 if eye_clicked {
                                     event = Some(ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw));
                                 } else if card_clicked {
-                                    let extend = ui.input(|i| {
-                                        i.modifiers.command || i.modifiers.shift
-                                    });
+                                    let extend =
+                                        ui.input(|i| i.modifiers.command || i.modifiers.shift);
                                     event = Some(ItemsDrawerEvent::SelectBody {
                                         id_raw: b.id_raw,
                                         extend,

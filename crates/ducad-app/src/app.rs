@@ -216,7 +216,8 @@ impl DuCADApp {
         cc.egui_ctx
             .options_mut(|o| o.input_options.horizontal_scroll_modifier = egui::Modifiers::NONE);
 
-        let history_db = crate::history_db::HistoryDb::new();
+        let mut history_db = crate::history_db::HistoryDb::new();
+        history_db.clear(); // Selalu mulai dengan riwayat kosong saat aplikasi dibuka
         let activity_cache = history_db.load_activities();
 
         Self {
