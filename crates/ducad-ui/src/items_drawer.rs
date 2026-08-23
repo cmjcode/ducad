@@ -12,9 +12,9 @@ use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CIRCLE, ICON_CLEAR, ICON_CLOSE, ICON_FOLDER, ICON_HORIZONTAL_RULE,
-    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH, ICON_VISIBILITY,
-    ICON_VISIBILITY_OFF,
+    ICON_CATEGORY, ICON_CIRCLE, ICON_CLEAR, ICON_CLOSE, ICON_CUBE_OUTLINE, ICON_FOLDER,
+    ICON_HORIZONTAL_RULE, ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH,
+    ICON_VISIBILITY, ICON_VISIBILITY_OFF,
 };
 
 pub struct BodyItemInfo {
@@ -382,12 +382,14 @@ impl ItemsDrawer {
                                                 .size(13.0)
                                                 .color(TEXT_SECONDARY),
                                         );
-                                        // Folder icon
+                                        ui.add_space(4.0);
+                                        // 2D group icon (ICON_CATEGORY)
                                         ui.label(
-                                            RichText::new(ICON_FOLDER.codepoint)
+                                            RichText::new(ICON_CATEGORY.codepoint)
                                                 .size(13.0)
                                                 .color(if any_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
                                         );
+                                        ui.add_space(6.0);
                                         // Nama grup
                                         ui.label(
                                             RichText::new(group_name.as_str())
@@ -456,6 +458,7 @@ impl ItemsDrawer {
                                                         ui.label(RichText::new(e.icon).size(12.0).color(
                                                             if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY },
                                                         ));
+                                                        ui.add_space(6.0);
                                                         ui.label(
                                                             RichText::new(&e.name)
                                                                 .size(11.0)
@@ -511,6 +514,7 @@ impl ItemsDrawer {
                                                     TEXT_SECONDARY
                                                 },
                                             ));
+                                            ui.add_space(6.0);
 
                                             let name_color = if is_selected {
                                                 Color32::WHITE
@@ -633,7 +637,7 @@ impl ItemsDrawer {
                                 ui.vertical_centered(|ui| {
                                     ui.add_space(6.0);
                                     ui.label(
-                                        RichText::new(ICON_CATEGORY.codepoint)
+                                        RichText::new(ICON_CUBE_OUTLINE.codepoint)
                                             .size(22.0)
                                             .color(TEXT_MUTED),
                                     );
@@ -719,7 +723,9 @@ impl ItemsDrawer {
                                                 eye_color,
                                             );
 
-                                            let icon_shape = ICON_CATEGORY.codepoint;
+                                            ui.add_space(4.0);
+
+                                            let icon_shape = ICON_CUBE_OUTLINE.codepoint;
                                             ui.label(RichText::new(icon_shape).size(13.0).color(
                                                 if is_selected {
                                                     ACCENT_BLUE
@@ -727,6 +733,7 @@ impl ItemsDrawer {
                                                     TEXT_SECONDARY
                                                 },
                                             ));
+                                            ui.add_space(6.0);
 
                                             let name_color = if is_selected {
                                                 Color32::WHITE
