@@ -1269,5 +1269,31 @@ pub mod ffi {
         pub fn BRepOffsetAPI_DraftAngle_shape_checked(
             draft: Pin<&mut BRepOffsetAPI_DraftAngle>,
         ) -> Result<&TopoDS_Shape>;
+
+        // BRepAlgoAPI_Splitter (DUCAD 2.2 — Split Body & Split Face).
+        pub fn split_shape_with_plane(
+            shape: &TopoDS_Shape,
+            px: f64,
+            py: f64,
+            pz: f64,
+            nx: f64,
+            ny: f64,
+            nz: f64,
+        ) -> Result<UniquePtr<CxxVector<TopoDS_Shape>>>;
+
+        pub fn split_shape_with_tool(
+            shape: &TopoDS_Shape,
+            tool_shape: &TopoDS_Shape,
+        ) -> Result<UniquePtr<CxxVector<TopoDS_Shape>>>;
+
+        pub fn split_faces_with_plane(
+            shape: &TopoDS_Shape,
+            px: f64,
+            py: f64,
+            pz: f64,
+            nx: f64,
+            ny: f64,
+            nz: f64,
+        ) -> Result<UniquePtr<TopoDS_Shape>>;
     }
 }

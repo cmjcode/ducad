@@ -6,11 +6,17 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Section.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRep_Builder.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepFeat_MakeCylindricalHole.hxx>
 #include <BRepFeat_MakeDPrism.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
@@ -767,3 +773,205 @@ inline const TopoDS_Shape &BRepOffsetAPI_DraftAngle_shape_checked(BRepOffsetAPI_
     rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_DraftAngle::Shape() gagal: not done");
   }
 }
+
+// ============================================================================
+// BRepAlgoAPI_Splitter — Split Body & Split Face
+// ============================================================================
+
+inline std::unique_ptr<std::vector<TopoDS_Shape>> split_shape_with_plane(
+    const TopoDS_Shape &shape,
+    double px, double py, double pz,
+    double nx, double ny, double nz
+) {
+  try {
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    Standard_Real xmin = -1000.0, ymin = -1000.0, zmin = -1000.0;
+    Standard_Real xmax = 1000.0, ymax = 1000.0, zmax = 1000.0;
+    if (!box.IsVoid()) {
+      box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    }
+    double dx = xmax - xmin;
+    double dy = ymax - ymin;
+    double dz = zmax - zmin;
+    double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    double size = (diag > 1.0 ? diag * 4.0 : 5000.0);
+
+    double cx = (xmin + xmax) * 0.5;
+    double cy = (ymin + ymax) * 0.5;
+    double cz = (zmin + zmax) * 0.5;
+
+    gp_Dir dir(nx, ny, nz);
+    gp_Pnt p0(px, py, pz);
+    gp_Pnt center_3d(cx, cy, cz);
+    gp_Vec to_center(p0, center_3d);
+    double dist_along_normal = to_center.Dot(gp_Vec(dir));
+    gp_Pnt proj_center = center_3d.Translated(-gp_Vec(dir) * dist_along_normal);
+
+    gp_Pln centered_pln(proj_center, dir);
+
+    BRepBuilderAPI_MakeFace mk_face(centered_pln, -size, size, -size, size);
+    if (!mk_face.IsDone()) {
+      throw std::runtime_error("Gagal membuat bidang pemotong (cutting plane)");
+    }
+    TopoDS_Face cut_face = mk_face.Face();
+
+    TopTools_ListOfShape args;
+    args.Append(shape);
+
+    TopTools_ListOfShape tools;
+    tools.Append(cut_face);
+
+    BRepAlgoAPI_Splitter splitter;
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
+    splitter.Build();
+
+    if (!splitter.IsDone()) {
+      throw std::runtime_error("BRepAlgoAPI_Splitter gagal memotong objek");
+    }
+
+    TopoDS_Shape res = splitter.Shape();
+    std::unique_ptr<std::vector<TopoDS_Shape>> solids(new std::vector<TopoDS_Shape>());
+
+    for (TopExp_Explorer exp(res, TopAbs_SOLID); exp.More(); exp.Next()) {
+      solids->push_back(exp.Current());
+    }
+
+    if (solids->empty()) {
+      for (TopExp_Explorer exp(res, TopAbs_SHELL); exp.More(); exp.Next()) {
+        solids->push_back(exp.Current());
+      }
+    }
+    if (solids->empty()) {
+      for (TopExp_Explorer exp(res, TopAbs_FACE); exp.More(); exp.Next()) {
+        solids->push_back(exp.Current());
+      }
+    }
+
+    return solids;
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "Split shape gagal (OCCT error)");
+  }
+}
+
+inline std::unique_ptr<std::vector<TopoDS_Shape>> split_shape_with_tool(
+    const TopoDS_Shape &shape,
+    const TopoDS_Shape &tool_shape
+) {
+  try {
+    TopTools_ListOfShape args;
+    args.Append(shape);
+
+    TopTools_ListOfShape tools;
+    tools.Append(tool_shape);
+
+    BRepAlgoAPI_Splitter splitter;
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
+    splitter.Build();
+
+    if (!splitter.IsDone()) {
+      throw std::runtime_error("BRepAlgoAPI_Splitter gagal memotong objek dengan tool");
+    }
+
+    TopoDS_Shape res = splitter.Shape();
+    std::unique_ptr<std::vector<TopoDS_Shape>> solids(new std::vector<TopoDS_Shape>());
+
+    for (TopExp_Explorer exp(res, TopAbs_SOLID); exp.More(); exp.Next()) {
+      solids->push_back(exp.Current());
+    }
+
+    if (solids->empty()) {
+      for (TopExp_Explorer exp(res, TopAbs_SHELL); exp.More(); exp.Next()) {
+        solids->push_back(exp.Current());
+      }
+    }
+    if (solids->empty()) {
+      for (TopExp_Explorer exp(res, TopAbs_FACE); exp.More(); exp.Next()) {
+        solids->push_back(exp.Current());
+      }
+    }
+
+    return solids;
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "Split shape gagal (OCCT error)");
+  }
+}
+
+inline std::unique_ptr<TopoDS_Shape> split_faces_with_plane(
+    const TopoDS_Shape &shape,
+    double px, double py, double pz,
+    double nx, double ny, double nz
+) {
+  try {
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    Standard_Real xmin = -1000.0, ymin = -1000.0, zmin = -1000.0;
+    Standard_Real xmax = 1000.0, ymax = 1000.0, zmax = 1000.0;
+    if (!box.IsVoid()) {
+      box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    }
+    double dx = xmax - xmin;
+    double dy = ymax - ymin;
+    double dz = zmax - zmin;
+    double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    double size = (diag > 1.0 ? diag * 4.0 : 5000.0);
+
+    double cx = (xmin + xmax) * 0.5;
+    double cy = (ymin + ymax) * 0.5;
+    double cz = (zmin + zmax) * 0.5;
+
+    gp_Dir dir(nx, ny, nz);
+    gp_Pnt p0(px, py, pz);
+    gp_Pnt center_3d(cx, cy, cz);
+    gp_Vec to_center(p0, center_3d);
+    double dist_along_normal = to_center.Dot(gp_Vec(dir));
+    gp_Pnt proj_center = center_3d.Translated(-gp_Vec(dir) * dist_along_normal);
+
+    gp_Pln centered_pln(proj_center, dir);
+
+    BRepBuilderAPI_MakeFace mk_face(centered_pln, -size, size, -size, size);
+    if (!mk_face.IsDone()) {
+      throw std::runtime_error("Gagal membuat bidang pemotong (cutting plane)");
+    }
+    TopoDS_Face cut_face = mk_face.Face();
+
+    TopTools_ListOfShape args;
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+      args.Append(exp.Current());
+    }
+
+    TopTools_ListOfShape tools;
+    tools.Append(cut_face);
+
+    BRepAlgoAPI_Splitter splitter;
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
+    splitter.Build();
+
+    if (!splitter.IsDone()) {
+      throw std::runtime_error("BRepAlgoAPI_Splitter gagal membagi face");
+    }
+
+    TopoDS_Shape res = splitter.Shape();
+
+    BRepBuilderAPI_Sewing sewing(1.0e-5);
+    sewing.Add(res);
+    sewing.Perform();
+    TopoDS_Shape sewed = sewing.SewedShape();
+
+    for (TopExp_Explorer exp(sewed, TopAbs_SHELL); exp.More(); exp.Next()) {
+      TopoDS_Shell shell = TopoDS::Shell(exp.Current());
+      BRepBuilderAPI_MakeSolid mk_solid(shell);
+      if (mk_solid.IsDone()) {
+        return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(mk_solid.Solid()));
+      }
+    }
+
+    return std::unique_ptr<TopoDS_Shape>(new TopoDS_Shape(sewed));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "Split face gagal (OCCT error)");
+  }
+}
+

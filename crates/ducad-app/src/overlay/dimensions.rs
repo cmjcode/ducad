@@ -763,6 +763,142 @@ impl DuCADApp {
                     self.set_tool(ToolKind::Select);
                 }
             }
+        } else if self.tool == ToolKind::SplitBody {
+            let has_target_body = !self.selected_bodies.is_empty() || self.active_face.is_some();
+            let current_offset = self.split_offset_input.trim().parse::<f64>().unwrap_or(0.0);
+
+            if let Some(action) = CanvasHud::render_split_top_bar_hud(
+                ui,
+                rect,
+                has_target_body,
+                &mut self.split_mode,
+                &mut self.split_plane,
+                current_offset,
+                &mut self.split_offset_input,
+            ) {
+                match action {
+                    ducad_ui::SplitHudAction::SetMode(m) => {
+                        self.split_mode = m;
+                    }
+                    ducad_ui::SplitHudAction::SetPlane(pln) => {
+                        self.split_plane = pln;
+                    }
+                    ducad_ui::SplitHudAction::SetOffset(off) => {
+                        self.split_offset_input = format!("{:.1}", off);
+                    }
+                    ducad_ui::SplitHudAction::Commit => {
+                        self.apply_split(self.split_mode, self.split_plane, current_offset);
+                    }
+                    ducad_ui::SplitHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if has_target_body {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.apply_split(self.split_mode, self.split_plane, current_offset);
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
+            }
+
+            // Visual 3D Preview Bidang Pemotong (Cutting Plane)
+            let target_body_id = self.selected_bodies.iter().next().copied()
+                .or_else(|| self.active_face.as_ref().map(|(id, _, _)| *id));
+
+            if let Some(target_id) = target_body_id {
+                if let Some(geo) = self.model.geometry.get(target_id) {
+                    let center = geo.mesh.center();
+                    let (min, max) = geo.mesh.bounding_box().unwrap_or(([-30.0, -30.0, -30.0], [30.0, 30.0, 30.0]));
+                    let span_x = (max[0] - min[0]).abs().max(40.0) * 0.75;
+                    let span_y = (max[1] - min[1]).abs().max(40.0) * 0.75;
+                    let span_z = (max[2] - min[2]).abs().max(40.0) * 0.75;
+                    let span = span_x.max(span_y).max(span_z);
+
+                    let off = current_offset as f32;
+                    let (corners_3d, plane_center_3d) = match self.split_plane {
+                        ducad_ui::SplitPlaneKind::XY => {
+                            let z = center[2] + off;
+                            let p1 = glam::vec3(center[0] - span, center[1] - span, z);
+                            let p2 = glam::vec3(center[0] + span, center[1] - span, z);
+                            let p3 = glam::vec3(center[0] + span, center[1] + span, z);
+                            let p4 = glam::vec3(center[0] - span, center[1] + span, z);
+                            ([p1, p2, p3, p4], glam::vec3(center[0], center[1], z))
+                        }
+                        ducad_ui::SplitPlaneKind::XZ => {
+                            let y = center[1] + off;
+                            let p1 = glam::vec3(center[0] - span, y, center[2] - span);
+                            let p2 = glam::vec3(center[0] + span, y, center[2] - span);
+                            let p3 = glam::vec3(center[0] + span, y, center[2] + span);
+                            let p4 = glam::vec3(center[0] - span, y, center[2] + span);
+                            ([p1, p2, p3, p4], glam::vec3(center[0], y, center[2]))
+                        }
+                        ducad_ui::SplitPlaneKind::YZ => {
+                            let x = center[0] + off;
+                            let p1 = glam::vec3(x, center[1] - span, center[2] - span);
+                            let p2 = glam::vec3(x, center[1] + span, center[2] - span);
+                            let p3 = glam::vec3(x, center[1] + span, center[2] + span);
+                            let p4 = glam::vec3(x, center[1] - span, center[2] + span);
+                            ([p1, p2, p3, p4], glam::vec3(x, center[1], center[2]))
+                        }
+                        ducad_ui::SplitPlaneKind::PickedFace => {
+                            let normal = if let Some((_, _, hit)) = &self.active_face {
+                                glam::vec3(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32).normalize()
+                            } else {
+                                glam::vec3(0.0, 0.0, 1.0)
+                            };
+                            let c_pos = glam::vec3(center[0], center[1], center[2]) + normal * off;
+                            let up = if normal.z.abs() < 0.9 { glam::Vec3::Z } else { glam::Vec3::Y };
+                            let u_axis = normal.cross(up).normalize() * span;
+                            let v_axis = normal.cross(u_axis).normalize() * span;
+                            let p1 = c_pos - u_axis - v_axis;
+                            let p2 = c_pos + u_axis - v_axis;
+                            let p3 = c_pos + u_axis + v_axis;
+                            let p4 = c_pos - u_axis + v_axis;
+                            ([p1, p2, p3, p4], c_pos)
+                        }
+                    };
+
+                    let s1 = world_to_screen_pos(&self.camera, rect, corners_3d[0]);
+                    let s2 = world_to_screen_pos(&self.camera, rect, corners_3d[1]);
+                    let s3 = world_to_screen_pos(&self.camera, rect, corners_3d[2]);
+                    let s4 = world_to_screen_pos(&self.camera, rect, corners_3d[3]);
+
+                    if let (Some(p1), Some(p2), Some(p3), Some(p4)) = (s1, s2, s3, s4) {
+                        let painter = ui.painter();
+                        let poly = vec![p1, p2, p3, p4];
+                        painter.add(egui::Shape::convex_polygon(
+                            poly,
+                            egui::Color32::from_rgba_premultiplied(0, 140, 255, 45),
+                            egui::Stroke::new(1.8, egui::Color32::from_rgb(0, 160, 255)),
+                        ));
+
+                        // Diagonal cross grid
+                        painter.line_segment([p1, p3], egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(0, 160, 255, 80)));
+                        painter.line_segment([p2, p4], egui::Stroke::new(0.8, egui::Color32::from_rgba_premultiplied(0, 160, 255, 80)));
+
+                        if let Some(s_center) = world_to_screen_pos(&self.camera, rect, plane_center_3d) {
+                            let action_name = match self.split_mode {
+                                ducad_ui::SplitMode::SplitBody => ducad_i18n::t!("popup-split-apply"),
+                                ducad_ui::SplitMode::SplitFace => ducad_i18n::t!("popup-split-apply-face"),
+                            };
+                            let label = format!("✂ {} ({:+0.1} mm)", action_name, current_offset);
+                            let gal = painter.layout_no_wrap(
+                                label,
+                                egui::FontId::proportional(11.0),
+                                egui::Color32::WHITE,
+                            );
+                            let bg_r = egui::Rect::from_center_size(s_center, gal.size() + egui::vec2(12.0, 6.0));
+                            painter.rect_filled(bg_r, 4.0, egui::Color32::from_rgba_premultiplied(10, 20, 35, 230));
+                            painter.rect_stroke(bg_r, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 160, 255)), egui::StrokeKind::Inside);
+                            painter.galley(bg_r.min + egui::vec2(6.0, 3.0), gal, egui::Color32::WHITE);
+                        }
+                    }
+                }
+            }
         } else if self.tool == ToolKind::Boolean {
             let selected_count = self.selected_bodies.len();
 

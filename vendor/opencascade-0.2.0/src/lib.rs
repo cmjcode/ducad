@@ -59,11 +59,13 @@ pub enum Error {
     // PATCH (DUCAD Fase 2.1 — manufaktur plastik): variant baru untuk membungkus
     // kegagalan BRepOffsetAPI_DraftAngle (face bukan planar, sudut di luar batas
     // geometri yang bisa ditampung, neutral plane tidak valid, atau shape
-    // tidak kompatibel). Sudah diterjemahkan jadi `Result<>` cxx rapi lewat
-    // wrapper try/catch di `opencascade-sys`, tinggal disalurkan ke sini
-    // (pola sama dgn `FilletFailed`/`BooleanOpFailed`).
+    // tidak kompatibel).
     #[error("BRepOffsetAPI_DraftAngle gagal: {0}")]
     DraftAngleFailed(String),
+    // PATCH (DUCAD 2.2 — Split Body & Split Face): variant baru untuk membungkus
+    // kegagalan BRepAlgoAPI_Splitter (bidang tidak memotong objek, geometri tidak valid).
+    #[error("BRepAlgoAPI_Splitter gagal: {0}")]
+    SplitFailed(String),
 }
 
 

@@ -208,6 +208,24 @@ impl DuCADApp {
 
         if let Some((active_id, _, hit)) = &self.active_face {
             if self.model.doc.bodies.get(*active_id).is_some_and(|b| b.visible) {
+                // Outline garis kontur sekeliling face yang aktif
+                if hit.boundary_points.len() >= 2 {
+                    let outline_color = [0.0, 0.90, 1.0, 0.95];
+                    for i in 0..hit.boundary_points.len() {
+                        let j = (i + 1) % hit.boundary_points.len();
+                        let p1 = hit.boundary_points[i];
+                        let p2 = hit.boundary_points[j];
+                        verts.push(LineVertex {
+                            position: [p1.0 as f32, p1.1 as f32, p1.2 as f32],
+                            color: outline_color,
+                        });
+                        verts.push(LineVertex {
+                            position: [p2.0 as f32, p2.1 as f32, p2.2 as f32],
+                            color: outline_color,
+                        });
+                    }
+                }
+
                 let anchor = hit.gizmo_anchor();
                 let c_base = [anchor.0 as f32, anchor.1 as f32, anchor.2 as f32];
                 let pull_dir = Vec3::new(
@@ -897,8 +915,10 @@ impl DuCADApp {
                 if *active_id == id {
                     Some((
                         Vec3::new(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32),
+                        Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32),
                         Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32),
                         hit.surface_kind,
+                        &hit.boundary_points,
                     ))
                 } else {
                     None
@@ -908,7 +928,25 @@ impl DuCADApp {
             };
 
             let mut face_vertex_indices = std::collections::HashSet::new();
-            if let Some((fpt, fnorm, skind)) = face_info {
+            if let Some((fpt, fcentroid, fnorm, skind, boundary_pts)) = face_info {
+                let u_axis = if boundary_pts.len() >= 3 {
+                    (Vec3::new(boundary_pts[0].0 as f32, boundary_pts[0].1 as f32, boundary_pts[0].2 as f32) - fcentroid).normalize_or_zero()
+                } else {
+                    Vec3::ZERO
+                };
+                let v_axis = fnorm.cross(u_axis).normalize_or_zero();
+                let poly2d: Vec<(f64, f64)> = if u_axis != Vec3::ZERO && v_axis != Vec3::ZERO {
+                    boundary_pts
+                        .iter()
+                        .map(|&(x, y, z)| {
+                            let d = Vec3::new(x as f32, y as f32, z as f32) - fcentroid;
+                            (d.dot(u_axis) as f64, d.dot(v_axis) as f64)
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
                 for chunk in mesh_to_render.indices.chunks_exact(3) {
                     let idx0 = chunk[0] as usize;
                     let idx1 = chunk[1] as usize;
@@ -927,7 +965,14 @@ impl DuCADApp {
                             ducad_kernel::SurfaceKind::Plane => {
                                 let dist = (tri_center - fpt).dot(fnorm).abs();
                                 let align = tri_norm.dot(fnorm).abs();
-                                dist < 0.6 && align > 0.5
+                                let in_bounds = if poly2d.len() >= 3 {
+                                    let d = tri_center - fcentroid;
+                                    let p2d = (d.dot(u_axis) as f64, d.dot(v_axis) as f64);
+                                    ducad_kernel::point_in_polygon_2d(p2d, &poly2d)
+                                } else {
+                                    true
+                                };
+                                dist < 0.6 && align > 0.5 && in_bounds
                             }
                             _ => (tri_center - fpt).length() < 30.0,
                         };

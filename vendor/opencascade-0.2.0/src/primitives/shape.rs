@@ -578,4 +578,83 @@ impl Shape {
 
         Ok(Self { inner })
     }
+
+    /// Memotong shape/solid menjadi beberapa bagian menggunakan bidang (plane).
+    ///
+    /// # Parameter
+    /// - `plane_point`: Titik yang dilalui oleh bidang pemotong.
+    /// - `plane_normal`: Arah normal dari bidang pemotong.
+    ///
+    /// # Return
+    /// Mengembalikan `Vec<Shape>` yang berisi kumpulan solid/shape hasil pemotongan.
+    pub fn split_with_plane(
+        &self,
+        plane_point: DVec3,
+        plane_normal: DVec3,
+    ) -> Result<Vec<Self>, crate::Error> {
+        let to_error = |e: cxx::Exception| crate::Error::SplitFailed(e.what().to_string());
+
+        let res_vec = ffi::split_shape_with_plane(
+            &self.inner,
+            plane_point.x,
+            plane_point.y,
+            plane_point.z,
+            plane_normal.x,
+            plane_normal.y,
+            plane_normal.z,
+        )
+        .map_err(to_error)?;
+
+        let mut shapes = Vec::new();
+        if let Some(vec) = res_vec.as_ref() {
+            for shape_ref in vec.iter() {
+                let inner = ffi::TopoDS_Shape_to_owned(shape_ref);
+                shapes.push(Shape { inner });
+            }
+        }
+
+        Ok(shapes)
+    }
+
+    /// Memotong shape/solid menggunakan shape alat (tool face / sheet / surface).
+    pub fn split_with_tool(&self, tool: &Shape) -> Result<Vec<Self>, crate::Error> {
+        let to_error = |e: cxx::Exception| crate::Error::SplitFailed(e.what().to_string());
+
+        let res_vec =
+            ffi::split_shape_with_tool(&self.inner, &tool.inner).map_err(to_error)?;
+
+        let mut shapes = Vec::new();
+        if let Some(vec) = res_vec.as_ref() {
+            for shape_ref in vec.iter() {
+                let inner = ffi::TopoDS_Shape_to_owned(shape_ref);
+                shapes.push(Shape { inner });
+            }
+        }
+
+        Ok(shapes)
+    }
+
+    /// Membagi face pada shape dengan bidang pemotong tanpa memisahkan solid menjadi dua body.
+    pub fn split_faces_with_plane(
+        &self,
+        plane_point: DVec3,
+        plane_normal: DVec3,
+    ) -> Result<Self, crate::Error> {
+        let to_error = |e: cxx::Exception| crate::Error::SplitFailed(e.what().to_string());
+
+        let res_shape = ffi::split_faces_with_plane(
+            &self.inner,
+            plane_point.x,
+            plane_point.y,
+            plane_point.z,
+            plane_normal.x,
+            plane_normal.y,
+            plane_normal.z,
+        )
+        .map_err(to_error)?;
+
+        let inner = ffi::TopoDS_Shape_to_owned(&res_shape);
+        Ok(Self { inner })
+    }
 }
+

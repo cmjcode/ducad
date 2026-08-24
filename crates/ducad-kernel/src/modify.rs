@@ -521,3 +521,71 @@ pub fn resize_shape_along_edge(
     );
     crate::shape::scale_shape(shape, pivot, factor)
 }
+
+/// Memotong solid 3D menggunakan bidang (plane) yang didefinisikan oleh sebuah titik
+/// acuan dan vektor normal. Menghasilkan kumpulan solid terpisah (biasanya 2 solid).
+pub fn split_body(
+    shape: &KernelShape,
+    plane_point: DVec3,
+    plane_normal: DVec3,
+) -> Result<Vec<KernelShape>> {
+    if plane_normal.length_squared() < 1e-6 {
+        bail!("normal bidang pemotong tidak boleh bernilai nol");
+    }
+    let normal = plane_normal.normalize();
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let split_shapes = cloned
+        .split_with_plane(plane_point, normal)
+        .context("operasi split body gagal pada kernel OCCT")?;
+
+    if split_shapes.is_empty() {
+        bail!("bidang pemotong tidak membagi objek menjadi bagian valid");
+    }
+
+    Ok(split_shapes
+        .into_iter()
+        .map(KernelShape::from_inner)
+        .collect())
+}
+
+/// Memotong solid 3D menggunakan shape pemotong (mis. face planar atau permukaan lembaran).
+pub fn split_body_with_tool(
+    shape: &KernelShape,
+    tool: &KernelShape,
+) -> Result<Vec<KernelShape>> {
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let split_shapes = cloned
+        .split_with_tool(tool.inner())
+        .context("operasi split body dengan tool gagal pada kernel OCCT")?;
+
+    if split_shapes.is_empty() {
+        bail!("tool pemotong tidak membagi objek menjadi bagian valid");
+    }
+
+    Ok(split_shapes
+        .into_iter()
+        .map(KernelShape::from_inner)
+        .collect())
+}
+
+/// Membagi face pada solid 3D dengan bidang pemotong tanpa memisahkan body menjadi dua bagian.
+pub fn split_face(
+    shape: &KernelShape,
+    plane_point: DVec3,
+    plane_normal: DVec3,
+) -> Result<KernelShape> {
+    if plane_normal.length_squared() < 1e-6 {
+        bail!("normal bidang pemotong tidak boleh bernilai nol");
+    }
+    let normal = plane_normal.normalize();
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let result_shape = cloned
+        .split_faces_with_plane(plane_point, normal)
+        .context("operasi split face gagal pada kernel OCCT")?;
+
+    Ok(KernelShape::from_inner(result_shape))
+}
+

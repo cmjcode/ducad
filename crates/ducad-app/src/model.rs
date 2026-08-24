@@ -301,6 +301,115 @@ impl Command<ModelDoc> for DeleteBodyCommand {
     }
 }
 
+enum SplitBodyState {
+    Pending(Vec<(String, BodyGeometry)>),
+    Applied {
+        orig_body: ducad_core::Body,
+        orig_geo: BodyGeometry,
+        result_ids: Vec<BodyId>,
+        result_names: Vec<String>,
+    },
+}
+
+/// Split satu body menjadi N body terpisah (biasanya 2 body).
+/// Body sumber dihapus, dan N body hasil ditambahkan ke `ModelDoc`.
+/// Mendukung penuh Undo / Redo.
+pub struct SplitBodyCommand {
+    label: &'static str,
+    target_id: BodyId,
+    state: Option<SplitBodyState>,
+}
+
+impl SplitBodyCommand {
+    pub fn new(
+        target_id: BodyId,
+        result_bodies: Vec<(String, BodyGeometry)>,
+    ) -> Self {
+        Self {
+            label: "Split Body",
+            target_id,
+            state: Some(SplitBodyState::Pending(result_bodies)),
+        }
+    }
+
+    /// ID body hasil yang baru saja dibuat oleh command ini.
+    pub fn result_ids(&self) -> &[BodyId] {
+        if let Some(SplitBodyState::Applied { result_ids, .. }) = &self.state {
+            result_ids
+        } else {
+            &[]
+        }
+    }
+}
+
+impl Command<ModelDoc> for SplitBodyCommand {
+    fn name(&self) -> &str {
+        self.label
+    }
+
+    fn apply(&mut self, model: &mut ModelDoc) {
+        let Some(SplitBodyState::Pending(_)) = &self.state else {
+            return;
+        };
+        let Some(SplitBodyState::Pending(new_bodies)) = self.state.take() else {
+            unreachable!()
+        };
+        let (Some(orig_body), Some(orig_geo)) = (
+            model.doc.bodies.remove(self.target_id),
+            model.geometry.remove(self.target_id),
+        ) else {
+            return;
+        };
+
+        let mut result_ids = Vec::with_capacity(new_bodies.len());
+        let mut result_names = Vec::with_capacity(new_bodies.len());
+
+        for (name, geo) in new_bodies {
+            let id = model.doc.add_body(name.clone());
+            model.geometry.insert(id, geo);
+            result_ids.push(id);
+            result_names.push(name);
+        }
+
+        self.state = Some(SplitBodyState::Applied {
+            orig_body,
+            orig_geo,
+            result_ids,
+            result_names,
+        });
+    }
+
+    fn revert(&mut self, model: &mut ModelDoc) {
+        let Some(SplitBodyState::Applied { .. }) = &self.state else {
+            return;
+        };
+        let Some(SplitBodyState::Applied {
+            orig_body,
+            orig_geo,
+            result_ids,
+            result_names,
+        }) = self.state.take()
+        else {
+            unreachable!()
+        };
+
+        let mut pending = Vec::with_capacity(result_ids.len());
+        for (id, name) in result_ids.into_iter().zip(result_names.into_iter()) {
+            model.doc.bodies.remove(id);
+            if let Some(geo) = model.geometry.remove(id) {
+                pending.push((name, geo));
+            }
+        }
+
+        // Kembalikan body awal
+        self.target_id = model.doc.bodies.insert(orig_body);
+        model.geometry.insert(self.target_id, orig_geo);
+
+        self.state = Some(SplitBodyState::Pending(pending));
+    }
+}
+
+
 /// Titik awal, titik-di-busur (untuk Arc), dan titik akhir dari
 /// `Entity::Arc` — konversi CCW yang sama dengan yang dipakai render
 /// (`push_arc` di `ducad-render::sketch`): span dinormalisasi ke (0, TAU]
@@ -1149,4 +1258,49 @@ mod tests {
         let mesh = shape.tessellate();
         assert!(mesh.triangle_count() > 0);
     }
+
+    #[test]
+    fn test_split_body_command_undo_redo() {
+        let mut model = ModelDoc::default();
+        let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 10.0 };
+        let shape = ducad_kernel::extrude_profile(&circle_profile, 40.0).unwrap();
+        let initial_id = model.doc.add_body("Original Cylinder");
+        model.geometry.insert(initial_id, BodyGeometry::from_shape(shape));
+
+        assert_eq!(model.doc.bodies.len(), 1);
+
+        // Split via kernel
+        let orig_shape = &model.geometry.get(initial_id).unwrap().shape;
+        let mut parts = ducad_kernel::split_body(
+            orig_shape,
+            glam::DVec3::new(0.0, 0.0, 20.0),
+            glam::DVec3::new(0.0, 0.0, 1.0),
+        )
+        .unwrap();
+        assert_eq!(parts.len(), 2);
+
+        let p2 = parts.pop().unwrap();
+        let p1 = parts.pop().unwrap();
+        let result_bodies = vec![
+            ("Original Cylinder (Bagian 1)".to_string(), BodyGeometry::from_shape(p1)),
+            ("Original Cylinder (Bagian 2)".to_string(), BodyGeometry::from_shape(p2)),
+        ];
+
+        let mut cmd = SplitBodyCommand::new(initial_id, result_bodies);
+        cmd.apply(&mut model);
+
+        assert_eq!(model.doc.bodies.len(), 2);
+        assert_eq!(model.geometry.len(), 2);
+
+        // Revert (Undo)
+        cmd.revert(&mut model);
+        assert_eq!(model.doc.bodies.len(), 1);
+        assert_eq!(model.geometry.len(), 1);
+
+        // Re-apply (Redo)
+        cmd.apply(&mut model);
+        assert_eq!(model.doc.bodies.len(), 2);
+        assert_eq!(model.geometry.len(), 2);
+    }
 }
+

@@ -47,8 +47,8 @@ impl From<&str> for SurfaceKind {
     }
 }
 
-/// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, dan normal satuan keluar).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, normal keluar, dan loop poligon batas face).
+#[derive(Debug, Clone, PartialEq)]
 pub struct FaceHit {
     /// Titik hit langsung pada permukaan face (x, y, z)
     pub hit_point: (f64, f64, f64),
@@ -58,22 +58,10 @@ pub struct FaceHit {
     pub normal: (f64, f64, f64),
     /// Tipe permukaan geometris analitik di balik face yang terpilih.
     pub surface_kind: SurfaceKind,
-    /// Arah satuan yang dipakai gizmo push/pull (DUCAD Fase 4) — TIDAK
-    /// selalu sama dengan `normal`:
-    /// - `Plane`: identik dengan `normal` (normal Newell, perilaku lama).
-    /// - `Cylinder`/`Cone`: arah RADIAL di `hit_point`, yaitu
-    ///   `(hit_point − proyeksi hit_point ke garis sumbu).normalize()` —
-    ///   inilah arah geometris yang benar-benar mengubah radius saat
-    ///   di-drag (lihat dispatch `extrude_face`/`offset_on_face`), bukan
-    ///   normal permukaan lokal di titik itu (yang juga radial tapi
-    ///   Newell's method di atas boundary loop TIDAK menghitungnya per
-    ///   titik — nilainya konstan per-face, salah untuk radial drag).
-    /// - `Sphere`: `(hit_point − centroid).normalize()` — `centroid` bola
-    ///   penuh (`Face::center_of_mass`) SECARA MATEMATIS persis pusat bola
-    ///   (centroid luas permukaan bola simetris = pusatnya).
-    /// - `Torus`/`Other`: fallback ke `normal` (belum ada rumus arah
-    ///   push/pull khusus utk tipe ini).
+    /// Arah satuan yang dipakai gizmo push/pull (DUCAD Fase 4)
     pub pull_dir: (f64, f64, f64),
+    /// Titik-titik pembatas sekeliling perimeter face dalam ruang 3D
+    pub boundary_points: Vec<(f64, f64, f64)>,
 }
 
 impl FaceHit {
@@ -325,6 +313,11 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
             }
             (normal, centroid)
         });
+    let boundary_points = chain_face_boundary_points(&face)
+        .into_iter()
+        .map(|p| (p.x, p.y, p.z))
+        .collect();
+
     let pull_dir = compute_pull_dir(&face, surface_kind, hit, normal, ray.dir_vec());
     Some(FaceHit {
         hit_point: (hit.x, hit.y, hit.z),
@@ -332,6 +325,7 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
         normal: (normal.x, normal.y, normal.z),
         surface_kind,
         pull_dir: (pull_dir.x, pull_dir.y, pull_dir.z),
+        boundary_points,
     })
 }
 

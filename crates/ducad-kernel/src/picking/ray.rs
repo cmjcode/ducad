@@ -111,7 +111,7 @@ pub(crate) fn point_to_ray_distance(ray_origin: DVec3, ray_dir: DVec3, point: DV
 /// Test titik 2D di dalam poligon (algoritma ray-casting/even-odd standar)
 /// — dipakai [`resolve_planar_face_along_ray_fallback`] setelah proyeksi
 /// titik hit 3D ke basis 2D bidang wajah.
-pub(crate) fn point_in_polygon_2d(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
+pub fn point_in_polygon_2d(p: (f64, f64), poly: &[(f64, f64)]) -> bool {
     let mut inside = false;
     let n = poly.len();
     if n < 3 {

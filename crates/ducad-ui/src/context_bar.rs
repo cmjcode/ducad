@@ -21,6 +21,8 @@ pub enum ContextAction {
     Sweep,
     Shell,
     DraftAngle,
+    SplitBody,
+    SplitFace,
     Boolean,
     Fillet,
     SketchOnFace,
@@ -236,6 +238,18 @@ impl ContextActionBar {
                     action = Some(ContextAction::DraftAngle);
                 }
 
+                // Split Face
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{}  Split Face", ICON_CONTENT_CUT.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
+                    action = Some(ContextAction::SplitFace);
+                }
+
                 ui.add_space(2.0);
                 ui.separator();
                 ui.add_space(2.0);
@@ -274,6 +288,27 @@ impl ContextActionBar {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
+
+                // Split Body jika 1 body dipilih
+                if count == 1 {
+                    let split_btn = ui.add(
+                        Button::new(
+                            RichText::new(format!("{} Split Body", ICON_CONTENT_CUT.codepoint))
+                                .size(11.5)
+                                .color(TEXT_PRIMARY),
+                        ),
+                    );
+                    if split_btn
+                        .on_hover_text("Potong solid 3D menjadi 2 body terpisah menggunakan bidang pemotong (S)")
+                        .clicked()
+                    {
+                        action = Some(ContextAction::SplitBody);
+                    }
+
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+                }
 
                 // Operasi Boolean jika minimal 2 body dipilih
                 if count >= 2 {

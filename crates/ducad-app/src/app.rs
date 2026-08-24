@@ -217,6 +217,11 @@ pub struct DuCADApp {
     /// State Draft Angle (Fase 2.1 — Manufaktur Plastik).
     pub draft_angle_input: String,
     pub draft_pull_dir: ducad_ui::DraftPullDir,
+
+    /// State Split Body & Split Face (Fase 2.2 — Potong Benda).
+    pub split_mode: ducad_ui::SplitMode,
+    pub split_plane: ducad_ui::SplitPlaneKind,
+    pub split_offset_input: String,
 }
 
 /// Target objek yang sedang di-rename.
@@ -430,6 +435,10 @@ impl DuCADApp {
 
             draft_angle_input: "3.0".to_string(),
             draft_pull_dir: ducad_ui::DraftPullDir::PosZ,
+
+            split_mode: ducad_ui::SplitMode::SplitBody,
+            split_plane: ducad_ui::SplitPlaneKind::XY,
+            split_offset_input: "0.0".to_string(),
         }
     }
 
@@ -611,8 +620,18 @@ impl DuCADApp {
         }
 
         let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
-        let allow_primary_orbit = self.tool == ToolKind::Select
-            && !radial_active
+        let allow_primary_orbit = matches!(
+            self.tool,
+            ToolKind::Select
+                | ToolKind::SplitBody
+                | ToolKind::DraftAngle
+                | ToolKind::Boolean
+                | ToolKind::SectionView
+                | ToolKind::Measure
+                | ToolKind::MeasureAngle
+                | ToolKind::History
+                | ToolKind::Shell
+        ) && !radial_active
             && !is_near_gizmo
             && !self.extruding_from_gizmo
             && !self.extruding_face_from_gizmo;
@@ -848,7 +867,7 @@ impl eframe::App for DuCADApp {
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
                             match kind {
-                                ToolKind::Shell | ToolKind::DraftAngle => {
+                                ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody => {
                                     self.picking_mode = PickMode::Face;
                                 }
                                 ToolKind::Select => {
@@ -1553,6 +1572,10 @@ impl eframe::App for DuCADApp {
                                 ContextAction::DraftAngle => {
                                     self.set_tool(ToolKind::DraftAngle);
                                 }
+                                ContextAction::SplitFace => {
+                                    self.split_mode = ducad_ui::SplitMode::SplitFace;
+                                    self.set_tool(ToolKind::SplitBody);
+                                }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;
                                 }
@@ -1562,6 +1585,10 @@ impl eframe::App for DuCADApp {
                     } else if has_body_sel {
                         if let Some(act) = ContextActionBar::show_body_selection(ui, self.selected_bodies.len()) {
                             match act {
+                                ContextAction::SplitBody => {
+                                    self.split_mode = ducad_ui::SplitMode::SplitBody;
+                                    self.set_tool(ToolKind::SplitBody);
+                                }
                                 ContextAction::Boolean => {
                                     self.set_tool(ToolKind::Boolean);
                                 }

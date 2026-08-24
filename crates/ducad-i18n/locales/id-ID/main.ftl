@@ -106,6 +106,8 @@ tool-shell = Shell (Rongga)
 tool-shell-desc = Buat rongga pada solid dengan ketebalan dinding seragam
 tool-draft-angle = Draft Angle (Kemiringan Cetakan)
 tool-draft-angle-desc = Tambahkan sudut kemiringan cetakan plastik (injection molding) pada bidang planar (D)
+tool-split-body = Split Body & Face (Potong Benda)
+tool-split-body-desc = Potong solid 3D menjadi 2 body terpisah atau bagi face menggunakan bidang/permukaan (S)
 tool-boolean = Operasi Boolean
 tool-boolean-desc = Gabung, Kurang, atau Irisan benda 3D
 tool-section = Tampilan Irisan
@@ -385,6 +387,22 @@ popup-draft-no-face = Belum ada face datar dipilih
 popup-draft-faces-count = { $count } face terpilih
 popup-draft-apply = Terapkan Draft Angle
 popup-draft-invalid-angle = Sudut harus antara 0° dan 90° (eksklusif)
+
+# Popup & HUD Split Body / Split Face
+popup-split-title = Split Body & Split Face
+popup-split-desc = Potong solid 3D menjadi dua bagian terpisah di Items Drawer atau bagi face menggunakan bidang pemotong.
+popup-split-target-body = Target Body
+popup-split-no-body = Belum ada body 3D dipilih
+popup-split-plane = Bidang
+popup-split-plane-xy = XY (Atas)
+popup-split-plane-xz = XZ (Depan)
+popup-split-plane-yz = YZ (Kanan)
+popup-split-plane-face = Face Terpilih
+popup-split-offset = Offset
+popup-split-mode-body = Body
+popup-split-mode-face = Face
+popup-split-apply = Potong Body
+popup-split-apply-face = Bagi Face
 param-draft-angle = Sudut Draft
 param-pull-dir = Arah Bukaan (Pull)
 popup-boolean-title = Operasi Boolean 3D
@@ -626,6 +644,13 @@ guide-measure-angle-step-1 = 1. Klik Garis 1
 guide-measure-angle-step-2 = 2. Klik Titik Sudut
 guide-measure-angle-step-3 = 3. Klik Garis 2
 guide-measure-angle-tip = 💡 Mengukur sudut presisi dalam satuan derajat (°)
+
+guide-split-header = Panduan Split Body & Split Face:
+guide-split-step-1 = 1. Pilih body 3D yang ingin dipotong
+guide-split-step-2 = 2. Pilih bidang pemotong & offset
+guide-split-step-3 = 3. Potong menjadi 2 Body terpisah
+guide-split-tip = 💡 Pintasan: S | Tekan Enter untuk potong
+guide-split-badge = 2 Bodies
 
 # Units
 unit-mm = mm (Milimeter)

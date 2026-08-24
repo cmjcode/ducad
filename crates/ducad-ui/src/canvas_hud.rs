@@ -94,6 +94,60 @@ impl DraftPullDir {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SplitMode {
+    #[default]
+    SplitBody,
+    SplitFace,
+}
+
+impl SplitMode {
+    pub fn label(&self) -> String {
+        match self {
+            Self::SplitBody => t!("popup-split-mode-body"),
+            Self::SplitFace => t!("popup-split-mode-face"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SplitPlaneKind {
+    #[default]
+    XY,
+    XZ,
+    YZ,
+    PickedFace,
+}
+
+impl SplitPlaneKind {
+    pub fn label(&self) -> String {
+        match self {
+            Self::XY => t!("popup-split-plane-xy"),
+            Self::XZ => t!("popup-split-plane-xz"),
+            Self::YZ => t!("popup-split-plane-yz"),
+            Self::PickedFace => t!("popup-split-plane-face"),
+        }
+    }
+
+    pub fn default_normal(&self) -> (f64, f64, f64) {
+        match self {
+            Self::XY => (0.0, 0.0, 1.0),
+            Self::XZ => (0.0, 1.0, 0.0),
+            Self::YZ => (1.0, 0.0, 0.0),
+            Self::PickedFace => (0.0, 0.0, 1.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SplitHudAction {
+    SetMode(SplitMode),
+    SetPlane(SplitPlaneKind),
+    SetOffset(f64),
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanHudAction {
     SelectOp(BooleanOpKind),
@@ -1467,6 +1521,186 @@ impl CanvasHud {
                         }
                     }
                     ui.label(RichText::new(format!("{}:", t!("param-draft-angle"))).size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Split Body & Split Face 3D
+    pub fn render_split_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        has_target_body: bool,
+        split_mode: &mut SplitMode,
+        current_plane: &mut SplitPlaneKind,
+        offset_val: f64,
+        offset_input: &mut String,
+    ) -> Option<SplitHudAction> {
+        let mut hud_action = None;
+
+        let banner_w = 780.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            19.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            19.0,
+            Stroke::new(
+                1.2,
+                if has_target_body {
+                    ACCENT_BLUE
+                } else {
+                    Color32::from_rgb(180, 180, 180).gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+
+            // Judul Tool
+            ui.label(
+                RichText::new("✂ Split")
+                    .size(12.0)
+                    .strong()
+                    .color(if has_target_body {
+                        ACCENT_BLUE
+                    } else {
+                        TEXT_SECONDARY
+                    }),
+            );
+
+            if !has_target_body {
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(t!("popup-split-no-body"))
+                        .size(11.0)
+                        .color(TEXT_MUTED),
+                );
+                return;
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Mode Selector: [Body] [Face]
+            for mode in &[SplitMode::SplitBody, SplitMode::SplitFace] {
+                let is_active = *split_mode == *mode;
+                let btn = egui::Button::new(
+                    RichText::new(mode.label())
+                        .size(11.0)
+                        .strong()
+                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
+                )
+                .fill(if is_active {
+                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
+                } else {
+                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                });
+
+                if ui.add(btn).clicked() {
+                    *split_mode = *mode;
+                    hud_action = Some(SplitHudAction::SetMode(*mode));
+                }
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Dropdown Bidang (Plane)
+            ui.label(RichText::new(format!("{}:", t!("popup-split-plane"))).size(10.5).color(TEXT_SECONDARY));
+            egui::ComboBox::from_id_salt("ducad-split-top-hud-plane")
+                .selected_text(
+                    RichText::new(current_plane.label())
+                        .size(11.0)
+                        .color(TEXT_PRIMARY),
+                )
+                .width(105.0)
+                .show_ui(ui, |ui| {
+                    for pln in &[
+                        SplitPlaneKind::XY,
+                        SplitPlaneKind::XZ,
+                        SplitPlaneKind::YZ,
+                        SplitPlaneKind::PickedFace,
+                    ] {
+                        if ui
+                            .selectable_value(
+                                current_plane,
+                                *pln,
+                                RichText::new(pln.label()).size(11.0),
+                            )
+                            .clicked()
+                        {
+                            hud_action = Some(SplitHudAction::SetPlane(*pln));
+                        }
+                    }
+                });
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Offset Input & Quick Buttons
+            ui.label(RichText::new(format!("{}:", t!("popup-split-offset"))).size(10.5).color(TEXT_SECONDARY));
+
+            for &off in &[-10.0, 0.0, 10.0] {
+                let is_active = (offset_val - off).abs() < 0.05;
+                let btn = egui::Button::new(
+                    RichText::new(format!("{:+0.0}", off))
+                        .size(10.0)
+                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
+                )
+                .fill(if is_active {
+                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
+                } else {
+                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                });
+
+                if ui.add(btn).clicked() {
+                    *offset_input = format!("{:.1}", off);
+                    hud_action = Some(SplitHudAction::SetOffset(off));
+                }
+            }
+
+            let text_edit = egui::TextEdit::singleline(offset_input)
+                .desired_width(45.0)
+                .font(egui::FontId::monospace(11.0));
+            let resp = ui.add(text_edit);
+            if resp.changed() {
+                if let Ok(val) = offset_input.trim().parse::<f64>() {
+                    hud_action = Some(SplitHudAction::SetOffset(val));
+                }
+            }
+            ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
+
+            // Tombol Eksekusi di Kanan
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(10.0);
+                let btn_label = match *split_mode {
+                    SplitMode::SplitBody => format!("✓ {}", t!("popup-split-apply")),
+                    SplitMode::SplitFace => format!("✓ {}", t!("popup-split-apply-face")),
+                };
+                let exec_btn = egui::Button::new(
+                    RichText::new(btn_label)
+                        .size(11.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(ACCENT_BLUE);
+
+                if ui.add(exec_btn).clicked() {
+                    hud_action = Some(SplitHudAction::Commit);
                 }
             });
         });

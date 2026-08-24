@@ -513,7 +513,7 @@ impl DuCADApp {
 
     /// Shell/Hollow sisi/face 3D yang sedang aktif dengan ketebalan dinding yang ditentukan.
     pub fn shell_active_face(&mut self) {
-        let Some((target_id, ray, _hit)) = self.active_face else {
+        let Some((target_id, ray, _)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r, ())) else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu untuk Shell/Hollow".to_string());
             return;
@@ -545,7 +545,7 @@ impl DuCADApp {
 
     /// Extrude (push-pull) sisi/face 3D yang sedang aktif dengan jarak tertentu.
     pub fn extrude_active_face(&mut self, distance: f64) {
-        let Some((target_id, ray, _hit)) = self.active_face else {
+        let Some((target_id, ray, _)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r, ())) else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return;
@@ -584,7 +584,7 @@ impl DuCADApp {
         axis_dir_2d: (f64, f64),
         angle_deg: Option<f64>,
     ) -> bool {
-        let Some((target_id, ray, _hit)) = self.active_face else {
+        let Some((target_id, ray, _)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r, ())) else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return false;
@@ -604,27 +604,17 @@ impl DuCADApp {
         match ducad_kernel::revolve_face(&target_geo.shape, ray, axis_origin, axis_dir, angle_deg) {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
+                let deg_label = angle_deg.map(|d| format!("{:.0}°", d)).unwrap_or_else(|| "360°".to_string());
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Revolve Face", target_id, new_geo)),
-                    &format!("Memutar permukaan sisi solid sebesar {:.0}°", angle_deg.unwrap_or(360.0)),
+                    &format!("Memutar sisi solid {} mengelilingi sumbu", deg_label),
                 );
                 self.round_history.remove(&target_id);
                 self.active_face = None;
-                self.model_status = Some(format!(
-                    "Revolve Face {:.0}° sukses",
-                    angle_deg.unwrap_or(360.0)
-                ));
+                self.model_status = Some(format!("Revolve face {} sukses", deg_label));
                 true
             }
             Err(e) => {
-                self.alert_modal.show_error(
-                    "Revolve Face Gagal",
-                    format!("{e}"),
-                    vec![
-                        "Pastikan garis sumbu poros putar TIDAK MEMOTONG bagian dalam sisi (face).",
-                        "Letakkan garis sumbu di luar face atau tepat berhimpit pada salah satu tepi rusuk.",
-                    ],
-                );
                 self.model_status = Some(format!("Revolve face gagal: {e}"));
                 false
             }
@@ -633,7 +623,7 @@ impl DuCADApp {
 
     /// Jadikan permukaan sisi 3D yang aktif sebagai bidang sketsa baru.
     pub fn sketch_on_active_face(&mut self) {
-        let Some((_target_id, _ray, hit)) = self.active_face else {
+        let Some((_target_id, _ray, hit)) = &self.active_face else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return;
@@ -743,6 +733,139 @@ impl DuCADApp {
             }
             Err(e) => {
                 self.model_status = Some(format!("Draft Angle gagal: {e}"));
+            }
+        }
+    }
+
+    /// Terapkan operasi Split Body atau Split Face.
+    pub fn apply_split(
+        &mut self,
+        mode: ducad_ui::SplitMode,
+        plane_kind: ducad_ui::SplitPlaneKind,
+        offset_mm: f64,
+    ) {
+        use glam::DVec3;
+
+        // Tentukan target body:
+        let target_id = if let Some(&id) = self.selected_bodies.iter().next() {
+            id
+        } else if let Some((id, _, _)) = self.active_face {
+            id
+        } else {
+            self.model_status = Some("Pilih body 3D yang ingin dipotong".to_string());
+            return;
+        };
+
+        let Some(geo) = self.model.geometry.get(target_id) else {
+            self.model_status = Some("Geometri body tidak ditemukan".to_string());
+            return;
+        };
+
+        let orig_name = self.model.doc.bodies
+            .get(target_id)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| "Body".to_string());
+
+        let center = geo.mesh.center();
+
+        // Hitung titik dan normal bidang pemotong (default di tengah body)
+        let (plane_point, plane_normal) = match plane_kind {
+            ducad_ui::SplitPlaneKind::XY => {
+                (
+                    DVec3::new(center[0] as f64, center[1] as f64, center[2] as f64 + offset_mm),
+                    DVec3::new(0.0, 0.0, 1.0),
+                )
+            }
+            ducad_ui::SplitPlaneKind::XZ => {
+                (
+                    DVec3::new(center[0] as f64, center[1] as f64 + offset_mm, center[2] as f64),
+                    DVec3::new(0.0, 1.0, 0.0),
+                )
+            }
+            ducad_ui::SplitPlaneKind::YZ => {
+                (
+                    DVec3::new(center[0] as f64 + offset_mm, center[1] as f64, center[2] as f64),
+                    DVec3::new(1.0, 0.0, 0.0),
+                )
+            }
+            ducad_ui::SplitPlaneKind::PickedFace => {
+                if let Some((_, _, hit)) = &self.active_face {
+                    let normal = DVec3::new(hit.normal.0, hit.normal.1, hit.normal.2).normalize();
+                    let origin = DVec3::new(center[0] as f64, center[1] as f64, center[2] as f64) + normal * offset_mm;
+                    (origin, normal)
+                } else {
+                    (
+                        DVec3::new(center[0] as f64, center[1] as f64, center[2] as f64 + offset_mm),
+                        DVec3::new(0.0, 0.0, 1.0),
+                    )
+                }
+            }
+        };
+
+        match mode {
+            ducad_ui::SplitMode::SplitBody => {
+                match ducad_kernel::split_body(&geo.shape, plane_point, plane_normal) {
+                    Ok(parts) => {
+                        if parts.len() < 2 {
+                            self.model_status = Some("Bidang pemotong tidak memotong body menjadi bagian terpisah (coba geser offset)".to_string());
+                            return;
+                        }
+
+                        let total = parts.len();
+                        let result_bodies = parts
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, shape)| {
+                                let name = format!("{} (Bagian {})", orig_name, i + 1);
+                                (name, BodyGeometry::from_shape(shape))
+                            })
+                            .collect::<Vec<_>>();
+
+                        let cmd = crate::model::SplitBodyCommand::new(target_id, result_bodies);
+                        self.execute_model_command(
+                            Box::new(cmd),
+                            &format!("Memotong body '{}' menjadi {} bagian terpisah", orig_name, total),
+                        );
+
+                        self.round_history.remove(&target_id);
+                        self.selected_bodies.clear();
+                        self.active_face = None;
+                        self.selected_faces.clear();
+                        self.picking_mode = crate::types::PickMode::None;
+                        self.model_status = Some(format!(
+                            "Body '{}' berhasil dipotong menjadi {} body terpisah ✓",
+                            orig_name, total
+                        ));
+                        self.set_tool(crate::types::ToolKind::Select);
+                    }
+                    Err(e) => {
+                        self.model_status = Some(format!("Split Body gagal: {e}"));
+                    }
+                }
+            }
+            ducad_ui::SplitMode::SplitFace => {
+                match ducad_kernel::split_face(&geo.shape, plane_point, plane_normal) {
+                    Ok(new_shape) => {
+                        let new_geo = BodyGeometry::from_shape(new_shape);
+                        self.execute_model_command(
+                            Box::new(ReplaceGeometryCommand::new("Split Face", target_id, new_geo)),
+                            &format!("Membagi face pada body '{}'", orig_name),
+                        );
+
+                        self.round_history.remove(&target_id);
+                        self.active_face = None;
+                        self.selected_faces.clear();
+                        self.picking_mode = crate::types::PickMode::None;
+                        self.model_status = Some(format!(
+                            "Face pada body '{}' berhasil dibagi ✓",
+                            orig_name
+                        ));
+                        self.set_tool(crate::types::ToolKind::Select);
+                    }
+                    Err(e) => {
+                        self.model_status = Some(format!("Split Face gagal: {e}"));
+                    }
+                }
             }
         }
     }

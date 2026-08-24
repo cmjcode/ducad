@@ -1784,6 +1784,7 @@ impl DuCADApp {
             ToolKind::Extrude
             | ToolKind::Shell
             | ToolKind::DraftAngle
+            | ToolKind::SplitBody
             | ToolKind::Boolean
             | ToolKind::SectionView
             | ToolKind::History => {

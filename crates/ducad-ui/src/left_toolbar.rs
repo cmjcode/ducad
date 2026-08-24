@@ -40,6 +40,7 @@ pub enum ToolbarTool {
     Sweep,
     Shell,
     DraftAngle,
+    SplitBody,
     Boolean,
     SectionView,
     // Shared Tools
@@ -190,8 +191,17 @@ impl LeftToolbar {
 
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
+                let split_title = t!("tool-split-body");
+                let split_desc = t!("tool-split-body-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (
+                        ToolbarTool::SplitBody,
+                        ICON_CONTENT_CUT.codepoint,
+                        &split_title,
+                        Some("S"),
+                        Some(&split_desc),
+                    ),
                     (
                         ToolbarTool::DraftAngle,
                         ICON_ARCHITECTURE.codepoint,
@@ -208,7 +218,7 @@ impl LeftToolbar {
                     ),
                     (
                         ToolbarTool::SectionView,
-                        ICON_CONTENT_CUT.codepoint,
+                        ICON_LAYERS.codepoint,
                         &section_title,
                         None,
                         Some(&section_desc),

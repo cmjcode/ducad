@@ -29,7 +29,8 @@ pub mod viewcube;
 
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DraftHudAction, DraftPullDir,
-    LoftHudAction, RenamePopupEvent, RevolveHudAction, ShellHudAction, SweepHudAction,
+    LoftHudAction, RenamePopupEvent, RevolveHudAction, ShellHudAction, SplitHudAction, SplitMode,
+    SplitPlaneKind, SweepHudAction,
 };
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};

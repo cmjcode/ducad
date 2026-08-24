@@ -82,6 +82,7 @@ impl ToolGuides {
             ToolbarTool::Sweep => Self::render_sweep_anim(&painter, card_rect, time),
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::DraftAngle => Self::render_draft_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::SplitBody => Self::render_split_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
@@ -1592,6 +1593,76 @@ impl ToolGuides {
         };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Split Body & Split Face Tool
+    fn render_split_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 3.5;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let step_title = if !has_selection {
+            t!("guide-split-step-1")
+        } else if phase < 0.5 {
+            t!("guide-split-step-2")
+        } else {
+            t!("guide-split-step-3")
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-split-header"), &step_title, ACCENT_BLUE);
+        Self::draw_footer(painter, card_rect, &t!("guide-split-tip"));
+
+        let center = Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0);
+        let box_w = 48.0;
+        let box_h = 32.0;
+
+        let (left_offset, right_offset) = if phase > 0.55 {
+            let t = ((phase - 0.55) / 0.45).clamp(0.0, 1.0);
+            (t * 8.0, t * 8.0)
+        } else {
+            (0.0, 0.0)
+        };
+
+        // Bagian Kiri / Bawah
+        let r1 = Rect::from_min_size(
+            Pos2::new(center.x - box_w * 0.5 - left_offset, center.y - box_h * 0.5),
+            Vec2::new(box_w * 0.5, box_h),
+        );
+        painter.rect_filled(r1, 2.0, ACCENT_BLUE.gamma_multiply(0.35));
+        painter.rect_stroke(r1, 2.0, Stroke::new(1.3, ACCENT_BLUE), StrokeKind::Inside);
+
+        // Bagian Kanan / Atas
+        let r2 = Rect::from_min_size(
+            Pos2::new(center.x + right_offset, center.y - box_h * 0.5),
+            Vec2::new(box_w * 0.5, box_h),
+        );
+        painter.rect_filled(r2, 2.0, ACCENT_GREEN.gamma_multiply(0.35));
+        painter.rect_stroke(r2, 2.0, Stroke::new(1.3, ACCENT_GREEN), StrokeKind::Inside);
+
+        // Garis potong vertikal di tengah saat sebelum terbelah
+        if phase <= 0.55 {
+            painter.line_segment(
+                [
+                    Pos2::new(center.x, center.y - box_h * 0.5 - 6.0),
+                    Pos2::new(center.x, center.y + box_h * 0.5 + 6.0),
+                ],
+                Stroke::new(1.8, ACCENT_ORANGE),
+            );
+        }
+
+        if phase > 0.6 {
+            Self::draw_badge(
+                painter,
+                Pos2::new(card_rect.right() - 56.0, card_rect.center().y + 4.0),
+                &t!("guide-split-badge"),
+                Color32::from_rgba_premultiplied(15, 60, 100, 220),
+                Color32::WHITE,
+            );
+        }
     }
 
     /// Boolean Tool (Union, Subtract, Intersect)

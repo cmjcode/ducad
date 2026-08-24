@@ -58,11 +58,11 @@ pub use mesh::KernelMesh;
 pub use modify::{
     chamfer_all, chamfer_edges, chamfer_vertex, draft_angle, extrude_face, fillet_all,
     fillet_edges, fillet_vertex, make_filleted_box, resize_shape_along_edge, revolve_face,
-    shell_hollow, shell_hollow_faces, Direction,
+    shell_hollow, shell_hollow_faces, split_body, split_body_with_tool, split_face, Direction,
 };
 pub use picking::{
-    edge_dimensions, pick_edge, pick_face, pick_face_details, pick_vertex, shape_vertices,
-    EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
+    edge_dimensions, pick_edge, pick_face, pick_face_details, pick_vertex, point_in_polygon_2d,
+    shape_vertices, EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
 };
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use shape::{

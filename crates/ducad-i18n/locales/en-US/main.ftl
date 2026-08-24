@@ -106,6 +106,8 @@ tool-shell = Shell
 tool-shell-desc = Hollow out solid body with uniform wall thickness
 tool-draft-angle = Draft Angle
 tool-draft-angle-desc = Add mold draft taper to planar faces for injection molding (D)
+tool-split-body = Split Body & Face
+tool-split-body-desc = Cut a 3D solid into 2 separate bodies or split faces using a plane or sheet surface (S)
 tool-boolean = Boolean
 tool-boolean-desc = Union, Subtract, or Intersect 3D bodies
 tool-section = Section View
@@ -385,6 +387,22 @@ popup-draft-no-face = No planar faces selected
 popup-draft-faces-count = { $count } face(s) selected
 popup-draft-apply = Apply Draft Angle
 popup-draft-invalid-angle = Angle must be between 0° and 90° (exclusive)
+
+# Popup & HUD Split Body / Split Face
+popup-split-title = Split Body & Split Face
+popup-split-desc = Cut 3D solids into separate bodies in Items Drawer or divide faces using a cutting plane.
+popup-split-target-body = Target Body
+popup-split-no-body = No 3D body selected
+popup-split-plane = Plane
+popup-split-plane-xy = XY (Top)
+popup-split-plane-xz = XZ (Front)
+popup-split-plane-yz = YZ (Right)
+popup-split-plane-face = Selected Face
+popup-split-offset = Offset
+popup-split-mode-body = Body
+popup-split-mode-face = Face
+popup-split-apply = Split Body
+popup-split-apply-face = Split Face
 param-draft-angle = Draft Angle
 param-pull-dir = Pull Direction
 popup-boolean-title = Boolean 3D Operations
@@ -625,7 +643,14 @@ guide-measure-angle-header = Measure Angle Guide:
 guide-measure-angle-step-1 = 1. Click Ray 1
 guide-measure-angle-step-2 = 2. Click Vertex
 guide-measure-angle-step-3 = 3. Click Ray 2
-guide-measure-angle-tip = 💡 Measure precise angle in degrees (°)
+guide-measure-angle-tip = 💡 Measure precise angles in degrees (°)
+
+guide-split-header = Split Body & Split Face Guide:
+guide-split-step-1 = 1. Select 3D body to split
+guide-split-step-2 = 2. Choose cutting plane & offset
+guide-split-step-3 = 3. Split into 2 separate bodies
+guide-split-tip = 💡 Shortcut: S | Press Enter to split
+guide-split-badge = 2 Bodies
 
 # Units
 unit-mm = mm (Millimeter)

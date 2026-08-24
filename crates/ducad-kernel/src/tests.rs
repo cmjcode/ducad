@@ -1507,3 +1507,86 @@ fn draft_angle_empty_rays_errors() {
     assert!(res.is_err());
 }
 
+#[test]
+fn split_box_into_two_bodies() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    // Extrude 40mm tinggi (Z: 0 .. 40)
+    let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
+
+    // Potong dengan bidang horizontal Z=20 (tengah-tengah)
+    let parts = split_body(
+        &shape,
+        glam::DVec3::new(0.0, 0.0, 20.0),
+        glam::DVec3::new(0.0, 0.0, 1.0),
+    )
+    .expect("split_body harus berhasil");
+
+    assert_eq!(parts.len(), 2, "Harus menghasilkan tepat 2 body terpisah");
+    let mesh1 = parts[0].tessellate();
+    let mesh2 = parts[1].tessellate();
+    assert!(mesh1.triangle_count() > 0);
+    assert!(mesh2.triangle_count() > 0);
+}
+
+#[test]
+fn split_cylinder_into_two_halves() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = Profile::Circle { center: (0.0, 0.0), radius: 10.0 };
+    let shape = extrude_profile(&profile, 30.0).expect("extrude cylinder harus berhasil");
+
+    // Potong dengan bidang vertikal X=0 (normal +X)
+    let parts = split_body(
+        &shape,
+        glam::DVec3::new(0.0, 0.0, 0.0),
+        glam::DVec3::new(1.0, 0.0, 0.0),
+    )
+    .expect("split cylinder harus berhasil");
+
+    assert_eq!(parts.len(), 2, "Harus menghasilkan 2 setengah silinder");
+    assert!(parts[0].tessellate().triangle_count() > 0);
+    assert!(parts[1].tessellate().triangle_count() > 0);
+}
+
+#[test]
+fn split_face_on_box() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
+
+    let split = split_face(
+        &shape,
+        glam::DVec3::new(0.0, 0.0, 10.0),
+        glam::DVec3::new(0.0, 0.0, 1.0),
+    )
+    .expect("split_face harus berhasil");
+
+    let orig_faces = shape.inner().faces().count();
+    let new_faces = split.inner().faces().count();
+    println!("ORIG FACES: {}, NEW FACES: {}", orig_faces, new_faces);
+
+    let mesh = split.tessellate();
+    assert!(mesh.triangle_count() > 0);
+    assert_eq!(new_faces, 10, "Box 6 face saat di-split di tengah harus memiliki 10 face terpisah");
+}
+
+#[test]
+fn split_box_offset_from_origin() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
+    // Translate shape to X=100, Y=100, Z=100
+    let moved = crate::shape::translate_shape(&shape, 100.0, 100.0, 100.0).expect("translate harus berhasil");
+
+    // Center-nya sekarang di (100, 100, 120). Potong di Z=120
+    let parts = split_body(
+        &moved,
+        glam::DVec3::new(100.0, 100.0, 120.0),
+        glam::DVec3::new(0.0, 0.0, 1.0),
+    )
+    .expect("split_body pada box yang jauh dari origin harus berhasil");
+
+    assert_eq!(parts.len(), 2, "Harus menghasilkan tepat 2 body terpisah");
+}
+
+

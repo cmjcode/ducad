@@ -41,6 +41,8 @@ pub enum ToolKind {
     Shell,
     /// Draft Angle — kemiringan cetakan plastik (injection molding, Fase 2.1).
     DraftAngle,
+    /// Split Body & Split Face (Fase 2.2 — Potong Benda).
+    SplitBody,
     Boolean,
     SectionView,
     // Shared Utilities
@@ -76,6 +78,7 @@ impl ToolKind {
             ToolKind::Sweep => ToolbarTool::Sweep,
             ToolKind::Shell => ToolbarTool::Shell,
             ToolKind::DraftAngle => ToolbarTool::DraftAngle,
+            ToolKind::SplitBody => ToolbarTool::SplitBody,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
             ToolKind::Measure => ToolbarTool::Measure,
@@ -107,6 +110,7 @@ impl ToolKind {
             ToolbarTool::Sweep => ToolKind::Sweep,
             ToolbarTool::Shell => ToolKind::Shell,
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
+            ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::Measure => ToolKind::Measure,
@@ -207,6 +211,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Sweep
         | ToolKind::Shell
         | ToolKind::DraftAngle
+        | ToolKind::SplitBody
         | ToolKind::Boolean
         | ToolKind::SectionView
         | ToolKind::History => 0,
