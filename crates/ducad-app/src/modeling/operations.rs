@@ -543,6 +543,225 @@ impl DuCADApp {
         }
     }
 
+    /// Shell dengan ketebalan bervariasi (Variable Thickness Shell).
+    pub fn shell_variable_selected_body(&mut self) {
+        let target_id = self
+            .selected_bodies
+            .iter()
+            .next()
+            .copied()
+            .or_else(|| self.active_face.as_ref().map(|(id, _, _)| *id));
+
+        let Some(id) = target_id else {
+            self.model_status = Some("Pilih persis 1 body untuk Shell Variable Thickness".to_string());
+            return;
+        };
+        let Ok(thickness) = self.shell_thickness_input.trim().parse::<f64>() else {
+            self.model_status = Some("Tebal default shell tidak valid".to_string());
+            return;
+        };
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+
+        let mut remove_faces = self.selected_faces.clone();
+        if remove_faces.is_empty() {
+            if let Some((_, r, _)) = &self.active_face {
+                remove_faces.push(*r);
+            }
+        }
+
+        let result = if self.shell_variable_faces.is_empty() {
+            if remove_faces.is_empty() {
+                ducad_kernel::shell_hollow(&geo.shape, thickness, self.shell_direction)
+            } else {
+                ducad_kernel::shell_hollow_faces(&geo.shape, thickness, &remove_faces)
+            }
+        } else {
+            ducad_kernel::shell_variable_thickness(
+                &geo.shape,
+                thickness,
+                &remove_faces,
+                &self.shell_variable_faces,
+            )
+        };
+
+        match result {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                let orig_name = self
+                    .model
+                    .doc
+                    .bodies
+                    .get(id)
+                    .map(|b| b.name.clone())
+                    .unwrap_or_else(|| "Solid".to_string());
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new("Shell Variable", id, new_geo)),
+                    &format!("Membuat shell berongga dinding tebal {:.1} mm pada '{}'", thickness, orig_name),
+                );
+                self.round_history.remove(&id);
+                self.selected_faces.clear();
+                self.shell_variable_faces.clear();
+                self.active_face = None;
+                self.picking_mode = crate::types::PickMode::None;
+                self.model_status = Some(format!("Shell dinding bervariasi pada '{}' berhasil ✓", orig_name));
+                self.set_tool(crate::types::ToolKind::Select);
+            }
+            Err(e) => self.model_status = Some(format!("Shell Variable gagal: {e}")),
+        }
+    }
+
+    /// Terapkan Tulang Penguat (Rib / Stiffener Support) pada body 3D terpilih.
+    pub fn apply_rib_to_body(&mut self) {
+        let target_id = self
+            .selected_bodies
+            .iter()
+            .next()
+            .copied()
+            .or_else(|| self.active_face.as_ref().map(|(id, _, _)| *id));
+
+        let Some(id) = target_id else {
+            self.model_status = Some("Pilih 1 body 3D untuk menambahkan tulang penguat (Rib)".to_string());
+            return;
+        };
+        let Ok(thickness) = self.rib_thickness_input.trim().parse::<f64>() else {
+            self.model_status = Some("Tebal tulang penguat (rib thickness) tidak valid".to_string());
+            return;
+        };
+        let Ok(depth) = self.rib_depth_input.trim().parse::<f64>() else {
+            self.model_status = Some("Kedalaman tulang penguat (rib depth) tidak valid".to_string());
+            return;
+        };
+        let draft_deg = self.rib_draft_input.trim().parse::<f64>().ok().filter(|&d| d > 0.0);
+
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+
+        // Dapatkan titik awal & akhir rib serta vektor normal arah kedalaman
+        let (p_start, p_end, normal) = if let (Some(s), Some(e)) = (self.rib_start_pt, self.rib_end_pt) {
+            (s, e, self.rib_normal_dir)
+        } else if let Some(first_sel) = self.selected.iter().next() {
+            if let Some(ducad_sketch::Entity::Line { start, end }) = self.sketch().entities.get(*first_sel) {
+                let plane = self.active_plane;
+                let s3 = plane.to_world(*start, 0.0);
+                let e3 = plane.to_world(*end, 0.0);
+                let n3 = -plane.normal;
+                (
+                    glam::dvec3(s3.x as f64, s3.y as f64, s3.z as f64),
+                    glam::dvec3(e3.x as f64, e3.y as f64, e3.z as f64),
+                    glam::dvec3(n3.x as f64, n3.y as f64, n3.z as f64),
+                )
+            } else {
+                let (min, max) = geo.mesh.bounding_box().unwrap_or(([-30.0, -30.0, -30.0], [30.0, 30.0, 30.0]));
+                let mid_y = (min[1] + max[1]) * 0.5;
+                let top_z = max[2];
+                (
+                    glam::dvec3(min[0] as f64, mid_y as f64, top_z as f64),
+                    glam::dvec3(max[0] as f64, mid_y as f64, top_z as f64),
+                    glam::dvec3(0.0, 0.0, -1.0),
+                )
+            }
+        } else if let Some((_, _, hit)) = &self.active_face {
+            // FACE TERPILIH LANGSUNG PADA SOLID CASING
+            let face_normal = glam::dvec3(hit.normal.0, hit.normal.1, hit.normal.2).normalize();
+            let centroid = glam::dvec3(hit.centroid.0, hit.centroid.1, hit.centroid.2);
+            let inward_normal = -face_normal;
+
+            // Hitung basis sumbu orthogonal yang sejajar pada bidang face:
+            // U0: Sumbu Horizontal 0° (sejajar bidang XY atau tegak lurus sumbu vertikal Z)
+            // V0: Sumbu Vertikal 90° (tegak lurus terhadap U0 dan face_normal)
+            let (dir_u0, dir_v0) = if face_normal.z.abs() > 0.95 {
+                // Face horizontal (misal alas / pelat bawah atau atas)
+                (glam::DVec3::X, glam::DVec3::Y)
+            } else {
+                // Face vertikal atau miring (misal dinding samping atau belakang casing)
+                let u = glam::DVec3::Z.cross(face_normal).normalize();
+                let v = face_normal.cross(u).normalize();
+                (u, v)
+            };
+
+            let angle_deg = self.rib_angle_input.trim().parse::<f64>().unwrap_or(0.0);
+            let angle_rad = angle_deg.to_radians();
+
+            // Sumbu arah rib berputar tepat sesuai sudut yang dimasukkan pengguna
+            let chosen_dir = (dir_u0 * angle_rad.cos() + dir_v0 * angle_rad.sin()).normalize();
+
+            if hit.boundary_points.len() >= 2 {
+                let pts: Vec<glam::DVec3> = hit
+                    .boundary_points
+                    .iter()
+                    .map(|p| glam::dvec3(p.0, p.1, p.2))
+                    .collect();
+
+                // Proyeksikan seluruh titik batas face ke sumbu yang dipilih
+                let mut min_proj = f64::INFINITY;
+                let mut max_proj = f64::NEG_INFINITY;
+                for p in &pts {
+                    let proj = (*p - centroid).dot(chosen_dir);
+                    if proj < min_proj {
+                        min_proj = proj;
+                    }
+                    if proj > max_proj {
+                        max_proj = proj;
+                    }
+                }
+
+                let p_a = centroid + chosen_dir * min_proj;
+                let p_b = centroid + chosen_dir * max_proj;
+
+                (p_a, p_b, inward_normal)
+            } else {
+                (
+                    centroid - chosen_dir * 20.0,
+                    centroid + chosen_dir * 20.0,
+                    inward_normal,
+                )
+            }
+        } else {
+            let (min, max) = geo.mesh.bounding_box().unwrap_or(([-30.0, -30.0, -30.0], [30.0, 30.0, 30.0]));
+            let mid_y = (min[1] + max[1]) * 0.5;
+            let top_z = max[2];
+            (
+                glam::dvec3(min[0] as f64, mid_y as f64, top_z as f64),
+                glam::dvec3(max[0] as f64, mid_y as f64, top_z as f64),
+                glam::dvec3(0.0, 0.0, -1.0),
+            )
+        };
+
+        // Coba fusion dengan arah normal yang dihitung; jika gagal (misal arah keluar vs masuk), coba arah sebaliknya
+        let res = ducad_kernel::create_rib(&geo.shape, p_start, p_end, normal, thickness, depth, draft_deg)
+            .or_else(|_| ducad_kernel::create_rib(&geo.shape, p_start, p_end, -normal, thickness, depth, draft_deg));
+
+        match res {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                let orig_name = self
+                    .model
+                    .doc
+                    .bodies
+                    .get(id)
+                    .map(|b| b.name.clone())
+                    .unwrap_or_else(|| "Solid".to_string());
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new("Add Rib", id, new_geo)),
+                    &format!("Menambahkan tulang penguat (Rib t={:.1} mm) pada '{}'", thickness, orig_name),
+                );
+                self.round_history.remove(&id);
+                self.rib_start_pt = None;
+                self.rib_end_pt = None;
+                self.active_face = None;
+                self.picking_mode = crate::types::PickMode::None;
+                self.model_status = Some(format!("Tulang penguat (Rib) pada '{}' berhasil ditambahkan ✓", orig_name));
+                self.set_tool(crate::types::ToolKind::Select);
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Gagal menambahkan Rib: {e}"));
+            }
+        }
+    }
+
     /// Extrude (push-pull) sisi/face 3D yang sedang aktif dengan jarak tertentu.
     pub fn extrude_active_face(&mut self, distance: f64) {
         let Some((target_id, ray, _)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r, ())) else {

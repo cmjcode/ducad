@@ -102,8 +102,12 @@ tool-loft-desc = Hubungkan dua profil melintasi bidang
 tool-sweep = Sweep
 tool-sweep-desc = Sapu profil 2D menyusuri kurva jalur (spine path) menjadi solid 3D
 tool-sweep-name = Sweep 3D
-tool-shell = Shell (Rongga)
-tool-shell-desc = Buat rongga pada solid dengan ketebalan dinding seragam
+tool-shell = Shell (Rongga Casing)
+tool-shell-name = Shell (Rongga Casing)
+tool-shell-desc = Buat rongga pada solid dengan ketebalan dinding seragam atau bervariasi (H)
+tool-rib = Tulang Penguat (Rib)
+tool-rib-name = Tulang Penguat (Rib)
+tool-rib-desc = Buat tulang penguat (stiffener ribs) penahan deformasi pada casing hollow (R)
 tool-draft-angle = Draft Angle (Kemiringan Cetakan)
 tool-draft-angle-desc = Tambahkan sudut kemiringan cetakan plastik (injection molding) pada bidang planar (D)
 tool-split-body = Split Body & Face (Potong Benda)
@@ -633,12 +637,24 @@ hud-sweep-exec-btn = 🚀 Buat Sweep 3D
 hud-sweep-reset-profile = ↺ Ganti Profil
 hud-sweep-cancel = ✕ Batal
 
+hud-rib-prompt-ready = ✓ Casing/garis terpilih! Atur tebal & kedalaman lalu klik 'Buat Tulang Penguat'
+hud-rib-prompt-select = 1️⃣ Pilih body casing 3D atau buat garis sketsa untuk tulang penguat
+hud-rib-exec-enter = 🚀 Buat Tulang Penguat (Enter)
 
-guide-shell-header = Panduan Shell (Bodi Berongga):
+param-depth = Kedalaman
+param-draft = Kemiringan
+
+guide-shell-header = Panduan Shell (Bodi Berongga & Dinding Bervariasi):
 guide-shell-step-1 = 1. Pilih Sisi Terbuka
-guide-shell-step-2 = 2. Atur Ketebalan Dinding
+guide-shell-step-2 = 2. Atur Ketebalan Dinding (Default & Variasi)
 guide-shell-step-done = Bodi Berongga Terbentuk
-guide-shell-tip = 💡 Mengosongkan bagian dalam benda padat dengan ketebalan t
+guide-shell-tip = 💡 Mengosongkan bagian dalam benda padat dengan ketebalan seragam atau bervariasi (Pintasan: H)
+
+guide-rib-header = Panduan Rib (Tulang Penguat Casing):
+guide-rib-step-1 = 1. Pilih Casing / Garis Rusuk
+guide-rib-step-2 = 2. Atur Tebal & Kedalaman Rib
+guide-rib-step-done = Tulang Penguat Terpasang
+guide-rib-tip = 💡 Memperkuat dinding tipis casing plastik / die-cast (Pintasan: R)
 
 guide-boolean-header = Panduan Boolean 3D:
 guide-boolean-step-1 = 1. Pilih Bodi Target & Alat

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use glam::{dvec3, DVec3};
 use opencascade::angle::Angle;
-use opencascade::primitives::{Direction as OcctDirection, Edge, FaceOrientation, IntoShape, Solid};
+use opencascade::primitives::{Direction as OcctDirection, Edge, FaceOrientation, IntoShape, Solid, Wire};
 use opencascade::workplane::Workplane;
 
 use crate::lock_kernel;
@@ -654,5 +654,177 @@ pub fn circular_pattern_shape(
     }
     Ok(result)
 }
+
+/// "Kosongkan" shape jadi cangkang dengan tebal dasar `default_thickness` mm, membuang face
+/// yang di-pick lewat `remove_face_rays` dan menerapkan tebal khusus (*variable thickness*)
+/// pada face-face yang di-pick lewat `variable_thickness`.
+pub fn shell_variable_thickness(
+    shape: &KernelShape,
+    default_thickness: f64,
+    remove_face_rays: &[PickRay],
+    variable_thickness: &[(PickRay, f64)],
+) -> Result<KernelShape> {
+    if default_thickness <= 0.0 {
+        bail!("tebal default shell harus > 0");
+    }
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+
+    let mut remove_faces = Vec::with_capacity(remove_face_rays.len());
+    for ray in remove_face_rays {
+        let Some((face, _)) = resolve_face_along_ray(&cloned, *ray) else {
+            bail!("salah satu wajah yang akan dihilangkan tidak ditemukan lagi pada shape");
+        };
+        remove_faces.push(face);
+    }
+
+    let mut var_faces = Vec::with_capacity(variable_thickness.len());
+    for (ray, custom_thickness) in variable_thickness {
+        if *custom_thickness <= 0.0 {
+            bail!("tebal khusus (variable thickness) harus > 0; diberikan {custom_thickness:.3} mm");
+        }
+        let Some((face, _)) = resolve_face_along_ray(&cloned, *ray) else {
+            bail!("salah satu wajah dengan tebal khusus tidak ditemukan lagi pada shape");
+        };
+        var_faces.push((face, -custom_thickness.abs()));
+    }
+
+    let hollowed = cloned
+        .try_hollow_variable(-default_thickness.abs(), remove_faces, var_faces)
+        .map_err(|e| anyhow::anyhow!("operasi shell dengan variable thickness gagal: {e}"))?;
+    Ok(KernelShape::from_inner(hollowed))
+}
+
+/// Buat solid tulang penguat (Rib / Stiffener) berdiri di antara `start_pt` dan `end_pt`,
+/// melebar setebal `thickness` simetris ke samping dan diextrude ke arah `normal_dir`
+/// sepanjang `depth` mm.
+pub fn create_rib_solid(
+    start_pt: DVec3,
+    end_pt: DVec3,
+    normal_dir: DVec3,
+    thickness: f64,
+    depth: f64,
+    draft_angle_deg: Option<f64>,
+) -> Result<KernelShape> {
+    if thickness <= 0.0 {
+        bail!("tebal tulang penguat (rib thickness) harus > 0; diberikan {thickness:.3} mm");
+    }
+    if depth <= 0.0 {
+        bail!("kedalaman tulang penguat (rib depth) harus > 0; diberikan {depth:.3} mm");
+    }
+    let edge_vec = end_pt - start_pt;
+    let length = edge_vec.length();
+    if length < 1e-4 {
+        bail!("panjang garis tulang penguat terlalu pendek");
+    }
+    let norm_len = normal_dir.length();
+    if norm_len < 1e-4 {
+        bail!("arah kedalaman tulang penguat tidak valid (vektor nol)");
+    }
+
+    let dir_unit = edge_vec / length;
+    let norm_unit = normal_dir / norm_len;
+
+    let mut side_dir = dir_unit.cross(norm_unit);
+    if side_dir.length() < 1e-4 {
+        let fallback_up = if dir_unit.z.abs() < 0.9 { DVec3::Z } else { DVec3::Y };
+        side_dir = dir_unit.cross(fallback_up).normalize();
+    } else {
+        side_dir = side_dir.normalize();
+    }
+
+    let half_t = thickness * 0.5;
+    let p1 = start_pt - side_dir * half_t;
+    let p2 = start_pt + side_dir * half_t;
+    let p3 = end_pt + side_dir * half_t;
+    let p4 = end_pt - side_dir * half_t;
+
+    let _guard = lock_kernel();
+    let e1 = Edge::segment(p1, p2);
+    let e2 = Edge::segment(p2, p3);
+    let e3 = Edge::segment(p3, p4);
+    let e4 = Edge::segment(p4, p1);
+
+    let wire = Wire::from_edges(&[e1, e2, e3, e4]);
+    let face = opencascade::primitives::Face::from_wire(&wire);
+    let extrude_vec = norm_unit * depth;
+    let solid = face.extrude(extrude_vec);
+    let mut rib_shape = solid.into_shape();
+
+    if let Some(angle) = draft_angle_deg {
+        if angle > 0.0 && angle < 89.0 {
+            let neutral_point = (start_pt + end_pt) * 0.5;
+            let side_faces: Vec<_> = rib_shape.faces().collect();
+            let side_face_refs: Vec<&opencascade::primitives::Face> = side_faces.iter().collect();
+            if let Ok(drafted) = rib_shape.draft_angle(
+                neutral_point,
+                norm_unit,
+                norm_unit,
+                angle,
+                &side_face_refs,
+            ) {
+                rib_shape = drafted;
+            }
+        }
+    }
+
+    rib_shape.clean();
+    Ok(KernelShape::from_inner(rib_shape))
+}
+
+/// Tambahkan tulang penguat (Rib / Stiffener) pada sebuah solid (`shape`).
+/// Menghasilkan solid hasil penggabungan (*Union*) antara body utama dan tulang penguat.
+pub fn create_rib(
+    shape: &KernelShape,
+    start_pt: DVec3,
+    end_pt: DVec3,
+    normal_dir: DVec3,
+    thickness: f64,
+    depth: f64,
+    draft_angle_deg: Option<f64>,
+) -> Result<KernelShape> {
+    let rib_shape = create_rib_solid(start_pt, end_pt, normal_dir, thickness, depth, draft_angle_deg)?;
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+
+    match cloned.union(rib_shape.inner()) {
+        Ok(merged) => {
+            let mut s = merged.shape;
+            s.clean();
+            Ok(KernelShape::from_inner(s))
+        }
+        Err(_) => {
+            bail!("Gagal menggabungkan tulang penguat ke bodi utama (pastikan posisi rib menyentuh dinding bodi)");
+        }
+    }
+}
+
+/// Buat tulang penguat beruntun (Polyline / Multi-segment Ribs) dari sekumpulan titik `points`.
+pub fn create_rib_from_curve(
+    shape: &KernelShape,
+    points: &[DVec3],
+    normal_dir: DVec3,
+    thickness: f64,
+    depth: f64,
+    draft_angle_deg: Option<f64>,
+) -> Result<KernelShape> {
+    if points.len() < 2 {
+        bail!("pembuatan tulang penguat butuh minimal 2 titik");
+    }
+    let mut current_shape = crate::shape::clone_shape(shape)?;
+    for window in points.windows(2) {
+        current_shape = create_rib(
+            &current_shape,
+            window[0],
+            window[1],
+            normal_dir,
+            thickness,
+            depth,
+            draft_angle_deg,
+        )?;
+    }
+    Ok(current_shape)
+}
+
 
 

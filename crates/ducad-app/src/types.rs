@@ -41,6 +41,8 @@ pub enum ToolKind {
     Loft,
     Sweep,
     Shell,
+    /// Tulang Penguat (Rib / Stiffener Support — Fase 2.4).
+    Rib,
     /// Draft Angle — kemiringan cetakan plastik (injection molding, Fase 2.1).
     DraftAngle,
     /// Split Body & Split Face (Fase 2.2 — Potong Benda).
@@ -80,6 +82,7 @@ impl ToolKind {
             ToolKind::Loft => ToolbarTool::Loft,
             ToolKind::Sweep => ToolbarTool::Sweep,
             ToolKind::Shell => ToolbarTool::Shell,
+            ToolKind::Rib => ToolbarTool::Rib,
             ToolKind::DraftAngle => ToolbarTool::DraftAngle,
             ToolKind::SplitBody => ToolbarTool::SplitBody,
             ToolKind::Boolean => ToolbarTool::Boolean,
@@ -113,6 +116,7 @@ impl ToolKind {
             ToolbarTool::Loft => ToolKind::Loft,
             ToolbarTool::Sweep => ToolKind::Sweep,
             ToolbarTool::Shell => ToolKind::Shell,
+            ToolbarTool::Rib => ToolKind::Rib,
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
             ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
@@ -216,6 +220,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Loft
         | ToolKind::Sweep
         | ToolKind::Shell
+        | ToolKind::Rib
         | ToolKind::DraftAngle
         | ToolKind::SplitBody
         | ToolKind::Boolean

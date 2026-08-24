@@ -1630,5 +1630,85 @@ fn test_circular_pattern_shape() {
     }
 }
 
+#[test]
+fn test_shell_variable_thickness() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(40.0, 40.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
+
+    // Ray ke top face (+Z) untuk dibuka / dihilangkan
+    let ray_top = PickRay {
+        origin: (20.0, 20.0, 100.0),
+        dir: (0.0, 0.0, -1.0),
+    };
+    // Ray ke bottom face (-Z) untuk diberi custom thickness 4.0 mm (dinding samping 2.0 mm)
+    let ray_bottom = PickRay {
+        origin: (20.0, 20.0, -100.0),
+        dir: (0.0, 0.0, 1.0),
+    };
+
+    let result = shell_variable_thickness(
+        &shape,
+        2.0,
+        &[ray_top],
+        &[(ray_bottom, 4.0)],
+    )
+    .expect("shell_variable_thickness harus berhasil");
+
+    let mesh = result.tessellate();
+    assert!(mesh.triangle_count() > 0, "hasil shell variable harus memiliki mesh bertriangle");
+    assert!(!mesh.positions.is_empty());
+}
+
+#[test]
+fn test_create_rib_solid_and_union() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(50.0, 50.0);
+    let shape = extrude_profile(&profile, 30.0).expect("extrude box harus berhasil");
+
+    // Hollow box dengan membuka face atas
+    let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).expect("hollow box harus berhasil");
+    let initial_tri_count = hollowed.tessellate().triangle_count();
+
+    // Buat tulang penguat (rib) di tengah kotak dari X=2.0 hingga X=48.0 pada Y=25.0
+    let start_pt = glam::dvec3(2.0, 25.0, 30.0);
+    let end_pt = glam::dvec3(48.0, 25.0, 30.0);
+    let normal_dir = glam::dvec3(0.0, 0.0, -1.0);
+
+    let rib_solid = create_rib_solid(start_pt, end_pt, normal_dir, 2.0, 25.0, Some(1.5))
+        .expect("create_rib_solid harus berhasil");
+    assert!(rib_solid.tessellate().triangle_count() > 0);
+
+    // Union rib ke hollow casing
+    let casing_with_rib = create_rib(&hollowed, start_pt, end_pt, normal_dir, 2.0, 25.0, None)
+        .expect("create_rib union ke casing harus berhasil");
+    
+    let mesh = casing_with_rib.tessellate();
+    assert!(mesh.triangle_count() >= initial_tri_count, "mesh harus memuat rib yang menyatu");
+}
+
+#[test]
+fn test_create_rib_from_curve() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(60.0, 60.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
+    let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).expect("hollow box harus berhasil");
+
+    // L-shaped rib path
+    let pts = vec![
+        glam::dvec3(5.0, 30.0, 20.0),
+        glam::dvec3(30.0, 30.0, 20.0),
+        glam::dvec3(30.0, 55.0, 20.0),
+    ];
+    let normal_dir = glam::dvec3(0.0, 0.0, -1.0);
+
+    let result = create_rib_from_curve(&hollowed, &pts, normal_dir, 1.8, 15.0, None)
+        .expect("create_rib_from_curve harus berhasil");
+
+    let mesh = result.tessellate();
+    assert!(mesh.triangle_count() > 0);
+}
+
+
 
 

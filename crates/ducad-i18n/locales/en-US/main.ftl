@@ -102,8 +102,12 @@ tool-loft-desc = Blend two profiles across planes
 tool-sweep = Sweep
 tool-sweep-desc = Sweep a 2D profile along a guide curve (spine path) into a 3D solid
 tool-sweep-name = 3D Sweep
-tool-shell = Shell
-tool-shell-desc = Hollow out solid body with uniform wall thickness
+tool-shell = Shell (Hollow Casing)
+tool-shell-name = Shell (Hollow Casing)
+tool-shell-desc = Hollow out solid body with uniform or variable wall thickness (H)
+tool-rib = Rib (Stiffener)
+tool-rib-name = Rib (Stiffener)
+tool-rib-desc = Create stiffener ribs to reinforce thin-walled hollow casings (R)
 tool-draft-angle = Draft Angle
 tool-draft-angle-desc = Add mold draft taper to planar faces for injection molding (D)
 tool-split-body = Split Body & Face
@@ -633,12 +637,24 @@ hud-sweep-exec-btn = 🚀 Create 3D Sweep
 hud-sweep-reset-profile = ↺ Change Profile
 hud-sweep-cancel = ✕ Cancel
 
+hud-rib-prompt-ready = ✓ Casing/curve selected! Adjust thickness & depth then click 'Create Rib'
+hud-rib-prompt-select = 1️⃣ Select 3D casing body or sketch line for stiffener rib
+hud-rib-exec-enter = 🚀 Create Rib (Enter)
 
-guide-shell-header = Shell Guide:
+param-depth = Depth
+param-draft = Draft
+
+guide-shell-header = Shell Guide (Hollow & Variable Thickness):
 guide-shell-step-1 = 1. Select Open Face
-guide-shell-step-2 = 2. Set Wall Thickness
+guide-shell-step-2 = 2. Set Wall Thickness (Default & Custom)
 guide-shell-step-done = Hollow Body Created
-guide-shell-tip = 💡 Hollows out solid body with thickness t
+guide-shell-tip = 💡 Hollows out solid body with uniform or variable thickness (Shortcut: H)
+
+guide-rib-header = Rib Guide (Casing Stiffener):
+guide-rib-step-1 = 1. Select Casing / Rib Line
+guide-rib-step-2 = 2. Set Thickness & Depth
+guide-rib-step-done = Rib Reinforcement Added
+guide-rib-tip = 💡 Reinforces thin hollow plastic / die-cast walls (Shortcut: R)
 
 guide-boolean-header = Boolean 3D Guide:
 guide-boolean-step-1 = 1. Select Target & Tool Bodies

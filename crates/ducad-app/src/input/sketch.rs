@@ -1090,7 +1090,7 @@ impl DuCADApp {
                     };
 
                     if is_multi && !self.is_sketching {
-                        if self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell {
+                        if self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell || self.tool == ToolKind::Rib {
                             if let Some((b_id, ray, _hit)) = face_pick_3d {
                                 self.selected.clear();
                                 self.selected_bodies.clear();
@@ -1155,7 +1155,7 @@ impl DuCADApp {
                     };
 
                     let now = std::time::Instant::now();
-                    let is_face_tool = self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell;
+                    let is_face_tool = self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell || self.tool == ToolKind::Rib;
                     let is_double_click = !is_face_tool && (
                         response.double_clicked()
                         || self.last_body_select_click.as_ref().is_some_and(|(last_id, last_time)| {
@@ -1819,6 +1819,7 @@ impl DuCADApp {
             }
             ToolKind::Extrude
             | ToolKind::Shell
+            | ToolKind::Rib
             | ToolKind::DraftAngle
             | ToolKind::SplitBody
             | ToolKind::Pattern

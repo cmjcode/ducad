@@ -691,7 +691,7 @@ impl DuCADApp {
                 ui.input(|i| i.time),
             );
         } else if self.tool == ToolKind::Shell {
-            let has_face_selection = self.active_face.is_some();
+            let has_face_selection = self.active_face.is_some() || !self.selected_faces.is_empty() || !self.selected_bodies.is_empty();
             let current_thickness = self.shell_thickness_input.trim().parse::<f64>().unwrap_or(2.0);
 
             if let Some(action) = CanvasHud::render_shell_top_bar_hud(
@@ -705,8 +705,17 @@ impl DuCADApp {
                     ducad_ui::ShellHudAction::SetThickness(t) => {
                         self.shell_thickness_input = format!("{:.1}", t);
                     }
+                    ducad_ui::ShellHudAction::ToggleVariableMode => {
+                        self.shell_is_variable_mode = !self.shell_is_variable_mode;
+                    }
                     ducad_ui::ShellHudAction::Commit => {
-                        self.shell_active_face();
+                        if !self.shell_variable_faces.is_empty() || self.shell_is_variable_mode {
+                            self.shell_variable_selected_body();
+                        } else if self.active_face.is_some() {
+                            self.shell_active_face();
+                        } else {
+                            self.shell_selected_body();
+                        }
                     }
                     ducad_ui::ShellHudAction::Cancel => {
                         self.set_tool(ToolKind::Select);
@@ -716,10 +725,59 @@ impl DuCADApp {
 
             if has_face_selection {
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.shell_active_face();
+                    if !self.shell_variable_faces.is_empty() || self.shell_is_variable_mode {
+                        self.shell_variable_selected_body();
+                    } else if self.active_face.is_some() {
+                        self.shell_active_face();
+                    } else {
+                        self.shell_selected_body();
+                    }
                 } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     self.set_tool(ToolKind::Select);
                 }
+            }
+        } else if self.tool == ToolKind::Rib {
+            let has_target = !self.selected_bodies.is_empty() || self.active_face.is_some() || !self.selected.is_empty();
+
+            if let Some(action) = CanvasHud::render_rib_top_bar_hud(
+                ui,
+                rect,
+                has_target,
+                &mut self.rib_angle_input,
+                &mut self.rib_thickness_input,
+                &mut self.rib_depth_input,
+                &mut self.rib_draft_input,
+            ) {
+                match action {
+                    ducad_ui::RibHudAction::SetThickness(t) => {
+                        self.rib_thickness_input = format!("{:.1}", t);
+                    }
+                    ducad_ui::RibHudAction::SetDepth(d) => {
+                        self.rib_depth_input = format!("{:.1}", d);
+                    }
+                    ducad_ui::RibHudAction::SetDraftAngle(a) => {
+                        self.rib_draft_input = format!("{:.1}", a);
+                    }
+                    ducad_ui::RibHudAction::SetAngle(a) => {
+                        self.rib_angle_input = format!("{:.1}", a);
+                    }
+                    ducad_ui::RibHudAction::Commit => {
+                        self.apply_rib_to_body();
+                    }
+                    ducad_ui::RibHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if has_target {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.apply_rib_to_body();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
             }
         } else if self.tool == ToolKind::DraftAngle {
             let selected_count = if !self.selected_faces.is_empty() {

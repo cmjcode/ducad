@@ -22,6 +22,7 @@ pub enum ContextAction {
     Revolve,
     Sweep,
     Shell,
+    Rib,
     DraftAngle,
     SplitBody,
     SplitFace,
@@ -236,8 +237,20 @@ impl ContextActionBar {
                             .color(TEXT_PRIMARY),
                     ),
                 );
-                if btn.on_hover_text("Ronggakan benda 3D dengan ketebalan dinding (S)").clicked() {
+                if btn.on_hover_text("Ronggakan benda 3D dengan ketebalan dinding (H)").clicked() {
                     action = Some(ContextAction::Shell);
+                }
+
+                // Rib / Tulang Penguat
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{}  Rib (Tulang)", egui_material_icons::icons::ICON_TIMELINE.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Buat tulang penguat (stiffener rib) pada casing ini (R)").clicked() {
+                    action = Some(ContextAction::Rib);
                 }
 
                 // Draft Angle

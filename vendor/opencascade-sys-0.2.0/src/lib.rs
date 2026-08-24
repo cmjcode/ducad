@@ -814,6 +814,10 @@ pub mod ffi {
             thickening: bool,
             remove_int_edges: bool,
         ) -> Result<()>;
+        pub fn BRepOffset_MakeOffset_AddFace(
+            make_offset: Pin<&mut BRepOffset_MakeOffset>,
+            face: &TopoDS_Face,
+        ) -> Result<()>;
         pub fn BRepOffset_MakeOffset_SetOffsetOnFace(
             make_offset: Pin<&mut BRepOffset_MakeOffset>,
             face: &TopoDS_Face,

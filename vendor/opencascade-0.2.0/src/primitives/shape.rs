@@ -412,6 +412,58 @@ impl Shape {
         Ok(Self { inner })
     }
 
+    pub fn try_hollow_variable<T: AsRef<Face>, U: AsRef<Face>>(
+        self,
+        default_offset: f64,
+        faces_to_remove: impl IntoIterator<Item = T>,
+        variable_faces: impl IntoIterator<Item = (U, f64)>,
+    ) -> Result<Self, Error> {
+        const OFFSET_TOLERANCE: f64 = 1e-3;
+        let to_error = |e: cxx::Exception| Error::HollowFailed(e.what().to_string());
+
+        let mut make_offset = ffi::BRepOffset_MakeOffset_ctor();
+        ffi::BRepOffset_MakeOffset_Initialize(
+            make_offset.pin_mut(),
+            &self.inner,
+            default_offset,
+            OFFSET_TOLERANCE,
+            ffi::BRepOffset_Mode::BRepOffset_Skin,
+            true,
+            false,
+            ffi::GeomAbs_JoinType::GeomAbs_Arc,
+            true,
+            false,
+        )
+        .map_err(to_error)?;
+
+        for face in faces_to_remove {
+            ffi::BRepOffset_MakeOffset_AddFace(make_offset.pin_mut(), &face.as_ref().inner)
+                .map_err(to_error)?;
+        }
+
+        for (face, offset) in variable_faces {
+            ffi::BRepOffset_MakeOffset_SetOffsetOnFace(
+                make_offset.pin_mut(),
+                &face.as_ref().inner,
+                offset,
+            )
+            .map_err(to_error)?;
+        }
+
+        ffi::BRepOffset_MakeOffset_MakeOffsetShape(make_offset.pin_mut()).map_err(to_error)?;
+
+        if !make_offset.IsDone() {
+            return Err(Error::HollowFailed(
+                "Operasi Shell Variable Thickness gagal: geometri tidak valid".to_string(),
+            ));
+        }
+
+        let result_shape = ffi::BRepOffset_MakeOffset_Shape(&make_offset).map_err(to_error)?;
+        let inner = ffi::TopoDS_Shape_to_owned(result_shape);
+
+        Ok(Self { inner })
+    }
+
     pub fn hollow<T: AsRef<Face>>(
         self,
         offset: f64,

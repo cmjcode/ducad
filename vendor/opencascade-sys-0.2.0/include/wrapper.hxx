@@ -527,6 +527,15 @@ inline void BRepOffset_MakeOffset_Initialize(BRepOffset_MakeOffset &make_offset,
   }
 }
 
+inline void BRepOffset_MakeOffset_AddFace(BRepOffset_MakeOffset &make_offset,
+                                          const TopoDS_Face &face) {
+  try {
+    make_offset.AddFace(face);
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffset_MakeOffset::AddFace() failed");
+  }
+}
+
 inline void BRepOffset_MakeOffset_SetOffsetOnFace(BRepOffset_MakeOffset &make_offset,
                                                    const TopoDS_Face &face, Standard_Real offset) {
   try {

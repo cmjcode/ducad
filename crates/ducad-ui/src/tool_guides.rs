@@ -81,6 +81,7 @@ impl ToolGuides {
             ToolbarTool::Loft => Self::render_loft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Sweep => Self::render_sweep_anim(&painter, card_rect, time),
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Rib => Self::render_rib_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::DraftAngle => Self::render_draft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::SplitBody => Self::render_split_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Pattern => Self::render_pattern_anim(&painter, card_rect, has_selection, time),
@@ -1525,6 +1526,71 @@ impl ToolGuides {
                 painter,
                 badge_pos,
                 "t = 2.0 mm",
+                Color32::from_rgba_premultiplied(15, 80, 40, 220),
+                Color32::WHITE,
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Rib Tool (Tulang Penguat / Stiffener Ribs)
+    fn render_rib_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        _has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 3.2;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.45 {
+            (t!("guide-rib-step-1"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-rib-step-2"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-rib-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-rib-tip"));
+
+        // Gambar U-channel / casing luar
+        let casing_rect = Rect::from_center_size(
+            Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0),
+            Vec2::new(56.0, 40.0),
+        );
+
+        painter.rect_filled(casing_rect, 3.0, ACCENT_BLUE.gamma_multiply(0.2));
+        painter.rect_stroke(casing_rect, 3.0, Stroke::new(1.5, ACCENT_BLUE), StrokeKind::Inside);
+
+        // Rongga dalam casing
+        let inner_casing = casing_rect.shrink(5.0);
+        painter.rect_filled(inner_casing, 2.0, Color32::from_rgba_premultiplied(12, 15, 20, 240));
+
+        let (cursor_pos, is_clicking) = if phase < 0.45 {
+            let t = (phase / 0.45).clamp(0.0, 1.0);
+            let pos = Pos2::new(
+                casing_rect.center().x,
+                inner_casing.top() + (1.0 - t) * 12.0,
+            );
+            (pos, t > 0.8)
+        } else {
+            (Pos2::new(casing_rect.center().x, inner_casing.center().y), false)
+        };
+
+        // Garis/tulang penguat (rib) di tengah rongga
+        if phase >= 0.45 {
+            let rib_rect = Rect::from_center_size(
+                inner_casing.center(),
+                Vec2::new(6.0, inner_casing.height()),
+            );
+            painter.rect_filled(rib_rect, 1.0, ACCENT_GREEN);
+            painter.rect_stroke(rib_rect, 1.0, Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
+
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "Rib: t=2 mm",
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );

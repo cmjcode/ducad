@@ -243,6 +243,20 @@ pub struct DuCADApp {
     pub pattern_dimension_editing_angle: bool,
     pub pattern_dimension_editing_radius: bool,
     pub pattern_dimension_edit_input: String,
+
+    /// State Rib Support (Fase 2.4 — Tulang Penguat Casing).
+    pub rib_thickness_input: String,
+    pub rib_depth_input: String,
+    pub rib_draft_input: String,
+    pub rib_angle_input: String,
+    pub rib_start_pt: Option<glam::DVec3>,
+    pub rib_end_pt: Option<glam::DVec3>,
+    pub rib_normal_dir: glam::DVec3,
+
+    /// State Variable Thickness Shell (Fase 2.4 — Casing Ketebalan Khusus).
+    pub shell_variable_faces: Vec<(ducad_kernel::PickRay, f64)>,
+    pub shell_var_thickness_input: String,
+    pub shell_is_variable_mode: bool,
 }
 
 /// Target objek yang sedang di-rename.
@@ -480,6 +494,18 @@ impl DuCADApp {
             pattern_dimension_editing_angle: false,
             pattern_dimension_editing_radius: false,
             pattern_dimension_edit_input: "20.0".to_string(),
+
+            rib_thickness_input: "2.0".to_string(),
+            rib_depth_input: "15.0".to_string(),
+            rib_draft_input: "0.0".to_string(),
+            rib_angle_input: "0.0".to_string(),
+            rib_start_pt: None,
+            rib_end_pt: None,
+            rib_normal_dir: glam::dvec3(0.0, 0.0, -1.0),
+
+            shell_variable_faces: Vec::new(),
+            shell_var_thickness_input: "4.0".to_string(),
+            shell_is_variable_mode: false,
         }
     }
 
@@ -672,6 +698,7 @@ impl DuCADApp {
                 | ToolKind::MeasureAngle
                 | ToolKind::History
                 | ToolKind::Shell
+                | ToolKind::Rib
         ) && !radial_active
             && !is_near_gizmo
             && !self.extruding_from_gizmo
@@ -971,7 +998,7 @@ impl eframe::App for DuCADApp {
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
                             match kind {
-                                ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody => {
+                                ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
                                     self.picking_mode = PickMode::Face;
                                 }
                                 ToolKind::Select => {
@@ -1674,6 +1701,9 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Shell => {
                                     self.set_tool(ToolKind::Shell);
                                 }
+                                ContextAction::Rib => {
+                                    self.set_tool(ToolKind::Rib);
+                                }
                                 ContextAction::DraftAngle => {
                                     self.set_tool(ToolKind::DraftAngle);
                                 }
@@ -1793,28 +1823,42 @@ impl eframe::App for DuCADApp {
         let m_summary = self.measurements.last().map(|m| m.label());
         let show_normal_to_sketch = self.tool != ToolKind::Select;
 
-        egui::Area::new(egui::Id::new("ducad-hud-status-area"))
-            .pivot(egui::Align2::LEFT_TOP)
-            .fixed_pos(egui::pos2(screen_rect.min.x + 16.0, screen_rect.min.y + 60.0))
-            .order(egui::Order::Foreground)
-            .show(&ctx, |ui| {
-                if let Some(ev) = CanvasHud::show_status_pill(
-                    ui,
-                    &sel_summary,
-                    m_summary.as_deref(),
-                    show_normal_to_sketch,
-                ) {
-                    match ev {
-                        CanvasHudEvent::OrientNormalToSketch => {
-                            self.camera.orient_to_plane(&self.active_plane);
+        let has_top_bar_hud = matches!(
+            self.tool,
+            ToolKind::Loft
+                | ToolKind::Shell
+                | ToolKind::Rib
+                | ToolKind::DraftAngle
+                | ToolKind::SplitBody
+                | ToolKind::Boolean
+                | ToolKind::Sweep
+                | ToolKind::Pattern
+        );
+
+        if !has_top_bar_hud {
+            egui::Area::new(egui::Id::new("ducad-hud-status-area"))
+                .pivot(egui::Align2::LEFT_TOP)
+                .fixed_pos(egui::pos2(screen_rect.min.x + 16.0, screen_rect.min.y + 60.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = CanvasHud::show_status_pill(
+                        ui,
+                        &sel_summary,
+                        m_summary.as_deref(),
+                        show_normal_to_sketch,
+                    ) {
+                        match ev {
+                            CanvasHudEvent::OrientNormalToSketch => {
+                                self.camera.orient_to_plane(&self.active_plane);
+                            }
+                            CanvasHudEvent::OpenMeasurements => {
+                                self.set_tool(ToolKind::Measure);
+                            }
+                            CanvasHudEvent::TurnOffSectionView => {}
                         }
-                        CanvasHudEvent::OpenMeasurements => {
-                            self.set_tool(ToolKind::Measure);
-                        }
-                        CanvasHudEvent::TurnOffSectionView => {}
                     }
-                }
-            });
+                });
+        }
 
         let palette_actions = self.palette_actions();
         let palette_entries: Vec<(&str, &str)> = palette_actions

@@ -129,9 +129,14 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::DraftAngle),
             ),
             (
-                "Shell / Hollow (Rongga)".to_string(),
-                "S".to_string(),
+                "Shell / Hollow (Rongga Casing)".to_string(),
+                "H".to_string(),
                 PaletteAction::SetTool(ToolKind::Shell),
+            ),
+            (
+                "Rib / Tulang Penguat (Stiffener)".to_string(),
+                "R".to_string(),
+                PaletteAction::SetTool(ToolKind::Rib),
             ),
             (
                 "Coincident (titik)".to_string(),
@@ -377,6 +382,7 @@ impl DuCADApp {
             ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
             ToolKind::Sweep => ducad_i18n::t!("status-prompt-sweep"),
             ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
+            ToolKind::Rib => "Pilih body casing & garis tulang penguat, atur tebal & kedalaman, lalu tekan Enter".to_string(),
             ToolKind::DraftAngle => ducad_i18n::t!("status-prompt-draft"),
             ToolKind::SplitBody => "Pilih bidang pemotong (plane) & offset jarak, lalu tekan Enter atau klik Potong".to_string(),
             ToolKind::Pattern => ducad_i18n::t!("status-prompt-pattern"),

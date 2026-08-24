@@ -40,6 +40,7 @@ pub enum ToolbarTool {
     Loft,
     Sweep,
     Shell,
+    Rib,
     DraftAngle,
     SplitBody,
     Boolean,
@@ -206,7 +207,26 @@ impl LeftToolbar {
                 let pattern_title = t!("tool-pattern");
                 let pattern_desc = t!("tool-pattern-desc");
 
+                let shell_title = t!("tool-shell-name");
+                let shell_desc = t!("tool-shell-desc");
+                let rib_title = t!("tool-rib-name");
+                let rib_desc = t!("tool-rib-desc");
+
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (
+                        ToolbarTool::Shell,
+                        ICON_CROP_16_9.codepoint,
+                        &shell_title,
+                        Some("H"),
+                        Some(&shell_desc),
+                    ),
+                    (
+                        ToolbarTool::Rib,
+                        ICON_TIMELINE.codepoint,
+                        &rib_title,
+                        Some("R"),
+                        Some(&rib_desc),
+                    ),
                     (
                         ToolbarTool::SplitBody,
                         ICON_CONTENT_CUT.codepoint,

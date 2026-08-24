@@ -40,6 +40,17 @@ pub enum LoftHudAction {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShellHudAction {
     SetThickness(f64),
+    ToggleVariableMode,
+    Commit,
+    Cancel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RibHudAction {
+    SetThickness(f64),
+    SetDepth(f64),
+    SetDraftAngle(f64),
+    SetAngle(f64),
     Commit,
     Cancel,
 }
@@ -1420,6 +1431,187 @@ impl CanvasHud {
                         }
                     }
                     ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Rib / Tulang Penguat 3D (Stiffener Support).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_rib_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        has_geometry: bool,
+        angle_input: &mut String,
+        thickness_input: &mut String,
+        depth_input: &mut String,
+        draft_input: &mut String,
+    ) -> Option<RibHudAction> {
+        let mut hud_action = None;
+
+        let banner_w = 940.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            19.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            19.0,
+            Stroke::new(
+                1.2,
+                if has_geometry {
+                    ACCENT_GREEN
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = if has_geometry {
+            "🦴 Face Terpilih"
+        } else {
+            "🦴 Pilih Face Casing"
+        };
+
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(step_text)
+                    .size(11.5)
+                    .strong()
+                    .color(if has_geometry {
+                        ACCENT_GREEN
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                if has_geometry {
+                    let exec_btn = egui::Button::new(
+                        RichText::new(t!("hud-rib-exec-enter"))
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_GREEN);
+
+                    if ui.add(exec_btn).clicked() {
+                        hud_action = Some(RibHudAction::Commit);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Draft angle input
+                    let draft_edit = egui::TextEdit::singleline(draft_input)
+                        .desired_width(32.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let r3 = ui.add(draft_edit);
+                    if r3.changed() {
+                        if let Ok(d) = draft_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetDraftAngle(d));
+                        }
+                    }
+                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(format!("{}:", t!("param-draft"))).size(10.5).color(TEXT_SECONDARY));
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Depth input
+                    let depth_edit = egui::TextEdit::singleline(depth_input)
+                        .desired_width(38.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let r2 = ui.add(depth_edit);
+                    if r2.changed() {
+                        if let Ok(d) = depth_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetDepth(d));
+                        }
+                    }
+                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(format!("{}:", t!("param-depth"))).size(10.5).color(TEXT_SECONDARY));
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Thickness input
+                    let thick_edit = egui::TextEdit::singleline(thickness_input)
+                        .desired_width(38.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let r1 = ui.add(thick_edit);
+                    if r1.changed() {
+                        if let Ok(t) = thickness_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetThickness(t));
+                        }
+                    }
+                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Angle Input & Preset Buttons (0° Horisontal, 90° Vertikal, 45° Diagonal)
+                    let current_ang = angle_input.trim().parse::<f64>().unwrap_or(0.0);
+
+                    let btn_45 = egui::Button::new(RichText::new("45°").size(10.0).color(Color32::WHITE))
+                        .fill(if (current_ang - 45.0).abs() < 1e-2 {
+                            ACCENT_BLUE
+                        } else {
+                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
+                        });
+                    if ui.add(btn_45).clicked() {
+                        *angle_input = "45.0".to_string();
+                        hud_action = Some(RibHudAction::SetAngle(45.0));
+                    }
+
+                    let btn_90 = egui::Button::new(RichText::new("90° Vertikal").size(10.0).color(Color32::WHITE))
+                        .fill(if (current_ang - 90.0).abs() < 1e-2 {
+                            ACCENT_BLUE
+                        } else {
+                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
+                        });
+                    if ui.add(btn_90).clicked() {
+                        *angle_input = "90.0".to_string();
+                        hud_action = Some(RibHudAction::SetAngle(90.0));
+                    }
+
+                    let btn_0 = egui::Button::new(RichText::new("0° Horisontal").size(10.0).color(Color32::WHITE))
+                        .fill(if current_ang.abs() < 1e-2 {
+                            ACCENT_BLUE
+                        } else {
+                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
+                        });
+                    if ui.add(btn_0).clicked() {
+                        *angle_input = "0.0".to_string();
+                        hud_action = Some(RibHudAction::SetAngle(0.0));
+                    }
+
+                    let ang_edit = egui::TextEdit::singleline(angle_input)
+                        .desired_width(34.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let r_ang = ui.add(ang_edit);
+                    if r_ang.changed() {
+                        if let Ok(a) = angle_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetAngle(a));
+                        }
+                    }
+                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
+                    ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
                 }
             });
         });
