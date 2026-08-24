@@ -11,7 +11,7 @@ use ducad_sketch::{
 };
 use ducad_ui::{
     ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, DraftAnalysisPopup, DraftInspectionHudAction, Entity2dItemInfo, HistoryDrawer,
+    ContextAction, ContextActionBar, DraftAnalysisPopup, Entity2dItemInfo, HistoryDrawer,
     HistoryDrawerEvent, HistoryPopup, HistoryPopupState, InspectorConstraintAction,
     InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu, RenamePopupEvent,
     ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState,
@@ -907,7 +907,6 @@ impl eframe::App for DuCADApp {
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
-            draft_view_active: self.draft_config.enabled,
             active_plane_name: self.active_plane.name().to_string(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
@@ -983,9 +982,6 @@ impl eframe::App for DuCADApp {
                         }
                         TopBarEvent::ToggleZebraView => {
                             self.zebra_config.enabled = !self.zebra_config.enabled;
-                        }
-                        TopBarEvent::ToggleDraftAnalysis => {
-                            self.draft_config.enabled = !self.draft_config.enabled;
                         }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
@@ -1354,7 +1350,7 @@ impl eframe::App for DuCADApp {
                 });
         }
 
-        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Icon History di Kiri, Icon Folder di Kanan)
+        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Draft Analysis, History, Folder)
         let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
         egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
             .fixed_pos(btns_pos)
@@ -1364,7 +1360,18 @@ impl eframe::App for DuCADApp {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    // Tombol History (Kiri)
+                    // Tombol Draft Analysis (Kiri dari History)
+                    let draft_resp = round_floating_icon_btn(
+                        ui,
+                        egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
+                        self.draft_config.enabled,
+                        "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
+                    );
+                    if draft_resp.clicked() {
+                        self.draft_config.enabled = !self.draft_config.enabled;
+                    }
+
+                    // Tombol History (Tengah)
                     let hist_resp = round_floating_icon_btn(
                         ui,
                         egui_material_icons::icons::ICON_HISTORY.codepoint,

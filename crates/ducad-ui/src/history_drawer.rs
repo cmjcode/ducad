@@ -67,7 +67,7 @@ impl HistoryDrawer {
         ui: &mut Ui,
         activities: &[ActivityItemInfo],
         max_height: f32,
-        anchor_bottom_y: f32,
+        _anchor_bottom_y: f32,
     ) -> Option<HistoryDrawerEvent> {
         let mut event = None;
 
@@ -78,6 +78,24 @@ impl HistoryDrawer {
                 ui.set_max_width(DRAWER_W);
                 ui.set_width(DRAWER_W);
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+
+                let query = self.search_query.trim().to_lowercase();
+                let filtered: Vec<&ActivityItemInfo> = activities
+                    .iter()
+                    .filter(|item| {
+                        if query.is_empty() {
+                            true
+                        } else {
+                            item.action.to_lowercase().contains(&query)
+                                || item.details.to_lowercase().contains(&query)
+                                || item.timestamp.to_lowercase().contains(&query)
+                        }
+                    })
+                    .collect();
+
+                let estimated_h =
+                    (90.0 + (filtered.len().max(1) as f32 * 56.0)).clamp(140.0, max_height);
+                let panel_h = self.custom_height.unwrap_or(estimated_h);
 
                 // =========================================================================
                 // 0. TOP RESIZE HANDLE (Tarik ke atas / bawah untuk mengubah tinggi panel)
@@ -102,10 +120,16 @@ impl HistoryDrawer {
                     .rect_filled(pill_rect, CornerRadius::same(2), pill_color);
 
                 if handle_resp.dragged() {
-                    if let Some(ptr_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                        let desired_h = anchor_bottom_y - ptr_pos.y;
-                        self.custom_height = Some(desired_h.clamp(120.0, max_height));
-                    }
+                    let delta_y = handle_resp.drag_delta().y;
+                    let cur_h = self.custom_height.unwrap_or(estimated_h);
+                    let new_h = (cur_h - delta_y).clamp(120.0, max_height);
+                    self.custom_height = Some(new_h);
+                    ui.ctx().request_repaint();
+                }
+
+                if handle_resp.double_clicked() {
+                    self.custom_height = None;
+                    ui.ctx().request_repaint();
                 }
 
                 // =========================================================================
@@ -220,27 +244,15 @@ impl HistoryDrawer {
                 // =========================================================================
                 // 2. LIST AKTIVITAS DENGAN SCROLL AREA
                 // =========================================================================
-                let panel_h = self.custom_height.unwrap_or(max_height);
-                let query = self.search_query.trim().to_lowercase();
-                let filtered: Vec<&ActivityItemInfo> = activities
-                    .iter()
-                    .filter(|item| {
-                        if query.is_empty() {
-                            true
-                        } else {
-                            item.action.to_lowercase().contains(&query)
-                                || item.details.to_lowercase().contains(&query)
-                                || item.timestamp.to_lowercase().contains(&query)
-                        }
-                    })
-                    .collect();
-
                 let scroll_height = (panel_h - 90.0).max(60.0);
 
                 ScrollArea::vertical()
+                    .id_salt("history_drawer_scroll")
+                    .min_scrolled_height(scroll_height)
                     .max_height(scroll_height)
-                    .auto_shrink([false; 2])
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        ui.set_min_height(scroll_height);
                         ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
 
                         if filtered.is_empty() {

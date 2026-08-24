@@ -109,6 +109,8 @@ fn render_item_card(
             stroke: card_stroke,
         };
 
+        let mut eye_clicked = false;
+
         let card_output = ui.horizontal(|ui| {
             if indent > 0.0 {
                 ui.add_space(indent);
@@ -117,11 +119,22 @@ fn render_item_card(
             let row_resp = row_frame.show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    // Reserve space untuk eye button
-                    let (eye_rect, _) = ui.allocate_exact_size(
+                    // Tombol eye visibility
+                    let (eye_rect, eye_resp) = ui.allocate_exact_size(
                         Vec2::new(24.0, 20.0),
-                        egui::Sense::focusable_noninteractive(),
+                        egui::Sense::click(),
                     );
+                    let is_eye_hovered = eye_resp.hovered();
+                    if is_eye_hovered {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    let eye_bg = if is_eye_hovered {
+                        Color32::from_rgb(60, 75, 100)
+                    } else if visible {
+                        Color32::from_rgb(38, 43, 56)
+                    } else {
+                        Color32::from_rgb(24, 26, 32)
+                    };
 
                     let eye_icon = if visible {
                         ICON_VISIBILITY.codepoint
@@ -138,11 +151,10 @@ fn render_item_card(
                         TEXT_MUTED
                     };
 
-                    // Draw background dan icon placeholder via painter
                     ui.painter().rect_filled(
                         eye_rect,
                         CornerRadius::same(4),
-                        Color32::from_rgb(38, 43, 56),
+                        eye_bg,
                     );
                     ui.painter().text(
                         eye_rect.center(),
@@ -151,6 +163,10 @@ fn render_item_card(
                         egui::FontId::proportional(13.0),
                         eye_color,
                     );
+
+                    if eye_resp.clicked() {
+                        eye_clicked = true;
+                    }
 
                     ui.add_space(4.0);
 
@@ -198,77 +214,15 @@ fn render_item_card(
                             });
                         });
                     }
-
-                    eye_rect
-                })
-                .inner
+                });
             });
 
-            (row_resp.response, row_resp.inner)
+            row_resp.response
         });
 
-        let (row_response, eye_rect_screen) = card_output.inner;
-
-        // Overlay layer Foreground untuk tombol mata interaktif
-        let eye_layer = egui::LayerId::new(
-            egui::Order::Foreground,
-            ui.id().with("eye_overlay").with(id_raw),
-        );
-        let painter = ui.ctx().layer_painter(eye_layer);
-        let ptr = ui.ctx().pointer_interact_pos();
-        let is_hovered = ptr.map(|p| eye_rect_screen.contains(p)).unwrap_or(false);
-
-        let eye_bg = if is_hovered {
-            Color32::from_rgb(60, 75, 100)
-        } else if visible {
-            Color32::from_rgb(38, 43, 56)
-        } else {
-            Color32::from_rgb(24, 26, 32)
-        };
-
-        let eye_icon = if visible {
-            ICON_VISIBILITY.codepoint
-        } else {
-            ICON_VISIBILITY_OFF.codepoint
-        };
-        let eye_color = if visible {
-            if selected {
-                Color32::WHITE
-            } else {
-                TEXT_PRIMARY
-            }
-        } else {
-            TEXT_MUTED
-        };
-
-        painter.rect_filled(
-            eye_rect_screen,
-            CornerRadius::same(4),
-            eye_bg,
-        );
-        painter.text(
-            eye_rect_screen.center(),
-            egui::Align2::CENTER_CENTER,
-            eye_icon,
-            egui::FontId::proportional(13.0),
-            eye_color,
-        );
-
-        if is_hovered {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-
-        let eye_clicked = ui.ctx().input(|i| {
-            is_hovered
-                && i.pointer.primary_clicked()
-                && i.pointer
-                    .interact_pos()
-                    .map(|p| eye_rect_screen.contains(p))
-                    .unwrap_or(false)
-        });
-
+        let row_response = card_output.inner;
         let card_clicked = visible
-            && !is_hovered
+            && !eye_clicked
             && row_response
                 .interact(egui::Sense::click())
                 .clicked();
@@ -368,417 +322,383 @@ impl ItemsDrawer {
             estimated_h += 38.0;
         }
 
-        let panel_h = estimated_h.clamp(140.0, max_height);
-        let auto_shrink_v = estimated_h < max_height;
+        glass_frame().show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                const DRAWER_W: f32 = 230.0;
+                ui.set_min_width(DRAWER_W);
+                ui.set_max_width(DRAWER_W);
+                ui.set_width(DRAWER_W);
+                ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
 
-        let frame = glass_frame()
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::same(10));
-
-        frame.show(ui, |ui| {
-            ui.set_min_width(232.0);
-            ui.set_max_width(232.0);
-            ui.set_width(232.0);
-            if !auto_shrink_v {
-                ui.set_height(panel_h);
-            }
-
-            ui.vertical(|ui| {
-                // -------------------------------------------------------------
-                // SEARCH BAR COMPACT DENGAN TOMBOL CLOSE
-                // -------------------------------------------------------------
-                let search_box_frame = Frame {
-                    inner_margin: Margin::symmetric(8, 5),
-                    outer_margin: Margin::ZERO,
-                    corner_radius: CornerRadius::same(6),
-                    shadow: egui::Shadow::NONE,
-                    fill: Color32::from_rgb(22, 25, 33),
-                    stroke: Stroke::new(0.5, BORDER_SUBTLE),
+                // =========================================================================
+                // 0. TOP RESIZE HANDLE (Tarik ke atas / bawah untuk mengubah tinggi panel)
+                // =========================================================================
+                let (handle_rect, handle_resp) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), 10.0),
+                    egui::Sense::click_and_drag(),
+                );
+                if handle_resp.hovered() || handle_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                let pill_rect =
+                    egui::Rect::from_center_size(handle_rect.center(), Vec2::new(36.0, 4.0));
+                let pill_color = if handle_resp.dragged() {
+                    ACCENT_BLUE
+                } else if handle_resp.hovered() {
+                    TEXT_SECONDARY
+                } else {
+                    Color32::from_rgb(70, 75, 90)
                 };
+                ui.painter()
+                    .rect_filled(pill_rect, CornerRadius::same(2), pill_color);
 
-                search_box_frame.show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(ICON_SEARCH.codepoint)
-                                .size(13.0)
-                                .color(TEXT_MUTED),
-                        );
-                        ui.add_space(2.0);
-
-                        let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text(RichText::new(t!("drawer-search-placeholder")).size(11.0).color(TEXT_MUTED))
-                            .text_color(TEXT_PRIMARY)
-                            .font(egui::TextStyle::Body)
-                            .desired_width(ui.available_width() - 44.0);
-
-                        ui.add(text_edit);
-
-                        if !self.search_query.is_empty() {
-                            let clear_resp = ui.add(
-                                egui::Button::new(
-                                    RichText::new(ICON_CLEAR.codepoint)
-                                        .size(12.0)
-                                        .color(TEXT_MUTED),
-                                )
-                                .frame(false),
-                            );
-                            if clear_resp.clicked() {
-                                self.search_query.clear();
-                            }
-                        }
-
-                        // Tombol close terintegrasi di pojok kanan search bar
-                        let close_btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(ICON_CLOSE.codepoint)
-                                    .size(13.0)
-                                    .color(TEXT_SECONDARY),
-                            )
-                            .frame(false),
-                        );
-                        if close_btn.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-                        if close_btn.clicked() {
-                            event = Some(ItemsDrawerEvent::Close);
-                        }
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                // -------------------------------------------------------------
-                // SCROLL AREA KONTEN
-                // -------------------------------------------------------------
-                let scroll_h = (panel_h - 60.0).max(80.0);
-                let mut scroll_area = ScrollArea::vertical()
-                    .id_salt("items_drawer_scroll")
-                    .auto_shrink([false, auto_shrink_v]);
-
-                if !auto_shrink_v {
-                    scroll_area = scroll_area.max_height(scroll_h);
+                if handle_resp.dragged() {
+                    let delta_y = handle_resp.drag_delta().y;
+                    let cur_h = self
+                        .custom_height
+                        .unwrap_or_else(|| estimated_h.clamp(140.0, max_height));
+                    let new_h = (cur_h - delta_y).clamp(120.0, max_height);
+                    self.custom_height = Some(new_h);
+                    ui.ctx().request_repaint();
                 }
 
-                scroll_area.show(ui, |ui| {
-                    if !auto_shrink_v {
-                        ui.set_min_height(scroll_h);
-                    }
-                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
+                if handle_resp.double_clicked() {
+                    self.custom_height = None;
+                    ui.ctx().request_repaint();
+                }
 
-                    // -----------------------------------------------------------------
-                    // ACCORDION A: 2D OBJECTS
-                    // -----------------------------------------------------------------
-                    let entities_matching: Vec<&Entity2dItemInfo> = entities_2d
-                        .iter()
-                        .filter(|e| query.is_empty() || e.name.to_lowercase().contains(&query))
-                        .collect();
+                // =========================================================================
+                // 1. SEARCH BAR COMPACT DENGAN TOMBOL CLOSE
+                // =========================================================================
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(ICON_SEARCH.codepoint)
+                            .size(13.0)
+                            .color(TEXT_SECONDARY),
+                    );
+                    let has_query = !self.search_query.is_empty();
+                    let clear_btn_w = if has_query { 20.0 } else { 0.0 };
+                    let close_btn_w = 22.0;
+                    let text_width =
+                        (ui.available_width() - clear_btn_w - close_btn_w - 6.0).max(60.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.search_query)
+                            .hint_text(t!("drawer-search-placeholder"))
+                            .clip_text(true)
+                            .desired_width(text_width),
+                    );
 
-                    let obj_chevron = if self.objects_2d_expanded {
-                        ICON_KEYBOARD_ARROW_DOWN.codepoint
-                    } else {
-                        ICON_KEYBOARD_ARROW_RIGHT.codepoint
-                    };
-
-                    let header_frame = Frame {
-                        inner_margin: Margin::symmetric(8, 6),
-                        outer_margin: Margin::ZERO,
-                        corner_radius: CornerRadius::same(6),
-                        shadow: egui::Shadow::NONE,
-                        fill: Color32::from_rgb(30, 33, 42),
-                        stroke: Stroke::new(0.5, BORDER_SUBTLE),
-                    };
-
-                    let header_resp = header_frame
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(obj_chevron)
-                                        .size(13.0)
-                                        .color(TEXT_SECONDARY),
-                                );
-                                ui.add_space(2.0);
-                                ui.label(
-                                    RichText::new("2D OBJECTS")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(TEXT_PRIMARY),
-                                );
-
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    let (badge_rect, _) = ui.allocate_exact_size(
-                                        Vec2::splat(18.0),
-                                        egui::Sense::hover(),
-                                    );
-                                    ui.painter().circle_filled(
-                                        badge_rect.center(),
-                                        9.0,
-                                        Color32::from_rgb(46, 50, 62),
-                                    );
-                                    ui.painter().text(
-                                        badge_rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        format!("{}", entities_2d.len()),
-                                        egui::FontId::proportional(10.0),
-                                        Color32::from_rgb(160, 166, 178),
-                                    );
-                                });
-                            });
-                        })
-                        .response;
-
-                    if header_resp.interact(egui::Sense::click()).clicked() {
-                        self.objects_2d_expanded = !self.objects_2d_expanded;
+                    if has_query {
+                        if ui
+                            .small_button(
+                                RichText::new(ICON_CLEAR.codepoint)
+                                    .size(11.0)
+                                    .color(TEXT_SECONDARY),
+                            )
+                            .on_hover_text(t!("history-clear-search"))
+                            .clicked()
+                        {
+                            self.search_query.clear();
+                        }
                     }
 
-                    if self.objects_2d_expanded {
-                        ui.add_space(2.0);
-                        if entities_2d.is_empty() {
-                            card_frame().show(ui, |ui| {
+                    let close_btn = ui
+                        .small_button(
+                            RichText::new(ICON_CLOSE.codepoint)
+                                .size(12.0)
+                                .color(TEXT_SECONDARY),
+                        )
+                        .on_hover_text(t!("history-close"));
+                    if close_btn.clicked() {
+                        event = Some(ItemsDrawerEvent::Close);
+                    }
+                });
+
+                ui.add_space(2.0);
+
+                // =========================================================================
+                // 2. SCROLL AREA KONTEN
+                // =========================================================================
+                let panel_h = self
+                    .custom_height
+                    .unwrap_or_else(|| estimated_h.clamp(140.0, max_height));
+                let scroll_height = (panel_h - 52.0).max(60.0);
+
+                ScrollArea::vertical()
+                    .id_salt("items_drawer_scroll")
+                    .min_scrolled_height(scroll_height)
+                    .max_height(scroll_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_height(scroll_height);
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
+
+                        // -----------------------------------------------------------------
+                        // ACCORDION A: 2D OBJECTS
+                        // -----------------------------------------------------------------
+                        let entities_matching: Vec<&Entity2dItemInfo> = entities_2d
+                            .iter()
+                            .filter(|e| query.is_empty() || e.name.to_lowercase().contains(&query))
+                            .collect();
+
+                        let obj_chevron = if self.objects_2d_expanded {
+                            ICON_KEYBOARD_ARROW_DOWN.codepoint
+                        } else {
+                            ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                        };
+
+                        let header_frame = Frame {
+                            inner_margin: Margin::symmetric(8, 6),
+                            outer_margin: Margin::ZERO,
+                            corner_radius: CornerRadius::same(6),
+                            shadow: egui::Shadow::NONE,
+                            fill: Color32::from_rgb(30, 33, 42),
+                            stroke: Stroke::new(0.5, BORDER_SUBTLE),
+                        };
+
+                        let header_resp = header_frame
+                            .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(6.0);
+                                ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(ICON_HORIZONTAL_RULE.codepoint)
-                                            .size(20.0)
-                                            .color(TEXT_MUTED),
-                                    );
-                                    ui.label(
-                                        RichText::new(t!("drawer-empty-sketches"))
-                                            .size(11.5)
-                                            .strong()
+                                        RichText::new(obj_chevron)
+                                            .size(13.0)
                                             .color(TEXT_SECONDARY),
                                     );
-                                    ui.add_space(6.0);
-                                });
-                            });
-                        } else {
-                            use std::collections::BTreeMap;
-                            let mut groups: BTreeMap<String, Vec<&Entity2dItemInfo>> = BTreeMap::new();
-                            let mut ungrouped: Vec<&Entity2dItemInfo> = Vec::new();
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        RichText::new("2D OBJECTS")
+                                            .size(11.0)
+                                            .strong()
+                                            .color(TEXT_PRIMARY),
+                                    );
 
-                            for e in &entities_matching {
-                                if query.is_empty()
-                                    || e.name.to_lowercase().contains(&query)
-                                    || e.group_name
-                                        .as_ref()
-                                        .map(|g| g.to_lowercase().contains(&query))
-                                        .unwrap_or(false)
-                                {
-                                    match &e.group_name {
-                                        Some(g) => groups.entry(g.clone()).or_default().push(e),
-                                        None => ungrouped.push(e),
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        let (badge_rect, _) = ui.allocate_exact_size(
+                                            Vec2::splat(18.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().circle_filled(
+                                            badge_rect.center(),
+                                            9.0,
+                                            Color32::from_rgb(46, 50, 62),
+                                        );
+                                        ui.painter().text(
+                                            badge_rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            format!("{}", entities_2d.len()),
+                                            egui::FontId::proportional(10.0),
+                                            Color32::from_rgb(160, 166, 178),
+                                        );
+                                    });
+                                });
+                            })
+                            .response;
+
+                        if header_resp.interact(egui::Sense::click()).clicked() {
+                            self.objects_2d_expanded = !self.objects_2d_expanded;
+                        }
+
+                        if self.objects_2d_expanded {
+                            ui.add_space(2.0);
+                            if entities_2d.is_empty() {
+                                card_frame().show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            RichText::new(ICON_HORIZONTAL_RULE.codepoint)
+                                                .size(20.0)
+                                                .color(TEXT_MUTED),
+                                        );
+                                        ui.label(
+                                            RichText::new(t!("drawer-empty-sketches"))
+                                                .size(11.5)
+                                                .strong()
+                                                .color(TEXT_SECONDARY),
+                                        );
+                                        ui.add_space(6.0);
+                                    });
+                                });
+                            } else {
+                                use std::collections::BTreeMap;
+                                let mut groups: BTreeMap<String, Vec<&Entity2dItemInfo>> = BTreeMap::new();
+                                let mut ungrouped: Vec<&Entity2dItemInfo> = Vec::new();
+
+                                for e in &entities_matching {
+                                    if query.is_empty()
+                                        || e.name.to_lowercase().contains(&query)
+                                        || e.group_name
+                                            .as_ref()
+                                            .map(|g| g.to_lowercase().contains(&query))
+                                            .unwrap_or(false)
+                                    {
+                                        match &e.group_name {
+                                            Some(g) => groups.entry(g.clone()).or_default().push(e),
+                                            None => ungrouped.push(e),
+                                        }
                                     }
                                 }
-                            }
 
-                            // Render grup-grup terlebih dahulu
-                            for (group_name, members) in &groups {
-                                let is_expanded =
-                                    *self.expanded_groups.get(group_name).unwrap_or(&true);
-                                let chevron = if is_expanded {
-                                    ICON_KEYBOARD_ARROW_DOWN.codepoint
-                                } else {
-                                    ICON_KEYBOARD_ARROW_RIGHT.codepoint
-                                };
-                                let any_selected = members.iter().any(|e| e.selected);
-                                let any_visible = members.iter().any(|e| e.visible);
-
-                                let group_frame = Frame {
-                                    inner_margin: Margin::symmetric(8, 5),
-                                    outer_margin: Margin::symmetric(0, 1),
-                                    corner_radius: CornerRadius::same(6),
-                                    shadow: egui::Shadow::NONE,
-                                    fill: if any_selected {
-                                        Color32::from_rgb(18, 35, 60)
+                                // Render grup-grup terlebih dahulu
+                                for (group_name, members) in &groups {
+                                    let is_expanded =
+                                        *self.expanded_groups.get(group_name).unwrap_or(&true);
+                                    let chevron = if is_expanded {
+                                        ICON_KEYBOARD_ARROW_DOWN.codepoint
                                     } else {
-                                        Color32::from_rgb(28, 32, 42)
-                                    },
-                                    stroke: Stroke::new(
-                                        if any_selected { 1.0 } else { 0.5 },
-                                        if any_selected {
-                                            ACCENT_BLUE
+                                        ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                                    };
+                                    let any_selected = members.iter().any(|e| e.selected);
+                                    let any_visible = members.iter().any(|e| e.visible);
+
+                                    let group_frame = Frame {
+                                        inner_margin: Margin::symmetric(8, 5),
+                                        outer_margin: Margin::symmetric(0, 1),
+                                        corner_radius: CornerRadius::same(6),
+                                        shadow: egui::Shadow::NONE,
+                                        fill: if any_selected {
+                                            Color32::from_rgb(18, 35, 60)
                                         } else {
-                                            BORDER_SUBTLE
+                                            Color32::from_rgb(28, 32, 42)
                                         },
-                                    ),
-                                };
-
-                                let group_push_resp = ui.push_id(group_name.as_str(), |ui| {
-                                    let header_output = group_frame.show(ui, |ui| {
-                                        ui.set_width(ui.available_width());
-                                        ui.horizontal(|ui| {
-                                            // Chevron
-                                            ui.label(
-                                                RichText::new(chevron)
-                                                    .size(13.0)
-                                                    .color(TEXT_SECONDARY),
-                                            );
-                                            ui.add_space(4.0);
-
-                                            // Reserve space untuk eye button grup
-                                            let (eye_rect, _) = ui.allocate_exact_size(
-                                                Vec2::new(24.0, 20.0),
-                                                egui::Sense::focusable_noninteractive(),
-                                            );
-
-                                            let eye_icon = if any_visible {
-                                                ICON_VISIBILITY.codepoint
+                                        stroke: Stroke::new(
+                                            if any_selected { 1.0 } else { 0.5 },
+                                            if any_selected {
+                                                ACCENT_BLUE
                                             } else {
-                                                ICON_VISIBILITY_OFF.codepoint
-                                            };
-                                            let eye_color = if any_visible {
-                                                if any_selected {
-                                                    Color32::WHITE
-                                                } else {
-                                                    TEXT_PRIMARY
+                                                BORDER_SUBTLE
+                                            },
+                                        ),
+                                    };
+
+                                    let group_push_resp = ui.push_id(group_name.as_str(), |ui| {
+                                        let mut group_eye_clicked = false;
+                                        let header_output = group_frame.show(ui, |ui| {
+                                            ui.set_width(ui.available_width());
+                                            ui.horizontal(|ui| {
+                                                // Chevron
+                                                ui.label(
+                                                    RichText::new(chevron)
+                                                        .size(13.0)
+                                                        .color(TEXT_SECONDARY),
+                                                );
+                                                ui.add_space(4.0);
+
+                                                // Tombol eye visibility grup
+                                                let (eye_rect, eye_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(24.0, 20.0),
+                                                    egui::Sense::click(),
+                                                );
+                                                let is_hovered = eye_resp.hovered();
+                                                if is_hovered {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                                 }
-                                            } else {
-                                                TEXT_MUTED
-                                            };
 
-                                            ui.painter().rect_filled(
-                                                eye_rect,
-                                                CornerRadius::same(4),
-                                                Color32::from_rgb(38, 43, 56),
-                                            );
-                                            ui.painter().text(
-                                                eye_rect.center(),
-                                                egui::Align2::CENTER_CENTER,
-                                                eye_icon,
-                                                egui::FontId::proportional(13.0),
-                                                eye_color,
-                                            );
+                                                let eye_bg = if is_hovered {
+                                                    Color32::from_rgb(60, 75, 100)
+                                                } else if any_visible {
+                                                    Color32::from_rgb(38, 43, 56)
+                                                } else {
+                                                    Color32::from_rgb(24, 26, 32)
+                                                };
 
-                                            ui.add_space(4.0);
-
-                                            // 2D group icon (ICON_CATEGORY)
-                                            ui.label(
-                                                RichText::new(ICON_CATEGORY.codepoint)
-                                                    .size(13.0)
-                                                    .color(if any_selected {
-                                                        ACCENT_BLUE
-                                                    } else {
-                                                        TEXT_SECONDARY
-                                                    }),
-                                            );
-                                            ui.add_space(6.0);
-                                            // Nama grup
-                                            ui.label(
-                                                RichText::new(group_name.as_str())
-                                                    .size(11.5)
-                                                    .strong()
-                                                    .color(if any_selected {
+                                                let eye_icon = if any_visible {
+                                                    ICON_VISIBILITY.codepoint
+                                                } else {
+                                                    ICON_VISIBILITY_OFF.codepoint
+                                                };
+                                                let eye_color = if any_visible {
+                                                    if any_selected {
                                                         Color32::WHITE
                                                     } else {
                                                         TEXT_PRIMARY
-                                                    }),
-                                            );
-                                            // Badge jumlah anggota (kanan)
-                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                let (badge_rect, _) = ui.allocate_exact_size(
-                                                    Vec2::splat(18.0),
-                                                    egui::Sense::hover(),
-                                                );
-                                                ui.painter().circle_filled(
-                                                    badge_rect.center(),
-                                                    9.0,
-                                                    Color32::from_rgb(46, 50, 62),
+                                                    }
+                                                } else {
+                                                    TEXT_MUTED
+                                                };
+
+                                                ui.painter().rect_filled(
+                                                    eye_rect,
+                                                    CornerRadius::same(4),
+                                                    eye_bg,
                                                 );
                                                 ui.painter().text(
-                                                    badge_rect.center(),
+                                                    eye_rect.center(),
                                                     egui::Align2::CENTER_CENTER,
-                                                    format!("{}", members.len()),
-                                                    egui::FontId::proportional(10.0),
-                                                    Color32::from_rgb(160, 166, 178),
+                                                    eye_icon,
+                                                    egui::FontId::proportional(13.0),
+                                                    eye_color,
                                                 );
+
+                                                if eye_resp.clicked() {
+                                                    group_eye_clicked = true;
+                                                }
+
+                                                ui.add_space(4.0);
+
+                                                // 2D group icon (ICON_CATEGORY)
+                                                ui.label(
+                                                    RichText::new(ICON_CATEGORY.codepoint)
+                                                        .size(13.0)
+                                                        .color(if any_selected {
+                                                            ACCENT_BLUE
+                                                        } else {
+                                                            TEXT_SECONDARY
+                                                        }),
+                                                );
+                                                ui.add_space(6.0);
+                                                // Nama grup
+                                                ui.label(
+                                                    RichText::new(group_name.as_str())
+                                                        .size(11.5)
+                                                        .strong()
+                                                        .color(if any_selected {
+                                                            Color32::WHITE
+                                                        } else {
+                                                            TEXT_PRIMARY
+                                                        }),
+                                                );
+                                                // Badge jumlah anggota (kanan)
+                                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                    let (badge_rect, _) = ui.allocate_exact_size(
+                                                        Vec2::splat(18.0),
+                                                        egui::Sense::hover(),
+                                                    );
+                                                    ui.painter().circle_filled(
+                                                        badge_rect.center(),
+                                                        9.0,
+                                                        Color32::from_rgb(46, 50, 62),
+                                                    );
+                                                    ui.painter().text(
+                                                        badge_rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        format!("{}", members.len()),
+                                                        egui::FontId::proportional(10.0),
+                                                        Color32::from_rgb(160, 166, 178),
+                                                    );
+                                                });
                                             });
+                                        });
 
-                                            eye_rect
-                                        })
-                                        .inner
+                                        let group_resp = header_output.response;
+                                        let group_card_clicked = !group_eye_clicked
+                                            && group_resp
+                                                .interact(egui::Sense::click())
+                                                .clicked();
+
+                                        (group_eye_clicked, group_card_clicked)
                                     });
 
-                                    let group_resp = header_output.response;
-                                    let eye_rect_screen = header_output.inner;
+                                    let (group_eye_clicked, group_card_clicked) = group_push_resp.inner;
 
-                                    let eye_layer = egui::LayerId::new(
-                                        egui::Order::Foreground,
-                                        ui.id().with("group_eye_overlay").with(group_name.as_str()),
-                                    );
-                                    let painter = ui.ctx().layer_painter(eye_layer);
-                                    let ptr = ui.ctx().pointer_interact_pos();
-                                    let is_hovered = ptr
-                                        .map(|p| eye_rect_screen.contains(p))
-                                        .unwrap_or(false);
-
-                                    let eye_bg = if is_hovered {
-                                        Color32::from_rgb(60, 75, 100)
-                                    } else if any_visible {
-                                        Color32::from_rgb(38, 43, 56)
-                                    } else {
-                                        Color32::from_rgb(24, 26, 32)
-                                    };
-
-                                    let eye_icon = if any_visible {
-                                        ICON_VISIBILITY.codepoint
-                                    } else {
-                                        ICON_VISIBILITY_OFF.codepoint
-                                    };
-                                    let eye_color = if any_visible {
-                                        if any_selected {
-                                            Color32::WHITE
-                                        } else {
-                                            TEXT_PRIMARY
-                                        }
-                                    } else {
-                                        TEXT_MUTED
-                                    };
-
-                                    painter.rect_filled(
-                                        eye_rect_screen,
-                                        CornerRadius::same(4),
-                                        eye_bg,
-                                    );
-                                    painter.text(
-                                        eye_rect_screen.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        eye_icon,
-                                        egui::FontId::proportional(13.0),
-                                        eye_color,
-                                    );
-
-                                    if is_hovered {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    if group_eye_clicked {
+                                        event = Some(ItemsDrawerEvent::ToggleGroupVisibility(
+                                            group_name.clone(),
+                                        ));
+                                    } else if group_card_clicked {
+                                        event = Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
                                     }
-
-                                    let eye_clicked = ui.ctx().input(|i| {
-                                        is_hovered
-                                            && i.pointer.primary_clicked()
-                                            && i.pointer
-                                                .interact_pos()
-                                                .map(|p| eye_rect_screen.contains(p))
-                                                .unwrap_or(false)
-                                    });
-
-                                    let card_clicked = !is_hovered
-                                        && group_resp
-                                            .interact(egui::Sense::click())
-                                            .clicked();
-
-                                    (eye_clicked, card_clicked)
-                                });
-
-                                let (group_eye_clicked, group_card_clicked) = group_push_resp.inner;
-
-                                if group_eye_clicked {
-                                    event = Some(ItemsDrawerEvent::ToggleGroupVisibility(
-                                        group_name.clone(),
-                                    ));
-                                } else if group_card_clicked {
-                                    event = Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
-                                }
 
                                 if is_expanded {
                                     // Render anggota grup dengan indentasi dan tombol mata

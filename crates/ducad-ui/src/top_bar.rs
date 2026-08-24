@@ -12,7 +12,7 @@ use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_S
 use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ARCHITECTURE, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
+    ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
     ICON_LAYERS, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
     ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
@@ -49,7 +49,6 @@ pub enum TopBarEvent {
     ToggleSectionView,
     ToggleMeasurements,
     ToggleZebraView,
-    ToggleDraftAnalysis,
     DeleteSelection,
 }
 
@@ -67,7 +66,6 @@ pub struct TopBarState {
     pub section_view_active: bool,
     pub is_measure_active: bool,
     pub zebra_view_active: bool,
-    pub draft_view_active: bool,
     pub active_plane_name: String,
     /// Dropdown popup pemilih Sketch Plane (Top/Front/Right). Dibaca & bisa
     /// diubah oleh `show` — caller wajib menyalin nilai baru balik ke state
@@ -342,22 +340,6 @@ impl TopBar {
                 );
                 if zebra_btn.clicked() {
                     event = Some(TopBarEvent::ToggleZebraView);
-                }
-
-                let draft_title = t!("tool-draft-analysis");
-                let draft_sub = t!("topbar-draft-tooltip");
-                let draft_btn = header_icon_btn(
-                    ui,
-                    ICON_ARCHITECTURE.codepoint,
-                    state.draft_view_active,
-                    &draft_title,
-                    None,
-                    Some(&draft_sub),
-                    None,
-                    None,
-                );
-                if draft_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleDraftAnalysis);
                 }
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)

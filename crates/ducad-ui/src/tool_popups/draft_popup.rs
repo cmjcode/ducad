@@ -2,7 +2,7 @@
 
 use ducad_i18n::t;
 use egui::{
-    Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Stroke, Ui, Vec2,
+    Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{ICON_ARCHITECTURE, ICON_CLOSE};
 
