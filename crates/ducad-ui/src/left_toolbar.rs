@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
+    ICON_ELLIPSE_OUTLINE, ICON_GRID_VIEW, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub enum ToolbarTool {
     PointCoincident,
     PointFixed,
     PointSymmetric,
+    Pattern,
     // 3D Tools
     Extrude,
     Revolve,
@@ -121,6 +122,8 @@ impl LeftToolbar {
                 let spline_desc = t!("tool-spline-desc");
                 let loft_title = t!("tool-loft");
                 let loft_desc = t!("tool-loft-desc");
+                let pattern_title = t!("tool-pattern");
+                let pattern_desc = t!("tool-pattern-desc");
 
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
@@ -166,6 +169,13 @@ impl LeftToolbar {
                         Some(&spline_desc),
                     ),
                     (
+                        ToolbarTool::Pattern,
+                        ICON_GRID_VIEW.codepoint,
+                        &pattern_title,
+                        Some("P"),
+                        Some(&pattern_desc),
+                    ),
+                    (
                         ToolbarTool::Loft,
                         ICON_LAYERS.codepoint,
                         &loft_title,
@@ -193,6 +203,8 @@ impl LeftToolbar {
                 let draft_desc = t!("tool-draft-angle-desc");
                 let split_title = t!("tool-split-body");
                 let split_desc = t!("tool-split-body-desc");
+                let pattern_title = t!("tool-pattern");
+                let pattern_desc = t!("tool-pattern-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
@@ -208,6 +220,13 @@ impl LeftToolbar {
                         &draft_title,
                         Some("D"),
                         Some(&draft_desc),
+                    ),
+                    (
+                        ToolbarTool::Pattern,
+                        ICON_GRID_VIEW.codepoint,
+                        &pattern_title,
+                        Some("P"),
+                        Some(&pattern_desc),
                     ),
                     (
                         ToolbarTool::Sweep,

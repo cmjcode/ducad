@@ -103,6 +103,59 @@ impl Command<ModelDoc> for AddSolidCommand {
     }
 }
 
+/// Tambah beberapa body baru sekaligus dalam 1 langkah undo/redo (dipakai oleh Pattern 3D).
+pub struct AddMultipleSolidsCommand {
+    label: String,
+    pending: Option<Vec<(String, BodyGeometry)>>,
+    ids: Option<Vec<BodyId>>,
+}
+
+impl AddMultipleSolidsCommand {
+    pub fn new(label: impl Into<String>, bodies: Vec<(String, BodyGeometry)>) -> Self {
+        Self {
+            label: label.into(),
+            pending: Some(bodies),
+            ids: None,
+        }
+    }
+
+    pub fn created_ids(&self) -> &[BodyId] {
+        self.ids.as_deref().unwrap_or(&[])
+    }
+}
+
+impl Command<ModelDoc> for AddMultipleSolidsCommand {
+    fn name(&self) -> &str {
+        &self.label
+    }
+
+    fn apply(&mut self, model: &mut ModelDoc) {
+        if let Some(items) = self.pending.take() {
+            let mut created = Vec::with_capacity(items.len());
+            for (name, geo) in items {
+                let id = model.doc.add_body(name);
+                model.geometry.insert(id, geo);
+                created.push(id);
+            }
+            self.ids = Some(created);
+        }
+    }
+
+    fn revert(&mut self, model: &mut ModelDoc) {
+        if let Some(ids) = self.ids.take() {
+            let mut pending = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Some(body) = model.doc.bodies.remove(id) {
+                    if let Some(geo) = model.geometry.remove(id) {
+                        pending.push((body.name, geo));
+                    }
+                }
+            }
+            self.pending = Some(pending);
+        }
+    }
+}
+
 /// Ganti geometri SATU body yang sudah ada dengan hasil baru (dipakai
 /// Fillet/Chamfer semua tepi, Shell/Hollow) — `BodyId` tetap sama, cuma
 /// isinya ditukar. `apply`/`revert` sengaja identik: keduanya cuma
@@ -1296,6 +1349,36 @@ mod tests {
         cmd.revert(&mut model);
         assert_eq!(model.doc.bodies.len(), 1);
         assert_eq!(model.geometry.len(), 1);
+
+        // Re-apply (Redo)
+        cmd.apply(&mut model);
+        assert_eq!(model.doc.bodies.len(), 2);
+        assert_eq!(model.geometry.len(), 2);
+    }
+
+    #[test]
+    fn test_add_multiple_solids_command_undo_redo() {
+        let mut model = ModelDoc::default();
+        let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
+        let shape1 = ducad_kernel::extrude_profile(&circle_profile, 10.0).unwrap();
+        let shape2 = ducad_kernel::extrude_profile(&circle_profile, 20.0).unwrap();
+
+        let items = vec![
+            ("Solid 1".to_string(), BodyGeometry::from_shape(shape1)),
+            ("Solid 2".to_string(), BodyGeometry::from_shape(shape2)),
+        ];
+
+        let mut cmd = AddMultipleSolidsCommand::new("Pattern 3D", items);
+        cmd.apply(&mut model);
+
+        assert_eq!(model.doc.bodies.len(), 2);
+        assert_eq!(model.geometry.len(), 2);
+        assert_eq!(cmd.created_ids().len(), 2);
+
+        // Revert (Undo)
+        cmd.revert(&mut model);
+        assert_eq!(model.doc.bodies.len(), 0);
+        assert_eq!(model.geometry.len(), 0);
 
         // Re-apply (Redo)
         cmd.apply(&mut model);

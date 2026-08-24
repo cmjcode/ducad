@@ -589,3 +589,70 @@ pub fn split_face(
     Ok(KernelShape::from_inner(result_shape))
 }
 
+/// Buat salinan solid 3D dalam susunan grid linier 3D sepanjang sumbu X, Y, dan Z.
+/// `count_x`, `count_y`, `count_z`: jumlah item di tiap arah (minimal 1).
+/// `pitch_x`, `pitch_y`, `pitch_z`: jarak pitch antar item (mm).
+/// Mengembalikan HANYA solid salinan baru (tidak termasuk solid asli pada indeks (0, 0, 0)).
+pub fn linear_pattern_shape(
+    shape: &KernelShape,
+    count_x: usize,
+    pitch_x: f64,
+    count_y: usize,
+    pitch_y: f64,
+    count_z: usize,
+    pitch_z: f64,
+) -> Result<Vec<KernelShape>> {
+    let cx = count_x.max(1);
+    let cy = count_y.max(1);
+    let cz = count_z.max(1);
+
+    let mut result = Vec::new();
+    for iz in 0..cz {
+        for iy in 0..cy {
+            for ix in 0..cx {
+                if ix == 0 && iy == 0 && iz == 0 {
+                    continue;
+                }
+                let dx = ix as f64 * pitch_x;
+                let dy = iy as f64 * pitch_y;
+                let dz = iz as f64 * pitch_z;
+                result.push(crate::shape::translate_shape(shape, dx, dy, dz)?);
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Buat salinan solid 3D dalam susunan melingkar (Circular Pattern 3D) mengelilingi sumbu putar poros 3D.
+/// `pivot`: titik pada sumbu putar (x, y, z).
+/// `axis`: vektor arah sumbu poros putar (x, y, z).
+/// `count`: jumlah TOTAL item (minimal 2).
+/// `total_angle_rad`: rentang sudut total (mis. 2*PI untuk 360° penuh).
+/// Mengembalikan HANYA solid salinan baru (tidak termasuk solid asli pada k=0).
+pub fn circular_pattern_shape(
+    shape: &KernelShape,
+    pivot: (f64, f64, f64),
+    axis: (f64, f64, f64),
+    count: usize,
+    total_angle_rad: f64,
+) -> Result<Vec<KernelShape>> {
+    if count <= 1 {
+        return Ok(Vec::new());
+    }
+
+    let is_full_circle = (total_angle_rad.abs() - std::f64::consts::TAU).abs() < 1e-4;
+    let step_angle = if is_full_circle {
+        total_angle_rad / count as f64
+    } else {
+        total_angle_rad / (count - 1) as f64
+    };
+
+    let mut result = Vec::new();
+    for k in 1..count {
+        let angle = k as f64 * step_angle;
+        result.push(crate::shape::rotate_shape(shape, pivot, axis, angle)?);
+    }
+    Ok(result)
+}
+
+

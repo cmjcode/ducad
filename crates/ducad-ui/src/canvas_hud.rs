@@ -162,6 +162,58 @@ pub enum BooleanOpKind {
     Intersect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatternKind {
+    #[default]
+    Linear,
+    Circular,
+}
+
+impl PatternKind {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Linear => t!("pattern-mode-linear"),
+            Self::Circular => t!("pattern-mode-circular"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatternAxisPreset {
+    #[default]
+    Z,
+    Y,
+    X,
+    Center,
+}
+
+impl PatternAxisPreset {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Z => "Sumbu Z (0,0,1)",
+            Self::Y => "Sumbu Y (0,1,0)",
+            Self::X => "Sumbu X (1,0,0)",
+            Self::Center => "Pusat (0,0)",
+        }
+    }
+
+    pub fn to_dir(&self) -> (f64, f64, f64) {
+        match self {
+            Self::Z | Self::Center => (0.0, 0.0, 1.0),
+            Self::Y => (0.0, 1.0, 0.0),
+            Self::X => (1.0, 0.0, 0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PatternHudAction {
+    SetKind(PatternKind),
+    SetAxis(PatternAxisPreset),
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
@@ -1934,6 +1986,207 @@ impl CanvasHud {
         hud_action
     }
 
+    /// Render Top Bar HUD mengambang untuk fitur Pattern / Array (2D Sketch & 3D Solids).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_pattern_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        is_3d: bool,
+        has_selection: bool,
+        pattern_kind: &mut PatternKind,
+        count_x: &mut usize,
+        pitch_x: &mut f64,
+        count_y: &mut usize,
+        pitch_y: &mut f64,
+        count_z: &mut usize,
+        pitch_z: &mut f64,
+        circ_count: &mut usize,
+        circ_angle_deg: &mut f64,
+        circ_radius: &mut f64,
+        circ_axis: &mut PatternAxisPreset,
+    ) -> Option<PatternHudAction> {
+        let mut hud_action = None;
+
+        let banner_w = if is_3d { 940.0 } else { 880.0 };
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            19.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            19.0,
+            Stroke::new(
+                1.2,
+                if has_selection {
+                    ACCENT_BLUE
+                } else {
+                    Color32::from_rgb(180, 180, 180).gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+
+            // Judul Tool
+            ui.label(
+                RichText::new("⊞ Pattern")
+                    .size(12.0)
+                    .strong()
+                    .color(if has_selection {
+                        ACCENT_BLUE
+                    } else {
+                        TEXT_SECONDARY
+                    }),
+            );
+
+            if !has_selection {
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(if is_3d {
+                        t!("popup-pattern-no-selection-3d")
+                    } else {
+                        t!("popup-pattern-no-selection-2d")
+                    })
+                    .size(11.0)
+                    .color(TEXT_MUTED),
+                );
+                return;
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Mode Selector: [Linier] [Sirkular]
+            for mode in &[PatternKind::Linear, PatternKind::Circular] {
+                let is_active = *pattern_kind == *mode;
+                let btn = egui::Button::new(
+                    RichText::new(mode.label())
+                        .size(11.0)
+                        .strong()
+                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
+                )
+                .fill(if is_active {
+                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
+                } else {
+                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                });
+
+                if ui.add(btn).clicked() {
+                    *pattern_kind = *mode;
+                    hud_action = Some(PatternHudAction::SetKind(*mode));
+                }
+            }
+
+            ui.add_space(6.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            match pattern_kind {
+                PatternKind::Linear => {
+                    // X params
+                    ui.label(RichText::new("X:").size(11.0).strong().color(Color32::from_rgb(255, 100, 100)));
+                    ui.add(egui::DragValue::new(count_x).range(1..=50).prefix("qty: "));
+                    ui.add(egui::DragValue::new(pitch_x).speed(1.0).suffix("mm"));
+
+                    ui.add_space(4.0);
+                    // Y params
+                    ui.label(RichText::new("Y:").size(11.0).strong().color(Color32::from_rgb(100, 220, 100)));
+                    ui.add(egui::DragValue::new(count_y).range(1..=50).prefix("qty: "));
+                    ui.add(egui::DragValue::new(pitch_y).speed(1.0).suffix("mm"));
+
+                    if is_3d {
+                        ui.add_space(4.0);
+                        // Z params
+                        ui.label(RichText::new("Z:").size(11.0).strong().color(Color32::from_rgb(100, 150, 255)));
+                        ui.add(egui::DragValue::new(count_z).range(1..=50).prefix("qty: "));
+                        ui.add(egui::DragValue::new(pitch_z).speed(1.0).suffix("mm"));
+                    }
+                }
+                PatternKind::Circular => {
+                    // Count
+                    ui.label(RichText::new("Qty:").size(10.5).color(TEXT_SECONDARY));
+                    ui.add(egui::DragValue::new(circ_count).range(2..=120));
+
+                    ui.add_space(4.0);
+                    // Radius
+                    ui.label(RichText::new("Radius:").size(10.5).color(TEXT_SECONDARY));
+                    ui.add(egui::DragValue::new(circ_radius).speed(1.0).range(0.1..=10000.0).suffix("mm"));
+
+                    ui.add_space(4.0);
+                    // Angle
+                    ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
+                    ui.add(egui::DragValue::new(circ_angle_deg).speed(1.0).range(-360.0..=360.0).suffix("°"));
+
+                    // Quick Angle buttons
+                    for angle in &[360.0, 180.0, 90.0] {
+                        let is_active = (*circ_angle_deg - angle).abs() < 1e-3;
+                        let btn = egui::Button::new(RichText::new(format!("{:.0}°", angle)).size(10.0))
+                            .fill(if is_active { ACCENT_BLUE.gamma_multiply(0.6) } else { Color32::from_rgba_premultiplied(40, 45, 55, 160) });
+                        if ui.add(btn).clicked() {
+                            *circ_angle_deg = *angle;
+                        }
+                    }
+
+                    if is_3d {
+                        ui.add_space(4.0);
+                        // Dropdown Axis
+                        egui::ComboBox::from_id_salt("ducad-pattern-axis-combo")
+                            .selected_text(RichText::new(circ_axis.label()).size(10.5).color(TEXT_PRIMARY))
+                            .width(110.0)
+                            .show_ui(ui, |ui| {
+                                for ax in &[PatternAxisPreset::Z, PatternAxisPreset::Y, PatternAxisPreset::X] {
+                                    if ui.selectable_value(circ_axis, *ax, RichText::new(ax.label()).size(10.5)).clicked() {
+                                        hud_action = Some(PatternHudAction::SetAxis(*ax));
+                                    }
+                                }
+                            });
+                    }
+                }
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                // Tombol Eksekusi Pattern
+                let exec_btn = egui::Button::new(
+                    RichText::new(format!("✓ {}", t!("popup-pattern-apply")))
+                        .size(11.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(ACCENT_BLUE);
+
+                if ui.add(exec_btn).clicked() {
+                    hud_action = Some(PatternHudAction::Commit);
+                }
+
+                ui.add_space(4.0);
+
+                // Tombol Batal
+                let cancel_btn = egui::Button::new(
+                    RichText::new("✕ Batal")
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
+                )
+                .fill(Color32::from_rgba_premultiplied(45, 50, 60, 160));
+
+                if ui.add(cancel_btn).clicked() {
+                    hud_action = Some(PatternHudAction::Cancel);
+                }
+            });
+        });
+
+        hud_action
+    }
+
     /// Render popup rename mengambang di area top-center kanvas.
     ///
     /// `label` — judul yang ditampilkan (mis. "Nama Grup 2D" atau "Nama Body 3D").
@@ -2009,5 +2262,100 @@ impl CanvasHud {
         }
 
         event
+    }
+
+    /// Render Shapr3D-style interactive floating stepper pill `[ - ] Label: 4 [ + ]`
+    pub fn render_stepper_pill(
+        ui: &mut egui::Ui,
+        center_pos: egui::Pos2,
+        label: &str,
+        count: usize,
+        min: usize,
+        max: usize,
+    ) -> (egui::Response, Option<usize>) {
+        let size = egui::vec2(110.0, 26.0);
+        let rect = egui::Rect::from_center_size(center_pos, size);
+        let mut new_count = None;
+
+        let response = ui.allocate_rect(rect, egui::Sense::hover());
+
+        // Background pill
+        ui.painter().rect_filled(
+            rect,
+            13.0,
+            Color32::from_rgba_premultiplied(16, 20, 28, 235),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            13.0,
+            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 160, 255, 180)),
+            egui::StrokeKind::Inside,
+        );
+
+        let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        child_ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+            ui.add_space(4.0);
+
+            // Minus button
+            let minus_btn = egui::Button::new(RichText::new("−").size(12.0).strong().color(if count > min { Color32::WHITE } else { TEXT_MUTED }))
+                .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
+                .min_size(egui::vec2(18.0, 18.0));
+            if ui.add(minus_btn).on_hover_text("Kurangi jumlah").clicked() && count > min {
+                new_count = Some(count - 1);
+            }
+
+            // Value text
+            let text = format!("{}: {}", label, count);
+            ui.label(RichText::new(text).size(10.5).strong().color(ACCENT_BLUE));
+
+            // Plus button
+            let plus_btn = egui::Button::new(RichText::new("+").size(12.0).strong().color(if count < max { Color32::WHITE } else { TEXT_MUTED }))
+                .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
+                .min_size(egui::vec2(18.0, 18.0));
+            if ui.add(plus_btn).on_hover_text("Tambah jumlah").clicked() && count < max {
+                new_count = Some(count + 1);
+            }
+        });
+
+        (response, new_count)
+    }
+
+    /// Render Shapr3D-style draggable circular pivot pin
+    pub fn render_circular_pivot_pin(
+        ui: &mut egui::Ui,
+        center_pos: egui::Pos2,
+        is_active: bool,
+    ) -> egui::Response {
+        let size = egui::vec2(22.0, 22.0);
+        let rect = egui::Rect::from_center_size(center_pos, size);
+        let response = ui.allocate_rect(rect, egui::Sense::drag().union(egui::Sense::click()));
+
+        let is_hovered = response.hovered();
+        let color = if is_active {
+            ACCENT_ORANGE
+        } else if is_hovered {
+            ACCENT_BLUE
+        } else {
+            Color32::from_rgb(0, 180, 255)
+        };
+
+        let painter = ui.painter();
+        painter.circle_filled(center_pos, 8.0, Color32::from_rgba_premultiplied(10, 20, 35, 200));
+        painter.circle_stroke(center_pos, 8.0, egui::Stroke::new(1.8, color));
+        painter.circle_filled(center_pos, 3.0, color);
+
+        // Crosshair ticks
+        painter.line_segment([center_pos - egui::vec2(12.0, 0.0), center_pos + egui::vec2(12.0, 0.0)], egui::Stroke::new(1.0, color));
+        painter.line_segment([center_pos - egui::vec2(0.0, 12.0), center_pos + egui::vec2(0.0, 12.0)], egui::Stroke::new(1.0, color));
+
+        if is_hovered {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
+        if response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+
+        response
     }
 }

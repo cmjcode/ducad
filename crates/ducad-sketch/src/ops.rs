@@ -666,3 +666,183 @@ pub fn find_all_corners(sketch: &Sketch) -> Vec<(EntityId, EntityId, DVec2, DVec
         })
         .collect()
 }
+
+/// Putar satu titik 2D mengelilingi pusat `pivot` sebesar `angle_rad` radian.
+pub fn rotate_point(p: DVec2, pivot: DVec2, angle_rad: f64) -> DVec2 {
+    let rel = p - pivot;
+    let cos_a = angle_rad.cos();
+    let sin_a = angle_rad.sin();
+    pivot + DVec2::new(rel.x * cos_a - rel.y * sin_a, rel.x * sin_a + rel.y * cos_a)
+}
+
+/// Putar entitas 2D mengelilingi titik pusat `pivot` sebesar `angle_rad` radian.
+pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
+    match entity {
+        Entity::Line { start, end } => Entity::Line {
+            start: rotate_point(*start, pivot, angle_rad),
+            end: rotate_point(*end, pivot, angle_rad),
+        },
+        Entity::Circle { center, radius } => Entity::Circle {
+            center: rotate_point(*center, pivot, angle_rad),
+            radius: *radius,
+        },
+        Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        } => Entity::Arc {
+            center: rotate_point(*center, pivot, angle_rad),
+            radius: *radius,
+            start_angle: start_angle + angle_rad,
+            end_angle: end_angle + angle_rad,
+        },
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+        } => {
+            let norm_angle = ((angle_rad % std::f64::consts::TAU) + std::f64::consts::TAU) % std::f64::consts::TAU;
+            let is_perpendicular = (norm_angle - std::f64::consts::FRAC_PI_2).abs() < 0.01
+                || (norm_angle - 3.0 * std::f64::consts::FRAC_PI_2).abs() < 0.01;
+            let (rx, ry) = if is_perpendicular {
+                (*radius_y, *radius_x)
+            } else {
+                (*radius_x, *radius_y)
+            };
+            Entity::Ellipse {
+                center: rotate_point(*center, pivot, angle_rad),
+                radius_x: rx,
+                radius_y: ry,
+            }
+        }
+        Entity::Spline { points } => Entity::Spline {
+            points: points
+                .iter()
+                .map(|p| rotate_point(*p, pivot, angle_rad))
+                .collect(),
+        },
+    }
+}
+
+/// Buat salinan entitas dalam susunan grid linier 2D (Count X, Pitch X, Count Y, Pitch Y).
+/// Mengembalikan HANYA entitas salinan baru (tidak termasuk entitas asli pada indeks (0, 0)).
+pub fn linear_pattern_entities(
+    entities: &[Entity],
+    count_x: usize,
+    pitch_x: f64,
+    count_y: usize,
+    pitch_y: f64,
+) -> Vec<Entity> {
+    let mut new_entities = Vec::new();
+    let cx = count_x.max(1);
+    let cy = count_y.max(1);
+
+    for iy in 0..cy {
+        for ix in 0..cx {
+            if ix == 0 && iy == 0 {
+                continue; // Lewati entitas asli
+            }
+            let delta = DVec2::new(ix as f64 * pitch_x, iy as f64 * pitch_y);
+            for e in entities {
+                new_entities.push(translate_entity(e, delta));
+            }
+        }
+    }
+
+    new_entities
+}
+
+/// Transformasi sebuah entitas dengan rotasi terhadap centroid aslinya, lalu translasi ke pusat target baru.
+pub fn transform_entity_to_target(
+    entity: &Entity,
+    orig_center: DVec2,
+    target_center: DVec2,
+    angle_rad: f64,
+) -> Entity {
+    let rotated = rotate_entity(entity, orig_center, angle_rad);
+    let delta = target_center - orig_center;
+    translate_entity(&rotated, delta)
+}
+
+/// Buat salinan entitas dalam susunan melingkar (Circular Pattern 2D) mengelilingi titik pusat `pivot`.
+/// `count`: jumlah TOTAL item (termasuk item awal). Jika count <= 1, mengembalikan kosong.
+/// `total_angle_rad`: rentang sudut rotasi total (mis. 2*PI untuk 360° penuh).
+/// Mengembalikan HANYA entitas salinan baru (tidak termasuk entitas asli pada k=0).
+pub fn circular_pattern_entities(
+    entities: &[Entity],
+    pivot: DVec2,
+    count: usize,
+    total_angle_rad: f64,
+) -> Vec<Entity> {
+    circular_pattern_entities_with_radius(entities, pivot, count, total_angle_rad, None)
+}
+
+/// Buat salinan entitas dalam susunan melingkar (Circular Pattern 2D) dengan radius orbit eksplisit.
+pub fn circular_pattern_entities_with_radius(
+    entities: &[Entity],
+    pivot: DVec2,
+    count: usize,
+    total_angle_rad: f64,
+    custom_radius: Option<f64>,
+) -> Vec<Entity> {
+    if count <= 1 || entities.is_empty() {
+        return Vec::new();
+    }
+
+    let orig_centroid = compute_entities_centroid(entities).unwrap_or(pivot);
+    let base_vec = orig_centroid - pivot;
+    let base_dist = base_vec.length();
+    let r = custom_radius.unwrap_or(if base_dist > 1e-4 { base_dist } else { 30.0 });
+    let base_dir = if base_dist > 1e-4 {
+        base_vec / base_dist
+    } else {
+        DVec2::new(1.0, 0.0)
+    };
+
+    let mut new_entities = Vec::new();
+    let is_full_circle = (total_angle_rad.abs() - std::f64::consts::TAU).abs() < 1e-4;
+    let step_angle = if is_full_circle {
+        total_angle_rad / count as f64
+    } else {
+        total_angle_rad / (count - 1) as f64
+    };
+
+    for k in 1..count {
+        let angle = k as f64 * step_angle;
+        let (sin_a, cos_a) = angle.sin_cos();
+        let rot_dir = DVec2::new(
+            base_dir.x * cos_a - base_dir.y * sin_a,
+            base_dir.x * sin_a + base_dir.y * cos_a,
+        );
+        let target_center = pivot + rot_dir * r;
+
+        for e in entities {
+            new_entities.push(transform_entity_to_target(e, orig_centroid, target_center, angle));
+        }
+    }
+
+    new_entities
+}
+
+/// Hitung titik pusat bounding box gabungan dari sekumpulan entitas sketsa.
+pub fn compute_entities_centroid(entities: &[Entity]) -> Option<DVec2> {
+    if entities.is_empty() {
+        return None;
+    }
+    let mut sum = DVec2::ZERO;
+    let mut count = 0.0;
+
+    for e in entities {
+        for pt in e.endpoints() {
+            sum += pt;
+            count += 1.0;
+        }
+    }
+
+    if count > 0.0 {
+        Some(sum / count)
+    } else {
+        None
+    }
+}

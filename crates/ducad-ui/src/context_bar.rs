@@ -7,7 +7,8 @@
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
-    ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE,
+    ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL,
+    ICON_REFRESH, ICON_ROUTE,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -17,6 +18,7 @@ pub enum ContextAction {
     Offset,
     Mirror,
     Trim,
+    Pattern,
     Revolve,
     Sweep,
     Shell,
@@ -96,6 +98,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Pangkas segmen garis yang bersilangan (T)").clicked() {
                     action = Some(ContextAction::Trim);
+                }
+
+                // 4.5 Pattern
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Pattern", ICON_GRID_VIEW.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Duplikasi entitas dalam kisi Linier / Sirkular (P)").clicked() {
+                    action = Some(ContextAction::Pattern);
                 }
 
                 // 5. Revolve
@@ -330,6 +344,25 @@ impl ContextActionBar {
                     ui.separator();
                     ui.add_space(2.0);
                 }
+
+                // Pattern Solid (1 or more bodies)
+                let pattern_btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Pattern", ICON_GRID_VIEW.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if pattern_btn
+                    .on_hover_text("Duplikasi solid 3D dalam kisi Linier / Sirkular (P)")
+                    .clicked()
+                {
+                    action = Some(ContextAction::Pattern);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
 
                 // Rename Body
                 let rename_btn = ui.add(

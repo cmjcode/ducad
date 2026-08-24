@@ -122,6 +122,121 @@ impl DuCADApp {
             }
         }
 
+        // Live 2D Pattern Ghost Preview
+        if self.tool == ToolKind::Pattern && !self.selected.is_empty() {
+            let entities: Vec<Entity> = self
+                .selected
+                .iter()
+                .filter_map(|id| self.sketch().entities.get(*id).cloned())
+                .collect();
+
+            if !entities.is_empty() {
+                let ghost_entities = match self.pattern_kind {
+                    ducad_ui::PatternKind::Linear => {
+                        ducad_sketch::linear_pattern_entities(
+                            &entities,
+                            self.pattern_count_x,
+                            self.pattern_pitch_x,
+                            self.pattern_count_y,
+                            self.pattern_pitch_y,
+                        )
+                    }
+                    ducad_ui::PatternKind::Circular => {
+                        let pivot = self.pattern_custom_pivot_2d.unwrap_or(DVec2::ZERO);
+                        let total_angle_rad = self.pattern_circ_angle_deg.to_radians();
+                        ducad_sketch::circular_pattern_entities_with_radius(
+                            &entities,
+                            pivot,
+                            self.pattern_circ_count,
+                            total_angle_rad,
+                            Some(self.pattern_circ_radius),
+                        )
+                    }
+                };
+
+                let ghost_color = [0.0, 0.85, 1.0, 0.75];
+                for entity in ghost_entities {
+                    match &entity {
+                        Entity::Line { start, end } => {
+                            let p1 = self.active_plane.to_world(*start, 0.03);
+                            let p2 = self.active_plane.to_world(*end, 0.03);
+                            verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: ghost_color });
+                            verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
+                        }
+                        Entity::Circle { center, radius } => {
+                            let segs = 36;
+                            for i in 0..segs {
+                                let a1 = i as f64 * std::f64::consts::TAU / segs as f64;
+                                let a2 = (i + 1) as f64 * std::f64::consts::TAU / segs as f64;
+                                let p1 = self.active_plane.to_world(glam::DVec2::new(center.x + a1.cos() * radius, center.y + a1.sin() * radius), 0.03);
+                                let p2 = self.active_plane.to_world(glam::DVec2::new(center.x + a2.cos() * radius, center.y + a2.sin() * radius), 0.03);
+                                verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: ghost_color });
+                                verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
+                            }
+                        }
+                        Entity::Arc { center, radius, start_angle, end_angle } => {
+                            let (p_start, p_via, p_end) = {
+                                let tau = std::f64::consts::TAU;
+                                let span = if end_angle - start_angle <= 0.0 { end_angle - start_angle + tau } else { end_angle - start_angle };
+                                let mid = start_angle + span * 0.5;
+                                (
+                                    *center + DVec2::new(radius * start_angle.cos(), radius * start_angle.sin()),
+                                    *center + DVec2::new(radius * mid.cos(), radius * mid.sin()),
+                                    *center + DVec2::new(radius * end_angle.cos(), radius * end_angle.sin()),
+                                )
+                            };
+                            if let Some(arc) = ducad_sketch::arc_from_three_points(p_start, p_via, p_end) {
+                                verts.extend(sketch_render::preview_lines(&arc, &self.active_plane));
+                            }
+                        }
+                        Entity::Ellipse { .. } | Entity::Spline { .. } => {
+                            verts.extend(sketch_render::preview_lines(&entity, &self.active_plane));
+                        }
+                    }
+                }
+
+                // Render axes gizmo lines from centroid
+                if let Some(centroid) = ducad_sketch::compute_entities_centroid(&entities) {
+                    match self.pattern_kind {
+                        ducad_ui::PatternKind::Linear => {
+                            let origin_3d = self.active_plane.to_world(centroid, 0.04);
+                            let target_x = centroid + DVec2::new(self.pattern_pitch_x, 0.0);
+                            let target_y = centroid + DVec2::new(0.0, self.pattern_pitch_y);
+                            let pt_x_3d = self.active_plane.to_world(target_x, 0.04);
+                            let pt_y_3d = self.active_plane.to_world(target_y, 0.04);
+
+                            let col_x = [1.0, 0.35, 0.35, 0.90];
+                            let col_y = [0.35, 0.85, 0.35, 0.90];
+                            verts.extend(sketch_render::dashed_line_3d([origin_3d.x, origin_3d.y, origin_3d.z], [pt_x_3d.x, pt_x_3d.y, pt_x_3d.z], 2.5, col_x));
+                            verts.extend(sketch_render::dashed_line_3d([origin_3d.x, origin_3d.y, origin_3d.z], [pt_y_3d.x, pt_y_3d.y, pt_y_3d.z], 2.5, col_y));
+                        }
+                        ducad_ui::PatternKind::Circular => {
+                            let pivot = self.pattern_custom_pivot_2d.unwrap_or(DVec2::ZERO);
+                            let pivot_3d = self.active_plane.to_world(pivot, 0.04);
+                            let centroid_3d = self.active_plane.to_world(centroid, 0.04);
+                            let col_axis = [1.0, 0.75, 0.20, 0.85];
+                            verts.extend(sketch_render::dashed_line_3d([pivot_3d.x, pivot_3d.y, pivot_3d.z], [centroid_3d.x, centroid_3d.y, centroid_3d.z], 2.0, col_axis));
+
+                            // Orbit Ring Guide Circle
+                            let r = self.pattern_circ_radius;
+                            let segs = 64;
+                            let col_ring = [0.0, 0.80, 1.0, 0.50];
+                            for i in 0..segs {
+                                let a1 = i as f64 * std::f64::consts::TAU / segs as f64;
+                                let a2 = (i + 1) as f64 * std::f64::consts::TAU / segs as f64;
+                                let p1 = self.active_plane.to_world(glam::DVec2::new(pivot.x + a1.cos() * r, pivot.y + a1.sin() * r), 0.02);
+                                let p2 = self.active_plane.to_world(glam::DVec2::new(pivot.x + a2.cos() * r, pivot.y + a2.sin() * r), 0.02);
+                                if i % 2 == 0 {
+                                    verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: col_ring });
+                                    verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: col_ring });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if self.tool == ToolKind::Select {
             if let Some(centroid) = self.selected_closed_region_centroid() {
                 let c_base_pt = self.active_plane.to_world(centroid, 0.02);
@@ -361,13 +476,13 @@ impl DuCADApp {
             }
         }
 
-        let all_corners = ducad_sketch::find_all_corners(self.sketch());
-        for (_, _, corner_2d, _) in &all_corners {
-            verts.extend(sketch_render::picked_point_glyph(*corner_2d, &self.active_plane));
+        if let Some((_, _, corner_2d)) = self.active_sketch_corner {
+            verts.extend(sketch_render::picked_point_glyph(corner_2d, &self.active_plane));
+        } else if let Some(corner_2d) = self.hovered_corner_2d {
+            verts.extend(sketch_render::picked_point_glyph(corner_2d, &self.active_plane));
         }
 
-        if let Some((id1, id2, corner_2d)) = self.active_sketch_corner {
-            verts.extend(sketch_render::picked_point_glyph(corner_2d, &self.active_plane));
+        if let Some((id1, id2, _corner_2d)) = self.active_sketch_corner {
             let r = self.sketch_corner_gizmo_radius;
             let (e1_opt, e2_opt) = (
                 self.sketch().entities.get(id1),
@@ -1117,6 +1232,57 @@ impl DuCADApp {
                         [0.10, 0.70, 0.95, 0.75]
                     };
                     colors.extend(std::iter::repeat_n(preview_color, tess.positions.len()));
+                }
+            }
+        }
+
+        // 3D Live Ghost Pattern Preview
+        if self.tool == ToolKind::Pattern && !self.selected_bodies.is_empty() {
+            const GHOST_CYAN: [f32; 4] = [0.0, 0.80, 1.0, 0.40];
+            for &body_id in &self.selected_bodies {
+                let Some(geo) = self.model.geometry.get(body_id) else {
+                    continue;
+                };
+                let duplicated_shapes = match self.pattern_kind {
+                    ducad_ui::PatternKind::Linear => {
+                        ducad_kernel::linear_pattern_shape(
+                            &geo.shape,
+                            self.pattern_count_x,
+                            self.pattern_pitch_x,
+                            self.pattern_count_y,
+                            self.pattern_pitch_y,
+                            self.pattern_count_z,
+                            self.pattern_pitch_z,
+                        )
+                    }
+                    ducad_ui::PatternKind::Circular => {
+                        let center = geo.mesh.center();
+                        let pivot = self.pattern_custom_pivot_3d
+                            .map(|v| (v.x as f64, v.y as f64, v.z as f64))
+                            .unwrap_or((center[0] as f64, center[1] as f64, center[2] as f64));
+                        let axis = self.pattern_circ_axis.to_dir();
+                        let total_angle_rad = self.pattern_circ_angle_deg.to_radians();
+
+                        ducad_kernel::circular_pattern_shape(
+                            &geo.shape,
+                            pivot,
+                            axis,
+                            self.pattern_circ_count,
+                            total_angle_rad,
+                        )
+                    }
+                };
+
+                if let Ok(shapes) = duplicated_shapes {
+                    for shape in shapes {
+                        let tess = shape.tessellate();
+                        let base_index = positions.len() as u32;
+                        let tri_count = tess.triangle_count();
+                        positions.extend(tess.positions);
+                        normals.extend(tess.normals);
+                        colors.extend(vec![GHOST_CYAN; tri_count * 3]);
+                        indices.extend(tess.indices.into_iter().map(|idx| idx + base_index));
+                    }
                 }
             }
         }

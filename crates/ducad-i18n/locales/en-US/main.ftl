@@ -108,6 +108,8 @@ tool-draft-angle = Draft Angle
 tool-draft-angle-desc = Add mold draft taper to planar faces for injection molding (D)
 tool-split-body = Split Body & Face
 tool-split-body-desc = Cut a 3D solid into 2 separate bodies or split faces using a plane or sheet surface (S)
+tool-pattern = Pattern / Array
+tool-pattern-desc = Duplicate objects in linear (X/Y/Z grid) or circular (polar) pattern (P)
 tool-boolean = Boolean
 tool-boolean-desc = Union, Subtract, or Intersect 3D bodies
 tool-section = Section View
@@ -405,6 +407,25 @@ popup-split-apply = Split Body
 popup-split-apply-face = Split Face
 param-draft-angle = Draft Angle
 param-pull-dir = Pull Direction
+
+# Popup & HUD Pattern (Linear & Circular Array)
+popup-pattern-title = Pattern / Array (2D & 3D)
+popup-pattern-desc = Duplicate selected geometry in a linear grid (X, Y, Z) or circular (polar axis) array.
+pattern-mode-linear = Linear
+pattern-mode-circular = Circular
+param-pattern-mode = Mode
+param-count-x = Count X
+param-pitch-x = Pitch X (mm)
+param-count-y = Count Y
+param-pitch-y = Pitch Y (mm)
+param-count-z = Count Z
+param-pitch-z = Pitch Z (mm)
+param-pattern-count = Total Count
+param-pattern-angle = Total Angle
+param-pattern-axis = Rotation Axis
+popup-pattern-apply = Apply Pattern
+popup-pattern-no-selection-2d = Select at least 1 sketch entity to create a Pattern
+popup-pattern-no-selection-3d = Select at least 1 3D body to create a Pattern
 popup-boolean-title = Boolean 3D Operations
 popup-boolean-desc = Selected bodies: { $count } (min 2 required)
 revolve-axis-too-short-title = Revolve Failed: Axis Too Short
@@ -500,6 +521,7 @@ status-prompt-extrude = Extrude: drag gizmo arrow or click ruler dimension to se
 status-prompt-loft = Loft: set bottom profile & height in bottom-right popup
 status-prompt-shell = Shell: select open face then set wall thickness (S)
 status-prompt-draft = Draft Angle: select planar face(s) to add mold taper (D)
+status-prompt-pattern = Pattern / Array: set count & pitch (Linear) or rotation angle (Circular) in Top HUD then click Apply (Enter) (P)
 status-prompt-boolean = Boolean: select at least 2 solid bodies then pick operation (B)
 status-prompt-section = Section View: adjust 3D section plane
 status-prompt-history = History: view modeling steps and perform Undo / Redo (H)
@@ -652,8 +674,16 @@ guide-split-step-3 = 3. Split into 2 separate bodies
 guide-split-tip = 💡 Shortcut: S | Press Enter to split
 guide-split-badge = 2 Bodies
 
+guide-pattern-header = Pattern Guide (Linear & Circular):
+guide-pattern-step-1 = 1. Select 2D entities or 3D body
+guide-pattern-step-2 = 2. Adjust count & pitch in Top HUD
+guide-pattern-step-3 = 3. Apply Pattern (Enter)
+guide-pattern-tip = 💡 Shortcut: P | Use angle presets 360°/180°/90° for Circular Pattern
+guide-pattern-badge = ⊞ Pattern
+
 # Units
 unit-mm = mm (Millimeter)
 unit-cm = cm (Centimeter)
 unit-m = m (Meter)
 unit-inch = in (Inch)
+

@@ -32,6 +32,8 @@ pub enum ToolKind {
     FixedPick,
     /// Constraint Symmetric.
     SymmetricPick,
+    /// Pattern / Array (Linier X/Y/Z & Sirkular putar).
+    Pattern,
     // 3D Solid tools
     Extrude,
     /// Revolve 360° penuh atau sudut custom.
@@ -72,6 +74,7 @@ impl ToolKind {
             ToolKind::CoincidentPick => ToolbarTool::PointCoincident,
             ToolKind::FixedPick => ToolbarTool::PointFixed,
             ToolKind::SymmetricPick => ToolbarTool::PointSymmetric,
+            ToolKind::Pattern => ToolbarTool::Pattern,
             ToolKind::Extrude => ToolbarTool::Extrude,
             ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::Loft => ToolbarTool::Loft,
@@ -104,6 +107,7 @@ impl ToolKind {
             ToolbarTool::PointCoincident => ToolKind::CoincidentPick,
             ToolbarTool::PointFixed => ToolKind::FixedPick,
             ToolbarTool::PointSymmetric => ToolKind::SymmetricPick,
+            ToolbarTool::Pattern => ToolKind::Pattern,
             ToolbarTool::Extrude => ToolKind::Extrude,
             ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::Loft => ToolKind::Loft,
@@ -132,7 +136,7 @@ pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 ];
 
 #[allow(dead_code)]
-pub const KEYBOARD_SHORTCUTS: [(&str, &str); 21] = [
+pub const KEYBOARD_SHORTCUTS: [(&str, &str); 22] = [
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
@@ -143,8 +147,9 @@ pub const KEYBOARD_SHORTCUTS: [(&str, &str); 21] = [
     ("T", "Tool Trim"),
     ("V", "Tool Revolve"),
     ("F", "Tool Fillet & Chamfer"),
-    ("S", "Tool Shell / Hollow"),
+    ("S", "Tool Shell / Hollow / Split"),
     ("D", "Tool Draft Angle (Kemiringan Cetakan)"),
+    ("P", "Tool Pattern / Array (Linier & Sirkular)"),
     ("B", "Tool Boolean"),
     ("I", "Tool Pengukuran"),
     ("H", "Riwayat & Undo/Redo"),
@@ -206,6 +211,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::CoincidentPick
         | ToolKind::FixedPick
         | ToolKind::SymmetricPick
+        | ToolKind::Pattern
         | ToolKind::Extrude
         | ToolKind::Loft
         | ToolKind::Sweep

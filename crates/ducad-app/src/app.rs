@@ -222,6 +222,27 @@ pub struct DuCADApp {
     pub split_mode: ducad_ui::SplitMode,
     pub split_plane: ducad_ui::SplitPlaneKind,
     pub split_offset_input: String,
+
+    /// State Pattern / Array (Fase 2.3 — Linier & Sirkular 2D & 3D).
+    pub pattern_kind: ducad_ui::PatternKind,
+    pub pattern_count_x: usize,
+    pub pattern_pitch_x: f64,
+    pub pattern_count_y: usize,
+    pub pattern_pitch_y: f64,
+    pub pattern_count_z: usize,
+    pub pattern_pitch_z: f64,
+    pub pattern_circ_count: usize,
+    pub pattern_circ_angle_deg: f64,
+    pub pattern_circ_radius: f64,
+    pub pattern_circ_axis: ducad_ui::PatternAxisPreset,
+    pub pattern_custom_pivot_2d: Option<glam::DVec2>,
+    pub pattern_custom_pivot_3d: Option<glam::Vec3>,
+    pub pattern_dimension_editing_x: bool,
+    pub pattern_dimension_editing_y: bool,
+    pub pattern_dimension_editing_z: bool,
+    pub pattern_dimension_editing_angle: bool,
+    pub pattern_dimension_editing_radius: bool,
+    pub pattern_dimension_edit_input: String,
 }
 
 /// Target objek yang sedang di-rename.
@@ -439,6 +460,26 @@ impl DuCADApp {
             split_mode: ducad_ui::SplitMode::SplitBody,
             split_plane: ducad_ui::SplitPlaneKind::XY,
             split_offset_input: "0.0".to_string(),
+
+            pattern_kind: ducad_ui::PatternKind::Linear,
+            pattern_count_x: 3,
+            pattern_pitch_x: 20.0,
+            pattern_count_y: 2,
+            pattern_pitch_y: 20.0,
+            pattern_count_z: 1,
+            pattern_pitch_z: 20.0,
+            pattern_circ_count: 6,
+            pattern_circ_angle_deg: 360.0,
+            pattern_circ_radius: 30.0,
+            pattern_circ_axis: ducad_ui::PatternAxisPreset::Z,
+            pattern_custom_pivot_2d: None,
+            pattern_custom_pivot_3d: None,
+            pattern_dimension_editing_x: false,
+            pattern_dimension_editing_y: false,
+            pattern_dimension_editing_z: false,
+            pattern_dimension_editing_angle: false,
+            pattern_dimension_editing_radius: false,
+            pattern_dimension_edit_input: "20.0".to_string(),
         }
     }
 
@@ -1506,6 +1547,7 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
+                                ContextAction::Pattern => self.set_tool(ToolKind::Pattern),
                                 ContextAction::Revolve => self.open_revolve_dialog(),
                                 ContextAction::Sweep => {
                                     if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
@@ -1588,6 +1630,9 @@ impl eframe::App for DuCADApp {
                                 ContextAction::SplitBody => {
                                     self.split_mode = ducad_ui::SplitMode::SplitBody;
                                     self.set_tool(ToolKind::SplitBody);
+                                }
+                                ContextAction::Pattern => {
+                                    self.set_tool(ToolKind::Pattern);
                                 }
                                 ContextAction::Boolean => {
                                     self.set_tool(ToolKind::Boolean);

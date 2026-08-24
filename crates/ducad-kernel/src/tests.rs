@@ -1589,4 +1589,46 @@ fn split_box_offset_from_origin() {
     assert_eq!(parts.len(), 2, "Harus menghasilkan tepat 2 body terpisah");
 }
 
+#[test]
+fn test_linear_pattern_shape() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(10.0, 10.0);
+    let shape = extrude_profile(&profile, 10.0).expect("extrude box harus berhasil");
+
+    // 2 x 2 x 2 pattern -> 8 total, 7 new copies
+    let pattern = linear_pattern_shape(&shape, 2, 20.0, 2, 20.0, 2, 20.0).expect("linear_pattern_shape harus berhasil");
+    assert_eq!(pattern.len(), 7);
+
+    for s in &pattern {
+        let mesh = s.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+}
+
+#[test]
+fn test_circular_pattern_shape() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(5.0, 5.0);
+    let shape = extrude_profile(&profile, 10.0).expect("extrude box harus berhasil");
+    // Geser box 20mm ke arah +X
+    let moved = crate::shape::translate_shape(&shape, 20.0, 0.0, 0.0).unwrap();
+
+    // 4 items 360 deg sekeliling sumbu Z -> 3 new copies
+    let pattern = circular_pattern_shape(
+        &moved,
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0),
+        4,
+        std::f64::consts::TAU,
+    )
+    .expect("circular_pattern_shape harus berhasil");
+
+    assert_eq!(pattern.len(), 3);
+    for s in &pattern {
+        let mesh = s.tessellate();
+        assert!(mesh.triangle_count() > 0);
+    }
+}
+
+
 

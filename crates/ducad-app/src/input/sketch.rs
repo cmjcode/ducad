@@ -154,12 +154,42 @@ impl DuCADApp {
         self.body_move_target = None;
         self.loft_alignment_dismissed = false;
         self.loft_staged_body_id = None;
-        self.selection_box = None;
         self.fillet_chamfer_first_line = None;
         self.active_sketch_corner = None;
         self.active_sketch_fillet_arc = None;
         self.sketch_corner_gizmo_active = false;
         self.sketch_corner_dimension_editing = false;
+
+        if tool == ToolKind::Pattern {
+            self.pattern_dimension_editing_x = false;
+            self.pattern_dimension_editing_y = false;
+            self.pattern_dimension_editing_z = false;
+            self.pattern_dimension_editing_angle = false;
+            self.pattern_dimension_editing_radius = false;
+            self.pattern_custom_pivot_2d = None;
+            self.pattern_custom_pivot_3d = None;
+
+            if !self.selected.is_empty() {
+                let entities: Vec<Entity> = self
+                    .selected
+                    .iter()
+                    .filter_map(|id| self.sketch().entities.get(*id).cloned())
+                    .collect();
+                if let Some(c) = ducad_sketch::compute_entities_centroid(&entities) {
+                    let d = c.length();
+                    self.pattern_circ_radius = if d >= 1.0 { d } else { 30.0 };
+                }
+            } else if !self.selected_bodies.is_empty() {
+                for &bid in &self.selected_bodies {
+                    if let Some(geo) = self.model.geometry.get(bid) {
+                        let c = geo.mesh.center();
+                        let d = ((c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) as f64).sqrt();
+                        self.pattern_circ_radius = if d >= 1.0 { d } else { 30.0 };
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     /// Eksekusi commit Fillet 2D atau Chamfer 2D saat drag gizmo sudut 2D selesai atau angka dimasukkan.
@@ -883,6 +913,9 @@ impl DuCADApp {
                 self.left_toolbar.is_sketching = true;
                 self.camera.orient_to_plane(&self.active_plane);
             }
+            if ui.input(|i| i.key_pressed(egui::Key::P)) && !self.is_sketching {
+                self.set_tool(ToolKind::Pattern);
+            }
             if self.is_sketching {
                 if ui.input(|i| i.key_pressed(egui::Key::L)) {
                     self.set_tool(ToolKind::Line);
@@ -907,6 +940,9 @@ impl DuCADApp {
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::T)) {
                     self.set_tool(ToolKind::Trim);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::P)) {
+                    self.set_tool(ToolKind::Pattern);
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::V)) {
                     self.open_revolve_dialog();
@@ -1785,6 +1821,7 @@ impl DuCADApp {
             | ToolKind::Shell
             | ToolKind::DraftAngle
             | ToolKind::SplitBody
+            | ToolKind::Pattern
             | ToolKind::Boolean
             | ToolKind::SectionView
             | ToolKind::History => {

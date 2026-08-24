@@ -379,6 +379,7 @@ impl DuCADApp {
             ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
             ToolKind::DraftAngle => ducad_i18n::t!("status-prompt-draft"),
             ToolKind::SplitBody => "Pilih bidang pemotong (plane) & offset jarak, lalu tekan Enter atau klik Potong".to_string(),
+            ToolKind::Pattern => ducad_i18n::t!("status-prompt-pattern"),
             ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
             ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),

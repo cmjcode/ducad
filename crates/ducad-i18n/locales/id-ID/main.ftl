@@ -108,6 +108,8 @@ tool-draft-angle = Draft Angle (Kemiringan Cetakan)
 tool-draft-angle-desc = Tambahkan sudut kemiringan cetakan plastik (injection molding) pada bidang planar (D)
 tool-split-body = Split Body & Face (Potong Benda)
 tool-split-body-desc = Potong solid 3D menjadi 2 body terpisah atau bagi face menggunakan bidang/permukaan (S)
+tool-pattern = Pattern / Array
+tool-pattern-desc = Gandakan objek secara linier (grid X/Y/Z) atau sirkular (melingkar) (P)
 tool-boolean = Operasi Boolean
 tool-boolean-desc = Gabung, Kurang, atau Irisan benda 3D
 tool-section = Tampilan Irisan
@@ -405,6 +407,25 @@ popup-split-apply = Potong Body
 popup-split-apply-face = Bagi Face
 param-draft-angle = Sudut Draft
 param-pull-dir = Arah Bukaan (Pull)
+
+# Popup & HUD Pattern (Array Linier & Sirkular)
+popup-pattern-title = Pattern / Array (2D & 3D)
+popup-pattern-desc = Duplikasi geometri terpilih dalam susunan kisi linier (X, Y, Z) atau melingkar (poros putar).
+pattern-mode-linear = Linier
+pattern-mode-circular = Sirkular
+param-pattern-mode = Mode
+param-count-x = Jumlah X
+param-pitch-x = Jarak X (mm)
+param-count-y = Jumlah Y
+param-pitch-y = Jarak Y (mm)
+param-count-z = Jumlah Z
+param-pitch-z = Jarak Z (mm)
+param-pattern-count = Jumlah Item
+param-pattern-angle = Sudut Total
+param-pattern-axis = Sumbu Poros
+popup-pattern-apply = Terapkan Pattern
+popup-pattern-no-selection-2d = Pilih minimal 1 entitas sketsa untuk membuat Pattern
+popup-pattern-no-selection-3d = Pilih minimal 1 body 3D untuk membuat Pattern
 popup-boolean-title = Operasi Boolean 3D
 popup-boolean-desc = Body terpilih: { $count } objek (butuh minimal 2)
 revolve-axis-too-short-title = Revolve Gagal: Sumbu Terlalu Pendek
@@ -500,6 +521,7 @@ status-prompt-extrude = Ekstrusi: tarik panah gizmo atau klik angka dimensi rule
 status-prompt-loft = Loft: atur profil bawah & tinggi pada popup kanan bawah
 status-prompt-shell = Shell: pilih sisi terbuka lalu atur ketebalan dinding (S)
 status-prompt-draft = Draft Angle: pilih face datar untuk menambahkan kemiringan cetakan (D)
+status-prompt-pattern = Pattern / Array: atur jumlah & jarak (Linier) atau sudut putar (Sirkular) di Top HUD lalu klik Terapkan (Enter) (P)
 status-prompt-boolean = Boolean: pilih minimal 2 body solid lalu pilih operasi (B)
 status-prompt-section = Tampilan Irisan: atur bidang potongan solid 3D
 status-prompt-history = Riwayat: lihat jejak langkah modeling dan lakukan Undo / Redo (H)
@@ -652,8 +674,16 @@ guide-split-step-3 = 3. Potong menjadi 2 Body terpisah
 guide-split-tip = 💡 Pintasan: S | Tekan Enter untuk potong
 guide-split-badge = 2 Bodies
 
+guide-pattern-header = Panduan Pattern (Linier & Sirkular):
+guide-pattern-step-1 = 1. Pilih entitas sketsa 2D atau body 3D
+guide-pattern-step-2 = 2. Atur jumlah & jarak di Top HUD
+guide-pattern-step-3 = 3. Terapkan Pattern (Enter)
+guide-pattern-tip = 💡 Pintasan: P | Gunakan preset sudut 360°/180°/90° untuk Sirkular Pattern
+guide-pattern-badge = ⊞ Pattern
+
 # Units
 unit-mm = mm (Milimeter)
 unit-cm = cm (Sentimeter)
 unit-m = m (Meter)
 unit-inch = in (Inci)
+

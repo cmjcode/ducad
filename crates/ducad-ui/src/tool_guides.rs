@@ -83,6 +83,7 @@ impl ToolGuides {
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::DraftAngle => Self::render_draft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::SplitBody => Self::render_split_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::Pattern => Self::render_pattern_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
@@ -1872,6 +1873,88 @@ impl ToolGuides {
                 Color32::WHITE,
             );
         }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Pattern / Array Tool (Linier & Sirkular)
+    fn render_pattern_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 3.6;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if !has_selection && phase < 0.30 {
+            (t!("guide-pattern-step-1"), ACCENT_ORANGE)
+        } else if phase < 0.65 {
+            (t!("guide-pattern-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-pattern-step-3"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-pattern-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-pattern-tip"));
+
+        // Render visual grid pattern of small circles / squares
+        let base_pos = Pos2::new(card_rect.left() + 45.0, card_rect.center().y - 10.0);
+        let spacing_x = 24.0;
+        let spacing_y = 20.0;
+
+        let cols = 3;
+        let rows = 2;
+
+        // Base entity (pertama)
+        painter.circle_filled(base_pos, 5.0, ACCENT_BLUE);
+        painter.circle_stroke(base_pos, 5.0, Stroke::new(1.2, Color32::WHITE));
+
+        // Animated duplicate entities
+        let progress = if phase < 0.35 {
+            0.0
+        } else {
+            ((phase - 0.35) / 0.45).clamp(0.0, 1.0)
+        };
+
+        let active_count = (progress * (cols * rows) as f32).ceil() as usize;
+
+        for r in 0..rows {
+            for c in 0..cols {
+                let idx = r * cols + c;
+                if idx == 0 {
+                    continue;
+                }
+                let pt = Pos2::new(base_pos.x + c as f32 * spacing_x, base_pos.y + r as f32 * spacing_y);
+                if idx < active_count {
+                    let alpha = ((progress * (cols * rows) as f32 - (idx - 1) as f32).clamp(0.0, 1.0) * 220.0) as u8;
+                    painter.circle_filled(pt, 5.0, Color32::from_rgba_premultiplied(0, 150, 255, alpha));
+                    painter.circle_stroke(pt, 5.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 230, 255, alpha)));
+                } else {
+                    painter.circle_stroke(pt, 4.0, Stroke::new(0.8, Color32::from_rgba_premultiplied(100, 110, 130, 100)));
+                }
+            }
+        }
+
+        if phase >= 0.70 {
+            let badge_pos = Pos2::new(card_rect.right() - 52.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "⊞ 3×2 Grid",
+                Color32::from_rgba_premultiplied(20, 60, 110, 220),
+                Color32::WHITE,
+            );
+        }
+
+        let cursor_target = Pos2::new(base_pos.x + 2.0 * spacing_x, base_pos.y + spacing_y);
+        let (cursor_pos, is_clicking) = if phase < 0.35 {
+            let t = (phase / 0.35).clamp(0.0, 1.0);
+            (Pos2::new(base_pos.x + (1.0 - t) * 15.0, base_pos.y), t > 0.8)
+        } else {
+            let t = ((phase - 0.35) / 0.45).clamp(0.0, 1.0);
+            (Pos2::new(base_pos.x + (cursor_target.x - base_pos.x) * t, base_pos.y + (cursor_target.y - base_pos.y) * t), t > 0.9)
+        };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }

@@ -930,6 +930,410 @@ impl DuCADApp {
             } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.set_tool(ToolKind::Select);
             }
+        } else if self.tool == ToolKind::Pattern {
+            let is_3d = !self.is_sketching;
+            let has_selection = if is_3d {
+                !self.selected_bodies.is_empty()
+            } else {
+                !self.selected.is_empty()
+            };
+
+            if let Some(action) = CanvasHud::render_pattern_top_bar_hud(
+                ui,
+                rect,
+                is_3d,
+                has_selection,
+                &mut self.pattern_kind,
+                &mut self.pattern_count_x,
+                &mut self.pattern_pitch_x,
+                &mut self.pattern_count_y,
+                &mut self.pattern_pitch_y,
+                &mut self.pattern_count_z,
+                &mut self.pattern_pitch_z,
+                &mut self.pattern_circ_count,
+                &mut self.pattern_circ_angle_deg,
+                &mut self.pattern_circ_radius,
+                &mut self.pattern_circ_axis,
+            ) {
+                match action {
+                    ducad_ui::PatternHudAction::SetKind(k) => {
+                        self.pattern_kind = k;
+                    }
+                    ducad_ui::PatternHudAction::SetAxis(ax) => {
+                        self.pattern_circ_axis = ax;
+                    }
+                    ducad_ui::PatternHudAction::Commit => {
+                        if is_3d {
+                            self.apply_pattern_3d();
+                        } else {
+                            self.apply_pattern_2d();
+                        }
+                    }
+                    ducad_ui::PatternHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if has_selection {
+                // Compute Centroid
+                let centroid_3d = if is_3d {
+                    let mut sum_c = Vec3::ZERO;
+                    let mut count = 0;
+                    for &bid in &self.selected_bodies {
+                        if let Some(geo) = self.model.geometry.get(bid) {
+                            let c = geo.mesh.center();
+                            sum_c += Vec3::new(c[0] as f32, c[1] as f32, c[2] as f32);
+                            count += 1;
+                        }
+                    }
+                    if count > 0 { sum_c / (count as f32) } else { Vec3::ZERO }
+                } else {
+                    let entities: Vec<ducad_sketch::Entity> = self
+                        .selected
+                        .iter()
+                        .filter_map(|id| self.sketch().entities.get(*id).cloned())
+                        .collect();
+                    let c2d = ducad_sketch::compute_entities_centroid(&entities).unwrap_or(glam::DVec2::ZERO);
+                    self.active_plane.to_world(c2d, 0.0)
+                };
+
+                match self.pattern_kind {
+                    ducad_ui::PatternKind::Linear => {
+                        // 1. AXIS X HANDLE & STEPPER
+                        let dir_x = if is_3d { Vec3::X } else { self.active_plane.u_axis };
+                        let handle_x_3d = centroid_3d + dir_x * (self.pattern_pitch_x as f32);
+                        if let Some(handle_x_2d) = world_to_screen_pos(&self.camera, rect, handle_x_3d) {
+                            let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_x, egui::Vec2::ZERO);
+                            let resp_x = CanvasHud::render_draggable_double_arrow_handle(ui, handle_x_2d, false, arrow_vec_opt);
+                            if resp_x.dragged() {
+                                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_x, resp_x.drag_delta());
+                                self.pattern_pitch_x = (self.pattern_pitch_x + delta_mm as f64).max(1.0);
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_x));
+                            }
+
+                            // Stepper X (Atas)
+                            let (_, new_cx) = CanvasHud::render_stepper_pill(ui, handle_x_2d + egui::vec2(0.0, -32.0), "X Qty", self.pattern_count_x, 1, 50);
+                            if let Some(val) = new_cx {
+                                self.pattern_count_x = val;
+                            }
+
+                            // Distance Pill X (Bawah)
+                            let pill_pos_x = handle_x_2d + egui::vec2(0.0, 32.0);
+                            let pill_resp_x = CanvasHud::render_interactive_dimension_pill(
+                                ui,
+                                pill_pos_x,
+                                &format!("X: {}", self.unit.format(self.pattern_pitch_x)),
+                                self.pattern_dimension_editing_x,
+                            );
+                            if pill_resp_x.clicked() {
+                                self.pattern_dimension_editing_x = !self.pattern_dimension_editing_x;
+                                self.pattern_dimension_editing_y = false;
+                                self.pattern_dimension_editing_z = false;
+                                self.pattern_dimension_editing_angle = false;
+                                self.pattern_dimension_editing_radius = false;
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_x));
+                            }
+                            if self.pattern_dimension_editing_x {
+                                let popup_rect = egui::Rect::from_center_size(pill_pos_x + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                                egui::Area::new(egui::Id::new("ducad-pattern-edit-popup-x"))
+                                    .fixed_pos(popup_rect.min)
+                                    .order(egui::Order::Foreground)
+                                    .show(ui.ctx(), |ui| {
+                                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                            let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
+                                            resp.request_focus();
+                                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                self.pattern_dimension_editing_x = false;
+                                            } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
+                                                    self.pattern_pitch_x = self.unit.to_internal_mm(val).max(1.0);
+                                                }
+                                                self.pattern_dimension_editing_x = false;
+                                            } else if resp.lost_focus() {
+                                                self.pattern_dimension_editing_x = false;
+                                            }
+                                        });
+                                    });
+                            }
+                        }
+
+                        // 2. AXIS Y HANDLE & STEPPER
+                        let dir_y = if is_3d { Vec3::Y } else { self.active_plane.v_axis };
+                        let handle_y_3d = centroid_3d + dir_y * (self.pattern_pitch_y as f32);
+                        if let Some(handle_y_2d) = world_to_screen_pos(&self.camera, rect, handle_y_3d) {
+                            let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_y, egui::Vec2::ZERO);
+                            let resp_y = CanvasHud::render_draggable_double_arrow_handle(ui, handle_y_2d, false, arrow_vec_opt);
+                            if resp_y.dragged() {
+                                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_y, resp_y.drag_delta());
+                                self.pattern_pitch_y = (self.pattern_pitch_y + delta_mm as f64).max(1.0);
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_y));
+                            }
+
+                            // Stepper Y (Atas)
+                            let (_, new_cy) = CanvasHud::render_stepper_pill(ui, handle_y_2d + egui::vec2(0.0, -32.0), "Y Qty", self.pattern_count_y, 1, 50);
+                            if let Some(val) = new_cy {
+                                self.pattern_count_y = val;
+                            }
+
+                            // Distance Pill Y (Bawah)
+                            let pill_pos_y = handle_y_2d + egui::vec2(0.0, 32.0);
+                            let pill_resp_y = CanvasHud::render_interactive_dimension_pill(
+                                ui,
+                                pill_pos_y,
+                                &format!("Y: {}", self.unit.format(self.pattern_pitch_y)),
+                                self.pattern_dimension_editing_y,
+                            );
+                            if pill_resp_y.clicked() {
+                                self.pattern_dimension_editing_y = !self.pattern_dimension_editing_y;
+                                self.pattern_dimension_editing_x = false;
+                                self.pattern_dimension_editing_z = false;
+                                self.pattern_dimension_editing_angle = false;
+                                self.pattern_dimension_editing_radius = false;
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_y));
+                            }
+                            if self.pattern_dimension_editing_y {
+                                let popup_rect = egui::Rect::from_center_size(pill_pos_y + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                                egui::Area::new(egui::Id::new("ducad-pattern-edit-popup-y"))
+                                    .fixed_pos(popup_rect.min)
+                                    .order(egui::Order::Foreground)
+                                    .show(ui.ctx(), |ui| {
+                                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                            let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
+                                            resp.request_focus();
+                                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                self.pattern_dimension_editing_y = false;
+                                            } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
+                                                    self.pattern_pitch_y = self.unit.to_internal_mm(val).max(1.0);
+                                                }
+                                                self.pattern_dimension_editing_y = false;
+                                            } else if resp.lost_focus() {
+                                                self.pattern_dimension_editing_y = false;
+                                            }
+                                        });
+                                    });
+                            }
+                        }
+
+                        // 3. AXIS Z HANDLE & STEPPER (Hanya jika 3D)
+                        if is_3d {
+                            let dir_z = Vec3::Z;
+                            let handle_z_3d = centroid_3d + dir_z * (self.pattern_pitch_z as f32);
+                            if let Some(handle_z_2d) = world_to_screen_pos(&self.camera, rect, handle_z_3d) {
+                                let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_z, egui::Vec2::ZERO);
+                                let resp_z = CanvasHud::render_draggable_double_arrow_handle(ui, handle_z_2d, false, arrow_vec_opt);
+                                if resp_z.dragged() {
+                                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_z, resp_z.drag_delta());
+                                    self.pattern_pitch_z = (self.pattern_pitch_z + delta_mm as f64).max(1.0);
+                                    self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_z));
+                                }
+
+                                // Stepper Z (Atas)
+                                let (_, new_cz) = CanvasHud::render_stepper_pill(ui, handle_z_2d + egui::vec2(0.0, -32.0), "Z Qty", self.pattern_count_z, 1, 50);
+                                if let Some(val) = new_cz {
+                                    self.pattern_count_z = val;
+                                }
+
+                                // Distance Pill Z (Bawah)
+                                let pill_pos_z = handle_z_2d + egui::vec2(0.0, 32.0);
+                                let pill_resp_z = CanvasHud::render_interactive_dimension_pill(
+                                    ui,
+                                    pill_pos_z,
+                                    &format!("Z: {}", self.unit.format(self.pattern_pitch_z)),
+                                    self.pattern_dimension_editing_z,
+                                );
+                                if pill_resp_z.clicked() {
+                                    self.pattern_dimension_editing_z = !self.pattern_dimension_editing_z;
+                                    self.pattern_dimension_editing_x = false;
+                                    self.pattern_dimension_editing_y = false;
+                                    self.pattern_dimension_editing_angle = false;
+                                    self.pattern_dimension_editing_radius = false;
+                                    self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_z));
+                                }
+                                if self.pattern_dimension_editing_z {
+                                    let popup_rect = egui::Rect::from_center_size(pill_pos_z + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                                    egui::Area::new(egui::Id::new("ducad-pattern-edit-popup-z"))
+                                        .fixed_pos(popup_rect.min)
+                                        .order(egui::Order::Foreground)
+                                        .show(ui.ctx(), |ui| {
+                                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                                let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
+                                                resp.request_focus();
+                                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                    self.pattern_dimension_editing_z = false;
+                                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                    if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
+                                                        self.pattern_pitch_z = self.unit.to_internal_mm(val).max(1.0);
+                                                    }
+                                                    self.pattern_dimension_editing_z = false;
+                                                } else if resp.lost_focus() {
+                                                    self.pattern_dimension_editing_z = false;
+                                                }
+                                            });
+                                        });
+                                }
+                            }
+                        }
+                    }
+                    ducad_ui::PatternKind::Circular => {
+                        // 1. PIVOT PIN GIZMO (Draggable)
+                        let pivot_3d = if is_3d {
+                            self.pattern_custom_pivot_3d.unwrap_or(Vec3::ZERO)
+                        } else {
+                            let p2d = self.pattern_custom_pivot_2d.unwrap_or(glam::DVec2::ZERO);
+                            self.active_plane.to_world(p2d, 0.0)
+                        };
+
+                        if let Some(pivot_screen) = world_to_screen_pos(&self.camera, rect, pivot_3d) {
+                            let is_custom = self.pattern_custom_pivot_2d.is_some() || self.pattern_custom_pivot_3d.is_some();
+                            let pivot_resp = CanvasHud::render_circular_pivot_pin(ui, pivot_screen, is_custom);
+
+                            if pivot_resp.dragged() {
+                                if !is_3d {
+                                    if let Some(pt_uv) = screen_to_plane_point(
+                                        &self.camera,
+                                        rect,
+                                        pivot_resp.interact_pointer_pos().unwrap_or(pivot_screen),
+                                        &self.active_plane,
+                                    ) {
+                                        self.pattern_custom_pivot_2d = Some(pt_uv);
+                                    }
+                                } else {
+                                    let ground_plane = SketchPlane {
+                                        origin: pivot_3d,
+                                        ..SketchPlane::top()
+                                    };
+                                    if let Some(pt_uv) = screen_to_plane_point(
+                                        &self.camera,
+                                        rect,
+                                        pivot_resp.interact_pointer_pos().unwrap_or(pivot_screen),
+                                        &ground_plane,
+                                    ) {
+                                        self.pattern_custom_pivot_3d = Some(Vec3::new(pt_uv.x as f32, pt_uv.y as f32, pivot_3d.z));
+                                    }
+                                }
+                            }
+
+                            // Stepper Qty (Atas Pivot)
+                            let (_, new_cc) = CanvasHud::render_stepper_pill(ui, pivot_screen + egui::vec2(0.0, -34.0), "Qty", self.pattern_circ_count, 2, 120);
+                            if let Some(val) = new_cc {
+                                self.pattern_circ_count = val;
+                            }
+
+                            // Sudut Pill (Bawah Pivot)
+                            let pill_pos_ang = pivot_screen + egui::vec2(0.0, 34.0);
+                            let pill_resp_ang = CanvasHud::render_interactive_dimension_pill(
+                                ui,
+                                pill_pos_ang,
+                                &format!("Sudut: {:.0}°", self.pattern_circ_angle_deg),
+                                self.pattern_dimension_editing_angle,
+                            );
+                            if pill_resp_ang.clicked() {
+                                self.pattern_dimension_editing_angle = !self.pattern_dimension_editing_angle;
+                                self.pattern_dimension_editing_x = false;
+                                self.pattern_dimension_editing_y = false;
+                                self.pattern_dimension_editing_z = false;
+                                self.pattern_dimension_editing_radius = false;
+                                self.pattern_dimension_edit_input = format!("{:.0}", self.pattern_circ_angle_deg);
+                            }
+                            if self.pattern_dimension_editing_angle {
+                                let popup_rect = egui::Rect::from_center_size(pill_pos_ang + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                                egui::Area::new(egui::Id::new("ducad-pattern-edit-popup-ang"))
+                                    .fixed_pos(popup_rect.min)
+                                    .order(egui::Order::Foreground)
+                                    .show(ui.ctx(), |ui| {
+                                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                            let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
+                                            resp.request_focus();
+                                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                self.pattern_dimension_editing_angle = false;
+                                            } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
+                                                    self.pattern_circ_angle_deg = val.clamp(-360.0, 360.0);
+                                                }
+                                                self.pattern_dimension_editing_angle = false;
+                                            } else if resp.lost_focus() {
+                                                self.pattern_dimension_editing_angle = false;
+                                            }
+                                        });
+                                    });
+                            }
+                        }
+
+                        // 2. RADIUS DRAG HANDLE & PILL (Pada Orbit Ring)
+                        let rad_vec = centroid_3d - pivot_3d;
+                        let rad_dir = if rad_vec.length_squared() > 1e-4 {
+                            rad_vec.normalize()
+                        } else if is_3d {
+                            Vec3::X
+                        } else {
+                            self.active_plane.u_axis
+                        };
+                        let rad_handle_3d = pivot_3d + rad_dir * (self.pattern_circ_radius as f32);
+                        if let Some(rad_handle_2d) = world_to_screen_pos(&self.camera, rect, rad_handle_3d) {
+                            let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, pivot_3d, rad_dir, egui::Vec2::ZERO);
+                            let resp_rad = CanvasHud::render_draggable_double_arrow_handle(ui, rad_handle_2d, false, arrow_vec_opt);
+                            if resp_rad.dragged() {
+                                let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, pivot_3d, rad_dir, resp_rad.drag_delta());
+                                self.pattern_circ_radius = (self.pattern_circ_radius + delta_mm as f64).max(0.5);
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_circ_radius));
+                            }
+
+                            // Radius Pill (Bawah Handle Radius)
+                            let pill_pos_rad = rad_handle_2d + egui::vec2(0.0, 28.0);
+                            let pill_resp_rad = CanvasHud::render_interactive_dimension_pill(
+                                ui,
+                                pill_pos_rad,
+                                &format!("Radius: {}", self.unit.format(self.pattern_circ_radius)),
+                                self.pattern_dimension_editing_radius,
+                            );
+                            if pill_resp_rad.clicked() {
+                                self.pattern_dimension_editing_radius = !self.pattern_dimension_editing_radius;
+                                self.pattern_dimension_editing_x = false;
+                                self.pattern_dimension_editing_y = false;
+                                self.pattern_dimension_editing_z = false;
+                                self.pattern_dimension_editing_angle = false;
+                                self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_circ_radius));
+                            }
+                            if self.pattern_dimension_editing_radius {
+                                let popup_rect = egui::Rect::from_center_size(pill_pos_rad + egui::vec2(0.0, 28.0), egui::vec2(100.0, 32.0));
+                                egui::Area::new(egui::Id::new("ducad-pattern-edit-popup-rad"))
+                                    .fixed_pos(popup_rect.min)
+                                    .order(egui::Order::Foreground)
+                                    .show(ui.ctx(), |ui| {
+                                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                            let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
+                                            resp.request_focus();
+                                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                                self.pattern_dimension_editing_radius = false;
+                                            } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                                if let Ok(val) = self.pattern_dimension_edit_input.trim().parse::<f64>() {
+                                                    self.pattern_circ_radius = self.unit.to_internal_mm(val).max(0.5);
+                                                }
+                                                self.pattern_dimension_editing_radius = false;
+                                            } else if resp.lost_focus() {
+                                                self.pattern_dimension_editing_radius = false;
+                                            }
+                                        });
+                                    });
+                            }
+                        }
+                    }
+                }
+
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if is_3d {
+                        self.apply_pattern_3d();
+                    } else {
+                        self.apply_pattern_2d();
+                    }
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
+            }
 
             ToolGuides::render_tool_guide(
                 ui,
@@ -2056,6 +2460,14 @@ impl DuCADApp {
             let is_this_corner_active = self.active_sketch_corner.as_ref().is_some_and(|(a1, a2, pt)| {
                 (*a1 == id1 && *a2 == id2 || *a1 == id2 && *a2 == id1) || (*pt - corner_2d).length() < 1e-2
             });
+
+            let is_corner_hovered = self.hovered_corner_2d.is_some_and(|pt| (pt - corner_2d).length() < 1e-2);
+            let is_corner_selected = (self.selected.contains(&id1) || self.selected.contains(&id2))
+                && self.selected.len() <= 8;
+
+            if !is_this_corner_active && !is_corner_hovered && !is_corner_selected {
+                continue;
+            }
 
             let corner_3d = self.active_plane.to_world(corner_2d, 0.0);
             let b_end_3d = self.active_plane.to_world(corner_2d + bisector_2d, 0.0);

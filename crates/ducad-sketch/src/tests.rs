@@ -607,4 +607,121 @@ fn test_find_corner_lines_at_point() {
     assert!((f1 == id1 && f2 == id2) || (f1 == id2 && f2 == id1));
 }
 
+#[test]
+fn test_rotate_entity() {
+    use crate::ops::rotate_entity;
+
+    // Line from (10, 0) to (20, 0) rotated 90 deg around (0, 0) -> (0, 10) to (0, 20)
+    let line = Entity::Line {
+        start: DVec2::new(10.0, 0.0),
+        end: DVec2::new(20.0, 0.0),
+    };
+    let rotated = rotate_entity(&line, DVec2::ZERO, std::f64::consts::FRAC_PI_2);
+    if let Entity::Line { start, end } = rotated {
+        assert!((start.x - 0.0).abs() < 1e-5);
+        assert!((start.y - 10.0).abs() < 1e-5);
+        assert!((end.x - 0.0).abs() < 1e-5);
+        assert!((end.y - 20.0).abs() < 1e-5);
+    } else {
+        panic!("expected Line");
+    }
+
+    // Circle centered at (10, 0) radius 5 rotated 180 deg around (0, 0) -> center (-10, 0)
+    let circle = Entity::Circle {
+        center: DVec2::new(10.0, 0.0),
+        radius: 5.0,
+    };
+    let rot_c = rotate_entity(&circle, DVec2::ZERO, std::f64::consts::PI);
+    if let Entity::Circle { center, radius } = rot_c {
+        assert!((center.x - (-10.0)).abs() < 1e-5);
+        assert!((center.y - 0.0).abs() < 1e-5);
+        assert_eq!(radius, 5.0);
+    } else {
+        panic!("expected Circle");
+    }
+}
+
+#[test]
+fn test_linear_pattern_entities() {
+    use crate::ops::linear_pattern_entities;
+
+    let circle = Entity::Circle {
+        center: DVec2::new(0.0, 0.0),
+        radius: 4.0,
+    };
+    // 3 x 2 grid with pitch X = 20, pitch Y = 30
+    // Total copies generated = 3*2 - 1 = 5 new entities
+    let pattern = linear_pattern_entities(&[circle], 3, 20.0, 2, 30.0);
+    assert_eq!(pattern.len(), 5);
+
+    // Check that we have a circle at (40, 30) (ix=2, iy=1)
+    let has_corner = pattern.iter().any(|e| match e {
+        Entity::Circle { center, radius } => {
+            (center.x - 40.0).abs() < 1e-5 && (center.y - 30.0).abs() < 1e-5 && *radius == 4.0
+        }
+        _ => false,
+    });
+    assert!(has_corner);
+}
+
+#[test]
+fn test_circular_pattern_entities() {
+    use crate::ops::circular_pattern_entities;
+
+    let circle = Entity::Circle {
+        center: DVec2::new(10.0, 0.0),
+        radius: 2.0,
+    };
+    // 4 items around origin, 360 degrees (TAU) -> step 90 deg (PI/2)
+    // Expect 3 new items at (0, 10), (-10, 0), (0, -10)
+    let pattern = circular_pattern_entities(&[circle], DVec2::ZERO, 4, std::f64::consts::TAU);
+    assert_eq!(pattern.len(), 3);
+
+    let centers: Vec<DVec2> = pattern
+        .iter()
+        .filter_map(|e| match e {
+            Entity::Circle { center, .. } => Some(*center),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(centers.len(), 3);
+    assert!((centers[0].x - 0.0).abs() < 1e-4 && (centers[0].y - 10.0).abs() < 1e-4);
+    assert!((centers[1].x - (-10.0)).abs() < 1e-4 && (centers[1].y - 0.0).abs() < 1e-4);
+    assert!((centers[2].x - 0.0).abs() < 1e-4 && (centers[2].y - (-10.0)).abs() < 1e-4);
+}
+
+#[test]
+fn test_circular_pattern_entities_with_radius() {
+    use crate::ops::circular_pattern_entities_with_radius;
+
+    let circle_at_origin = Entity::Circle {
+        center: DVec2::ZERO,
+        radius: 3.0,
+    };
+    // 4 items with custom radius = 25.0 mm around origin
+    let pattern = circular_pattern_entities_with_radius(
+        &[circle_at_origin],
+        DVec2::ZERO,
+        4,
+        std::f64::consts::TAU,
+        Some(25.0),
+    );
+    assert_eq!(pattern.len(), 3);
+
+    let centers: Vec<DVec2> = pattern
+        .iter()
+        .filter_map(|e| match e {
+            Entity::Circle { center, .. } => Some(*center),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(centers.len(), 3);
+    assert!((centers[0].x - 0.0).abs() < 1e-4 && (centers[0].y - 25.0).abs() < 1e-4);
+    assert!((centers[1].x - (-25.0)).abs() < 1e-4 && (centers[1].y - 0.0).abs() < 1e-4);
+    assert!((centers[2].x - 0.0).abs() < 1e-4 && (centers[2].y - (-25.0)).abs() < 1e-4);
+}
+
+
 

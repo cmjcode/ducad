@@ -2,7 +2,7 @@ use ducad_core::BodyId;
 use ducad_kernel::PickRay;
 use ducad_render::SketchPlane;
 use ducad_sketch::constraint::{self, AddConstraint, Constraint};
-use glam::Vec3;
+use glam::{DVec2, Vec3};
 
 use crate::app::DuCADApp;
 use crate::model::{
@@ -868,5 +868,155 @@ impl DuCADApp {
                 }
             }
         }
+    }
+
+    /// Terapkan Linear atau Circular Pattern pada entitas sketsa 2D terpilih.
+    pub fn apply_pattern_2d(&mut self) {
+        if self.selected.is_empty() {
+            self.model_status = Some("Pilih minimal 1 entitas sketsa untuk membuat pattern".to_string());
+            return;
+        }
+
+        let entities: Vec<ducad_sketch::Entity> = self
+            .selected
+            .iter()
+            .filter_map(|id| self.sketch().entities.get(*id).cloned())
+            .collect();
+
+        if entities.is_empty() {
+            return;
+        }
+
+        let new_entities = match self.pattern_kind {
+            ducad_ui::PatternKind::Linear => {
+                ducad_sketch::linear_pattern_entities(
+                    &entities,
+                    self.pattern_count_x,
+                    self.pattern_pitch_x,
+                    self.pattern_count_y,
+                    self.pattern_pitch_y,
+                )
+            }
+            ducad_ui::PatternKind::Circular => {
+                let pivot = self.pattern_custom_pivot_2d.unwrap_or(DVec2::ZERO);
+                let total_angle_rad = self.pattern_circ_angle_deg.to_radians();
+                ducad_sketch::circular_pattern_entities_with_radius(
+                    &entities,
+                    pivot,
+                    self.pattern_circ_count,
+                    total_angle_rad,
+                    Some(self.pattern_circ_radius),
+                )
+            }
+        };
+
+        if new_entities.is_empty() {
+            self.model_status = Some("Pattern tidak menghasilkan duplikat baru (jumlah minimal 2)".to_string());
+            return;
+        }
+
+        let count = new_entities.len();
+        let cmd = ducad_sketch::InsertEntities::new(
+            match self.pattern_kind {
+                ducad_ui::PatternKind::Linear => "Linear Pattern",
+                ducad_ui::PatternKind::Circular => "Circular Pattern",
+            },
+            new_entities,
+        );
+        self.execute_sketch_command(Box::new(cmd));
+        self.selected.clear();
+        self.active_sketch_corner = None;
+        self.active_sketch_fillet_arc = None;
+        self.sketch_corner_gizmo_active = false;
+        self.hovered_corner_2d = None;
+        self.pattern_custom_pivot_2d = None;
+        self.pattern_custom_pivot_3d = None;
+        self.model_status = Some(format!("{} entitas baru ditambahkan via Pattern ✓", count));
+        self.set_tool(crate::types::ToolKind::Select);
+    }
+
+    /// Terapkan Linear atau Circular Pattern pada body 3D terpilih.
+    pub fn apply_pattern_3d(&mut self) {
+        if self.selected_bodies.is_empty() {
+            self.model_status = Some("Pilih minimal 1 body 3D untuk membuat pattern".to_string());
+            return;
+        }
+
+        let selected_ids: Vec<BodyId> = self.selected_bodies.iter().copied().collect();
+        let mut new_bodies = Vec::new();
+
+        for body_id in selected_ids {
+            let orig_name = self.model.doc.bodies.get(body_id).map(|b| b.name.clone()).unwrap_or_else(|| "Solid".to_string());
+            let Some(geo) = self.model.geometry.get(body_id) else {
+                continue;
+            };
+
+            let duplicated_shapes = match self.pattern_kind {
+                ducad_ui::PatternKind::Linear => {
+                    ducad_kernel::linear_pattern_shape(
+                        &geo.shape,
+                        self.pattern_count_x,
+                        self.pattern_pitch_x,
+                        self.pattern_count_y,
+                        self.pattern_pitch_y,
+                        self.pattern_count_z,
+                        self.pattern_pitch_z,
+                    )
+                }
+                ducad_ui::PatternKind::Circular => {
+                    let pivot = self.pattern_custom_pivot_3d
+                        .map(|v| (v.x as f64, v.y as f64, v.z as f64))
+                        .unwrap_or((0.0, 0.0, 0.0));
+                    let axis = self.pattern_circ_axis.to_dir();
+                    let total_angle_rad = self.pattern_circ_angle_deg.to_radians();
+
+                    ducad_kernel::circular_pattern_shape(
+                        &geo.shape,
+                        pivot,
+                        axis,
+                        self.pattern_circ_count,
+                        total_angle_rad,
+                    )
+                }
+            };
+
+            match duplicated_shapes {
+                Ok(shapes) => {
+                    for (idx, shape) in shapes.into_iter().enumerate() {
+                        let name = format!("{} (Array {})", orig_name, idx + 1);
+                        new_bodies.push((name, BodyGeometry::from_shape(shape)));
+                    }
+                }
+                Err(e) => {
+                    self.model_status = Some(format!("Pattern 3D gagal: {e}"));
+                    return;
+                }
+            }
+        }
+
+        if new_bodies.is_empty() {
+            self.model_status = Some("Pattern tidak menghasilkan duplikat baru (jumlah minimal 2)".to_string());
+            return;
+        }
+
+        let total_new = new_bodies.len();
+        let cmd = crate::model::AddMultipleSolidsCommand::new(
+            match self.pattern_kind {
+                ducad_ui::PatternKind::Linear => "Linear Pattern 3D",
+                ducad_ui::PatternKind::Circular => "Circular Pattern 3D",
+            },
+            new_bodies,
+        );
+
+        self.execute_model_command(
+            Box::new(cmd),
+            &format!("Membuat {} duplikat solid melalui Pattern", total_new),
+        );
+
+        self.selected_bodies.clear();
+        self.pattern_custom_pivot_2d = None;
+        self.pattern_custom_pivot_3d = None;
+        self.model_status = Some(format!("{} solid baru ditambahkan via Pattern 3D ✓", total_new));
+        self.set_tool(crate::types::ToolKind::Select);
     }
 }
