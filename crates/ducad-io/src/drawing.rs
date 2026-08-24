@@ -72,7 +72,7 @@ pub struct TitleBlockInfo {
 impl Default for TitleBlockInfo {
     fn default() -> Self {
         Self {
-            project_title: "KOMPONEN MEKANIKAL".to_string(),
+            project_title: String::new(),
             drawing_number: "DWG-2026-001".to_string(),
             drawn_by: "DUCAD Designer".to_string(),
             date: "2026-08-24".to_string(),
@@ -194,7 +194,8 @@ impl DrawingSheet {
         let top_center_x = front_center_x;
         let top_center_y = front_center_y + (front_sz[1] * s * 0.5) + (top_sz[1] * s * 0.5) + 25.0;
 
-        let right_center_x = front_center_x + (front_sz[0] * s * 0.5) + (right_sz[0] * s * 0.5) + 25.0;
+        let right_center_x =
+            front_center_x + (front_sz[0] * s * 0.5) + (right_sz[0] * s * 0.5) + 25.0;
         let right_center_y = front_center_y;
 
         let iso_center_x = paper_w - right_margin - (iso_sz[0] * s * 0.5) - 20.0;
@@ -237,7 +238,11 @@ impl DrawingSheet {
         let s = self.scale;
 
         // 1. Dimensi Panjang & Tinggi pada Tampak Depan
-        if let Some(front_plc) = self.view_placements.iter().find(|p| p.kind == ProjectedViewKind::Front) {
+        if let Some(front_plc) = self
+            .view_placements
+            .iter()
+            .find(|p| p.kind == ProjectedViewKind::Front)
+        {
             let front_view = &self.drawing.front;
             let cx = front_plc.center_mm[0];
             let cy = front_plc.center_mm[1];
@@ -277,7 +282,11 @@ impl DrawingSheet {
         }
 
         // 2. Dimensi Lebar / Tebal pada Tampak Samping Kanan
-        if let Some(right_plc) = self.view_placements.iter().find(|p| p.kind == ProjectedViewKind::Right) {
+        if let Some(right_plc) = self
+            .view_placements
+            .iter()
+            .find(|p| p.kind == ProjectedViewKind::Right)
+        {
             let right_view = &self.drawing.right;
             let cx = right_plc.center_mm[0];
             let cy = right_plc.center_mm[1];

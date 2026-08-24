@@ -536,8 +536,8 @@ mod tests {
         assert!(text.ends_with("%%EOF\n") || text.ends_with("%%EOF"), "Harus diakhiri %%EOF");
 
         // Verifikasi konten metadata title block tercantum di PDF
-        assert!(text.contains("KOMPONEN MEKANIKAL"));
         assert!(text.contains("DWG-2026-001"));
+        assert!(text.contains("Aluminium 6061-T6"));
     }
 
     #[test]

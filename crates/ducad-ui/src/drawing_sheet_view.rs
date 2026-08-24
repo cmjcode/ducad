@@ -122,13 +122,13 @@ impl DrawingSheetView {
             Color32::from_rgb(18, 20, 26),
         );
 
-        // 2. Dimensi Top Bar & Floating Controls
-        let topbar_margin_left = 78.0;
-        let topbar_x = total_rect.min.x + topbar_margin_left;
-        let topbar_margin_right = 16.0;
-        let topbar_w = (total_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
+        // 2. Dimensi Top Bar & Floating Controls (Margin simetris: kiri, kanan, dan atas sama 16px)
+        let margin_side = 16.0;
+        let margin_top = 16.0;
+        let topbar_x = total_rect.min.x + margin_side;
+        let topbar_w = (total_rect.width() - (margin_side * 2.0)).max(200.0);
         let topbar_rect = Rect::from_min_size(
-            Pos2::new(topbar_x, total_rect.min.y + 10.0),
+            Pos2::new(topbar_x, total_rect.min.y + margin_top),
             Vec2::new(topbar_w, 30.0),
         );
 
@@ -177,6 +177,7 @@ impl DrawingSheetView {
             ui.set_height(30.0);
             ui.horizontal(|ui| {
                 // A. Icon Drawing Sheet & Title
+                // A. Icon Drawing Sheet (Minimalis tanpa teks judul)
                 ui.label(
                     RichText::new(ICON_PICTURE_AS_PDF.codepoint)
                         .size(14.0)
@@ -184,21 +185,9 @@ impl DrawingSheetView {
                 )
                 .on_hover_text("Lembar Kerja Gambar Teknik 2D");
 
-                let title_text = if sheet.title_block.project_title.trim().is_empty() {
-                    "Gambar Kerja Teknik"
-                } else {
-                    sheet.title_block.project_title.as_str()
-                };
-                ui.label(
-                    RichText::new(title_text)
-                        .strong()
-                        .size(12.0)
-                        .color(TEXT_PRIMARY),
-                );
-
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(2.0);
 
                 // B. Pemilih Ukuran Kertas (A4/A3)
                 ui.label(RichText::new("Kertas:").size(11.0).color(TEXT_SECONDARY));
