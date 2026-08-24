@@ -101,7 +101,11 @@ impl TopBar {
                             ui.close();
                         }
                         if ui
-                            .button(format!("{} {} (⌘O)", ICON_FILE_OPEN.codepoint, t!("menu-open")))
+                            .button(format!(
+                                "{} {} (⌘O)",
+                                ICON_FILE_OPEN.codepoint,
+                                t!("menu-open")
+                            ))
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::Open));
@@ -115,7 +119,11 @@ impl TopBar {
                             ui.close();
                         }
                         if ui
-                            .button(format!("{} {} (⌘⇧S)", ICON_SAVE.codepoint, t!("menu-save-as")))
+                            .button(format!(
+                                "{} {} (⌘⇧S)",
+                                ICON_SAVE.codepoint,
+                                t!("menu-save-as")
+                            ))
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::SaveAs));
@@ -123,14 +131,24 @@ impl TopBar {
                         }
                         ui.separator();
                         if ui
-                            .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-step")))
+                            .button(format!(
+                                "{} {} {}",
+                                ICON_DOWNLOAD.codepoint,
+                                t!("menu-import"),
+                                t!("menu-import-step")
+                            ))
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
                             ui.close();
                         }
                         if ui
-                            .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-dxf")))
+                            .button(format!(
+                                "{} {} {}",
+                                ICON_DOWNLOAD.codepoint,
+                                t!("menu-import"),
+                                t!("menu-import-dxf")
+                            ))
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
@@ -197,7 +215,7 @@ impl TopBar {
                     &mode_title,
                     Some(mode_shortcut),
                     Some(&mode_sub),
-                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
                     Some(ACCENT_BLUE),
                 );
                 if mode_btn.clicked() {
@@ -229,10 +247,13 @@ impl TopBar {
                         ui,
                         ICON_LAYERS.codepoint,
                         state.plane_menu_open,
-                        &t!("topbar-sketch-plane", plane = state.active_plane_name.as_str()),
+                        &t!(
+                            "topbar-sketch-plane",
+                            plane = state.active_plane_name.as_str()
+                        ),
                         None,
                         Some(state.active_plane_name.as_str()),
-                        Some(Color32::from_rgba_premultiplied(18, 42, 85, 220)),
+                        Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
                         Some(ACCENT_BLUE),
                     );
                     if plane_btn.clicked() {
@@ -330,18 +351,18 @@ impl TopBar {
                             .color(TEXT_PRIMARY),
                         |ui| {
                             if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_PALETTE.codepoint,
-                                    t!("menu-theme")
-                                ))
+                                .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::ToggleTheme);
                                 ui.close();
                             }
                             if ui
-                                .button(format!("{} {} (⌘K)", ICON_SEARCH.codepoint, t!("menu-command-palette")))
+                                .button(format!(
+                                    "{} {} (⌘K)",
+                                    ICON_SEARCH.codepoint,
+                                    t!("menu-command-palette")
+                                ))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::OpenCommandPalette);
@@ -350,12 +371,20 @@ impl TopBar {
                             ui.separator();
                             // Language selector
                             ui.menu_button(
-                                format!("{} {} ({})", ICON_LANGUAGE.codepoint, t!("lang-current"), current_language().display_name()),
+                                format!(
+                                    "{} {} ({})",
+                                    ICON_LANGUAGE.codepoint,
+                                    t!("lang-current"),
+                                    current_language().display_name()
+                                ),
                                 |ui| {
                                     for lang in Language::all() {
                                         let is_sel = current_language() == *lang;
                                         let prefix = if is_sel { "✓ " } else { "   " };
-                                        if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
+                                        if ui
+                                            .button(format!("{}{}", prefix, lang.display_name()))
+                                            .clicked()
+                                        {
                                             event = Some(TopBarEvent::SetLanguage(*lang));
                                             ui.close();
                                         }
@@ -364,7 +393,11 @@ impl TopBar {
                             );
                             ui.separator();
                             ui.menu_button(
-                                format!("📏 {} ({})", t!("topbar-unit", unit = state.current_unit.suffix()), state.current_unit.suffix()),
+                                format!(
+                                    "📏 {} ({})",
+                                    t!("topbar-unit", unit = state.current_unit.suffix()),
+                                    state.current_unit.suffix()
+                                ),
                                 |ui| {
                                     for unit in [
                                         LengthUnit::Millimeters,
@@ -374,7 +407,10 @@ impl TopBar {
                                     ] {
                                         let is_sel = state.current_unit == unit;
                                         let prefix = if is_sel { "✓ " } else { "   " };
-                                        if ui.button(format!("{}{}", prefix, unit.label())).clicked() {
+                                        if ui
+                                            .button(format!("{}{}", prefix, unit.label()))
+                                            .clicked()
+                                        {
                                             event = Some(TopBarEvent::SetUnit(unit));
                                             ui.close();
                                         }
@@ -406,14 +442,22 @@ impl TopBar {
                                 ui.close();
                             }
                             if ui
-                                .button(format!("{} {}", ICON_UPLOAD.codepoint, t!("menu-export-stl")))
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
+                                    t!("menu-export-stl")
+                                ))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
                                 ui.close();
                             }
                             if ui
-                                .button(format!("{} {}", ICON_UPLOAD.codepoint, t!("menu-export-obj")))
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
+                                    t!("menu-export-obj")
+                                ))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));

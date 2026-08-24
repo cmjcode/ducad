@@ -301,9 +301,9 @@ pub struct CanvasHud;
 impl CanvasHud {
     pub const HEADER_HUD_HEIGHT: f32 = 24.0;
     pub const HEADER_HUD_CORNER_RADIUS: f32 = 12.0;
-    pub const HUD_BG_FILL: Color32 = Color32::from_rgba_premultiplied(10, 14, 22, 220);
-    pub const HUD_BTN_INACTIVE_FILL: Color32 = Color32::from_rgba_premultiplied(32, 38, 50, 200);
-    pub const HUD_BTN_CANCEL_FILL: Color32 = Color32::from_rgba_premultiplied(40, 46, 58, 180);
+    pub const HUD_BG_FILL: Color32 = Color32::from_rgba_premultiplied(10, 14, 22, 150);
+    pub const HUD_BTN_INACTIVE_FILL: Color32 = Color32::from_rgba_premultiplied(32, 38, 50, 160);
+    pub const HUD_BTN_CANCEL_FILL: Color32 = Color32::from_rgba_premultiplied(40, 46, 58, 150);
 
     /// Standard helper to render commit / apply button in HUDs
     #[inline]

@@ -14,15 +14,15 @@ use egui::{Color32, CornerRadius, Frame, Margin, Stroke, Style, Vec2, Visuals};
 pub const MIN_TOUCH_TARGET: f32 = 28.0;
 
 // Token Warna Shapr3D
-pub const ACCENT_BLUE: Color32 = Color32::from_rgb(10, 132, 255);       // #0a84ff
-pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(255, 149, 0);     // #ff9500 (Section View / Active highlight)
-pub const ACCENT_GREEN: Color32 = Color32::from_rgb(48, 209, 88);      // #30d158 (Success / Constraint OK)
-pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(175, 82, 222);    // #af52de (Picked point)
-pub const BG_CANVAS: Color32 = Color32::from_rgb(18, 19, 22);          // Deep charcoal 3D viewport
-pub const BG_PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(20, 22, 26, 230); // 90% glass
-pub const BG_CARD_DARK: Color32 = Color32::from_rgba_premultiplied(30, 33, 40, 240);  // Card fill
-pub const BG_HOVER_DARK: Color32 = Color32::from_rgba_premultiplied(44, 48, 58, 220); // Hover fill
-pub const BORDER_SUBTLE: Color32 = Color32::from_rgba_premultiplied(48, 52, 62, 180); // Thin glass border
+pub const ACCENT_BLUE: Color32 = Color32::from_rgb(10, 132, 255); // #0a84ff
+pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(255, 149, 0); // #ff9500 (Section View / Active highlight)
+pub const ACCENT_GREEN: Color32 = Color32::from_rgb(48, 209, 88); // #30d158 (Success / Constraint OK)
+pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(175, 82, 222); // #af52de (Picked point)
+pub const BG_CANVAS: Color32 = Color32::from_rgb(18, 19, 22); // Deep charcoal 3D viewport
+pub const BG_PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(16, 18, 22, 145); // ~57% translucent glass
+pub const BG_CARD_DARK: Color32 = Color32::from_rgba_premultiplied(26, 30, 38, 160); // Card fill (~63%)
+pub const BG_HOVER_DARK: Color32 = Color32::from_rgba_premultiplied(40, 45, 56, 160); // Hover fill (~63%)
+pub const BORDER_SUBTLE: Color32 = Color32::from_rgba_premultiplied(50, 56, 68, 130); // Thin glass border
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(245, 245, 247);
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(142, 142, 147);
 pub const TEXT_MUTED: Color32 = Color32::from_rgb(99, 99, 102);
@@ -62,9 +62,9 @@ impl ThemeMode {
                 v.window_stroke = Stroke::new(1.0, BORDER_SUBTLE);
                 v.window_corner_radius = CornerRadius::same(10);
                 v.menu_corner_radius = CornerRadius::same(8);
-                
+
                 // Widget styling (inactive, hovered, active, open)
-                v.widgets.inactive.bg_fill = Color32::from_rgba_premultiplied(30, 32, 38, 160);
+                v.widgets.inactive.bg_fill = Color32::from_rgba_premultiplied(28, 30, 36, 110);
                 v.widgets.inactive.corner_radius = CornerRadius::same(6);
                 v.widgets.inactive.bg_stroke = Stroke::new(0.5, BORDER_SUBTLE);
                 v.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_PRIMARY);
@@ -111,7 +111,7 @@ pub fn glass_frame() -> Frame {
             offset: [0, 3],
             blur: 12,
             spread: 0,
-            color: Color32::from_black_alpha(100),
+            color: Color32::from_black_alpha(70),
         },
         fill: BG_PANEL_DARK,
         stroke: Stroke::new(1.0, BORDER_SUBTLE),
@@ -140,7 +140,7 @@ pub fn pill_frame() -> Frame {
             offset: [0, 2],
             blur: 8,
             spread: 0,
-            color: Color32::from_black_alpha(110),
+            color: Color32::from_black_alpha(70),
         },
         fill: BG_PANEL_DARK,
         stroke: Stroke::new(1.0, BORDER_SUBTLE),
@@ -208,5 +208,3 @@ mod tests {
         output.textures_delta.clear();
     }
 }
-
-

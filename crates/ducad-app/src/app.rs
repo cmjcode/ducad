@@ -2046,11 +2046,11 @@ fn round_floating_icon_btn(
 
     let is_hovered = resp.hovered();
     let bg_color = if is_active {
-        egui::Color32::from_rgb(18, 48, 88)
+        egui::Color32::from_rgba_premultiplied(18, 48, 88, 160)
     } else if is_hovered {
-        egui::Color32::from_rgb(38, 44, 58)
+        egui::Color32::from_rgba_premultiplied(38, 44, 58, 160)
     } else {
-        egui::Color32::from_rgb(24, 27, 34)
+        ducad_ui::BG_PANEL_DARK
     };
 
     let stroke_color = if is_active || is_hovered {
