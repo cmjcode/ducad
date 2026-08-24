@@ -198,6 +198,7 @@ pub enum PaletteAction {
     DeleteSelection,
     ToggleTheme,
     ToggleZebraView,
+    ToggleStudioLighting,
     SetSketchPlane(ducad_render::PlaneKind),
     EnterSketching,
     ExitSketching,

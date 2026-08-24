@@ -13,9 +13,30 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN,
-    ICON_TEXTURE,
+    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LIGHTBULB_ON, ICON_LOCK,
+    ICON_STRAIGHTEN, ICON_TEXTURE,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StudioLightingPresetUi {
+    CleanStudio,
+    WarmShowcase,
+    CoolTech,
+    DramaticDark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StudioHudAction {
+    ToggleStudioMode,
+    SetPreset(StudioLightingPresetUi),
+    SetKeyIntensity(f32),
+    SetFillIntensity(f32),
+    SetRimIntensity(f32),
+    SetSsaoIntensity(f32),
+    ToggleFloorShadow,
+    SetFloorShadowIntensity(f32),
+    TurnOff,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ZebraHudAction {
@@ -457,6 +478,88 @@ impl CanvasHud {
                     event = Some(CanvasHudEvent::TurnOffSectionView);
                 }
                 event
+            },
+        )
+    }
+
+    /// Render panel kontrol Studio Lighting, SSAO & Bayangan Kontak Lantai (Fase 4.2).
+    pub fn show_studio_lighting_panel(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        preset: &mut StudioLightingPresetUi,
+        ssao_intensity: &mut f32,
+        floor_shadow_enabled: &mut bool,
+        floor_shadow_intensity: &mut f32,
+    ) -> Option<StudioHudAction> {
+        let banner_w = 820.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-studio-lighting-panel",
+            |ui| {
+                let mut action = None;
+                Self::hud_title(ui, &format!("{} {}", ICON_LIGHTBULB_ON.codepoint, t!("hud-studio-title")), true);
+
+                ui.separator();
+
+                // 1. Preset Selector Chips: [Clean Studio] [Warm Showcase] [Cool Tech] [Dramatic]
+                ui.label(RichText::new(format!("{}:", t!("hud-studio-preset"))).size(10.0).color(TEXT_SECONDARY));
+                if Self::hud_toggle_btn(ui, t!("hud-studio-clean"), *preset == StudioLightingPresetUi::CleanStudio).clicked() {
+                    *preset = StudioLightingPresetUi::CleanStudio;
+                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::CleanStudio));
+                }
+                if Self::hud_toggle_btn(ui, t!("hud-studio-warm"), *preset == StudioLightingPresetUi::WarmShowcase).clicked() {
+                    *preset = StudioLightingPresetUi::WarmShowcase;
+                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::WarmShowcase));
+                }
+                if Self::hud_toggle_btn(ui, t!("hud-studio-cool"), *preset == StudioLightingPresetUi::CoolTech).clicked() {
+                    *preset = StudioLightingPresetUi::CoolTech;
+                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::CoolTech));
+                }
+                if Self::hud_toggle_btn(ui, t!("hud-studio-dramatic"), *preset == StudioLightingPresetUi::DramaticDark).clicked() {
+                    *preset = StudioLightingPresetUi::DramaticDark;
+                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::DramaticDark));
+                }
+
+                ui.separator();
+
+                // 2. SSAO Slider
+                ui.label(RichText::new(format!("{}:", t!("hud-studio-ssao"))).size(10.0).color(TEXT_SECONDARY));
+                let mut ssao_pct = (*ssao_intensity * 100.0).round();
+                let ssao_drag = ui.add(egui::DragValue::new(&mut ssao_pct).range(0.0..=150.0).speed(1.0).suffix("%"));
+                if ssao_drag.changed() {
+                    *ssao_intensity = ssao_pct / 100.0;
+                    action = Some(StudioHudAction::SetSsaoIntensity(*ssao_intensity));
+                }
+
+                ui.separator();
+
+                // 3. Floor Soft Contact Shadow Toggle & Slider
+                let is_floor_active = *floor_shadow_enabled;
+                if Self::hud_toggle_btn(ui, &format!("⏥ {}", t!("hud-studio-floor-shadow")), is_floor_active).clicked() {
+                    *floor_shadow_enabled = !*floor_shadow_enabled;
+                    action = Some(StudioHudAction::ToggleFloorShadow);
+                }
+
+                if *floor_shadow_enabled {
+                    let mut shadow_pct = (*floor_shadow_intensity * 100.0).round();
+                    let shadow_drag = ui.add(egui::DragValue::new(&mut shadow_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                    if shadow_drag.changed() {
+                        *floor_shadow_intensity = shadow_pct / 100.0;
+                        action = Some(StudioHudAction::SetFloorShadowIntensity(*floor_shadow_intensity));
+                    }
+                }
+
+                ui.separator();
+
+                // 4. Tombol Nonaktifkan
+                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                    action = Some(StudioHudAction::TurnOff);
+                }
+
+                action
             },
         )
     }

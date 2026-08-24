@@ -10,6 +10,64 @@ use crate::grid;
 /// mesh-nya. Dipakai `SceneRenderer::new`/`set_clip_plane(None)`.
 const CLIP_PLANE_DISABLED: [f32; 4] = [0.0, 0.0, 0.0, 1.0e9];
 
+/// Preset pencahayaan studio 3-titik (Fase 4.2 Studio Lighting).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StudioPreset {
+    /// Studio Bersih / Standar: Pencahayaan daylight seimbang, fill lembut, rim bersih.
+    CleanStudio,
+    /// Showcase Hangat: Key hangat, fill sejuk kontras, rim kuat untuk presentasi produk konsumen.
+    WarmShowcase,
+    /// High-Tech / Cool Lab: Key sejuk tajam, fill biru muda, rim perak tajam (bagus untuk logam & casing gadget).
+    CoolTech,
+    /// Sinematik / Gelap Dramatis: Kontras tinggi dengan siluet rim dominan.
+    DramaticDark,
+}
+
+impl StudioPreset {
+    pub fn all() -> &'static [StudioPreset] {
+        &[
+            StudioPreset::CleanStudio,
+            StudioPreset::WarmShowcase,
+            StudioPreset::CoolTech,
+            StudioPreset::DramaticDark,
+        ]
+    }
+}
+
+/// Konfigurasi Studio Lighting, SSAO & Bayangan Kontak Lantai (Fase 4.2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StudioConfig {
+    pub enabled: bool,
+    pub preset: StudioPreset,
+    pub key_intensity: f32,
+    pub fill_intensity: f32,
+    pub rim_intensity: f32,
+    pub ssao_intensity: f32,
+    pub floor_shadow_enabled: bool,
+    pub floor_shadow_intensity: f32,
+    pub ground_z: f32,
+    pub shadow_center: [f32; 2],
+    pub shadow_radius: [f32; 2],
+}
+
+impl Default for StudioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            preset: StudioPreset::CleanStudio,
+            key_intensity: 1.0,
+            fill_intensity: 0.50,
+            rim_intensity: 0.65,
+            ssao_intensity: 0.85,
+            floor_shadow_enabled: true,
+            floor_shadow_intensity: 0.60,
+            ground_z: 0.0,
+            shadow_center: [0.0, 0.0],
+            shadow_radius: [60.0, 60.0],
+        }
+    }
+}
+
 /// Konfigurasi inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection Shader).
 /// Memproyeksikan refleksi specular garis-garis berfrekuensi tinggi untuk
 /// mengevaluasi kontinuitas tangensial (G1) dan kurvatur (G2) pada permukaan CAD.
@@ -68,6 +126,10 @@ struct Globals {
     view_proj: [[f32; 4]; 4],
     eye: [f32; 4],
     light_dir: [f32; 4],
+    fill_light: [f32; 4],
+    rim_light: [f32; 4],
+    studio_params: [f32; 4],
+    shadow_bounds: [f32; 4],
     /// Section view (Fase 7) — lihat komentar `clip_plane` di `shader.wgsl`.
     clip_plane: [f32; 4],
     /// Zebra stripes reflection (Fase 3.1) — [enabled (0.0/1.0), freq, angle, blend].
@@ -101,26 +163,20 @@ pub struct SceneRenderer {
     grid_pipeline: wgpu::RenderPipeline,
     grid_vbuf: wgpu::Buffer,
     grid_vertex_count: u32,
+    floor_pipeline: wgpu::RenderPipeline,
+    floor_vbuf: wgpu::Buffer,
+    floor_ibuf: wgpu::Buffer,
+    floor_index_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     gizmo_pipeline: wgpu::RenderPipeline,
     mesh: Option<GpuMesh>,
-    /// Mesh solid gizmo push/pull & rounding (Fase 9 — Icon Gizmo Profesional):
-    /// buffer TERPISAH dari `mesh` (body CAD) supaya upload-nya independen
-    /// tiap frame (gizmo cuma ada saat ada seleksi/hover aktif) tanpa perlu
-    /// menggabung-satukan index body + gizmo jadi satu draw call raksasa.
-    /// Dipakai gizmo_pipeline dengan shading fs_mesh dan depth test Always
-    /// sehingga gizmo selalu tampak di depan dan tidak terkubur di dalam body.
     gizmo_mesh: Option<GpuMesh>,
-    /// Garis overlay 2D (entitas sketch, preview, glyph snap) — dibangun
-    /// ulang tiap frame lewat `set_overlay_lines`, memakai overlay_pipeline.
     overlay_vbuf: Option<wgpu::Buffer>,
     overlay_vertex_count: u32,
-    /// Section view (Fase 7) — lihat `set_clip_plane`.
     clip_plane: [f32; 4],
-    /// Zebra stripes reflection config (Fase 3.1).
+    studio_config: StudioConfig,
     zebra_config: ZebraConfig,
-    /// Draft angle heatmap inspector config (Fase 3.2).
     draft_config: DraftConfig,
     current_grid_plane: Option<crate::plane::SketchPlane>,
     current_grid_extent: f32,
@@ -227,6 +283,36 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let floor_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("floor-shadow"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_floor"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<grid::LineVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_floor"),
+                compilation_options: Default::default(),
+                targets: &color_target,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: depth_stencil.clone(),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("overlay"),
             layout: Some(&pipeline_layout),
@@ -323,12 +409,37 @@ impl SceneRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        // Inisialisasi quad lantai default (skala besar untuk bayangan kontak)
+        let floor_extent = 1000.0;
+        let floor_verts = [
+            grid::LineVertex { position: [-floor_extent, -floor_extent, 0.0], color: [0.0, 0.0, 0.0, 1.0] },
+            grid::LineVertex { position: [ floor_extent, -floor_extent, 0.0], color: [0.0, 0.0, 0.0, 1.0] },
+            grid::LineVertex { position: [ floor_extent,  floor_extent, 0.0], color: [0.0, 0.0, 0.0, 1.0] },
+            grid::LineVertex { position: [-floor_extent,  floor_extent, 0.0], color: [0.0, 0.0, 0.0, 1.0] },
+        ];
+        let floor_indices: [u32; 6] = [0, 1, 2, 0, 2, 3];
+
+        let floor_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("floor-vbuf"),
+            contents: bytemuck::cast_slice(&floor_verts),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        let floor_ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("floor-ibuf"),
+            contents: bytemuck::cast_slice(&floor_indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
         Self {
             globals_buf,
             globals_bind,
             grid_pipeline,
             grid_vbuf,
             grid_vertex_count: grid_verts.len() as u32,
+            floor_pipeline,
+            floor_vbuf,
+            floor_ibuf,
+            floor_index_count: 6,
             mesh_pipeline,
             overlay_pipeline,
             gizmo_pipeline,
@@ -337,12 +448,23 @@ impl SceneRenderer {
             overlay_vbuf: None,
             overlay_vertex_count: 0,
             clip_plane: CLIP_PLANE_DISABLED,
+            studio_config: StudioConfig::default(),
             zebra_config: ZebraConfig::default(),
             draft_config: DraftConfig::default(),
             current_grid_plane: Some(crate::plane::SketchPlane::top()),
             current_grid_extent: 500.0,
             current_grid_step: 10.0,
         }
+    }
+
+    /// Konfigurasi Studio Lighting & SSAO (Fase 4.2).
+    pub fn set_studio_config(&mut self, config: StudioConfig) {
+        self.studio_config = config;
+    }
+
+    /// Dapatkan konfigurasi Studio Lighting & SSAO yang sedang aktif.
+    pub fn studio_config(&self) -> StudioConfig {
+        self.studio_config
     }
 
     /// Konfigurasi inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection Shader).
@@ -365,12 +487,7 @@ impl SceneRenderer {
         self.draft_config
     }
 
-    /// Bidang potong section view (Fase 7): `Some((normal, offset))`
-    /// membuang (di-`discard` di `fs_mesh`) fragment mesh di sisi `normal`
-    /// yang JAUH dari origin sepanjang `offset` — cuma memotong tampilan,
-    /// tidak pernah menyentuh geometri B-rep asli (beda dari operasi
-    /// Boolean kernel), jadi aman digeser tiap frame tanpa memanggil OCCT
-    /// sama sekali. `None` menonaktifkan.
+    /// Bidang potong section view (Fase 7).
     pub fn set_clip_plane(&mut self, plane: Option<(Vec3, f32)>) {
         self.clip_plane = match plane {
             Some((normal, offset)) => {
@@ -381,11 +498,7 @@ impl SceneRenderer {
         };
     }
 
-    /// Upload garis overlay 2D (sketch) untuk frame ini. Dipanggil dari
-    /// `prepare()` callback, jadi `device` tersedia untuk buat buffer baru
-    /// tiap frame — cukup murah untuk skala sketch Fase 1 (ratusan-ribuan
-    /// vertex); dioptimalkan (buffer yang di-resize, bukan dibuat ulang)
-    /// di Fase 7 kalau profiling menunjukkan perlu.
+    /// Upload garis overlay 2D (sketch) untuk frame ini.
     pub fn set_overlay_lines(&mut self, device: &wgpu::Device, verts: &[grid::LineVertex]) {
         use wgpu::util::DeviceExt;
         if verts.is_empty() {
@@ -435,11 +548,7 @@ impl SceneRenderer {
         self.set_grid_plane_with_extent(device, plane, 500.0, 10.0);
     }
 
-    /// Upload mesh body (dari ducad-kernel) untuk ditampilkan. Body kosong
-    /// (tidak ada body, atau semua tersembunyi) membersihkan mesh yang
-    /// sedang tampil — wgpu menolak buffer berukuran 0, jadi early-return
-    /// ke `self.mesh = None` (sama pola dengan `set_overlay_lines`) alih-
-    /// alih coba bikin buffer kosong.
+    /// Upload mesh body (dari ducad-kernel) untuk ditampilkan.
     pub fn set_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -490,11 +599,7 @@ impl SceneRenderer {
         });
     }
 
-    /// Upload mesh solid gizmo (push/pull & rounding, Fase 9) — mirror persis
-    /// `set_mesh` di atas (SoA `positions`/`normals`/`colors`/`indices`, buffer
-    /// terpisah kosong = `None` saat tidak ada gizmo aktif frame ini), TAPI
-    /// disimpan di `self.gizmo_mesh` yang independen dari body supaya body
-    /// tetap tampil walau gizmo kosong (dan sebaliknya).
+    /// Upload mesh solid gizmo (push/pull & rounding, Fase 9).
     pub fn set_gizmo_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -538,13 +643,74 @@ impl SceneRenderer {
     }
 
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3) {
-        let light = Vec3::new(0.4, 0.3, 0.85).normalize();
+        // Hitung arah 3-point lighting berdasarkan StudioPreset
+        let (key_dir, fill_dir, rim_dir) = match self.studio_config.preset {
+            StudioPreset::CleanStudio => (
+                Vec3::new(0.5, 0.4, 0.85).normalize(),
+                Vec3::new(-0.6, -0.3, 0.5).normalize(),
+                Vec3::new(-0.2, 0.8, -0.3).normalize(),
+            ),
+            StudioPreset::WarmShowcase => (
+                Vec3::new(0.6, 0.3, 0.75).normalize(),
+                Vec3::new(-0.5, -0.5, 0.4).normalize(),
+                Vec3::new(-0.4, 0.7, 0.5).normalize(),
+            ),
+            StudioPreset::CoolTech => (
+                Vec3::new(0.4, 0.6, 0.9).normalize(),
+                Vec3::new(-0.7, 0.2, 0.3).normalize(),
+                Vec3::new(0.1, -0.9, 0.4).normalize(),
+            ),
+            StudioPreset::DramaticDark => (
+                Vec3::new(0.7, 0.1, 0.5).normalize(),
+                Vec3::new(-0.4, -0.6, 0.2).normalize(),
+                Vec3::new(-0.6, 0.8, 0.6).normalize(),
+            ),
+        };
+
+        let key_light = [
+            key_dir.x,
+            key_dir.y,
+            key_dir.z,
+            self.studio_config.key_intensity.max(0.0),
+        ];
+        let fill_light = [
+            fill_dir.x,
+            fill_dir.y,
+            fill_dir.z,
+            self.studio_config.fill_intensity.max(0.0),
+        ];
+        let rim_light = [
+            rim_dir.x,
+            rim_dir.y,
+            rim_dir.z,
+            self.studio_config.rim_intensity.max(0.0),
+        ];
+
+        let studio_params = [
+            if self.studio_config.enabled { 1.0 } else { 0.0 },
+            self.studio_config.ssao_intensity.max(0.0),
+            if self.studio_config.floor_shadow_enabled {
+                self.studio_config.floor_shadow_intensity.clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
+            self.studio_config.ground_z,
+        ];
+
+        let shadow_bounds = [
+            self.studio_config.shadow_center[0],
+            self.studio_config.shadow_center[1],
+            self.studio_config.shadow_radius[0].max(1.0),
+            self.studio_config.shadow_radius[1].max(1.0),
+        ];
+
         let zebra_params = [
             if self.zebra_config.enabled { 1.0 } else { 0.0 },
             self.zebra_config.frequency.max(1.0),
             self.zebra_config.angle,
             self.zebra_config.blend.clamp(0.0, 1.0),
         ];
+
         let draft_dir_norm = {
             let v = Vec3::from_array(self.draft_config.pull_dir);
             let n = if v.length_squared() > 1e-6 {
@@ -561,21 +727,52 @@ impl SceneRenderer {
             self.draft_config.blend.clamp(0.0, 1.0),
             0.0,
         ];
+
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
             eye: [eye.x, eye.y, eye.z, 1.0],
-            light_dir: [light.x, light.y, light.z, 0.0],
+            light_dir: key_light,
+            fill_light,
+            rim_light,
+            studio_params,
+            shadow_bounds,
             clip_plane: self.clip_plane,
             zebra_params,
             draft_params,
             draft_dir: draft_dir_norm,
         };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+
+        // Update posisi quad lantai sesuai ground_z dan shadow_center
+        if self.studio_config.floor_shadow_enabled {
+            let cx = self.studio_config.shadow_center[0];
+            let cy = self.studio_config.shadow_center[1];
+            let gz = self.studio_config.ground_z;
+            let rx = (self.studio_config.shadow_radius[0] * 3.0).max(300.0);
+            let ry = (self.studio_config.shadow_radius[1] * 3.0).max(300.0);
+
+            let floor_verts = [
+                grid::LineVertex { position: [cx - rx, cy - ry, gz], color: [0.0, 0.0, 0.0, 1.0] },
+                grid::LineVertex { position: [cx + rx, cy - ry, gz], color: [0.0, 0.0, 0.0, 1.0] },
+                grid::LineVertex { position: [cx + rx, cy + ry, gz], color: [0.0, 0.0, 0.0, 1.0] },
+                grid::LineVertex { position: [cx - rx, cy + ry, gz], color: [0.0, 0.0, 0.0, 1.0] },
+            ];
+            queue.write_buffer(&self.floor_vbuf, 0, bytemuck::cast_slice(&floor_verts));
+        }
     }
 
     pub fn paint(&self, rpass: &mut wgpu::RenderPass<'_>) {
         rpass.set_bind_group(0, &self.globals_bind, &[]);
 
+        // 1. Gambar Floor Contact Shadow di bawah objek & grid
+        if self.studio_config.enabled && self.studio_config.floor_shadow_enabled {
+            rpass.set_pipeline(&self.floor_pipeline);
+            rpass.set_vertex_buffer(0, self.floor_vbuf.slice(..));
+            rpass.set_index_buffer(self.floor_ibuf.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..self.floor_index_count, 0, 0..1);
+        }
+
+        // 2. Gambar Solid CAD Mesh
         if let Some(mesh) = &self.mesh {
             rpass.set_pipeline(&self.mesh_pipeline);
             rpass.set_vertex_buffer(0, mesh.vertex_buf.slice(..));
@@ -583,18 +780,19 @@ impl SceneRenderer {
             rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
 
+        // 3. Gambar Grid CAD
         rpass.set_pipeline(&self.grid_pipeline);
         rpass.set_vertex_buffer(0, self.grid_vbuf.slice(..));
         rpass.draw(0..self.grid_vertex_count, 0..1);
 
+        // 4. Gambar Overlay Garis 2D (Sketch)
         if let Some(buf) = &self.overlay_vbuf {
             rpass.set_pipeline(&self.overlay_pipeline);
             rpass.set_vertex_buffer(0, buf.slice(..));
             rpass.draw(0..self.overlay_vertex_count, 0..1);
         }
 
-        // Gizmo solid (Fase 9) digambar TERAKHIR dengan gizmo_pipeline (depth test Always)
-        // supaya gizmo selalu tampak di depan objek 3D dan tidak terkubur di dalam body.
+        // 5. Gizmo solid (Fase 9) digambar TERAKHIR dengan depth test Always
         if let Some(gizmo) = &self.gizmo_mesh {
             rpass.set_pipeline(&self.gizmo_pipeline);
             rpass.set_vertex_buffer(0, gizmo.vertex_buf.slice(..));
@@ -607,6 +805,29 @@ impl SceneRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_studio_config_defaults() {
+        let cfg = StudioConfig::default();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.preset, StudioPreset::CleanStudio);
+        assert_eq!(cfg.key_intensity, 1.0);
+        assert_eq!(cfg.fill_intensity, 0.50);
+        assert_eq!(cfg.rim_intensity, 0.65);
+        assert_eq!(cfg.ssao_intensity, 0.85);
+        assert!(cfg.floor_shadow_enabled);
+        assert_eq!(cfg.floor_shadow_intensity, 0.60);
+    }
+
+    #[test]
+    fn test_studio_preset_all() {
+        let presets = StudioPreset::all();
+        assert_eq!(presets.len(), 4);
+        assert!(presets.contains(&StudioPreset::CleanStudio));
+        assert!(presets.contains(&StudioPreset::WarmShowcase));
+        assert!(presets.contains(&StudioPreset::CoolTech));
+        assert!(presets.contains(&StudioPreset::DramaticDark));
+    }
 
     #[test]
     fn test_zebra_config_defaults() {
@@ -632,12 +853,16 @@ mod tests {
         // mat4x4<f32>: 64 bytes
         // eye: 16 bytes
         // light_dir: 16 bytes
+        // fill_light: 16 bytes
+        // rim_light: 16 bytes
+        // studio_params: 16 bytes
+        // shadow_bounds: 16 bytes
         // clip_plane: 16 bytes
         // zebra_params: 16 bytes
         // draft_params: 16 bytes
         // draft_dir: 16 bytes
-        // Total = 160 bytes (multiple of 16)
-        assert_eq!(std::mem::size_of::<Globals>(), 160);
+        // Total = 224 bytes (multiple of 16)
+        assert_eq!(std::mem::size_of::<Globals>(), 224);
         assert_eq!(std::mem::align_of::<Globals>(), 4);
     }
 
@@ -648,3 +873,4 @@ mod tests {
         assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
     }
 }
+

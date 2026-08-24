@@ -13,7 +13,7 @@ use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
-    ICON_LAYERS, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
+    ICON_LAYERS, ICON_LIGHTBULB_ON, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
     ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
@@ -49,6 +49,7 @@ pub enum TopBarEvent {
     ToggleSectionView,
     ToggleMeasurements,
     ToggleZebraView,
+    ToggleStudioLighting,
     DeleteSelection,
 }
 
@@ -66,6 +67,7 @@ pub struct TopBarState {
     pub section_view_active: bool,
     pub is_measure_active: bool,
     pub zebra_view_active: bool,
+    pub studio_lighting_active: bool,
     pub active_plane_name: String,
     /// Dropdown popup pemilih Sketch Plane (Top/Front/Right). Dibaca & bisa
     /// diubah oleh `show` — caller wajib menyalin nilai baru balik ke state
@@ -340,6 +342,22 @@ impl TopBar {
                 );
                 if zebra_btn.clicked() {
                     event = Some(TopBarEvent::ToggleZebraView);
+                }
+
+                let studio_title = t!("topbar-studio-lighting");
+                let studio_sub = t!("topbar-studio-tooltip");
+                let studio_btn = header_icon_btn(
+                    ui,
+                    ICON_LIGHTBULB_ON.codepoint,
+                    state.studio_lighting_active,
+                    &studio_title,
+                    Some("L"),
+                    Some(&studio_sub),
+                    None,
+                    None,
+                );
+                if studio_btn.clicked() {
+                    event = Some(TopBarEvent::ToggleStudioLighting);
                 }
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)

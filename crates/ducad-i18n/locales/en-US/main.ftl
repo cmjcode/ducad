@@ -747,4 +747,23 @@ material-metallic = Metallic:
 material-clearcoat = Clearcoat:
 material-opacity = Opacity (Alpha):
 
+# Studio Lighting & SSAO Presentation (Fase 4.2)
+topbar-studio-lighting = Studio Lighting
+topbar-studio-tooltip = 3-Point Studio Lighting & Contact Shadows (SSAO)
+hud-studio-title = Studio Lighting & SSAO Visualizer
+hud-studio-preset = Studio Lighting Presets:
+hud-studio-clean = Clean Studio
+hud-studio-warm = Warm Showcase
+hud-studio-cool = Cool Tech
+hud-studio-dramatic = Dramatic Dark
+hud-studio-lights = 3-Point Light Balance:
+hud-studio-key = Key Light:
+hud-studio-fill = Fill Light:
+hud-studio-rim = Rim Light:
+hud-studio-ssao = Screen Space Ambient Occlusion (SSAO):
+hud-studio-ssao-desc = Enhances depth in crevices, seams, and cavities
+hud-studio-floor-shadow = Floor Contact Soft Shadow
+hud-studio-shadow-intensity = Shadow Intensity:
+hud-studio-turn-off = Turn Off Studio Mode
+
 

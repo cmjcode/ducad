@@ -30,8 +30,8 @@ pub mod viewcube;
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DraftHudAction, DraftInspectionHudAction,
     DraftPullDir, LoftHudAction, PatternAxisPreset, PatternHudAction, PatternKind, RenamePopupEvent,
-    RevolveHudAction, RibHudAction, ShellHudAction, SplitHudAction, SplitMode, SplitPlaneKind, SweepHudAction,
-    ZebraHudAction,
+    RevolveHudAction, RibHudAction, ShellHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
+    StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
 };
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};

@@ -14,8 +14,8 @@ use ducad_ui::{
     ContextAction, ContextActionBar, DraftAnalysisPopup, Entity2dItemInfo, HistoryDrawer,
     HistoryDrawerEvent, HistoryPopup, HistoryPopupState, InspectorConstraintAction,
     InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu, RenamePopupEvent,
-    ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState,
-    ViewCube, ViewCubeAction, ZebraHudAction,
+    StudioHudAction, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp,
+    TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -114,6 +114,8 @@ pub struct DuCADApp {
     pub section_offset: f32,
     pub section_invert: bool,
 
+    /// Studio Lighting, SSAO & Bayangan Kontak Lantai (Fase 4.2).
+    pub studio_config: ducad_render::StudioConfig,
     /// Zebra stripes reflection inspection (Fase 3.1).
     pub zebra_config: ducad_render::ZebraConfig,
     /// Draft angle heatmap inspection (Fase 3.2).
@@ -381,6 +383,7 @@ impl DuCADApp {
             section_axis: SectionAxis::Z,
             section_offset: 0.0,
             section_invert: false,
+            studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
             show_all_dimensions: false,
@@ -717,6 +720,28 @@ impl DuCADApp {
         let overlay = self.build_overlay_lines(raw_cursor, world_scale);
         let (body_positions, body_normals, body_colors, body_materials, body_indices) =
             self.build_combined_body_mesh();
+
+        // Hitung bounding box otomatis untuk level lantai (ground_z) dan proyeksi bayangan kontak studio
+        if !body_positions.is_empty() {
+            let mut min_x = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut min_y = f32::MAX;
+            let mut max_y = f32::MIN;
+            let mut min_z = f32::MAX;
+            for p in &body_positions {
+                min_x = min_x.min(p[0]);
+                max_x = max_x.max(p[0]);
+                min_y = min_y.min(p[1]);
+                max_y = max_y.max(p[1]);
+                min_z = min_z.min(p[2]);
+            }
+            self.studio_config.ground_z = min_z;
+            self.studio_config.shadow_center = [(min_x + max_x) * 0.5, (min_y + max_y) * 0.5];
+            let rx = ((max_x - min_x) * 0.5).max(20.0);
+            let ry = ((max_y - min_y) * 0.5).max(20.0);
+            self.studio_config.shadow_radius = [rx * 1.3, ry * 1.3];
+        }
+
         let (gizmo_positions, gizmo_normals, gizmo_colors, gizmo_indices) =
             self.build_gizmo_mesh(world_scale);
         let grid_extent = self.calculate_grid_extent(raw_cursor);
@@ -738,6 +763,7 @@ impl DuCADApp {
                 gizmo_colors,
                 gizmo_indices,
                 clip_plane: self.section_clip_plane(),
+                studio_config: self.studio_config,
                 zebra_config: self.zebra_config,
                 draft_config: self.draft_config,
             },
@@ -908,6 +934,7 @@ impl eframe::App for DuCADApp {
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
+            studio_lighting_active: self.studio_config.enabled,
             active_plane_name: self.active_plane.name().to_string(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
@@ -983,6 +1010,9 @@ impl eframe::App for DuCADApp {
                         }
                         TopBarEvent::ToggleZebraView => {
                             self.zebra_config.enabled = !self.zebra_config.enabled;
+                        }
+                        TopBarEvent::ToggleStudioLighting => {
+                            self.studio_config.enabled = !self.studio_config.enabled;
                         }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
@@ -1447,6 +1477,67 @@ impl eframe::App for DuCADApp {
                     ZebraHudAction::SetAngle(a) => self.zebra_config.angle = a,
                     ZebraHudAction::SetBlend(b) => self.zebra_config.blend = b,
                     ZebraHudAction::TurnOff => self.zebra_config.enabled = false,
+                }
+            }
+        }
+
+        if self.studio_config.enabled {
+            let mut preset_ui = match self.studio_config.preset {
+                ducad_render::StudioPreset::CleanStudio => ducad_ui::StudioLightingPresetUi::CleanStudio,
+                ducad_render::StudioPreset::WarmShowcase => ducad_ui::StudioLightingPresetUi::WarmShowcase,
+                ducad_render::StudioPreset::CoolTech => ducad_ui::StudioLightingPresetUi::CoolTech,
+                ducad_render::StudioPreset::DramaticDark => ducad_ui::StudioLightingPresetUi::DramaticDark,
+            };
+            if let Some(act) = CanvasHud::show_studio_lighting_panel(
+                ui,
+                screen_rect,
+                &mut preset_ui,
+                &mut self.studio_config.ssao_intensity,
+                &mut self.studio_config.floor_shadow_enabled,
+                &mut self.studio_config.floor_shadow_intensity,
+            ) {
+                match act {
+                    StudioHudAction::ToggleStudioMode => {
+                        self.studio_config.enabled = !self.studio_config.enabled;
+                    }
+                    StudioHudAction::SetPreset(p) => {
+                        self.studio_config.preset = match p {
+                            ducad_ui::StudioLightingPresetUi::CleanStudio => {
+                                ducad_render::StudioPreset::CleanStudio
+                            }
+                            ducad_ui::StudioLightingPresetUi::WarmShowcase => {
+                                ducad_render::StudioPreset::WarmShowcase
+                            }
+                            ducad_ui::StudioLightingPresetUi::CoolTech => {
+                                ducad_render::StudioPreset::CoolTech
+                            }
+                            ducad_ui::StudioLightingPresetUi::DramaticDark => {
+                                ducad_render::StudioPreset::DramaticDark
+                            }
+                        };
+                    }
+                    StudioHudAction::SetKeyIntensity(k) => {
+                        self.studio_config.key_intensity = k;
+                    }
+                    StudioHudAction::SetFillIntensity(f) => {
+                        self.studio_config.fill_intensity = f;
+                    }
+                    StudioHudAction::SetRimIntensity(r) => {
+                        self.studio_config.rim_intensity = r;
+                    }
+                    StudioHudAction::SetSsaoIntensity(s) => {
+                        self.studio_config.ssao_intensity = s;
+                    }
+                    StudioHudAction::ToggleFloorShadow => {
+                        self.studio_config.floor_shadow_enabled =
+                            !self.studio_config.floor_shadow_enabled;
+                    }
+                    StudioHudAction::SetFloorShadowIntensity(si) => {
+                        self.studio_config.floor_shadow_intensity = si;
+                    }
+                    StudioHudAction::TurnOff => {
+                        self.studio_config.enabled = false;
+                    }
                 }
             }
         }

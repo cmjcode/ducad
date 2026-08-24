@@ -747,4 +747,23 @@ material-metallic = Metalisitas (Metallic):
 material-clearcoat = Kilau Lapisan (Clearcoat):
 material-opacity = Tingkat Transparansi (Opacity):
 
+# Studio Lighting & SSAO Presentation (Fase 4.2)
+topbar-studio-lighting = Studio Lighting
+topbar-studio-tooltip = Pencahayaan Studio 3-Titik & Bayangan Kontak (SSAO)
+hud-studio-title = Studio Lighting & SSAO Visualizer
+hud-studio-preset = Preset Pencahayaan Studio:
+hud-studio-clean = Clean Studio
+hud-studio-warm = Warm Showcase
+hud-studio-cool = Cool Tech
+hud-studio-dramatic = Dramatic Dark
+hud-studio-lights = Keseimbangan Lampu 3-Titik:
+hud-studio-key = Lampu Utama (Key):
+hud-studio-fill = Lampu Pengisi (Fill):
+hud-studio-rim = Lampu Siluet (Rim):
+hud-studio-ssao = Screen Space Ambient Occlusion (SSAO):
+hud-studio-ssao-desc = Mempertegas kedalaman celah, lekukan, dan rongga part
+hud-studio-floor-shadow = Bayangan Kontak Lantai (Floor Shadow)
+hud-studio-shadow-intensity = Intensitas Bayangan:
+hud-studio-turn-off = Matikan Studio Mode
+
 

@@ -214,6 +214,11 @@ impl DuCADApp {
                 PaletteAction::ToggleZebraView,
             ),
             (
+                "Studio Lighting & SSAO Visualizer".to_string(),
+                "L".to_string(),
+                PaletteAction::ToggleStudioLighting,
+            ),
+            (
                 format!("Ganti Tema ({})", self.theme.toggled().label()),
                 String::new(),
                 PaletteAction::ToggleTheme,
@@ -277,6 +282,9 @@ impl DuCADApp {
             }
             PaletteAction::ToggleZebraView => {
                 self.zebra_config.enabled = !self.zebra_config.enabled;
+            }
+            PaletteAction::ToggleStudioLighting => {
+                self.studio_config.enabled = !self.studio_config.enabled;
             }
             PaletteAction::ClearMeasurements => {
                 self.measurements.clear();

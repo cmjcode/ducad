@@ -68,8 +68,10 @@ Tujuan: Menampilkan pratinjau warna, material, dan finishing (Color, Material, F
   - *Anodized Brushed Aluminum*
   - *Polished Chrome / Stainless Steel*
   - *Translucent Glass / Clear Acrylic*
-- [ ] **4.2 Studio Lighting & Screen Space Ambient Occlusion (SSAO)**:
-  - Pencahayaan studio 3-titik dan bayangan lembut pada celah kontak lantai.
+- [x] **4.2 Studio Lighting & Screen Space Ambient Occlusion (SSAO)**:
+  - Pencahayaan studio 3-titik (Key, Fill, Rim) dan Screen Space Ambient Occlusion (SSAO) untuk mempertegas rongga part solid.
+  - Bayangan lembut kontak lantai (Floor Contact Soft Shadow) dengan Gaussian penumbra falloff.
+  - Floating Canvas HUD controller & TopBar action dengan preset pencahayaan (Clean Studio, Warm Showcase, Cool Tech, Dramatic Dark).
 
 ### Fase 5: Gambar Kerja Teknik 2D (Engineering Drawing Sheets)
 Tujuan: Menghasilkan gambar kerja pabrikasi dari model solid 3D.
