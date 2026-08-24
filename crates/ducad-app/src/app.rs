@@ -14,8 +14,9 @@ use ducad_ui::{
     CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
     Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu, RenamePopupEvent, StudioHudAction, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar,
-    TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
+    LightingDrawer, LightingDrawerEvent, RadialMenu, RenamePopupEvent, ThemeMode,
+    ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube,
+    ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -134,10 +135,12 @@ pub struct DuCADApp {
     pub items_drawer: ItemsDrawer,
     pub history_drawer: HistoryDrawer,
     pub cmf_drawer: CmfDrawer,
+    pub lighting_drawer: LightingDrawer,
     pub viewcube: ViewCube,
     pub items_drawer_open: bool,
     pub history_drawer_open: bool,
     pub cmf_drawer_open: bool,
+    pub lighting_drawer_open: bool,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -401,10 +404,12 @@ impl DuCADApp {
             items_drawer: ItemsDrawer::default(),
             history_drawer: HistoryDrawer::default(),
             cmf_drawer: CmfDrawer::default(),
+            lighting_drawer: LightingDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
             history_drawer_open: false,
             cmf_drawer_open: false,
+            lighting_drawer_open: false,
             history_db,
             activity_cache,
             plane_menu_open: false,
@@ -1025,7 +1030,8 @@ impl eframe::App for DuCADApp {
                             self.zebra_config.enabled = !self.zebra_config.enabled;
                         }
                         TopBarEvent::ToggleStudioLighting => {
-                            self.studio_config.enabled = !self.studio_config.enabled;
+                            self.lighting_drawer_open = !self.lighting_drawer_open;
+                            self.studio_config.enabled = self.lighting_drawer_open;
                         }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
@@ -1146,9 +1152,13 @@ impl eframe::App for DuCADApp {
             })
             .collect();
 
-        let both_open = self.items_drawer_open && self.history_drawer_open;
+        let open_drawers_count = (self.items_drawer_open as usize)
+            + (self.history_drawer_open as usize)
+            + (self.cmf_drawer_open as usize)
+            + (self.lighting_drawer_open as usize)
+            + (self.draft_config.enabled as usize);
         let screen_avail_h = (screen_rect.height() - 140.0).max(300.0);
-        let max_drawer_h = if both_open {
+        let max_drawer_h = if open_drawers_count > 1 {
             ((screen_rect.height() - 180.0) * 0.75).clamp(200.0, screen_avail_h)
         } else {
             screen_avail_h
@@ -1399,6 +1409,7 @@ impl eframe::App for DuCADApp {
         }
 
         // 4. Preset Material Industri & CMF Drawer (Pojok Kanan Bawah)
+        let mut cmf_top_y = None;
         if self.cmf_drawer_open {
             let cmf_bottom_y = if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1423,7 +1434,7 @@ impl eframe::App for DuCADApp {
                 (ducad_core::Material::default(), None, 0)
             };
 
-            egui::Area::new(egui::Id::new("ducad-cmf-drawer-area"))
+            let cmf_area_resp = egui::Area::new(egui::Id::new("ducad-cmf-drawer-area"))
                 .fixed_pos(cmf_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
@@ -1458,9 +1469,94 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+
+            cmf_top_y = Some(cmf_area_resp.response.rect.min.y);
         }
 
-        // 2. Floating Buttons Bar di Pojok Kanan Bawah (CMF Material, Draft Analysis, History, Folder)
+        // 5. Studio Lighting & SSAO Drawer (Pojok Kanan Bawah)
+        if self.lighting_drawer_open {
+            let lighting_bottom_y = if self.cmf_drawer_open {
+                cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.draft_config.enabled {
+                draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.history_drawer_open {
+                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let lighting_pos = egui::pos2(screen_rect.max.x - 16.0, lighting_bottom_y);
+
+            let preset_ui = match self.studio_config.preset {
+                ducad_render::StudioPreset::CleanStudio => ducad_ui::StudioLightingPresetUi::CleanStudio,
+                ducad_render::StudioPreset::WarmShowcase => ducad_ui::StudioLightingPresetUi::WarmShowcase,
+                ducad_render::StudioPreset::CoolTech => ducad_ui::StudioLightingPresetUi::CoolTech,
+                ducad_render::StudioPreset::DramaticDark => ducad_ui::StudioLightingPresetUi::DramaticDark,
+            };
+
+            egui::Area::new(egui::Id::new("ducad-lighting-drawer-area"))
+                .fixed_pos(lighting_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = self.lighting_drawer.show(
+                        ui,
+                        preset_ui,
+                        self.studio_config.ssao_intensity,
+                        self.studio_config.floor_shadow_enabled,
+                        self.studio_config.floor_shadow_intensity,
+                        self.studio_config.key_intensity,
+                        self.studio_config.fill_intensity,
+                        self.studio_config.rim_intensity,
+                        max_drawer_h,
+                    ) {
+                        match ev {
+                            ducad_ui::LightingDrawerEvent::SetPreset(p) => {
+                                self.studio_config.preset = match p {
+                                    ducad_ui::StudioLightingPresetUi::CleanStudio => {
+                                        ducad_render::StudioPreset::CleanStudio
+                                    }
+                                    ducad_ui::StudioLightingPresetUi::WarmShowcase => {
+                                        ducad_render::StudioPreset::WarmShowcase
+                                    }
+                                    ducad_ui::StudioLightingPresetUi::CoolTech => {
+                                        ducad_render::StudioPreset::CoolTech
+                                    }
+                                    ducad_ui::StudioLightingPresetUi::DramaticDark => {
+                                        ducad_render::StudioPreset::DramaticDark
+                                    }
+                                };
+                            }
+                            ducad_ui::LightingDrawerEvent::SetKeyIntensity(k) => {
+                                self.studio_config.key_intensity = k;
+                            }
+                            ducad_ui::LightingDrawerEvent::SetFillIntensity(f) => {
+                                self.studio_config.fill_intensity = f;
+                            }
+                            ducad_ui::LightingDrawerEvent::SetRimIntensity(r) => {
+                                self.studio_config.rim_intensity = r;
+                            }
+                            ducad_ui::LightingDrawerEvent::SetSsaoIntensity(s) => {
+                                self.studio_config.ssao_intensity = s;
+                            }
+                            ducad_ui::LightingDrawerEvent::ToggleFloorShadow => {
+                                self.studio_config.floor_shadow_enabled =
+                                    !self.studio_config.floor_shadow_enabled;
+                            }
+                            ducad_ui::LightingDrawerEvent::SetFloorShadowIntensity(si) => {
+                                self.studio_config.floor_shadow_intensity = si;
+                            }
+                            ducad_ui::LightingDrawerEvent::Close => {
+                                self.lighting_drawer_open = false;
+                                self.studio_config.enabled = false;
+                            }
+                        }
+                    }
+                });
+        }
+
+        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Lighting, CMF Material, Draft Analysis, History, Folder)
         let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
         egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
             .fixed_pos(btns_pos)
@@ -1469,6 +1565,18 @@ impl eframe::App for DuCADApp {
             .show(&ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+
+                    // Tombol Studio Lighting & SSAO
+                    let lighting_resp = round_floating_icon_btn(
+                        ui,
+                        egui_material_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                        self.lighting_drawer_open,
+                        "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
+                    );
+                    if lighting_resp.clicked() {
+                        self.lighting_drawer_open = !self.lighting_drawer_open;
+                        self.studio_config.enabled = self.lighting_drawer_open;
+                    }
 
                     // Tombol Preset Industri & CMF Material
                     let cmf_resp = round_floating_icon_btn(
@@ -1566,67 +1674,6 @@ impl eframe::App for DuCADApp {
                     ZebraHudAction::SetAngle(a) => self.zebra_config.angle = a,
                     ZebraHudAction::SetBlend(b) => self.zebra_config.blend = b,
                     ZebraHudAction::TurnOff => self.zebra_config.enabled = false,
-                }
-            }
-        }
-
-        if self.studio_config.enabled {
-            let mut preset_ui = match self.studio_config.preset {
-                ducad_render::StudioPreset::CleanStudio => ducad_ui::StudioLightingPresetUi::CleanStudio,
-                ducad_render::StudioPreset::WarmShowcase => ducad_ui::StudioLightingPresetUi::WarmShowcase,
-                ducad_render::StudioPreset::CoolTech => ducad_ui::StudioLightingPresetUi::CoolTech,
-                ducad_render::StudioPreset::DramaticDark => ducad_ui::StudioLightingPresetUi::DramaticDark,
-            };
-            if let Some(act) = CanvasHud::show_studio_lighting_panel(
-                ui,
-                screen_rect,
-                &mut preset_ui,
-                &mut self.studio_config.ssao_intensity,
-                &mut self.studio_config.floor_shadow_enabled,
-                &mut self.studio_config.floor_shadow_intensity,
-            ) {
-                match act {
-                    StudioHudAction::ToggleStudioMode => {
-                        self.studio_config.enabled = !self.studio_config.enabled;
-                    }
-                    StudioHudAction::SetPreset(p) => {
-                        self.studio_config.preset = match p {
-                            ducad_ui::StudioLightingPresetUi::CleanStudio => {
-                                ducad_render::StudioPreset::CleanStudio
-                            }
-                            ducad_ui::StudioLightingPresetUi::WarmShowcase => {
-                                ducad_render::StudioPreset::WarmShowcase
-                            }
-                            ducad_ui::StudioLightingPresetUi::CoolTech => {
-                                ducad_render::StudioPreset::CoolTech
-                            }
-                            ducad_ui::StudioLightingPresetUi::DramaticDark => {
-                                ducad_render::StudioPreset::DramaticDark
-                            }
-                        };
-                    }
-                    StudioHudAction::SetKeyIntensity(k) => {
-                        self.studio_config.key_intensity = k;
-                    }
-                    StudioHudAction::SetFillIntensity(f) => {
-                        self.studio_config.fill_intensity = f;
-                    }
-                    StudioHudAction::SetRimIntensity(r) => {
-                        self.studio_config.rim_intensity = r;
-                    }
-                    StudioHudAction::SetSsaoIntensity(s) => {
-                        self.studio_config.ssao_intensity = s;
-                    }
-                    StudioHudAction::ToggleFloorShadow => {
-                        self.studio_config.floor_shadow_enabled =
-                            !self.studio_config.floor_shadow_enabled;
-                    }
-                    StudioHudAction::SetFloorShadowIntensity(si) => {
-                        self.studio_config.floor_shadow_intensity = si;
-                    }
-                    StudioHudAction::TurnOff => {
-                        self.studio_config.enabled = false;
-                    }
                 }
             }
         }

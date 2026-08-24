@@ -299,7 +299,8 @@ impl DuCADApp {
                 self.zebra_config.enabled = !self.zebra_config.enabled;
             }
             PaletteAction::ToggleStudioLighting => {
-                self.studio_config.enabled = !self.studio_config.enabled;
+                self.lighting_drawer_open = !self.lighting_drawer_open;
+                self.studio_config.enabled = self.lighting_drawer_open;
             }
             PaletteAction::OpenDrawingSheet => {
                 self.open_drawing_sheet();

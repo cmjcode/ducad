@@ -53,7 +53,7 @@ pub struct StudioConfig {
 impl Default for StudioConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             preset: StudioPreset::CleanStudio,
             key_intensity: 1.0,
             fill_intensity: 0.50,
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn test_studio_config_defaults() {
         let cfg = StudioConfig::default();
-        assert!(cfg.enabled);
+        assert!(!cfg.enabled);
         assert_eq!(cfg.preset, StudioPreset::CleanStudio);
         assert_eq!(cfg.key_intensity, 1.0);
         assert_eq!(cfg.fill_intensity, 0.50);
