@@ -178,15 +178,40 @@ impl HlrExtractor {
         shapes: &[&KernelShape],
         meshes: &[&KernelMesh],
     ) -> HlrDrawing {
+        Self::extract_drawing_with_sketch(shapes, meshes, &[])
+    }
+
+    /// Ekstraksi gambar kerja 4 tampak lengkap dengan menyertakan segmen sketsa profil 2D dasar.
+    pub fn extract_drawing_with_sketch(
+        shapes: &[&KernelShape],
+        meshes: &[&KernelMesh],
+        sketch_segments: &[(Vec3, Vec3)],
+    ) -> HlrDrawing {
         let _guard = lock_kernel();
 
         let merged_mesh = KernelMesh::merge(meshes);
-        let (bbox_min, bbox_max) = merged_mesh.bounding_box().unwrap_or(([0.0; 3], [100.0; 3]));
+        let (mut bbox_min, mut bbox_max) = merged_mesh.bounding_box().unwrap_or(([f32::MAX; 3], [f32::MIN; 3]));
 
-        let front = Self::extract_view(shapes, &merged_mesh, ProjectedViewKind::Front, (bbox_min, bbox_max));
-        let top = Self::extract_view(shapes, &merged_mesh, ProjectedViewKind::Top, (bbox_min, bbox_max));
-        let right = Self::extract_view(shapes, &merged_mesh, ProjectedViewKind::Right, (bbox_min, bbox_max));
-        let isometric = Self::extract_view(shapes, &merged_mesh, ProjectedViewKind::Isometric, (bbox_min, bbox_max));
+        // Perbarui bbox dengan segmen sketsa dasar
+        for (p1, p2) in sketch_segments {
+            bbox_min[0] = bbox_min[0].min(p1.x).min(p2.x);
+            bbox_min[1] = bbox_min[1].min(p1.y).min(p2.y);
+            bbox_min[2] = bbox_min[2].min(p1.z).min(p2.z);
+
+            bbox_max[0] = bbox_max[0].max(p1.x).max(p2.x);
+            bbox_max[1] = bbox_max[1].max(p1.y).max(p2.y);
+            bbox_max[2] = bbox_max[2].max(p1.z).max(p2.z);
+        }
+
+        if bbox_min[0] > bbox_max[0] {
+            bbox_min = [0.0, 0.0, 0.0];
+            bbox_max = [100.0, 100.0, 100.0];
+        }
+
+        let front = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Front, (bbox_min, bbox_max));
+        let top = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Top, (bbox_min, bbox_max));
+        let right = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Right, (bbox_min, bbox_max));
+        let isometric = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Isometric, (bbox_min, bbox_max));
 
         HlrDrawing {
             front,
@@ -202,6 +227,7 @@ impl HlrExtractor {
     pub fn extract_view(
         shapes: &[&KernelShape],
         mesh: &KernelMesh,
+        sketch_segments: &[(Vec3, Vec3)],
         view_kind: ProjectedViewKind,
         model_bbox: ([f32; 3], [f32; 3]),
     ) -> ProjectedView {
@@ -237,7 +263,14 @@ impl HlrExtractor {
             }
         }
 
-        // Jika tidak ada tepi B-Rep (mis. mesh murni), ekstrak tepi lipatan tajam (feature crease edges) dari mesh
+        // Sertakan segmen sketsa profil 2D dasar
+        for (p1, p2) in sketch_segments {
+            if (p1 - p2).length_squared() > 1e-6 {
+                raw_3d_segments.push((*p1, *p2, false));
+            }
+        }
+
+        // Jika tidak ada tepi B-Rep atau sketsa, ekstrak tepi lipatan tajam (feature crease edges) dari mesh
         if raw_3d_segments.is_empty() {
             let feature_edges = extract_mesh_feature_edges(mesh);
             for (p1, p2) in feature_edges {

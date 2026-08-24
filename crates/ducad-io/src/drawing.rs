@@ -164,7 +164,7 @@ impl DrawingSheet {
         let iso_sz = self.drawing.isometric.size_2d();
 
         // Area utama untuk proyeksi ortogonal (Front, Top, Right) di sisi kiri lembar
-        let avail_ortho_w = (paper_w - left_margin - title_block_w - 25.0).max(60.0);
+        let avail_ortho_w = (paper_w - left_margin - title_block_w - 48.0).max(60.0);
         let avail_ortho_h = (paper_h - top_margin - bottom_margin - 48.0).max(60.0);
 
         let total_ortho_w = front_sz[0] + right_sz[0] + 35.0;
@@ -192,8 +192,9 @@ impl DrawingSheet {
         let gap_x = ((avail_ortho_w - (w_front + w_right)) * 0.45).clamp(20.0, 45.0);
         let gap_y = ((avail_ortho_h - (h_front + h_top)) * 0.45).clamp(20.0, 45.0);
 
+        let left_clearance = 28.0; // Jarak aman dari bingkai kiri untuk anotasi dimensi vertikal
         let bottom_clearance = 28.0; // Jarak aman dari bingkai bawah untuk dimensi & judul tampak
-        let front_center_x = left_margin + 15.0 + w_front * 0.5;
+        let front_center_x = left_margin + left_clearance + w_front * 0.5;
         let front_center_y = bottom_margin + bottom_clearance + h_front * 0.5;
 
         let top_center_x = front_center_x;

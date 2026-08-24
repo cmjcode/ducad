@@ -352,12 +352,106 @@ impl DuCADApp {
         }
     }
 
-    /// Membuat dokumen DrawingSheet baru dari seluruh body solid dan mesh yang ada pada model.
+    /// Membuat dokumen DrawingSheet baru dari seluruh body solid, mesh, dan entitas sketsa dasar.
     pub fn build_current_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
         let shapes = self.all_body_shapes();
         let meshes = self.visible_body_meshes();
         let mesh_refs: Vec<&ducad_kernel::KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
-        let drawing = ducad_kernel::HlrExtractor::extract_drawing(&shapes, &mesh_refs);
+
+        // Ekstraksi entitas sketsa profil 2D aktif (garis, lingkaran, busur, spline)
+        let mut sketch_segments: Vec<(glam::Vec3, glam::Vec3)> = Vec::new();
+        let plane = &self.active_plane;
+        for (_, entity) in &self.sketch().entities {
+            match entity {
+                ducad_sketch::Entity::Line { start, end } => {
+                    let p1 = plane.to_world(*start, 0.0);
+                    let p2 = plane.to_world(*end, 0.0);
+                    sketch_segments.push((p1, p2));
+                }
+                ducad_sketch::Entity::Circle { center, radius } => {
+                    let steps = 36;
+                    let mut prev = plane.to_world(
+                        *center + glam::DVec2::new(*radius, 0.0),
+                        0.0,
+                    );
+                    for i in 1..=steps {
+                        let theta = (i as f64) * std::f64::consts::TAU / (steps as f64);
+                        let pt = plane.to_world(
+                            *center + glam::DVec2::new(radius * theta.cos(), radius * theta.sin()),
+                            0.0,
+                        );
+                        sketch_segments.push((prev, pt));
+                        prev = pt;
+                    }
+                }
+                ducad_sketch::Entity::Arc {
+                    center,
+                    radius,
+                    start_angle,
+                    end_angle,
+                } => {
+                    let steps = 24;
+                    let span = if *end_angle >= *start_angle {
+                        *end_angle - *start_angle
+                    } else {
+                        *end_angle + std::f64::consts::TAU - *start_angle
+                    };
+                    let mut prev = plane.to_world(
+                        *center + glam::DVec2::new(radius * start_angle.cos(), radius * start_angle.sin()),
+                        0.0,
+                    );
+                    for i in 1..=steps {
+                        let t = i as f64 / steps as f64;
+                        let a = *start_angle + span * t;
+                        let pt = plane.to_world(
+                            *center + glam::DVec2::new(radius * a.cos(), radius * a.sin()),
+                            0.0,
+                        );
+                        sketch_segments.push((prev, pt));
+                        prev = pt;
+                    }
+                }
+                ducad_sketch::Entity::Spline { points } => {
+                    if points.len() >= 2 {
+                        for w in points.windows(2) {
+                            let p1 = plane.to_world(w[0], 0.0);
+                            let p2 = plane.to_world(w[1], 0.0);
+                            sketch_segments.push((p1, p2));
+                        }
+                    }
+                }
+                ducad_sketch::Entity::Ellipse {
+                    center,
+                    radius_x,
+                    radius_y,
+                } => {
+                    let steps = 36;
+                    let mut prev = plane.to_world(
+                        *center + glam::DVec2::new(*radius_x, 0.0),
+                        0.0,
+                    );
+                    for i in 1..=steps {
+                        let theta = (i as f64) * std::f64::consts::TAU / (steps as f64);
+                        let pt = plane.to_world(
+                            *center
+                                + glam::DVec2::new(
+                                    radius_x * theta.cos(),
+                                    radius_y * theta.sin(),
+                                ),
+                            0.0,
+                        );
+                        sketch_segments.push((prev, pt));
+                        prev = pt;
+                    }
+                }
+            }
+        }
+
+        let drawing = ducad_kernel::HlrExtractor::extract_drawing_with_sketch(
+            &shapes,
+            &mesh_refs,
+            &sketch_segments,
+        );
 
         let mut sheet = ducad_io::drawing::DrawingSheet::new(
             drawing,
