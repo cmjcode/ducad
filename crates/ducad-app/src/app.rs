@@ -2031,9 +2031,6 @@ impl eframe::App for DuCADApp {
                                 ContextAction::ClearSelection => {
                                     self.selected_bodies.clear();
                                 }
-                                ContextAction::CmfMaterial => {
-                                    self.cmf_drawer_open = true;
-                                }
                                 ContextAction::Rename => {
                                     // Buka popup rename untuk body 3D pertama yang dipilih
                                     if let Some(&body_id) = self.selected_bodies.iter().next() {
