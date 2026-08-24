@@ -82,31 +82,34 @@ impl LeftToolbar {
     pub fn show(&mut self, ui: &mut Ui, current_tool: ToolbarTool) -> Option<ToolbarEvent> {
         let mut event = None;
 
-        glass_frame().show(ui, |ui| {
-            ui.set_width(36.0);
-            ui.spacing_mut().item_spacing = Vec2::new(0.0, 3.0);
+        glass_frame()
+            .inner_margin(Margin::same(4))
+            .corner_radius(CornerRadius::same(8))
+            .show(ui, |ui| {
+                ui.set_width(30.0);
+                ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.5);
 
-            // 1. Tool List: Selalu ada "Pilih"
-            let select_active = current_tool == ToolbarTool::Select;
-            let sel_title = t!("tool-select");
-            let sel_desc = t!("tool-select-desc");
-            let sel_btn = square_btn(
-                ui,
-                ICON_ADS_CLICK.codepoint,
-                select_active,
-                &sel_title,
-                Some("Esc"),
-                Some(&sel_desc),
-                None,
-                None,
-            );
-            if sel_btn.clicked() {
-                event = Some(ToolbarEvent::SelectTool(ToolbarTool::Select));
-            }
+                // 1. Tool List: Selalu ada "Pilih"
+                let select_active = current_tool == ToolbarTool::Select;
+                let sel_title = t!("tool-select");
+                let sel_desc = t!("tool-select-desc");
+                let sel_btn = square_btn(
+                    ui,
+                    ICON_ADS_CLICK.codepoint,
+                    select_active,
+                    &sel_title,
+                    Some("Esc"),
+                    Some(&sel_desc),
+                    None,
+                    None,
+                );
+                if sel_btn.clicked() {
+                    event = Some(ToolbarEvent::SelectTool(ToolbarTool::Select));
+                }
 
-            ui.add_space(1.0);
-            ui.separator();
-            ui.add_space(1.0);
+                ui.add_space(1.0);
+                ui.separator();
+                ui.add_space(1.0);
 
             // 2. Mode-Specific Tools
             if self.is_sketching {
@@ -246,7 +249,7 @@ fn square_btn(
     custom_bg: Option<Color32>,
     custom_fg: Option<Color32>,
 ) -> egui::Response {
-    let size = Vec2::splat(34.0);
+    let size = Vec2::splat(30.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -272,13 +275,13 @@ fn square_btn(
 
         ui.painter().rect(
             rect,
-            CornerRadius::same(7),
+            CornerRadius::same(6),
             bg_fill,
             stroke,
             StrokeKind::Inside,
         );
 
-        let font_id = egui::FontId::proportional(15.5);
+        let font_id = egui::FontId::proportional(14.0);
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
