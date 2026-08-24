@@ -846,6 +846,34 @@ impl DuCADApp {
             }
         }
 
+        // Indikator garis pembatas halus (bounding box wireframe) saat CMF drawer aktif
+        if self.cmf_drawer_open && !self.selected_bodies.is_empty() {
+            for &bid in &self.selected_bodies {
+                if let Some(geo) = self.model.geometry.get(bid) {
+                    if let Some((min, max)) = geo.mesh.bounding_box() {
+                        let col = [0.0, 0.75, 1.0, 0.75];
+                        let p000 = [min[0], min[1], min[2]];
+                        let p100 = [max[0], min[1], min[2]];
+                        let p010 = [min[0], max[1], min[2]];
+                        let p110 = [max[0], max[1], min[2]];
+                        let p001 = [min[0], min[1], max[2]];
+                        let p101 = [max[0], min[1], max[2]];
+                        let p011 = [min[0], max[1], max[2]];
+                        let p111 = [max[0], max[1], max[2]];
+
+                        let edges = [
+                            (p000, p100), (p100, p110), (p110, p010), (p010, p000),
+                            (p001, p101), (p101, p111), (p111, p011), (p011, p001),
+                            (p000, p001), (p100, p101), (p110, p111), (p010, p011),
+                        ];
+                        for (a, b) in edges {
+                            verts.extend(sketch_render::dashed_line_3d(a, b, 4.0, col));
+                        }
+                    }
+                }
+            }
+        }
+
         verts
     }
 
@@ -1184,7 +1212,7 @@ impl DuCADApp {
 
             let (body_color, body_mat) = if is_cutting_target {
                 (CUT_RED, [0.4, 0.0, 0.2, 0.0])
-            } else if is_selected_body {
+            } else if is_selected_body && !self.cmf_drawer_open {
                 (SELECTED_CYAN, [0.35, 0.0, 0.50, 0.0])
             } else {
                 (base_color, mat_params)

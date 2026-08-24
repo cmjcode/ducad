@@ -766,4 +766,30 @@ hud-studio-floor-shadow = Bayangan Kontak Lantai (Floor Shadow)
 hud-studio-shadow-intensity = Intensitas Bayangan:
 hud-studio-turn-off = Matikan Studio Mode
 
+# 2D Engineering Drawing Sheets (Fase 5)
+menu-drawing-sheet = Gambar Kerja 2D (Drawing Sheet)…
+menu-export-pdf = PDF Gambar Teknik…
+topbar-drawing-sheet = Gambar Kerja 2D
+topbar-drawing-sheet-tooltip = Buka Lembar Kerja Gambar Teknik 2D (A4/A3, Tampak Ortogonal, PDF)
+drawing-sheet-title = GAMBAR KERJA TEKNIK 2D
+drawing-sheet-paper = Ukuran Kertas
+drawing-sheet-scale = Skala Gambar
+drawing-sheet-hidden-lines = Garis Tersembunyi (Hidden)
+drawing-sheet-dimensions = Dimensi Otomatis
+drawing-sheet-centerlines = Garis Sumbu (Centerlines)
+drawing-sheet-title-block = Kepala Gambar (Title Block)
+drawing-sheet-export-pdf = Ekspor PDF (Vektor)
+drawing-sheet-export-dxf = Ekspor DXF (2D CAD)
+drawing-sheet-fit = Pas ke Layar (Fit)
+drawing-view-front = Tampak Depan
+drawing-view-top = Tampak Atas
+drawing-view-right = Tampak Samping Kanan
+drawing-view-isometric = Tampak Isometrik 3D
+file-exported-pdf = Berhasil mengekspor PDF: { $name }
+file-export-pdf-failed = Gagal mengekspor PDF: { $error }
+file-exported-drawing-dxf = Berhasil mengekspor DXF Gambar Kerja: { $name }
+file-export-drawing-dxf-failed = Gagal mengekspor DXF Gambar Kerja: { $error }
+file-pdf-filter = Dokumen PDF (*.pdf)
+file-drawing-dxf-filter = AutoCAD DXF Drawing (*.dxf)
+
 

@@ -185,6 +185,9 @@ pub enum FileOp {
     ExportStl,
     ExportObj,
     ExportDxf,
+    ExportPdf,
+    ExportDrawingDxf,
+    OpenDrawingSheet,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -199,6 +202,7 @@ pub enum PaletteAction {
     ToggleTheme,
     ToggleZebraView,
     ToggleStudioLighting,
+    OpenDrawingSheet,
     SetSketchPlane(ducad_render::PlaneKind),
     EnterSketching,
     ExitSketching,

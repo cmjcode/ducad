@@ -13,8 +13,8 @@ use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
-    ICON_LAYERS, ICON_LIGHTBULB_ON, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
-    ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
+    ICON_LAYERS, ICON_LIGHTBULB_ON, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
+    ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
 use ducad_core::LengthUnit;
@@ -31,6 +31,9 @@ pub enum TopBarFileOp {
     ExportStl,
     ExportObj,
     ExportDxf,
+    ExportPdf,
+    ExportDrawingDxf,
+    OpenDrawingSheet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +53,7 @@ pub enum TopBarEvent {
     ToggleMeasurements,
     ToggleZebraView,
     ToggleStudioLighting,
+    OpenDrawingSheet,
     DeleteSelection,
 }
 
@@ -154,6 +158,18 @@ impl TopBar {
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui
+                            .button(format!(
+                                "{} {}",
+                                ICON_PICTURE_AS_PDF.codepoint,
+                                t!("menu-drawing-sheet")
+                            ))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::OpenDrawingSheet);
                             ui.close();
                         }
                     },
@@ -360,6 +376,23 @@ impl TopBar {
                     event = Some(TopBarEvent::ToggleStudioLighting);
                 }
 
+                // Drawing Sheet Button (Fase 5)
+                let ds_title = t!("topbar-drawing-sheet");
+                let ds_sub = t!("topbar-drawing-sheet-tooltip");
+                let ds_btn = header_icon_btn(
+                    ui,
+                    ICON_PICTURE_AS_PDF.codepoint,
+                    false,
+                    &ds_title,
+                    None,
+                    Some(&ds_sub),
+                    None,
+                    None,
+                );
+                if ds_btn.clicked() {
+                    event = Some(TopBarEvent::OpenDrawingSheet);
+                }
+
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Sisi paling kanan: Settings Icon Button
@@ -380,7 +413,7 @@ impl TopBar {
                                     "{} {} (⌘K)",
                                     ICON_SEARCH.codepoint,
                                     t!("menu-command-palette")
-                                ))
+                                 ))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::OpenCommandPalette);
@@ -448,6 +481,29 @@ impl TopBar {
                             .size(14.0)
                             .color(ACCENT_BLUE),
                         |ui| {
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_PICTURE_AS_PDF.codepoint,
+                                    t!("menu-drawing-sheet")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::OpenDrawingSheet);
+                                ui.close();
+                            }
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_PICTURE_AS_PDF.codepoint,
+                                    t!("menu-export-pdf")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::File(TopBarFileOp::ExportPdf));
+                                ui.close();
+                            }
+                            ui.separator();
                             if ui
                                 .button(format!(
                                     "{} {}",

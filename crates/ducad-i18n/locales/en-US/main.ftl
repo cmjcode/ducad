@@ -766,4 +766,30 @@ hud-studio-floor-shadow = Floor Contact Soft Shadow
 hud-studio-shadow-intensity = Shadow Intensity:
 hud-studio-turn-off = Turn Off Studio Mode
 
+# 2D Engineering Drawing Sheets (Fase 5)
+menu-drawing-sheet = 2D Drawing Sheet…
+menu-export-pdf = Engineering PDF…
+topbar-drawing-sheet = 2D Drawing Sheet
+topbar-drawing-sheet-tooltip = Open 2D Engineering Drawing Sheet (A4/A3, Orthogonal Views, PDF)
+drawing-sheet-title = 2D ENGINEERING DRAWING SHEET
+drawing-sheet-paper = Paper Size
+drawing-sheet-scale = Drawing Scale
+drawing-sheet-hidden-lines = Hidden Lines
+drawing-sheet-dimensions = Auto Dimensions
+drawing-sheet-centerlines = Centerlines
+drawing-sheet-title-block = Title Block
+drawing-sheet-export-pdf = Export PDF (Vector)
+drawing-sheet-export-dxf = Export DXF (2D CAD)
+drawing-sheet-fit = Fit to Screen
+drawing-view-front = Front View
+drawing-view-top = Top View
+drawing-view-right = Right Side View
+drawing-view-isometric = Isometric 3D View
+file-exported-pdf = Successfully exported PDF: { $name }
+file-export-pdf-failed = Failed to export PDF: { $error }
+file-exported-drawing-dxf = Successfully exported Drawing DXF: { $name }
+file-export-drawing-dxf-failed = Failed to export Drawing DXF: { $error }
+file-pdf-filter = PDF Document (*.pdf)
+file-drawing-dxf-filter = AutoCAD DXF Drawing (*.dxf)
+
 

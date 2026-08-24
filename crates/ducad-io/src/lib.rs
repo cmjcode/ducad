@@ -9,10 +9,18 @@
 //! geometri B-rep lewat `KernelShape::to_step_string`/`from_step_string`
 //! di `ducad-kernel`. Crate ini murni orkestrasi format file di atasnya.
 
+pub mod drawing;
 pub mod dxf;
 pub mod mesh_export;
 pub mod native;
+pub mod pdf;
 pub mod step_io;
+
+pub use drawing::{
+    DimensionAnnotation, DrawingSheet, PaperSize, SheetViewPlacement, TitleBlockInfo,
+};
+pub use dxf::export_drawing_sheet;
+pub use pdf::export_pdf;
 
 /// Lock test SATU-SATUNYA untuk seluruh binary test crate ini — dipakai
 /// `native`/`step_io`, dua modul yang sama-sama menyentuh jalur transfer

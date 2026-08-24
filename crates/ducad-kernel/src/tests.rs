@@ -1709,6 +1709,52 @@ fn test_create_rib_from_curve() {
     assert!(mesh.triangle_count() > 0);
 }
 
+#[test]
+fn test_hlr_extract_orthogonal_views_box() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(50.0, 30.0), 20.0).expect("extrude box harus berhasil");
+    let mesh = shape.tessellate();
+
+    let drawing = HlrExtractor::extract_drawing(&[&shape], &[&mesh]);
+
+    // Verifikasi 4 tampak terproyeksi
+    assert!(!drawing.front.segments.is_empty(), "Tampak Depan harus memiliki segmen garis");
+    assert!(!drawing.top.segments.is_empty(), "Tampak Atas harus memiliki segmen garis");
+    assert!(!drawing.right.segments.is_empty(), "Tampak Samping harus memiliki segmen garis");
+    assert!(!drawing.isometric.segments.is_empty(), "Tampak Isometrik harus memiliki segmen garis");
+
+    // Periksa dimensi bounding model
+    let (dim_x, dim_y, dim_z) = drawing.model_dimensions();
+    assert!((dim_x - 50.0).abs() < 1e-2, "Dimensi X harus 50mm, dapat {dim_x}");
+    assert!((dim_y - 30.0).abs() < 1e-2, "Dimensi Y harus 30mm, dapat {dim_y}");
+    assert!((dim_z - 20.0).abs() < 1e-2, "Dimensi Z harus 20mm, dapat {dim_z}");
+
+    // Periksa adanya garis tampak (Visible)
+    let has_visible_front = drawing.front.segments.iter().any(|s| s.kind == HlrLineKind::Visible || s.kind == HlrLineKind::Silhouette);
+    assert!(has_visible_front, "Tampak Depan harus memiliki garis tampak (Visible)");
+}
+
+#[test]
+fn test_hlr_extract_views_cylinder() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let circle_prof = Profile::Circle {
+        center: (20.0, 20.0),
+        radius: 15.0,
+    };
+    let shape = extrude_profile(&circle_prof, 40.0).expect("extrude silinder harus berhasil");
+    let mesh = shape.tessellate();
+
+    let drawing = HlrExtractor::extract_drawing(&[&shape], &[&mesh]);
+
+    assert!(!drawing.front.segments.is_empty());
+    assert!(!drawing.top.segments.is_empty());
+
+    let (dim_x, dim_y, dim_z) = drawing.model_dimensions();
+    assert!((dim_x - 30.0).abs() < 1.0, "Diameter silinder X ~30mm");
+    assert!((dim_y - 30.0).abs() < 1.0, "Diameter silinder Y ~30mm");
+    assert!((dim_z - 40.0).abs() < 1e-2, "Tinggi silinder Z 40mm");
+}
+
 
 
 

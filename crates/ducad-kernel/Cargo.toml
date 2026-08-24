@@ -9,6 +9,7 @@ authors.workspace = true
 opencascade = { workspace = true }
 glam = { workspace = true }
 anyhow = { workspace = true }
+serde = { workspace = true }
 
 [[bin]]
 name = "smoke"

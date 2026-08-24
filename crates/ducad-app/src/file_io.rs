@@ -351,4 +351,117 @@ impl DuCADApp {
             }
         }
     }
+
+    /// Membuat dokumen DrawingSheet baru dari seluruh body solid dan mesh yang ada pada model.
+    pub fn build_current_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
+        let shapes = self.all_body_shapes();
+        let meshes = self.visible_body_meshes();
+        let mesh_refs: Vec<&ducad_kernel::KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
+        let drawing = ducad_kernel::HlrExtractor::extract_drawing(&shapes, &mesh_refs);
+
+        let mut sheet = ducad_io::drawing::DrawingSheet::new(
+            drawing,
+            ducad_io::drawing::PaperSize::A4Landscape,
+        );
+
+        if let Some(path) = &self.current_file_path {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                sheet.title_block.project_title = stem.to_uppercase();
+                sheet.title_block.drawing_number = format!("DWG-{}", stem.to_uppercase());
+            }
+        }
+
+        sheet
+    }
+
+    /// Membuka tampilan lembar kerja teknik 2D (Drawing Sheet).
+    pub fn open_drawing_sheet(&mut self) {
+        if self.drawing_sheet_doc.is_none() {
+            let sheet = self.build_current_drawing_sheet();
+            self.drawing_sheet_doc = Some(sheet);
+        }
+        self.drawing_sheet_state.is_open = true;
+        let act_title = ducad_i18n::t!("menu-drawing-sheet");
+        self.record_activity(
+            ducad_ui::ActivityKindUi::Solid3D,
+            &act_title,
+            "Membuka lembar kerja teknik 2D (Drawing Sheet)",
+        );
+    }
+
+    /// Ekspor lembar kerja gambar teknik ke PDF Vektor.
+    pub fn export_drawing_pdf(&mut self) {
+        let sheet = self
+            .drawing_sheet_doc
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| self.build_current_drawing_sheet());
+
+        let filter_name = ducad_i18n::t!("file-pdf-filter");
+        let default_name = format!(
+            "{}.pdf",
+            sheet
+                .title_block
+                .project_title
+                .to_lowercase()
+                .replace(' ', "_")
+        );
+
+        let Some(path) = self.pick_save_path(&filter_name, &["pdf"], &default_name) else {
+            return;
+        };
+
+        match ducad_io::export_pdf(&sheet, &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("drawing.pdf");
+                self.file_status = Some(ducad_i18n::t!("file-exported-pdf", name = name));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status =
+                    Some(ducad_i18n::t!("file-export-pdf-failed", error = err_str.as_str()));
+            }
+        }
+    }
+
+    /// Ekspor lembar kerja gambar teknik ke file CAD DXF ber-layer.
+    pub fn export_drawing_dxf(&mut self) {
+        let sheet = self
+            .drawing_sheet_doc
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| self.build_current_drawing_sheet());
+
+        let filter_name = ducad_i18n::t!("file-drawing-dxf-filter");
+        let default_name = format!(
+            "{}_drawing.dxf",
+            sheet
+                .title_block
+                .project_title
+                .to_lowercase()
+                .replace(' ', "_")
+        );
+
+        let Some(path) = self.pick_save_path(&filter_name, &["dxf"], &default_name) else {
+            return;
+        };
+
+        match ducad_io::export_drawing_sheet(&sheet, &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("drawing.dxf");
+                self.file_status = Some(ducad_i18n::t!("file-exported-drawing-dxf", name = name));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status =
+                    Some(ducad_i18n::t!("file-export-drawing-dxf-failed", error = err_str.as_str()));
+            }
+        }
+    }
 }

@@ -14,9 +14,12 @@
 //! (`ImportResult::skipped`), bukan bikin seluruh import gagal.
 
 use anyhow::{Context, Result};
+use ducad_kernel::HlrLineKind;
 use ducad_sketch::{Entity, Sketch};
 use glam::DVec2;
 use std::path::Path;
+
+use crate::drawing::DrawingSheet;
 
 /// Hasil `import`: entitas yang berhasil dibaca, plus jumlah baris entitas
 /// yang dilewati karena jenisnya tidak didukung (mis. SPLINE/TEXT/
@@ -24,6 +27,151 @@ use std::path::Path;
 pub struct ImportResult {
     pub entities: Vec<Entity>,
     pub skipped: usize,
+}
+
+/// Export Dokumen Lembar Kerja 2D (Drawing Sheet) ke file DXF lengkap dengan layer terorganisir.
+pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Result<()> {
+    let mut out = String::new();
+
+    // 1. Header Section dengan tabel Linetypes dan Layers
+    out.push_str("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n");
+    out.push_str("0\nSECTION\n2\nTABLES\n");
+
+    // Linetype Table
+    out.push_str("0\nTABLE\n2\nLTYPE\n70\n3\n");
+    out.push_str("0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n");
+    out.push_str("0\nLTYPE\n2\nHIDDEN\n70\n0\n3\n__ __ __ __ __\n72\n65\n73\n2\n40\n9.525\n49\n6.35\n49\n-3.175\n");
+    out.push_str("0\nLTYPE\n2\nCENTER\n70\n0\n3\n____ _ ____ _ __\n72\n65\n73\n4\n40\n31.75\n49\n19.05\n49\n-3.175\n49\n3.175\n49\n-3.175\n");
+    out.push_str("0\nENDTAB\n");
+
+    // Layer Table
+    out.push_str("0\nTABLE\n2\nLAYER\n70\n6\n");
+    out.push_str("0\nLAYER\n2\nBORDER\n70\n0\n62\n7\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nTITLEBLOCK\n70\n0\n62\n7\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nVISIBLE\n70\n0\n62\n7\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nHIDDEN\n70\n0\n62\n1\n6\nHIDDEN\n");
+    out.push_str("0\nLAYER\n2\nCENTERLINE\n70\n0\n62\n3\n6\nCENTER\n");
+    out.push_str("0\nLAYER\n2\nDIMENSIONS\n70\n0\n62\n5\n6\nCONTINUOUS\n");
+    out.push_str("0\nENDTAB\n");
+    out.push_str("0\nENDSEC\n");
+
+    // 2. Entities Section
+    out.push_str("0\nSECTION\n2\nENTITIES\n");
+
+    // A. Bingkai Kertas & Margin
+    let (outer, inner) = sheet.border_rects_mm();
+    push_rect_layer(&mut out, "BORDER", outer[0], outer[1], outer[2], outer[3]);
+    push_rect_layer(&mut out, "BORDER", inner[0], inner[1], inner[2], inner[3]);
+
+    // B. Kepala Gambar (Title Block)
+    let tb = sheet.title_block_rect_mm();
+    push_rect_layer(&mut out, "TITLEBLOCK", tb[0], tb[1], tb[2], tb[3]);
+    let info = &sheet.title_block;
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 4.0, tb[1] + 36.0, 3.5, &info.company_name);
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 4.0, tb[1] + 22.0, 4.0, &info.project_title);
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 4.0, tb[1] + 12.0, 2.5, &format!("DIGAMBAR: {} ({})", info.drawn_by, info.date));
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 4.0, tb[1] + 5.0, 2.5, &format!("MATERIAL: {}", info.material));
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 80.0, tb[1] + 22.0, 3.0, &format!("NO: {}", info.drawing_number));
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 80.0, tb[1] + 12.0, 2.5, &format!("SKALA: {}", info.scale));
+    push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 80.0, tb[1] + 5.0, 2.5, &format!("SATUAN: {} | LBR: {}", info.units, info.sheet_number));
+
+    // C. Tampak-tampak Proyeksi (Visible, Hidden, Centerlines)
+    for plc in &sheet.view_placements {
+        if !plc.visible {
+            continue;
+        }
+        let view = sheet.drawing.view_by_kind(plc.kind);
+        let center = plc.center_mm;
+        let scale = plc.scale;
+        let v_center = view.center_2d();
+
+        // Judul Tampak
+        let title_x = center[0] - (view.size_2d()[0] * scale * 0.5);
+        let title_y = center[1] - (view.size_2d()[1] * scale * 0.5) - 8.0;
+        push_text_layer(&mut out, "TITLEBLOCK", title_x, title_y, 3.0, &view.title);
+
+        // Garis Tampak & Tersembunyi
+        for seg in &view.segments {
+            let x1 = center[0] + (seg.start[0] - v_center[0]) * scale;
+            let y1 = center[1] + (seg.start[1] - v_center[1]) * scale;
+            let x2 = center[0] + (seg.end[0] - v_center[0]) * scale;
+            let y2 = center[1] + (seg.end[1] - v_center[1]) * scale;
+
+            match seg.kind {
+                HlrLineKind::Visible | HlrLineKind::Silhouette => {
+                    push_line_layer(&mut out, "VISIBLE", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+                }
+                HlrLineKind::Hidden => {
+                    if sheet.show_hidden_lines {
+                        push_line_layer(&mut out, "HIDDEN", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+                    }
+                }
+                HlrLineKind::Centerline => {
+                    if sheet.show_centerlines {
+                        push_line_layer(&mut out, "CENTERLINE", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+                    }
+                }
+            }
+        }
+
+        // Centerlines tambahan
+        if sheet.show_centerlines {
+            for cl in &view.centerlines {
+                let x1 = center[0] + (cl.start[0] - v_center[0]) * scale;
+                let y1 = center[1] + (cl.start[1] - v_center[1]) * scale;
+                let x2 = center[0] + (cl.end[0] - v_center[0]) * scale;
+                let y2 = center[1] + (cl.end[1] - v_center[1]) * scale;
+                push_line_layer(&mut out, "CENTERLINE", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+            }
+        }
+    }
+
+    // D. Dimensi Otomatis
+    if sheet.show_dimensions {
+        for dim in &sheet.auto_dimensions {
+            let x1 = dim.start[0] as f64;
+            let y1 = dim.start[1] as f64;
+            let x2 = dim.end[0] as f64;
+            let y2 = dim.end[1] as f64;
+
+            if dim.is_vertical {
+                let dim_x = dim.line_pos[0] as f64;
+                push_line_layer(&mut out, "DIMENSIONS", x1, y1, dim_x, y1);
+                push_line_layer(&mut out, "DIMENSIONS", x2, y2, dim_x, y2);
+                push_line_layer(&mut out, "DIMENSIONS", dim_x, y1, dim_x, y2);
+                push_text_layer(&mut out, "DIMENSIONS", (dim_x - 3.0) as f32, ((y1 + y2) * 0.5) as f32, 2.5, &dim.text);
+            } else {
+                let dim_y = dim.line_pos[1] as f64;
+                push_line_layer(&mut out, "DIMENSIONS", x1, y1, x1, dim_y);
+                push_line_layer(&mut out, "DIMENSIONS", x2, y2, x2, dim_y);
+                push_line_layer(&mut out, "DIMENSIONS", x1, dim_y, x2, dim_y);
+                push_text_layer(&mut out, "DIMENSIONS", ((x1 + x2) * 0.5 - 5.0) as f32, (dim_y + 1.5) as f32, 2.5, &dim.text);
+            }
+        }
+    }
+
+    out.push_str("0\nENDSEC\n0\nEOF\n");
+    std::fs::write(path, out).context("gagal menulis file DXF lembar kerja")?;
+    Ok(())
+}
+
+fn push_line_layer(out: &mut String, layer: &str, x0: f64, y0: f64, x1: f64, y1: f64) {
+    out.push_str(&format!(
+        "0\nLINE\n8\n{layer}\n10\n{x0}\n20\n{y0}\n30\n0.0\n11\n{x1}\n21\n{y1}\n31\n0.0\n"
+    ));
+}
+
+fn push_rect_layer(out: &mut String, layer: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
+    push_line_layer(out, layer, x0 as f64, y0 as f64, x1 as f64, y0 as f64);
+    push_line_layer(out, layer, x1 as f64, y0 as f64, x1 as f64, y1 as f64);
+    push_line_layer(out, layer, x1 as f64, y1 as f64, x0 as f64, y1 as f64);
+    push_line_layer(out, layer, x0 as f64, y1 as f64, x0 as f64, y0 as f64);
+}
+
+fn push_text_layer(out: &mut String, layer: &str, x: f32, y: f32, height: f32, text: &str) {
+    out.push_str(&format!(
+        "0\nTEXT\n8\n{layer}\n10\n{x}\n20\n{y}\n30\n0.0\n40\n{height}\n1\n{text}\n"
+    ));
 }
 
 /// Export entitas Line/Circle/Arc sebuah sketch ke DXF R12 ASCII minimal.
@@ -270,5 +418,65 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(result.entities.len(), 1);
         assert_eq!(result.skipped, 1);
+    }
+
+    #[test]
+    fn test_export_drawing_sheet_dxf() {
+        use crate::drawing::{DrawingSheet, PaperSize};
+        use ducad_kernel::{HlrDrawing, HlrLineKind, HlrSegment2D, ProjectedView, ProjectedViewKind};
+
+        let dummy_view = |kind: ProjectedViewKind| ProjectedView {
+            kind,
+            title: kind.title_id().to_string(),
+            bounds_min: [0.0, 0.0],
+            bounds_max: [40.0, 40.0],
+            segments: vec![
+                HlrSegment2D {
+                    start: [0.0, 0.0],
+                    end: [40.0, 0.0],
+                    kind: HlrLineKind::Visible,
+                },
+                HlrSegment2D {
+                    start: [5.0, 5.0],
+                    end: [35.0, 5.0],
+                    kind: HlrLineKind::Hidden,
+                },
+            ],
+            centerlines: vec![HlrSegment2D {
+                start: [20.0, -2.0],
+                end: [20.0, 42.0],
+                kind: HlrLineKind::Centerline,
+            }],
+            width_mm: 40.0,
+            height_mm: 40.0,
+            depth_mm: 20.0,
+        };
+
+        let drawing = HlrDrawing {
+            front: dummy_view(ProjectedViewKind::Front),
+            top: dummy_view(ProjectedViewKind::Top),
+            right: dummy_view(ProjectedViewKind::Right),
+            isometric: dummy_view(ProjectedViewKind::Isometric),
+            model_bbox_min: [0.0, 0.0, 0.0],
+            model_bbox_max: [40.0, 40.0, 20.0],
+        };
+
+        let sheet = DrawingSheet::new(drawing, PaperSize::A4Landscape);
+        let path = std::env::temp_dir().join(format!("ducad-test-dwg-dxf-{}.dxf", std::process::id()));
+
+        let res = export_drawing_sheet(&sheet, &path);
+        assert!(res.is_ok(), "Ekspor DXF Drawing Sheet harus berhasil");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(content.contains("SECTION\n2\nTABLES"));
+        assert!(content.contains("LAYER\n2\nBORDER"));
+        assert!(content.contains("LAYER\n2\nTITLEBLOCK"));
+        assert!(content.contains("LAYER\n2\nVISIBLE"));
+        assert!(content.contains("LAYER\n2\nHIDDEN"));
+        assert!(content.contains("LAYER\n2\nCENTERLINE"));
+        assert!(content.contains("LAYER\n2\nDIMENSIONS"));
+        assert!(content.contains("EOF"));
     }
 }

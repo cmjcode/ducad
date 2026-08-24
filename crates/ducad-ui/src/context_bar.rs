@@ -8,7 +8,7 @@ use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL,
-    ICON_REFRESH, ICON_ROUTE,
+    ICON_PALETTE, ICON_REFRESH, ICON_ROUTE,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -32,6 +32,7 @@ pub enum ContextAction {
     Delete,
     ClearSelection,
     Rename,
+    CmfMaterial,
 }
 
 #[derive(Default)]
@@ -357,6 +358,25 @@ impl ContextActionBar {
                     ui.separator();
                     ui.add_space(2.0);
                 }
+
+                // Preset Material Industri (CMF)
+                let cmf_btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Preset Industri", ICON_PALETTE.codepoint))
+                            .size(11.5)
+                            .color(ACCENT_BLUE),
+                    ),
+                );
+                if cmf_btn
+                    .on_hover_text("Atur CMF (Color, Material, Finish) & Preset Material Industri")
+                    .clicked()
+                {
+                    action = Some(ContextAction::CmfMaterial);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
 
                 // Pattern Solid (1 or more bodies)
                 let pattern_btn = ui.add(

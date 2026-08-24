@@ -6,6 +6,7 @@
 //! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
 
 pub mod csg;
+pub mod hlr;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
@@ -53,6 +54,9 @@ pub use csg::{
     extrude_profile, extrude_profile_on_plane, intersect, loft_profiles, revolve_profile,
     subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
+};
+pub use hlr::{
+    HlrDrawing, HlrExtractor, HlrLineKind, HlrSegment2D, ProjectedView, ProjectedViewKind,
 };
 pub use mesh::KernelMesh;
 pub use modify::{

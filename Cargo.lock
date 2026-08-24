@@ -1183,6 +1183,7 @@ dependencies = [
  "anyhow",
  "glam",
  "opencascade",
+ "serde",
 ]
 
 [[package]]
@@ -1212,6 +1213,8 @@ version = "0.1.0"
 dependencies = [
  "ducad-core",
  "ducad-i18n",
+ "ducad-io",
+ "ducad-kernel",
  "egui",
  "egui_material_icons",
  "glam",

@@ -10,12 +10,12 @@ use ducad_sketch::{
     ResizeRectangle, Sketch, SnapHit, UpdateEntity,
 };
 use ducad_ui::{
-    ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, DraftAnalysisPopup, Entity2dItemInfo, HistoryDrawer,
-    HistoryDrawerEvent, HistoryPopup, HistoryPopupState, InspectorConstraintAction,
-    InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu, RenamePopupEvent,
-    StudioHudAction, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp,
-    TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
+    ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CmfDrawer,
+    CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
+    Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent, HistoryPopup, HistoryPopupState,
+    InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
+    RadialMenu, RenamePopupEvent, StudioHudAction, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar,
+    TopBarEvent, TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -133,11 +133,13 @@ pub struct DuCADApp {
     pub left_toolbar: LeftToolbar,
     pub items_drawer: ItemsDrawer,
     pub history_drawer: HistoryDrawer,
+    pub cmf_drawer: CmfDrawer,
     pub viewcube: ViewCube,
     pub feature_inspector_open: bool,
     pub auto_hide_properties: bool,
     pub items_drawer_open: bool,
     pub history_drawer_open: bool,
+    pub cmf_drawer_open: bool,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -263,6 +265,10 @@ pub struct DuCADApp {
     pub shell_variable_faces: Vec<(ducad_kernel::PickRay, f64)>,
     pub shell_var_thickness_input: String,
     pub shell_is_variable_mode: bool,
+
+    /// State Lembar Kerja Gambar Teknik 2D (Fase 5).
+    pub drawing_sheet_state: ducad_ui::DrawingSheetViewState,
+    pub drawing_sheet_doc: Option<ducad_io::drawing::DrawingSheet>,
 }
 
 /// Target objek yang sedang di-rename.
@@ -396,11 +402,13 @@ impl DuCADApp {
             left_toolbar: LeftToolbar::default(),
             items_drawer: ItemsDrawer::default(),
             history_drawer: HistoryDrawer::default(),
+            cmf_drawer: CmfDrawer::default(),
             viewcube: ViewCube::default(),
             feature_inspector_open: true,
             auto_hide_properties: true,
             items_drawer_open: false,
             history_drawer_open: false,
+            cmf_drawer_open: false,
             history_db,
             activity_cache,
             plane_menu_open: false,
@@ -515,6 +523,9 @@ impl DuCADApp {
             shell_variable_faces: Vec::new(),
             shell_var_thickness_input: "4.0".to_string(),
             shell_is_variable_mode: false,
+
+            drawing_sheet_state: ducad_ui::DrawingSheetViewState::default(),
+            drawing_sheet_doc: None,
         }
     }
 
@@ -969,6 +980,9 @@ impl eframe::App for DuCADApp {
                             TopBarFileOp::ExportStl => self.export_stl(),
                             TopBarFileOp::ExportObj => self.export_obj(),
                             TopBarFileOp::ExportDxf => self.export_dxf(),
+                            TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
+                            TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
+                            TopBarFileOp::OpenDrawingSheet => self.open_drawing_sheet(),
                         },
                         TopBarEvent::ToggleTheme => {
                             self.theme = self.theme.toggled();
@@ -982,6 +996,9 @@ impl eframe::App for DuCADApp {
                         }
                         TopBarEvent::OpenSearch => {
                             self.palette.open();
+                        }
+                        TopBarEvent::OpenDrawingSheet => {
+                            self.open_drawing_sheet();
                         }
                         TopBarEvent::EnterSketching => {
                             self.is_sketching = true;
@@ -1341,6 +1358,7 @@ impl eframe::App for DuCADApp {
         }
 
         // 3. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/History drawer atau di atas floating buttons)
+        let mut draft_top_y = None;
         if self.draft_config.enabled {
             let draft_bottom_y = if self.history_drawer_open {
                 hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1357,7 +1375,7 @@ impl eframe::App for DuCADApp {
                 blend: self.draft_config.blend,
             };
 
-            egui::Area::new(egui::Id::new("ducad-draft-heatmap-area"))
+            let draft_area_resp = egui::Area::new(egui::Id::new("ducad-draft-heatmap-area"))
                 .fixed_pos(draft_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
@@ -1380,9 +1398,73 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+
+            draft_top_y = Some(draft_area_resp.response.rect.min.y);
         }
 
-        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Draft Analysis, History, Folder)
+        // 4. Preset Material Industri & CMF Drawer (Pojok Kanan Bawah)
+        if self.cmf_drawer_open {
+            let cmf_bottom_y = if self.draft_config.enabled {
+                draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.history_drawer_open {
+                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let cmf_pos = egui::pos2(screen_rect.max.x - 16.0, cmf_bottom_y);
+
+            let (cur_mat, body_name, count) = if let Some(&bid) = self.selected_bodies.iter().next() {
+                if let Some(b) = self.model.doc.bodies.get(bid) {
+                    (b.material, Some(b.name.clone()), self.selected_bodies.len())
+                } else {
+                    (ducad_core::Material::default(), None, 0)
+                }
+            } else if let Some((_, b)) = self.model.doc.bodies.iter().next() {
+                (b.material, Some(b.name.clone()), 0)
+            } else {
+                (ducad_core::Material::default(), None, 0)
+            };
+
+            egui::Area::new(egui::Id::new("ducad-cmf-drawer-area"))
+                .fixed_pos(cmf_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = self.cmf_drawer.show(
+                        ui,
+                        &cur_mat,
+                        body_name.as_deref(),
+                        count,
+                        max_drawer_h,
+                    ) {
+                        match ev {
+                            CmfDrawerEvent::SetMaterial(new_mat) => {
+                                let targets: Vec<_> = if !self.selected_bodies.is_empty() {
+                                    self.selected_bodies.iter().copied().collect()
+                                } else if let Some((bid, _)) = self.model.doc.bodies.iter().next() {
+                                    vec![bid]
+                                } else {
+                                    Vec::new()
+                                };
+
+                                for bid in targets {
+                                    let cmd = crate::model::SetBodyMaterialCommand::new("Ubah Material", bid, new_mat);
+                                    self.model_undo.execute(Box::new(cmd), &mut self.model);
+                                }
+                                self.model_status = Some("✓ Preset Material diterapkan".to_string());
+                                ctx.request_repaint();
+                            }
+                            CmfDrawerEvent::Close => {
+                                self.cmf_drawer_open = false;
+                            }
+                        }
+                    }
+                });
+        }
+
+        // 2. Floating Buttons Bar di Pojok Kanan Bawah (CMF Material, Draft Analysis, History, Folder)
         let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
         egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
             .fixed_pos(btns_pos)
@@ -1391,6 +1473,17 @@ impl eframe::App for DuCADApp {
             .show(&ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+
+                    // Tombol Preset Industri & CMF Material
+                    let cmf_resp = round_floating_icon_btn(
+                        ui,
+                        egui_material_icons::icons::ICON_PALETTE.codepoint,
+                        self.cmf_drawer_open,
+                        "Preset Material Industri & CMF (Warna & Finishing)",
+                    );
+                    if cmf_resp.clicked() {
+                        self.cmf_drawer_open = !self.cmf_drawer_open;
+                    }
 
                     // Tombol Draft Analysis (Kiri dari History)
                     let draft_resp = round_floating_icon_btn(
@@ -1938,6 +2031,9 @@ impl eframe::App for DuCADApp {
                                 ContextAction::ClearSelection => {
                                     self.selected_bodies.clear();
                                 }
+                                ContextAction::CmfMaterial => {
+                                    self.cmf_drawer_open = true;
+                                }
                                 ContextAction::Rename => {
                                     // Buka popup rename untuk body 3D pertama yang dipilih
                                     if let Some(&body_id) = self.selected_bodies.iter().next() {
@@ -2132,6 +2228,41 @@ impl eframe::App for DuCADApp {
                             }
                         }
                     });
+            }
+        }
+
+        // Render Lembar Kerja Gambar Teknik 2D (Fase 5) jika sedang aktif
+        let mut ds_action = None;
+        if self.drawing_sheet_state.is_open {
+            if self.drawing_sheet_doc.is_none() {
+                let sheet = self.build_current_drawing_sheet();
+                self.drawing_sheet_doc = Some(sheet);
+            }
+            if let Some(sheet) = &mut self.drawing_sheet_doc {
+                egui::Area::new(egui::Id::new("ducad-drawing-sheet-overlay"))
+                    .fixed_pos(screen_rect.min)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| {
+                        ui.set_width(screen_rect.width());
+                        ui.set_height(screen_rect.height());
+                        if let Some(event) = ducad_ui::DrawingSheetView::show(ui, &mut self.drawing_sheet_state, sheet) {
+                            ds_action = Some(event);
+                        }
+                    });
+            }
+        }
+
+        if let Some(event) = ds_action {
+            match event {
+                ducad_ui::DrawingSheetEvent::Close => {
+                    self.drawing_sheet_state.is_open = false;
+                }
+                ducad_ui::DrawingSheetEvent::ExportPdf => {
+                    self.export_drawing_pdf();
+                }
+                ducad_ui::DrawingSheetEvent::ExportDxf => {
+                    self.export_drawing_dxf();
+                }
             }
         }
 

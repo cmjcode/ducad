@@ -59,6 +59,21 @@ impl DuCADApp {
                 PaletteAction::File(FileOp::ExportDxf),
             ),
             (
+                "Gambar Kerja 2D (Drawing Sheet)…".to_string(),
+                "⌘D".to_string(),
+                PaletteAction::OpenDrawingSheet,
+            ),
+            (
+                "Ekspor PDF Gambar Teknik (Vektor)…".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ExportPdf),
+            ),
+            (
+                "Ekspor DXF Gambar Kerja 2D…".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ExportDrawingDxf),
+            ),
+            (
                 "Pilih".to_string(),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::Select),
@@ -286,6 +301,9 @@ impl DuCADApp {
             PaletteAction::ToggleStudioLighting => {
                 self.studio_config.enabled = !self.studio_config.enabled;
             }
+            PaletteAction::OpenDrawingSheet => {
+                self.open_drawing_sheet();
+            }
             PaletteAction::ClearMeasurements => {
                 self.measurements.clear();
             }
@@ -300,6 +318,9 @@ impl DuCADApp {
                 FileOp::ExportStl => self.export_stl(),
                 FileOp::ExportObj => self.export_obj(),
                 FileOp::ExportDxf => self.export_dxf(),
+                FileOp::ExportPdf => self.export_drawing_pdf(),
+                FileOp::ExportDrawingDxf => self.export_drawing_dxf(),
+                FileOp::OpenDrawingSheet => self.open_drawing_sheet(),
             },
         }
     }

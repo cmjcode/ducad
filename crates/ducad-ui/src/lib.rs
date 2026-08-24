@@ -12,9 +12,11 @@
 //! - Radial menu untuk sentuh/iPad (`radial_menu`)
 
 pub mod canvas_hud;
+pub mod cmf_drawer;
 pub mod command_palette;
 pub mod constraint_strip;
 pub mod context_bar;
+pub mod drawing_sheet_view;
 pub mod feature_inspector;
 pub mod history_drawer;
 pub mod items_drawer;
@@ -33,9 +35,11 @@ pub use canvas_hud::{
     RevolveHudAction, RibHudAction, ShellHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
     StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
 };
+pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use context_bar::{ContextAction, ContextActionBar};
+pub use drawing_sheet_view::{DrawingSheetEvent, DrawingSheetView, DrawingSheetViewState};
 pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
