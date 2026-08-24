@@ -7,42 +7,72 @@
 use ducad_io::drawing::{DrawingSheet, PaperSize};
 use ducad_kernel::HlrLineKind;
 use egui::{
-    vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2,
+    vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
+    Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CHECK, ICON_CLOSE, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_PICTURE_AS_PDF,
-    ICON_REFRESH,
+    ICON_CHECK, ICON_CLOSE, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_LAYERS,
+    ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
 
 use crate::theme::{card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
-/// Helper tombol toggle kustom untuk toolbar Drawing Sheet dengan kontras tinggi saat aktif.
-fn sheet_toggle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
-    let (bg_color, text_color, stroke) = if is_active {
+/// Tombol ikon kompak untuk header, dengan kartu tooltip hover berisi
+/// title + shortcut opsional + subtitle (sama persis dengan top_bar.rs).
+#[allow(clippy::too_many_arguments)]
+fn header_icon_btn(
+    ui: &mut Ui,
+    icon: &str,
+    active: bool,
+    title: &str,
+    shortcut: Option<&str>,
+    subtitle: Option<&str>,
+    active_bg: Option<Color32>,
+    active_fg: Option<Color32>,
+) -> egui::Response {
+    let (bg, icon_color) = if active {
         (
-            ACCENT_BLUE,
-            Color32::WHITE,
-            Stroke::new(1.0, Color32::from_rgb(80, 170, 255)),
+            active_bg.unwrap_or(ACCENT_BLUE),
+            active_fg.unwrap_or(Color32::WHITE),
         )
     } else {
-        (
-            Color32::from_rgba_premultiplied(32, 36, 46, 160),
-            TEXT_PRIMARY,
-            Stroke::new(0.5, BORDER_SUBTLE),
-        )
+        (Color32::TRANSPARENT, active_fg.unwrap_or(TEXT_PRIMARY))
     };
 
-    let btn = egui::Button::new(
-        RichText::new(label.as_ref())
-            .size(11.0)
-            .strong()
-            .color(text_color),
-    )
-    .corner_radius(CornerRadius::same(6))
-    .fill(bg_color)
-    .stroke(stroke);
+    let btn = egui::Button::new(RichText::new(icon).size(14.0).color(icon_color))
+        .fill(bg)
+        .corner_radius(CornerRadius::same(5))
+        .min_size(Vec2::new(24.0, 22.0));
+    let response = ui.add(btn);
 
-    ui.add(btn)
+    response.on_hover_ui(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(6.0, 2.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(title)
+                    .strong()
+                    .size(12.0)
+                    .color(Color32::WHITE),
+            );
+            if let Some(sc) = shortcut {
+                if !sc.is_empty() {
+                    Frame::NONE
+                        .fill(Color32::from_rgba_premultiplied(50, 54, 65, 230))
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(Margin::symmetric(4, 1))
+                        .stroke(Stroke::new(0.5, BORDER_SUBTLE))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(sc).size(9.5).strong().color(TEXT_PRIMARY));
+                        });
+                }
+            }
+        });
+        if let Some(sub) = subtitle {
+            if !sub.is_empty() {
+                ui.label(RichText::new(sub).size(10.0).color(TEXT_SECONDARY));
+            }
+        }
+    })
 }
 
 /// Aksi / Event yang dihasilkan oleh DrawingSheetView ke aplikasi utama.
@@ -92,178 +122,41 @@ impl DrawingSheetView {
             Color32::from_rgb(18, 20, 26),
         );
 
-        // 2. Toolbar Header Atas Lembar Kerja
-        let header_height = 42.0;
-        let header_rect = Rect::from_min_size(
-            total_rect.min,
-            Vec2::new(total_rect.width(), header_height),
+        // 2. Dimensi Top Bar & Floating Controls
+        let topbar_margin_left = 78.0;
+        let topbar_x = total_rect.min.x + topbar_margin_left;
+        let topbar_margin_right = 16.0;
+        let topbar_w = (total_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
+        let topbar_rect = Rect::from_min_size(
+            Pos2::new(topbar_x, total_rect.min.y + 10.0),
+            Vec2::new(topbar_w, 30.0),
         );
 
-        let canvas_rect = Rect::from_min_size(
-            Pos2::new(total_rect.min.x, total_rect.min.y + header_height),
-            Vec2::new(total_rect.width(), total_rect.height() - header_height),
-        );
+        let fit_size = vec2(36.0, 36.0);
+        let fit_pos = Pos2::new(total_rect.max.x - 52.0, total_rect.max.y - 52.0);
+        let fit_rect = Rect::from_min_size(fit_pos, fit_size);
 
-        // Render Header Controls
-        let mut header_ui = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(header_rect)
-                .layout(egui::Layout::left_to_right(egui::Align::Center)),
-        );
+        let canvas_rect = total_rect;
 
-        glass_frame().show(&mut header_ui, |ui| {
-            ui.set_height(header_height - 6.0);
-            ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
-
-            // A. Pemilih Ukuran Kertas (A4/A3)
-            ui.add_space(4.0);
-            ui.label(RichText::new("Kertas:").size(11.0).color(TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("paper_size_combo")
-                .selected_text(sheet.paper_size.label())
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(sheet.paper_size == PaperSize::A4Landscape, PaperSize::A4Landscape.label()).clicked() {
-                        sheet.paper_size = PaperSize::A4Landscape;
-                        sheet.auto_layout();
-                    }
-                    if ui.selectable_label(sheet.paper_size == PaperSize::A4Portrait, PaperSize::A4Portrait.label()).clicked() {
-                        sheet.paper_size = PaperSize::A4Portrait;
-                        sheet.auto_layout();
-                    }
-                    if ui.selectable_label(sheet.paper_size == PaperSize::A3Landscape, PaperSize::A3Landscape.label()).clicked() {
-                        sheet.paper_size = PaperSize::A3Landscape;
-                        sheet.auto_layout();
-                    }
-                    if ui.selectable_label(sheet.paper_size == PaperSize::A3Portrait, PaperSize::A3Portrait.label()).clicked() {
-                        sheet.paper_size = PaperSize::A3Portrait;
-                        sheet.auto_layout();
-                    }
-                });
-
-            // B. Skala Gambar
-            ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));
-            let current_scale_label = sheet.title_block.scale.clone();
-            egui::ComboBox::from_id_salt("scale_combo")
-                .selected_text(current_scale_label)
-                .show_ui(ui, |ui| {
-                    let scales = [
-                        (0.2, "1:5"),
-                        (0.5, "1:2"),
-                        (1.0, "1:1"),
-                        (2.0, "2:1"),
-                        (5.0, "5:1"),
-                    ];
-                    for (val, lbl) in scales {
-                        let is_sel = (sheet.scale - val).abs() < 1e-4;
-                        if ui.selectable_label(is_sel, lbl).clicked() {
-                            sheet.scale = val;
-                            sheet.title_block.scale = lbl.to_string();
-                            for plc in &mut sheet.view_placements {
-                                plc.scale = val;
-                            }
-                            sheet.generate_auto_dimensions();
-                        }
-                    }
-                });
-
-            if ui.button(format!("{} Auto Layout", ICON_REFRESH.codepoint)).clicked() {
-                sheet.auto_layout();
-            }
-
-            ui.separator();
-
-            // C. Toggles Visibilitas dengan Kontras Jelas
-            let hidden_btn_txt = if sheet.show_hidden_lines {
-                format!("{} Garis Tersembunyi", ICON_CHECK.codepoint)
-            } else {
-                "Garis Tersembunyi".to_string()
-            };
-            if sheet_toggle_btn(ui, hidden_btn_txt, sheet.show_hidden_lines).clicked() {
-                sheet.show_hidden_lines = !sheet.show_hidden_lines;
-            }
-
-            let dim_btn_txt = if sheet.show_dimensions {
-                format!("{} Dimensi", ICON_CHECK.codepoint)
-            } else {
-                "Dimensi".to_string()
-            };
-            if sheet_toggle_btn(ui, dim_btn_txt, sheet.show_dimensions).clicked() {
-                sheet.show_dimensions = !sheet.show_dimensions;
-            }
-
-            let cl_btn_txt = if sheet.show_centerlines {
-                format!("{} Sumbu", ICON_CHECK.codepoint)
-            } else {
-                "Sumbu".to_string()
-            };
-            if sheet_toggle_btn(ui, cl_btn_txt, sheet.show_centerlines).clicked() {
-                sheet.show_centerlines = !sheet.show_centerlines;
-            }
-
-            // D. Tombol Edit Title Block
-            if sheet_toggle_btn(
-                ui,
-                format!("{} Kepala Gambar", ICON_EDIT_NOTE.codepoint),
-                state.title_block_editor_open,
-            )
-            .clicked()
-            {
-                state.title_block_editor_open = !state.title_block_editor_open;
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Tombol Tutup (X)
-                if ui
-                    .button(
-                        RichText::new(ICON_CLOSE.codepoint.to_string())
-                            .size(13.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .on_hover_text("Tutup Lembar Kerja")
-                    .clicked()
-                {
-                    event = Some(DrawingSheetEvent::Close);
-                }
-
-                // Tombol Ekspor PDF Vektor (Biru Utama)
-                if ui
-                    .button(
-                        RichText::new(format!("{} Ekspor PDF", ICON_PICTURE_AS_PDF.codepoint))
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .clicked()
-                {
-                    event = Some(DrawingSheetEvent::ExportPdf);
-                }
-
-                // Tombol Ekspor DXF CAD
-                if ui
-                    .button(
-                        RichText::new(format!("{} Ekspor DXF", ICON_DOWNLOAD.codepoint))
-                            .color(TEXT_PRIMARY),
-                    )
-                    .clicked()
-                {
-                    event = Some(DrawingSheetEvent::ExportDxf);
-                }
-            });
-        });
-
-        // 3. Kanvas Interaktif Kertas Gambar Teknik
+        // 3. Kanvas Interaktif Kertas Gambar Teknik (Background Sensor dialokasikan SEBELUM floating UI)
         let response = ui.allocate_rect(canvas_rect, Sense::click_and_drag());
 
-        // Handle Pan & Zoom
-        if response.dragged_by(egui::PointerButton::Middle)
-            || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
-        {
-            state.pan_offset += response.drag_delta();
-        }
+        // Handle Pan & Zoom (Hanya aktif jika kursor tidak sedang di atas top bar / floating buttons)
+        let cursor_pos = ui.input(|i| i.pointer.hover_pos());
+        let is_over_ui = cursor_pos.map_or(false, |p| topbar_rect.contains(p) || fit_rect.contains(p));
 
-        let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll_delta.abs() > 0.0 && response.hovered() {
-            let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
-            state.zoom = (state.zoom * zoom_factor).clamp(0.2, 5.0);
+        if !is_over_ui {
+            if response.dragged_by(egui::PointerButton::Middle)
+                || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+            {
+                state.pan_offset += response.drag_delta();
+            }
+
+            let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll_delta.abs() > 0.0 && response.hovered() {
+                let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
+                state.zoom = (state.zoom * zoom_factor).clamp(0.2, 5.0);
+            }
         }
 
         if state.zoom <= 0.05 {
@@ -273,10 +166,217 @@ impl DrawingSheetView {
         // Render Lembar Kertas & Konten Gambar 2D
         render_sheet_canvas(ui, canvas_rect, state, sheet);
 
-        // 4. Tombol Fit Mengambang di Pojok Kanan Bawah (Ikon Saja, Tanpa Frame Pembungkus Ganda)
-        let fit_size = vec2(36.0, 36.0);
-        let fit_pos = Pos2::new(canvas_rect.max.x - 52.0, canvas_rect.max.y - 52.0);
-        let fit_rect = Rect::from_min_size(fit_pos, fit_size);
+        // 4. Render Header Controls (Floating Top Bar Glassmorphism di Atas Kanvas)
+        let mut header_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(topbar_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+
+        glass_frame().show(&mut header_ui, |ui| {
+            ui.set_height(30.0);
+            ui.horizontal(|ui| {
+                // A. Icon Drawing Sheet & Title
+                ui.label(
+                    RichText::new(ICON_PICTURE_AS_PDF.codepoint)
+                        .size(14.0)
+                        .color(ACCENT_BLUE),
+                )
+                .on_hover_text("Lembar Kerja Gambar Teknik 2D");
+
+                let title_text = if sheet.title_block.project_title.trim().is_empty() {
+                    "Gambar Kerja Teknik"
+                } else {
+                    sheet.title_block.project_title.as_str()
+                };
+                ui.label(
+                    RichText::new(title_text)
+                        .strong()
+                        .size(12.0)
+                        .color(TEXT_PRIMARY),
+                );
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // B. Pemilih Ukuran Kertas (A4/A3)
+                ui.label(RichText::new("Kertas:").size(11.0).color(TEXT_SECONDARY));
+                egui::ComboBox::from_id_salt("paper_size_combo")
+                    .selected_text(sheet.paper_size.label())
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(sheet.paper_size == PaperSize::A4Landscape, PaperSize::A4Landscape.label()).clicked() {
+                            sheet.paper_size = PaperSize::A4Landscape;
+                            sheet.auto_layout();
+                        }
+                        if ui.selectable_label(sheet.paper_size == PaperSize::A4Portrait, PaperSize::A4Portrait.label()).clicked() {
+                            sheet.paper_size = PaperSize::A4Portrait;
+                            sheet.auto_layout();
+                        }
+                        if ui.selectable_label(sheet.paper_size == PaperSize::A3Landscape, PaperSize::A3Landscape.label()).clicked() {
+                            sheet.paper_size = PaperSize::A3Landscape;
+                            sheet.auto_layout();
+                        }
+                        if ui.selectable_label(sheet.paper_size == PaperSize::A3Portrait, PaperSize::A3Portrait.label()).clicked() {
+                            sheet.paper_size = PaperSize::A3Portrait;
+                            sheet.auto_layout();
+                        }
+                    });
+
+                // C. Skala Gambar
+                ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));
+                let current_scale_label = sheet.title_block.scale.clone();
+                egui::ComboBox::from_id_salt("scale_combo")
+                    .selected_text(current_scale_label)
+                    .show_ui(ui, |ui| {
+                        let scales = [
+                            (0.2, "1:5"),
+                            (0.5, "1:2"),
+                            (1.0, "1:1"),
+                            (2.0, "2:1"),
+                            (5.0, "5:1"),
+                        ];
+                        for (val, lbl) in scales {
+                            let is_sel = (sheet.scale - val).abs() < 1e-4;
+                            if ui.selectable_label(is_sel, lbl).clicked() {
+                                sheet.scale = val;
+                                sheet.title_block.scale = lbl.to_string();
+                                for plc in &mut sheet.view_placements {
+                                    plc.scale = val;
+                                }
+                                sheet.generate_auto_dimensions();
+                            }
+                        }
+                    });
+
+                let auto_btn = header_icon_btn(
+                    ui,
+                    ICON_REFRESH.codepoint,
+                    false,
+                    "Auto Layout",
+                    Some("R"),
+                    Some("Atur ulang posisi tampak proyeksi secara otomatis"),
+                    None,
+                    None,
+                );
+                if auto_btn.clicked() {
+                    sheet.auto_layout();
+                }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // D. Toggles Visibilitas Gambar
+                let hlr_btn = header_icon_btn(
+                    ui,
+                    ICON_LAYERS.codepoint,
+                    sheet.show_hidden_lines,
+                    "Garis Tersembunyi (Hidden Lines)",
+                    Some("H"),
+                    Some("Tampilkan tepi garis tersembunyi bergaris putus-putus"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if hlr_btn.clicked() {
+                    sheet.show_hidden_lines = !sheet.show_hidden_lines;
+                }
+
+                let dim_btn = header_icon_btn(
+                    ui,
+                    ICON_STRAIGHTEN.codepoint,
+                    sheet.show_dimensions,
+                    "Dimensi Otomatis",
+                    Some("D"),
+                    Some("Tampilkan anotasi ukuran dimensi proyeksi"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if dim_btn.clicked() {
+                    sheet.show_dimensions = !sheet.show_dimensions;
+                }
+
+                let cl_btn = header_icon_btn(
+                    ui,
+                    ICON_TEXTURE.codepoint,
+                    sheet.show_centerlines,
+                    "Garis Sumbu (Centerlines)",
+                    Some("C"),
+                    Some("Tampilkan garis sumbu simetri hijau"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if cl_btn.clicked() {
+                    sheet.show_centerlines = !sheet.show_centerlines;
+                }
+
+                let tb_btn = header_icon_btn(
+                    ui,
+                    ICON_EDIT_NOTE.codepoint,
+                    state.title_block_editor_open,
+                    "Editor Kepala Gambar",
+                    Some("T"),
+                    Some("Buka panel informasi formulir Title Block ISO"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if tb_btn.clicked() {
+                    state.title_block_editor_open = !state.title_block_editor_open;
+                }
+
+                // E. Sisi Kanan: Close (X) dan Ekspor
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Tombol Tutup (X) di paling kanan
+                    let close_btn = header_icon_btn(
+                        ui,
+                        ICON_CLOSE.codepoint,
+                        false,
+                        "Tutup Lembar Kerja",
+                        Some("Esc"),
+                        Some("Kembali ke viewport 3D"),
+                        None,
+                        None,
+                    );
+                    if close_btn.clicked() {
+                        event = Some(DrawingSheetEvent::Close);
+                    }
+
+                    ui.add_space(4.0);
+
+                    // Tombol Ekspor PDF Vektor
+                    let pdf_btn = header_icon_btn(
+                        ui,
+                        ICON_PICTURE_AS_PDF.codepoint,
+                        false,
+                        "Ekspor PDF Vektor",
+                        None,
+                        Some("Cetak dokumen gambar teknik presisi ke file PDF"),
+                        None,
+                        Some(ACCENT_BLUE),
+                    );
+                    if pdf_btn.clicked() {
+                        event = Some(DrawingSheetEvent::ExportPdf);
+                    }
+
+                    // Tombol Ekspor DXF CAD
+                    let dxf_btn = header_icon_btn(
+                        ui,
+                        ICON_DOWNLOAD.codepoint,
+                        false,
+                        "Ekspor DXF CAD",
+                        None,
+                        Some("Ekspor vektor 2D ke format CAD DXF"),
+                        None,
+                        None,
+                    );
+                    if dxf_btn.clicked() {
+                        event = Some(DrawingSheetEvent::ExportDxf);
+                    }
+                });
+            });
+        });
+
+        // 5. Tombol Fit Mengambang di Pojok Kanan Bawah
         let mut fit_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(fit_rect)
@@ -301,7 +401,7 @@ impl DrawingSheetView {
             state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
         }
 
-        // 5. Panel Form Floating: Edit Kepala Gambar (Title Block)
+        // 6. Panel Form Floating: Edit Kepala Gambar (Title Block)
         if state.title_block_editor_open {
             render_title_block_editor(ui, canvas_rect, sheet, &mut state.title_block_editor_open);
         }
