@@ -156,3 +156,48 @@ fn solid_double_arrow_gizmo_mesh_scales_with_arrow_size() {
     };
     assert!(max_radial(&big) > max_radial(&small) * 5.0);
 }
+
+#[test]
+fn test_solid_directional_arrow_mesh_pull_directions() {
+    // Arah +Z
+    let (p_z, n_z, c_z, i_z) = solid_directional_arrow_mesh(
+        [0.0, 0.0, 0.0],
+        30.0,
+        6.0,
+        [0.0, 0.82, 1.0, 1.0],
+        Vec3::Z,
+    );
+    assert!(!p_z.is_empty());
+    assert_eq!(p_z.len(), n_z.len());
+    assert_eq!(p_z.len(), c_z.len());
+    assert!(!i_z.is_empty());
+    assert_eq!(i_z.len() % 3, 0);
+
+    // Tip harus berada di z = +30.0
+    let max_z = p_z.iter().map(|p| p[2]).fold(f32::NEG_INFINITY, f32::max);
+    assert!((max_z - 30.0).abs() < 1e-3);
+
+    // Arah -Z
+    let (p_neg_z, ..) = solid_directional_arrow_mesh(
+        [0.0, 0.0, 0.0],
+        30.0,
+        6.0,
+        [0.0, 0.82, 1.0, 1.0],
+        -Vec3::Z,
+    );
+    let min_z = p_neg_z
+        .iter()
+        .map(|p| p[2])
+        .fold(f32::INFINITY, f32::min);
+    assert!((min_z - (-30.0)).abs() < 1e-3);
+
+    // Direction Zero -> empty
+    let (p_zero, ..) = solid_directional_arrow_mesh(
+        [0.0, 0.0, 0.0],
+        30.0,
+        6.0,
+        [0.0, 0.82, 1.0, 1.0],
+        Vec3::ZERO,
+    );
+    assert!(p_zero.is_empty());
+}

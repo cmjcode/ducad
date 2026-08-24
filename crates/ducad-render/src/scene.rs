@@ -35,6 +35,33 @@ impl Default for ZebraConfig {
     }
 }
 
+/// Konfigurasi inspeksi sudut lepas cetakan (Fase 3.2 Draft Angle Heatmap Inspector).
+/// Mewarnai permukaan 3D secara real-time berdasarkan sudut terhadap arah buka cetakan (*pull direction*):
+/// - Hijau: Sudut aman (>= target_angle_deg, e.g. >= 1.0°)
+/// - Kuning: Sudut kritis / butuh kemiringan draft (0° s/d target_angle_deg)
+/// - Merah: Undercut (< 0°) yang tidak bisa lepas dari cetakan
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DraftConfig {
+    pub enabled: bool,
+    /// Arah buka cetakan (pull direction) ternormalisasi, default: [0.0, 0.0, 1.0] (+Z).
+    pub pull_dir: [f32; 3],
+    /// Sudut kemiringan aman target dalam derajat (default: 1.0°).
+    pub target_angle_deg: f32,
+    /// Faktor pencampuran antara warna shading standar dan heatmap (0.0 = standar, 1.0 = heatmap penuh).
+    pub blend: f32,
+}
+
+impl Default for DraftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            pull_dir: [0.0, 0.0, 1.0],
+            target_angle_deg: 1.0,
+            blend: 1.0,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -45,6 +72,10 @@ struct Globals {
     clip_plane: [f32; 4],
     /// Zebra stripes reflection (Fase 3.1) — [enabled (0.0/1.0), freq, angle, blend].
     zebra_params: [f32; 4],
+    /// Draft angle heatmap (Fase 3.2) — [enabled (0.0/1.0), target_rad, blend, reserved].
+    draft_params: [f32; 4],
+    /// Pull direction vector — [x, y, z, 0.0].
+    draft_dir: [f32; 4],
 }
 
 #[repr(C)]
@@ -88,6 +119,8 @@ pub struct SceneRenderer {
     clip_plane: [f32; 4],
     /// Zebra stripes reflection config (Fase 3.1).
     zebra_config: ZebraConfig,
+    /// Draft angle heatmap inspector config (Fase 3.2).
+    draft_config: DraftConfig,
     current_grid_plane: Option<crate::plane::SketchPlane>,
     current_grid_extent: f32,
     current_grid_step: f32,
@@ -304,6 +337,7 @@ impl SceneRenderer {
             overlay_vertex_count: 0,
             clip_plane: CLIP_PLANE_DISABLED,
             zebra_config: ZebraConfig::default(),
+            draft_config: DraftConfig::default(),
             current_grid_plane: Some(crate::plane::SketchPlane::top()),
             current_grid_extent: 500.0,
             current_grid_step: 10.0,
@@ -318,6 +352,16 @@ impl SceneRenderer {
     /// Dapatkan konfigurasi inspeksi garis zebra yang sedang aktif.
     pub fn zebra_config(&self) -> ZebraConfig {
         self.zebra_config
+    }
+
+    /// Konfigurasi inspeksi sudut lepas cetakan (Fase 3.2 Draft Angle Heatmap Inspector).
+    pub fn set_draft_config(&mut self, config: DraftConfig) {
+        self.draft_config = config;
+    }
+
+    /// Dapatkan konfigurasi inspeksi sudut lepas yang sedang aktif.
+    pub fn draft_config(&self) -> DraftConfig {
+        self.draft_config
     }
 
     /// Bidang potong section view (Fase 7): `Some((normal, offset))`
@@ -492,12 +536,30 @@ impl SceneRenderer {
             self.zebra_config.angle,
             self.zebra_config.blend.clamp(0.0, 1.0),
         ];
+        let draft_dir_norm = {
+            let v = Vec3::from_array(self.draft_config.pull_dir);
+            let n = if v.length_squared() > 1e-6 {
+                v.normalize()
+            } else {
+                Vec3::Z
+            };
+            [n.x, n.y, n.z, 0.0]
+        };
+        let target_rad = self.draft_config.target_angle_deg.to_radians().max(0.0001);
+        let draft_params = [
+            if self.draft_config.enabled { 1.0 } else { 0.0 },
+            target_rad,
+            self.draft_config.blend.clamp(0.0, 1.0),
+            0.0,
+        ];
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
             eye: [eye.x, eye.y, eye.z, 1.0],
             light_dir: [light.x, light.y, light.z, 0.0],
             clip_plane: self.clip_plane,
             zebra_params,
+            draft_params,
+            draft_dir: draft_dir_norm,
         };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
     }
@@ -547,6 +609,15 @@ mod tests {
     }
 
     #[test]
+    fn test_draft_config_defaults() {
+        let cfg = DraftConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.pull_dir, [0.0, 0.0, 1.0]);
+        assert_eq!(cfg.target_angle_deg, 1.0);
+        assert_eq!(cfg.blend, 1.0);
+    }
+
+    #[test]
     fn test_globals_uniform_buffer_layout() {
         // Uniform buffer alignment in WebGPU is 16 bytes:
         // mat4x4<f32>: 64 bytes
@@ -554,8 +625,10 @@ mod tests {
         // light_dir: 16 bytes
         // clip_plane: 16 bytes
         // zebra_params: 16 bytes
-        // Total = 128 bytes (multiple of 16)
-        assert_eq!(std::mem::size_of::<Globals>(), 128);
+        // draft_params: 16 bytes
+        // draft_dir: 16 bytes
+        // Total = 160 bytes (multiple of 16)
+        assert_eq!(std::mem::size_of::<Globals>(), 160);
         assert_eq!(std::mem::align_of::<Globals>(), 4);
     }
 }

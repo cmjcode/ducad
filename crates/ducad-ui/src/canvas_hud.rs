@@ -26,6 +26,14 @@ pub enum ZebraHudAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DraftInspectionHudAction {
+    SetPullDir([f32; 3]),
+    SetTargetAngle(f32),
+    SetBlend(f32),
+    TurnOff,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RevolveHudAction {
     SetAngle(f64),
     ToggleReverse,
@@ -521,6 +529,105 @@ impl CanvasHud {
                 // Tombol Nonaktifkan
                 if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(ZebraHudAction::TurnOff);
+                }
+
+                action
+            },
+        )
+    }
+
+    /// Render panel kontrol parameter inspeksi sudut lepas cetakan (Fase 3.2 Draft Angle Heatmap Inspector).
+    pub fn show_draft_inspection_panel(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        pull_dir: &mut [f32; 3],
+        target_angle_deg: &mut f32,
+        blend: &mut f32,
+    ) -> Option<DraftInspectionHudAction> {
+        let banner_w = 780.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-draft-heatmap-panel",
+            |ui| {
+                let mut action = None;
+                Self::hud_title(ui, &format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-draft-analysis")), true);
+
+                ui.separator();
+
+                // Preset Arah Tarik (Pull Direction)
+                ui.label(RichText::new(format!("{}:", t!("draft-pull-dir"))).size(10.0).color(TEXT_SECONDARY));
+                let dirs = [
+                    ("+Z", [0.0, 0.0, 1.0]),
+                    ("-Z", [0.0, 0.0, -1.0]),
+                    ("+Y", [0.0, 1.0, 0.0]),
+                    ("-Y", [0.0, -1.0, 0.0]),
+                    ("+X", [1.0, 0.0, 0.0]),
+                    ("-X", [-1.0, 0.0, 0.0]),
+                ];
+                for (lbl, dir) in dirs {
+                    let is_active = (pull_dir[0] - dir[0]).abs() < 1e-3
+                        && (pull_dir[1] - dir[1]).abs() < 1e-3
+                        && (pull_dir[2] - dir[2]).abs() < 1e-3;
+                    if Self::hud_toggle_btn(ui, lbl, is_active).clicked() {
+                        *pull_dir = dir;
+                        action = Some(DraftInspectionHudAction::SetPullDir(dir));
+                    }
+                }
+
+                ui.separator();
+
+                // Slider / Preset Sudut Target
+                ui.label(RichText::new(format!("{}:", t!("draft-target-angle"))).size(10.0).color(TEXT_SECONDARY));
+                let mut angle_val = *target_angle_deg;
+                let angle_drag = ui.add(
+                    egui::DragValue::new(&mut angle_val)
+                        .range(0.5..=10.0)
+                        .speed(0.1)
+                        .suffix("°"),
+                );
+                if angle_drag.changed() {
+                    *target_angle_deg = angle_val;
+                    action = Some(DraftInspectionHudAction::SetTargetAngle(angle_val));
+                }
+
+                ui.separator();
+
+                // Legend Color Indicators
+                let angle_str = format!("{:.1}", *target_angle_deg);
+                // Hijau (Safe)
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(46, 204, 113)));
+                    ui.label(RichText::new(t!("draft-safe-legend", angle = &angle_str)).size(9.5).color(Color32::from_rgb(180, 240, 200)));
+                });
+                // Kuning (Low Draft)
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(241, 196, 15)));
+                    ui.label(RichText::new(t!("draft-warning-legend", angle = &angle_str)).size(9.5).color(Color32::from_rgb(255, 235, 160)));
+                });
+                // Merah (Undercut)
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(231, 76, 60)));
+                    ui.label(RichText::new(t!("draft-undercut-legend")).size(9.5).color(Color32::from_rgb(255, 180, 180)));
+                });
+
+                ui.separator();
+
+                // Slider Blend
+                ui.label(RichText::new(format!("{}:", t!("draft-blend"))).size(10.0).color(TEXT_SECONDARY));
+                let mut blend_pct = (*blend * 100.0).round();
+                let blend_drag = ui.add(egui::DragValue::new(&mut blend_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                if blend_drag.changed() {
+                    *blend = blend_pct / 100.0;
+                    action = Some(DraftInspectionHudAction::SetBlend(*blend));
+                }
+
+                ui.separator();
+                // Tombol Nonaktifkan
+                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                    action = Some(DraftInspectionHudAction::TurnOff);
                 }
 
                 action

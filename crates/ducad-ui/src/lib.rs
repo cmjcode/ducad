@@ -28,8 +28,8 @@ pub mod top_bar;
 pub mod viewcube;
 
 pub use canvas_hud::{
-    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DraftHudAction, DraftPullDir,
-    LoftHudAction, PatternAxisPreset, PatternHudAction, PatternKind, RenamePopupEvent,
+    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DraftHudAction, DraftInspectionHudAction,
+    DraftPullDir, LoftHudAction, PatternAxisPreset, PatternHudAction, PatternKind, RenamePopupEvent,
     RevolveHudAction, RibHudAction, ShellHudAction, SplitHudAction, SplitMode, SplitPlaneKind, SweepHudAction,
     ZebraHudAction,
 };
@@ -58,8 +58,8 @@ pub use theme::{
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{
-    BooleanPopup, BooleanPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
-    ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
+    BooleanPopup, BooleanPopupState, DraftAnalysisPopup, DraftPopupState, Entity2dPopup,
+    Entity2dPopupState, ExtrudePopup, ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, ToolPopupEvent,
 };

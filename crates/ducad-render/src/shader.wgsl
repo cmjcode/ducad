@@ -11,6 +11,12 @@ struct Globals {
     // x: enabled (> 0.5 = aktif), y: frequency (jumlah garis),
     // z: angle (orientasi garis radian), w: blend factor (0.0..1.0).
     zebra_params: vec4<f32>,
+    // Draft angle heatmap inspection (Fase 3.2):
+    // x: enabled (> 0.5 = aktif), y: target_angle_rad, z: blend factor (0.0..1.0), w: reserved.
+    draft_params: vec4<f32>,
+    // Pull direction vector (arah buka cetakan mold):
+    // xyz: normalized pull direction (e.g. [0.0, 0.0, 1.0]), w: unused.
+    draft_dir: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -119,6 +125,41 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
 
         let blend = clamp(globals.zebra_params.w, 0.0, 1.0);
         let final_color = mix(standard_color, zebra_shaded, blend);
+        return vec4<f32>(final_color, in.color.a);
+    }
+
+    // Draft Angle Heatmap Inspection (Fase 3.2)
+    // Mengevaluasi sudut kemiringan permukaan terhadap arah buka cetakan (pull direction)
+    // untuk validasi DFM (Design for Manufacturing) cetakan injeksi plastik / die-cast:
+    // - Hijau: Sudut aman (>= target_angle, e.g. >= 1.0°)
+    // - Kuning: Sudut kritis / butuh kemiringan draft (0° s/d target_angle)
+    // - Merah: Undercut / kemiringan terbalik (< 0°) yang menjebak part di dalam cetakan
+    if (globals.draft_params.x > 0.5) {
+        let pull_dir = normalize(globals.draft_dir.xyz);
+        let dot_nd = clamp(dot(n, pull_dir), -1.0, 1.0);
+        let alpha_rad = asin(dot_nd);
+        let target_rad = globals.draft_params.y;
+
+        let color_safe = vec3<f32>(0.18, 0.80, 0.44);     // Hijau terang CAD (#2ecc71)
+        let color_warning = vec3<f32>(0.98, 0.78, 0.12);  // Kuning peringatan (#f1c40f)
+        let color_undercut = vec3<f32>(0.92, 0.24, 0.20); // Merah undercut (#e74c3c)
+
+        var heatmap_color: vec3<f32>;
+        if (alpha_rad >= target_rad) {
+            let t = clamp((alpha_rad - target_rad) / (1.5707963 - target_rad), 0.0, 1.0);
+            heatmap_color = mix(color_safe, vec3<f32>(0.10, 0.62, 0.32), t * 0.25);
+        } else if (alpha_rad >= 0.0) {
+            let t = clamp(alpha_rad / max(target_rad, 0.0001), 0.0, 1.0);
+            heatmap_color = mix(color_warning, color_safe, t * 0.85);
+        } else {
+            let t = clamp(-alpha_rad / 1.5707963, 0.0, 1.0);
+            heatmap_color = mix(color_undercut, vec3<f32>(0.72, 0.12, 0.12), t * 0.35);
+        }
+
+        // Shading pencahayaan diffuse + rim lembut agar kedalaman 3D tetap tampak tajam
+        let heatmap_shaded = heatmap_color * (0.70 + 0.30 * diffuse) + vec3<f32>(rim * 0.4);
+        let blend = clamp(globals.draft_params.z, 0.0, 1.0);
+        let final_color = mix(standard_color, heatmap_shaded, blend);
         return vec4<f32>(final_color, in.color.a);
     }
 

@@ -126,6 +126,15 @@ zebra-horizontal = Horizontal
 zebra-vertical = Vertical
 zebra-frequency = Stripes:
 zebra-blend = Blend:
+tool-draft-analysis = Draft Analysis
+tool-draft-analysis-desc = Inspect surface draft angles relative to mold pull direction with real-time DFM color heatmap
+topbar-draft-tooltip = Toggle Draft Angle Heatmap Inspector
+draft-pull-dir = Pull Direction:
+draft-target-angle = Draft Angle:
+draft-blend = Blend:
+draft-safe-legend = Safe (≥ { $angle }°)
+draft-warning-legend = Low Draft (0°–{ $angle }°)
+draft-undercut-legend = Undercut (< 0°)
 tool-measure = Measure Distance
 tool-measure-desc = Measure distance between points, edges, or faces
 tool-measure-angle = Measure Angle
@@ -710,6 +719,12 @@ guide-zebra-step-1 = 1. Specular Reflection Projection
 guide-zebra-step-2 = 2. G1 Tangent Continuity (Sharp Kinks)
 guide-zebra-step-3 = 3. G2 Curvature Continuity (Smooth Class-A)
 guide-zebra-tip = 💡 Inspect light flow continuity across surface seams & fillets
+
+guide-draft-analysis-header = Draft Heatmap Inspection Guide:
+guide-draft-analysis-step-1 = 1. Set Mold Pull Direction (+Z/-Z/+Y/+X)
+guide-draft-analysis-step-2 = 2. Safe Mold Release Angle (Green ≥ Target)
+guide-draft-analysis-step-3 = 3. Critical Draft (Yellow) & Undercut Trapped (Red)
+guide-draft-analysis-tip = 💡 Verify injection mold and die-cast release feasibility before production
 
 # Units
 unit-mm = mm (Millimeter)

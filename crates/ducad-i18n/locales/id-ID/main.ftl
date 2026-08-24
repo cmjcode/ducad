@@ -126,6 +126,15 @@ zebra-horizontal = Horizontal
 zebra-vertical = Vertikal
 zebra-frequency = Garis:
 zebra-blend = Blend:
+tool-draft-analysis = Analisis Sudut Lepas
+tool-draft-analysis-desc = Inspeksi sudut kemiringan permukaan terhadap arah buka cetakan dengan heatmap DFM real-time
+topbar-draft-tooltip = Beralih Mode Analisis Sudut Lepas Cetakan (Draft Heatmap)
+draft-pull-dir = Arah Cetakan:
+draft-target-angle = Sudut Draft:
+draft-blend = Blend:
+draft-safe-legend = Aman (≥ { $angle }°)
+draft-warning-legend = Draft Kritis (0°–{ $angle }°)
+draft-undercut-legend = Undercut (< 0°)
 tool-measure = Ukur Jarak
 tool-measure-desc = Ukur jarak antara titik, rusuk, atau bidang
 tool-measure-angle = Ukur Sudut
@@ -710,6 +719,12 @@ guide-zebra-step-1 = 1. Proyeksi Refleksi Specular
 guide-zebra-step-2 = 2. Kontinuitas Tangensi G1 (Patahan Sudut)
 guide-zebra-step-3 = 3. Kontinuitas Kurvatur G2 (Mulus Class-A)
 guide-zebra-tip = 💡 Validasi keluwesan pantulan cahaya pada sambungan permukaan
+
+guide-draft-analysis-header = Panduan Analisis Sudut Lepas (Draft Heatmap):
+guide-draft-analysis-step-1 = 1. Tentukan Arah Buka Cetakan (+Z/-Z/+Y/+X)
+guide-draft-analysis-step-2 = 2. Sudut Lepas Aman (Hijau ≥ Target)
+guide-draft-analysis-step-3 = 3. Draft Kritis (Kuning) & Undercut Terjebak (Merah)
+guide-draft-analysis-tip = 💡 Pastikan part dapat lepas dari cetakan injeksi plastik sebelum diproduksi
 
 # Units
 unit-mm = mm (Milimeter)

@@ -4,6 +4,7 @@
 //! di pojok kanan bawah kanvas secara kontekstual hanya saat tool tersebut aktif.
 
 pub mod boolean_popup;
+pub mod draft_popup;
 pub mod entity_popup;
 pub mod extrude_popup;
 pub mod history_popup;
@@ -19,6 +20,7 @@ use egui_material_icons::icons::ICON_CLOSE;
 use crate::theme::{glass_frame, TEXT_SECONDARY};
 
 pub use boolean_popup::{BooleanPopup, BooleanPopupState};
+pub use draft_popup::{DraftAnalysisPopup, DraftPopupState};
 pub use entity_popup::{Entity2dPopup, Entity2dPopupState};
 pub use extrude_popup::{ExtrudePopup, ExtrudePopupState};
 pub use history_popup::{HistoryPopup, HistoryPopupState};
@@ -50,6 +52,13 @@ pub enum ToolPopupEvent {
         /// Arah bukaan cetakan sebagai vektor (x, y, z).
         pull_dir: (f64, f64, f64),
     },
+    // Draft Heatmap Inspector (Fase 3.2 — Analisis Sudut Lepas)
+    UpdateDraftInspection {
+        pull_dir: [f32; 3],
+        target_angle_deg: f32,
+        blend: f32,
+    },
+    CloseDraftInspection,
     // Boolean
     ApplyBooleanUnion,
     ApplyBooleanSubtract,
@@ -101,7 +110,7 @@ pub enum ToolPopupEvent {
     DeleteSelectedBodies,
 }
 
-/// Helper pembungkus kartu popup mengambang di pojok kanan bawah.
+/// Helper pembungkus kartu popup mengambang di pojok kanan bawah bawaan (auto-close saat klik luar).
 pub fn render_bottom_right_popup<R>(
     ctx: &Context,
     id_str: &str,
@@ -109,6 +118,31 @@ pub fn render_bottom_right_popup<R>(
     icon: &str,
     accent_color: Color32,
     screen_rect: Rect,
+    content: impl FnOnce(&mut Ui) -> (R, bool),
+) -> (Option<R>, bool) {
+    render_bottom_right_panel_custom(
+        ctx,
+        id_str,
+        title,
+        icon,
+        accent_color,
+        screen_rect,
+        260.0,
+        true,
+        content,
+    )
+}
+
+/// Helper pembungkus panel mengambang di pojok kanan bawah dengan ukuran & kebijakan tutup fleksibel.
+pub fn render_bottom_right_panel_custom<R>(
+    ctx: &Context,
+    id_str: &str,
+    title: &str,
+    icon: &str,
+    accent_color: Color32,
+    screen_rect: Rect,
+    width: f32,
+    close_on_outside_click: bool,
     content: impl FnOnce(&mut Ui) -> (R, bool),
 ) -> (Option<R>, bool) {
     let mut close_clicked = false;
@@ -125,7 +159,7 @@ pub fn render_bottom_right_popup<R>(
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             glass_frame().show(ui, |ui| {
-                ui.set_width(260.0);
+                ui.set_width(width);
                 ui.spacing_mut().item_spacing = Vec2::new(3.0, 4.0);
 
                 // Header
@@ -163,8 +197,8 @@ pub fn render_bottom_right_popup<R>(
         close_clicked = true;
     }
 
-    // Tap / click di luar area popup untuk tutup
-    if !close_clicked {
+    // Tap / click di luar area popup untuk tutup (hanya jika diizinkan)
+    if close_on_outside_click && !close_clicked {
         if let Some(pointer_pos) = ctx.input(|i| i.pointer.interact_pos()) {
             if ctx.input(|i| i.pointer.any_pressed()) && !area_response.response.rect.contains(pointer_pos) {
                 close_clicked = true;

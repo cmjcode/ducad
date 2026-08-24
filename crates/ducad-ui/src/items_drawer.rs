@@ -376,7 +376,9 @@ impl ItemsDrawer {
             .inner_margin(Margin::same(10));
 
         frame.show(ui, |ui| {
-            ui.set_width(280.0);
+            ui.set_min_width(232.0);
+            ui.set_max_width(232.0);
+            ui.set_width(232.0);
             if !auto_shrink_v {
                 ui.set_height(panel_h);
             }

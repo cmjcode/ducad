@@ -88,6 +88,7 @@ impl ToolGuides {
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
             ToolbarTool::ZebraInspection => Self::render_zebra_anim(&painter, card_rect, time),
+            ToolbarTool::DraftAnalysis => Self::render_draft_analysis_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
             _ => {}
@@ -2136,6 +2137,124 @@ impl ToolGuides {
             Color32::from_rgba_premultiplied(90, 55, 10, 220)
         } else {
             Color32::from_rgba_premultiplied(15, 80, 45, 220)
+        };
+
+        let badge_pos = Pos2::new(card_rect.right() - 58.0, card_rect.center().y + 4.0);
+        Self::draw_badge(
+            painter,
+            badge_pos,
+            badge_text,
+            badge_bg,
+            Color32::WHITE,
+        );
+    }
+
+    /// Animasi tutorial untuk Tool Draft Angle Heatmap Inspector (Fase 3.2)
+    fn render_draft_analysis_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        time: f64,
+    ) {
+        let cycle = 4.5;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.33 {
+            (t!("guide-draft-analysis-step-1"), ACCENT_BLUE)
+        } else if phase < 0.66 {
+            (t!("guide-draft-analysis-step-2"), ACCENT_GREEN)
+        } else {
+            (t!("guide-draft-analysis-step-3"), Color32::from_rgb(235, 75, 60))
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-draft-analysis-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-draft-analysis-tip"));
+
+        let center = Pos2::new(card_rect.left() + 90.0, card_rect.center().y + 3.0);
+
+        // 1. Gambar panah Pull Direction (+Z) di sebelah kiri
+        let arrow_x = center.x - 55.0;
+        let arrow_bottom = center.y + 20.0;
+        let arrow_top = center.y - 20.0;
+        painter.line_segment(
+            [Pos2::new(arrow_x, arrow_bottom), Pos2::new(arrow_x, arrow_top)],
+            Stroke::new(2.5, ACCENT_BLUE),
+        );
+        // Kepala panah
+        painter.line_segment(
+            [Pos2::new(arrow_x - 4.0, arrow_top + 6.0), Pos2::new(arrow_x, arrow_top)],
+            Stroke::new(2.5, ACCENT_BLUE),
+        );
+        painter.line_segment(
+            [Pos2::new(arrow_x + 4.0, arrow_top + 6.0), Pos2::new(arrow_x, arrow_top)],
+            Stroke::new(2.5, ACCENT_BLUE),
+        );
+        painter.text(
+            Pos2::new(arrow_x, arrow_bottom + 8.0),
+            egui::Align2::CENTER_CENTER,
+            "+Z Pull",
+            egui::FontId::proportional(8.5),
+            ACCENT_BLUE,
+        );
+
+        // 2. Gambar penampang part cetakan 3D dengan profil berwarna DFM
+        // - Bidang atas: Hijau (Normal ke atas, aman)
+        // - Dinding samping luar: Berkemiringan (Hijau draft aman)
+        // - Dinding vertikal tengah: Kuning (Zero draft)
+        // - Ceruk bawah / overhang: Merah (Undercut)
+        let mold_top_y = center.y - 18.0;
+        let mold_mid_y = center.y + 4.0;
+        let mold_bot_y = center.y + 18.0;
+
+        let p_top_left = Pos2::new(center.x - 20.0, mold_top_y);
+        let p_top_right = Pos2::new(center.x + 35.0, mold_top_y);
+        let p_side_draft = Pos2::new(center.x - 32.0, mold_bot_y);
+        let p_undercut_lip = Pos2::new(center.x + 24.0, mold_mid_y);
+        let p_undercut_trap = Pos2::new(center.x + 35.0, mold_bot_y);
+
+        // Face 1: Top Face (Green - Safe)
+        painter.line_segment(
+            [p_top_left, p_top_right],
+            Stroke::new(4.0, Color32::from_rgb(46, 204, 113)),
+        );
+
+        // Face 2: Drafted Side (Green - Safe >= 1°)
+        painter.line_segment(
+            [p_side_draft, p_top_left],
+            Stroke::new(4.0, Color32::from_rgb(46, 204, 113)),
+        );
+
+        // Face 3: Vertical wall / Step (Yellow - Low Draft 0°)
+        painter.line_segment(
+            [p_top_right, p_undercut_lip],
+            Stroke::new(3.5, Color32::from_rgb(241, 196, 15)),
+        );
+
+        // Face 4: Inverted overhang (Red - Undercut < 0°)
+        painter.line_segment(
+            [p_undercut_lip, p_undercut_trap],
+            Stroke::new(4.0, Color32::from_rgb(231, 76, 60)),
+        );
+
+        // Face 5: Bottom base line (Muted)
+        painter.line_segment(
+            [p_side_draft, p_undercut_trap],
+            Stroke::new(1.5, Color32::from_rgba_premultiplied(120, 130, 150, 180)),
+        );
+
+        let badge_text = if phase < 0.33 {
+            "Pull Axis: +Z"
+        } else if phase < 0.66 {
+            "Safe (Green) ≥ 1°"
+        } else {
+            "Undercut! (Red)"
+        };
+
+        let badge_bg = if phase < 0.33 {
+            Color32::from_rgba_premultiplied(15, 45, 90, 220)
+        } else if phase < 0.66 {
+            Color32::from_rgba_premultiplied(15, 80, 45, 220)
+        } else {
+            Color32::from_rgba_premultiplied(90, 20, 20, 220)
         };
 
         let badge_pos = Pos2::new(card_rect.right() - 58.0, card_rect.center().y + 4.0);

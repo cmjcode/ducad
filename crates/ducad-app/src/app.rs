@@ -11,12 +11,11 @@ use ducad_sketch::{
 };
 use ducad_ui::{
     ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CommandPalette,
-    ContextAction, ContextActionBar, Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent,
-    HistoryPopup, HistoryPopupState,
-    InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    RadialMenu, RenamePopupEvent,
-    ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
-    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
+    ContextAction, ContextActionBar, DraftAnalysisPopup, DraftInspectionHudAction, Entity2dItemInfo, HistoryDrawer,
+    HistoryDrawerEvent, HistoryPopup, HistoryPopupState, InspectorConstraintAction,
+    InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar, RadialMenu, RenamePopupEvent,
+    ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState,
+    ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -117,6 +116,8 @@ pub struct DuCADApp {
 
     /// Zebra stripes reflection inspection (Fase 3.1).
     pub zebra_config: ducad_render::ZebraConfig,
+    /// Draft angle heatmap inspection (Fase 3.2).
+    pub draft_config: ducad_render::DraftConfig,
 
     pub show_all_dimensions: bool,
     /// Entity yg pill dimensinya sedang dibuka utk diedit di kanvas (Fase 3 —
@@ -381,6 +382,7 @@ impl DuCADApp {
             section_offset: 0.0,
             section_invert: false,
             zebra_config: ducad_render::ZebraConfig::default(),
+            draft_config: ducad_render::DraftConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -736,6 +738,7 @@ impl DuCADApp {
                 gizmo_indices,
                 clip_plane: self.section_clip_plane(),
                 zebra_config: self.zebra_config,
+                draft_config: self.draft_config,
             },
         ));
 
@@ -904,6 +907,7 @@ impl eframe::App for DuCADApp {
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
+            draft_view_active: self.draft_config.enabled,
             active_plane_name: self.active_plane.name().to_string(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
@@ -980,6 +984,9 @@ impl eframe::App for DuCADApp {
                         TopBarEvent::ToggleZebraView => {
                             self.zebra_config.enabled = !self.zebra_config.enabled;
                         }
+                        TopBarEvent::ToggleDraftAnalysis => {
+                            self.draft_config.enabled = !self.draft_config.enabled;
+                        }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
                                 let to_delete: Vec<EntityId> =
@@ -1017,6 +1024,9 @@ impl eframe::App for DuCADApp {
                         }
                         ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::ZebraInspection) => {
                             self.zebra_config.enabled = !self.zebra_config.enabled;
+                        }
+                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::DraftAnalysis) => {
+                            self.draft_config.enabled = !self.draft_config.enabled;
                         }
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
@@ -1255,6 +1265,7 @@ impl eframe::App for DuCADApp {
         }
 
         // 2. History Drawer (Tersusun di atas tombol atau di atas Folder Drawer jika keduanya terbuka)
+        let mut hist_top_y = None;
         if self.history_drawer_open {
             let hist_bottom_y = if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1263,7 +1274,7 @@ impl eframe::App for DuCADApp {
             };
             let hist_pos = egui::pos2(screen_rect.max.x - 16.0, hist_bottom_y);
 
-            egui::Area::new(egui::Id::new("ducad-history-drawer-area"))
+            let hist_area_resp = egui::Area::new(egui::Id::new("ducad-history-drawer-area"))
                 .fixed_pos(hist_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
@@ -1294,6 +1305,50 @@ impl eframe::App for DuCADApp {
                                     self.model_status = Some("Snapshot untuk riwayat ini tidak tersedia".to_string());
                                 }
                             }
+                        }
+                    }
+                });
+
+            hist_top_y = Some(hist_area_resp.response.rect.min.y);
+        }
+
+        // 3. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/History drawer atau di atas floating buttons)
+        if self.draft_config.enabled {
+            let draft_bottom_y = if self.history_drawer_open {
+                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let draft_pos = egui::pos2(screen_rect.max.x - 16.0, draft_bottom_y);
+
+            let mut draft_state = ducad_ui::DraftPopupState {
+                pull_dir: self.draft_config.pull_dir,
+                target_angle_deg: self.draft_config.target_angle_deg,
+                blend: self.draft_config.blend,
+            };
+
+            egui::Area::new(egui::Id::new("ducad-draft-heatmap-area"))
+                .fixed_pos(draft_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = DraftAnalysisPopup::show(ui, &mut draft_state) {
+                        match ev {
+                            ToolPopupEvent::UpdateDraftInspection {
+                                pull_dir,
+                                target_angle_deg,
+                                blend,
+                            } => {
+                                self.draft_config.pull_dir = pull_dir;
+                                self.draft_config.target_angle_deg = target_angle_deg;
+                                self.draft_config.blend = blend;
+                            }
+                            ToolPopupEvent::CloseDraftInspection | ToolPopupEvent::Close => {
+                                self.draft_config.enabled = false;
+                            }
+                            _ => {}
                         }
                     }
                 });
@@ -1388,7 +1443,7 @@ impl eframe::App for DuCADApp {
         }
 
         // =========================================================================
-        // MODULAR TOOL POPUPS DI POJOK KANAN BAWAH (BOTTOM-RIGHT)
+        // MODULAR TOOL POPUPS & INSPECTOR WINDOWS DI POJOK KANAN BAWAH (BOTTOM-RIGHT)
         // =========================================================================
         let mut popup_ev: Option<ToolPopupEvent> = None;
 
@@ -1469,6 +1524,18 @@ impl eframe::App for DuCADApp {
                 }
                 ToolPopupEvent::ApplyDraftAngle { angle_deg, pull_dir } => {
                     self.apply_draft_angle(angle_deg, pull_dir);
+                }
+                ToolPopupEvent::UpdateDraftInspection {
+                    pull_dir,
+                    target_angle_deg,
+                    blend,
+                } => {
+                    self.draft_config.pull_dir = pull_dir;
+                    self.draft_config.target_angle_deg = target_angle_deg;
+                    self.draft_config.blend = blend;
+                }
+                ToolPopupEvent::CloseDraftInspection => {
+                    self.draft_config.enabled = false;
                 }
                 ToolPopupEvent::ApplyBooleanUnion => {
                     self.boolean_selected(BooleanKind::Union, "Union", "Union");

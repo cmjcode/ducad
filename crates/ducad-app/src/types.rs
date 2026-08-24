@@ -51,6 +51,8 @@ pub enum ToolKind {
     SectionView,
     /// Inspeksi Garis Zebra (Fase 3.1 Zebra Stripes Reflection Shader).
     ZebraInspection,
+    /// Inspeksi Sudut Lepas Cetakan (Fase 3.2 Draft Angle Heatmap Inspector).
+    DraftAnalysis,
     // Shared Utilities
     /// Non-destruktif Ukur Jarak.
     Measure,
@@ -90,6 +92,7 @@ impl ToolKind {
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
             ToolKind::ZebraInspection => ToolbarTool::ZebraInspection,
+            ToolKind::DraftAnalysis => ToolbarTool::DraftAnalysis,
             ToolKind::Measure => ToolbarTool::Measure,
             ToolKind::MeasureAngle => ToolbarTool::MeasureAngle,
             ToolKind::History => ToolbarTool::History,
@@ -125,6 +128,7 @@ impl ToolKind {
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::ZebraInspection => ToolKind::ZebraInspection,
+            ToolbarTool::DraftAnalysis => ToolKind::DraftAnalysis,
             ToolbarTool::Measure => ToolKind::Measure,
             ToolbarTool::MeasureAngle => ToolKind::MeasureAngle,
             ToolbarTool::History => ToolKind::History,
@@ -231,6 +235,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Boolean
         | ToolKind::SectionView
         | ToolKind::ZebraInspection
+        | ToolKind::DraftAnalysis
         | ToolKind::History => 0,
     }
 }

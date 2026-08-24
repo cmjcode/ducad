@@ -4,19 +4,17 @@
 //! list kartu padat/kompak, badge warna pembeda, badge lingkaran sempurna,
 //! tombol hapus ikon bersih, dan kemampuan jump (undo/redo) saat item diklik.
 
-use egui::{
-    Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea,
-    Stroke, Ui, Vec2,
-};
-use egui_material_icons::icons::{
-    ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_HISTORY,
-    ICON_HORIZONTAL_RULE, ICON_SEARCH,
-};
 use crate::theme::{
-    card_frame, glass_frame, ACCENT_BLUE,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    card_frame, glass_frame, ACCENT_BLUE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 use ducad_i18n::t;
+use egui::{
+    Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
+};
+use egui_material_icons::icons::{
+    ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_HISTORY, ICON_HORIZONTAL_RULE,
+    ICON_SEARCH,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityKindUi {
@@ -75,7 +73,10 @@ impl HistoryDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.set_width(280.0);
+                const DRAWER_W: f32 = 230.0;
+                ui.set_min_width(DRAWER_W);
+                ui.set_max_width(DRAWER_W);
+                ui.set_width(DRAWER_W);
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
 
                 // =========================================================================
@@ -88,10 +89,8 @@ impl HistoryDrawer {
                 if handle_resp.hovered() || handle_resp.dragged() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
                 }
-                let pill_rect = egui::Rect::from_center_size(
-                    handle_rect.center(),
-                    Vec2::new(36.0, 4.0),
-                );
+                let pill_rect =
+                    egui::Rect::from_center_size(handle_rect.center(), Vec2::new(36.0, 4.0));
                 let pill_color = if handle_resp.dragged() {
                     ACCENT_BLUE
                 } else if handle_resp.hovered() {
@@ -99,7 +98,8 @@ impl HistoryDrawer {
                 } else {
                     Color32::from_rgb(70, 75, 90)
                 };
-                ui.painter().rect_filled(pill_rect, CornerRadius::same(2), pill_color);
+                ui.painter()
+                    .rect_filled(pill_rect, CornerRadius::same(2), pill_color);
 
                 if handle_resp.dragged() {
                     if let Some(ptr_pos) = ui.input(|i| i.pointer.hover_pos()) {
@@ -118,12 +118,14 @@ impl HistoryDrawer {
                             .color(TEXT_SECONDARY),
                     );
                     let has_query = !self.search_query.is_empty();
-                    let clear_btn_w = if has_query { 22.0 } else { 0.0 };
-                    let close_btn_w = 26.0;
-                    let text_width = (ui.available_width() - clear_btn_w - close_btn_w).max(80.0);
+                    let clear_btn_w = if has_query { 20.0 } else { 0.0 };
+                    let close_btn_w = 22.0;
+                    let text_width =
+                        (ui.available_width() - clear_btn_w - close_btn_w - 6.0).max(60.0);
                     ui.add(
                         egui::TextEdit::singleline(&mut self.search_query)
                             .hint_text(t!("history-search-placeholder"))
+                            .clip_text(true)
                             .desired_width(text_width),
                     );
 
@@ -157,12 +159,12 @@ impl HistoryDrawer {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(ICON_HISTORY.codepoint)
-                            .size(12.0)
+                            .size(11.5)
                             .color(ACCENT_BLUE),
                     );
                     ui.label(
-                        RichText::new(t!("drawer-history-title").to_uppercase())
-                            .size(10.5)
+                        RichText::new(t!("drawer-history-title"))
+                            .size(10.0)
                             .strong()
                             .color(TEXT_PRIMARY),
                     );
@@ -170,7 +172,8 @@ impl HistoryDrawer {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         // Tombol Hapus (cukup icon murni dengan hover merah)
                         if !activities.is_empty() {
-                            let (del_rect, del_resp) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
+                            let (del_rect, del_resp) =
+                                ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
                             let del_hovered = del_resp.hovered();
                             let del_color = if del_hovered {
                                 Color32::from_rgb(255, 69, 58)
@@ -190,7 +193,8 @@ impl HistoryDrawer {
                         }
 
                         // Badge counter (lingkaran penuh sempurna radius 9.0)
-                        let (badge_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
+                        let (badge_rect, _) =
+                            ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
                         ui.painter().circle_filled(
                             badge_rect.center(),
                             9.0,
@@ -269,20 +273,21 @@ impl HistoryDrawer {
                             });
                         } else {
                             for item in filtered {
-                                let (badge_color, badge_text, icon_str, border_color) = match item.kind {
-                                    ActivityKindUi::Sketch2D => (
-                                        Color32::from_rgb(0, 210, 180),
-                                        "2D",
-                                        ICON_HORIZONTAL_RULE.codepoint,
-                                        Color32::from_rgba_premultiplied(0, 210, 180, 40),
-                                    ),
-                                    ActivityKindUi::Solid3D => (
-                                        Color32::from_rgb(191, 90, 242),
-                                        "3D",
-                                        ICON_CATEGORY.codepoint,
-                                        Color32::from_rgba_premultiplied(191, 90, 242, 40),
-                                    ),
-                                };
+                                let (badge_color, badge_text, icon_str, border_color) =
+                                    match item.kind {
+                                        ActivityKindUi::Sketch2D => (
+                                            Color32::from_rgb(0, 210, 180),
+                                            "2D",
+                                            ICON_HORIZONTAL_RULE.codepoint,
+                                            Color32::from_rgba_premultiplied(0, 210, 180, 40),
+                                        ),
+                                        ActivityKindUi::Solid3D => (
+                                            Color32::from_rgb(191, 90, 242),
+                                            "3D",
+                                            ICON_CATEGORY.codepoint,
+                                            Color32::from_rgba_premultiplied(191, 90, 242, 40),
+                                        ),
+                                    };
 
                                 let row_frame = Frame {
                                     inner_margin: Margin::symmetric(6, 4),
@@ -301,9 +306,7 @@ impl HistoryDrawer {
                                         ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
 
                                         ui.label(
-                                            RichText::new(icon_str)
-                                                .size(11.0)
-                                                .color(badge_color),
+                                            RichText::new(icon_str).size(11.0).color(badge_color),
                                         );
 
                                         ui.label(
@@ -313,25 +316,28 @@ impl HistoryDrawer {
                                                 .color(TEXT_PRIMARY),
                                         );
 
-                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            // Badge 2D / 3D kompak
-                                            Frame {
-                                                inner_margin: Margin::symmetric(4, 0),
-                                                outer_margin: Margin::ZERO,
-                                                corner_radius: CornerRadius::same(3),
-                                                shadow: egui::Shadow::NONE,
-                                                fill: badge_color.linear_multiply(0.18),
-                                                stroke: Stroke::new(0.5, badge_color),
-                                            }
-                                            .show(ui, |ui| {
-                                                ui.label(
-                                                    RichText::new(badge_text)
-                                                        .size(8.0)
-                                                        .strong()
-                                                        .color(badge_color),
-                                                );
-                                            });
-                                        });
+                                        ui.with_layout(
+                                            Layout::right_to_left(Align::Center),
+                                            |ui| {
+                                                // Badge 2D / 3D kompak
+                                                Frame {
+                                                    inner_margin: Margin::symmetric(4, 0),
+                                                    outer_margin: Margin::ZERO,
+                                                    corner_radius: CornerRadius::same(3),
+                                                    shadow: egui::Shadow::NONE,
+                                                    fill: badge_color.linear_multiply(0.18),
+                                                    stroke: Stroke::new(0.5, badge_color),
+                                                }
+                                                .show(ui, |ui| {
+                                                    ui.label(
+                                                        RichText::new(badge_text)
+                                                            .size(8.0)
+                                                            .strong()
+                                                            .color(badge_color),
+                                                    );
+                                                });
+                                            },
+                                        );
                                     });
 
                                     // Baris bawah (kompak): Detail deskripsi informatif + Timestamp
@@ -350,13 +356,16 @@ impl HistoryDrawer {
                                             .on_hover_text(&item.details);
                                         }
 
-                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                            ui.label(
-                                                RichText::new(&item.timestamp)
-                                                    .size(8.5)
-                                                    .color(TEXT_MUTED),
-                                            );
-                                        });
+                                        ui.with_layout(
+                                            Layout::right_to_left(Align::Center),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(&item.timestamp)
+                                                        .size(8.5)
+                                                        .color(TEXT_MUTED),
+                                                );
+                                            },
+                                        );
                                     });
                                 });
 
@@ -371,7 +380,10 @@ impl HistoryDrawer {
                                 }
 
                                 if interact
-                                    .on_hover_text(t!("history-jump-tooltip", time = item.timestamp.as_str()))
+                                    .on_hover_text(t!(
+                                        "history-jump-tooltip",
+                                        time = item.timestamp.as_str()
+                                    ))
                                     .clicked()
                                 {
                                     event = Some(HistoryDrawerEvent::JumpTo {

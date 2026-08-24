@@ -54,7 +54,7 @@ Tujuan: Memungkinkan perancangan casing produk injeksi plastik dan part mekanika
 Tujuan: Memberikan alat verifikasi visual kelayakan desain industri secara *real-time*.
 - [x] **3.1 Zebra Stripes Reflection Shader**:
   - Fragment shader kustom pada pipeline `ducad-render` (wgpu) yang memproyeksikan garis zebra pantulan (*specular reflection stripes*) untuk memvalidasi kontinuitas tangensial (G1) dan kurvatur (G2).
-- [ ] **3.2 Draft Angle Heatmap Inspector**:
+- [x] **3.2 Draft Angle Heatmap Inspector**:
   - Shader pewarnaan sudut permukaan terhadap arah buka cetakan (*pull direction*):
     - **Hijau**: Sudut aman $\ge 1.0^\circ$.
     - **Kuning**: Sudut kritis $0^\circ - 1.0^\circ$.

@@ -46,6 +46,7 @@ pub enum ToolbarTool {
     Boolean,
     SectionView,
     ZebraInspection,
+    DraftAnalysis,
     // Shared Tools
     Measure,
     MeasureAngle,

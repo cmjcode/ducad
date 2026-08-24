@@ -788,7 +788,112 @@ impl DuCADApp {
             verts.extend(sketch_render::snap_glyph(hit, &self.active_plane));
         }
 
+        // =========================================================================
+        // PULL DIRECTION 3D AXIS LINE & RING (Draft Angle Heatmap Inspector)
+        // =========================================================================
+        if self.draft_config.enabled {
+            let (center, size) = self.draft_inspection_anchor_and_size();
+            let pull_dir = Vec3::new(
+                self.draft_config.pull_dir[0],
+                self.draft_config.pull_dir[1],
+                self.draft_config.pull_dir[2],
+            )
+            .normalize_or_zero();
+
+            if pull_dir != Vec3::ZERO {
+                let half_line_len = (size * 0.35).clamp(12.0, 40.0);
+                let p_start = center - pull_dir * half_line_len;
+                let p_end = center + pull_dir * half_line_len;
+                // Warna Electric Royal Blue (bukan merah, kuning, atau hijau)
+                const AXIS_COLOR: [f32; 4] = [0.05, 0.58, 1.0, 0.75];
+                verts.push(LineVertex {
+                    position: [p_start.x, p_start.y, p_start.z],
+                    color: AXIS_COLOR,
+                });
+                verts.push(LineVertex {
+                    position: [p_end.x, p_end.y, p_end.z],
+                    color: AXIS_COLOR,
+                });
+
+                // Lingkaran pembagi (parting plane ring) di pusat benda tegak lurus sumbu pull
+                let (t1, t2) = if pull_dir.z.abs() < 0.95 {
+                    let t1 = pull_dir.cross(Vec3::Z).normalize();
+                    let t2 = pull_dir.cross(t1).normalize();
+                    (t1, t2)
+                } else {
+                    let t1 = pull_dir.cross(Vec3::Y).normalize();
+                    let t2 = pull_dir.cross(t1).normalize();
+                    (t1, t2)
+                };
+                let ring_radius = (size * 0.12).clamp(6.0, 20.0);
+                let ring_segs = 20;
+                for i in 0..ring_segs {
+                    let a0 = std::f32::consts::TAU * (i as f32 / ring_segs as f32);
+                    let a1 = std::f32::consts::TAU * ((i + 1) as f32 / ring_segs as f32);
+                    let pt0 =
+                        center + t1 * (ring_radius * a0.cos()) + t2 * (ring_radius * a0.sin());
+                    let pt1 =
+                        center + t1 * (ring_radius * a1.cos()) + t2 * (ring_radius * a1.sin());
+                    verts.push(LineVertex {
+                        position: [pt0.x, pt0.y, pt0.z],
+                        color: [0.05, 0.58, 1.0, 0.55],
+                    });
+                    verts.push(LineVertex {
+                        position: [pt1.x, pt1.y, pt1.z],
+                        color: [0.05, 0.58, 1.0, 0.55],
+                    });
+                }
+            }
+        }
+
         verts
+    }
+
+    /// Hitung titik pusat dan dimensi perkiraan model 3D (atau body yang dipilih) untuk penempatan visualizer pull direction.
+    pub fn draft_inspection_anchor_and_size(&self) -> (Vec3, f32) {
+        if !self.selected_bodies.is_empty() {
+            let mut min = Vec3::splat(f32::INFINITY);
+            let mut max = Vec3::splat(f32::NEG_INFINITY);
+            let mut found = false;
+            for &bid in &self.selected_bodies {
+                if let Some(geo) = self.model.geometry.get(bid) {
+                    for p in &geo.mesh.positions {
+                        let v = Vec3::new(p[0], p[1], p[2]);
+                        min = min.min(v);
+                        max = max.max(v);
+                        found = true;
+                    }
+                }
+            }
+            if found {
+                let center = (min + max) * 0.5;
+                let size = (max - min).length().max(20.0);
+                return (center, size);
+            }
+        }
+
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        let mut found = false;
+        for (bid, b) in self.model.doc.bodies.iter() {
+            if b.visible {
+                if let Some(geo) = self.model.geometry.get(bid) {
+                    for p in &geo.mesh.positions {
+                        let v = Vec3::new(p[0], p[1], p[2]);
+                        min = min.min(v);
+                        max = max.max(v);
+                        found = true;
+                    }
+                }
+            }
+        }
+        if found {
+            let center = (min + max) * 0.5;
+            let size = (max - min).length().max(20.0);
+            (center, size)
+        } else {
+            (Vec3::ZERO, 50.0)
+        }
     }
 
     #[allow(clippy::type_complexity)]
@@ -953,6 +1058,38 @@ impl DuCADApp {
             }
         }
 
+        // =========================================================================
+        // SOLID 3D ARROW PULL DIRECTION (Draft Angle Heatmap Inspector)
+        // =========================================================================
+        if self.draft_config.enabled {
+            let (center, _size) = self.draft_inspection_anchor_and_size();
+            let pull_dir = Vec3::new(
+                self.draft_config.pull_dir[0],
+                self.draft_config.pull_dir[1],
+                self.draft_config.pull_dir[2],
+            )
+            .normalize_or_zero();
+
+            if pull_dir != Vec3::ZERO {
+                // Panjang panah yang kompak dan pendek (22mm - 34mm)
+                let arrow_length = (22.0 * world_scale as f32).clamp(16.0, 32.0);
+                let arrow_size = (ARROW_PX as f64 * world_scale * 1.0).clamp(4.0, 10.0) as f32;
+                // Warna Electric Royal Blue (bukan merah, kuning, atau hijau)
+                const PULL_ARROW_COLOR: [f32; 4] = [0.05, 0.58, 1.0, 1.0];
+                let (p, n, c, i) = sketch_render::solid_directional_arrow_mesh(
+                    [center.x, center.y, center.z],
+                    arrow_length,
+                    arrow_size,
+                    PULL_ARROW_COLOR,
+                    pull_dir,
+                );
+                let base = positions.len() as u32;
+                positions.extend(p);
+                normals.extend(n);
+                colors.extend(c);
+                indices.extend(i.into_iter().map(|idx| idx + base));
+            }
+        }
 
         (positions, normals, colors, indices)
     }

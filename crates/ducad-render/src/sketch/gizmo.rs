@@ -280,6 +280,141 @@ pub fn solid_double_arrow_gizmo_mesh(
     (positions, normals, colors, indices)
 }
 
+/// Mesh solid panah penunjuk arah tunggal (misal: Pull Direction indicator pada Draft Analysis).
+#[allow(clippy::type_complexity)]
+pub fn solid_directional_arrow_mesh(
+    start: [f32; 3],
+    length: f32,
+    arrow_size: f32,
+    color: [f32; 4],
+    direction: Vec3,
+) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut colors: Vec<[f32; 4]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    let n = direction.normalize_or_zero();
+    if n == Vec3::ZERO {
+        return (positions, normals, colors, indices);
+    }
+    let base_start = Vec3::from(start);
+    let tip = base_start + n * length;
+
+    let (t1, t2) = if n.z.abs() < 0.95 {
+        let t1 = n.cross(Vec3::Z).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    } else {
+        let t1 = n.cross(Vec3::Y).normalize();
+        let t2 = n.cross(t1).normalize();
+        (t1, t2)
+    };
+
+    let shaft_radius = arrow_size * 0.22;
+    let s = arrow_size;
+    let segs = 12;
+    let tau = std::f32::consts::TAU;
+
+    let push_tri = |positions: &mut Vec<[f32; 3]>,
+                    normals: &mut Vec<[f32; 3]>,
+                    colors: &mut Vec<[f32; 4]>,
+                    indices: &mut Vec<u32>,
+                    a: Vec3,
+                    b: Vec3,
+                    c: Vec3,
+                    outward_hint: Vec3| {
+        let mut face_n = (b - a).cross(c - a);
+        let (vb, vc) = if face_n.dot(outward_hint) < 0.0 {
+            face_n = -face_n;
+            (c, b)
+        } else {
+            (b, c)
+        };
+        let face_n = face_n.normalize_or_zero();
+        let base_idx = positions.len() as u32;
+        for p in [a, vb, vc] {
+            positions.push([p.x, p.y, p.z]);
+            normals.push([face_n.x, face_n.y, face_n.z]);
+            colors.push(color);
+        }
+        indices.extend_from_slice(&[base_idx, base_idx + 1, base_idx + 2]);
+    };
+
+    // 1. Silinder Poros Panah
+    let cone_base = tip - n * (s * 1.5);
+    for i in 0..segs {
+        let a0 = tau * (i as f32 / segs as f32);
+        let a1 = tau * ((i + 1) as f32 / segs as f32);
+        let r0 = t1 * (shaft_radius * a0.cos()) + t2 * (shaft_radius * a0.sin());
+        let r1 = t1 * (shaft_radius * a1.cos()) + t2 * (shaft_radius * a1.sin());
+        let hint = r0 + r1;
+        push_tri(
+            &mut positions,
+            &mut normals,
+            &mut colors,
+            &mut indices,
+            base_start + r0,
+            cone_base + r0,
+            cone_base + r1,
+            hint,
+        );
+        push_tri(
+            &mut positions,
+            &mut normals,
+            &mut colors,
+            &mut indices,
+            base_start + r0,
+            cone_base + r1,
+            base_start + r1,
+            hint,
+        );
+        // Base cap (tutup bawah poros)
+        push_tri(
+            &mut positions,
+            &mut normals,
+            &mut colors,
+            &mut indices,
+            base_start,
+            base_start + r1,
+            base_start + r0,
+            -n,
+        );
+    }
+
+    // 2. Kepala Panah Kerucut (Cone)
+    for i in 0..segs {
+        let a0 = tau * (i as f32 / segs as f32);
+        let a1 = tau * ((i + 1) as f32 / segs as f32);
+        let b0 = cone_base + t1 * (s * a0.cos()) + t2 * (s * a0.sin());
+        let b1 = cone_base + t1 * (s * a1.cos()) + t2 * (s * a1.sin());
+        let radial_hint = (b0 - cone_base) + (b1 - cone_base);
+        push_tri(
+            &mut positions,
+            &mut normals,
+            &mut colors,
+            &mut indices,
+            tip,
+            b0,
+            b1,
+            radial_hint,
+        );
+        // Tutup alas kerucut
+        push_tri(
+            &mut positions,
+            &mut normals,
+            &mut colors,
+            &mut indices,
+            cone_base,
+            b1,
+            b0,
+            -n,
+        );
+    }
+
+    (positions, normals, colors, indices)
+}
+
 /// Marker gizmo vertex fillet 3D.
 pub fn vertex_fillet_marker_lines(
     vertex: [f32; 3],
