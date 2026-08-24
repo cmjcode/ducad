@@ -4,7 +4,7 @@
 //! kontrol skala gambar, tombol toggle garis tampak & tersembunyi, editor kepala gambar (title block),
 //! serta tombol ekspor langsung ke PDF Vektor dan DXF CAD.
 
-use ducad_io::drawing::{DrawingSheet, PaperSize};
+use ducad_io::drawing::{format_scale_ratio, DrawingSheet, PaperSize};
 use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use egui::{
     vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
@@ -89,6 +89,14 @@ pub struct DrawingSheetViewState {
     pub pan_offset: Vec2,
     pub zoom: f32,
     pub title_block_editor_open: bool,
+    pub dragging_view: Option<ProjectedViewKind>,
+    pub hovered_view: Option<ProjectedViewKind>,
+    pub dragging_dim_idx: Option<usize>,
+    pub hovered_dim_idx: Option<usize>,
+    pub selected_dim_idx: Option<usize>,
+    pub hovered_dim_delete: Option<usize>,
+    pub measure_tool_active: bool,
+    pub measure_first_pt: Option<[f32; 2]>,
 }
 
 impl Default for DrawingSheetViewState {
@@ -98,6 +106,14 @@ impl Default for DrawingSheetViewState {
             pan_offset: Vec2::ZERO,
             zoom: 1.0,
             title_block_editor_open: false,
+            dragging_view: None,
+            hovered_view: None,
+            dragging_dim_idx: None,
+            hovered_dim_idx: None,
+            selected_dim_idx: None,
+            hovered_dim_delete: None,
+            measure_tool_active: false,
+            measure_first_pt: None,
         }
     }
 }
@@ -132,39 +148,327 @@ impl DrawingSheetView {
             Vec2::new(topbar_w, 30.0),
         );
 
-        let fit_size = vec2(36.0, 36.0);
-        let fit_pos = Pos2::new(total_rect.max.x - 52.0, total_rect.max.y - 52.0);
-        let fit_rect = Rect::from_min_size(fit_pos, fit_size);
+        let zoom_controls_size = vec2(112.0, 32.0);
+        let zoom_controls_pos = Pos2::new(total_rect.max.x - 128.0, total_rect.max.y - 48.0);
+        let zoom_controls_rect = Rect::from_min_size(zoom_controls_pos, zoom_controls_size);
 
         let canvas_rect = total_rect;
 
         // 3. Kanvas Interaktif Kertas Gambar Teknik (Background Sensor dialokasikan SEBELUM floating UI)
         let response = ui.allocate_rect(canvas_rect, Sense::click_and_drag());
 
-        // Handle Pan & Zoom (Hanya aktif jika kursor tidak sedang di atas top bar / floating buttons)
-        let cursor_pos = ui.input(|i| i.pointer.hover_pos());
-        let is_over_ui = cursor_pos.map_or(false, |p| topbar_rect.contains(p) || fit_rect.contains(p));
+        if state.zoom <= 0.05 {
+            state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
+        }
 
+        let center_pos = canvas_rect.center() + state.pan_offset;
+        let (pw_mm, ph_mm) = sheet.paper_size.dimensions_mm();
+        let zoom = state.zoom;
+
+        let sheet_w_px = pw_mm * zoom;
+        let sheet_h_px = ph_mm * zoom;
+        let sheet_min = Pos2::new(
+            center_pos.x - sheet_w_px * 0.5,
+            center_pos.y - sheet_h_px * 0.5,
+        );
+        let sheet_max = Pos2::new(
+            center_pos.x + sheet_w_px * 0.5,
+            center_pos.y + sheet_h_px * 0.5,
+        );
+
+        let screen_to_mm = |p: Pos2| -> [f32; 2] {
+            [
+                (p.x - sheet_min.x) / zoom,
+                (sheet_max.y - p.y) / zoom,
+            ]
+        };
+
+        let mm_to_screen = |x_mm: f32, y_mm: f32| -> Pos2 {
+            Pos2::new(
+                sheet_min.x + x_mm * zoom,
+                sheet_max.y - y_mm * zoom,
+            )
+        };
+
+        // Kumpulkan titik snap (ujung garis, titik pusat lingkaran/busur) dari seluruh tampak
+        let mut snap_points_mm: Vec<[f32; 2]> = Vec::new();
+        for plc in &sheet.view_placements {
+            if !plc.visible {
+                continue;
+            }
+            let view = sheet.drawing.view_by_kind(plc.kind);
+            let s = plc.scale;
+            let v_center = view.center_2d();
+            let cx = plc.center_mm[0];
+            let cy = plc.center_mm[1];
+
+            for seg in &view.segments {
+                if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
+                    snap_points_mm.push([
+                        cx + (seg.start[0] - v_center[0]) * s,
+                        cy + (seg.start[1] - v_center[1]) * s,
+                    ]);
+                    snap_points_mm.push([
+                        cx + (seg.end[0] - v_center[0]) * s,
+                        cy + (seg.end[1] - v_center[1]) * s,
+                    ]);
+                }
+            }
+            for feat in &view.features {
+                match feat {
+                    ducad_kernel::HlrGeometricFeature::Circle { center, .. }
+                    | ducad_kernel::HlrGeometricFeature::Arc { center, .. }
+                    | ducad_kernel::HlrGeometricFeature::Ellipse { center, .. } => {
+                        snap_points_mm.push([
+                            cx + (center[0] - v_center[0]) * s,
+                            cy + (center[1] - v_center[1]) * s,
+                        ]);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let cursor_pos = ui.input(|i| i.pointer.hover_pos());
+        let is_over_ui = cursor_pos.map_or(false, |p| topbar_rect.contains(p) || zoom_controls_rect.contains(p));
+
+        let mut hovered_view_kind = None;
+        let mut hovered_dim_idx = None;
+        let mut hovered_dim_delete = None;
+        let mut active_snap_pt_mm = None;
+
+        if let Some(c_pos) = cursor_pos {
+            if !is_over_ui && canvas_rect.contains(c_pos) {
+                let cursor_mm = screen_to_mm(c_pos);
+
+                // A. Snap point detection (untuk tambah ukuran baru)
+                let snap_threshold_mm = 14.0 / zoom;
+                let mut closest_dist = snap_threshold_mm;
+                for sp in &snap_points_mm {
+                    let d = (sp[0] - cursor_mm[0]).hypot(sp[1] - cursor_mm[1]);
+                    if d < closest_dist {
+                        closest_dist = d;
+                        active_snap_pt_mm = Some(*sp);
+                    }
+                }
+
+                // B. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu)
+                if sheet.show_dimensions {
+                    for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
+                        let p1 = mm_to_screen(dim.start[0], dim.start[1]);
+                        let p2 = mm_to_screen(dim.end[0], dim.end[1]);
+                        let is_leader = dim.text.starts_with('R')
+                            || dim.text.starts_with('Ø')
+                            || dim.text.starts_with("Rx");
+                        let is_angle = dim.text.ends_with('°');
+
+                        let (text_center, line_hit_rect) = if is_angle {
+                            let p_txt = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
+                            (p_txt + vec2(20.0, 0.0), Rect::from_center_size(p_txt, vec2(24.0, 24.0)))
+                        } else if is_leader {
+                            let p_bend = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
+                            let tc = Pos2::new(p_bend.x + 20.0, p_bend.y - 3.0 * zoom);
+                            (tc, Rect::from_center_size(p_bend, vec2(28.0, 28.0)))
+                        } else if dim.is_vertical {
+                            let dim_x_px = mm_to_screen(dim.line_pos[0], 0.0).x;
+                            let mid_y = (p1.y + p2.y) * 0.5;
+                            let tc = Pos2::new(dim_x_px - 4.0 * zoom, mid_y);
+                            let lr = Rect::from_min_max(
+                                Pos2::new(dim_x_px - 8.0, p1.y.min(p2.y) - 4.0),
+                                Pos2::new(dim_x_px + 8.0, p1.y.max(p2.y) + 4.0),
+                            );
+                            (tc, lr)
+                        } else {
+                            let dim_y_px = mm_to_screen(0.0, dim.line_pos[1]).y;
+                            let mid_x = (p1.x + p2.x) * 0.5;
+                            let tc = Pos2::new(mid_x, dim_y_px - 3.0 * zoom);
+                            let lr = Rect::from_min_max(
+                                Pos2::new(p1.x.min(p2.x) - 4.0, dim_y_px - 8.0),
+                                Pos2::new(p1.x.max(p2.x) + 4.0, dim_y_px + 8.0),
+                            );
+                            (tc, lr)
+                        };
+
+                        let text_hit_rect = Rect::from_center_size(text_center, vec2(60.0, 24.0));
+                        let del_btn_rect = Rect::from_center_size(text_center + vec2(35.0, 0.0), vec2(18.0, 18.0));
+
+                        if del_btn_rect.contains(c_pos) {
+                            hovered_dim_delete = Some(idx);
+                            hovered_dim_idx = Some(idx);
+                            break;
+                        } else if text_hit_rect.contains(c_pos) || line_hit_rect.contains(c_pos) {
+                            hovered_dim_idx = Some(idx);
+                            break;
+                        }
+                    }
+                }
+
+                // C. View hit test (jika tidak sedang hover dimensi)
+                if hovered_dim_idx.is_none() {
+                    for plc in &sheet.view_placements {
+                        if !plc.visible {
+                            continue;
+                        }
+                        let view = sheet.drawing.view_by_kind(plc.kind);
+                        let sz = view.size_2d();
+                        let s = plc.scale;
+                        let half_w = (sz[0] * s * 0.5 + 8.0).max(14.0);
+                        let half_h = (sz[1] * s * 0.5 + 16.0).max(14.0);
+                        let cx = plc.center_mm[0];
+                        let cy = plc.center_mm[1];
+                        if cursor_mm[0] >= cx - half_w
+                            && cursor_mm[0] <= cx + half_w
+                            && cursor_mm[1] >= cy - half_h
+                            && cursor_mm[1] <= cy + half_h
+                        {
+                            hovered_view_kind = Some(plc.kind);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        state.hovered_view = hovered_view_kind;
+        state.hovered_dim_idx = hovered_dim_idx;
+        state.hovered_dim_delete = hovered_dim_delete;
+
+        // Interaction Handler
         if !is_over_ui {
-            if response.dragged_by(egui::PointerButton::Middle)
-                || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
-            {
-                state.pan_offset += response.drag_delta();
+            // Hapus dimensi yang sedang dipilih dengan tombol Delete / Backspace
+            if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+                if let Some(sel_idx) = state.selected_dim_idx {
+                    if sel_idx < sheet.auto_dimensions.len() {
+                        sheet.auto_dimensions.remove(sel_idx);
+                        state.selected_dim_idx = None;
+                        state.hovered_dim_idx = None;
+                        state.hovered_dim_delete = None;
+                        state.dragging_dim_idx = None;
+                    }
+                }
+            }
+
+            if state.measure_tool_active {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                if response.clicked() {
+                    let click_pt_mm = active_snap_pt_mm.or_else(|| cursor_pos.map(screen_to_mm));
+                    if let Some(pt) = click_pt_mm {
+                        if let Some(first_pt) = state.measure_first_pt {
+                            let p1 = first_pt;
+                            let p2 = pt;
+                            let raw_dist_mm = (p2[0] - p1[0]).hypot(p2[1] - p1[1]) / sheet.scale;
+                            if raw_dist_mm > 0.05 {
+                                let is_vert = (p2[0] - p1[0]).abs() < (p2[1] - p1[1]).abs();
+                                let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                                sheet.auto_dimensions.push(ducad_io::drawing::DimensionAnnotation {
+                                    start: p1,
+                                    end: p2,
+                                    line_pos: mid,
+                                    is_vertical: is_vert,
+                                    text: format!("{:.2} mm", raw_dist_mm),
+                                });
+                            }
+                            state.measure_first_pt = None;
+                        } else {
+                            state.measure_first_pt = Some(pt);
+                        }
+                    }
+                }
+            } else {
+                // Klik tombol hapus dimensi [ ✕ ] atau pilih dimensi
+                if response.clicked() {
+                    if let Some(del_idx) = state.hovered_dim_delete {
+                        if del_idx < sheet.auto_dimensions.len() {
+                            sheet.auto_dimensions.remove(del_idx);
+                            state.selected_dim_idx = None;
+                            state.hovered_dim_idx = None;
+                            state.hovered_dim_delete = None;
+                            state.dragging_dim_idx = None;
+                        }
+                    } else if let Some(d_idx) = state.hovered_dim_idx {
+                        state.selected_dim_idx = Some(d_idx);
+                    } else {
+                        state.selected_dim_idx = None;
+                    }
+                }
+
+                // Drag and drop geser ukuran ATAU geser tampak
+                if response.drag_started_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
+                    if state.hovered_dim_delete.is_none() {
+                        if state.hovered_dim_idx.is_some() {
+                            state.dragging_dim_idx = state.hovered_dim_idx;
+                            state.selected_dim_idx = state.hovered_dim_idx;
+                        } else {
+                            state.dragging_view = state.hovered_view;
+                        }
+                    }
+                }
+
+                if response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
+                    if let Some(d_idx) = state.dragging_dim_idx {
+                        if let Some(dim) = sheet.auto_dimensions.get_mut(d_idx) {
+                            let delta_x = response.drag_delta().x / zoom;
+                            let delta_y = -response.drag_delta().y / zoom;
+                            let is_radial_leader = dim.text.starts_with('R')
+                                || dim.text.starts_with('Ø')
+                                || dim.text.starts_with("Rx")
+                                || dim.text.ends_with('°');
+                            if is_radial_leader {
+                                dim.line_pos[0] += delta_x;
+                                dim.line_pos[1] += delta_y;
+                            } else if dim.is_vertical {
+                                dim.line_pos[0] += delta_x;
+                            } else {
+                                dim.line_pos[1] += delta_y;
+                            }
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if let Some(kind) = state.dragging_view {
+                        if let Some(plc) = sheet.view_placements.iter_mut().find(|p| p.kind == kind) {
+                            let delta_x = response.drag_delta().x / zoom;
+                            let delta_y = -response.drag_delta().y / zoom;
+                            plc.center_mm[0] += delta_x;
+                            plc.center_mm[1] += delta_y;
+                            sheet.generate_auto_dimensions();
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
+                }
+
+                if response.drag_stopped() {
+                    state.dragging_dim_idx = None;
+                    state.dragging_view = None;
+                }
+
+                // Pan canvas
+                if response.dragged_by(egui::PointerButton::Middle)
+                    || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
+                    || (response.dragged_by(egui::PointerButton::Primary)
+                        && state.dragging_view.is_none()
+                        && state.hovered_view.is_none()
+                        && state.dragging_dim_idx.is_none()
+                        && state.hovered_dim_idx.is_none())
+                {
+                    state.pan_offset += response.drag_delta();
+                }
+
+                if state.hovered_dim_delete.is_some() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                } else if (state.hovered_dim_idx.is_some() && state.dragging_dim_idx.is_none())
+                    || (state.hovered_view.is_some() && state.dragging_view.is_none())
+                {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                }
             }
 
             let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll_delta.abs() > 0.0 && response.hovered() {
                 let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
-                state.zoom = (state.zoom * zoom_factor).clamp(0.2, 5.0);
+                state.zoom = (state.zoom * zoom_factor).clamp(0.15, 8.0);
             }
         }
 
-        if state.zoom <= 0.05 {
-            state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
-        }
-
         // Render Lembar Kertas & Konten Gambar 2D
-        render_sheet_canvas(ui, canvas_rect, state, sheet);
+        render_sheet_canvas(ui, canvas_rect, state, sheet, active_snap_pt_mm, cursor_pos);
 
         // 4. Render Header Controls (Floating Top Bar Glassmorphism di Atas Kanvas)
         let mut header_ui = ui.new_child(
@@ -176,7 +480,6 @@ impl DrawingSheetView {
         glass_frame().show(&mut header_ui, |ui| {
             ui.set_height(30.0);
             ui.horizontal(|ui| {
-                // A. Icon Drawing Sheet & Title
                 // A. Icon Drawing Sheet (Minimalis tanpa teks judul)
                 ui.label(
                     RichText::new(ICON_PICTURE_AS_PDF.codepoint)
@@ -212,38 +515,31 @@ impl DrawingSheetView {
                         }
                     });
 
-                // C. Skala Gambar
+                // C. Skala Gambar Mode Sliding Fleksibel
                 ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));
-                let current_scale_label = sheet.title_block.scale.clone();
-                egui::ComboBox::from_id_salt("scale_combo")
-                    .selected_text(current_scale_label)
-                    .show_ui(ui, |ui| {
-                        let scales = [
-                            (0.05, "1:20"),
-                            (0.1, "1:10"),
-                            (0.125, "1:8"),
-                            (0.2, "1:5"),
-                            (0.25, "1:4"),
-                            (0.333, "1:3"),
-                            (0.4, "1:2.5"),
-                            (0.5, "1:2"),
-                            (0.667, "1:1.5"),
-                            (1.0, "1:1"),
-                            (2.0, "2:1"),
-                            (5.0, "5:1"),
-                        ];
-                        for (val, lbl) in scales {
-                            let is_sel = (sheet.scale - val).abs() < 1e-3;
-                            if ui.selectable_label(is_sel, lbl).clicked() {
-                                sheet.scale = val;
-                                sheet.title_block.scale = lbl.to_string();
-                                for plc in &mut sheet.view_placements {
-                                    plc.scale = val;
+                let mut cur_scale = sheet.scale as f64;
+                let scale_slider = egui::Slider::new(&mut cur_scale, 0.01..=3.0)
+                    .logarithmic(true)
+                    .custom_formatter(|n, _| format_scale_ratio(n as f32))
+                    .custom_parser(|s| {
+                        let s = s.trim();
+                        if let Some((a, b)) = s.split_once(':') {
+                            if let (Ok(num), Ok(den)) = (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
+                                if den > 0.0 {
+                                    return Some(num / den);
                                 }
-                                sheet.generate_auto_dimensions();
                             }
                         }
-                    });
+                        s.parse::<f64>().ok()
+                    })
+                    .show_value(true);
+
+                let slider_resp = ui
+                    .add_sized([95.0, 20.0], scale_slider)
+                    .on_hover_text("Geser untuk mengubah skala proyeksi gambar secara fleksibel");
+                if slider_resp.changed() {
+                    sheet.layout_with_scale(cur_scale as f32);
+                }
 
                 let auto_btn = header_icon_btn(
                     ui,
@@ -251,7 +547,7 @@ impl DrawingSheetView {
                     false,
                     "Auto Layout",
                     Some("R"),
-                    Some("Atur ulang posisi tampak proyeksi secara otomatis"),
+                    Some("Atur ulang posisi tampak proyeksi & skala optimal otomatis"),
                     None,
                     None,
                 );
@@ -259,9 +555,9 @@ impl DrawingSheetView {
                     sheet.auto_layout();
                 }
 
-                ui.add_space(4.0);
+                ui.add_space(2.0);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(2.0);
 
                 // D. Toggles Visibilitas Gambar
                 let hlr_btn = header_icon_btn(
@@ -292,6 +588,21 @@ impl DrawingSheetView {
                     sheet.show_dimensions = !sheet.show_dimensions;
                 }
 
+                let measure_btn = header_icon_btn(
+                    ui,
+                    ICON_STRAIGHTEN.codepoint,
+                    state.measure_tool_active,
+                    "Tambah Ukuran Baru (Ukur)",
+                    Some("M"),
+                    Some("Klik 2 titik pada gambar untuk menambah dimensi ukuran baru secara manual"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(Color32::from_rgb(255, 140, 0)),
+                );
+                if measure_btn.clicked() {
+                    state.measure_tool_active = !state.measure_tool_active;
+                    state.measure_first_pt = None;
+                }
+
                 let cl_btn = header_icon_btn(
                     ui,
                     ICON_TEXTURE.codepoint,
@@ -320,7 +631,51 @@ impl DrawingSheetView {
                     state.title_block_editor_open = !state.title_block_editor_open;
                 }
 
-                // E. Sisi Kanan: Close (X) dan Ekspor
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // E. Tombol Zoom In & Zoom Out di Top Bar
+                let zoom_out_header = header_icon_btn(
+                    ui,
+                    "-",
+                    false,
+                    "Zoom Out",
+                    Some("-"),
+                    Some("Perkecil tampilan kanvas kertas"),
+                    None,
+                    None,
+                );
+                if zoom_out_header.clicked() {
+                    state.zoom = (state.zoom / 1.2).clamp(0.15, 8.0);
+                }
+
+                let fit_zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
+                let zoom_percent = (state.zoom / fit_zoom * 100.0).round() as i32;
+                if ui
+                    .add(egui::Button::new(RichText::new(format!("{}%", zoom_percent)).size(10.5).color(TEXT_SECONDARY)).frame(false))
+                    .on_hover_text("Pusatkan Kertas ke Layar (Fit / 100%)")
+                    .clicked()
+                {
+                    state.pan_offset = Vec2::ZERO;
+                    state.zoom = fit_zoom;
+                }
+
+                let zoom_in_header = header_icon_btn(
+                    ui,
+                    "+",
+                    false,
+                    "Zoom In",
+                    Some("+"),
+                    Some("Perbesar tampilan kanvas kertas"),
+                    None,
+                    None,
+                );
+                if zoom_in_header.clicked() {
+                    state.zoom = (state.zoom * 1.2).clamp(0.15, 8.0);
+                }
+
+                // F. Sisi Kanan: Close (X) dan Ekspor
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Tombol Tutup (X) di paling kanan
                     let close_btn = header_icon_btn(
@@ -372,30 +727,59 @@ impl DrawingSheetView {
             });
         });
 
-        // 5. Tombol Fit Mengambang di Pojok Kanan Bawah
-        let mut fit_ui = ui.new_child(
+        // 5. Floating Zoom In / Zoom Out / Fit Toolbar di Pojok Kanan Bawah
+        let mut zoom_ui = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(fit_rect)
-                .layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)),
+                .max_rect(zoom_controls_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
-        let fit_btn = egui::Button::new(
-            RichText::new(ICON_FIT_SCREEN.codepoint.to_string())
-                .size(16.0)
-                .color(TEXT_PRIMARY),
-        )
-        .corner_radius(CornerRadius::same(8))
-        .fill(Color32::from_rgba_premultiplied(28, 32, 42, 200))
-        .stroke(Stroke::new(0.5, BORDER_SUBTLE))
-        .min_size(fit_size);
 
-        if fit_ui
-            .add(fit_btn)
-            .on_hover_text("Pusatkan Kertas ke Layar (Fit)")
-            .clicked()
-        {
-            state.pan_offset = Vec2::ZERO;
-            state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
-        }
+        glass_frame().show(&mut zoom_ui, |ui| {
+            ui.set_height(32.0);
+            ui.horizontal(|ui| {
+                let z_out = ui
+                    .add(
+                        egui::Button::new(RichText::new("-").size(15.0).color(TEXT_PRIMARY))
+                            .frame(false)
+                            .min_size(vec2(26.0, 24.0)),
+                    )
+                    .on_hover_text("Perkecil Tampilan (Zoom Out)");
+                if z_out.clicked() {
+                    state.zoom = (state.zoom / 1.2).clamp(0.15, 8.0);
+                }
+
+                ui.separator();
+
+                let z_fit = ui
+                    .add(
+                        egui::Button::new(
+                            RichText::new(ICON_FIT_SCREEN.codepoint.to_string())
+                                .size(14.0)
+                                .color(TEXT_PRIMARY),
+                        )
+                        .frame(false)
+                        .min_size(vec2(28.0, 24.0)),
+                    )
+                    .on_hover_text("Pusatkan Kertas ke Layar (Fit)");
+                if z_fit.clicked() {
+                    state.pan_offset = Vec2::ZERO;
+                    state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
+                }
+
+                ui.separator();
+
+                let z_in = ui
+                    .add(
+                        egui::Button::new(RichText::new("+").size(15.0).color(TEXT_PRIMARY))
+                            .frame(false)
+                            .min_size(vec2(26.0, 24.0)),
+                    )
+                    .on_hover_text("Perbesar Tampilan (Zoom In)");
+                if z_in.clicked() {
+                    state.zoom = (state.zoom * 1.2).clamp(0.15, 8.0);
+                }
+            });
+        });
 
         // 6. Panel Form Floating: Edit Kepala Gambar (Title Block)
         if state.title_block_editor_open {
@@ -423,6 +807,8 @@ fn render_sheet_canvas(
     canvas_rect: Rect,
     state: &DrawingSheetViewState,
     sheet: &DrawingSheet,
+    active_snap_pt_mm: Option<[f32; 2]>,
+    cursor_pos: Option<Pos2>,
 ) {
     let painter = ui.painter_at(canvas_rect);
     let center_pos = canvas_rect.center() + state.pan_offset;
@@ -529,6 +915,34 @@ fn render_sheet_canvas(
         let v_center = view.center_2d();
         let view_sz = view.size_2d();
 
+        // Highlight box saat tampak di-hover / sedang digeser (Drag-and-Drop)
+        let is_hovered = state.hovered_view == Some(plc.kind);
+        let is_dragging = state.dragging_view == Some(plc.kind);
+        if is_hovered || is_dragging {
+            let half_w = (view_sz[0] * scale * 0.5 + 8.0) * zoom;
+            let half_h = (view_sz[1] * scale * 0.5 + 16.0) * zoom;
+            let p_center = mm_to_screen(center_mm[0], center_mm[1]);
+            let v_box = Rect::from_center_size(p_center, vec2(half_w * 2.0, half_h * 2.0));
+
+            painter.rect_stroke(
+                v_box,
+                CornerRadius::same(6),
+                Stroke::new(1.5, if is_dragging { ACCENT_BLUE } else { Color32::from_rgb(60, 130, 240) }),
+                egui::StrokeKind::Outside,
+            );
+
+            let badge_pos = Pos2::new(v_box.min.x + 6.0, v_box.min.y + 4.0);
+            let badge_text = if is_dragging { "✥ Menggeser..." } else { "✥ Tahan & Geser Tata Letak" };
+            let badge_galley = painter.layout_no_wrap(
+                badge_text.to_string(),
+                FontId::proportional((3.5 * zoom).clamp(8.0, 11.0)),
+                Color32::WHITE,
+            );
+            let badge_rect = Rect::from_min_size(badge_pos, badge_galley.size() + vec2(8.0, 4.0));
+            painter.rect_filled(badge_rect, CornerRadius::same(3), Color32::from_rgb(25, 95, 210));
+            painter.galley(badge_pos + vec2(4.0, 2.0), badge_galley, Color32::WHITE);
+        }
+
         // 1. Centerlines (Garis Sumbu Simetri)
         if sheet.show_centerlines {
             let cl_stroke = Stroke::new((0.35 * zoom).clamp(0.8, 1.5), Color32::from_rgb(0, 130, 45));
@@ -616,7 +1030,7 @@ fn render_sheet_canvas(
         let font_dim = FontId::monospace((4.2 * zoom).clamp(5.5, 11.5));
         let arrow_sz = (2.2 * zoom).clamp(3.5, 7.5);
 
-        for dim in &sheet.auto_dimensions {
+        for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
             let p1 = mm_to_screen(dim.start[0], dim.start[1]);
             let p2 = mm_to_screen(dim.end[0], dim.end[1]);
 
@@ -625,32 +1039,54 @@ fn render_sheet_canvas(
                 || dim.text.starts_with("Rx");
             let is_angle = dim.text.ends_with('°');
 
+            let is_dim_hovered = state.hovered_dim_idx == Some(idx);
+            let is_dim_selected = state.selected_dim_idx == Some(idx);
+            let is_dim_dragging = state.dragging_dim_idx == Some(idx);
+            let is_del_hovered = state.hovered_dim_delete == Some(idx);
+
+            let active_dim_color = if is_dim_selected || is_dim_dragging {
+                Color32::from_rgb(255, 135, 15)
+            } else if is_dim_hovered {
+                Color32::from_rgb(0, 110, 230)
+            } else {
+                Color32::from_rgb(12, 70, 175)
+            };
+
+            let cur_dim_stroke = Stroke::new(
+                if is_dim_selected || is_dim_dragging || is_dim_hovered {
+                    (0.55 * zoom).clamp(1.2, 2.0)
+                } else {
+                    (0.35 * zoom).clamp(0.8, 1.5)
+                },
+                active_dim_color,
+            );
+
+            let label_bg_rect: Rect;
+
             if is_angle {
                 let p_v = p1;
                 let p_a1 = p2;
                 let p_txt = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
 
-                // Gambar garis bantu sudut dari vertex ke titik ukur & posisi teks
-                painter.line_segment([p_v, p_a1], dim_stroke);
-                painter.line_segment([p_v, p_txt], dim_stroke);
+                painter.line_segment([p_v, p_a1], cur_dim_stroke);
+                painter.line_segment([p_v, p_txt], cur_dim_stroke);
 
                 let dir_vec = (p_txt - p_v).normalized();
-                draw_arrowhead(&painter, p_txt, dir_vec, arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, p_txt, dir_vec, arrow_sz, active_dim_color);
 
-                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
-                let bg_rect = Rect::from_center_size(p_txt + vec2(galley.size().x * 0.5 + 4.0, 0.0), galley.size() + vec2(4.0, 2.0));
-                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
-                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), active_dim_color);
+                label_bg_rect = Rect::from_center_size(p_txt + vec2(galley.size().x * 0.5 + 4.0, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(label_bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(label_bg_rect.min.x + 2.0, label_bg_rect.min.y + 1.0), galley, active_dim_color);
             } else if is_leader {
                 let p_start = p1;
                 let p_end = p2;
                 let p_bend = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
                 let p_shoulder = Pos2::new(p_bend.x + 12.0 * zoom.clamp(0.8, 1.5), p_bend.y);
 
-                // Garis radial leader dari pusat ke tepi keliling dan bahu horizontal
-                painter.line_segment([p_start, p_end], dim_stroke);
-                painter.line_segment([p_end, p_bend], dim_stroke);
-                painter.line_segment([p_bend, p_shoulder], dim_stroke);
+                painter.line_segment([p_start, p_end], cur_dim_stroke);
+                painter.line_segment([p_end, p_bend], cur_dim_stroke);
+                painter.line_segment([p_bend, p_shoulder], cur_dim_stroke);
 
                 let dir_vec = p_end - p_start;
                 let dir_norm = if dir_vec.length_sq() > 1e-4 {
@@ -658,13 +1094,13 @@ fn render_sheet_canvas(
                 } else {
                     Vec2::new(1.0, 0.0)
                 };
-                draw_arrowhead(&painter, p_end, dir_norm, arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, p_end, dir_norm, arrow_sz, active_dim_color);
 
                 let txt_pos = Pos2::new(p_bend.x + 2.0, p_bend.y - 3.0 * zoom);
-                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
-                let bg_rect = Rect::from_center_size(txt_pos + Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
-                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
-                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), active_dim_color);
+                label_bg_rect = Rect::from_center_size(txt_pos + Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(label_bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(label_bg_rect.min.x + 2.0, label_bg_rect.min.y + 1.0), galley, active_dim_color);
             } else if dim.is_vertical {
                 let dim_x_px = mm_to_screen(dim.line_pos[0], 0.0).x;
                 let ext_overshoot = 2.0 * zoom;
@@ -675,25 +1111,23 @@ fn render_sheet_canvas(
                 let ext2_start = Pos2::new(p2.x + ext_dir * 1.5 * zoom, p2.y);
                 let ext2_end = Pos2::new(dim_x_px + ext_dir * ext_overshoot, p2.y);
 
-                painter.line_segment([ext1_start, ext1_end], dim_stroke);
-                painter.line_segment([ext2_start, ext2_end], dim_stroke);
+                painter.line_segment([ext1_start, ext1_end], cur_dim_stroke);
+                painter.line_segment([ext2_start, ext2_end], cur_dim_stroke);
 
                 let line_top = Pos2::new(dim_x_px, p1.y.min(p2.y));
                 let line_bot = Pos2::new(dim_x_px, p1.y.max(p2.y));
-                painter.line_segment([line_top, line_bot], dim_stroke);
+                painter.line_segment([line_top, line_bot], cur_dim_stroke);
 
-                // Panah vertikal di kedua ujung
-                draw_arrowhead(&painter, line_top, Vec2::new(0.0, -1.0), arrow_sz, Color32::from_rgb(12, 70, 175));
-                draw_arrowhead(&painter, line_bot, Vec2::new(0.0, 1.0), arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, line_top, Vec2::new(0.0, -1.0), arrow_sz, active_dim_color);
+                draw_arrowhead(&painter, line_bot, Vec2::new(0.0, 1.0), arrow_sz, active_dim_color);
 
                 let mid_y = (p1.y + p2.y) * 0.5;
                 let txt_pos = Pos2::new(dim_x_px - 4.0 * zoom, mid_y);
 
-                // Knockout background putih tipis agar angka tidak tertimpa garis
-                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
-                let bg_rect = Rect::from_center_size(txt_pos - Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
-                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
-                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), active_dim_color);
+                label_bg_rect = Rect::from_center_size(txt_pos - Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(label_bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(label_bg_rect.min.x + 2.0, label_bg_rect.min.y + 1.0), galley, active_dim_color);
             } else {
                 let dim_y_px = mm_to_screen(0.0, dim.line_pos[1]).y;
                 let ext_overshoot = 2.0 * zoom;
@@ -704,25 +1138,86 @@ fn render_sheet_canvas(
                 let ext2_start = Pos2::new(p2.x, p2.y + ext_dir * 1.5 * zoom);
                 let ext2_end = Pos2::new(p2.x, dim_y_px + ext_dir * ext_overshoot);
 
-                painter.line_segment([ext1_start, ext1_end], dim_stroke);
-                painter.line_segment([ext2_start, ext2_end], dim_stroke);
+                painter.line_segment([ext1_start, ext1_end], cur_dim_stroke);
+                painter.line_segment([ext2_start, ext2_end], cur_dim_stroke);
 
                 let line_left = Pos2::new(p1.x.min(p2.x), dim_y_px);
                 let line_right = Pos2::new(p1.x.max(p2.x), dim_y_px);
-                painter.line_segment([line_left, line_right], dim_stroke);
+                painter.line_segment([line_left, line_right], cur_dim_stroke);
 
-                // Panah horizontal di kedua ujung
-                draw_arrowhead(&painter, line_left, Vec2::new(-1.0, 0.0), arrow_sz, Color32::from_rgb(12, 70, 175));
-                draw_arrowhead(&painter, line_right, Vec2::new(1.0, 0.0), arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, line_left, Vec2::new(-1.0, 0.0), arrow_sz, active_dim_color);
+                draw_arrowhead(&painter, line_right, Vec2::new(1.0, 0.0), arrow_sz, active_dim_color);
 
                 let mid_x = (p1.x + p2.x) * 0.5;
                 let txt_pos = Pos2::new(mid_x, dim_y_px - 3.0 * zoom);
 
-                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
-                let bg_rect = Rect::from_center_size(txt_pos - Vec2::new(0.0, galley.size().y * 0.5), galley.size() + vec2(4.0, 2.0));
-                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
-                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), active_dim_color);
+                label_bg_rect = Rect::from_center_size(txt_pos - Vec2::new(0.0, galley.size().y * 0.5), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(label_bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(label_bg_rect.min.x + 2.0, label_bg_rect.min.y + 1.0), galley, active_dim_color);
             }
+
+            // Highlight border dan tombol hapus [ ✕ ] saat dimensi dihover / dipilih
+            if is_dim_hovered || is_dim_selected || is_dim_dragging {
+                painter.rect_stroke(
+                    label_bg_rect.expand(2.5),
+                    CornerRadius::same(3),
+                    Stroke::new(1.2, if is_dim_selected || is_dim_dragging { Color32::from_rgb(255, 140, 0) } else { Color32::from_rgb(0, 140, 255) }),
+                    egui::StrokeKind::Outside,
+                );
+
+                let del_center = Pos2::new(label_bg_rect.max.x + 9.5, label_bg_rect.center().y);
+                let del_color = if is_del_hovered {
+                    Color32::from_rgb(230, 40, 40)
+                } else {
+                    Color32::from_rgba_premultiplied(185, 45, 45, 235)
+                };
+                painter.circle_filled(del_center, 7.0, del_color);
+                painter.text(
+                    del_center,
+                    Align2::CENTER_CENTER,
+                    "×",
+                    FontId::monospace(11.0),
+                    Color32::WHITE,
+                );
+            }
+        }
+    }
+
+    // H. Indikator Snap Point & Pengukuran Live (Tambah Data Ukuran Manual)
+    if let Some(snap_mm) = active_snap_pt_mm {
+        let p_snap = mm_to_screen(snap_mm[0], snap_mm[1]);
+        painter.circle_stroke(p_snap, 5.0, Stroke::new(1.5, Color32::from_rgb(255, 140, 0)));
+        painter.circle_filled(p_snap, 2.5, Color32::from_rgb(255, 140, 0));
+    }
+
+    if state.measure_tool_active {
+        if let Some(p1_mm) = state.measure_first_pt {
+            let p1 = mm_to_screen(p1_mm[0], p1_mm[1]);
+            let p2 = if let Some(snap_mm) = active_snap_pt_mm {
+                mm_to_screen(snap_mm[0], snap_mm[1])
+            } else if let Some(c_pos) = cursor_pos {
+                c_pos
+            } else {
+                p1
+            };
+            let p2_mm = [
+                (p2.x - sheet_min.x) / zoom,
+                (sheet_max.y - p2.y) / zoom,
+            ];
+            let live_dist_mm = (p2_mm[0] - p1_mm[0]).hypot(p2_mm[1] - p1_mm[1]) / sheet.scale;
+
+            let measure_stroke = Stroke::new(1.5, Color32::from_rgb(255, 140, 0));
+            draw_dashed_line(&painter, p1, p2, measure_stroke, 4.0, 2.5);
+            painter.circle_filled(p1, 3.5, Color32::from_rgb(255, 140, 0));
+            painter.circle_filled(p2, 3.5, Color32::from_rgb(255, 140, 0));
+
+            let font_meas = FontId::monospace((4.5 * zoom).clamp(7.0, 13.0));
+            let mid_p = Pos2::new((p1.x + p2.x) * 0.5, (p1.y + p2.y) * 0.5 - 12.0);
+            let galley = painter.layout_no_wrap(format!("{:.2} mm", live_dist_mm), font_meas, Color32::from_rgb(255, 180, 50));
+            let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
+            painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
+            painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
         }
     }
 }

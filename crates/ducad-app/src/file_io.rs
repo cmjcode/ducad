@@ -458,77 +458,56 @@ impl DuCADApp {
             ducad_io::drawing::PaperSize::A4Landscape,
         );
 
-        // Tambahkan dimensi spesifik untuk setiap entitas lingkaran/busur pada sketsa
-        if let Some(top_plc) = sheet.view_placements.iter().find(|p| p.kind == ducad_kernel::ProjectedViewKind::Top) {
-            let cx = top_plc.center_mm[0];
-            let cy = top_plc.center_mm[1];
-            let s = sheet.scale;
-            let v_center = sheet.drawing.top.center_2d();
-
-            let mut circle_idx = 0;
-            for (_, entity) in &self.sketch().entities {
-                match entity {
-                    ducad_sketch::Entity::Circle { center, radius } => {
-                        let cx_c = cx + (center.x as f32 - v_center[0]) * s;
-                        let cy_c = cy + (center.y as f32 - v_center[1]) * s;
-                        let r_screen = *radius as f32 * s;
-
-                        let angle_deg = 35.0 + (circle_idx as f32 * 50.0);
-                        circle_idx += 1;
-                        let angle = angle_deg.to_radians();
-                        let end_pt = [cx_c + r_screen * angle.cos(), cy_c + r_screen * angle.sin()];
-                        let leader_bend = [end_pt[0] + 6.0, end_pt[1] + 4.0];
-
-                        sheet.auto_dimensions.push(ducad_io::drawing::DimensionAnnotation {
-                            start: [cx_c, cy_c],
-                            end: end_pt,
-                            line_pos: leader_bend,
-                            is_vertical: false,
-                            text: format!("R {:.2} mm", radius),
-                        });
+        // Tambahkan entitas sketsa profil (lingkaran, busur, ellips) secara permanen ke fitur geometris Tampak Atas
+        for (_, entity) in &self.sketch().entities {
+            match entity {
+                ducad_sketch::Entity::Circle { center, radius } => {
+                    let feat = ducad_kernel::HlrGeometricFeature::Circle {
+                        center: [center.x as f32, center.y as f32],
+                        radius: *radius as f32,
+                    };
+                    if !sheet.drawing.top.features.iter().any(|f| match f {
+                        ducad_kernel::HlrGeometricFeature::Circle { center: c, radius: r } => {
+                            (c[0] - center.x as f32).hypot(c[1] - center.y as f32) < 1.0 && (r - *radius as f32).abs() < 0.5
+                        }
+                        _ => false,
+                    }) {
+                        sheet.drawing.top.features.push(feat);
                     }
-                    ducad_sketch::Entity::Arc { center, radius, start_angle, end_angle } => {
-                        let cx_c = cx + (center.x as f32 - v_center[0]) * s;
-                        let cy_c = cy + (center.y as f32 - v_center[1]) * s;
-                        let r_screen = *radius as f32 * s;
-
-                        let mid_a = (start_angle + end_angle) * 0.5;
-                        let end_pt = [cx_c + r_screen * (mid_a as f32).cos(), cy_c + r_screen * (mid_a as f32).sin()];
-                        let leader_bend = [end_pt[0] + 6.0, end_pt[1] + 4.0];
-
-                        sheet.auto_dimensions.push(ducad_io::drawing::DimensionAnnotation {
-                            start: [cx_c, cy_c],
-                            end: end_pt,
-                            line_pos: leader_bend,
-                            is_vertical: false,
-                            text: format!("R {:.2} mm", radius),
-                        });
-                    }
-                    ducad_sketch::Entity::Ellipse {
-                        center,
-                        radius_x,
-                        radius_y,
-                    } => {
-                        let cx_c = cx + (center.x as f32 - v_center[0]) * s;
-                        let cy_c = cy + (center.y as f32 - v_center[1]) * s;
-                        let end_pt = [
-                            cx_c + *radius_x as f32 * s * 0.707,
-                            cy_c + *radius_y as f32 * s * 0.707,
-                        ];
-                        let leader_bend = [end_pt[0] + 6.0, end_pt[1] + 4.0];
-
-                        sheet.auto_dimensions.push(ducad_io::drawing::DimensionAnnotation {
-                            start: [cx_c, cy_c],
-                            end: end_pt,
-                            line_pos: leader_bend,
-                            is_vertical: false,
-                            text: format!("Rx {:.2} / Ry {:.2} mm", radius_x, radius_y),
-                        });
-                    }
-                    _ => {}
                 }
+                ducad_sketch::Entity::Arc {
+                    center,
+                    radius,
+                    start_angle,
+                    end_angle,
+                } => {
+                    let feat = ducad_kernel::HlrGeometricFeature::Arc {
+                        center: [center.x as f32, center.y as f32],
+                        radius: *radius as f32,
+                        start_angle: *start_angle as f32,
+                        end_angle: *end_angle as f32,
+                    };
+                    sheet.drawing.top.features.push(feat);
+                }
+                ducad_sketch::Entity::Ellipse {
+                    center,
+                    radius_x,
+                    radius_y,
+                } => {
+                    let feat = ducad_kernel::HlrGeometricFeature::Ellipse {
+                        center: [center.x as f32, center.y as f32],
+                        radius_x: *radius_x as f32,
+                        radius_y: *radius_y as f32,
+                        rotation: 0.0,
+                    };
+                    sheet.drawing.top.features.push(feat);
+                }
+                _ => {}
             }
         }
+
+        // Regenerasi dimensi lengkap agar semua fitur sketsa terhitung dan mengikuti skala
+        sheet.generate_auto_dimensions();
 
         if let Some(path) = &self.current_file_path {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {

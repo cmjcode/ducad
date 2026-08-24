@@ -155,7 +155,6 @@ impl DrawingSheet {
         let right_margin = 10.0;
         let top_margin = 10.0;
         let bottom_margin = 10.0;
-        let title_block_w = 140.0;
         let title_block_h = 45.0;
 
         let inner_w = paper_w - left_margin - right_margin;
@@ -167,21 +166,11 @@ impl DrawingSheet {
         let right_sz = self.drawing.right.size_2d();
         let iso_sz = self.drawing.isometric.size_2d();
 
-        let w_f_raw = front_sz[0];
-        let h_f_raw = front_sz[1];
-        let w_t_raw = top_sz[0];
-        let h_t_raw = top_sz[1];
-        let w_r_raw = right_sz[0];
-        let h_r_raw = right_sz[1];
-        let w_iso_raw = iso_sz[0];
-        let h_iso_raw = iso_sz[1];
+        let col1_w = front_sz[0].max(top_sz[0]);
+        let col1_h = front_sz[1] + top_sz[1];
 
-        // Hitung kebutuhan lebar & tinggi ensemble multi-tampak
-        let col1_w = w_f_raw.max(w_t_raw);
-        let col1_h = h_f_raw + h_t_raw;
-
-        let col2_w = w_r_raw.max(w_iso_raw * 0.85);
-        let col2_h = (h_r_raw + h_iso_raw).max(title_block_h + h_iso_raw);
+        let col2_w = right_sz[0].max(iso_sz[0] * 0.85);
+        let col2_h = (right_sz[1] + iso_sz[1]).max(title_block_h + iso_sz[1]);
 
         let total_w_raw = col1_w + col2_w;
         let total_h_raw = col1_h.max(col2_h);
@@ -198,10 +187,37 @@ impl DrawingSheet {
         let raw_best_scale = scale_w.min(scale_h).min(5.0);
 
         // Pilih skala standar terdekat dengan resolusi granular tinggi agar kertas terisi penuh
-        self.scale = pick_standard_scale(raw_best_scale);
+        let optimal_scale = pick_standard_scale(raw_best_scale);
+        self.layout_with_scale(optimal_scale);
+    }
+
+    /// Menghitung tata letak posisi tampak dengan nilai skala tertentu (mis. dari slider fleksibel pengguna).
+    pub fn layout_with_scale(&mut self, s: f32) {
+        let (paper_w, paper_h) = self.paper_size.dimensions_mm();
+
+        let left_margin = 20.0;
+        let right_margin = 10.0;
+        let top_margin = 10.0;
+        let bottom_margin = 10.0;
+        let title_block_w = 140.0;
+        let title_block_h = 45.0;
+
+        self.scale = s.max(0.001);
         self.title_block.scale = format_scale_ratio(self.scale);
 
-        let s = self.scale;
+        let front_sz = self.drawing.front.size_2d();
+        let top_sz = self.drawing.top.size_2d();
+        let right_sz = self.drawing.right.size_2d();
+        let iso_sz = self.drawing.isometric.size_2d();
+
+        let w_f_raw = front_sz[0];
+        let h_f_raw = front_sz[1];
+        let w_t_raw = top_sz[0];
+        let h_t_raw = top_sz[1];
+        let w_r_raw = right_sz[0];
+        let h_r_raw = right_sz[1];
+        let w_iso_raw = iso_sz[0];
+        let h_iso_raw = iso_sz[1];
 
         let w_f = w_f_raw * s;
         let h_f = h_f_raw * s;
@@ -605,7 +621,7 @@ fn pick_standard_scale(raw_scale: f32) -> f32 {
     best_scale
 }
 
-fn format_scale_ratio(scale: f32) -> String {
+pub fn format_scale_ratio(scale: f32) -> String {
     if (scale - 1.0).abs() < 1e-4 {
         "1:1".to_string()
     } else if (scale - 0.5).abs() < 1e-3 {
