@@ -185,7 +185,7 @@ impl DuCADApp {
         self.set_tool(ToolKind::Select);
     }
 
-    pub fn native_body_refs(&self) -> Vec<(&str, bool, &KernelShape)> {
+    pub fn native_body_refs(&self) -> Vec<(&str, bool, ducad_core::Material, &KernelShape)> {
         self.model
             .doc
             .bodies
@@ -194,6 +194,7 @@ impl DuCADApp {
                 (
                     meta.name.as_str(),
                     meta.visible,
+                    meta.material,
                     &self
                         .model
                         .geometry

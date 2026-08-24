@@ -16,6 +16,7 @@ pub struct ViewportCallback {
     pub body_positions: Vec<[f32; 3]>,
     pub body_normals: Vec<[f32; 3]>,
     pub body_colors: Vec<[f32; 4]>,
+    pub body_materials: Vec<[f32; 4]>,
     pub body_indices: Vec<u32>,
     pub gizmo_positions: Vec<[f32; 3]>,
     pub gizmo_normals: Vec<[f32; 3]>,
@@ -43,6 +44,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
                 &self.body_positions,
                 &self.body_normals,
                 Some(&self.body_colors),
+                Some(&self.body_materials),
                 &self.body_indices,
             );
             scene.set_gizmo_mesh(

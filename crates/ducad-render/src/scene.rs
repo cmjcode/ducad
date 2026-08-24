@@ -84,6 +84,7 @@ pub struct MeshVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub color: [f32; 4],
+    pub material_params: [f32; 4],
 }
 
 struct GpuMesh {
@@ -265,7 +266,7 @@ impl SceneRenderer {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<MeshVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x4],
                 })],
             },
             fragment: Some(wgpu::FragmentState {
@@ -295,7 +296,7 @@ impl SceneRenderer {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<MeshVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4],
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32x4],
                 })],
             },
             fragment: Some(wgpu::FragmentState {
@@ -445,6 +446,7 @@ impl SceneRenderer {
         positions: &[[f32; 3]],
         normals: &[[f32; 3]],
         colors: Option<&[[f32; 4]]>,
+        material_params: Option<&[[f32; 4]]>,
         indices: &[u32],
     ) {
         use wgpu::util::DeviceExt;
@@ -453,16 +455,21 @@ impl SceneRenderer {
             return;
         }
         const DEFAULT_CAD_GREY: [f32; 4] = [0.62, 0.68, 0.76, 1.0];
+        const DEFAULT_MAT_PARAMS: [f32; 4] = [0.65, 0.0, 0.0, 0.0];
         let verts: Vec<MeshVertex> = positions
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 let n = normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]);
                 let color = colors.and_then(|c| c.get(i).copied()).unwrap_or(DEFAULT_CAD_GREY);
+                let mat = material_params
+                    .and_then(|m| m.get(i).copied())
+                    .unwrap_or(DEFAULT_MAT_PARAMS);
                 MeshVertex {
                     position: *p,
                     normal: n,
                     color,
+                    material_params: mat,
                 }
             })
             .collect();
@@ -502,6 +509,7 @@ impl SceneRenderer {
             return;
         }
         const DEFAULT_GIZMO_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
+        const DEFAULT_GIZMO_MAT_PARAMS: [f32; 4] = [0.25, 0.0, 0.60, 0.0];
         let verts: Vec<MeshVertex> = positions
             .iter()
             .enumerate()
@@ -509,6 +517,7 @@ impl SceneRenderer {
                 position: *p,
                 normal: normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]),
                 color: colors.get(i).copied().unwrap_or(DEFAULT_GIZMO_COLOR),
+                material_params: DEFAULT_GIZMO_MAT_PARAMS,
             })
             .collect();
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

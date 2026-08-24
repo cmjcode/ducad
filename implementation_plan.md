@@ -62,7 +62,7 @@ Tujuan: Memberikan alat verifikasi visual kelayakan desain industri secara *real
 
 ### Fase 4: Material Industri & Presentasi Visual (CMF Visualizer)
 Tujuan: Menampilkan pratinjau warna, material, dan finishing (Color, Material, Finish).
-- [ ] **4.1 Preset Material Desain Industri**:
+- [x] **4.1 Preset Material Desain Industri**:
   - *Matte Texture Plastic (ABS/PC)*
   - *Glossy Plastic*
   - *Anodized Brushed Aluminum*

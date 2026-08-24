@@ -1097,13 +1097,13 @@ impl DuCADApp {
     #[allow(clippy::type_complexity)]
     pub fn build_combined_body_mesh(
         &self,
-    ) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<u32>) {
+    ) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 4]>, Vec<u32>) {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         let mut colors = Vec::new();
+        let mut materials = Vec::new();
         let mut indices = Vec::new();
 
-        const CAD_GREY: [f32; 4] = [0.62, 0.68, 0.76, 1.0];
         const SELECTED_CYAN: [f32; 4] = [0.0, 0.75, 1.0, 1.0];
         const CUT_RED: [f32; 4] = [1.0, 0.25, 0.25, 0.90];
         const FACE_SELECT_CYAN: [f32; 4] = [0.0, 0.90, 1.0, 1.0];
@@ -1178,12 +1178,16 @@ impl DuCADApp {
                 }
             }
 
-            let body_color = if is_cutting_target {
-                CUT_RED
+            let mat = &body.material;
+            let mat_params = [mat.roughness, mat.metallic, mat.clearcoat, 0.0];
+            let base_color = mat.base_color;
+
+            let (body_color, body_mat) = if is_cutting_target {
+                (CUT_RED, [0.4, 0.0, 0.2, 0.0])
             } else if is_selected_body {
-                SELECTED_CYAN
+                (SELECTED_CYAN, [0.35, 0.0, 0.50, 0.0])
             } else {
-                CAD_GREY
+                (base_color, mat_params)
             };
 
             let face_info = if let Some((active_id, _, hit)) = &self.active_face {
@@ -1266,12 +1270,13 @@ impl DuCADApp {
             indices.extend(mesh_to_render.indices.iter().map(|i| i + base_idx));
 
             for (i, _) in mesh_to_render.positions.iter().enumerate() {
-                let v_color = if face_vertex_indices.contains(&i) {
-                    FACE_SELECT_CYAN
+                let (v_color, v_mat) = if face_vertex_indices.contains(&i) {
+                    (FACE_SELECT_CYAN, [0.35, 0.0, 0.8, 0.0])
                 } else {
-                    body_color
+                    (body_color, body_mat)
                 };
                 colors.push(v_color);
+                materials.push(v_mat);
             }
 
             // Real-time Extrude Preview: Tambahkan prisma solid (cap + side walls)
@@ -1369,6 +1374,7 @@ impl DuCADApp {
                         normals.extend(prev_normals);
                         indices.extend(prev_indices.into_iter().map(|idx| idx + preview_start_idx));
                         colors.extend(std::iter::repeat_n(preview_color, prev_len));
+                        materials.extend(std::iter::repeat_n([0.35, 0.0, 0.60, 0.0], prev_len));
                     }
                 }
             }
@@ -1383,6 +1389,7 @@ impl DuCADApp {
                 {
                     let tess = swept.tessellate();
                     let base_idx = positions.len() as u32;
+                    let v_count = tess.positions.len();
                     positions.extend(&tess.positions);
                     normals.extend(&tess.normals);
                     indices.extend(tess.indices.iter().map(|i| i + base_idx));
@@ -1391,7 +1398,8 @@ impl DuCADApp {
                     } else {
                         [0.10, 0.70, 0.95, 0.75]
                     };
-                    colors.extend(std::iter::repeat_n(preview_color, tess.positions.len()));
+                    colors.extend(std::iter::repeat_n(preview_color, v_count));
+                    materials.extend(std::iter::repeat_n([0.35, 0.0, 0.60, 0.0], v_count));
                 }
             }
         }
@@ -1441,13 +1449,14 @@ impl DuCADApp {
                         positions.extend(tess.positions);
                         normals.extend(tess.normals);
                         colors.extend(vec![GHOST_CYAN; tri_count * 3]);
+                        materials.extend(vec![[0.40, 0.0, 0.0, 0.0]; tri_count * 3]);
                         indices.extend(tess.indices.into_iter().map(|idx| idx + base_index));
                     }
                 }
             }
         }
 
-        (positions, normals, colors, indices)
+        (positions, normals, colors, materials, indices)
     }
 
     pub fn section_clip_plane(&self) -> Option<(Vec3, f32)> {

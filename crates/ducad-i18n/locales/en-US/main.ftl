@@ -732,3 +732,19 @@ unit-cm = cm (Centimeter)
 unit-m = m (Meter)
 unit-inch = in (Inch)
 
+# CMF & Industrial Material
+inspector-cmf-title = CMF & Industrial Material
+inspector-cmf-presets = Industrial Presets:
+inspector-cmf-color = Color Swatches & Custom Tint:
+inspector-cmf-fine-tune = Physical Parameters (PBR)
+material-matte-plastic = Matte Plastic (ABS/PC)
+material-glossy-plastic = Glossy Plastic
+material-anodized-aluminum = Anodized Aluminum
+material-polished-chrome = Polished Chrome / Steel
+material-translucent-glass = Clear Glass / Acrylic
+material-roughness = Roughness:
+material-metallic = Metallic:
+material-clearcoat = Clearcoat:
+material-opacity = Opacity (Alpha):
+
+

@@ -133,7 +133,7 @@ impl DuCADApp {
                 let mut new_model = ModelDoc::default();
                 for nb in loaded.bodies {
                     let geo = BodyGeometry::from_shape(nb.shape);
-                    let id = new_model.doc.add_body(&nb.name);
+                    let id = new_model.doc.add_body_with_material(&nb.name, nb.material);
                     new_model.geometry.insert(id, geo);
                     if let Some(meta) = new_model.doc.bodies.get_mut(id) {
                         meta.visible = nb.visible;

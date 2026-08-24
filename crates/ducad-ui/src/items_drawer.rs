@@ -23,6 +23,7 @@ pub struct BodyItemInfo {
     pub name: String,
     pub visible: bool,
     pub selected: bool,
+    pub material: ducad_core::Material,
 }
 
 pub struct Entity2dItemInfo {

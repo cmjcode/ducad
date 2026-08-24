@@ -1,8 +1,9 @@
 use ducad_i18n::t;
 use egui::{Color32, RichText, Slider, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
-    ICON_REDO, ICON_REFRESH, ICON_STRAIGHTEN, ICON_UNDO,
+    ICON_AUTO_AWESOME, ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
+    ICON_PALETTE, ICON_REDO, ICON_REFRESH, ICON_SHIELD, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UNDO,
+    ICON_WATER_DROP,
 };
 
 use crate::feature_inspector::types::{
@@ -110,6 +111,217 @@ pub fn show_3d_cards(
                     .italics()
                     .color(TEXT_SECONDARY),
             );
+        });
+        ui.add_space(3.0);
+
+        // 4. CMF & Material Desain Industri
+        card_frame().show(ui, |ui| {
+            ui.label(
+                RichText::new(format!("{} {}", ICON_PALETTE.codepoint, t!("inspector-cmf-title")))
+                    .strong()
+                    .size(11.5)
+                    .color(ACCENT_BLUE),
+            );
+            ui.add_space(2.0);
+
+            let mut current_mat = body.material;
+            let mut mat_changed = false;
+
+            // 1. Preset Material Buttons
+            ui.label(RichText::new(t!("inspector-cmf-presets")).size(10.0).color(TEXT_SECONDARY));
+
+            let presets = [
+                (ducad_core::MaterialPreset::MattePlastic, t!("material-matte-plastic"), "ABS / PC"),
+                (ducad_core::MaterialPreset::GlossyPlastic, t!("material-glossy-plastic"), "High-Gloss"),
+                (ducad_core::MaterialPreset::AnodizedAluminum, t!("material-anodized-aluminum"), "Satin / Brushed"),
+                (ducad_core::MaterialPreset::PolishedChrome, t!("material-polished-chrome"), "Mirror Finish"),
+                (ducad_core::MaterialPreset::TranslucentGlass, t!("material-translucent-glass"), "Clear Acrylic"),
+            ];
+
+            for (preset, name, desc) in presets {
+                let is_selected = current_mat.preset == preset;
+                let bg_color = if is_selected {
+                    Color32::from_rgb(28, 55, 95)
+                } else {
+                    Color32::from_rgb(24, 28, 36)
+                };
+                let stroke_color = if is_selected {
+                    ACCENT_BLUE
+                } else {
+                    Color32::from_rgb(45, 52, 65)
+                };
+
+                let btn_resp = egui::Frame::new()
+                    .fill(bg_color)
+                    .stroke(egui::Stroke::new(if is_selected { 1.2 } else { 0.5 }, stroke_color))
+                    .corner_radius(egui::CornerRadius::same(5))
+                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            let icon = match preset {
+                                ducad_core::MaterialPreset::MattePlastic => ICON_TEXTURE.codepoint,
+                                ducad_core::MaterialPreset::GlossyPlastic => ICON_AUTO_AWESOME.codepoint,
+                                ducad_core::MaterialPreset::AnodizedAluminum => ICON_SHIELD.codepoint,
+                                ducad_core::MaterialPreset::PolishedChrome => ICON_AUTO_AWESOME.codepoint,
+                                ducad_core::MaterialPreset::TranslucentGlass => ICON_WATER_DROP.codepoint,
+                                _ => ICON_PALETTE.codepoint,
+                            };
+                            ui.label(RichText::new(icon).size(12.0).color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }));
+                            ui.vertical(|ui| {
+                                ui.label(RichText::new(name).size(10.5).strong().color(if is_selected { TEXT_PRIMARY } else { TEXT_SECONDARY }));
+                                ui.label(RichText::new(desc).size(8.5).color(TEXT_MUTED));
+                            });
+                        });
+                    });
+
+                if btn_resp.response.interact(egui::Sense::click()).clicked() {
+                    current_mat = match preset {
+                        ducad_core::MaterialPreset::MattePlastic => ducad_core::Material::matte_plastic(Some(current_mat.base_color)),
+                        ducad_core::MaterialPreset::GlossyPlastic => ducad_core::Material::glossy_plastic(Some(current_mat.base_color)),
+                        ducad_core::MaterialPreset::AnodizedAluminum => ducad_core::Material::anodized_aluminum(Some(current_mat.base_color)),
+                        ducad_core::MaterialPreset::PolishedChrome => ducad_core::Material::polished_chrome(Some(current_mat.base_color)),
+                        ducad_core::MaterialPreset::TranslucentGlass => ducad_core::Material::translucent_glass(Some(current_mat.base_color)),
+                        _ => current_mat,
+                    };
+                    mat_changed = true;
+                }
+            }
+
+            ui.add_space(4.0);
+            ui.separator();
+
+            // 2. Industrial Color Palette Swatches
+            ui.label(RichText::new(t!("inspector-cmf-color")).size(10.0).color(TEXT_SECONDARY));
+
+            let swatches: &[([f32; 4], &str)] = match current_mat.preset {
+                ducad_core::MaterialPreset::MattePlastic => &[
+                    ([0.22, 0.24, 0.27, 1.0], "Stealth Charcoal"),
+                    ([0.55, 0.58, 0.62, 1.0], "Industrial Slate"),
+                    ([0.88, 0.90, 0.92, 1.0], "Pure White"),
+                    ([0.18, 0.32, 0.48, 1.0], "Nordic Blue"),
+                    ([0.32, 0.40, 0.28, 1.0], "Olive Green"),
+                ],
+                ducad_core::MaterialPreset::GlossyPlastic => &[
+                    ([0.08, 0.08, 0.10, 1.0], "Piano Black"),
+                    ([0.96, 0.38, 0.12, 1.0], "Signal Orange"),
+                    ([0.92, 0.18, 0.18, 1.0], "Racing Red"),
+                    ([0.96, 0.82, 0.10, 1.0], "Cyber Yellow"),
+                    ([0.98, 0.98, 0.98, 1.0], "Ceramic White"),
+                ],
+                ducad_core::MaterialPreset::AnodizedAluminum => &[
+                    ([0.72, 0.75, 0.80, 1.0], "Space Gray"),
+                    ([0.88, 0.90, 0.92, 1.0], "Satin Silver"),
+                    ([0.22, 0.35, 0.52, 1.0], "Midnight Blue"),
+                    ([0.85, 0.78, 0.65, 1.0], "Champagne Gold"),
+                    ([0.82, 0.65, 0.68, 1.0], "Rose Titanium"),
+                ],
+                ducad_core::MaterialPreset::PolishedChrome => &[
+                    ([0.92, 0.94, 0.96, 1.0], "Mirror Chrome"),
+                    ([0.75, 0.78, 0.82, 1.0], "Stainless Steel"),
+                    ([0.45, 0.48, 0.52, 1.0], "Gunmetal"),
+                    ([0.82, 0.68, 0.48, 1.0], "Polished Bronze"),
+                ],
+                ducad_core::MaterialPreset::TranslucentGlass => &[
+                    ([0.75, 0.88, 0.96, 0.38], "Clear Ice Glass"),
+                    ([0.28, 0.30, 0.35, 0.45], "Smoky Gray Glass"),
+                    ([0.25, 0.82, 0.88, 0.38], "Cyan Tint Glass"),
+                    ([0.28, 0.78, 0.48, 0.38], "Emerald Glass"),
+                    ([0.88, 0.22, 0.32, 0.38], "Ruby Glass"),
+                ],
+                _ => &[
+                    ([0.62, 0.68, 0.76, 1.0], "CAD Grey"),
+                    ([0.20, 0.65, 0.95, 1.0], "Accent Blue"),
+                    ([0.95, 0.40, 0.15, 1.0], "Accent Orange"),
+                ],
+            };
+
+            ui.horizontal(|ui| {
+                for &(col, label) in swatches {
+                    let c32 = Color32::from_rgba_unmultiplied(
+                        (col[0] * 255.0) as u8,
+                        (col[1] * 255.0) as u8,
+                        (col[2] * 255.0) as u8,
+                        (col[3] * 255.0) as u8,
+                    );
+                    let (rect, resp) = ui.allocate_exact_size(Vec2::new(18.0, 18.0), egui::Sense::click());
+                    let is_active = (current_mat.base_color[0] - col[0]).abs() < 0.05
+                        && (current_mat.base_color[1] - col[1]).abs() < 0.05
+                        && (current_mat.base_color[2] - col[2]).abs() < 0.05;
+
+                    ui.painter().circle_filled(rect.center(), 8.0, c32);
+                    ui.painter().circle_stroke(
+                        rect.center(),
+                        8.0,
+                        egui::Stroke::new(if is_active { 1.8 } else { 0.8 }, if is_active { ACCENT_BLUE } else { Color32::from_rgb(70, 78, 92) }),
+                    );
+
+                    if resp.on_hover_text(label).clicked() {
+                        current_mat.base_color = col;
+                        mat_changed = true;
+                    }
+                }
+
+                // Custom Color Picker
+                if ui.color_edit_button_rgba_unmultiplied(&mut current_mat.base_color).changed() {
+                    current_mat.preset = ducad_core::MaterialPreset::Custom;
+                    mat_changed = true;
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // 3. Fine-Tuning Sliders
+            ui.collapsing(RichText::new(format!("⚙ {}", t!("inspector-cmf-fine-tune"))).size(10.0).color(TEXT_SECONDARY), |ui| {
+                // Roughness
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("material-roughness")).size(9.5).color(TEXT_SECONDARY));
+                    let r_slider = ui.add(Slider::new(&mut current_mat.roughness, 0.02..=1.0).show_value(true).fixed_decimals(2));
+                    if r_slider.changed() {
+                        current_mat.preset = ducad_core::MaterialPreset::Custom;
+                        mat_changed = true;
+                    }
+                });
+
+                // Metallic
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("material-metallic")).size(9.5).color(TEXT_SECONDARY));
+                    let m_slider = ui.add(Slider::new(&mut current_mat.metallic, 0.0..=1.0).show_value(true).fixed_decimals(2));
+                    if m_slider.changed() {
+                        current_mat.preset = ducad_core::MaterialPreset::Custom;
+                        mat_changed = true;
+                    }
+                });
+
+                // Clearcoat
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("material-clearcoat")).size(9.5).color(TEXT_SECONDARY));
+                    let c_slider = ui.add(Slider::new(&mut current_mat.clearcoat, 0.0..=1.0).show_value(true).fixed_decimals(2));
+                    if c_slider.changed() {
+                        current_mat.preset = ducad_core::MaterialPreset::Custom;
+                        mat_changed = true;
+                    }
+                });
+
+                // Opacity / Alpha
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t!("material-opacity")).size(9.5).color(TEXT_SECONDARY));
+                    let mut alpha = current_mat.base_color[3];
+                    let a_slider = ui.add(Slider::new(&mut alpha, 0.05..=1.0).show_value(true).fixed_decimals(2));
+                    if a_slider.changed() {
+                        current_mat.base_color[3] = alpha;
+                        current_mat.preset = ducad_core::MaterialPreset::Custom;
+                        mat_changed = true;
+                    }
+                });
+            });
+
+            if mat_changed {
+                *event = Some(InspectorEvent::SetBodyMaterial {
+                    id_raw: body.id_raw,
+                    material: current_mat,
+                });
+            }
         });
         ui.add_space(3.0);
     }

@@ -732,3 +732,19 @@ unit-cm = cm (Sentimeter)
 unit-m = m (Meter)
 unit-inch = in (Inci)
 
+# CMF & Industrial Material
+inspector-cmf-title = CMF & Material Industri
+inspector-cmf-presets = Preset Material Industri:
+inspector-cmf-color = Pilihan Warna & Tint Kustom:
+inspector-cmf-fine-tune = Penyesuaian Parameter Fisik (PBR)
+material-matte-plastic = Plastik Matte (ABS/PC)
+material-glossy-plastic = Plastik Glossy (Licin)
+material-anodized-aluminum = Aluminium Anodisasi Satin
+material-polished-chrome = Krom Poles / Stainless
+material-translucent-glass = Kaca Tembus Pandang / Akrilik
+material-roughness = Kekasaran (Roughness):
+material-metallic = Metalisitas (Metallic):
+material-clearcoat = Kilau Lapisan (Clearcoat):
+material-opacity = Tingkat Transparansi (Opacity):
+
+

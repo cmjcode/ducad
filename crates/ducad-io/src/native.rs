@@ -31,12 +31,14 @@ use std::path::Path;
 /// (belum ada migrasi ditulis karena baru versi 1 yang pernah ada).
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Satu body 3D dalam file native — nama, visibilitas, dan geometri B-rep
+/// Satu body 3D dalam file native — nama, visibilitas, material PBR, dan geometri B-rep
 /// lengkap sebagai teks STEP.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBody {
     pub name: String,
     pub visible: bool,
+    #[serde(default)]
+    pub material: ducad_core::Material,
     /// Teks STEP AP214 lengkap (bukan mesh) — lihat catatan modul.
     pub step: String,
 }
@@ -59,6 +61,7 @@ pub struct DuCADFile {
 pub struct LoadedBody {
     pub name: String,
     pub visible: bool,
+    pub material: ducad_core::Material,
     pub shape: KernelShape,
 }
 
@@ -80,14 +83,15 @@ impl LoadedDocument {
 /// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
 pub fn serialize_to_json(
     sketches: &[Sketch; 3],
-    bodies: &[(&str, bool, &KernelShape)],
+    bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<String> {
     let bodies = bodies
         .iter()
-        .map(|(name, visible, shape)| {
+        .map(|(name, visible, mat, shape)| {
             Ok(NativeBody {
                 name: name.to_string(),
                 visible: *visible,
+                material: *mat,
                 step: shape
                     .to_step_string()
                     .with_context(|| format!("gagal serialize body '{name}' ke STEP"))?,
@@ -125,6 +129,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
             Ok(LoadedBody {
                 name: b.name,
                 visible: b.visible,
+                material: b.material,
                 shape,
             })
         })
@@ -145,7 +150,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
 pub fn save_multi_plane(
     path: impl AsRef<Path>,
     sketches: &[Sketch; 3],
-    bodies: &[(&str, bool, &KernelShape)],
+    bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<()> {
     let json = serialize_to_json(sketches, bodies)?;
     std::fs::write(path, json).context("gagal menulis file .ducad")?;
@@ -153,7 +158,7 @@ pub fn save_multi_plane(
 }
 
 /// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
-pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, &KernelShape)]) -> Result<()> {
+pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, ducad_core::Material, &KernelShape)]) -> Result<()> {
     save_multi_plane(
         path,
         &[sketch.clone(), Sketch::default(), Sketch::default()],
@@ -208,7 +213,8 @@ mod tests {
         let shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
         let path = temp_path("roundtrip");
 
-        save(&path, &sketch, &[("Body 1", true, &shape)]).unwrap();
+        let mat = ducad_core::Material::anodized_aluminum(None);
+        save(&path, &sketch, &[("Body 1", true, mat, &shape)]).unwrap();
         let loaded = load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
 
@@ -221,6 +227,7 @@ mod tests {
         assert_eq!(loaded.bodies.len(), 1);
         assert_eq!(loaded.bodies[0].name, "Body 1");
         assert!(loaded.bodies[0].visible);
+        assert_eq!(loaded.bodies[0].material.preset, ducad_core::MaterialPreset::AnodizedAluminum);
         assert_eq!(
             loaded.bodies[0].shape.tessellate().positions.len(),
             shape.tessellate().positions.len()

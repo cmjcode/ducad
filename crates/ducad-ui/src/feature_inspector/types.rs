@@ -91,6 +91,7 @@ pub struct SelectedBodyData {
     pub vertices_count: usize,
     pub triangles_count: usize,
     pub bbox_size: [f32; 3],
+    pub material: ducad_core::Material,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +101,10 @@ pub enum InspectorEvent {
     ToggleShowAllDimensions,
     UndoModel,
     RedoModel,
+    SetBodyMaterial {
+        id_raw: u64,
+        material: ducad_core::Material,
+    },
     UpdateEntityLine {
         id_raw: u64,
         start_x: f64,

@@ -57,6 +57,7 @@ struct MeshIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) material_params: vec4<f32>, // x: roughness, y: metallic, z: clearcoat, w: reserved
 };
 
 struct MeshOut {
@@ -64,6 +65,7 @@ struct MeshOut {
     @location(0) normal: vec3<f32>,
     @location(1) world: vec3<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) material_params: vec4<f32>,
 };
 
 @vertex
@@ -73,6 +75,7 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
     out.normal = in.normal;
     out.world = in.position;
     out.color = in.color;
+    out.material_params = in.material_params;
     return out;
 }
 
@@ -82,58 +85,82 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     if (clip_side > 0.0) {
         discard;
     }
-    let base = in.color.rgb;
+
+    let albedo = in.color.rgb;
+    let alpha = in.color.a;
+    let roughness = clamp(in.material_params.x, 0.02, 1.0);
+    let metallic = clamp(in.material_params.y, 0.0, 1.0);
+    let clearcoat = clamp(in.material_params.z, 0.0, 1.0);
+
     let n = normalize(in.normal);
-    let view_dir = normalize(globals.eye.xyz - in.world);
-    let diffuse = max(dot(n, normalize(globals.light_dir.xyz)), 0.0);
-    let rim = pow(1.0 - max(dot(n, view_dir), 0.0), 3.0) * 0.15;
-    let standard_color = base * (0.35 + 0.65 * diffuse) + vec3<f32>(rim);
+    let v = normalize(globals.eye.xyz - in.world);
+    let l = normalize(globals.light_dir.xyz);
+    let h = normalize(v + l);
+    let r = reflect(-v, n);
+
+    let ndotl = max(dot(n, l), 0.0);
+    let ndotv = max(dot(n, v), 0.001);
+    let ndoth = max(dot(n, h), 0.0);
+    let vdoth = max(dot(v, h), 0.0);
+
+    // Fresnel Schlick: Dielectric F0 = 0.04, Metal F0 = albedo
+    let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - vdoth, 5.0);
+
+    // Microfacet Specular Distribution (Blinn-Phong / GGX approximation)
+    let rough_sq = roughness * roughness;
+    let spec_exp = max(2.0 / (rough_sq * rough_sq + 0.0001) - 2.0, 1.0);
+    let d = pow(ndoth, spec_exp) * ((spec_exp + 2.0) / 8.0);
+    let specular = fresnel * d * (0.25 + 0.75 * ndotl);
+
+    // Clearcoat Layer (lapisan kedua mengkilap untuk Glossy Plastic & Clear finishes)
+    let cc_spec = pow(ndoth, 256.0) * clearcoat * 0.45;
+
+    // Diffuse Term (Energy conservation: metal menyerap difus)
+    let diffuse = albedo * (0.35 + 0.65 * ndotl) * (1.0 - metallic);
+
+    // Studio Environment Reflection (Simulasi IBL Studio Dome untuk material metal & glossy)
+    let env_top = vec3<f32>(0.92, 0.94, 0.98);
+    let env_bottom = vec3<f32>(0.20, 0.22, 0.26);
+    let env_refl = mix(env_bottom, env_top, clamp(r.y * 0.5 + 0.5, 0.0, 1.0));
+    let refl_intensity = (1.0 - roughness * 0.8) * (metallic * 0.65 + clearcoat * 0.35);
+    let refl_color = env_refl * mix(vec3<f32>(1.0), albedo, metallic) * refl_intensity;
+
+    // Fresnel Rim & Glass Edge Glow (efek tembus pandang kaca / akrilik)
+    let glass_rim = pow(1.0 - ndotv, 3.5) * (0.15 + (1.0 - alpha) * 0.55);
+
+    let standard_color = diffuse + specular + vec3<f32>(cc_spec) + refl_color + vec3<f32>(glass_rim);
 
     // Zebra Stripes Reflection Inspection (Fase 3.1)
-    // Memproyeksikan pantulan specular dari silinder/lingkungan bergaris virtual
-    // untuk memvalidasi kontinuitas permukaan:
-    // - G0 (Posisi): Garis zebra bersambung tanpa celah / gap.
-    // - G1 (Tangensi): Garis zebra bersambung tetapi bersudut tajam di sambungan.
-    // - G2 (Kurvatur): Garis zebra mengalir dengan lengkungan mulus tanpa sudut tajam.
     if (globals.zebra_params.x > 0.5) {
-        let r = reflect(-view_dir, n);
-
         let freq = globals.zebra_params.y;
         let angle = globals.zebra_params.z;
         let cos_a = cos(angle);
         let sin_a = sin(angle);
 
         // Koordinat refleksi silindris / sferis
-        let u = atan2(r.y, r.x) / 3.14159265; // rentang [-1.0, 1.0]
-        let v = clamp(r.z, -1.0, 1.0);       // rentang [-1.0, 1.0]
+        let u = atan2(r.y, r.x) / 3.14159265;
+        let v_coord = clamp(r.z, -1.0, 1.0);
 
-        let coord = (cos_a * v + sin_a * u) * freq * 3.14159265;
+        let coord = (cos_a * v_coord + sin_a * u) * freq * 3.14159265;
         let wave = sin(coord);
 
-        // Antialiasing berbasis fwidth untuk garis tajam dan bersih bebas flickering
         let edge = max(fwidth(wave) * 1.5, 0.001);
         let stripe = smoothstep(-edge, edge, wave);
 
-        // Kontras tinggi zebra (hitam dan putih keperakan khas CAD industrial)
         let zebra_dark = vec3<f32>(0.04, 0.04, 0.05);
         let zebra_light = vec3<f32>(0.96, 0.96, 0.98);
         let zebra_pattern = mix(zebra_dark, zebra_light, stripe);
 
-        // Shading lembut dan specular highlight agar bentuk geometris 3D tetap jelas
         let spec = pow(max(dot(r, normalize(globals.light_dir.xyz)), 0.0), 16.0) * 0.25;
-        let zebra_shaded = zebra_pattern * (0.75 + 0.25 * diffuse) + vec3<f32>(spec);
+        let zebra_shaded = zebra_pattern * (0.75 + 0.25 * ndotl) + vec3<f32>(spec);
 
         let blend = clamp(globals.zebra_params.w, 0.0, 1.0);
         let final_color = mix(standard_color, zebra_shaded, blend);
-        return vec4<f32>(final_color, in.color.a);
+        return vec4<f32>(final_color, alpha);
     }
 
     // Draft Angle Heatmap Inspection (Fase 3.2)
-    // Mengevaluasi sudut kemiringan permukaan terhadap arah buka cetakan (pull direction)
-    // untuk validasi DFM (Design for Manufacturing) cetakan injeksi plastik / die-cast:
-    // - Hijau: Sudut aman (>= target_angle, e.g. >= 1.0°)
-    // - Kuning: Sudut kritis / butuh kemiringan draft (0° s/d target_angle)
-    // - Merah: Undercut / kemiringan terbalik (< 0°) yang menjebak part di dalam cetakan
     if (globals.draft_params.x > 0.5) {
         let pull_dir = normalize(globals.draft_dir.xyz);
         let dot_nd = clamp(dot(n, pull_dir), -1.0, 1.0);
@@ -156,18 +183,16 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
             heatmap_color = mix(color_undercut, vec3<f32>(0.72, 0.12, 0.12), t * 0.35);
         }
 
-        // Shading pencahayaan diffuse + rim lembut agar kedalaman 3D tetap tampak tajam
-        let heatmap_shaded = heatmap_color * (0.70 + 0.30 * diffuse) + vec3<f32>(rim * 0.4);
+        let heatmap_shaded = heatmap_color * (0.70 + 0.30 * ndotl) + vec3<f32>(glass_rim * 0.4);
         let blend = clamp(globals.draft_params.z, 0.0, 1.0);
         let final_color = mix(standard_color, heatmap_shaded, blend);
-        return vec4<f32>(final_color, in.color.a);
+        return vec4<f32>(final_color, alpha);
     }
 
-    return vec4<f32>(standard_color, in.color.a);
+    return vec4<f32>(standard_color, alpha);
 }
 
-// Fragment shader khusus gizmo 3D (selalu menampilkan warna asli in.color dengan diffuse + rim shading,
-// tanpa terpengaruh oleh inspection shaders seperti Zebra maupun Draft Angle Heatmap).
+// Fragment shader khusus gizmo 3D (selalu menampilkan warna asli in.color dengan diffuse + rim shading)
 @fragment
 fn fs_gizmo(in: MeshOut) -> @location(0) vec4<f32> {
     let n = normalize(in.normal);

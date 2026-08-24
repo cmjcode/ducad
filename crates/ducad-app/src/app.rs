@@ -715,7 +715,7 @@ impl DuCADApp {
         let aspect = rect.width() / rect.height().max(1.0);
         let world_scale = pixel_tolerance_to_world(&self.camera, rect);
         let overlay = self.build_overlay_lines(raw_cursor, world_scale);
-        let (body_positions, body_normals, body_colors, body_indices) =
+        let (body_positions, body_normals, body_colors, body_materials, body_indices) =
             self.build_combined_body_mesh();
         let (gizmo_positions, gizmo_normals, gizmo_colors, gizmo_indices) =
             self.build_gizmo_mesh(world_scale);
@@ -731,6 +731,7 @@ impl DuCADApp {
                 body_positions,
                 body_normals,
                 body_colors,
+                body_materials,
                 body_indices,
                 gizmo_positions,
                 gizmo_normals,
@@ -1098,6 +1099,7 @@ impl eframe::App for DuCADApp {
                 name: b.name.clone(),
                 visible: b.visible,
                 selected: self.selected_bodies.contains(&id),
+                material: b.material,
             })
             .collect();
 
@@ -1972,6 +1974,74 @@ impl eframe::App for DuCADApp {
         if let Some(idx) = self.palette.show(&ctx, &palette_entries) {
             let action = palette_actions[idx].2;
             self.run_palette_action(&ctx, action);
+        }
+
+        // Render Feature Inspector & CMF Visualizer (Panel Properti Kanan)
+        if self.feature_inspector_open {
+            let has_body_selection = !self.selected_bodies.is_empty();
+            let has_entity_selection = !self.selected.is_empty();
+            let is_revolve_active = self.tool == ToolKind::Revolve;
+
+            if has_body_selection || has_entity_selection || is_revolve_active {
+                let inspector_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.min.y + 60.0);
+                egui::Area::new(egui::Id::new("ducad-feature-inspector-area"))
+                    .fixed_pos(inspector_pos)
+                    .pivot(egui::Align2::RIGHT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| {
+                        let selected_body_data = if let Some(&body_id) = self.selected_bodies.iter().next() {
+                            if let Some(body) = self.model.doc.bodies.get(body_id) {
+                                if let Some(geo) = self.model.geometry.get(body_id) {
+                                    let bbox = geo.mesh.bounding_box().unwrap_or(([0.0; 3], [0.0; 3]));
+                                    Some(ducad_ui::SelectedBodyData {
+                                        id_raw: body_id.data().as_ffi(),
+                                        name: body.name.clone(),
+                                        vertices_count: geo.mesh.positions.len(),
+                                        triangles_count: geo.mesh.indices.len() / 3,
+                                        bbox_size: [
+                                            (bbox.1[0] - bbox.0[0]).abs(),
+                                            (bbox.1[1] - bbox.0[1]).abs(),
+                                            (bbox.1[2] - bbox.0[2]).abs(),
+                                        ],
+                                        material: body.material,
+                                    })
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let mut inspector_state = ducad_ui::FeatureInspectorState {
+                            selected_body: selected_body_data,
+                            selected_bodies_count: self.selected_bodies.len(),
+                            max_panel_height: (screen_rect.height() - 140.0).max(300.0),
+                            ..Default::default()
+                        };
+
+                        if let Some(ev) = ducad_ui::FeatureInspector::show(ui, &mut inspector_state) {
+                            match ev {
+                                ducad_ui::InspectorEvent::SetBodyMaterial { id_raw, material } => {
+                                    for (id, _) in self.model.doc.bodies.iter() {
+                                        if id.data().as_ffi() == id_raw {
+                                            let cmd = crate::model::SetBodyMaterialCommand::new("Ubah Material", id, material);
+                                            self.model_undo.execute(Box::new(cmd), &mut self.model);
+                                            ctx.request_repaint();
+                                            break;
+                                        }
+                                    }
+                                }
+                                ducad_ui::InspectorEvent::CloseInspector => {
+                                    self.feature_inspector_open = false;
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+            }
         }
 
         // Render Alert Modal Peringatan jika ada operasi yang gagal

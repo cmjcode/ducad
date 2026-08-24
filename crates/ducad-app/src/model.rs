@@ -199,6 +199,46 @@ impl Command<ModelDoc> for ReplaceGeometryCommand {
     }
 }
 
+/// Ganti material SATU body yang sudah ada (Matte Plastic, Glossy Plastic, Anodized Aluminum, Chrome, Glass, Custom).
+/// Mendukung undo/redo simetris.
+pub struct SetBodyMaterialCommand {
+    label: &'static str,
+    id: BodyId,
+    pending: Option<ducad_core::Material>,
+}
+
+impl SetBodyMaterialCommand {
+    pub fn new(label: &'static str, id: BodyId, material: ducad_core::Material) -> Self {
+        Self {
+            label,
+            id,
+            pending: Some(material),
+        }
+    }
+
+    fn swap(&mut self, model: &mut ModelDoc) {
+        if let Some(incoming) = self.pending.take() {
+            if let Some(body) = model.doc.bodies.get_mut(self.id) {
+                let previous = std::mem::replace(&mut body.material, incoming);
+                self.pending = Some(previous);
+                model.doc.dirty = true;
+            }
+        }
+    }
+}
+
+impl Command<ModelDoc> for SetBodyMaterialCommand {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+    fn revert(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+}
+
 pub enum BooleanKind {
     Union,
     Subtract,
