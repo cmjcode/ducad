@@ -21,7 +21,7 @@ pub use gizmo::{
     solid_shapr3d_transform_gizmo_mesh, vertex_dot_markers, vertex_fillet_marker_lines,
     TransformGizmoPart,
 };
-pub use glyphs::{picked_point_glyph, removal_preview_lines, snap_glyph};
+pub use glyphs::{candidate_snap_points_glyphs, picked_point_glyph, removal_preview_lines, snap_glyph};
 pub use measure::{
     dashed_line_3d, dimension_leader_lines, measurement_arrowheads, measurement_lines,
 };

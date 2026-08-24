@@ -699,7 +699,8 @@ fn test_circular_pattern_entities_with_radius() {
         center: DVec2::ZERO,
         radius: 3.0,
     };
-    // 4 items with custom radius = 25.0 mm around origin
+    // 4 items with custom radius = 25.0 mm around origin -> template at origin (dist 0 != 25)
+    // Jadi semua 4 posisi (0°, 90°, 180°, 270°) dibuatkan salinan di lingkaran orbit
     let pattern = circular_pattern_entities_with_radius(
         &[circle_at_origin],
         DVec2::ZERO,
@@ -707,7 +708,7 @@ fn test_circular_pattern_entities_with_radius() {
         std::f64::consts::TAU,
         Some(25.0),
     );
-    assert_eq!(pattern.len(), 3);
+    assert_eq!(pattern.len(), 4);
 
     let centers: Vec<DVec2> = pattern
         .iter()
@@ -717,11 +718,82 @@ fn test_circular_pattern_entities_with_radius() {
         })
         .collect();
 
-    assert_eq!(centers.len(), 3);
-    assert!((centers[0].x - 0.0).abs() < 1e-4 && (centers[0].y - 25.0).abs() < 1e-4);
-    assert!((centers[1].x - (-25.0)).abs() < 1e-4 && (centers[1].y - 0.0).abs() < 1e-4);
-    assert!((centers[2].x - 0.0).abs() < 1e-4 && (centers[2].y - (-25.0)).abs() < 1e-4);
+    assert_eq!(centers.len(), 4);
+    assert!((centers[0].x - 25.0).abs() < 1e-4 && (centers[0].y - 0.0).abs() < 1e-4);
+    assert!((centers[1].x - 0.0).abs() < 1e-4 && (centers[1].y - 25.0).abs() < 1e-4);
+    assert!((centers[2].x - (-25.0)).abs() < 1e-4 && (centers[2].y - 0.0).abs() < 1e-4);
+    assert!((centers[3].x - 0.0).abs() < 1e-4 && (centers[3].y - (-25.0)).abs() < 1e-4);
+
+    // Kasus objek asli sudah berada di radius 25.0 (mis. di (25, 0)) -> hanya 3 salinan tambahan
+    let circle_at_25 = Entity::Circle {
+        center: DVec2::new(25.0, 0.0),
+        radius: 3.0,
+    };
+    let pattern_on_orbit = circular_pattern_entities_with_radius(
+        &[circle_at_25],
+        DVec2::ZERO,
+        4,
+        std::f64::consts::TAU,
+        Some(25.0),
+    );
+    assert_eq!(pattern_on_orbit.len(), 3);
 }
 
+#[test]
+fn test_snap_to_closed_region_centroid() {
+    use crate::snap::{all_snap_candidate_points_with_exclude_set, find_snap_with_exclude_set};
+    use std::collections::HashSet;
 
+    let mut sketch = Sketch::default();
+    // Buat persegi panjang dari 4 garis: (0,0) ke (20,10), centroid = (10, 5)
+    let id1 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(0.0, 0.0),
+        end: DVec2::new(20.0, 0.0),
+    });
+    let id2 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(20.0, 0.0),
+        end: DVec2::new(20.0, 10.0),
+    });
+    let id3 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(20.0, 10.0),
+        end: DVec2::new(0.0, 10.0),
+    });
+    let id4 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(0.0, 10.0),
+        end: DVec2::new(0.0, 0.0),
+    });
 
+    // Lingkaran di (50, 50) dengan radius 10
+    let id_circle = sketch.entities.insert(Entity::Circle {
+        center: DVec2::new(50.0, 50.0),
+        radius: 10.0,
+    });
+
+    // Snap ke centroid persegi panjang di (10, 5)
+    let hit_rect_center = find_snap(&sketch, DVec2::new(10.2, 4.9), 1.0, 100.0, None).unwrap();
+    assert_eq!(hit_rect_center.kind, SnapKind::Center);
+    assert!((hit_rect_center.point.x - 10.0).abs() < 1e-4 && (hit_rect_center.point.y - 5.0).abs() < 1e-4);
+
+    // Snap ke pusat lingkaran di (50, 50)
+    let hit_circle_center = find_snap(&sketch, DVec2::new(49.8, 50.1), 1.0, 100.0, None).unwrap();
+    assert_eq!(hit_circle_center.kind, SnapKind::Center);
+    assert_eq!(hit_circle_center.point, DVec2::new(50.0, 50.0));
+
+    // Test exclude set: jika id_circle di-exclude, tidak boleh snap ke lingkaran
+    let mut exclude_circle = HashSet::new();
+    exclude_circle.insert(id_circle);
+    let hit_excluded = find_snap_with_exclude_set(&sketch, DVec2::new(49.8, 50.1), 1.0, 100.0, Some(&exclude_circle), &[]);
+    assert!(hit_excluded.is_none());
+
+    // Test all_snap_candidate_points
+    let candidates = all_snap_candidate_points_with_exclude_set(&sketch, None);
+    let center_candidates: Vec<DVec2> = candidates
+        .iter()
+        .filter(|(_, k)| *k == SnapKind::Center)
+        .map(|(p, _)| *p)
+        .collect();
+
+    // Harus ada center lingkaran (50,50) dan center persegi panjang (10,5)
+    assert!(center_candidates.iter().any(|p| (p.x - 50.0).abs() < 1e-4 && (p.y - 50.0).abs() < 1e-4));
+    assert!(center_candidates.iter().any(|p| (p.x - 10.0).abs() < 1e-4 && (p.y - 5.0).abs() < 1e-4));
+}

@@ -808,7 +808,20 @@ pub fn circular_pattern_entities_with_radius(
         total_angle_rad / (count - 1) as f64
     };
 
-    for k in 1..count {
+    // Jika custom_radius berbeda dari jarak asli objek ke pivot,
+    // maka objek asli berada di luar orbit radius sehingga slot k=0
+    // di lingkaran harus ikut dibuatkan salinan agar lingkaran terisi penuh.
+    let start_k = if let Some(cr) = custom_radius {
+        if (cr - base_dist).abs() > 1e-3 {
+            0
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+
+    for k in start_k..count {
         let angle = k as f64 * step_angle;
         let (sin_a, cos_a) = angle.sin_cos();
         let rot_dir = DVec2::new(

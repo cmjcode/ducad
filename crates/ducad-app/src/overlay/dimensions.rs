@@ -3,9 +3,10 @@ use ducad_kernel::SurfaceKind;
 use ducad_render::sketch::TransformGizmoPart;
 use ducad_render::SketchPlane;
 use ducad_sketch::{
-    detect_rectangle, find_region_containing_entity, find_snap, Entity, EntityId, RectAnchor,
-    ResizeRectangle, UpdateEntity,
+    detect_rectangle, find_region_containing_entity, find_snap, find_snap_with_exclude_set, Entity,
+    EntityId, RectAnchor, ResizeRectangle, UpdateEntity,
 };
+
 use ducad_ui::{CanvasHud, ToolGuides};
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -1191,28 +1192,49 @@ impl DuCADApp {
 
                             if pivot_resp.dragged() {
                                 if !is_3d {
-                                    if let Some(pt_uv) = screen_to_plane_point(
-                                        &self.camera,
-                                        rect,
-                                        pivot_resp.interact_pointer_pos().unwrap_or(pivot_screen),
-                                        &self.active_plane,
-                                    ) {
-                                        self.pattern_custom_pivot_2d = Some(pt_uv);
+                                    if let Some(pointer_pos) = pivot_resp.interact_pointer_pos() {
+                                        if let Some(mut pt_uv) = screen_to_plane_point(
+                                            &self.camera,
+                                            rect,
+                                            pointer_pos,
+                                            &self.active_plane,
+                                        ) {
+                                            let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                                            if let Some(hit) = find_snap(self.sketch(), pt_uv, tol, 10.0, None) {
+                                                pt_uv = hit.point;
+                                                self.last_snap = Some(hit);
+                                            } else {
+                                                self.last_snap = None;
+                                            }
+                                            self.pattern_custom_pivot_2d = Some(pt_uv);
+                                        }
                                     }
                                 } else {
                                     let ground_plane = SketchPlane {
                                         origin: pivot_3d,
                                         ..SketchPlane::top()
                                     };
-                                    if let Some(pt_uv) = screen_to_plane_point(
-                                        &self.camera,
-                                        rect,
-                                        pivot_resp.interact_pointer_pos().unwrap_or(pivot_screen),
-                                        &ground_plane,
-                                    ) {
-                                        self.pattern_custom_pivot_3d = Some(Vec3::new(pt_uv.x as f32, pt_uv.y as f32, pivot_3d.z));
+                                    if let Some(pointer_pos) = pivot_resp.interact_pointer_pos() {
+                                        if let Some(mut pt_uv) = screen_to_plane_point(
+                                            &self.camera,
+                                            rect,
+                                            pointer_pos,
+                                            &ground_plane,
+                                        ) {
+                                            let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                                            if let Some(hit) = find_snap(self.sketch(), pt_uv, tol, 10.0, None) {
+                                                pt_uv = hit.point;
+                                                self.last_snap = Some(hit);
+                                            } else {
+                                                self.last_snap = None;
+                                            }
+                                            self.pattern_custom_pivot_3d = Some(Vec3::new(pt_uv.x as f32, pt_uv.y as f32, pivot_3d.z));
+                                        }
                                     }
                                 }
+                            }
+                            if pivot_resp.drag_stopped() {
+                                self.last_snap = None;
                             }
 
                             // Stepper Qty (Atas Pivot)
@@ -2016,20 +2038,25 @@ impl DuCADApp {
                             &self.active_plane,
                         ) {
                             let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
-                            if let Some(hit) =
-                                find_snap(self.sketch(), target_pt, tol, 10.0, None)
-                            {
+                            if let Some(hit) = find_snap_with_exclude_set(
+                                self.sketch(),
+                                target_pt,
+                                tol,
+                                10.0,
+                                Some(&group),
+                                &[],
+                            ) {
                                 target_pt = hit.point;
-                            } else if let Some(region_center) =
-                                self.find_region_center_snap(&group, target_pt, tol)
-                            {
-                                target_pt = region_center;
+                                self.last_snap = Some(hit);
+                            } else {
+                                self.last_snap = None;
                             }
                             self.sketch_move_delta = target_pt - centroid;
                         }
                     }
                 }
                 if is_dragging_this && handle_resp.drag_stopped() {
+                    self.last_snap = None;
                     self.commit_sketch_move_drag();
                 }
                 if handle_resp.clicked() {

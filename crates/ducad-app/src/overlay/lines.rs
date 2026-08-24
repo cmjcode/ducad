@@ -1,5 +1,8 @@
 use ducad_render::{sketch as sketch_render, LineVertex};
-use ducad_sketch::{arc_from_three_points, mirror_entity, offset_entity, Entity};
+use ducad_sketch::{
+    all_snap_candidate_points_with_exclude_set, arc_from_three_points, mirror_entity,
+    offset_entity, Entity,
+};
 use glam::{DVec2, Vec3};
 
 use crate::app::DuCADApp;
@@ -759,6 +762,26 @@ impl DuCADApp {
                 }
                 _ => {}
             }
+        }
+
+        let show_candidate_points = self.sketch_move_dragging
+            || self.tool == ToolKind::Pattern
+            || (self.is_sketching && (raw_cursor.is_some() || !self.pending_points.is_empty()));
+
+        if show_candidate_points {
+            let exclude_set = if self.sketch_move_dragging {
+                self.sketch_move_target.as_ref()
+            } else {
+                None
+            };
+            let candidates = all_snap_candidate_points_with_exclude_set(
+                self.sketch(),
+                exclude_set,
+            );
+            verts.extend(sketch_render::candidate_snap_points_glyphs(
+                &candidates,
+                &self.active_plane,
+            ));
         }
 
         if let Some(hit) = &self.last_snap {
