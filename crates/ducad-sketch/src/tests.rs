@@ -746,19 +746,19 @@ fn test_snap_to_closed_region_centroid() {
 
     let mut sketch = Sketch::default();
     // Buat persegi panjang dari 4 garis: (0,0) ke (20,10), centroid = (10, 5)
-    let id1 = sketch.entities.insert(Entity::Line {
+    let _id1 = sketch.entities.insert(Entity::Line {
         start: DVec2::new(0.0, 0.0),
         end: DVec2::new(20.0, 0.0),
     });
-    let id2 = sketch.entities.insert(Entity::Line {
+    let _id2 = sketch.entities.insert(Entity::Line {
         start: DVec2::new(20.0, 0.0),
         end: DVec2::new(20.0, 10.0),
     });
-    let id3 = sketch.entities.insert(Entity::Line {
+    let _id3 = sketch.entities.insert(Entity::Line {
         start: DVec2::new(20.0, 10.0),
         end: DVec2::new(0.0, 10.0),
     });
-    let id4 = sketch.entities.insert(Entity::Line {
+    let _id4 = sketch.entities.insert(Entity::Line {
         start: DVec2::new(0.0, 10.0),
         end: DVec2::new(0.0, 0.0),
     });
