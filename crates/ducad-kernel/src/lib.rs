@@ -56,7 +56,8 @@ pub use csg::{
     sweep_profile_on_plane_along_path, union,
 };
 pub use hlr::{
-    HlrDrawing, HlrExtractor, HlrLineKind, HlrSegment2D, ProjectedView, ProjectedViewKind,
+    HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
+    ProjectedViewKind,
 };
 pub use mesh::KernelMesh;
 pub use modify::{

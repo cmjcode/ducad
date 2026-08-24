@@ -134,7 +134,25 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
             let x2 = dim.end[0] as f64;
             let y2 = dim.end[1] as f64;
 
-            if dim.is_vertical {
+            let is_leader = dim.text.starts_with('R')
+                || dim.text.starts_with('Ø')
+                || dim.text.starts_with("Rx");
+            let is_angle = dim.text.ends_with('°');
+
+            if is_angle {
+                let tx = dim.line_pos[0] as f64;
+                let ty = dim.line_pos[1] as f64;
+                push_line_layer(&mut out, "DIMENSIONS", x1, y1, x2, y2);
+                push_line_layer(&mut out, "DIMENSIONS", x1, y1, tx, ty);
+                push_text_layer(&mut out, "DIMENSIONS", (tx + 2.0) as f32, (ty + 1.0) as f32, 2.5, &dim.text);
+            } else if is_leader {
+                let bx = dim.line_pos[0] as f64;
+                let by = dim.line_pos[1] as f64;
+                push_line_layer(&mut out, "DIMENSIONS", x1, y1, x2, y2);
+                push_line_layer(&mut out, "DIMENSIONS", x2, y2, bx, by);
+                push_line_layer(&mut out, "DIMENSIONS", bx, by, bx + 8.0, by);
+                push_text_layer(&mut out, "DIMENSIONS", (bx + 1.0) as f32, (by + 1.5) as f32, 2.5, &dim.text);
+            } else if dim.is_vertical {
                 let dim_x = dim.line_pos[0] as f64;
                 push_line_layer(&mut out, "DIMENSIONS", x1, y1, dim_x, y1);
                 push_line_layer(&mut out, "DIMENSIONS", x2, y2, dim_x, y2);
@@ -447,6 +465,7 @@ mod tests {
                 end: [20.0, 42.0],
                 kind: HlrLineKind::Centerline,
             }],
+            features: Vec::new(),
             width_mm: 40.0,
             height_mm: 40.0,
             depth_mm: 20.0,

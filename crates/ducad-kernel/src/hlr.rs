@@ -110,7 +110,34 @@ impl HlrSegment2D {
     }
 }
 
-/// Data satu proyeksi tampak 2D lengkap dengan garis, bounding box, dan dimensi.
+/// Fitur geometris khusus (lingkaran, busur, ellips, sudut) untuk anotasi dimensi teknik otomatis.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum HlrGeometricFeature {
+    Circle {
+        center: [f32; 2],
+        radius: f32,
+    },
+    Arc {
+        center: [f32; 2],
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
+    },
+    Ellipse {
+        center: [f32; 2],
+        radius_x: f32,
+        radius_y: f32,
+        rotation: f32,
+    },
+    Angle {
+        vertex: [f32; 2],
+        arm1_end: [f32; 2],
+        arm2_end: [f32; 2],
+        angle_deg: f32,
+    },
+}
+
+/// Data satu proyeksi tampak 2D lengkap dengan garis, bounding box, fitur geometri, dan dimensi.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProjectedView {
     pub kind: ProjectedViewKind,
@@ -119,6 +146,7 @@ pub struct ProjectedView {
     pub bounds_max: [f32; 2],
     pub segments: Vec<HlrSegment2D>,
     pub centerlines: Vec<HlrSegment2D>,
+    pub features: Vec<HlrGeometricFeature>,
     pub width_mm: f32,
     pub height_mm: f32,
     pub depth_mm: f32,
@@ -357,6 +385,10 @@ impl HlrExtractor {
         // 4. Ekstraksi Garis Sumbu (Centerlines)
         let centerlines = extract_centerlines(shapes, right_vec, up_vec, view_kind);
 
+        // 5. Ekstraksi Fitur Geometris (Lingkaran, Busur, Ellips, Sudut)
+        let simplified_segs = simplify_and_merge_segments(segments_2d);
+        let features = extract_geometric_features(shapes, &simplified_segs, right_vec, up_vec, view_dir);
+
         let dx = (model_bbox.1[0] - model_bbox.0[0]).abs();
         let dy = (model_bbox.1[1] - model_bbox.0[1]).abs();
         let dz = (model_bbox.1[2] - model_bbox.0[2]).abs();
@@ -366,8 +398,9 @@ impl HlrExtractor {
             title: view_kind.title_id().to_string(),
             bounds_min: [bounds_min.x, bounds_min.y],
             bounds_max: [bounds_max.x, bounds_max.y],
-            segments: simplify_and_merge_segments(segments_2d),
+            segments: simplified_segs,
             centerlines,
+            features,
             width_mm: dx,
             height_mm: dz,
             depth_mm: dy,
@@ -675,4 +708,227 @@ fn simplify_and_merge_segments(mut segments: Vec<HlrSegment2D>) -> Vec<HlrSegmen
     // Filter segmen yang terlalu pendek
     segments.retain(|s| s.length() >= 0.05);
     segments
+}
+
+/// Ekstraksi fitur geometris 2D (Lingkaran, Busur, Ellips, Sudut) dari B-Rep solid dan segmen tampak.
+fn extract_geometric_features(
+    shapes: &[&KernelShape],
+    segments: &[HlrSegment2D],
+    right: Vec3,
+    up: Vec3,
+    view_dir: Vec3,
+) -> Vec<HlrGeometricFeature> {
+    let mut features = Vec::new();
+
+    // 1. Ekstraksi dari B-Rep Edges & Faces
+    for shape in shapes {
+        let occ = shape.inner();
+        // A. Periksa setiap rusuk (edge) apakah merupakan lingkaran/busur/ellips
+        for edge in occ.edges() {
+            let pts: Vec<Vec3> = edge
+                .approximation_segments()
+                .map(|p| vec3(p.x as f32, p.y as f32, p.z as f32))
+                .collect();
+            if pts.len() >= 4 {
+                let pts_2d: Vec<[f32; 2]> = pts.iter().map(|p| [p.dot(right), p.dot(up)]).collect();
+                if let Some(feat) = fit_curve_feature(&pts_2d) {
+                    // Hindari duplikasi jika sudah ada fitur serupa di titik pusat yang sama
+                    let is_dup = features.iter().any(|f| match (f, &feat) {
+                        (HlrGeometricFeature::Circle { center: c1, radius: r1 }, HlrGeometricFeature::Circle { center: c2, radius: r2 }) => {
+                            (c1[0] - c2[0]).hypot(c1[1] - c2[1]) < 1.0 && (r1 - r2).abs() < 1.0
+                        }
+                        (HlrGeometricFeature::Arc { center: c1, radius: r1, .. }, HlrGeometricFeature::Arc { center: c2, radius: r2, .. }) => {
+                            (c1[0] - c2[0]).hypot(c1[1] - c2[1]) < 1.0 && (r1 - r2).abs() < 1.0
+                        }
+                        (HlrGeometricFeature::Ellipse { center: c1, .. }, HlrGeometricFeature::Ellipse { center: c2, .. }) => {
+                            (c1[0] - c2[0]).hypot(c1[1] - c2[1]) < 1.0
+                        }
+                        _ => false,
+                    });
+                    if !is_dup {
+                        features.push(feat);
+                    }
+                }
+            }
+        }
+
+        // B. Periksa permukaan silinder yang tegak lurus kamera (lingkaran penuh)
+        for face in occ.faces() {
+            if let Some((axis_pt, axis_dir)) = face.cylinder_or_cone_axis() {
+                let dir_3d = vec3(axis_dir.x as f32, axis_dir.y as f32, axis_dir.z as f32).normalize();
+                if dir_3d.dot(view_dir).abs() > 0.95 {
+                    let p_3d = vec3(axis_pt.x as f32, axis_pt.y as f32, axis_pt.z as f32);
+                    let cu = p_3d.dot(right);
+                    let cv = p_3d.dot(up);
+                    // Hitung radius dari jarak tepi terluar
+                    let mut max_r = 0.0f32;
+                    for edge in face.edges() {
+                        for p in edge.approximation_segments() {
+                            let p2 = vec3(p.x as f32, p.y as f32, p.z as f32);
+                            let r = (p2.dot(right) - cu).hypot(p2.dot(up) - cv);
+                            if r > max_r {
+                                max_r = r;
+                            }
+                        }
+                    }
+                    if max_r > 1.0 {
+                        let is_dup = features.iter().any(|f| match f {
+                            HlrGeometricFeature::Circle { center, radius } => {
+                                (center[0] - cu).hypot(center[1] - cv) < 1.0 && (radius - max_r).abs() < 1.0
+                            }
+                            _ => false,
+                        });
+                        if !is_dup {
+                            features.push(HlrGeometricFeature::Circle {
+                                center: [cu, cv],
+                                radius: max_r,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Ekstraksi Sudut (Angular Corners / Chamfers) dari segmen tampak
+    let visible_segs: Vec<&HlrSegment2D> = segments
+        .iter()
+        .filter(|s| s.kind == HlrLineKind::Visible && s.length() > 3.0)
+        .collect();
+
+    let mut found_angles = 0;
+    for i in 0..visible_segs.len() {
+        if found_angles >= 3 {
+            break; // Batasi maksimal 3 sudut utama agar gambar tidak ruwet
+        }
+        for j in (i + 1)..visible_segs.len() {
+            let s1 = visible_segs[i];
+            let s2 = visible_segs[j];
+
+            let p1_s = vec2(s1.start[0], s1.start[1]);
+            let p1_e = vec2(s1.end[0], s1.end[1]);
+            let p2_s = vec2(s2.start[0], s2.start[1]);
+            let p2_e = vec2(s2.end[0], s2.end[1]);
+
+            // Cek titik potong / pertemuan vertex
+            let (vertex, arm1_end, arm2_end) = if (p1_s - p2_s).length() < 0.2 {
+                (p1_s, p1_e, p2_e)
+            } else if (p1_s - p2_e).length() < 0.2 {
+                (p1_s, p1_e, p2_s)
+            } else if (p1_e - p2_s).length() < 0.2 {
+                (p1_e, p1_s, p2_e)
+            } else if (p1_e - p2_e).length() < 0.2 {
+                (p1_e, p1_s, p2_s)
+            } else {
+                continue;
+            };
+
+            let v1 = (arm1_end - vertex).normalize();
+            let v2 = (arm2_end - vertex).normalize();
+            let dot = v1.dot(v2).clamp(-1.0, 1.0);
+            let angle_rad = dot.acos();
+            let angle_deg = angle_rad.to_degrees();
+
+            // Hanya ambil sudut non-ortogonal (bukan 90° atau 180° atau 0°) misal 15°..75° atau 105°..165°
+            if (angle_deg >= 15.0 && angle_deg <= 75.0) || (angle_deg >= 105.0 && angle_deg <= 165.0) {
+                let is_dup = features.iter().any(|f| match f {
+                    HlrGeometricFeature::Angle { vertex: v, angle_deg: a, .. } => {
+                        (v[0] - vertex.x).hypot(v[1] - vertex.y) < 1.0 && (a - angle_deg).abs() < 1.0
+                    }
+                    _ => false,
+                });
+                if !is_dup {
+                    features.push(HlrGeometricFeature::Angle {
+                        vertex: [vertex.x, vertex.y],
+                        arm1_end: [arm1_end.x, arm1_end.y],
+                        arm2_end: [arm2_end.x, arm2_end.y],
+                        angle_deg,
+                    });
+                    found_angles += 1;
+                }
+            }
+        }
+    }
+
+    features
+}
+
+/// Mencocokkan serangkaian titik polyline 2D ke lingkaran, busur, atau ellips.
+fn fit_curve_feature(pts: &[[f32; 2]]) -> Option<HlrGeometricFeature> {
+    let n = pts.len();
+    if n < 4 {
+        return None;
+    }
+
+    // Hitung titik tengah perkiraan (centroid)
+    let sum_x: f32 = pts.iter().map(|p| p[0]).sum();
+    let sum_y: f32 = pts.iter().map(|p| p[1]).sum();
+    let cx = sum_x / n as f32;
+    let cy = sum_y / n as f32;
+
+    // Hitung radius rata-rata
+    let rads: Vec<f32> = pts.iter().map(|p| (p[0] - cx).hypot(p[1] - cy)).collect();
+    let avg_r: f32 = rads.iter().sum::<f32>() / n as f32;
+    if avg_r < 1.0 {
+        return None;
+    }
+
+    // Hitung varians deviasi radius
+    let max_dev = rads.iter().map(|r| (r - avg_r).abs()).fold(0.0f32, f32::max);
+    let is_circle_or_arc = max_dev < (avg_r * 0.08).max(0.5);
+
+    if is_circle_or_arc {
+        let first = pts[0];
+        let last = pts[n - 1];
+        let close_dist = (first[0] - last[0]).hypot(first[1] - last[1]);
+        let is_closed = close_dist < (avg_r * 0.15).max(1.0);
+
+        if is_closed {
+            Some(HlrGeometricFeature::Circle {
+                center: [cx, cy],
+                radius: avg_r,
+            })
+        } else {
+            let start_a = (first[1] - cy).atan2(first[0] - cx);
+            let end_a = (last[1] - cy).atan2(last[0] - cx);
+            Some(HlrGeometricFeature::Arc {
+                center: [cx, cy],
+                radius: avg_r,
+                start_angle: start_a,
+                end_angle: end_a,
+            })
+        }
+    } else {
+        // Cek apakah bentuknya mendekati Ellips
+        let min_x = pts.iter().map(|p| p[0]).fold(f32::MAX, f32::min);
+        let max_x = pts.iter().map(|p| p[0]).fold(f32::MIN, f32::max);
+        let min_y = pts.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+        let max_y = pts.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+
+        let rx = (max_x - min_x) * 0.5;
+        let ry = (max_y - min_y) * 0.5;
+
+        if rx > 2.0 && ry > 2.0 && (rx - ry).abs() > 1.5 {
+            // Periksa kesesuaian formula ellips ((x-cx)/rx)^2 + ((y-cy)/ry)^2 ≈ 1
+            let err: f32 = pts
+                .iter()
+                .map(|p| {
+                    let u = (p[0] - cx) / rx;
+                    let v = (p[1] - cy) / ry;
+                    (u * u + v * v - 1.0).abs()
+                })
+                .sum::<f32>()
+                / n as f32;
+
+            if err < 0.20 {
+                return Some(HlrGeometricFeature::Ellipse {
+                    center: [cx, cy],
+                    radius_x: rx,
+                    radius_y: ry,
+                    rotation: 0.0,
+                });
+            }
+        }
+        None
+    }
 }

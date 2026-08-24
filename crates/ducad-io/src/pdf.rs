@@ -430,7 +430,40 @@ fn render_dimensions(s: &mut String, sheet: &DrawingSheet) {
         let x2 = mm_to_pt(dim.end[0]);
         let y2 = mm_to_pt(dim.end[1]);
 
-        if dim.is_vertical {
+        let is_leader = dim.text.starts_with('R')
+            || dim.text.starts_with('Ø')
+            || dim.text.starts_with("Rx");
+        let is_angle = dim.text.ends_with('°');
+
+        if is_angle {
+            let tx = mm_to_pt(dim.line_pos[0]);
+            let ty = mm_to_pt(dim.line_pos[1]);
+            s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {x1:.2} {y1:.2} m {tx:.2} {ty:.2} l S\n"));
+            let text_x = tx + mm_to_pt(2.0);
+            let text_y = ty - mm_to_pt(1.0);
+            s.push_str(&format!(
+                "BT /F2 7 Tf 1 0 0 1 {text_x:.2} {text_y:.2} Tm ({}) Tj ET\n",
+                escape_pdf(&dim.text)
+            ));
+        } else if is_leader {
+            let bend_x = mm_to_pt(dim.line_pos[0]);
+            let bend_y = mm_to_pt(dim.line_pos[1]);
+            let shoulder_x = bend_x + mm_to_pt(8.0);
+
+            s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {bend_x:.2} {bend_y:.2} l {shoulder_x:.2} {bend_y:.2} l S\n"));
+
+            let dx = x2 - x1;
+            let dy = y2 - y1;
+            let len = (dx * dx + dy * dy).sqrt().max(1e-4);
+            render_arrow_pt(s, x2, y2, dx / len, dy / len);
+
+            let text_x = bend_x + mm_to_pt(1.0);
+            let text_y = bend_y + mm_to_pt(1.5);
+            s.push_str(&format!(
+                "BT /F2 7 Tf 1 0 0 1 {text_x:.2} {text_y:.2} Tm ({}) Tj ET\n",
+                escape_pdf(&dim.text)
+            ));
+        } else if dim.is_vertical {
             let dim_x = mm_to_pt(dim.line_pos[0]);
             // Garis ekstensi horizontal
             s.push_str(&format!("{x1:.2} {y1:.2} m {dim_x:.2} {y1:.2} l S\n"));
@@ -546,6 +579,7 @@ mod tests {
                 end: [25.0, 35.0],
                 kind: HlrLineKind::Centerline,
             }],
+            features: Vec::new(),
             width_mm: 50.0,
             height_mm: 30.0,
             depth_mm: 20.0,

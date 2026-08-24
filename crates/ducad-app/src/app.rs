@@ -14,7 +14,7 @@ use ducad_ui::{
     CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
     Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LightingDrawer, LightingDrawerEvent, RadialMenu, RenamePopupEvent, ThemeMode,
+    LightingDrawer, RadialMenu, RenamePopupEvent, ThemeMode,
     ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube,
     ViewCubeAction, ZebraHudAction,
 };

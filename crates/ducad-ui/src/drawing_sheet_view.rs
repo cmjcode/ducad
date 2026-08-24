@@ -219,14 +219,21 @@ impl DrawingSheetView {
                     .selected_text(current_scale_label)
                     .show_ui(ui, |ui| {
                         let scales = [
+                            (0.05, "1:20"),
+                            (0.1, "1:10"),
+                            (0.125, "1:8"),
                             (0.2, "1:5"),
+                            (0.25, "1:4"),
+                            (0.333, "1:3"),
+                            (0.4, "1:2.5"),
                             (0.5, "1:2"),
+                            (0.667, "1:1.5"),
                             (1.0, "1:1"),
                             (2.0, "2:1"),
                             (5.0, "5:1"),
                         ];
                         for (val, lbl) in scales {
-                            let is_sel = (sheet.scale - val).abs() < 1e-4;
+                            let is_sel = (sheet.scale - val).abs() < 1e-3;
                             if ui.selectable_label(is_sel, lbl).clicked() {
                                 sheet.scale = val;
                                 sheet.title_block.scale = lbl.to_string();
@@ -613,7 +620,52 @@ fn render_sheet_canvas(
             let p1 = mm_to_screen(dim.start[0], dim.start[1]);
             let p2 = mm_to_screen(dim.end[0], dim.end[1]);
 
-            if dim.is_vertical {
+            let is_leader = dim.text.starts_with('R')
+                || dim.text.starts_with('Ø')
+                || dim.text.starts_with("Rx");
+            let is_angle = dim.text.ends_with('°');
+
+            if is_angle {
+                let p_v = p1;
+                let p_a1 = p2;
+                let p_txt = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
+
+                // Gambar garis bantu sudut dari vertex ke titik ukur & posisi teks
+                painter.line_segment([p_v, p_a1], dim_stroke);
+                painter.line_segment([p_v, p_txt], dim_stroke);
+
+                let dir_vec = (p_txt - p_v).normalized();
+                draw_arrowhead(&painter, p_txt, dir_vec, arrow_sz, Color32::from_rgb(12, 70, 175));
+
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
+                let bg_rect = Rect::from_center_size(p_txt + vec2(galley.size().x * 0.5 + 4.0, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+            } else if is_leader {
+                let p_start = p1;
+                let p_end = p2;
+                let p_bend = mm_to_screen(dim.line_pos[0], dim.line_pos[1]);
+                let p_shoulder = Pos2::new(p_bend.x + 12.0 * zoom.clamp(0.8, 1.5), p_bend.y);
+
+                // Garis radial leader dari pusat ke tepi keliling dan bahu horizontal
+                painter.line_segment([p_start, p_end], dim_stroke);
+                painter.line_segment([p_end, p_bend], dim_stroke);
+                painter.line_segment([p_bend, p_shoulder], dim_stroke);
+
+                let dir_vec = p_end - p_start;
+                let dir_norm = if dir_vec.length_sq() > 1e-4 {
+                    dir_vec.normalized()
+                } else {
+                    Vec2::new(1.0, 0.0)
+                };
+                draw_arrowhead(&painter, p_end, dir_norm, arrow_sz, Color32::from_rgb(12, 70, 175));
+
+                let txt_pos = Pos2::new(p_bend.x + 2.0, p_bend.y - 3.0 * zoom);
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
+                let bg_rect = Rect::from_center_size(txt_pos + Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
+            } else if dim.is_vertical {
                 let dim_x_px = mm_to_screen(dim.line_pos[0], 0.0).x;
                 let ext_overshoot = 2.0 * zoom;
                 let ext_dir = if dim_x_px < p1.x { -1.0 } else { 1.0 };
