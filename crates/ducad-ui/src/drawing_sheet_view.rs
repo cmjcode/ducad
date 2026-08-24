@@ -5,7 +5,7 @@
 //! serta tombol ekspor langsung ke PDF Vektor dan DXF CAD.
 
 use ducad_io::drawing::{DrawingSheet, PaperSize};
-use ducad_kernel::HlrLineKind;
+use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use egui::{
     vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
     Stroke, Ui, Vec2,
@@ -508,7 +508,7 @@ fn render_sheet_canvas(
         painter.text(pt_right, Align2::LEFT_CENTER, txt, font_zone.clone(), Color32::BLACK);
     }
 
-    // E. Kepala Gambar (Title Block)
+    // E. Kepala Gambar (Title Block ISO 7200)
     render_title_block_screen(&painter, sheet, zoom, mm_to_screen);
 
     // F. Gambar Tampak-tampak Proyeksi (Front, Top, Right, Isometric)
@@ -520,24 +520,11 @@ fn render_sheet_canvas(
         let center_mm = plc.center_mm;
         let scale = plc.scale;
         let v_center = view.center_2d();
+        let view_sz = view.size_2d();
 
-        // Judul Tampak
-        let title_pos = mm_to_screen(
-            center_mm[0] - (view.size_2d()[0] * scale * 0.5),
-            center_mm[1] - (view.size_2d()[1] * scale * 0.5) - 6.0,
-        );
-        let font_title = FontId::proportional((8.5 * zoom).clamp(9.0, 16.0));
-        painter.text(
-            title_pos,
-            Align2::LEFT_TOP,
-            &view.title,
-            font_title,
-            Color32::BLACK,
-        );
-
-        // 1. Centerlines (Garis Sumbu)
+        // 1. Centerlines (Garis Sumbu Simetri)
         if sheet.show_centerlines {
-            let cl_stroke = Stroke::new((0.4 * zoom).max(1.0), Color32::from_rgb(0, 140, 50));
+            let cl_stroke = Stroke::new((0.35 * zoom).clamp(0.8, 1.5), Color32::from_rgb(0, 130, 45));
             for cl in &view.centerlines {
                 let p1 = mm_to_screen(
                     center_mm[0] + (cl.start[0] - v_center[0]) * scale,
@@ -547,13 +534,13 @@ fn render_sheet_canvas(
                     center_mm[0] + (cl.end[0] - v_center[0]) * scale,
                     center_mm[1] + (cl.end[1] - v_center[1]) * scale,
                 );
-                draw_dashed_line(&painter, p1, p2, cl_stroke, 6.0 * zoom, 3.0 * zoom);
+                draw_centerline(&painter, p1, p2, cl_stroke, 8.0 * zoom, 2.0 * zoom);
             }
         }
 
         // 2. Hidden Lines (Garis Tersembunyi Putus-putus)
         if sheet.show_hidden_lines {
-            let hidden_stroke = Stroke::new((0.4 * zoom).max(0.8), Color32::from_rgb(130, 130, 145));
+            let hidden_stroke = Stroke::new((0.35 * zoom).clamp(0.8, 1.2), Color32::from_rgb(110, 115, 130));
             for seg in &view.segments {
                 if seg.kind == HlrLineKind::Hidden {
                     let p1 = mm_to_screen(
@@ -569,8 +556,8 @@ fn render_sheet_canvas(
             }
         }
 
-        // 3. Visible Lines & Silhouettes (Garis Tampak Solid)
-        let visible_stroke = Stroke::new((0.7 * zoom).max(1.2), Color32::BLACK);
+        // 3. Visible Lines & Silhouettes (Garis Tampak Tebal Solid ISO 128)
+        let visible_stroke = Stroke::new((0.60 * zoom).clamp(1.2, 2.4), Color32::BLACK);
         for seg in &view.segments {
             if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
                 let p1 = mm_to_screen(
@@ -584,12 +571,43 @@ fn render_sheet_canvas(
                 painter.line_segment([p1, p2], visible_stroke);
             }
         }
+
+        // Judul Tampak Profesional di bawah view (bebas dari tabrakan garis dimensi)
+        let title_y_mm = center_mm[1] - (view_sz[1] * scale * 0.5) - 13.0;
+        let title_pos = mm_to_screen(center_mm[0], title_y_mm);
+        let title_sub_pos = mm_to_screen(center_mm[0], title_y_mm - 4.5);
+
+        let font_title = FontId::proportional((4.2 * zoom).clamp(5.5, 12.0));
+        let font_sub = FontId::proportional((3.5 * zoom).clamp(4.5, 9.5));
+
+        let (sub_label, scale_label) = match plc.kind {
+            ProjectedViewKind::Front => ("FRONT VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Top => ("TOP VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
+        };
+
+        painter.text(
+            title_pos,
+            Align2::CENTER_TOP,
+            &format!("{} | {}", view.title, sub_label),
+            font_title,
+            Color32::from_rgb(20, 24, 35),
+        );
+        painter.text(
+            title_sub_pos,
+            Align2::CENTER_TOP,
+            &scale_label,
+            font_sub,
+            Color32::from_rgb(100, 105, 120),
+        );
     }
 
-    // G. Anotasi Dimensi Otomatis
+    // G. Anotasi Dimensi Presisi dengan Panah Terisi (Filled Arrowheads) & Extension Lines
     if sheet.show_dimensions {
-        let dim_stroke = Stroke::new((0.4 * zoom).max(1.0), Color32::from_rgb(10, 80, 200));
-        let font_dim = FontId::proportional((7.5 * zoom).clamp(8.0, 13.0));
+        let dim_stroke = Stroke::new((0.35 * zoom).clamp(0.8, 1.5), Color32::from_rgb(12, 70, 175));
+        let font_dim = FontId::monospace((4.2 * zoom).clamp(5.5, 11.5));
+        let arrow_sz = (2.2 * zoom).clamp(3.5, 7.5);
 
         for dim in &sheet.auto_dimensions {
             let p1 = mm_to_screen(dim.start[0], dim.start[1]);
@@ -597,44 +615,67 @@ fn render_sheet_canvas(
 
             if dim.is_vertical {
                 let dim_x_px = mm_to_screen(dim.line_pos[0], 0.0).x;
-                let ext1_end = Pos2::new(dim_x_px, p1.y);
-                let ext2_end = Pos2::new(dim_x_px, p2.y);
+                let ext_overshoot = 2.0 * zoom;
+                let ext_dir = if dim_x_px < p1.x { -1.0 } else { 1.0 };
 
-                painter.line_segment([p1, ext1_end], dim_stroke);
-                painter.line_segment([p2, ext2_end], dim_stroke);
-                painter.line_segment([ext1_end, ext2_end], dim_stroke);
+                let ext1_start = Pos2::new(p1.x + ext_dir * 1.5 * zoom, p1.y);
+                let ext1_end = Pos2::new(dim_x_px + ext_dir * ext_overshoot, p1.y);
+                let ext2_start = Pos2::new(p2.x + ext_dir * 1.5 * zoom, p2.y);
+                let ext2_end = Pos2::new(dim_x_px + ext_dir * ext_overshoot, p2.y);
+
+                painter.line_segment([ext1_start, ext1_end], dim_stroke);
+                painter.line_segment([ext2_start, ext2_end], dim_stroke);
+
+                let line_top = Pos2::new(dim_x_px, p1.y.min(p2.y));
+                let line_bot = Pos2::new(dim_x_px, p1.y.max(p2.y));
+                painter.line_segment([line_top, line_bot], dim_stroke);
+
+                // Panah vertikal di kedua ujung
+                draw_arrowhead(&painter, line_top, Vec2::new(0.0, -1.0), arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, line_bot, Vec2::new(0.0, 1.0), arrow_sz, Color32::from_rgb(12, 70, 175));
 
                 let mid_y = (p1.y + p2.y) * 0.5;
-                painter.text(
-                    Pos2::new(dim_x_px - 4.0 * zoom, mid_y),
-                    Align2::RIGHT_CENTER,
-                    &dim.text,
-                    font_dim.clone(),
-                    Color32::from_rgb(10, 80, 200),
-                );
+                let txt_pos = Pos2::new(dim_x_px - 4.0 * zoom, mid_y);
+
+                // Knockout background putih tipis agar angka tidak tertimpa garis
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
+                let bg_rect = Rect::from_center_size(txt_pos - Vec2::new(galley.size().x * 0.5, 0.0), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
             } else {
                 let dim_y_px = mm_to_screen(0.0, dim.line_pos[1]).y;
-                let ext1_end = Pos2::new(p1.x, dim_y_px);
-                let ext2_end = Pos2::new(p2.x, dim_y_px);
+                let ext_overshoot = 2.0 * zoom;
+                let ext_dir = if dim_y_px > p1.y { 1.0 } else { -1.0 };
 
-                painter.line_segment([p1, ext1_end], dim_stroke);
-                painter.line_segment([p2, ext2_end], dim_stroke);
-                painter.line_segment([ext1_end, ext2_end], dim_stroke);
+                let ext1_start = Pos2::new(p1.x, p1.y + ext_dir * 1.5 * zoom);
+                let ext1_end = Pos2::new(p1.x, dim_y_px + ext_dir * ext_overshoot);
+                let ext2_start = Pos2::new(p2.x, p2.y + ext_dir * 1.5 * zoom);
+                let ext2_end = Pos2::new(p2.x, dim_y_px + ext_dir * ext_overshoot);
+
+                painter.line_segment([ext1_start, ext1_end], dim_stroke);
+                painter.line_segment([ext2_start, ext2_end], dim_stroke);
+
+                let line_left = Pos2::new(p1.x.min(p2.x), dim_y_px);
+                let line_right = Pos2::new(p1.x.max(p2.x), dim_y_px);
+                painter.line_segment([line_left, line_right], dim_stroke);
+
+                // Panah horizontal di kedua ujung
+                draw_arrowhead(&painter, line_left, Vec2::new(-1.0, 0.0), arrow_sz, Color32::from_rgb(12, 70, 175));
+                draw_arrowhead(&painter, line_right, Vec2::new(1.0, 0.0), arrow_sz, Color32::from_rgb(12, 70, 175));
 
                 let mid_x = (p1.x + p2.x) * 0.5;
-                painter.text(
-                    Pos2::new(mid_x, dim_y_px - 3.0 * zoom),
-                    Align2::CENTER_BOTTOM,
-                    &dim.text,
-                    font_dim.clone(),
-                    Color32::from_rgb(10, 80, 200),
-                );
+                let txt_pos = Pos2::new(mid_x, dim_y_px - 3.0 * zoom);
+
+                let galley = painter.layout_no_wrap(dim.text.clone(), font_dim.clone(), Color32::from_rgb(12, 70, 175));
+                let bg_rect = Rect::from_center_size(txt_pos - Vec2::new(0.0, galley.size().y * 0.5), galley.size() + vec2(4.0, 2.0));
+                painter.rect_filled(bg_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(252, 252, 252, 240));
+                painter.galley(Pos2::new(bg_rect.min.x + 2.0, bg_rect.min.y + 1.0), galley, Color32::from_rgb(12, 70, 175));
             }
         }
     }
 }
 
-/// Render Kepala Gambar (Title Block) pada layar.
+/// Render Kepala Gambar (Title Block) Standar ISO 7200 / DIN 6771 yang Presisi.
 fn render_title_block_screen<F>(
     painter: &egui::Painter,
     sheet: &DrawingSheet,
@@ -650,114 +691,197 @@ fn render_title_block_screen<F>(
     let p_tr = mm_to_screen(tb[2], tb[3]);
     let tb_rect = Rect::from_two_pos(p_bl, p_tr);
 
-    // Kotak luar title block
-    painter.rect_stroke(
-        tb_rect,
-        CornerRadius::ZERO,
-        Stroke::new((0.6 * zoom).max(1.0), Color32::BLACK),
-        egui::StrokeKind::Inside,
-    );
+    let stroke_thick = Stroke::new((0.5 * zoom).clamp(1.0, 1.8), Color32::BLACK);
+    let stroke_thin = Stroke::new((0.3 * zoom).clamp(0.6, 1.0), Color32::BLACK);
 
-    // Garis pembagi horizontal
-    let y1 = mm_to_screen(0.0, tb[1] + 15.0).y;
-    let y2 = mm_to_screen(0.0, tb[1] + 30.0).y;
-    painter.line_segment(
-        [Pos2::new(tb_rect.min.x, y1), Pos2::new(tb_rect.max.x, y1)],
-        Stroke::new(1.0, Color32::BLACK),
-    );
-    painter.line_segment(
-        [Pos2::new(tb_rect.min.x, y2), Pos2::new(tb_rect.max.x, y2)],
-        Stroke::new(1.0, Color32::BLACK),
-    );
+    // 1. Kotak Luar Tebal
+    painter.rect_stroke(tb_rect, CornerRadius::ZERO, stroke_thick, egui::StrokeKind::Inside);
 
-    // Garis pembagi vertikal
-    let x_mid = mm_to_screen(tb[0] + 75.0, 0.0).x;
-    painter.line_segment(
-        [Pos2::new(x_mid, y2), Pos2::new(x_mid, tb_rect.max.y)],
-        Stroke::new(1.0, Color32::BLACK),
-    );
+    // 2. Garis Pembagi Horizontal
+    let y_row1 = mm_to_screen(0.0, tb[1] + 9.0).y;
+    let y_row2 = mm_to_screen(0.0, tb[1] + 18.0).y;
+    let y_row3 = mm_to_screen(0.0, tb[1] + 32.0).y;
 
-    let x_qtr = mm_to_screen(tb[0] + 110.0, 0.0).x;
-    painter.line_segment(
-        [Pos2::new(x_qtr, y1), Pos2::new(x_qtr, tb_rect.max.y)],
-        Stroke::new(1.0, Color32::BLACK),
-    );
+    painter.line_segment([Pos2::new(tb_rect.min.x, y_row1), Pos2::new(tb_rect.max.x, y_row1)], stroke_thin);
+    painter.line_segment([Pos2::new(tb_rect.min.x, y_row2), Pos2::new(tb_rect.max.x, y_row2)], stroke_thick);
+    painter.line_segment([Pos2::new(tb_rect.min.x, y_row3), Pos2::new(tb_rect.max.x, y_row3)], stroke_thin);
 
-    // Teks dalam Title Block
-    let font_lg = FontId::proportional((9.5 * zoom).clamp(10.0, 18.0));
-    let font_md = FontId::proportional((8.0 * zoom).clamp(8.5, 14.0));
-    let font_sm = FontId::proportional((6.5 * zoom).clamp(7.0, 11.0));
+    // 3. Garis Pembagi Vertikal
+    let x_col_top = mm_to_screen(tb[0] + 95.0, 0.0).x;
+    painter.line_segment([Pos2::new(x_col_top, tb_rect.min.y), Pos2::new(x_col_top, y_row3)], stroke_thin);
 
-    // Perusahaan
+    let x_col_mid = mm_to_screen(tb[0] + 85.0, 0.0).x;
+    painter.line_segment([Pos2::new(x_col_mid, y_row3), Pos2::new(x_col_mid, y_row2)], stroke_thick);
+
+    let x_b1 = mm_to_screen(tb[0] + 45.0, 0.0).x;
+    let x_b2 = mm_to_screen(tb[0] + 90.0, 0.0).x;
+    let x_b3 = mm_to_screen(tb[0] + 115.0, 0.0).x;
+
+    painter.line_segment([Pos2::new(x_b1, y_row2), Pos2::new(x_b1, y_row1)], stroke_thin);
+    painter.line_segment([Pos2::new(x_b2, y_row2), Pos2::new(x_b2, tb_rect.max.y)], stroke_thin);
+    painter.line_segment([Pos2::new(x_b3, y_row2), Pos2::new(x_b3, y_row1)], stroke_thin);
+
+    // 4. Tipografi & Konten Teks Proporsional (Skala Kertas)
+    let font_caption = FontId::proportional((2.6 * zoom).clamp(4.0, 8.5));
+    let font_val_sm = FontId::proportional((3.2 * zoom).clamp(4.8, 10.0));
+    let font_val_md = FontId::proportional((4.0 * zoom).clamp(5.8, 12.0));
+    let font_val_lg = FontId::proportional((5.2 * zoom).clamp(7.0, 14.5));
+
+    let col_caption = Color32::from_rgb(110, 115, 130);
+    let col_val = Color32::BLACK;
+
+    // A. Row 1: Perusahaan & Proyeksi
+    let p_comp = mm_to_screen(tb[0] + 3.0, tb[1] + 39.5);
+    painter.text(p_comp, Align2::LEFT_CENTER, &info.company_name, font_val_md.clone(), col_val);
+    let p_comp_sub = mm_to_screen(tb[0] + 3.0, tb[1] + 35.0);
     painter.text(
-        mm_to_screen(tb[0] + 4.0, tb[1] + 36.0),
+        p_comp_sub,
         Align2::LEFT_CENTER,
-        &info.company_name,
-        font_md.clone(),
-        Color32::BLACK,
+        "LEMBAR KERJA GAMBAR TEKNIK (ISO 5457)",
+        font_caption.clone(),
+        col_caption,
     );
 
-    // Judul Proyek
+    // Simbol Proyeksi Sudut Ketiga (3rd Angle Projection Cone ISO)
+    let p_proj = mm_to_screen(tb[0] + 117.0, tb[1] + 38.5);
+    draw_3rd_angle_projection_symbol(painter, p_proj, zoom);
+
+    // B. Row 2: Judul Komponen & Nomor Gambar
     painter.text(
-        mm_to_screen(tb[0] + 4.0, tb[1] + 32.0),
+        mm_to_screen(tb[0] + 3.0, tb[1] + 27.5),
         Align2::LEFT_CENTER,
-        "JUDUL GAMBAR:",
-        font_sm.clone(),
-        Color32::from_rgb(100, 100, 100),
+        "JUDUL GAMBAR / PART TITLE:",
+        font_caption.clone(),
+        col_caption,
     );
+    let proj_title = if info.project_title.is_empty() { "KOMPONEN UTAMA" } else { &info.project_title };
     painter.text(
-        mm_to_screen(tb[0] + 4.0, tb[1] + 20.0),
+        mm_to_screen(tb[0] + 3.0, tb[1] + 22.0),
         Align2::LEFT_CENTER,
-        &info.project_title,
-        font_lg,
-        Color32::BLACK,
+        proj_title,
+        font_val_lg,
+        col_val,
     );
 
-    // Drafter & Tanggal
     painter.text(
-        mm_to_screen(tb[0] + 4.0, tb[1] + 10.0),
+        mm_to_screen(tb[0] + 88.0, tb[1] + 27.5),
         Align2::LEFT_CENTER,
-        format!("DIGAMBAR: {} | TGL: {}", info.drawn_by, info.date),
-        font_sm.clone(),
-        Color32::BLACK,
+        "NO. GAMBAR / DWG NO:",
+        font_caption.clone(),
+        col_caption,
     );
     painter.text(
-        mm_to_screen(tb[0] + 4.0, tb[1] + 4.0),
-        Align2::LEFT_CENTER,
-        format!("MATERIAL: {}", info.material),
-        font_sm.clone(),
-        Color32::BLACK,
-    );
-
-    // Nomor Gambar & Skala
-    painter.text(
-        mm_to_screen(tb[0] + 78.0, tb[1] + 24.0),
-        Align2::LEFT_CENTER,
-        "NO. GAMBAR:",
-        font_sm.clone(),
-        Color32::from_rgb(100, 100, 100),
-    );
-    painter.text(
-        mm_to_screen(tb[0] + 78.0, tb[1] + 17.5),
+        mm_to_screen(tb[0] + 88.0, tb[1] + 22.0),
         Align2::LEFT_CENTER,
         &info.drawing_number,
-        font_md,
-        Color32::BLACK,
+        font_val_md.clone(),
+        col_val,
     );
+
+    // C. Row 3: Drafter, Tanggal, Skala, Lembar
+    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 15.0), Align2::LEFT_CENTER, "DIGAMBAR:", font_caption.clone(), col_caption);
+    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.drawn_by, font_val_sm.clone(), col_val);
+
+    painter.text(mm_to_screen(tb[0] + 48.0, tb[1] + 15.0), Align2::LEFT_CENTER, "TANGGAL:", font_caption.clone(), col_caption);
+    painter.text(mm_to_screen(tb[0] + 48.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.date, font_val_sm.clone(), col_val);
+
+    painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 15.0), Align2::LEFT_CENTER, "SKALA:", font_caption.clone(), col_caption);
+    painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.scale, font_val_sm.clone(), col_val);
+
+    painter.text(mm_to_screen(tb[0] + 118.0, tb[1] + 15.0), Align2::LEFT_CENTER, "LEMBAR:", font_caption.clone(), col_caption);
+    painter.text(mm_to_screen(tb[0] + 118.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.sheet_number, font_val_sm.clone(), col_val);
+
+    // D. Row 4: Material & Toleransi
+    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 6.5), Align2::LEFT_CENTER, "MATERIAL:", font_caption.clone(), col_caption);
+    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 2.8), Align2::LEFT_CENTER, &info.material, font_val_sm.clone(), col_val);
+
+    painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 6.5), Align2::LEFT_CENTER, "TOLERANSI & SATUAN:", font_caption.clone(), col_caption);
     painter.text(
-        mm_to_screen(tb[0] + 78.0, tb[1] + 9.0),
+        mm_to_screen(tb[0] + 93.0, tb[1] + 2.8),
         Align2::LEFT_CENTER,
-        format!("SKALA: {}", info.scale),
-        font_sm.clone(),
-        Color32::BLACK,
+        &format!("ISO 2768-m | {}", info.units),
+        font_val_sm,
+        col_val,
     );
-    painter.text(
-        mm_to_screen(tb[0] + 78.0, tb[1] + 3.5),
-        Align2::LEFT_CENTER,
-        format!("SATUAN: {} | LBR: {}", info.units, info.sheet_number),
-        font_sm,
-        Color32::BLACK,
+}
+
+/// Gambar simbol proyeksi sudut ketiga (3rd Angle Projection Cone ISO standard).
+fn draw_3rd_angle_projection_symbol(painter: &egui::Painter, center: Pos2, zoom: f32) {
+    let s = (zoom * 0.85).clamp(0.8, 1.8);
+    let stroke = Stroke::new(1.0 * s, Color32::BLACK);
+    let cl_stroke = Stroke::new(0.6 * s, Color32::from_rgb(120, 120, 120));
+
+    // Garis sumbu horizontal
+    painter.line_segment([center - vec2(16.0 * s, 0.0), center + vec2(16.0 * s, 0.0)], cl_stroke);
+
+    // Kerucut terpancung (trapezoid) di sebelah kiri
+    let trap_cx = center.x - 7.0 * s;
+    let p_tl = Pos2::new(trap_cx - 5.0 * s, center.y - 2.5 * s);
+    let p_bl = Pos2::new(trap_cx - 5.0 * s, center.y + 2.5 * s);
+    let p_tr = Pos2::new(trap_cx + 5.0 * s, center.y - 5.0 * s);
+    let p_br = Pos2::new(trap_cx + 5.0 * s, center.y + 5.0 * s);
+
+    painter.line_segment([p_tl, p_tr], stroke);
+    painter.line_segment([p_tr, p_br], stroke);
+    painter.line_segment([p_br, p_bl], stroke);
+    painter.line_segment([p_bl, p_tl], stroke);
+
+    // Dua lingkaran konsentris di sebelah kanan
+    let circ_cx = center.x + 8.0 * s;
+    let circ_c = Pos2::new(circ_cx, center.y);
+    painter.circle_stroke(circ_c, 2.5 * s, stroke);
+    painter.circle_stroke(circ_c, 5.0 * s, stroke);
+}
+
+/// Gambar panah terisi tajam untuk ujung garis dimensi.
+fn draw_arrowhead(painter: &egui::Painter, tip: Pos2, dir: Vec2, size: f32, color: Color32) {
+    let norm = dir.normalized();
+    let perp = Vec2::new(-norm.y, norm.x);
+    let back = tip - norm * size;
+    let p_l = back + perp * (size * 0.32);
+    let p_r = back - perp * (size * 0.32);
+
+    let shape = egui::epaint::PathShape::convex_polygon(
+        vec![tip, p_l, p_r],
+        color,
+        Stroke::NONE,
     );
+    painter.add(shape);
+}
+
+/// Gambar garis sumbu simetri titik-strip panjang presisi (Centerline dash-dot `— · —`).
+fn draw_centerline(
+    painter: &egui::Painter,
+    p1: Pos2,
+    p2: Pos2,
+    stroke: Stroke,
+    dash_len: f32,
+    gap_len: f32,
+) {
+    let dir = p2 - p1;
+    let total_len = dir.length();
+    if total_len < 1.0 {
+        return;
+    }
+    let norm = dir / total_len;
+
+    let dot_len = 1.0;
+
+    let mut traveled = 0.0;
+    while traveled < total_len {
+        // 1. Long Dash
+        let d_end = (traveled + dash_len).min(total_len);
+        painter.line_segment([p1 + norm * traveled, p1 + norm * d_end], stroke);
+        traveled += dash_len + gap_len;
+        if traveled >= total_len {
+            break;
+        }
+
+        // 2. Center Dot
+        let dot_end = (traveled + dot_len).min(total_len);
+        painter.line_segment([p1 + norm * traveled, p1 + norm * dot_end], stroke);
+        traveled += dot_len + gap_len;
+    }
 }
 
 /// Gambar garis putus-putus (dashed line) di egui.

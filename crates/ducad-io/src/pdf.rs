@@ -6,7 +6,7 @@
 //! kepala gambar (title block), panah dan teks dimensi, serta simbol proyeksi sudut ketiga.
 
 use anyhow::{Context, Result};
-use ducad_kernel::HlrLineKind;
+use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use std::io::Write;
 use std::path::Path;
 
@@ -198,7 +198,7 @@ fn render_border_and_grid(s: &mut String, sheet: &DrawingSheet) {
     s.push_str("ET Q\n");
 }
 
-/// Render Kepala Gambar (Title Block) standar ISO/ANSI di pojok kanan bawah.
+/// Render Kepala Gambar (Title Block) standar ISO 7200 di pojok kanan bawah.
 fn render_title_block(s: &mut String, sheet: &DrawingSheet) {
     let tb = sheet.title_block_rect_mm();
     let info = &sheet.title_block;
@@ -208,88 +208,116 @@ fn render_title_block(s: &mut String, sheet: &DrawingSheet) {
     let w = mm_to_pt(tb[2] - tb[0]);
     let h = mm_to_pt(tb[3] - tb[1]);
 
-    s.push_str("q 0 0 0 RG 0 0 0 rg 1.0 w [] 0 d\n");
-    // Kotak luar title block
+    // Kotak luar tebal (1.2pt)
+    s.push_str("q 0 0 0 RG 0 0 0 rg 1.2 w [] 0 d\n");
     s.push_str(&format!("{x0:.2} {y0:.2} {w:.2} {h:.2} re S\n"));
 
-    // Garis pembagi horizontal internal
-    let y_div1 = mm_to_pt(tb[1] + 15.0);
-    let y_div2 = mm_to_pt(tb[1] + 30.0);
-    s.push_str(&format!("{x0:.2} {y_div1:.2} m {x0:.2} {w:.2} add {y_div1:.2} l S\n", x0 = x0, w = w));
-    s.push_str(&format!("{x0:.2} {y_div2:.2} m {x0:.2} {w:.2} add {y_div2:.2} l S\n", x0 = x0, w = w));
+    // Garis pembagi horizontal
+    let y_div1 = mm_to_pt(tb[1] + 9.0);
+    let y_div2 = mm_to_pt(tb[1] + 18.0);
+    let y_div3 = mm_to_pt(tb[1] + 32.0);
+    s.push_str("0.5 w\n");
+    s.push_str(&format!("{x0:.2} {y_div1:.2} m {x1:.2} {y_div1:.2} l S\n", x0 = x0, x1 = x0 + w));
+    s.push_str("1.0 w\n");
+    s.push_str(&format!("{x0:.2} {y_div2:.2} m {x1:.2} {y_div2:.2} l S\n", x0 = x0, x1 = x0 + w));
+    s.push_str("0.5 w\n");
+    s.push_str(&format!("{x0:.2} {y_div3:.2} m {x1:.2} {y_div3:.2} l S\n", x0 = x0, x1 = x0 + w));
 
     // Garis pembagi vertikal
-    let x_mid = mm_to_pt(tb[0] + 75.0);
-    s.push_str(&format!("{x_mid:.2} {y0:.2} m {x_mid:.2} {y_div2:.2} l S\n"));
+    let x_top = mm_to_pt(tb[0] + 95.0);
+    s.push_str(&format!("{x_top:.2} {y_div3:.2} m {x_top:.2} {y1:.2} l S\n", y1 = y0 + h));
 
-    let x_qtr = mm_to_pt(tb[0] + 110.0);
-    s.push_str(&format!("{x_qtr:.2} {y0:.2} m {x_qtr:.2} {y_div1:.2} l S\n"));
+    let x_mid = mm_to_pt(tb[0] + 85.0);
+    s.push_str("1.0 w\n");
+    s.push_str(&format!("{x_mid:.2} {y_div2:.2} m {x_mid:.2} {y_div3:.2} l S\n"));
+    s.push_str("0.5 w\n");
+
+    let x_b1 = mm_to_pt(tb[0] + 45.0);
+    let x_b2 = mm_to_pt(tb[0] + 90.0);
+    let x_b3 = mm_to_pt(tb[0] + 115.0);
+    s.push_str(&format!("{x_b1:.2} {y_div1:.2} m {x_b1:.2} {y_div2:.2} l S\n"));
+    s.push_str(&format!("{x_b2:.2} {y0:.2} m {x_b2:.2} {y_div2:.2} l S\n"));
+    s.push_str(&format!("{x_b3:.2} {y_div1:.2} m {x_b3:.2} {y_div2:.2} l S\n"));
 
     // Teks Metadata Title Block
     s.push_str("BT\n");
 
     // Header Perusahaan / Studio (Baris Atas)
-    s.push_str("/F2 10 Tf\n");
-    let tx_comp = x0 + mm_to_pt(4.0);
-    let ty_comp = y0 + mm_to_pt(36.0);
+    s.push_str("/F2 9.5 Tf\n");
+    let tx_comp = x0 + mm_to_pt(3.0);
+    let ty_comp = y0 + mm_to_pt(39.0);
     s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_comp:.2} Tm ({}) Tj\n", escape_pdf(&info.company_name)));
 
-    s.push_str("/F1 7 Tf\n");
-    let ty_proj_lbl = y0 + mm_to_pt(32.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_proj_lbl:.2} Tm (JUDUL GAMBAR / PROJECT TITLE:) Tj\n"));
+    s.push_str("/F1 5.5 Tf\n");
+    let ty_proj_sub = y0 + mm_to_pt(34.5);
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_proj_sub:.2} Tm (LEMBAR KERJA GAMBAR TEKNIK - ISO 5457) Tj\n"));
 
     // Judul Part / Komponen Utama
+    let ty_title_lbl = y0 + mm_to_pt(28.0);
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_title_lbl:.2} Tm (JUDUL GAMBAR / PART TITLE:) Tj\n"));
+
     s.push_str("/F2 11 Tf\n");
-    let ty_title = y0 + mm_to_pt(20.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_title:.2} Tm ({}) Tj\n", escape_pdf(&info.project_title)));
+    let ty_title = y0 + mm_to_pt(21.5);
+    let proj_title = if info.project_title.is_empty() { "KOMPONEN UTAMA" } else { &info.project_title };
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_title:.2} Tm ({}) Tj\n", escape_pdf(proj_title)));
 
-    // Kolom Kiri Bawah: Drafter & Tanggal
-    s.push_str("/F1 6.5 Tf\n");
-    let ty_dr_lbl = y0 + mm_to_pt(10.5);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_dr_lbl:.2} Tm (DIGAMBAR: {} | TGL: {}) Tj\n", escape_pdf(&info.drawn_by), escape_pdf(&info.date)));
-
-    let ty_mat_lbl = y0 + mm_to_pt(4.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_mat_lbl:.2} Tm (MATERIAL: {}) Tj\n", escape_pdf(&info.material)));
-
-    // Kolom Kanan: Nomor Gambar & Skala
+    // Nomor Gambar
+    s.push_str("/F1 5.5 Tf\n");
     let tx_dwg = x_mid + mm_to_pt(3.0);
-    let ty_dwg_lbl = y0 + mm_to_pt(24.0);
+    let ty_dwg_lbl = y0 + mm_to_pt(28.0);
     s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_dwg_lbl:.2} Tm (NO. GAMBAR / DWG NO:) Tj\n"));
 
     s.push_str("/F2 9 Tf\n");
-    let ty_dwg_val = y0 + mm_to_pt(17.5);
+    let ty_dwg_val = y0 + mm_to_pt(21.5);
     s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_dwg_val:.2} Tm ({}) Tj\n", escape_pdf(&info.drawing_number)));
 
-    s.push_str("/F1 7 Tf\n");
-    let ty_scale_lbl = y0 + mm_to_pt(9.0);
-    s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_scale_lbl:.2} Tm (SKALA: {}) Tj\n", escape_pdf(&info.scale)));
+    // Drafter, Tanggal, Skala, Lembar
+    s.push_str("/F1 5.5 Tf\n");
+    let ty_c1 = y0 + mm_to_pt(15.0);
+    let ty_v1 = y0 + mm_to_pt(11.0);
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_c1:.2} Tm (DIGAMBAR:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.drawn_by)));
 
-    let ty_unit_lbl = y0 + mm_to_pt(3.5);
-    s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_unit_lbl:.2} Tm (SATUAN: {} | LEMBAR: {}) Tj\n", escape_pdf(&info.units), escape_pdf(&info.sheet_number)));
+    let tx_date = x_b1 + mm_to_pt(3.0);
+    s.push_str(&format!("1 0 0 1 {tx_date:.2} {ty_c1:.2} Tm (TANGGAL:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_date:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.date)));
+
+    let tx_scale = x_b2 + mm_to_pt(3.0);
+    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_c1:.2} Tm (SKALA:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.scale)));
+
+    let tx_sheet = x_b3 + mm_to_pt(3.0);
+    s.push_str(&format!("1 0 0 1 {tx_sheet:.2} {ty_c1:.2} Tm (LEMBAR:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_sheet:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.sheet_number)));
+
+    // Material & Toleransi
+    let ty_c2 = y0 + mm_to_pt(6.0);
+    let ty_v2 = y0 + mm_to_pt(2.5);
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_c2:.2} Tm (MATERIAL:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_v2:.2} Tm ({}) Tj\n", escape_pdf(&info.material)));
+
+    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_c2:.2} Tm (TOLERANSI & SATUAN:) Tj\n"));
+    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_v2:.2} Tm (ISO 2768-m | {}) Tj\n", escape_pdf(&info.units)));
 
     s.push_str("ET Q\n");
 
-    // Gambar Simbol Proyeksi Sudut Ketiga (Third Angle Projection Icon) di title block
-    render_projection_symbol(s, tb[0] + 122.0, tb[1] + 20.0);
+    // Gambar Simbol Proyeksi Sudut Ketiga di title block kanan atas
+    render_projection_symbol(s, tb[0] + 117.0, tb[1] + 38.5);
 }
 
 /// Menggambar simbol standar 3rd Angle Projection (lingkaran konsentris + kerucut terpotong).
 fn render_projection_symbol(s: &mut String, cx_mm: f32, cy_mm: f32) {
     let cx = mm_to_pt(cx_mm);
     let cy = mm_to_pt(cy_mm);
-    let r1 = mm_to_pt(2.5);
-    let r2 = mm_to_pt(4.5);
-    let k_w = mm_to_pt(8.0);
-    let k_h1 = mm_to_pt(5.0);
-    let k_h2 = mm_to_pt(9.0);
+    let r1 = mm_to_pt(2.0);
+    let r2 = mm_to_pt(4.0);
+    let k_w = mm_to_pt(7.0);
+    let k_h1 = mm_to_pt(4.0);
+    let k_h2 = mm_to_pt(8.0);
 
-    s.push_str("q 0 0 0 RG 0.5 w [] 0 d\n");
-    // Lingkaran konsentris
-    s.push_str(&format!("{cx:.2} {cy:.2} {r1:.2} 0 360 arc S\n", cx = cx - mm_to_pt(10.0), cy = cy, r1 = r1));
-    s.push_str(&format!("{cx:.2} {cy:.2} {r2:.2} 0 360 arc S\n", cx = cx - mm_to_pt(10.0), cy = cy, r2 = r2));
-
-    // Trapesium kerucut
-    let x_cone = cx;
+    s.push_str("q 0 0 0 RG 0.6 w [] 0 d\n");
+    // Trapesium kerucut di sebelah kiri
+    let x_cone = cx - mm_to_pt(9.0);
     s.push_str(&format!(
         "{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {x3:.2} {y3:.2} l {x4:.2} {y4:.2} l h S\n",
         x1 = x_cone,
@@ -302,10 +330,15 @@ fn render_projection_symbol(s: &mut String, cx_mm: f32, cy_mm: f32) {
         y4 = cy + k_h1 * 0.5,
     ));
 
+    // Lingkaran konsentris di sebelah kanan
+    let x_circ = cx + mm_to_pt(6.0);
+    s.push_str(&format!("{x_circ:.2} {cy:.2} {r1:.2} 0 360 arc S\n", x_circ = x_circ, cy = cy, r1 = r1));
+    s.push_str(&format!("{x_circ:.2} {cy:.2} {r2:.2} 0 360 arc S\n", x_circ = x_circ, cy = cy, r2 = r2));
+
     // Garis sumbu simetri simbol
-    s.push_str("[4 2 1 2] 0 d 0.3 w\n");
-    let c_start = cx - mm_to_pt(16.0);
-    let c_end = cx + k_w + mm_to_pt(3.0);
+    s.push_str("[4 2 1 2] 0 d 0.3 w 0.4 0.4 0.4 RG\n");
+    let c_start = x_cone - mm_to_pt(4.0);
+    let c_end = x_circ + r2 + mm_to_pt(3.0);
     s.push_str(&format!("{c_start:.2} {cy:.2} m {c_end:.2} {cy:.2} l S\n"));
     s.push_str("Q\n");
 }
@@ -321,13 +354,27 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
         let center_mm = plc.center_mm;
         let scale = plc.scale;
         let v_center = view.center_2d();
+        let view_sz = view.size_2d();
 
-        // 1. Render Judul Tampak (View Title)
-        let title_x = mm_to_pt(center_mm[0] - (view.size_2d()[0] * scale * 0.5));
-        let title_y = mm_to_pt(center_mm[1] - (view.size_2d()[1] * scale * 0.5) - 8.0);
+        // 1. Render Judul Tampak (View Title) di bawah tampak
+        let title_x = mm_to_pt(center_mm[0] - (view_sz[0] * scale * 0.5));
+        let title_y = mm_to_pt(center_mm[1] - (view_sz[1] * scale * 0.5) - 14.0);
+        let (sub_label, scale_label) = match plc.kind {
+            ProjectedViewKind::Front => ("FRONT VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Top => ("TOP VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
+        };
+
         s.push_str(&format!(
-            "q 0 0 0 rg BT /F2 8.5 Tf 1 0 0 1 {title_x:.2} {title_y:.2} Tm ({}) Tj ET Q\n",
-            escape_pdf(&view.title)
+            "q 0 0 0 rg BT /F2 8 Tf 1 0 0 1 {title_x:.2} {title_y:.2} Tm ({} | {}) Tj ET Q\n",
+            escape_pdf(&view.title),
+            escape_pdf(sub_label)
+        ));
+        let scale_y = title_y - mm_to_pt(3.5);
+        s.push_str(&format!(
+            "q 0.4 0.4 0.4 rg BT /F1 6.5 Tf 1 0 0 1 {title_x:.2} {scale_y:.2} Tm ({}) Tj ET Q\n",
+            escape_pdf(&scale_label)
         ));
 
         // 2. Render Garis Sumbu (Centerlines) jika aktif

@@ -48,26 +48,26 @@ impl ProjectedViewKind {
     pub fn camera_vectors(self) -> (Vec3, Vec3, Vec3) {
         match self {
             ProjectedViewKind::Top => {
-                // Kamera di +Z melihat ke -Z
-                // Screen X: +X, Screen Y: +Y, View Dir: -Z (Depth: +Z)
+                // Kamera di +Z melihat ke -Z (bidang XY)
+                // Screen X: +X, Screen Y: +Y, View Dir: -Z (Kedalaman: +Z)
                 (vec3(0.0, 0.0, -1.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0))
             }
             ProjectedViewKind::Front => {
-                // Kamera di -Y melihat ke +Y
-                // Screen X: +X, Screen Y: +Z, View Dir: +Y (Depth: -Y)
+                // Kamera di -Y melihat ke +Y (bidang XZ)
+                // Screen X: +X, Screen Y: +Z, View Dir: +Y (Kedalaman: -Y)
                 (vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0))
             }
             ProjectedViewKind::Right => {
-                // Kamera di +X melihat ke -X
-                // Screen X: -Y (atau +Y tergantung konvensi; ISO pandangan kanan: +Y di kanan layar), Screen Y: +Z
+                // Kamera di +X melihat ke -X (bidang YZ)
+                // Screen X: +Y, Screen Y: +Z, View Dir: -X (Kedalaman: +X)
                 (vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0))
             }
             ProjectedViewKind::Isometric => {
-                // Sudut isometrik standar 35.264° / 45°: arah pandang (1, -1, 1) ternormalisasi
-                let v = vec3(1.0, -1.0, 1.0).normalize();
+                // Sudut isometrik standar DIN/ISO (Axonometric 35.264° / 45°): pandangan dari (+X, -Y, +Z)
+                let view_dir = vec3(-1.0, 1.0, -1.0).normalize();
                 let right = vec3(1.0, 1.0, 0.0).normalize();
-                let up = right.cross(v).normalize();
-                (-v, right, up)
+                let up = vec3(-1.0, 1.0, 2.0).normalize();
+                (view_dir, right, up)
             }
         }
     }
@@ -126,10 +126,9 @@ pub struct ProjectedView {
 
 impl ProjectedView {
     pub fn size_2d(&self) -> [f32; 2] {
-        [
-            (self.bounds_max[0] - self.bounds_min[0]).max(1.0),
-            (self.bounds_max[1] - self.bounds_min[1]).max(1.0),
-        ]
+        let w = (self.bounds_max[0] - self.bounds_min[0]).abs();
+        let h = (self.bounds_max[1] - self.bounds_min[1]).abs();
+        [w.max(1.0), h.max(1.0)]
     }
 
     pub fn center_2d(&self) -> [f32; 2] {
@@ -210,7 +209,7 @@ impl HlrExtractor {
         let depth_dir = -view_dir; // Vektor kedalaman (makin besar = makin dekat ke kamera)
 
         // 1. Kumpulkan semua 3D kurva tepi dari B-Rep solid
-        let mut raw_3d_segments: Vec<(Vec3, Vec3, bool)> = Vec::new(); // (start, end, is_boundary)
+        let mut raw_3d_segments: Vec<(Vec3, Vec3, bool)> = Vec::new(); // (start, end, is_silhouette)
 
         for shape in shapes {
             let occ_shape = shape.inner();
@@ -238,6 +237,14 @@ impl HlrExtractor {
             }
         }
 
+        // Jika tidak ada tepi B-Rep (mis. mesh murni), ekstrak tepi lipatan tajam (feature crease edges) dari mesh
+        if raw_3d_segments.is_empty() {
+            let feature_edges = extract_mesh_feature_edges(mesh);
+            for (p1, p2) in feature_edges {
+                raw_3d_segments.push((p1, p2, false));
+            }
+        }
+
         // 2. Ekstraksi garis siluet (silhouette edges) dari mesh segitiga
         let silhouette_segments = extract_silhouette_edges(mesh, view_dir);
         for (p1, p2) in silhouette_segments {
@@ -249,8 +256,8 @@ impl HlrExtractor {
         let mut bounds_min = vec2(f32::MAX, f32::MAX);
         let mut bounds_max = vec2(f32::MIN, f32::MIN);
 
-        // Pre-hitung segitiga terproyeksi untuk fast depth testing
-        let projected_triangles = build_projected_triangles(mesh, right_vec, up_vec, depth_dir);
+        // Pre-hitung segitiga terproyeksi (HANYA segitiga front-facing yang dapat menghalangi pandangan)
+        let projected_triangles = build_projected_triangles(mesh, right_vec, up_vec, depth_dir, view_dir);
 
         for (p1_3d, p2_3d, is_silhouette) in raw_3d_segments {
             let u1 = p1_3d.dot(right_vec);
@@ -262,7 +269,7 @@ impl HlrExtractor {
             let d2 = p2_3d.dot(depth_dir);
 
             let seg_len_2d = ((u1 - u2).powi(2) + (v1 - v2).powi(2)).sqrt();
-            if seg_len_2d < 0.05 {
+            if seg_len_2d < 0.02 {
                 continue; // Terlalu pendek dalam proyeksi 2D
             }
 
@@ -357,6 +364,7 @@ fn build_projected_triangles(
     right: Vec3,
     up: Vec3,
     depth: Vec3,
+    view_dir: Vec3,
 ) -> Vec<ProjectedTri> {
     let mut tris = Vec::with_capacity(mesh.triangle_count());
     let tri_count = mesh.indices.len() / 3;
@@ -373,6 +381,13 @@ fn build_projected_triangles(
         let p0 = Vec3::from_array(mesh.positions[i0]);
         let p1 = Vec3::from_array(mesh.positions[i1]);
         let p2 = Vec3::from_array(mesh.positions[i2]);
+
+        // Hitung normal segitiga
+        let tri_normal = (p1 - p0).cross(p2 - p0);
+        // Hanya masukkan segitiga yang menghadap kamera (front-facing)
+        if tri_normal.dot(view_dir) >= -1e-4 {
+            continue;
+        }
 
         let u0 = p0.dot(right);
         let v0 = p0.dot(up);
@@ -413,7 +428,7 @@ fn build_projected_triangles(
 
 /// Menguji apakah titik 2D (u, v) pada kedalaman `test_d` dihalangi oleh segitiga lain yang berada lebih depan (`tri_d > test_d + epsilon`).
 fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bool {
-    const EPSILON: f32 = 0.25; // Toleransi kedalaman mm untuk menghindari self-occlusion di tepi segitiga
+    const EPSILON: f32 = 0.50; // Toleransi kedalaman mm untuk menghindari false self-occlusion
 
     for tri in triangles {
         // Fast AABB rejection
@@ -445,7 +460,7 @@ fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bo
         let a = (dot00 * dot12 - dot01 * dot02) * inv_denom;
 
         // Titik berada di dalam segitiga jika a >= 0, b >= 0, dan a + b <= 1
-        if a >= -1e-4 && b >= -1e-4 && (a + b) <= 1.0001 {
+        if a >= -1e-3 && b >= -1e-3 && (a + b) <= 1.001 {
             // Interpolasi kedalaman segitiga pada (u, v)
             let tri_d = tri.d0 + a * (tri.d1 - tri.d0) + b * (tri.d2 - tri.d0);
             if tri_d > test_d + EPSILON {
@@ -455,6 +470,57 @@ fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bo
     }
 
     false
+}
+
+/// Ekstraksi tepi fitur tajam (crease edges) dari mesh jika tidak ada kurva B-Rep.
+fn extract_mesh_feature_edges(mesh: &KernelMesh) -> Vec<(Vec3, Vec3)> {
+    let mut feature_edges = Vec::new();
+    let tri_count = mesh.triangle_count();
+    if tri_count == 0 {
+        return feature_edges;
+    }
+
+    let mut tri_normals = Vec::with_capacity(tri_count);
+    for i in 0..tri_count {
+        let i0 = mesh.indices[i * 3] as usize;
+        let i1 = mesh.indices[i * 3 + 1] as usize;
+        let i2 = mesh.indices[i * 3 + 2] as usize;
+        let p0 = Vec3::from_array(mesh.positions[i0]);
+        let p1 = Vec3::from_array(mesh.positions[i1]);
+        let p2 = Vec3::from_array(mesh.positions[i2]);
+        let n = (p1 - p0).cross(p2 - p0).normalize_or_zero();
+        tri_normals.push(n);
+    }
+
+    let mut edge_map: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    for tri_idx in 0..tri_count {
+        let i0 = mesh.indices[tri_idx * 3];
+        let i1 = mesh.indices[tri_idx * 3 + 1];
+        let i2 = mesh.indices[tri_idx * 3 + 2];
+        for (u, v) in [(i0, i1), (i1, i2), (i2, i0)] {
+            let key = if u < v { (u, v) } else { (v, u) };
+            edge_map.entry(key).or_default().push(tri_idx);
+        }
+    }
+
+    for ((u, v), tris) in edge_map {
+        if tris.len() == 2 {
+            let n1 = tri_normals[tris[0]];
+            let n2 = tri_normals[tris[1]];
+            // Tepi tajam jika sudut antar normal > 25° (dot < ~0.90)
+            if n1.dot(n2) < 0.90 {
+                let p1 = Vec3::from_array(mesh.positions[u as usize]);
+                let p2 = Vec3::from_array(mesh.positions[v as usize]);
+                feature_edges.push((p1, p2));
+            }
+        } else if tris.len() == 1 {
+            let p1 = Vec3::from_array(mesh.positions[u as usize]);
+            let p2 = Vec3::from_array(mesh.positions[v as usize]);
+            feature_edges.push((p1, p2));
+        }
+    }
+
+    feature_edges
 }
 
 /// Ekstraksi garis siluet (silhouette edges) di mana normal permukaan berubah orientasi terhadap arah kamera.
@@ -479,7 +545,6 @@ fn extract_silhouette_edges(mesh: &KernelMesh, view_dir: Vec3) -> Vec<(Vec3, Vec
     }
 
     // Kumpulkan pasangan tepi terbagi (shared edges)
-    // Key: pair of vertex indices sorted
     let mut edge_map: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
     for tri_idx in 0..tri_count {
         let i0 = mesh.indices[tri_idx * 3];

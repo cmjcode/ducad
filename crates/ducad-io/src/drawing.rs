@@ -154,29 +154,27 @@ impl DrawingSheet {
         let right_margin = 10.0;
         let top_margin = 10.0;
         let bottom_margin = 10.0;
-        let _title_block_w = 140.0;
+        let title_block_w = 140.0;
         let _title_block_h = 45.0;
 
-        let usable_w = paper_w - left_margin - right_margin;
-        let usable_h = paper_h - top_margin - bottom_margin;
-
-        // Hitung bounding 2D tampak
+        // Bounding box 2D tampak
         let front_sz = self.drawing.front.size_2d();
         let top_sz = self.drawing.top.size_2d();
         let right_sz = self.drawing.right.size_2d();
         let iso_sz = self.drawing.isometric.size_2d();
 
-        // Total lebar tampak gabungan (Front + Right) + spasi antar tampak (20mm)
-        let total_w = front_sz[0] + right_sz[0] + 30.0;
-        let total_h = front_sz[1] + top_sz[1] + 30.0;
+        // Area utama untuk proyeksi ortogonal (Front, Top, Right) di sisi kiri lembar
+        let avail_ortho_w = (paper_w - left_margin - title_block_w - 25.0).max(60.0);
+        let avail_ortho_h = (paper_h - top_margin - bottom_margin - 48.0).max(60.0);
 
-        // Tentukan skala yang pas (auto scale factor)
-        let max_w = (usable_w - 40.0).max(50.0);
-        let max_h = (usable_h - 40.0).max(50.0);
+        let total_ortho_w = front_sz[0] + right_sz[0] + 35.0;
+        let total_ortho_h = front_sz[1] + top_sz[1] + 35.0;
 
-        let scale_w = max_w / total_w.max(1.0);
-        let scale_h = max_h / total_h.max(1.0);
-        let auto_scale = (scale_w.min(scale_h) * 0.85).min(5.0);
+        let scale_w = avail_ortho_w / total_ortho_w.max(1.0);
+        let scale_h = avail_ortho_h / total_ortho_h.max(1.0);
+        let scale_iso = (title_block_w - 20.0) / iso_sz[0].max(iso_sz[1]).max(1.0);
+
+        let auto_scale = scale_w.min(scale_h).min(scale_iso * 1.2).min(5.0);
 
         // Pilih skala standar terdekat (mis. 1:1, 1:2, 1:5, 2:1)
         self.scale = pick_standard_scale(auto_scale);
@@ -184,22 +182,32 @@ impl DrawingSheet {
 
         let s = self.scale;
 
-        // Tata letak 3rd Angle Projection:
-        // Top View di atas Front View
-        // Right View di sebelah kanan Front View
-        // Isometric View di pojok kanan atas
-        let front_center_x = left_margin + 20.0 + (front_sz[0] * s * 0.5);
-        let front_center_y = bottom_margin + 20.0 + (front_sz[1] * s * 0.5);
+        // Distribusikan tampak ortogonal di zona kiri
+        let w_front = front_sz[0] * s;
+        let h_front = front_sz[1] * s;
+        let _w_top = top_sz[0] * s;
+        let h_top = top_sz[1] * s;
+        let w_right = right_sz[0] * s;
+
+        let gap_x = ((avail_ortho_w - (w_front + w_right)) * 0.45).clamp(20.0, 45.0);
+        let gap_y = ((avail_ortho_h - (h_front + h_top)) * 0.45).clamp(20.0, 45.0);
+
+        let bottom_clearance = 28.0; // Jarak aman dari bingkai bawah untuk dimensi & judul tampak
+        let front_center_x = left_margin + 15.0 + w_front * 0.5;
+        let front_center_y = bottom_margin + bottom_clearance + h_front * 0.5;
 
         let top_center_x = front_center_x;
-        let top_center_y = front_center_y + (front_sz[1] * s * 0.5) + (top_sz[1] * s * 0.5) + 25.0;
+        let top_center_y = front_center_y + (h_front + h_top) * 0.5 + gap_y;
 
-        let right_center_x =
-            front_center_x + (front_sz[0] * s * 0.5) + (right_sz[0] * s * 0.5) + 25.0;
+        let right_center_x = front_center_x + (w_front + w_right) * 0.5 + gap_x;
         let right_center_y = front_center_y;
 
-        let iso_center_x = paper_w - right_margin - (iso_sz[0] * s * 0.5) - 20.0;
-        let iso_center_y = paper_h - top_margin - (iso_sz[1] * s * 0.5) - 20.0;
+        // Isometric View ditempatkan di zona kanan atas (di atas Title Block)
+        let iso_center_x = (paper_w - right_margin - (title_block_w * 0.5)).clamp(
+            right_center_x + w_right * 0.5 + 20.0,
+            paper_w - right_margin - (iso_sz[0] * s * 0.5) - 5.0,
+        );
+        let iso_center_y = paper_h - top_margin - 15.0 - (iso_sz[1] * s * 0.5);
 
         self.view_placements = vec![
             SheetViewPlacement {
@@ -258,7 +266,7 @@ impl DrawingSheet {
 
             if length_mm > 0.5 {
                 // Dimensi horizontal di bawah Tampak Depan
-                let dim_y = y_min - 12.0;
+                let dim_y = y_min - 8.0;
                 self.auto_dimensions.push(DimensionAnnotation {
                     start: [x_min, y_min],
                     end: [x_max, y_min],
@@ -270,7 +278,7 @@ impl DrawingSheet {
 
             if height_mm > 0.5 {
                 // Dimensi vertikal di kiri Tampak Depan
-                let dim_x = x_min - 12.0;
+                let dim_x = x_min - 8.0;
                 self.auto_dimensions.push(DimensionAnnotation {
                     start: [x_min, y_min],
                     end: [x_min, y_max],
@@ -299,7 +307,7 @@ impl DrawingSheet {
             let width_mm = (right_view.bounds_max[0] - right_view.bounds_min[0]).abs();
             if width_mm > 0.5 {
                 // Dimensi horizontal di bawah Tampak Samping
-                let dim_y = y_min - 12.0;
+                let dim_y = y_min - 8.0;
                 self.auto_dimensions.push(DimensionAnnotation {
                     start: [x_min, y_min],
                     end: [x_max, y_min],
