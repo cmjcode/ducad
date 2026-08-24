@@ -318,6 +318,72 @@ impl DrawingSheet {
                 });
             }
         }
+
+        // 3. Dimensi Ukuran Pendukung pada Tampak Atas (Top View)
+        if let Some(top_plc) = self
+            .view_placements
+            .iter()
+            .find(|p| p.kind == ProjectedViewKind::Top)
+        {
+            let top_view = &self.drawing.top;
+            let cx = top_plc.center_mm[0];
+            let cy = top_plc.center_mm[1];
+            let v_center = top_view.center_2d();
+
+            let x_min = cx + (top_view.bounds_min[0] - v_center[0]) * s;
+            let x_max = cx + (top_view.bounds_max[0] - v_center[0]) * s;
+            let y_min = cy + (top_view.bounds_min[1] - v_center[1]) * s;
+            let y_max = cy + (top_view.bounds_max[1] - v_center[1]) * s;
+
+            let length_mm = (top_view.bounds_max[0] - top_view.bounds_min[0]).abs();
+            let width_mm = (top_view.bounds_max[1] - top_view.bounds_min[1]).abs();
+
+            if width_mm > 0.5 {
+                // Dimensi vertikal di kiri Tampak Atas (lebar/kedalaman Y)
+                let dim_x = x_min - 8.0;
+                self.auto_dimensions.push(DimensionAnnotation {
+                    start: [x_min, y_min],
+                    end: [x_min, y_max],
+                    line_pos: [dim_x, (y_min + y_max) * 0.5],
+                    is_vertical: true,
+                    text: format!("{:.2} mm", width_mm),
+                });
+            }
+
+            if length_mm > 0.5 {
+                // Dimensi horizontal di atas Tampak Atas (panjang X)
+                let dim_y = y_max + 8.0;
+                self.auto_dimensions.push(DimensionAnnotation {
+                    start: [x_min, y_max],
+                    end: [x_max, y_max],
+                    line_pos: [(x_min + x_max) * 0.5, dim_y],
+                    is_vertical: false,
+                    text: format!("{:.2} mm", length_mm),
+                });
+            }
+
+            // Anotasi koordinat/posisi titik sumbu (centerlines) lubang/silinder terhadap tepi referensi
+            for cl in &top_view.centerlines {
+                let mid_u = (cl.start[0] + cl.end[0]) * 0.5;
+                let mid_v = (cl.start[1] + cl.end[1]) * 0.5;
+                let cx_c = cx + (mid_u - v_center[0]) * s;
+                let cy_c = cy + (mid_v - v_center[1]) * s;
+
+                // Hanya ambil garis sumbu horizontal sebagai wakil titik pusat
+                if (cl.start[1] - cl.end[1]).abs() < 1e-3 && (cx_c - x_min) > 2.0 && (x_max - cx_c) > 2.0 {
+                    let offset_x_mm = (mid_u - top_view.bounds_min[0]).abs();
+                    if offset_x_mm > 5.0 && offset_x_mm < length_mm - 5.0 {
+                        self.auto_dimensions.push(DimensionAnnotation {
+                            start: [x_min, cy_c],
+                            end: [cx_c, cy_c],
+                            line_pos: [(x_min + cx_c) * 0.5, cy_c],
+                            is_vertical: false,
+                            text: format!("{:.2} mm", offset_x_mm),
+                        });
+                    }
+                }
+            }
+        }
     }
 
     /// Garis batas tepi luar dan bingkai gambar dalam (mm).
