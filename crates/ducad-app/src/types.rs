@@ -39,6 +39,8 @@ pub enum ToolKind {
     Loft,
     Sweep,
     Shell,
+    /// Draft Angle — kemiringan cetakan plastik (injection molding, Fase 2.1).
+    DraftAngle,
     Boolean,
     SectionView,
     // Shared Utilities
@@ -73,6 +75,7 @@ impl ToolKind {
             ToolKind::Loft => ToolbarTool::Loft,
             ToolKind::Sweep => ToolbarTool::Sweep,
             ToolKind::Shell => ToolbarTool::Shell,
+            ToolKind::DraftAngle => ToolbarTool::DraftAngle,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
             ToolKind::Measure => ToolbarTool::Measure,
@@ -103,6 +106,7 @@ impl ToolKind {
             ToolbarTool::Loft => ToolKind::Loft,
             ToolbarTool::Sweep => ToolKind::Sweep,
             ToolbarTool::Shell => ToolKind::Shell,
+            ToolbarTool::DraftAngle => ToolKind::DraftAngle,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::Measure => ToolKind::Measure,
@@ -124,7 +128,7 @@ pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 ];
 
 #[allow(dead_code)]
-pub const KEYBOARD_SHORTCUTS: [(&str, &str); 20] = [
+pub const KEYBOARD_SHORTCUTS: [(&str, &str); 21] = [
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
@@ -136,6 +140,7 @@ pub const KEYBOARD_SHORTCUTS: [(&str, &str); 20] = [
     ("V", "Tool Revolve"),
     ("F", "Tool Fillet & Chamfer"),
     ("S", "Tool Shell / Hollow"),
+    ("D", "Tool Draft Angle (Kemiringan Cetakan)"),
     ("B", "Tool Boolean"),
     ("I", "Tool Pengukuran"),
     ("H", "Riwayat & Undo/Redo"),
@@ -201,6 +206,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Loft
         | ToolKind::Sweep
         | ToolKind::Shell
+        | ToolKind::DraftAngle
         | ToolKind::Boolean
         | ToolKind::SectionView
         | ToolKind::History => 0,

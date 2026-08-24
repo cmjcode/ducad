@@ -918,13 +918,13 @@ pub mod ffi {
         pub fn Build(self: Pin<&mut BRepAlgoAPI_Section>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepAlgoAPI_Section) -> bool;
 
-        // Geometric processor
         type gp_Ax1;
         type gp_Ax2;
         type gp_Ax3;
         type gp_Dir;
         type gp_Dir2d;
         type gp_Ax2d;
+        type gp_Pln;
         pub fn gp_OX() -> &'static gp_Ax1;
         pub fn gp_OY() -> &'static gp_Ax1;
         pub fn gp_OZ() -> &'static gp_Ax1;
@@ -1231,5 +1231,43 @@ pub mod ffi {
         pub fn AllowInternalEdges(self: Pin<&mut ShapeUpgrade_UnifySameDomain>, allow: bool);
         pub fn Build(self: Pin<&mut ShapeUpgrade_UnifySameDomain>);
         pub fn Shape(self: &ShapeUpgrade_UnifySameDomain) -> &TopoDS_Shape;
+
+        // BRepOffsetAPI_DraftAngle (DUCAD Fase 2 — manufaktur plastik).
+        // Menambahkan kemiringan cetakan (draft angle) ke face planar solid
+        // agar produk bisa dilepas dari cetakan injeksi plastik.
+        // Semua fungsi yang bisa gagal dibungkus wrapper Standard_Failure di
+        // wrapper.hxx (pola sama dengan fillet/boolean/sweep).
+        type BRepOffsetAPI_DraftAngle;
+
+        // gp_Pln — bidang geometris 3D (titik origin + normal arah).
+        // Diperlukan sebagai neutral_plane di DraftAngle::Add().
+        pub fn gp_Pln_ctor_point_and_dir(
+            point: &gp_Pnt,
+            dir: &gp_Dir,
+        ) -> UniquePtr<gp_Pln>;
+
+        pub fn BRepOffsetAPI_DraftAngle_ctor(
+            shape: &TopoDS_Shape,
+        ) -> Result<UniquePtr<BRepOffsetAPI_DraftAngle>>;
+
+        pub fn BRepOffsetAPI_DraftAngle_Add(
+            draft: Pin<&mut BRepOffsetAPI_DraftAngle>,
+            face: &TopoDS_Face,
+            pull_dir: &gp_Dir,
+            angle_rad: f64,
+            neutral_plane: &gp_Pln,
+        ) -> Result<()>;
+
+        pub fn BRepOffsetAPI_DraftAngle_Build(
+            draft: Pin<&mut BRepOffsetAPI_DraftAngle>,
+        ) -> Result<()>;
+
+        pub fn BRepOffsetAPI_DraftAngle_IsDone(
+            draft: &BRepOffsetAPI_DraftAngle,
+        ) -> bool;
+
+        pub fn BRepOffsetAPI_DraftAngle_shape_checked(
+            draft: Pin<&mut BRepOffsetAPI_DraftAngle>,
+        ) -> Result<&TopoDS_Shape>;
     }
 }

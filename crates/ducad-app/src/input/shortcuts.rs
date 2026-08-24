@@ -124,6 +124,16 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Sweep),
             ),
             (
+                "Draft Angle (Kemiringan Cetakan)".to_string(),
+                "D".to_string(),
+                PaletteAction::SetTool(ToolKind::DraftAngle),
+            ),
+            (
+                "Shell / Hollow (Rongga)".to_string(),
+                "S".to_string(),
+                PaletteAction::SetTool(ToolKind::Shell),
+            ),
+            (
                 "Coincident (titik)".to_string(),
                 String::new(),
                 PaletteAction::SetTool(ToolKind::CoincidentPick),
@@ -367,6 +377,7 @@ impl DuCADApp {
             ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
             ToolKind::Sweep => ducad_i18n::t!("status-prompt-sweep"),
             ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
+            ToolKind::DraftAngle => ducad_i18n::t!("status-prompt-draft"),
             ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
             ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),

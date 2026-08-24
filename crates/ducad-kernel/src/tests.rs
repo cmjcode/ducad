@@ -1426,3 +1426,84 @@ fn sweep_empty_path_fails_gracefully() {
     assert!(res.is_err());
 }
 
+#[test]
+fn draft_angle_single_face_success() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    let shape = extrude_profile(&profile, 30.0).expect("extrude box harus berhasil");
+
+    // Raycast ke side face di X=20 (menghadap +X)
+    let side_ray = PickRay {
+        origin: (50.0, 10.0, 15.0),
+        dir: (-1.0, 0.0, 0.0),
+    };
+
+    let drafted = draft_angle(
+        &shape,
+        glam::DVec3::new(0.0, 0.0, 0.0),      // neutral plane at Z=0
+        glam::DVec3::new(0.0, 0.0, 1.0),      // neutral plane normal = +Z
+        glam::DVec3::new(0.0, 0.0, 1.0),      // pull direction = +Z
+        3.0,                                   // 3 degrees draft
+        &[side_ray],
+    )
+    .expect("draft_angle single face harus berhasil");
+
+    let mesh = drafted.tessellate();
+    assert!(mesh.triangle_count() > 0);
+}
+
+#[test]
+fn draft_angle_multiple_faces_success() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(30.0, 30.0);
+    let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
+
+    // 4 side faces
+    let ray_right = PickRay { origin: (50.0, 15.0, 20.0), dir: (-1.0, 0.0, 0.0) };
+    let ray_left = PickRay { origin: (-50.0, 15.0, 20.0), dir: (1.0, 0.0, 0.0) };
+    let ray_front = PickRay { origin: (15.0, -50.0, 20.0), dir: (0.0, 1.0, 0.0) };
+    let ray_back = PickRay { origin: (15.0, 50.0, 20.0), dir: (0.0, -1.0, 0.0) };
+
+    let drafted = draft_angle(
+        &shape,
+        glam::DVec3::new(0.0, 0.0, 0.0),
+        glam::DVec3::new(0.0, 0.0, 1.0),
+        glam::DVec3::new(0.0, 0.0, 1.0),
+        2.5,
+        &[ray_right, ray_left, ray_front, ray_back],
+    )
+    .expect("draft_angle 4 faces harus berhasil");
+
+    let mesh = drafted.tessellate();
+    assert!(mesh.triangle_count() > 0);
+}
+
+#[test]
+fn draft_angle_invalid_angle_errors() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    let shape = extrude_profile(&profile, 30.0).unwrap();
+    let ray = PickRay { origin: (50.0, 10.0, 15.0), dir: (-1.0, 0.0, 0.0) };
+
+    // Sudut 0 atau negatif harus error
+    let res_zero = draft_angle(&shape, glam::DVec3::ZERO, glam::DVec3::Z, glam::DVec3::Z, 0.0, &[ray]);
+    assert!(res_zero.is_err());
+
+    let res_neg = draft_angle(&shape, glam::DVec3::ZERO, glam::DVec3::Z, glam::DVec3::Z, -5.0, &[ray]);
+    assert!(res_neg.is_err());
+
+    // Sudut >= 90 harus error
+    let res_90 = draft_angle(&shape, glam::DVec3::ZERO, glam::DVec3::Z, glam::DVec3::Z, 90.0, &[ray]);
+    assert!(res_90.is_err());
+}
+
+#[test]
+fn draft_angle_empty_rays_errors() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let profile = rect_profile(20.0, 20.0);
+    let shape = extrude_profile(&profile, 30.0).unwrap();
+
+    let res = draft_angle(&shape, glam::DVec3::ZERO, glam::DVec3::Z, glam::DVec3::Z, 3.0, &[]);
+    assert!(res.is_err());
+}
+

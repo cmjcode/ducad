@@ -213,6 +213,10 @@ pub struct DuCADApp {
     pub rename_popup_open: bool,
     pub rename_input: String,
     pub rename_target: RenameTarget,
+
+    /// State Draft Angle (Fase 2.1 — Manufaktur Plastik).
+    pub draft_angle_input: String,
+    pub draft_pull_dir: ducad_ui::DraftPullDir,
 }
 
 /// Target objek yang sedang di-rename.
@@ -423,6 +427,9 @@ impl DuCADApp {
             rename_popup_open: false,
             rename_input: String::new(),
             rename_target: RenameTarget::None,
+
+            draft_angle_input: "3.0".to_string(),
+            draft_pull_dir: ducad_ui::DraftPullDir::PosZ,
         }
     }
 
@@ -841,7 +848,7 @@ impl eframe::App for DuCADApp {
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
                             match kind {
-                                ToolKind::Shell => {
+                                ToolKind::Shell | ToolKind::DraftAngle => {
                                     self.picking_mode = PickMode::Face;
                                 }
                                 ToolKind::Select => {
@@ -1275,6 +1282,9 @@ impl eframe::App for DuCADApp {
                     self.shell_thickness_input = thickness.to_string();
                     self.shell_selected_body();
                 }
+                ToolPopupEvent::ApplyDraftAngle { angle_deg, pull_dir } => {
+                    self.apply_draft_angle(angle_deg, pull_dir);
+                }
                 ToolPopupEvent::ApplyBooleanUnion => {
                     self.boolean_selected(BooleanKind::Union, "Union", "Union");
                 }
@@ -1539,6 +1549,9 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::Shell => {
                                     self.set_tool(ToolKind::Shell);
+                                }
+                                ContextAction::DraftAngle => {
+                                    self.set_tool(ToolKind::DraftAngle);
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;

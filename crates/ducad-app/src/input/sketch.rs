@@ -1054,7 +1054,26 @@ impl DuCADApp {
                     };
 
                     if is_multi && !self.is_sketching {
-                        if let Some((b_id, ..)) = face_pick_3d {
+                        if self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell {
+                            if let Some((b_id, ray, _hit)) = face_pick_3d {
+                                self.selected.clear();
+                                self.selected_bodies.clear();
+                                self.selected_bodies.insert(b_id);
+                                if let Some((active_id, active_ray, _)) = self.active_face.take() {
+                                    if active_id == b_id && !self.selected_faces.contains(&active_ray) {
+                                        self.selected_faces.push(active_ray);
+                                    }
+                                }
+                                if !self.selected_faces.contains(&ray) {
+                                    self.selected_faces.push(ray);
+                                } else {
+                                    self.selected_faces.retain(|r| *r != ray);
+                                }
+                                let count = self.selected_faces.len();
+                                self.model_status = Some(format!("{} face terpilih", count));
+                                return;
+                            }
+                        } else if let Some((b_id, ..)) = face_pick_3d {
                             self.selected.clear();
                             if let Some((prev_id, ..)) = self.active_face.take() {
                                 self.selected_bodies.insert(prev_id);
@@ -1100,14 +1119,17 @@ impl DuCADApp {
                     };
 
                     let now = std::time::Instant::now();
-                    let is_double_click = response.double_clicked()
+                    let is_face_tool = self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell;
+                    let is_double_click = !is_face_tool && (
+                        response.double_clicked()
                         || self.last_body_select_click.as_ref().is_some_and(|(last_id, last_time)| {
                             face_pick_3d.as_ref().is_some_and(|(b_id, ..)| *last_id == *b_id)
                                 && now.duration_since(*last_time).as_millis() < 500
                         })
                         || (face_pick_3d.as_ref().is_some_and(|(b_id, ..)| {
                             self.active_face.as_ref().is_some_and(|(cur_id, ..)| cur_id == b_id)
-                        }));
+                        }))
+                    );
 
                     if let Some((b_id, idx)) = round_edit {
                         let feature = self.round_history[&b_id].features[idx].clone();
@@ -1761,6 +1783,7 @@ impl DuCADApp {
             }
             ToolKind::Extrude
             | ToolKind::Shell
+            | ToolKind::DraftAngle
             | ToolKind::Boolean
             | ToolKind::SectionView
             | ToolKind::History => {

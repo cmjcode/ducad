@@ -44,6 +44,12 @@ pub enum ToolPopupEvent {
     // Shell
     ToggleFacePicking,
     ApplyShell { thickness: f64 },
+    // Draft Angle (Fase 2.1 — Manufaktur Plastik)
+    ApplyDraftAngle {
+        angle_deg: f64,
+        /// Arah bukaan cetakan sebagai vektor (x, y, z).
+        pull_dir: (f64, f64, f64),
+    },
     // Boolean
     ApplyBooleanUnion,
     ApplyBooleanSubtract,

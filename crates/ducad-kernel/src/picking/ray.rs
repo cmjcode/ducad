@@ -17,7 +17,7 @@ use glam::{dvec3, DVec3};
 /// SAMA di-cast ULANG terhadap shape hasil clone akan selalu kena
 /// permukaan/tepi yang SAMA secara geometris — robust lewat operasi
 /// geometris nyata, bukan lewat asumsi index/handle yang tak teruji.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PickRay {
     pub origin: (f64, f64, f64),
     pub dir: (f64, f64, f64),

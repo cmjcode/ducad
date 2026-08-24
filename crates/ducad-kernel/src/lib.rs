@@ -56,9 +56,9 @@ pub use csg::{
 };
 pub use mesh::KernelMesh;
 pub use modify::{
-    chamfer_all, chamfer_edges, chamfer_vertex, extrude_face, fillet_all, fillet_edges,
-    fillet_vertex, make_filleted_box, resize_shape_along_edge, revolve_face, shell_hollow, shell_hollow_faces,
-    Direction,
+    chamfer_all, chamfer_edges, chamfer_vertex, draft_angle, extrude_face, fillet_all,
+    fillet_edges, fillet_vertex, make_filleted_box, resize_shape_along_edge, revolve_face,
+    shell_hollow, shell_hollow_faces, Direction,
 };
 pub use picking::{
     edge_dimensions, pick_edge, pick_face, pick_face_details, pick_vertex, shape_vertices,

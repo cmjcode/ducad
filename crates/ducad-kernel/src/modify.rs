@@ -343,6 +343,73 @@ pub fn revolve_face(
     }
 }
 
+/// Tambahkan kemiringan cetakan (draft angle) pada satu atau beberapa face planar
+/// solid yang di-pick lewat `rays`. Digunakan untuk manufaktur produk cetakan
+/// plastik (injection molding) agar produk bisa dilepas dari cetakan.
+///
+/// - `neutral_plane_point`: titik pada bidang netral (garis netral tidak bergerak).
+/// - `neutral_plane_normal`: vektor normal dari bidang netral (biasanya sejajar pull_direction).
+/// - `pull_direction`: arah bukaan cetakan (biasanya `DVec3::Z` = Z+).
+/// - `angle_deg`: sudut kemiringan dalam derajat (1–5° umum untuk plastik).
+/// - `rays`: satu atau lebih ray dari kamera untuk pick face yang akan di-draft.
+pub fn draft_angle(
+    shape: &KernelShape,
+    neutral_plane_point: DVec3,
+    neutral_plane_normal: DVec3,
+    pull_direction: DVec3,
+    angle_deg: f64,
+    rays: &[PickRay],
+) -> Result<KernelShape> {
+    if angle_deg <= 0.0 || angle_deg >= 90.0 {
+        bail!("sudut draft harus antara 0° dan 90° (eksklusif); diberikan {angle_deg:.3}°");
+    }
+    if rays.is_empty() {
+        bail!("pilih minimal 1 face planar untuk diberi draft angle");
+    }
+    let pull_len = pull_direction.length();
+    if pull_len < 1e-9 {
+        bail!("arah pull tidak valid (vektor nol)");
+    }
+    let np_len = neutral_plane_normal.length();
+    if np_len < 1e-9 {
+        bail!("normal bidang netral tidak valid (vektor nol)");
+    }
+
+    // Normalisasi
+    let pull_dir_norm = pull_direction / pull_len;
+    let np_normal_norm = neutral_plane_normal / np_len;
+
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+
+    // Resolve faces via picking rays
+    let mut oc_faces = Vec::with_capacity(rays.len());
+    for ray in rays {
+        let Some((face, _)) = resolve_face_along_ray(&cloned, *ray) else {
+            bail!("salah satu face terpilih tidak ditemukan pada shape");
+        };
+        if SurfaceKind::from(face.surface_kind().as_str()) != SurfaceKind::Plane {
+            bail!("draft angle hanya mendukung face planar; pilih face datar");
+        }
+        oc_faces.push(face);
+    }
+
+    let face_refs: Vec<&opencascade::primitives::Face> = oc_faces.iter().collect();
+
+    // Jalankan draft angle langsung pada cloned shape (OCCT call, lock tetap dipegang)
+    let result = cloned
+        .draft_angle(
+            neutral_plane_point,
+            np_normal_norm,
+            pull_dir_norm,
+            angle_deg,
+            &face_refs,
+        )
+        .map_err(|e| anyhow!("Draft Angle gagal: {e}"))?;
+
+    Ok(KernelShape::from_inner(result))
+}
+
 /// Smoke-test kemampuan kernel: kotak di-extrude dari sketch lalu difillet
 pub fn make_filleted_box(
     width: f64,

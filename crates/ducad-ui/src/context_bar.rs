@@ -6,8 +6,8 @@
 
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE,
-    ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE,
+    ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
+    ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -20,6 +20,7 @@ pub enum ContextAction {
     Revolve,
     Sweep,
     Shell,
+    DraftAngle,
     Boolean,
     Fillet,
     SketchOnFace,
@@ -221,6 +222,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Ronggakan benda 3D dengan ketebalan dinding (S)").clicked() {
                     action = Some(ContextAction::Shell);
+                }
+
+                // Draft Angle
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{}  Draft Angle", ICON_ARCHITECTURE.codepoint))
+                            .size(11.5)
+                            .color(crate::theme::ACCENT_ORANGE),
+                    ),
+                );
+                if btn.on_hover_text("Tambahkan kemiringan cetakan plastik (draft angle) ke face ini (D)").clicked() {
+                    action = Some(ContextAction::DraftAngle);
                 }
 
                 ui.add_space(2.0);

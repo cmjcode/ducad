@@ -669,4 +669,81 @@ impl DuCADApp {
         self.body_move_armed = false;
         self.body_move_target = None;
     }
+
+    /// Terapkan kemiringan cetakan (draft angle) ke face planar yang sedang aktif
+    /// atau kumpulan face terpilih. Neutral plane diambil dari posisi Y=0 dengan
+    /// arah normal sejajar `pull_dir` (menghasilkan garis netral di bidang dasar
+    /// benda — perilaku umum untuk benda cetakan plastik dengan bidang pisah horizontal).
+    pub fn apply_draft_angle(
+        &mut self,
+        angle_deg: f64,
+        pull_dir: (f64, f64, f64),
+    ) {
+        use glam::DVec3;
+
+        // Kumpulkan rays — prioritas: selected_faces (dari picking), fallback active_face.
+        let (target_id, rays): (ducad_core::BodyId, Vec<ducad_kernel::PickRay>) = {
+            if !self.selected_faces.is_empty() {
+                // Mode: beberapa face dipilih lewat PickMode::Face
+                let Some(&id) = self.selected_bodies.iter().next() else {
+                    self.model_status = Some(
+                        "Pilih body 3D dan minimal 1 face planar untuk Draft Angle".to_string(),
+                    );
+                    return;
+                };
+                (id, self.selected_faces.clone())
+            } else if let Some((id, ray, _)) = self.active_face {
+                // Mode: satu face di-hover/klik di viewport
+                (id, vec![ray])
+            } else {
+                self.model_status = Some(
+                    "Pilih minimal 1 face planar pada objek untuk Draft Angle".to_string(),
+                );
+                return;
+            }
+        };
+
+        let Some(geo) = self.model.geometry.get(target_id) else {
+            self.model_status = Some("Geometri body tidak ditemukan".to_string());
+            return;
+        };
+
+        // Neutral plane: Z=0 (bidang dasar) dengan normal = pull_dir
+        // (pengguna bisa mengatur ini nanti via dialog jika diperlukan).
+        let neutral_plane_point = DVec3::ZERO;
+        let neutral_plane_normal = DVec3::new(pull_dir.0, pull_dir.1, pull_dir.2);
+        let pull_direction = DVec3::new(pull_dir.0, pull_dir.1, pull_dir.2);
+
+        match ducad_kernel::draft_angle(
+            &geo.shape,
+            neutral_plane_point,
+            neutral_plane_normal,
+            pull_direction,
+            angle_deg,
+            &rays,
+        ) {
+            Ok(shape) => {
+                let new_geo = BodyGeometry::from_shape(shape);
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new("Draft Angle", target_id, new_geo)),
+                    &format!(
+                        "Memberi kemiringan cetakan {:.1}° ke face (arah pull {:?})",
+                        angle_deg, pull_dir
+                    ),
+                );
+                self.round_history.remove(&target_id);
+                self.selected_faces.clear();
+                self.active_face = None;
+                self.picking_mode = crate::types::PickMode::None;
+                self.model_status = Some(format!(
+                    "Draft Angle {:.1}° diterapkan ✓",
+                    angle_deg
+                ));
+                self.set_tool(crate::types::ToolKind::Select);
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Draft Angle gagal: {e}"));
+            }
+        }
+    }
 }

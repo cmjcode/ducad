@@ -22,6 +22,7 @@
 #include <BRepLib.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
@@ -72,6 +73,7 @@
 #include <gp_Cylinder.hxx>
 #include <gp_Elips.hxx>
 #include <gp_Lin.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
@@ -704,3 +706,64 @@ inline const TopoDS_Shape &BRepOffsetAPI_MakePipe_shape_checked(BRepOffsetAPI_Ma
 }
 
 
+// BRepOffsetAPI_DraftAngle — kemiringan cetakan untuk manufaktur plastik
+// (injection molding). Menambahkan draft angle ke satu atau beberapa face
+// planar solid agar produk bisa dilepas dari cetakan.
+//
+// Pola proteksi Standard_Failure: SAMA dengan BRepOffsetAPI_MakePipe dan
+// boolean ops di atas — OCCT melempar Standard_Failure (BUKAN std::exception)
+// kalau face bukan planar, sudut di luar batas, atau plane netral tidak valid.
+// Dibungkus try/catch + rethrow_standard_failure_as_runtime_error agar
+// exception tidak lolos lewat cxx dan memicu std::terminate.
+
+inline std::unique_ptr<gp_Pln> gp_Pln_ctor_point_and_dir(const gp_Pnt &point, const gp_Dir &dir) {
+  return std::unique_ptr<gp_Pln>(new gp_Pln(point, dir));
+}
+
+inline std::unique_ptr<BRepOffsetAPI_DraftAngle> BRepOffsetAPI_DraftAngle_ctor(const TopoDS_Shape &shape) {
+  try {
+    return std::unique_ptr<BRepOffsetAPI_DraftAngle>(new BRepOffsetAPI_DraftAngle(shape));
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_DraftAngle: konstruksi gagal (shape tidak valid)");
+  }
+}
+
+// Tambahkan satu face ke daftar face yang akan di-draft.
+// `neutral_plane`: bidang netral (asal garis netral, tidak bergerak).
+// `pull_dir`: arah bukaan cetakan (arah penarikan).
+// `angle_rad`: besar sudut kemiringan dalam radian.
+// `flag`: Standard_True = kemiringan ke arah yang sama dgn pull_dir.
+inline void BRepOffsetAPI_DraftAngle_Add(BRepOffsetAPI_DraftAngle &draft,
+                                          const TopoDS_Face &face,
+                                          const gp_Dir &pull_dir,
+                                          Standard_Real angle_rad,
+                                          const gp_Pln &neutral_plane) {
+  try {
+    draft.Add(face, pull_dir, angle_rad, neutral_plane);
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_DraftAngle::Add() gagal (face bukan planar atau bidang netral tidak valid)");
+  }
+}
+
+inline void BRepOffsetAPI_DraftAngle_Build(BRepOffsetAPI_DraftAngle &draft) {
+  try {
+    draft.Build();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_DraftAngle::Build() gagal (sudut terlalu besar atau geometri face tidak kompatibel)");
+  }
+}
+
+inline bool BRepOffsetAPI_DraftAngle_IsDone(const BRepOffsetAPI_DraftAngle &draft) {
+  return draft.IsDone();
+}
+
+inline const TopoDS_Shape &BRepOffsetAPI_DraftAngle_shape_checked(BRepOffsetAPI_DraftAngle &draft) {
+  try {
+    if (!draft.IsDone()) {
+      throw std::runtime_error("BRepOffsetAPI_DraftAngle::Shape() gagal: operasi draft tidak selesai");
+    }
+    return draft.Shape();
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepOffsetAPI_DraftAngle::Shape() gagal: not done");
+  }
+}

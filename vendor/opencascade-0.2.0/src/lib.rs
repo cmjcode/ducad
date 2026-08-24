@@ -56,6 +56,14 @@ pub enum Error {
     // (mis. profil atau jalur kurva bermasalah).
     #[error("BRepOffsetAPI_MakePipe gagal: {0}")]
     PipeFailed(String),
+    // PATCH (DUCAD Fase 2.1 — manufaktur plastik): variant baru untuk membungkus
+    // kegagalan BRepOffsetAPI_DraftAngle (face bukan planar, sudut di luar batas
+    // geometri yang bisa ditampung, neutral plane tidak valid, atau shape
+    // tidak kompatibel). Sudah diterjemahkan jadi `Result<>` cxx rapi lewat
+    // wrapper try/catch di `opencascade-sys`, tinggal disalurkan ke sini
+    // (pola sama dgn `FilletFailed`/`BooleanOpFailed`).
+    #[error("BRepOffsetAPI_DraftAngle gagal: {0}")]
+    DraftAngleFailed(String),
 }
 
 

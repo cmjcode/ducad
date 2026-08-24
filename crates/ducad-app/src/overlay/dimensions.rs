@@ -720,6 +720,49 @@ impl DuCADApp {
                     self.set_tool(ToolKind::Select);
                 }
             }
+        } else if self.tool == ToolKind::DraftAngle {
+            let selected_count = if !self.selected_faces.is_empty() {
+                self.selected_faces.len()
+            } else if self.active_face.is_some() {
+                1
+            } else {
+                0
+            };
+            let current_angle = self.draft_angle_input.trim().parse::<f64>().unwrap_or(3.0);
+
+            if let Some(action) = CanvasHud::render_draft_top_bar_hud(
+                ui,
+                rect,
+                selected_count,
+                current_angle,
+                &mut self.draft_angle_input,
+                &mut self.draft_pull_dir,
+            ) {
+                match action {
+                    ducad_ui::DraftHudAction::SetAngle(a) => {
+                        self.draft_angle_input = format!("{:.1}", a);
+                    }
+                    ducad_ui::DraftHudAction::SetPullDir(dir) => {
+                        self.draft_pull_dir = dir;
+                    }
+                    ducad_ui::DraftHudAction::Commit => {
+                        let (px, py, pz) = self.draft_pull_dir.to_vec();
+                        self.apply_draft_angle(current_angle, (px, py, pz));
+                    }
+                    ducad_ui::DraftHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if selected_count > 0 {
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let (px, py, pz) = self.draft_pull_dir.to_vec();
+                    self.apply_draft_angle(current_angle, (px, py, pz));
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.set_tool(ToolKind::Select);
+                }
+            }
         } else if self.tool == ToolKind::Boolean {
             let selected_count = self.selected_bodies.len();
 

@@ -513,5 +513,69 @@ impl Shape {
         let inner = ffi::TopoDS_Shape_to_owned(result_shape);
         Ok(Self { inner })
     }
-}
 
+    /// Menambahkan draft angle (kemiringan cetakan) pada satu atau beberapa face planar solid.
+    ///
+    /// Digunakan untuk manufaktur produk cetakan plastik (injection molding) agar produk
+    /// dapat dilepas dari cetakan tanpa merusak permukaan.
+    ///
+    /// # Parameter
+    /// - `neutral_plane_point`: Titik pada bidang netral (garis netral tidak bergerak).
+    /// - `neutral_plane_normal`: Vektor normal dari bidang netral.
+    /// - `pull_direction`: Arah penarikan/bukaan cetakan (biasanya sejajar sumbu Z).
+    /// - `angle_deg`: Sudut kemiringan dalam derajat (biasanya 1–5° untuk plastik, max ~89°).
+    /// - `faces`: Daftar face planar yang akan diberi kemiringan.
+    ///
+    /// # Errors
+    /// Gagal jika face bukan planar, sudut di luar batas geometri, atau bidang netral tidak valid.
+    pub fn draft_angle(
+        &self,
+        neutral_plane_point: DVec3,
+        neutral_plane_normal: DVec3,
+        pull_direction: DVec3,
+        angle_deg: f64,
+        faces: &[&Face],
+    ) -> Result<Self, crate::Error> {
+        let to_error = |e: cxx::Exception| crate::Error::DraftAngleFailed(e.what().to_string());
+
+        // Konversi ke radian
+        let angle_rad = angle_deg.to_radians();
+
+        // Buat arah tarik (pull direction) dan bidang netral (neutral plane)
+        let pull_dir = ffi::gp_Dir_ctor(pull_direction.x, pull_direction.y, pull_direction.z);
+        let np_point = ffi::new_point(neutral_plane_point.x, neutral_plane_point.y, neutral_plane_point.z);
+        let np_normal = ffi::gp_Dir_ctor(neutral_plane_normal.x, neutral_plane_normal.y, neutral_plane_normal.z);
+        let neutral_plane = ffi::gp_Pln_ctor_point_and_dir(&np_point, &np_normal);
+
+        // Buat DraftAngle builder dengan shape sumber
+        let mut draft = ffi::BRepOffsetAPI_DraftAngle_ctor(&self.inner).map_err(to_error)?;
+
+        // Tambahkan setiap face ke builder
+        for face in faces {
+            ffi::BRepOffsetAPI_DraftAngle_Add(
+                draft.pin_mut(),
+                &face.inner,
+                &pull_dir,
+                angle_rad,
+                &neutral_plane,
+            )
+            .map_err(to_error)?;
+        }
+
+        // Jalankan algoritma
+        ffi::BRepOffsetAPI_DraftAngle_Build(draft.pin_mut()).map_err(to_error)?;
+
+        if !ffi::BRepOffsetAPI_DraftAngle_IsDone(&draft) {
+            return Err(crate::Error::DraftAngleFailed(
+                "Build() selesai tanpa error tapi IsDone() == false (sudut atau face tidak kompatibel)"
+                    .to_string(),
+            ));
+        }
+
+        let result_shape =
+            ffi::BRepOffsetAPI_DraftAngle_shape_checked(draft.pin_mut()).map_err(to_error)?;
+        let inner = ffi::TopoDS_Shape_to_owned(result_shape);
+
+        Ok(Self { inner })
+    }
+}

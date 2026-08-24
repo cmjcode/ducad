@@ -81,6 +81,7 @@ impl ToolGuides {
             ToolbarTool::Loft => Self::render_loft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Sweep => Self::render_sweep_anim(&painter, card_rect, time),
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
+            ToolbarTool::DraftAngle => Self::render_draft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
@@ -1526,6 +1527,69 @@ impl ToolGuides {
                 Color32::WHITE,
             );
         }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Draft Angle Tool (Kemiringan Cetakan Plastik)
+    fn render_draft_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        _has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 3.5;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.45 {
+            ("Pilih Face Planar 3D", ACCENT_ORANGE)
+        } else {
+            ("Atur Sudut & Terapkan", ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, "Draft Angle (Kemiringan)", step_title, step_color);
+        Self::draw_footer(painter, card_rect, "Pintasan: D • Mempermudah pelepasan cetakan injeksi");
+
+        let box_rect = Rect::from_center_size(
+            Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 4.0),
+            Vec2::new(48.0, 42.0),
+        );
+
+        if phase < 0.45 {
+            // Kotak tegak lurus biasa
+            painter.rect_filled(box_rect, 2.0, ACCENT_BLUE.gamma_multiply(0.25));
+            painter.rect_stroke(box_rect, 2.0, Stroke::new(1.5, ACCENT_BLUE), StrokeKind::Inside);
+        } else {
+            // Kotak dengan kemiringan (taper / trapezoid)
+            let taper = 6.0;
+            let top_left = Pos2::new(box_rect.left() + taper, box_rect.top());
+            let top_right = Pos2::new(box_rect.right() - taper, box_rect.top());
+            let bot_right = box_rect.right_bottom();
+            let bot_left = box_rect.left_bottom();
+
+            let poly = vec![top_left, top_right, bot_right, bot_left];
+            painter.add(egui::Shape::convex_polygon(
+                poly,
+                ACCENT_ORANGE.gamma_multiply(0.3),
+                Stroke::new(1.6, ACCENT_ORANGE),
+            ));
+
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "∠ 3.0°",
+                Color32::from_rgba_premultiplied(15, 80, 40, 220),
+                Color32::WHITE,
+            );
+        }
+
+        let (cursor_pos, is_clicking) = if phase < 0.45 {
+            let t = (phase / 0.45).clamp(0.0, 1.0);
+            (Pos2::new(box_rect.right() - (1.0 - t) * 20.0, box_rect.center().y), t > 0.8)
+        } else {
+            (Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0), false)
+        };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }

@@ -44,6 +44,56 @@ pub enum ShellHudAction {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DraftHudAction {
+    SetAngle(f64),
+    SetPullDir(DraftPullDir),
+    Commit,
+    Cancel,
+}
+
+/// Preset arah pull cetakan yang umum dipakai.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DraftPullDir {
+    /// Arah +Z (atas) — paling umum untuk cetakan vertikal.
+    PosZ,
+    /// Arah -Z (bawah).
+    NegZ,
+    /// Arah +Y (depan).
+    PosY,
+    /// Arah -Y (belakang).
+    NegY,
+    /// Arah +X (kanan).
+    PosX,
+    /// Arah -X (kiri).
+    NegX,
+}
+
+impl DraftPullDir {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::PosZ => "+Z (Atas)",
+            Self::NegZ => "-Z (Bawah)",
+            Self::PosY => "+Y (Depan)",
+            Self::NegY => "-Y (Belakang)",
+            Self::PosX => "+X (Kanan)",
+            Self::NegX => "-X (Kiri)",
+        }
+    }
+
+    /// Konversi ke komponen vektor (x, y, z)
+    pub fn to_vec(&self) -> (f64, f64, f64) {
+        match self {
+            Self::PosZ => (0.0, 0.0, 1.0),
+            Self::NegZ => (0.0, 0.0, -1.0),
+            Self::PosY => (0.0, 1.0, 0.0),
+            Self::NegY => (0.0, -1.0, 0.0),
+            Self::PosX => (1.0, 0.0, 0.0),
+            Self::NegX => (-1.0, 0.0, 0.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanHudAction {
     SelectOp(BooleanOpKind),
@@ -1264,6 +1314,159 @@ impl CanvasHud {
                         }
                     }
                     ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
+                }
+            });
+        });
+
+        hud_action
+    }
+
+    /// Render Top Bar HUD mengambang untuk mode Draft Angle 3D (Kemiringan Cetakan)
+    pub fn render_draft_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        selected_faces_count: usize,
+        current_angle: f64,
+        angle_input: &mut String,
+        current_pull_dir: &mut DraftPullDir,
+    ) -> Option<DraftHudAction> {
+        let mut hud_action = None;
+        let has_face_selection = selected_faces_count > 0;
+
+        let banner_w = 780.0;
+        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
+        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+
+        ui.painter().rect_filled(
+            banner_rect,
+            18.0,
+            Color32::from_rgba_premultiplied(15, 18, 24, 240),
+        );
+        ui.painter().rect_stroke(
+            banner_rect,
+            18.0,
+            Stroke::new(
+                1.2,
+                if has_face_selection {
+                    ACCENT_ORANGE
+                } else {
+                    ACCENT_BLUE.gamma_multiply(0.8)
+                },
+            ),
+            StrokeKind::Inside,
+        );
+
+        let step_text = if selected_faces_count > 0 {
+            t!("popup-draft-faces-count", count = selected_faces_count)
+        } else {
+            t!("popup-draft-no-face")
+        };
+
+        // Layout horizontal di dalam banner
+        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
+        banner_ui.horizontal_centered(|ui| {
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(format!("📐 {}", &step_text))
+                    .size(11.5)
+                    .strong()
+                    .color(if has_face_selection {
+                        ACCENT_ORANGE
+                    } else {
+                        Color32::WHITE
+                    }),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                if has_face_selection {
+                    // Tombol Eksekusi Draft Angle
+                    let exec_btn = egui::Button::new(
+                        RichText::new(format!("✓ {}", t!("popup-draft-apply")))
+                            .size(11.0)
+                            .strong()
+                            .color(Color32::WHITE),
+                    )
+                    .fill(ACCENT_ORANGE);
+
+                    if ui.add(exec_btn).clicked() {
+                        hud_action = Some(DraftHudAction::Commit);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Dropdown Arah Bukaan Cetakan (Pull Direction)
+                    egui::ComboBox::from_id_salt("ducad-draft-top-hud-pull-dir")
+                        .selected_text(
+                            RichText::new(current_pull_dir.label())
+                                .size(11.0)
+                                .color(TEXT_PRIMARY),
+                        )
+                        .width(95.0)
+                        .show_ui(ui, |ui| {
+                            for dir in &[
+                                DraftPullDir::PosZ,
+                                DraftPullDir::NegZ,
+                                DraftPullDir::PosY,
+                                DraftPullDir::NegY,
+                                DraftPullDir::PosX,
+                                DraftPullDir::NegX,
+                            ] {
+                                if ui
+                                    .selectable_value(
+                                        current_pull_dir,
+                                        *dir,
+                                        RichText::new(dir.label()).size(11.0),
+                                    )
+                                    .clicked()
+                                {
+                                    hud_action = Some(DraftHudAction::SetPullDir(*dir));
+                                }
+                            }
+                        });
+
+                    ui.label(RichText::new(format!("{}:", t!("param-pull-dir"))).size(10.5).color(TEXT_SECONDARY));
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // Input Textbox Sudut
+                    let text_edit = egui::TextEdit::singleline(angle_input)
+                        .desired_width(42.0)
+                        .font(egui::FontId::monospace(11.0));
+                    let resp = ui.add(text_edit);
+                    if resp.changed() {
+                        if let Ok(a) = angle_input.trim().parse::<f64>() {
+                            hud_action = Some(DraftHudAction::SetAngle(a));
+                        }
+                    }
+
+                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
+
+                    // Quick Preset Buttons [1°, 2°, 3°, 5°, 7°]
+                    for &a in &[7.0, 5.0, 3.0, 2.0, 1.0] {
+                        let is_active = (current_angle - a).abs() < 0.05;
+                        let btn = egui::Button::new(
+                            RichText::new(format!("{:.0}°", a))
+                                .size(10.5)
+                                .color(if is_active { ACCENT_ORANGE } else { TEXT_PRIMARY }),
+                        )
+                        .fill(if is_active {
+                            Color32::from_rgba_premultiplied(90, 50, 30, 200)
+                        } else {
+                            Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                        });
+
+                        if ui.add(btn).clicked() {
+                            *angle_input = format!("{:.1}", a);
+                            hud_action = Some(DraftHudAction::SetAngle(a));
+                        }
+                    }
+                    ui.label(RichText::new(format!("{}:", t!("param-draft-angle"))).size(10.5).color(TEXT_SECONDARY));
                 }
             });
         });
