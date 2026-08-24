@@ -11,8 +11,8 @@ use crate::theme::{
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
+    ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,8 +124,6 @@ impl LeftToolbar {
                 let spline_desc = t!("tool-spline-desc");
                 let loft_title = t!("tool-loft");
                 let loft_desc = t!("tool-loft-desc");
-                let pattern_title = t!("tool-pattern");
-                let pattern_desc = t!("tool-pattern-desc");
 
                 let sketch_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
@@ -193,20 +191,10 @@ impl LeftToolbar {
                 let section_desc = t!("tool-section-desc");
                 let sweep_title = t!("tool-sweep");
                 let sweep_desc = t!("tool-sweep-desc");
-
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
-                let split_title = t!("tool-split-body");
-                let split_desc = t!("tool-split-body-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (
-                        ToolbarTool::SplitBody,
-                        ICON_CONTENT_CUT.codepoint,
-                        &split_title,
-                        Some("S"),
-                        Some(&split_desc),
-                    ),
                     (
                         ToolbarTool::DraftAngle,
                         ICON_ARCHITECTURE.codepoint,

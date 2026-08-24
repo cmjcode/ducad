@@ -12,8 +12,8 @@ use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_S
 use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_HOME,
-    ICON_LANGUAGE, ICON_LAYERS, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
+    ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
+    ICON_LAYERS, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
     ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
@@ -87,14 +87,59 @@ impl TopBar {
         glass_frame().show(ui, |ui| {
             ui.set_height(30.0);
             ui.horizontal(|ui| {
-                // 1. Home Button
-                if ui
-                    .button(RichText::new(ICON_HOME.codepoint).size(14.0))
-                    .on_hover_text(t!("topbar-home-tooltip"))
-                    .clicked()
-                {
-                    event = Some(TopBarEvent::HomeClicked);
-                }
+                // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
+                ui.menu_button(
+                    RichText::new(ICON_MENU.codepoint)
+                        .size(15.0)
+                        .color(TEXT_PRIMARY),
+                    |ui| {
+                        if ui
+                            .button(format!("{} {}", ICON_NOTE_ADD.codepoint, t!("menu-new")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::New));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!("{} {} (⌘O)", ICON_FILE_OPEN.codepoint, t!("menu-open")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::Open));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!("{} {} (⌘S)", ICON_SAVE.codepoint, t!("menu-save")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::Save));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!("{} {} (⌘⇧S)", ICON_SAVE.codepoint, t!("menu-save-as")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::SaveAs));
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui
+                            .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-step")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-dxf")))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
+                            ui.close();
+                        }
+                    },
+                )
+                .response
+                .on_hover_text(t!("menu-file"));
 
                 ui.add_space(2.0);
 
@@ -129,8 +174,7 @@ impl TopBar {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // 3. Mode Switcher + Items + Search + Sketch Plane (Selalu Ada
-                // di Kedua Mode, Kecuali Sketch Plane yang Khusus Sketch Mode)
+                // 3. Mode Switcher + Items + Search + Sketch Plane (Tetap di sebelah File Name)
                 let (mode_icon, mode_title, mode_shortcut, mode_sub) = if state.is_sketching {
                     (
                         ICON_EDIT.codepoint,
@@ -244,7 +288,7 @@ impl TopBar {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // 4. Utilities (Measurements & Zebra Inspection) — Selalu Ada di Kedua Mode
+                // 4. Utilities (Measurements & Zebra Inspection) — Tetap di sebelah File Name & Mode
                 let meas_title = t!("hud-show-dimensions");
                 let meas_sub = t!("hud-click-to-edit");
                 let meas_btn = header_icon_btn(
@@ -277,123 +321,78 @@ impl TopBar {
                     event = Some(TopBarEvent::ToggleZebraView);
                 }
 
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
-
-                // 5. File Menu
-                ui.menu_button(RichText::new(t!("menu-file")).size(11.5), |ui| {
-                    if ui
-                        .button(format!("{} {}", ICON_NOTE_ADD.codepoint, t!("menu-new")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::New));
-                        ui.close();
-                    }
-                    if ui
-                        .button(format!("{} {} (⌘O)", ICON_FILE_OPEN.codepoint, t!("menu-open")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::Open));
-                        ui.close();
-                    }
-                    if ui
-                        .button(format!("{} {} (⌘S)", ICON_SAVE.codepoint, t!("menu-save")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::Save));
-                        ui.close();
-                    }
-                    if ui
-                        .button(format!("{} {} (⌘⇧S)", ICON_SAVE.codepoint, t!("menu-save-as")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::SaveAs));
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui
-                        .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-step")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
-                        ui.close();
-                    }
-                    if ui
-                        .button(format!("{} {} {}", ICON_DOWNLOAD.codepoint, t!("menu-import"), t!("menu-import-dxf")))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
-                        ui.close();
-                    }
-                });
-
-                // 6. Settings Menu
-                ui.menu_button(
-                    RichText::new(format!("{} {}", ICON_SETTINGS.codepoint, t!("menu-settings"))).size(11.5),
-                    |ui| {
-                        if ui
-                            .button(format!(
-                                "{} {}",
-                                ICON_PALETTE.codepoint,
-                                t!("menu-theme")
-                            ))
-                            .clicked()
-                        {
-                            event = Some(TopBarEvent::ToggleTheme);
-                            ui.close();
-                        }
-                        if ui
-                            .button(format!("{} {} (⌘K)", ICON_SEARCH.codepoint, t!("menu-command-palette")))
-                            .clicked()
-                        {
-                            event = Some(TopBarEvent::OpenCommandPalette);
-                            ui.close();
-                        }
-                        ui.separator();
-                        // Language selector
-                        ui.menu_button(
-                            format!("{} {} ({})", ICON_LANGUAGE.codepoint, t!("lang-current"), current_language().display_name()),
-                            |ui| {
-                                for lang in Language::all() {
-                                    let is_sel = current_language() == *lang;
-                                    let prefix = if is_sel { "✓ " } else { "   " };
-                                    if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
-                                        event = Some(TopBarEvent::SetLanguage(*lang));
-                                        ui.close();
-                                    }
-                                }
-                            },
-                        );
-                        ui.separator();
-                        ui.menu_button(
-                            format!("📏 {} ({})", t!("topbar-unit", unit = state.current_unit.suffix()), state.current_unit.suffix()),
-                            |ui| {
-                                for unit in [
-                                    LengthUnit::Millimeters,
-                                    LengthUnit::Centimeters,
-                                    LengthUnit::Meters,
-                                    LengthUnit::Inches,
-                                ] {
-                                    let is_sel = state.current_unit == unit;
-                                    let prefix = if is_sel { "✓ " } else { "   " };
-                                    if ui.button(format!("{}{}", prefix, unit.label())).clicked() {
-                                        event = Some(TopBarEvent::SetUnit(unit));
-                                        ui.close();
-                                    }
-                                }
-                            },
-                        );
-                    },
-                );
-
-                // 7. Right-aligned Export / Share Button (Shapr3D blue accent)
+                // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Sisi paling kanan: Settings Icon Button
                     ui.menu_button(
-                        RichText::new(format!("{} {}", ICON_SHARE.codepoint, t!("topbar-share")))
-                            .strong()
-                            .size(11.5)
-                            .color(Color32::WHITE),
+                        RichText::new(ICON_SETTINGS.codepoint)
+                            .size(14.0)
+                            .color(TEXT_PRIMARY),
+                        |ui| {
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_PALETTE.codepoint,
+                                    t!("menu-theme")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::ToggleTheme);
+                                ui.close();
+                            }
+                            if ui
+                                .button(format!("{} {} (⌘K)", ICON_SEARCH.codepoint, t!("menu-command-palette")))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::OpenCommandPalette);
+                                ui.close();
+                            }
+                            ui.separator();
+                            // Language selector
+                            ui.menu_button(
+                                format!("{} {} ({})", ICON_LANGUAGE.codepoint, t!("lang-current"), current_language().display_name()),
+                                |ui| {
+                                    for lang in Language::all() {
+                                        let is_sel = current_language() == *lang;
+                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
+                                            event = Some(TopBarEvent::SetLanguage(*lang));
+                                            ui.close();
+                                        }
+                                    }
+                                },
+                            );
+                            ui.separator();
+                            ui.menu_button(
+                                format!("📏 {} ({})", t!("topbar-unit", unit = state.current_unit.suffix()), state.current_unit.suffix()),
+                                |ui| {
+                                    for unit in [
+                                        LengthUnit::Millimeters,
+                                        LengthUnit::Centimeters,
+                                        LengthUnit::Meters,
+                                        LengthUnit::Inches,
+                                    ] {
+                                        let is_sel = state.current_unit == unit;
+                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        if ui.button(format!("{}{}", prefix, unit.label())).clicked() {
+                                            event = Some(TopBarEvent::SetUnit(unit));
+                                            ui.close();
+                                        }
+                                    }
+                                },
+                            );
+                        },
+                    )
+                    .response
+                    .on_hover_text(t!("menu-settings"));
+
+                    ui.add_space(4.0);
+
+                    // Sebelah kiri Settings: Export / Share Icon Button
+                    ui.menu_button(
+                        RichText::new(ICON_SHARE.codepoint)
+                            .size(14.0)
+                            .color(ACCENT_BLUE),
                         |ui| {
                             if ui
                                 .button(format!(
@@ -432,7 +431,9 @@ impl TopBar {
                                 ui.close();
                             }
                         },
-                    );
+                    )
+                    .response
+                    .on_hover_text(t!("topbar-share"));
                 });
             });
         });

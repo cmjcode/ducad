@@ -9,7 +9,9 @@ use crate::theme::{
     TEXT_SECONDARY,
 };
 use ducad_i18n::t;
-use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
+use egui::{
+    Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2,
+};
 use egui_material_icons::icons::{
     ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN,
     ICON_TEXTURE,
@@ -297,6 +299,122 @@ fn rounded_rect_local_points(half: Vec2, radius: f32, segments_per_corner: usize
 pub struct CanvasHud;
 
 impl CanvasHud {
+    pub const HEADER_HUD_HEIGHT: f32 = 24.0;
+    pub const HEADER_HUD_CORNER_RADIUS: f32 = 12.0;
+    pub const HUD_BG_FILL: Color32 = Color32::from_rgba_premultiplied(10, 14, 22, 220);
+    pub const HUD_BTN_INACTIVE_FILL: Color32 = Color32::from_rgba_premultiplied(32, 38, 50, 200);
+    pub const HUD_BTN_CANCEL_FILL: Color32 = Color32::from_rgba_premultiplied(40, 46, 58, 180);
+
+    /// Standard helper to render commit / apply button in HUDs
+    #[inline]
+    pub fn hud_commit_btn(ui: &mut Ui, label: impl AsRef<str>) -> egui::Response {
+        let btn = egui::Button::new(
+            RichText::new(label.as_ref())
+                .size(10.5)
+                .strong()
+                .color(Color32::WHITE),
+        )
+        .corner_radius(CornerRadius::same(10))
+        .fill(ACCENT_BLUE);
+        ui.add(btn)
+    }
+
+    /// Standard helper to render cancel / turn off button in HUDs
+    #[inline]
+    pub fn hud_cancel_btn(ui: &mut Ui, label: impl AsRef<str>) -> egui::Response {
+        let btn = egui::Button::new(
+            RichText::new(label.as_ref())
+                .size(10.0)
+                .color(TEXT_SECONDARY),
+        )
+        .corner_radius(CornerRadius::same(10))
+        .fill(Self::HUD_BTN_CANCEL_FILL);
+        ui.add(btn)
+    }
+
+    /// Standard helper to render toggle / preset button in HUDs
+    #[inline]
+    pub fn hud_toggle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
+        let btn = egui::Button::new(
+            RichText::new(label.as_ref())
+                .size(10.0)
+                .strong()
+                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
+        )
+        .corner_radius(CornerRadius::same(10))
+        .fill(if is_active { ACCENT_BLUE } else { Self::HUD_BTN_INACTIVE_FILL });
+        ui.add(btn)
+    }
+
+    /// Helper standar untuk membuat tombol pilihan angka / preset menjadi LINGKARAN PENUH (Full Circle).
+    #[inline]
+    pub fn hud_circle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
+        let text = label.as_ref();
+        let min_w = if text.len() <= 2 { 20.0 } else { 24.0 };
+        let btn = egui::Button::new(
+            RichText::new(text)
+                .size(10.0)
+                .strong()
+                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
+        )
+        .min_size(Vec2::new(min_w, 20.0))
+        .corner_radius(CornerRadius::same(10))
+        .fill(if is_active { ACCENT_BLUE } else { Self::HUD_BTN_INACTIVE_FILL });
+        ui.add(btn)
+    }
+
+    /// Standard helper to render title / prompt text in HUDs
+    #[inline]
+    pub fn hud_title(ui: &mut Ui, text: impl AsRef<str>, is_active: bool) {
+        ui.label(
+            RichText::new(text.as_ref())
+                .size(11.0)
+                .strong()
+                .color(if is_active { ACCENT_BLUE } else { Color32::WHITE }),
+        );
+    }
+
+    /// Helper standar untuk merender semua HUD menu langsung di dalam Top Header Bar
+    /// menyatu sepenuhnya dengan background header (tanpa frame/border terpisah) dan terpusat persis di tengah.
+    pub fn render_header_hud_container<R>(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        width: f32,
+        _is_ready: bool,
+        id_str: &str,
+        content: impl FnOnce(&mut Ui) -> R,
+    ) -> R {
+        let center_x = canvas_rect.center().x;
+        let center_y = 30.0; // Persis di garis tengah vertikal Top Header Bar (bounds y=10.0 s/d y=50.0)
+        let actual_w = width;
+        let banner_rect = egui::Rect::from_center_size(
+            Pos2::new(center_x, center_y),
+            Vec2::new(actual_w, Self::HEADER_HUD_HEIGHT),
+        );
+
+        let mut res = None;
+
+        egui::Area::new(egui::Id::new(id_str))
+            .fixed_pos(banner_rect.min)
+            .order(egui::Order::Tooltip)
+            .show(ui.ctx(), |ui| {
+                ui.set_width(actual_w);
+                ui.set_height(Self::HEADER_HUD_HEIGHT);
+
+                // Spacing standar kompak untuk semua elemen HUD
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                ui.spacing_mut().button_padding = Vec2::new(6.0, 2.0);
+
+                let rect = ui.max_rect();
+                let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                child_ui.horizontal_centered(|ui| {
+                    res = Some(content(ui));
+                });
+            });
+
+        res.unwrap()
+    }
+
     /// Render tombol kapsul mengambang "Normal to Sketch" di dalam container UI yang diberikan.
     pub fn show_normal_to_sketch_btn(ui: &mut Ui) -> Option<CanvasHudEvent> {
         let mut event = None;
@@ -315,136 +433,137 @@ impl CanvasHud {
     }
 
     /// Render banner informasi Section View di dalam container UI yang diberikan.
-    pub fn show_section_view_banner(ui: &mut Ui) -> Option<CanvasHudEvent> {
-        let mut event = None;
-        pill_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(t!("hud-section-banner"))
-                        .size(11.0)
-                        .color(ACCENT_ORANGE),
-                );
-                if ui
-                    .small_button(RichText::new(t!("hud-turn-off")).size(10.0))
-                    .clicked()
-                {
+    pub fn show_section_view_banner(ui: &mut Ui, canvas_rect: Rect) -> Option<CanvasHudEvent> {
+        let banner_w = 340.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-section-banner",
+            |ui| {
+                let mut event = None;
+                Self::hud_title(ui, &format!("✂ {}", t!("hud-section-banner")), true);
+                ui.separator();
+                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     event = Some(CanvasHudEvent::TurnOffSectionView);
                 }
-            });
-        });
-        event
+                event
+            },
+        )
     }
 
     /// Render panel kontrol parameter inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection).
     pub fn show_zebra_inspection_panel(
         ui: &mut Ui,
+        canvas_rect: Rect,
         frequency: &mut f32,
         angle: &mut f32,
         blend: &mut f32,
     ) -> Option<ZebraHudAction> {
-        let mut action = None;
-        pill_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")))
-                        .size(11.5)
-                        .strong()
-                        .color(ACCENT_BLUE),
-                );
+        let banner_w = 680.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-zebra-panel",
+            |ui| {
+                let mut action = None;
+                Self::hud_title(ui, &format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")), true);
 
                 ui.separator();
 
-                // Preset orientasi sudut garis zebra
-                ui.label(RichText::new(t!("zebra-angle")).size(10.5).color(TEXT_SECONDARY));
+                // Preset orientasi sudut garis zebra: [Horizontal] [Vertical] [45°]
+                ui.label(RichText::new(format!("{}:", t!("zebra-angle"))).size(10.0).color(TEXT_SECONDARY));
                 let is_horiz = angle.abs() < 1e-2;
                 let is_vert = (*angle - std::f32::consts::FRAC_PI_2).abs() < 1e-2;
                 let is_diag = (*angle - std::f32::consts::FRAC_PI_4).abs() < 1e-2;
 
-                if ui.selectable_label(is_horiz, t!("zebra-horizontal")).clicked() {
+                if Self::hud_toggle_btn(ui, t!("zebra-horizontal"), is_horiz).clicked() {
                     *angle = 0.0;
                     action = Some(ZebraHudAction::SetAngle(0.0));
                 }
-                if ui.selectable_label(is_vert, t!("zebra-vertical")).clicked() {
+
+                if Self::hud_toggle_btn(ui, t!("zebra-vertical"), is_vert).clicked() {
                     *angle = std::f32::consts::FRAC_PI_2;
                     action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_2));
                 }
-                if ui.selectable_label(is_diag, "45°").clicked() {
+
+                if Self::hud_toggle_btn(ui, "45°", is_diag).clicked() {
                     *angle = std::f32::consts::FRAC_PI_4;
                     action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_4));
                 }
 
                 ui.separator();
 
-                // Slider Frekuensi / Kerapatan Garis
-                ui.label(RichText::new(t!("zebra-frequency")).size(10.5).color(TEXT_SECONDARY));
+                // Slider Frekuensi
+                ui.label(RichText::new(format!("{}:", t!("zebra-frequency"))).size(10.0).color(TEXT_SECONDARY));
                 let mut freq_val = *frequency;
-                let freq_slider = ui.add(
-                    egui::Slider::new(&mut freq_val, 5.0..=60.0)
-                        .step_by(1.0)
-                        .show_value(true),
-                );
-                if freq_slider.changed() {
+                let freq_drag = ui.add(egui::DragValue::new(&mut freq_val).range(5.0..=60.0).speed(0.5));
+                if freq_drag.changed() {
                     *frequency = freq_val;
                     action = Some(ZebraHudAction::SetFrequency(freq_val));
                 }
 
                 ui.separator();
 
-                // Slider Blend / Opasitas Garis Zebra
-                ui.label(RichText::new(t!("zebra-blend")).size(10.5).color(TEXT_SECONDARY));
+                // Slider Blend
+                ui.label(RichText::new(format!("{}:", t!("zebra-blend"))).size(10.0).color(TEXT_SECONDARY));
                 let mut blend_pct = (*blend * 100.0).round();
-                let blend_slider = ui.add(
-                    egui::Slider::new(&mut blend_pct, 10.0..=100.0)
-                        .suffix("%")
-                        .show_value(true),
-                );
-                if blend_slider.changed() {
+                let blend_drag = ui.add(egui::DragValue::new(&mut blend_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                if blend_drag.changed() {
                     *blend = blend_pct / 100.0;
                     action = Some(ZebraHudAction::SetBlend(*blend));
                 }
 
                 ui.separator();
-
                 // Tombol Nonaktifkan
-                if ui
-                    .button(RichText::new(format!("✕ {}", t!("hud-turn-off"))).size(10.5).color(TEXT_MUTED))
-                    .clicked()
-                {
+                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(ZebraHudAction::TurnOff);
                 }
-            });
-        });
-        action
+
+                action
+            },
+        )
     }
 
     /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di dalam container UI yang diberikan.
     pub fn show_status_pill(
         ui: &mut Ui,
+        canvas_rect: Rect,
         selection_summary: &str,
         measurement_summary: Option<&str>,
         show_normal_to_sketch: bool,
     ) -> Option<CanvasHudEvent> {
-        let mut event = None;
-        pill_frame().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                // Ringkasan seleksi / informasi status tool
-                ui.label(
-                    RichText::new(selection_summary)
-                        .size(11.0)
-                        .strong()
-                        .color(ACCENT_BLUE),
-                );
+        if selection_summary.is_empty() && measurement_summary.is_none() && !show_normal_to_sketch {
+            return None;
+        }
 
-                // Tombol "Normal to Sketch" menyatu di pill bawah bila mode sketsa/tool aktif
+        let mut event = None;
+        let mut width = (selection_summary.len() as f32 * 6.4 + 12.0).max(60.0);
+        if show_normal_to_sketch { width += 140.0; }
+        if let Some(m) = measurement_summary { width += m.len() as f32 * 6.4 + 30.0; }
+
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            width,
+            false,
+            "ducad-hud-status-area",
+            |ui| {
+                Self::hud_title(ui, selection_summary, false);
+
+                // Tombol "Normal to Sketch" menyatu di pill bila mode sketsa aktif
                 if show_normal_to_sketch {
                     ui.label(RichText::new("|").color(TEXT_SECONDARY));
-                    let btn = ui.button(
-                        RichText::new(format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")))
-                            .size(11.0)
-                            .strong()
-                            .color(TEXT_PRIMARY),
-                    );
-                    if btn.clicked() {
+                    if Self::hud_toggle_btn(
+                        ui,
+                        &format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
+                        false,
+                    )
+                    .clicked()
+                    {
                         event = Some(CanvasHudEvent::OrientNormalToSketch);
                     }
                 }
@@ -455,15 +574,15 @@ impl CanvasHud {
                     let resp = ui.selectable_label(
                         false,
                         RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, m))
-                            .size(11.0)
+                            .size(10.0)
                             .color(TEXT_PRIMARY),
                     );
                     if resp.clicked() {
                         event = Some(CanvasHudEvent::OpenMeasurements);
                     }
                 }
-            });
-        });
+            },
+        );
         event
     }
 
@@ -474,8 +593,10 @@ impl CanvasHud {
         measurement_summary: Option<&str>,
         show_normal_to_sketch: bool,
     ) -> Option<CanvasHudEvent> {
+        let max_rect = ui.max_rect();
         Self::show_status_pill(
             ui,
+            max_rect,
             selection_summary,
             measurement_summary,
             show_normal_to_sketch,
@@ -956,32 +1077,6 @@ impl CanvasHud {
             *angle_input = format!("{:.0}", current_angle);
         }
 
-        let mut hud_action = None;
-
-        // 1. Floating Pill Banner di bagian atas tengah kanvas (Diposisikan di bawah Top Bar)
-        let banner_w = if is_staged { 760.0 } else { 660.0 };
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 80.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
-
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if is_staged {
-                    ACCENT_GREEN
-                } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
-
         let step_text = if !has_selection {
             t!("hud-revolve-prompt-select")
         } else if is_staged {
@@ -992,40 +1087,45 @@ impl CanvasHud {
             t!("hud-revolve-prompt-step-2")
         };
 
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(&step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if is_staged {
-                        ACCENT_GREEN
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
+        let banner_w = if is_staged { 740.0 } else { 620.0 };
+        let hud_action = Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            is_staged,
+            "ducad-hud-revolve-banner",
+            |ui| {
+                let mut action = None;
+                Self::hud_title(ui, &step_text, is_staged);
+                ui.separator();
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
-
-                if is_staged {
-                    // Tombol Konfirmasi Selesai / Terapkan
-                    let apply_btn = egui::Button::new(
-                        RichText::new(t!("hud-apply-enter"))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_GREEN);
-
-                    if ui.add(apply_btn).clicked() {
-                        hud_action = Some(RevolveHudAction::Commit);
+                // Tombol Pilihan Sudut Preset (90°, 180°, 270°, 360°)
+                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.0).color(TEXT_SECONDARY));
+                for &deg in &[90.0, 180.0, 270.0, 360.0] {
+                    let is_active = (current_angle - deg).abs() < 1e-3;
+                    let label = format!("{:.0}°", deg);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        *angle_input = format!("{:.0}", deg);
+                        action = Some(RevolveHudAction::SetAngle(deg));
                     }
-
-                    ui.add_space(6.0);
                 }
+
+                // Input Sudut Kustom
+                let angle_edit = egui::TextEdit::singleline(angle_input)
+                    .desired_width(40.0)
+                    .font(egui::FontId::proportional(10.5))
+                    .margin(egui::Margin::symmetric(4, 2));
+                let resp = ui.add(angle_edit);
+                if resp.changed() {
+                    if let Ok(val) = angle_input.trim().parse::<f64>() {
+                        if val > 0.0 && val <= 360.0 {
+                            action = Some(RevolveHudAction::SetAngle(val));
+                        }
+                    }
+                }
+                ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
+
+                ui.separator();
 
                 // Tombol Toggle Arah Putar (CW vs CCW)
                 let dir_text = if is_reversed {
@@ -1033,67 +1133,21 @@ impl CanvasHud {
                 } else {
                     format!("{}: CCW", t!("param-direction"))
                 };
-                let dir_btn = egui::Button::new(RichText::new(dir_text).size(10.5).strong().color(
-                    if is_reversed {
-                        ACCENT_ORANGE
-                    } else {
-                        TEXT_PRIMARY
-                    },
-                ))
-                .fill(if is_reversed {
-                    Color32::from_rgba_premultiplied(70, 45, 15, 200)
-                } else {
-                    Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                });
-
-                if ui.add(dir_btn).clicked() {
-                    hud_action = Some(RevolveHudAction::ToggleReverse);
+                if Self::hud_toggle_btn(ui, &dir_text, is_reversed).clicked() {
+                    action = Some(RevolveHudAction::ToggleReverse);
                 }
 
-                ui.add_space(6.0);
-
-                // Input Sudut Kustom (Manual TextEdit misal 27°)
-                ui.label(RichText::new("°").size(11.0).color(TEXT_SECONDARY));
-                let angle_edit = egui::TextEdit::singleline(angle_input)
-                    .desired_width(44.0)
-                    .font(egui::FontId::proportional(11.0))
-                    .margin(egui::Margin::symmetric(4, 3));
-                let resp = ui.add(angle_edit);
-                if resp.changed() {
-                    if let Ok(val) = angle_input.trim().parse::<f64>() {
-                        if val > 0.0 && val <= 360.0 {
-                            hud_action = Some(RevolveHudAction::SetAngle(val));
-                        }
+                if is_staged {
+                    ui.separator();
+                    // Tombol Konfirmasi Selesai / Terapkan
+                    if Self::hud_commit_btn(ui, t!("hud-apply-enter")).clicked() {
+                        action = Some(RevolveHudAction::Commit);
                     }
                 }
 
-                ui.add_space(4.0);
-
-                // Tombol Pilihan Sudut Preset (360°, 270°, 180°, 90°)
-                for &deg in &[360.0, 270.0, 180.0, 90.0] {
-                    let is_active = (current_angle - deg).abs() < 1e-3;
-                    let label = format!("{:.0}°", deg);
-                    let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(
-                        if is_active {
-                            Color32::WHITE
-                        } else {
-                            TEXT_SECONDARY
-                        },
-                    ))
-                    .fill(if is_active {
-                        ACCENT_BLUE
-                    } else {
-                        Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                    });
-
-                    if ui.add(btn).clicked() {
-                        *angle_input = format!("{:.0}", deg);
-                        hud_action = Some(RevolveHudAction::SetAngle(deg));
-                    }
-                }
-                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.5).color(TEXT_SECONDARY));
-            });
-        });
+                action
+            },
+        );
 
         // 2. Mini Tutorial Animated Pointer Card di pojok kiri bawah kanvas
         let card_w = 240.0;
@@ -1183,7 +1237,7 @@ impl CanvasHud {
 
         let p_tip = Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0);
         painter.text(
-            p_tip,
+p_tip,
             Align2::LEFT_BOTTOM,
             &t!("hud-revolve-prompt-ready"),
             egui::FontId::proportional(9.0),
@@ -1207,143 +1261,74 @@ impl CanvasHud {
         is_flipped: bool,
         is_staged: bool,
     ) -> Option<LoftHudAction> {
-        let mut hud_action = None;
         let is_ready = selected_regions_count == 2;
+        let banner_w = 780.0;
 
-        // 1. Top Horizontal HUD Banner
-        let banner_w = 680.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+        let mut hud_action = Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            is_staged || is_ready,
+            "ducad-hud-loft-banner",
+            |ui| {
+                let mut action = None;
+                let step_text = match selected_regions_count {
+                    0 => t!("hud-loft-prompt-0"),
+                    1 => t!("hud-loft-prompt-1"),
+                    _ => t!("hud-loft-prompt-ready"),
+                };
 
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if is_staged || is_ready {
-                    ACCENT_GREEN
-                } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                Self::hud_title(ui, &step_text, is_staged || is_ready);
+                ui.separator();
 
-        let step_text = match selected_regions_count {
-            0 => t!("hud-loft-prompt-0"),
-            1 => t!("hud-loft-prompt-1"),
-            _ => t!("hud-loft-prompt-ready"),
-        };
+                // Tombol Pilihan Tinggi Preset (10mm, 20mm, 30mm, 50mm, 100mm)
+                ui.label(RichText::new(format!("{}:", t!("param-height"))).size(10.0).color(TEXT_SECONDARY));
+                for &h in &[10.0, 20.0, 30.0, 50.0, 100.0] {
+                    let is_active = (current_height - h).abs() < 1e-3;
+                    let label = format!("{:.0}", h);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        *height_input = format!("{:.1}", h);
+                        action = Some(LoftHudAction::SetHeight(h));
+                    }
+                }
 
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(RichText::new(&step_text).size(11.5).strong().color(
-                if is_staged || is_ready {
-                    ACCENT_GREEN
-                } else {
-                    Color32::WHITE
-                },
-            ));
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                // Input Tinggi Kustom (Manual TextEdit misal 20.0 mm)
+                let height_edit = egui::TextEdit::singleline(height_input)
+                    .desired_width(44.0)
+                    .font(egui::FontId::proportional(10.5))
+                    .margin(egui::Margin::symmetric(4, 2));
+                let resp = ui.add(height_edit);
+                if resp.changed() {
+                    if let Ok(val) = height_input.trim().parse::<f64>() {
+                        if val > 0.0 {
+                            action = Some(LoftHudAction::SetHeight(val));
+                        }
+                    }
+                }
+                ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
 
                 if is_ready {
-                    // Tombol Selesai (Commit)
-                    let main_label = t!("hud-loft-create-enter");
-                    let create_btn = egui::Button::new(
-                        RichText::new(main_label)
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(if is_staged { ACCENT_GREEN } else { ACCENT_BLUE });
-
-                    if ui.add(create_btn).clicked() {
-                        hud_action = Some(LoftHudAction::Commit);
-                    }
-
-                    ui.add_space(6.0);
-
+                    ui.separator();
                     // Tombol Balik Posisi Atas / Bawah
                     let flip_label = if is_flipped {
                         format!("↕ {}: 2", t!("param-direction"))
                     } else {
                         format!("↕ {}: 1", t!("param-direction"))
                     };
-                    let flip_btn =
-                        egui::Button::new(RichText::new(flip_label).size(10.5).strong().color(
-                            if is_flipped {
-                                ACCENT_ORANGE
-                            } else {
-                                TEXT_PRIMARY
-                            },
-                        ))
-                        .fill(if is_flipped {
-                            Color32::from_rgba_premultiplied(70, 45, 15, 200)
-                        } else {
-                            Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                        });
-
-                    if ui
-                        .add(flip_btn)
-                        .clicked()
-                    {
-                        hud_action = Some(LoftHudAction::ToggleFlip);
+                    if Self::hud_toggle_btn(ui, &flip_label, is_flipped).clicked() {
+                        action = Some(LoftHudAction::ToggleFlip);
                     }
 
-                    ui.add_space(6.0);
-                }
-
-                // Input Tinggi Kustom (Manual TextEdit misal 20.0 mm)
-                ui.label(RichText::new("mm").size(11.0).color(TEXT_SECONDARY));
-                let height_edit = egui::TextEdit::singleline(height_input)
-                    .desired_width(48.0)
-                    .font(egui::FontId::proportional(11.0))
-                    .margin(egui::Margin::symmetric(4, 3));
-                let resp = ui.add(height_edit);
-                if resp.changed() {
-                    if let Ok(val) = height_input.trim().parse::<f64>() {
-                        if val > 0.0 {
-                            hud_action = Some(LoftHudAction::SetHeight(val));
-                        }
+                    ui.separator();
+                    // Tombol Selesai (Commit)
+                    let main_label = t!("hud-loft-create-enter");
+                    if Self::hud_commit_btn(ui, main_label).clicked() {
+                        action = Some(LoftHudAction::Commit);
                     }
                 }
-
-                ui.add_space(4.0);
-
-                // Tombol Pilihan Tinggi Preset (10mm, 20mm, 30mm, 50mm, 100mm)
-                for &h in &[10.0, 20.0, 30.0, 50.0, 100.0] {
-                    let is_active = (current_height - h).abs() < 1e-3;
-                    let label = format!("{:.0}", h);
-                    let btn = egui::Button::new(RichText::new(label).size(11.0).strong().color(
-                        if is_active {
-                            Color32::WHITE
-                        } else {
-                            TEXT_SECONDARY
-                        },
-                    ))
-                    .fill(if is_active {
-                        ACCENT_BLUE
-                    } else {
-                        Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                    });
-
-                    if ui.add(btn).clicked() {
-                        *height_input = format!("{:.1}", h);
-                        hud_action = Some(LoftHudAction::SetHeight(h));
-                    }
-                }
-                ui.label(RichText::new(format!("{}:", t!("param-height"))).size(10.5).color(TEXT_SECONDARY));
-            });
-        });
+                action
+            },
+        );
 
         // 2. Dialog Modal / Floating Card Penyelarasan Titik Pusat jika centroid offset > 0.1 mm
         if is_ready && !alignment_dismissed {
@@ -1383,11 +1368,11 @@ impl CanvasHud {
                                     .color(TEXT_SECONDARY),
                             );
                         });
-                        ui.add_space(3.0);
+                        ui.add_space(4.0);
                         ui.label(
-                            RichText::new(t!("hud-loft-align-question"))
+                            RichText::new(t!("hud-loft-align-desc"))
                                 .size(10.5)
-                                .color(TEXT_PRIMARY),
+                                .color(TEXT_SECONDARY),
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
@@ -1424,111 +1409,60 @@ impl CanvasHud {
         current_thickness: f64,
         thickness_input: &mut String,
     ) -> Option<ShellHudAction> {
-        let mut hud_action = None;
-
         let banner_w = 680.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_face_selection,
+            "ducad-hud-shell-banner",
+            |ui| {
+                let mut hud_action = None;
 
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if has_face_selection {
-                    ACCENT_GREEN
+                let step_text = if has_face_selection {
+                    t!("hud-shell-prompt-ready")
                 } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                    t!("hud-shell-prompt-select")
+                };
 
-        let step_text = if has_face_selection {
-            t!("hud-shell-prompt-ready")
-        } else {
-            t!("hud-shell-prompt-select")
-        };
-
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(&step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if has_face_selection {
-                        ACCENT_GREEN
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                Self::hud_title(ui, &step_text, has_face_selection);
 
                 if has_face_selection {
-                    // Tombol Eksekusi Shell (Commit)
-                    let exec_btn = egui::Button::new(
-                        RichText::new(t!("hud-shell-exec-enter"))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_GREEN);
-
-                    if ui.add(exec_btn).clicked() {
-                        hud_action = Some(ShellHudAction::Commit);
-                    }
-
-                    ui.add_space(4.0);
                     ui.separator();
-                    ui.add_space(4.0);
+
+                    // Quick Preset Buttons [1 mm, 2 mm, 3 mm, 5 mm]
+                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.0).color(TEXT_SECONDARY));
+                    for &t in &[1.0, 2.0, 3.0, 5.0] {
+                        let is_active = (current_thickness - t).abs() < 0.05;
+                        let label = format!("{:.0}", t);
+                        if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                            *thickness_input = format!("{:.1}", t);
+                            hud_action = Some(ShellHudAction::SetThickness(t));
+                        }
+                    }
 
                     // Input Textbox Tebal
                     let text_edit = egui::TextEdit::singleline(thickness_input)
-                        .desired_width(46.0)
-                        .font(egui::FontId::monospace(11.0));
+                        .desired_width(44.0)
+                        .font(egui::FontId::monospace(10.5));
                     let resp = ui.add(text_edit);
                     if resp.changed() {
                         if let Ok(t) = thickness_input.trim().parse::<f64>() {
                             hud_action = Some(ShellHudAction::SetThickness(t));
                         }
                     }
+                    ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
 
-                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
-
-                    // Quick Preset Buttons [5 mm, 3 mm, 2 mm, 1 mm]
-                    for &t in &[5.0, 3.0, 2.0, 1.0] {
-                        let is_active = (current_thickness - t).abs() < 0.05;
-                        let btn = egui::Button::new(
-                            RichText::new(format!("{:.0}", t))
-                                .size(10.5)
-                                .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
-                        )
-                        .fill(if is_active {
-                            Color32::from_rgba_premultiplied(40, 60, 90, 200)
-                        } else {
-                            Color32::from_rgba_premultiplied(35, 40, 50, 180)
-                        });
-
-                        if ui.add(btn).clicked() {
-                            *thickness_input = format!("{:.1}", t);
-                            hud_action = Some(ShellHudAction::SetThickness(t));
-                        }
+                    ui.separator();
+                    // Tombol Eksekusi Shell (Commit)
+                    if Self::hud_commit_btn(ui, t!("hud-shell-exec-enter")).clicked() {
+                        hud_action = Some(ShellHudAction::Commit);
                     }
-                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
                 }
-            });
-        });
 
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk mode Rib / Tulang Penguat 3D (Stiffener Support).
@@ -1542,174 +1476,94 @@ impl CanvasHud {
         depth_input: &mut String,
         draft_input: &mut String,
     ) -> Option<RibHudAction> {
-        let mut hud_action = None;
-
-        let banner_w = 940.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
-
-        ui.painter().rect_filled(
-            banner_rect,
-            19.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            19.0,
-            Stroke::new(
-                1.2,
-                if has_geometry {
-                    ACCENT_GREEN
+        let banner_w = 760.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_geometry,
+            "ducad-hud-rib-banner",
+            |ui| {
+                let mut hud_action = None;
+                let step_text = if has_geometry {
+                    "🦴 Face Terpilih"
                 } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                    "🦴 Pilih Face Casing"
+                };
 
-        let step_text = if has_geometry {
-            "🦴 Face Terpilih"
-        } else {
-            "🦴 Pilih Face Casing"
-        };
-
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if has_geometry {
-                        ACCENT_GREEN
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                Self::hud_title(ui, step_text, has_geometry);
 
                 if has_geometry {
-                    let exec_btn = egui::Button::new(
-                        RichText::new(t!("hud-rib-exec-enter"))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_GREEN);
-
-                    if ui.add(exec_btn).clicked() {
-                        hud_action = Some(RibHudAction::Commit);
-                    }
-
-                    ui.add_space(4.0);
                     ui.separator();
-                    ui.add_space(4.0);
 
-                    // Draft angle input
-                    let draft_edit = egui::TextEdit::singleline(draft_input)
-                        .desired_width(32.0)
-                        .font(egui::FontId::monospace(11.0));
-                    let r3 = ui.add(draft_edit);
-                    if r3.changed() {
-                        if let Ok(d) = draft_input.trim().parse::<f64>() {
-                            hud_action = Some(RibHudAction::SetDraftAngle(d));
-                        }
-                    }
-                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
-                    ui.label(RichText::new(format!("{}:", t!("param-draft"))).size(10.5).color(TEXT_SECONDARY));
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // Depth input
-                    let depth_edit = egui::TextEdit::singleline(depth_input)
-                        .desired_width(38.0)
-                        .font(egui::FontId::monospace(11.0));
-                    let r2 = ui.add(depth_edit);
-                    if r2.changed() {
-                        if let Ok(d) = depth_input.trim().parse::<f64>() {
-                            hud_action = Some(RibHudAction::SetDepth(d));
-                        }
-                    }
-                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
-                    ui.label(RichText::new(format!("{}:", t!("param-depth"))).size(10.5).color(TEXT_SECONDARY));
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // Thickness input
-                    let thick_edit = egui::TextEdit::singleline(thickness_input)
-                        .desired_width(38.0)
-                        .font(egui::FontId::monospace(11.0));
-                    let r1 = ui.add(thick_edit);
-                    if r1.changed() {
-                        if let Ok(t) = thickness_input.trim().parse::<f64>() {
-                            hud_action = Some(RibHudAction::SetThickness(t));
-                        }
-                    }
-                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
-                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.5).color(TEXT_SECONDARY));
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // Angle Input & Preset Buttons (0° Horisontal, 90° Vertikal, 45° Diagonal)
+                    // Angle Input & Preset Buttons (0° Horisontal, 45° Diagonal, 90° Vertikal)
+                    ui.label(RichText::new("Sudut:").size(10.0).color(TEXT_SECONDARY));
                     let current_ang = angle_input.trim().parse::<f64>().unwrap_or(0.0);
-
-                    let btn_45 = egui::Button::new(RichText::new("45°").size(10.0).color(Color32::WHITE))
-                        .fill(if (current_ang - 45.0).abs() < 1e-2 {
-                            ACCENT_BLUE
-                        } else {
-                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
-                        });
-                    if ui.add(btn_45).clicked() {
-                        *angle_input = "45.0".to_string();
-                        hud_action = Some(RibHudAction::SetAngle(45.0));
-                    }
-
-                    let btn_90 = egui::Button::new(RichText::new("90° Vertikal").size(10.0).color(Color32::WHITE))
-                        .fill(if (current_ang - 90.0).abs() < 1e-2 {
-                            ACCENT_BLUE
-                        } else {
-                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
-                        });
-                    if ui.add(btn_90).clicked() {
-                        *angle_input = "90.0".to_string();
-                        hud_action = Some(RibHudAction::SetAngle(90.0));
-                    }
-
-                    let btn_0 = egui::Button::new(RichText::new("0° Horisontal").size(10.0).color(Color32::WHITE))
-                        .fill(if current_ang.abs() < 1e-2 {
-                            ACCENT_BLUE
-                        } else {
-                            Color32::from_rgba_premultiplied(40, 50, 65, 200)
-                        });
-                    if ui.add(btn_0).clicked() {
-                        *angle_input = "0.0".to_string();
-                        hud_action = Some(RibHudAction::SetAngle(0.0));
+                    for &(deg, lbl) in &[(0.0, "0°"), (45.0, "45°"), (90.0, "90°")] {
+                        if Self::hud_circle_btn(ui, lbl, (current_ang - deg).abs() < 1e-2).clicked() {
+                            *angle_input = format!("{:.1}", deg);
+                            hud_action = Some(RibHudAction::SetAngle(deg));
+                        }
                     }
 
                     let ang_edit = egui::TextEdit::singleline(angle_input)
-                        .desired_width(34.0)
-                        .font(egui::FontId::monospace(11.0));
-                    let r_ang = ui.add(ang_edit);
-                    if r_ang.changed() {
+                        .desired_width(30.0)
+                        .font(egui::FontId::monospace(10.5));
+                    if ui.add(ang_edit).changed() {
                         if let Ok(a) = angle_input.trim().parse::<f64>() {
                             hud_action = Some(RibHudAction::SetAngle(a));
                         }
                     }
-                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
-                    ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
-                }
-            });
-        });
+                    ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
 
-        hud_action
+                    ui.separator();
+                    // Thickness input
+                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.0).color(TEXT_SECONDARY));
+                    let thick_edit = egui::TextEdit::singleline(thickness_input)
+                        .desired_width(34.0)
+                        .font(egui::FontId::monospace(10.5));
+                    if ui.add(thick_edit).changed() {
+                        if let Ok(t) = thickness_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetThickness(t));
+                        }
+                    }
+                    ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+
+                    ui.separator();
+                    // Depth input
+                    ui.label(RichText::new(format!("{}:", t!("param-depth"))).size(10.0).color(TEXT_SECONDARY));
+                    let depth_edit = egui::TextEdit::singleline(depth_input)
+                        .desired_width(34.0)
+                        .font(egui::FontId::monospace(10.5));
+                    if ui.add(depth_edit).changed() {
+                        if let Ok(d) = depth_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetDepth(d));
+                        }
+                    }
+                    ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+
+                    ui.separator();
+                    // Draft angle input
+                    ui.label(RichText::new(format!("{}:", t!("param-draft"))).size(10.0).color(TEXT_SECONDARY));
+                    let draft_edit = egui::TextEdit::singleline(draft_input)
+                        .desired_width(30.0)
+                        .font(egui::FontId::monospace(10.5));
+                    if ui.add(draft_edit).changed() {
+                        if let Ok(d) = draft_input.trim().parse::<f64>() {
+                            hud_action = Some(RibHudAction::SetDraftAngle(d));
+                        }
+                    }
+                    ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
+
+                    ui.separator();
+                    if Self::hud_commit_btn(ui, t!("hud-rib-exec-enter")).clicked() {
+                        hud_action = Some(RibHudAction::Commit);
+                    }
+                }
+
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk mode Draft Angle 3D (Kemiringan Cetakan)
@@ -1721,82 +1575,60 @@ impl CanvasHud {
         angle_input: &mut String,
         current_pull_dir: &mut DraftPullDir,
     ) -> Option<DraftHudAction> {
-        let mut hud_action = None;
         let has_face_selection = selected_faces_count > 0;
+        let banner_w = 720.0;
 
-        let banner_w = 780.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
-
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if has_face_selection {
-                    ACCENT_ORANGE
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_face_selection,
+            "ducad-hud-draft-banner",
+            |ui| {
+                let mut hud_action = None;
+                let step_text = if selected_faces_count > 0 {
+                    t!("popup-draft-faces-count", count = selected_faces_count)
                 } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                    t!("popup-draft-no-face")
+                };
 
-        let step_text = if selected_faces_count > 0 {
-            t!("popup-draft-faces-count", count = selected_faces_count)
-        } else {
-            t!("popup-draft-no-face")
-        };
-
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(format!("📐 {}", &step_text))
-                    .size(11.5)
-                    .strong()
-                    .color(if has_face_selection {
-                        ACCENT_ORANGE
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                Self::hud_title(ui, &format!("📐 {}", &step_text), has_face_selection);
 
                 if has_face_selection {
-                    // Tombol Eksekusi Draft Angle
-                    let exec_btn = egui::Button::new(
-                        RichText::new(format!("✓ {}", t!("popup-draft-apply")))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_ORANGE);
+                    ui.separator();
 
-                    if ui.add(exec_btn).clicked() {
-                        hud_action = Some(DraftHudAction::Commit);
+                    // Quick Preset Buttons [1°, 2°, 3°, 5°, 7°]
+                    ui.label(RichText::new(format!("{}:", t!("param-draft-angle"))).size(10.0).color(TEXT_SECONDARY));
+                    for &a in &[1.0, 2.0, 3.0, 5.0, 7.0] {
+                        let is_active = (current_angle - a).abs() < 0.05;
+                        let label = format!("{:.0}°", a);
+                        if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                            *angle_input = format!("{:.1}", a);
+                            hud_action = Some(DraftHudAction::SetAngle(a));
+                        }
                     }
 
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
+                    // Input Textbox Sudut
+                    let text_edit = egui::TextEdit::singleline(angle_input)
+                        .desired_width(36.0)
+                        .font(egui::FontId::monospace(10.5));
+                    if ui.add(text_edit).changed() {
+                        if let Ok(a) = angle_input.trim().parse::<f64>() {
+                            hud_action = Some(DraftHudAction::SetAngle(a));
+                        }
+                    }
+                    ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
 
+                    ui.separator();
                     // Dropdown Arah Bukaan Cetakan (Pull Direction)
+                    ui.label(RichText::new(format!("{}:", t!("param-pull-dir"))).size(10.0).color(TEXT_SECONDARY));
                     egui::ComboBox::from_id_salt("ducad-draft-top-hud-pull-dir")
                         .selected_text(
                             RichText::new(current_pull_dir.label())
-                                .size(11.0)
+                                .size(10.5)
                                 .color(TEXT_PRIMARY),
                         )
-                        .width(95.0)
+                        .width(80.0)
                         .show_ui(ui, |ui| {
                             for dir in &[
                                 DraftPullDir::PosZ,
@@ -1810,7 +1642,7 @@ impl CanvasHud {
                                     .selectable_value(
                                         current_pull_dir,
                                         *dir,
-                                        RichText::new(dir.label()).size(11.0),
+                                        RichText::new(dir.label()).size(10.5),
                                     )
                                     .clicked()
                                 {
@@ -1819,50 +1651,16 @@ impl CanvasHud {
                             }
                         });
 
-                    ui.label(RichText::new(format!("{}:", t!("param-pull-dir"))).size(10.5).color(TEXT_SECONDARY));
-
-                    ui.add_space(4.0);
                     ui.separator();
-                    ui.add_space(4.0);
-
-                    // Input Textbox Sudut
-                    let text_edit = egui::TextEdit::singleline(angle_input)
-                        .desired_width(42.0)
-                        .font(egui::FontId::monospace(11.0));
-                    let resp = ui.add(text_edit);
-                    if resp.changed() {
-                        if let Ok(a) = angle_input.trim().parse::<f64>() {
-                            hud_action = Some(DraftHudAction::SetAngle(a));
-                        }
+                    // Tombol Eksekusi Draft Angle (Commit)
+                    if Self::hud_commit_btn(ui, &format!("✓ {}", t!("popup-draft-apply"))).clicked() {
+                        hud_action = Some(DraftHudAction::Commit);
                     }
-
-                    ui.label(RichText::new("°").size(10.5).color(TEXT_SECONDARY));
-
-                    // Quick Preset Buttons [1°, 2°, 3°, 5°, 7°]
-                    for &a in &[7.0, 5.0, 3.0, 2.0, 1.0] {
-                        let is_active = (current_angle - a).abs() < 0.05;
-                        let btn = egui::Button::new(
-                            RichText::new(format!("{:.0}°", a))
-                                .size(10.5)
-                                .color(if is_active { ACCENT_ORANGE } else { TEXT_PRIMARY }),
-                        )
-                        .fill(if is_active {
-                            Color32::from_rgba_premultiplied(90, 50, 30, 200)
-                        } else {
-                            Color32::from_rgba_premultiplied(35, 40, 50, 180)
-                        });
-
-                        if ui.add(btn).clicked() {
-                            *angle_input = format!("{:.1}", a);
-                            hud_action = Some(DraftHudAction::SetAngle(a));
-                        }
-                    }
-                    ui.label(RichText::new(format!("{}:", t!("param-draft-angle"))).size(10.5).color(TEXT_SECONDARY));
                 }
-            });
-        });
 
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk mode Split Body & Split Face 3D
@@ -1875,174 +1673,108 @@ impl CanvasHud {
         offset_val: f64,
         offset_input: &mut String,
     ) -> Option<SplitHudAction> {
-        let mut hud_action = None;
+        let banner_w = 720.0;
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_target_body,
+            "ducad-hud-split-banner",
+            |ui| {
+                let mut hud_action = None;
 
-        let banner_w = 780.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
+                Self::hud_title(ui, "✂ Split", has_target_body);
 
-        ui.painter().rect_filled(
-            banner_rect,
-            19.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            19.0,
-            Stroke::new(
-                1.2,
-                if has_target_body {
-                    ACCENT_BLUE
-                } else {
-                    Color32::from_rgb(180, 180, 180).gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
-
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-
-            // Judul Tool
-            ui.label(
-                RichText::new("✂ Split")
-                    .size(12.0)
-                    .strong()
-                    .color(if has_target_body {
-                        ACCENT_BLUE
-                    } else {
-                        TEXT_SECONDARY
-                    }),
-            );
-
-            if !has_target_body {
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(t!("popup-split-no-body"))
-                        .size(11.0)
-                        .color(TEXT_MUTED),
-                );
-                return;
-            }
-
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            // Mode Selector: [Body] [Face]
-            for mode in &[SplitMode::SplitBody, SplitMode::SplitFace] {
-                let is_active = *split_mode == *mode;
-                let btn = egui::Button::new(
-                    RichText::new(mode.label())
-                        .size(11.0)
-                        .strong()
-                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
-                )
-                .fill(if is_active {
-                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
-                } else {
-                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
-                });
-
-                if ui.add(btn).clicked() {
-                    *split_mode = *mode;
-                    hud_action = Some(SplitHudAction::SetMode(*mode));
+                if !has_target_body {
+                    ui.separator();
+                    ui.label(
+                        RichText::new(t!("popup-split-no-body"))
+                            .size(10.5)
+                            .color(TEXT_MUTED),
+                    );
+                    return None;
                 }
-            }
 
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
+                ui.separator();
 
-            // Dropdown Bidang (Plane)
-            ui.label(RichText::new(format!("{}:", t!("popup-split-plane"))).size(10.5).color(TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("ducad-split-top-hud-plane")
-                .selected_text(
-                    RichText::new(current_plane.label())
-                        .size(11.0)
-                        .color(TEXT_PRIMARY),
-                )
-                .width(105.0)
-                .show_ui(ui, |ui| {
-                    for pln in &[
-                        SplitPlaneKind::XY,
-                        SplitPlaneKind::XZ,
-                        SplitPlaneKind::YZ,
-                        SplitPlaneKind::PickedFace,
-                    ] {
-                        if ui
-                            .selectable_value(
-                                current_plane,
-                                *pln,
-                                RichText::new(pln.label()).size(11.0),
-                            )
-                            .clicked()
-                        {
-                            hud_action = Some(SplitHudAction::SetPlane(*pln));
-                        }
+                // Mode Selector: [Body] [Face]
+                for mode in &[SplitMode::SplitBody, SplitMode::SplitFace] {
+                    let is_active = *split_mode == *mode;
+                    if Self::hud_toggle_btn(ui, mode.label(), is_active).clicked() {
+                        *split_mode = *mode;
+                        hud_action = Some(SplitHudAction::SetMode(*mode));
                     }
-                });
-
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            // Offset Input & Quick Buttons
-            ui.label(RichText::new(format!("{}:", t!("popup-split-offset"))).size(10.5).color(TEXT_SECONDARY));
-
-            for &off in &[-10.0, 0.0, 10.0] {
-                let is_active = (offset_val - off).abs() < 0.05;
-                let btn = egui::Button::new(
-                    RichText::new(format!("{:+0.0}", off))
-                        .size(10.0)
-                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
-                )
-                .fill(if is_active {
-                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
-                } else {
-                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
-                });
-
-                if ui.add(btn).clicked() {
-                    *offset_input = format!("{:.1}", off);
-                    hud_action = Some(SplitHudAction::SetOffset(off));
                 }
-            }
 
-            let text_edit = egui::TextEdit::singleline(offset_input)
-                .desired_width(45.0)
-                .font(egui::FontId::monospace(11.0));
-            let resp = ui.add(text_edit);
-            if resp.changed() {
-                if let Ok(val) = offset_input.trim().parse::<f64>() {
-                    hud_action = Some(SplitHudAction::SetOffset(val));
+                ui.separator();
+
+                // Dropdown Bidang (Plane)
+                ui.label(RichText::new(format!("{}:", t!("popup-split-plane"))).size(10.0).color(TEXT_SECONDARY));
+                egui::ComboBox::from_id_salt("ducad-split-top-hud-plane")
+                    .selected_text(
+                        RichText::new(current_plane.label())
+                            .size(10.5)
+                            .color(TEXT_PRIMARY),
+                    )
+                    .width(85.0)
+                    .show_ui(ui, |ui| {
+                        for pln in &[
+                            SplitPlaneKind::XY,
+                            SplitPlaneKind::XZ,
+                            SplitPlaneKind::YZ,
+                            SplitPlaneKind::PickedFace,
+                        ] {
+                            if ui
+                                .selectable_value(
+                                    current_plane,
+                                    *pln,
+                                    RichText::new(pln.label()).size(10.5),
+                                )
+                                .clicked()
+                            {
+                                hud_action = Some(SplitHudAction::SetPlane(*pln));
+                            }
+                        }
+                    });
+
+                ui.separator();
+
+                // Offset Input & Quick Buttons
+                ui.label(RichText::new(format!("{}:", t!("popup-split-offset"))).size(10.0).color(TEXT_SECONDARY));
+
+                for &off in &[-10.0, 0.0, 10.0] {
+                    let is_active = (offset_val - off).abs() < 0.05;
+                    let label = format!("{:+0.0}", off);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        *offset_input = format!("{:.1}", off);
+                        hud_action = Some(SplitHudAction::SetOffset(off));
+                    }
                 }
-            }
-            ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
 
-            // Tombol Eksekusi di Kanan
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(10.0);
+                let text_edit = egui::TextEdit::singleline(offset_input)
+                    .desired_width(36.0)
+                    .font(egui::FontId::monospace(10.5));
+                let resp = ui.add(text_edit);
+                if resp.changed() {
+                    if let Ok(val) = offset_input.trim().parse::<f64>() {
+                        hud_action = Some(SplitHudAction::SetOffset(val));
+                    }
+                }
+                ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+
+                ui.separator();
+                // Tombol Eksekusi
                 let btn_label = match *split_mode {
                     SplitMode::SplitBody => format!("✓ {}", t!("popup-split-apply")),
                     SplitMode::SplitFace => format!("✓ {}", t!("popup-split-apply-face")),
                 };
-                let exec_btn = egui::Button::new(
-                    RichText::new(btn_label)
-                        .size(11.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(ACCENT_BLUE);
-
-                if ui.add(exec_btn).clicked() {
+                if Self::hud_commit_btn(ui, &btn_label).clicked() {
                     hud_action = Some(SplitHudAction::Commit);
                 }
-            });
-        });
 
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk mode Operasi Boolean 3D (Union, Subtract, Intersect)
@@ -2052,108 +1784,54 @@ impl CanvasHud {
         selected_bodies_count: usize,
         selected_op: BooleanOpKind,
     ) -> Option<BooleanHudAction> {
-        let mut hud_action = None;
-
         let has_enough_bodies = selected_bodies_count >= 2;
-        let banner_w = 660.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+        let banner_w = 640.0;
 
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if has_enough_bodies {
-                    ACCENT_GREEN
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_enough_bodies,
+            "ducad-hud-boolean-banner",
+            |ui| {
+                let mut hud_action = None;
+
+                let step_text = if has_enough_bodies {
+                    t!("hud-boolean-prompt-ready")
                 } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                    t!("hud-boolean-prompt-select")
+                };
 
-        let step_text = if has_enough_bodies {
-            t!("hud-boolean-prompt-ready")
-        } else {
-            t!("hud-boolean-prompt-select")
-        };
-
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(&step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if has_enough_bodies {
-                        ACCENT_GREEN
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                Self::hud_title(ui, &step_text, has_enough_bodies);
 
                 if has_enough_bodies {
-                    // Tombol Eksekusi / Terapkan (Commit)
-                    let exec_btn = egui::Button::new(
-                        RichText::new(t!("hud-apply-enter"))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_GREEN);
-
-                    if ui.add(exec_btn).clicked() {
-                        hud_action = Some(BooleanHudAction::Commit);
-                    }
-
-                    ui.add_space(4.0);
                     ui.separator();
-                    ui.add_space(4.0);
 
                     // Pilihan Operasi Boolean: Union, Subtract, Intersect
+                    ui.label(RichText::new(format!("{}:", t!("param-operation"))).size(10.0).color(TEXT_SECONDARY));
                     let ops = [
-                        (BooleanOpKind::Intersect, t!("boolean-intersect")),
-                        (BooleanOpKind::Subtract, t!("boolean-subtract")),
                         (BooleanOpKind::Union, t!("boolean-union")),
+                        (BooleanOpKind::Subtract, t!("boolean-subtract")),
+                        (BooleanOpKind::Intersect, t!("boolean-intersect")),
                     ];
 
                     for (op, label) in ops {
                         let is_active = selected_op == op;
-                        let btn =
-                            egui::Button::new(RichText::new(label).size(11.0).strong().color(
-                                if is_active {
-                                    Color32::WHITE
-                                } else {
-                                    TEXT_PRIMARY
-                                },
-                            ))
-                            .fill(if is_active {
-                                ACCENT_BLUE
-                            } else {
-                                Color32::from_rgba_premultiplied(40, 44, 52, 180)
-                            });
-
-                        if ui.add(btn).clicked() {
+                        if Self::hud_toggle_btn(ui, label, is_active).clicked() {
                             hud_action = Some(BooleanHudAction::SelectOp(op));
                         }
                     }
 
-                    ui.label(RichText::new(format!("{}:", t!("param-operation"))).size(10.5).color(TEXT_SECONDARY));
+                    ui.separator();
+                    // Tombol Eksekusi / Terapkan (Commit)
+                    if Self::hud_commit_btn(ui, t!("hud-apply-enter")).clicked() {
+                        hud_action = Some(BooleanHudAction::Commit);
+                    }
                 }
-            });
-        });
 
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk mode 3D Sweep (Sapu Profil 2D Menyusuri Jalur)
@@ -2163,112 +1841,53 @@ impl CanvasHud {
         has_profile: bool,
         has_path: bool,
     ) -> Option<SweepHudAction> {
-        let mut hud_action = None;
         let is_ready = has_profile && has_path;
+        let banner_w = 660.0;
 
-        let banner_w = 680.0;
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 36.0));
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            is_ready,
+            "ducad-hud-sweep-banner",
+            |ui| {
+                let mut hud_action = None;
 
-        ui.painter().rect_filled(
-            banner_rect,
-            18.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            18.0,
-            Stroke::new(
-                1.2,
-                if is_ready {
-                    ACCENT_GREEN
+                let step_text = if is_ready {
+                    t!("hud-sweep-prompt-ready")
                 } else if has_profile {
-                    ACCENT_BLUE
+                    t!("hud-sweep-prompt-path")
                 } else {
-                    ACCENT_BLUE.gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                    t!("hud-sweep-prompt-profile")
+                };
 
-        let step_text = if is_ready {
-            t!("hud-sweep-prompt-ready")
-        } else if has_profile {
-            t!("hud-sweep-prompt-path")
-        } else {
-            t!("hud-sweep-prompt-profile")
-        };
+                Self::hud_title(ui, &step_text, is_ready);
 
-        // Layout horizontal di dalam banner
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                RichText::new(&step_text)
-                    .size(11.5)
-                    .strong()
-                    .color(if is_ready {
-                        ACCENT_GREEN
-                    } else if has_profile {
-                        ACCENT_BLUE
-                    } else {
-                        Color32::WHITE
-                    }),
-            );
+                if has_profile {
+                    ui.separator();
+                    // Tombol Ganti Profil
+                    if Self::hud_cancel_btn(ui, t!("hud-sweep-reset-profile")).clicked() {
+                        hud_action = Some(SweepHudAction::ResetProfile);
+                    }
+                }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
+                if is_ready {
+                    ui.separator();
+                    // Tombol Eksekusi Sweep (Commit)
+                    if Self::hud_commit_btn(ui, t!("hud-sweep-exec-btn")).clicked() {
+                        hud_action = Some(SweepHudAction::Commit);
+                    }
+                }
 
+                ui.separator();
                 // Tombol Batal
-                let cancel_btn = egui::Button::new(
-                    RichText::new(t!("hud-sweep-cancel"))
-                        .size(10.5)
-                        .color(TEXT_SECONDARY),
-                )
-                .fill(Color32::from_rgba_premultiplied(40, 44, 52, 180));
-                if ui.add(cancel_btn).clicked() {
+                if Self::hud_cancel_btn(ui, t!("hud-sweep-cancel")).clicked() {
                     hud_action = Some(SweepHudAction::Cancel);
                 }
 
-                ui.add_space(4.0);
-
-                if is_ready {
-                    // Tombol Eksekusi Sweep (Commit)
-                    let exec_btn = egui::Button::new(
-                        RichText::new(t!("hud-sweep-exec-btn"))
-                            .size(11.0)
-                            .strong()
-                            .color(Color32::WHITE),
-                    )
-                    .fill(ACCENT_GREEN);
-
-                    if ui.add(exec_btn).clicked() {
-                        hud_action = Some(SweepHudAction::Commit);
-                    }
-
-                    ui.add_space(4.0);
-                }
-
-                if has_profile {
-                    // Tombol Ganti Profil
-                    let reset_btn = egui::Button::new(
-                        RichText::new(t!("hud-sweep-reset-profile"))
-                            .size(10.5)
-                            .color(TEXT_PRIMARY),
-                    )
-                    .fill(Color32::from_rgba_premultiplied(40, 44, 52, 180));
-
-                    if ui.add(reset_btn).clicked() {
-                        hud_action = Some(SweepHudAction::ResetProfile);
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                }
-            });
-        });
-
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render Top Bar HUD mengambang untuk fitur Pattern / Array (2D Sketch & 3D Solids).
@@ -2290,186 +1909,121 @@ impl CanvasHud {
         circ_radius: &mut f64,
         circ_axis: &mut PatternAxisPreset,
     ) -> Option<PatternHudAction> {
-        let mut hud_action = None;
+        let banner_w = if is_3d { 780.0 } else { 720.0 };
 
-        let banner_w = if is_3d { 940.0 } else { 880.0 };
-        let banner_pos = Pos2::new(canvas_rect.center().x, canvas_rect.top() + 84.0);
-        let banner_rect = egui::Rect::from_center_size(banner_pos, Vec2::new(banner_w, 38.0));
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            has_selection,
+            "ducad-hud-pattern-banner",
+            |ui| {
+                let mut hud_action = None;
 
-        ui.painter().rect_filled(
-            banner_rect,
-            19.0,
-            Color32::from_rgba_premultiplied(15, 18, 24, 240),
-        );
-        ui.painter().rect_stroke(
-            banner_rect,
-            19.0,
-            Stroke::new(
-                1.2,
-                if has_selection {
-                    ACCENT_BLUE
-                } else {
-                    Color32::from_rgb(180, 180, 180).gamma_multiply(0.8)
-                },
-            ),
-            StrokeKind::Inside,
-        );
+                Self::hud_title(ui, "⊞ Pattern", has_selection);
 
-        let mut banner_ui = ui.new_child(egui::UiBuilder::new().max_rect(banner_rect));
-        banner_ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-
-            // Judul Tool
-            ui.label(
-                RichText::new("⊞ Pattern")
-                    .size(12.0)
-                    .strong()
-                    .color(if has_selection {
-                        ACCENT_BLUE
-                    } else {
-                        TEXT_SECONDARY
-                    }),
-            );
-
-            if !has_selection {
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(if is_3d {
-                        t!("popup-pattern-no-selection-3d")
-                    } else {
-                        t!("popup-pattern-no-selection-2d")
-                    })
-                    .size(11.0)
-                    .color(TEXT_MUTED),
-                );
-                return;
-            }
-
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
-
-            // Mode Selector: [Linier] [Sirkular]
-            for mode in &[PatternKind::Linear, PatternKind::Circular] {
-                let is_active = *pattern_kind == *mode;
-                let btn = egui::Button::new(
-                    RichText::new(mode.label())
-                        .size(11.0)
-                        .strong()
-                        .color(if is_active { ACCENT_BLUE } else { TEXT_PRIMARY }),
-                )
-                .fill(if is_active {
-                    Color32::from_rgba_premultiplied(30, 60, 100, 200)
-                } else {
-                    Color32::from_rgba_premultiplied(35, 40, 50, 180)
-                });
-
-                if ui.add(btn).clicked() {
-                    *pattern_kind = *mode;
-                    hud_action = Some(PatternHudAction::SetKind(*mode));
+                if !has_selection {
+                    ui.separator();
+                    ui.label(
+                        RichText::new(if is_3d {
+                            t!("popup-pattern-no-selection-3d")
+                        } else {
+                            t!("popup-pattern-no-selection-2d")
+                        })
+                        .size(10.5)
+                        .color(TEXT_MUTED),
+                    );
+                    return None;
                 }
-            }
 
-            ui.add_space(6.0);
-            ui.separator();
-            ui.add_space(6.0);
+                ui.separator();
 
-            match pattern_kind {
-                PatternKind::Linear => {
-                    // X params
-                    ui.label(RichText::new("X:").size(11.0).strong().color(Color32::from_rgb(255, 100, 100)));
-                    ui.add(egui::DragValue::new(count_x).range(1..=50).prefix("qty: "));
-                    ui.add(egui::DragValue::new(pitch_x).speed(1.0).suffix("mm"));
-
-                    ui.add_space(4.0);
-                    // Y params
-                    ui.label(RichText::new("Y:").size(11.0).strong().color(Color32::from_rgb(100, 220, 100)));
-                    ui.add(egui::DragValue::new(count_y).range(1..=50).prefix("qty: "));
-                    ui.add(egui::DragValue::new(pitch_y).speed(1.0).suffix("mm"));
-
-                    if is_3d {
-                        ui.add_space(4.0);
-                        // Z params
-                        ui.label(RichText::new("Z:").size(11.0).strong().color(Color32::from_rgb(100, 150, 255)));
-                        ui.add(egui::DragValue::new(count_z).range(1..=50).prefix("qty: "));
-                        ui.add(egui::DragValue::new(pitch_z).speed(1.0).suffix("mm"));
+                // Mode Selector: [Linier] [Sirkular]
+                for mode in &[PatternKind::Linear, PatternKind::Circular] {
+                    let is_active = *pattern_kind == *mode;
+                    if Self::hud_toggle_btn(ui, mode.label(), is_active).clicked() {
+                        *pattern_kind = *mode;
+                        hud_action = Some(PatternHudAction::SetKind(*mode));
                     }
                 }
-                PatternKind::Circular => {
-                    // Count
-                    ui.label(RichText::new("Qty:").size(10.5).color(TEXT_SECONDARY));
-                    ui.add(egui::DragValue::new(circ_count).range(2..=120));
 
-                    ui.add_space(4.0);
-                    // Radius
-                    ui.label(RichText::new("Radius:").size(10.5).color(TEXT_SECONDARY));
-                    ui.add(egui::DragValue::new(circ_radius).speed(1.0).range(0.1..=10000.0).suffix("mm"));
+                ui.separator();
 
-                    ui.add_space(4.0);
-                    // Angle
-                    ui.label(RichText::new("Sudut:").size(10.5).color(TEXT_SECONDARY));
-                    ui.add(egui::DragValue::new(circ_angle_deg).speed(1.0).range(-360.0..=360.0).suffix("°"));
+                match pattern_kind {
+                    PatternKind::Linear => {
+                        // X params
+                        ui.label(RichText::new("X:").size(10.5).strong().color(Color32::from_rgb(255, 100, 100)));
+                        ui.add(egui::DragValue::new(count_x).range(1..=50).prefix("qty: "));
+                        ui.add(egui::DragValue::new(pitch_x).speed(1.0).suffix("mm"));
 
-                    // Quick Angle buttons
-                    for angle in &[360.0, 180.0, 90.0] {
-                        let is_active = (*circ_angle_deg - angle).abs() < 1e-3;
-                        let btn = egui::Button::new(RichText::new(format!("{:.0}°", angle)).size(10.0))
-                            .fill(if is_active { ACCENT_BLUE.gamma_multiply(0.6) } else { Color32::from_rgba_premultiplied(40, 45, 55, 160) });
-                        if ui.add(btn).clicked() {
-                            *circ_angle_deg = *angle;
+                        ui.separator();
+                        // Y params
+                        ui.label(RichText::new("Y:").size(10.5).strong().color(Color32::from_rgb(100, 220, 100)));
+                        ui.add(egui::DragValue::new(count_y).range(1..=50).prefix("qty: "));
+                        ui.add(egui::DragValue::new(pitch_y).speed(1.0).suffix("mm"));
+
+                        if is_3d {
+                            ui.separator();
+                            // Z params
+                            ui.label(RichText::new("Z:").size(10.5).strong().color(Color32::from_rgb(100, 150, 255)));
+                            ui.add(egui::DragValue::new(count_z).range(1..=50).prefix("qty: "));
+                            ui.add(egui::DragValue::new(pitch_z).speed(1.0).suffix("mm"));
                         }
                     }
+                    PatternKind::Circular => {
+                        // Count
+                        ui.label(RichText::new("Qty:").size(10.0).color(TEXT_SECONDARY));
+                        ui.add(egui::DragValue::new(circ_count).range(2..=120));
 
-                    if is_3d {
-                        ui.add_space(4.0);
-                        // Dropdown Axis
-                        egui::ComboBox::from_id_salt("ducad-pattern-axis-combo")
-                            .selected_text(RichText::new(circ_axis.label()).size(10.5).color(TEXT_PRIMARY))
-                            .width(110.0)
-                            .show_ui(ui, |ui| {
-                                for ax in &[PatternAxisPreset::Z, PatternAxisPreset::Y, PatternAxisPreset::X] {
-                                    if ui.selectable_value(circ_axis, *ax, RichText::new(ax.label()).size(10.5)).clicked() {
-                                        hud_action = Some(PatternHudAction::SetAxis(*ax));
+                        // Radius
+                        ui.label(RichText::new("Radius:").size(10.0).color(TEXT_SECONDARY));
+                        ui.add(egui::DragValue::new(circ_radius).speed(1.0).range(0.1..=10000.0).suffix("mm"));
+
+                        // Angle
+                        ui.label(RichText::new("Sudut:").size(10.0).color(TEXT_SECONDARY));
+                        ui.add(egui::DragValue::new(circ_angle_deg).speed(1.0).range(-360.0..=360.0).suffix("°"));
+
+                        // Quick Angle buttons
+                        for angle in &[360.0, 180.0, 90.0] {
+                            let is_active = (*circ_angle_deg - angle).abs() < 1e-3;
+                            let label = format!("{:.0}°", angle);
+                            if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                                *circ_angle_deg = *angle;
+                            }
+                        }
+
+                        if is_3d {
+                            ui.separator();
+                            // Dropdown Axis
+                            egui::ComboBox::from_id_salt("ducad-pattern-axis-combo")
+                                .selected_text(RichText::new(circ_axis.label()).size(10.0).color(TEXT_PRIMARY))
+                                .width(90.0)
+                                .show_ui(ui, |ui| {
+                                    for ax in &[PatternAxisPreset::Z, PatternAxisPreset::Y, PatternAxisPreset::X] {
+                                        if ui.selectable_value(circ_axis, *ax, RichText::new(ax.label()).size(10.0)).clicked() {
+                                            hud_action = Some(PatternHudAction::SetAxis(*ax));
+                                        }
                                     }
-                                }
-                            });
+                                });
+                        }
                     }
                 }
-            }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
-
+                ui.separator();
                 // Tombol Eksekusi Pattern
-                let exec_btn = egui::Button::new(
-                    RichText::new(format!("✓ {}", t!("popup-pattern-apply")))
-                        .size(11.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(ACCENT_BLUE);
-
-                if ui.add(exec_btn).clicked() {
+                if Self::hud_commit_btn(ui, &format!("✓ {}", t!("popup-pattern-apply"))).clicked() {
                     hud_action = Some(PatternHudAction::Commit);
                 }
 
-                ui.add_space(4.0);
-
+                ui.separator();
                 // Tombol Batal
-                let cancel_btn = egui::Button::new(
-                    RichText::new("✕ Batal")
-                        .size(10.5)
-                        .color(TEXT_SECONDARY),
-                )
-                .fill(Color32::from_rgba_premultiplied(45, 50, 60, 160));
-
-                if ui.add(cancel_btn).clicked() {
+                if Self::hud_cancel_btn(ui, "✕ Batal").clicked() {
                     hud_action = Some(PatternHudAction::Cancel);
                 }
-            });
-        });
 
-        hud_action
+                hud_action
+            },
+        )
     }
 
     /// Render popup rename mengambang di area top-center kanvas.

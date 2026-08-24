@@ -1363,39 +1363,28 @@ impl eframe::App for DuCADApp {
 
 
         if self.section_enabled {
-            egui::Area::new(egui::Id::new("ducad-hud-section-banner"))
-                .fixed_pos(egui::pos2(screen_center_x, 94.0))
-                .pivot(egui::Align2::CENTER_TOP)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    if let Some(hud_ev) = CanvasHud::show_section_view_banner(ui) {
-                        if hud_ev == CanvasHudEvent::TurnOffSectionView {
-                            self.section_enabled = false;
-                        }
-                    }
-                });
+            if let Some(hud_ev) = CanvasHud::show_section_view_banner(ui, screen_rect) {
+                if hud_ev == CanvasHudEvent::TurnOffSectionView {
+                    self.section_enabled = false;
+                }
+            }
         }
 
         if self.zebra_config.enabled {
-            egui::Area::new(egui::Id::new("ducad-hud-zebra-panel"))
-                .fixed_pos(egui::pos2(screen_center_x, 94.0))
-                .pivot(egui::Align2::CENTER_TOP)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    if let Some(act) = CanvasHud::show_zebra_inspection_panel(
-                        ui,
-                        &mut self.zebra_config.frequency,
-                        &mut self.zebra_config.angle,
-                        &mut self.zebra_config.blend,
-                    ) {
-                        match act {
-                            ZebraHudAction::SetFrequency(f) => self.zebra_config.frequency = f,
-                            ZebraHudAction::SetAngle(a) => self.zebra_config.angle = a,
-                            ZebraHudAction::SetBlend(b) => self.zebra_config.blend = b,
-                            ZebraHudAction::TurnOff => self.zebra_config.enabled = false,
-                        }
-                    }
-                });
+            if let Some(act) = CanvasHud::show_zebra_inspection_panel(
+                ui,
+                screen_rect,
+                &mut self.zebra_config.frequency,
+                &mut self.zebra_config.angle,
+                &mut self.zebra_config.blend,
+            ) {
+                match act {
+                    ZebraHudAction::SetFrequency(f) => self.zebra_config.frequency = f,
+                    ZebraHudAction::SetAngle(a) => self.zebra_config.angle = a,
+                    ZebraHudAction::SetBlend(b) => self.zebra_config.blend = b,
+                    ZebraHudAction::TurnOff => self.zebra_config.enabled = false,
+                }
+            }
         }
 
         // =========================================================================
@@ -1882,28 +1871,23 @@ impl eframe::App for DuCADApp {
         );
 
         if !has_top_bar_hud {
-            egui::Area::new(egui::Id::new("ducad-hud-status-area"))
-                .pivot(egui::Align2::LEFT_TOP)
-                .fixed_pos(egui::pos2(screen_rect.min.x + 16.0, screen_rect.min.y + 60.0))
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    if let Some(ev) = CanvasHud::show_status_pill(
-                        ui,
-                        &sel_summary,
-                        m_summary.as_deref(),
-                        show_normal_to_sketch,
-                    ) {
-                        match ev {
-                            CanvasHudEvent::OrientNormalToSketch => {
-                                self.camera.orient_to_plane(&self.active_plane);
-                            }
-                            CanvasHudEvent::OpenMeasurements => {
-                                self.set_tool(ToolKind::Measure);
-                            }
-                            CanvasHudEvent::TurnOffSectionView => {}
-                        }
+            if let Some(ev) = CanvasHud::show_status_pill(
+                ui,
+                screen_rect,
+                &sel_summary,
+                m_summary.as_deref(),
+                show_normal_to_sketch,
+            ) {
+                match ev {
+                    CanvasHudEvent::OrientNormalToSketch => {
+                        self.camera.orient_to_plane(&self.active_plane);
                     }
-                });
+                    CanvasHudEvent::OpenMeasurements => {
+                        self.set_tool(ToolKind::Measure);
+                    }
+                    CanvasHudEvent::TurnOffSectionView => {}
+                }
+            }
         }
 
         let palette_actions = self.palette_actions();

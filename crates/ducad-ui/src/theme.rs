@@ -104,7 +104,7 @@ impl ThemeMode {
 /// Helper frame glassmorphism untuk panel mengambang Shapr3D.
 pub fn glass_frame() -> Frame {
     Frame {
-        inner_margin: Margin::same(8),
+        inner_margin: Margin::symmetric(10, 5),
         outer_margin: Margin::ZERO,
         corner_radius: CornerRadius::same(10),
         shadow: egui::Shadow {
