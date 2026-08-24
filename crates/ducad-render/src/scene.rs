@@ -300,7 +300,7 @@ impl SceneRenderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_mesh"),
+                entry_point: Some("fs_gizmo"),
                 compilation_options: Default::default(),
                 targets: &color_target,
             }),
@@ -630,5 +630,12 @@ mod tests {
         // Total = 160 bytes (multiple of 16)
         assert_eq!(std::mem::size_of::<Globals>(), 160);
         assert_eq!(std::mem::align_of::<Globals>(), 4);
+    }
+
+    #[test]
+    fn test_shader_wgsl_validity() {
+        let shader_str = include_str!("shader.wgsl");
+        let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
+        assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
     }
 }

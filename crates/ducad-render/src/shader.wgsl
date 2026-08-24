@@ -165,3 +165,16 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
 
     return vec4<f32>(standard_color, in.color.a);
 }
+
+// Fragment shader khusus gizmo 3D (selalu menampilkan warna asli in.color dengan diffuse + rim shading,
+// tanpa terpengaruh oleh inspection shaders seperti Zebra maupun Draft Angle Heatmap).
+@fragment
+fn fs_gizmo(in: MeshOut) -> @location(0) vec4<f32> {
+    let n = normalize(in.normal);
+    let view_dir = normalize(globals.eye.xyz - in.world);
+    let diffuse = max(dot(n, normalize(globals.light_dir.xyz)), 0.0);
+    let rim = pow(1.0 - max(dot(n, view_dir), 0.0), 3.0) * 0.15;
+
+    let shaded = in.color.rgb * (0.45 + 0.55 * diffuse) + vec3<f32>(rim);
+    return vec4<f32>(shaded, in.color.a);
+}
