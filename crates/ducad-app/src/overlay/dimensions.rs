@@ -1361,14 +1361,8 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.model_status = Some(format!(
-                        "✓ Fillet Vertex diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
-                        if self.vertex_gizmo_radius >= 0.0 {
-                            format!("R {}", self.unit.format(self.vertex_gizmo_radius))
-                        } else {
-                            format!("C {}", self.unit.format(-self.vertex_gizmo_radius))
-                        }
-                    ));
+                    self.commit_vertex_fillet();
+                    self.filleting_vertex_from_gizmo = false;
                 }
 
                 if self.filleting_vertex_from_gizmo && !self.vertex_gizmo_dimension_editing {
@@ -1495,14 +1489,8 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.model_status = Some(format!(
-                        "✓ Fillet Edge diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
-                        if self.edge_gizmo_radius >= 0.0 {
-                            format!("R {}", self.unit.format(self.edge_gizmo_radius))
-                        } else {
-                            format!("C {}", self.unit.format(-self.edge_gizmo_radius))
-                        }
-                    ));
+                    self.commit_edge_fillet_single();
+                    self.filleting_edge_from_gizmo = false;
                 }
 
                 if self.filleting_edge_from_gizmo && !self.edge_gizmo_dimension_editing {
@@ -2123,15 +2111,7 @@ impl DuCADApp {
                 }
 
                 if is_this_corner_active && handle_resp.drag_stopped() {
-                    self.model_status = Some(format!(
-                        "✓ {} diatur ({}) — Tekan Enter untuk terapkan, Esc untuk batal, atau klik dimensi",
-                        if self.sketch_corner_gizmo_radius >= 0.0 { "Fillet 2D" } else { "Chamfer 2D" },
-                        if self.sketch_corner_gizmo_radius >= 0.0 {
-                            format!("R {}", self.unit.format(self.sketch_corner_gizmo_radius))
-                        } else {
-                            format!("C {}", self.unit.format(-self.sketch_corner_gizmo_radius))
-                        }
-                    ));
+                    self.commit_sketch_corner_fillet_or_chamfer();
                 }
 
                 if is_this_corner_active && self.sketch_corner_gizmo_active && !self.sketch_corner_dimension_editing {
