@@ -4,18 +4,20 @@
 //! kontrol skala gambar, tombol toggle garis tampak & tersembunyi, editor kepala gambar (title block),
 //! serta tombol ekspor langsung ke PDF Vektor dan DXF CAD.
 
-use ducad_io::drawing::{format_scale_ratio, DrawingSheet, PaperSize};
+use ducad_io::drawing::{
+    format_scale_ratio, DrawingSheet, PaperSize, TextAnnotation, TitleBlockInfo,
+};
 use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use egui::{
     vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
     Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CHECK, ICON_CLOSE, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_LAYERS,
+    ICON_CLOSE, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_LAYERS,
     ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
 
-use crate::theme::{card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 /// Tombol ikon kompak untuk header, dengan kartu tooltip hover berisi
 /// title + shortcut opsional + subtitle (sama persis dengan top_bar.rs).
@@ -83,12 +85,101 @@ pub enum DrawingSheetEvent {
     Close,
 }
 
+/// Field teks pada Kepala Gambar (Title Block ISO) yang dapat diedit langsung.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleBlockFieldId {
+    CompanyName,
+    ProjectTitle,
+    DrawingNumber,
+    Revision,
+    DrawnBy,
+    Date,
+    Scale,
+    SheetNumber,
+    Material,
+    Units,
+}
+
+impl TitleBlockFieldId {
+    pub const ALL: [TitleBlockFieldId; 10] = [
+        TitleBlockFieldId::CompanyName,
+        TitleBlockFieldId::ProjectTitle,
+        TitleBlockFieldId::DrawingNumber,
+        TitleBlockFieldId::Revision,
+        TitleBlockFieldId::DrawnBy,
+        TitleBlockFieldId::Date,
+        TitleBlockFieldId::Scale,
+        TitleBlockFieldId::SheetNumber,
+        TitleBlockFieldId::Material,
+        TitleBlockFieldId::Units,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TitleBlockFieldId::CompanyName => "Perusahaan",
+            TitleBlockFieldId::ProjectTitle => "Judul Gambar",
+            TitleBlockFieldId::DrawingNumber => "No. Gambar",
+            TitleBlockFieldId::Revision => "Revisi",
+            TitleBlockFieldId::DrawnBy => "Digambar (Drafter)",
+            TitleBlockFieldId::Date => "Tanggal",
+            TitleBlockFieldId::Scale => "Skala",
+            TitleBlockFieldId::SheetNumber => "Lembar",
+            TitleBlockFieldId::Material => "Material",
+            TitleBlockFieldId::Units => "Satuan & Toleransi",
+        }
+    }
+
+    pub fn get_mut_str<'a>(self, info: &'a mut TitleBlockInfo) -> &'a mut String {
+        match self {
+            TitleBlockFieldId::CompanyName => &mut info.company_name,
+            TitleBlockFieldId::ProjectTitle => &mut info.project_title,
+            TitleBlockFieldId::DrawingNumber => &mut info.drawing_number,
+            TitleBlockFieldId::Revision => &mut info.revision,
+            TitleBlockFieldId::DrawnBy => &mut info.drawn_by,
+            TitleBlockFieldId::Date => &mut info.date,
+            TitleBlockFieldId::Scale => &mut info.scale,
+            TitleBlockFieldId::SheetNumber => &mut info.sheet_number,
+            TitleBlockFieldId::Material => &mut info.material,
+            TitleBlockFieldId::Units => &mut info.units,
+        }
+    }
+}
+
+/// Target elemen teks yang sedang aktif diedit secara live in-place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveTextTarget {
+    TitleBlock(TitleBlockFieldId),
+    CustomText(usize),
+}
+
+/// Menghitung koordinat batas persegi (bounding box) field etiket dalam mm pada kertas.
+fn title_block_field_rect_mm(tb: [f32; 4], field: TitleBlockFieldId) -> [f32; 4] {
+    match field {
+        TitleBlockFieldId::CompanyName => [tb[0] + 2.0, tb[1] + 34.0, tb[0] + 93.0, tb[1] + 44.0],
+        TitleBlockFieldId::ProjectTitle => [tb[0] + 2.0, tb[1] + 19.0, tb[0] + 83.0, tb[1] + 26.5],
+        TitleBlockFieldId::DrawingNumber => [tb[0] + 86.5, tb[1] + 19.0, tb[0] + 122.5, tb[1] + 26.5],
+        TitleBlockFieldId::Revision => [tb[0] + 124.5, tb[1] + 19.0, tb[0] + 138.5, tb[1] + 26.5],
+        TitleBlockFieldId::DrawnBy => [tb[0] + 2.0, tb[1] + 9.5, tb[0] + 43.5, tb[1] + 14.5],
+        TitleBlockFieldId::Date => [tb[0] + 46.5, tb[1] + 9.5, tb[0] + 88.5, tb[1] + 14.5],
+        TitleBlockFieldId::Scale => [tb[0] + 91.5, tb[1] + 9.5, tb[0] + 113.5, tb[1] + 14.5],
+        TitleBlockFieldId::SheetNumber => [tb[0] + 116.5, tb[1] + 9.5, tb[0] + 138.5, tb[1] + 14.5],
+        TitleBlockFieldId::Material => [tb[0] + 2.0, tb[1] + 1.0, tb[0] + 88.5, tb[1] + 6.0],
+        TitleBlockFieldId::Units => [tb[0] + 91.5, tb[1] + 1.0, tb[0] + 138.5, tb[1] + 6.0],
+    }
+}
+
 /// State persisten untuk tampilan Lembar Kerja Gambar Teknik.
 pub struct DrawingSheetViewState {
     pub is_open: bool,
     pub pan_offset: Vec2,
     pub zoom: f32,
-    pub title_block_editor_open: bool,
+    pub text_tool_active: bool,
+    pub active_text_edit: Option<ActiveTextTarget>,
+    pub selected_text_idx: Option<usize>,
+    pub dragging_text_idx: Option<usize>,
+    pub hovered_text_idx: Option<usize>,
+    pub hovered_text_delete: Option<usize>,
+    pub hovered_tb_field: Option<TitleBlockFieldId>,
     pub dragging_view: Option<ProjectedViewKind>,
     pub hovered_view: Option<ProjectedViewKind>,
     pub dragging_dim_idx: Option<usize>,
@@ -105,7 +196,13 @@ impl Default for DrawingSheetViewState {
             is_open: false,
             pan_offset: Vec2::ZERO,
             zoom: 1.0,
-            title_block_editor_open: false,
+            text_tool_active: false,
+            active_text_edit: None,
+            selected_text_idx: None,
+            dragging_text_idx: None,
+            hovered_text_idx: None,
+            hovered_text_delete: None,
+            hovered_tb_field: None,
             dragging_view: None,
             hovered_view: None,
             dragging_dim_idx: None,
@@ -235,25 +332,65 @@ impl DrawingSheetView {
         let mut hovered_view_kind = None;
         let mut hovered_dim_idx = None;
         let mut hovered_dim_delete = None;
+        let mut hovered_tb_field = None;
+        let mut hovered_text_idx = None;
+        let mut hovered_text_delete = None;
         let mut active_snap_pt_mm = None;
+
+        let tb = sheet.title_block_rect_mm();
 
         if let Some(c_pos) = cursor_pos {
             if !is_over_ui && canvas_rect.contains(c_pos) {
                 let cursor_mm = screen_to_mm(c_pos);
 
-                // A. Snap point detection (untuk tambah ukuran baru)
-                let snap_threshold_mm = 14.0 / zoom;
-                let mut closest_dist = snap_threshold_mm;
-                for sp in &snap_points_mm {
-                    let d = (sp[0] - cursor_mm[0]).hypot(sp[1] - cursor_mm[1]);
-                    if d < closest_dist {
-                        closest_dist = d;
-                        active_snap_pt_mm = Some(*sp);
+                // A. Title Block Fields Hit Test (Edit Teks Langsung / In-place)
+                for field in TitleBlockFieldId::ALL {
+                    let f_rect_mm = title_block_field_rect_mm(tb, field);
+                    let p_bl = mm_to_screen(f_rect_mm[0], f_rect_mm[1]);
+                    let p_tr = mm_to_screen(f_rect_mm[2], f_rect_mm[3]);
+                    let f_rect = Rect::from_two_pos(p_bl, p_tr);
+                    if f_rect.contains(c_pos) {
+                        hovered_tb_field = Some(field);
+                        break;
                     }
                 }
 
-                // B. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu)
-                if sheet.show_dimensions {
+                // B. Custom Text Annotations Hit Test (Teks Bebas / Catatan)
+                if hovered_tb_field.is_none() {
+                    for (idx, note) in sheet.custom_texts.iter().enumerate() {
+                        let p_top_left = mm_to_screen(note.position[0], note.position[1]);
+                        let font_sz = (note.font_size * zoom).clamp(7.0, 24.0);
+                        let disp_text = if note.text.is_empty() { "Ketik teks..." } else { &note.text };
+                        let text_w = ((disp_text.len().max(8) as f32) * font_sz * 0.6 + 12.0).clamp(40.0, 500.0);
+                        let text_rect = Rect::from_min_size(p_top_left - vec2(0.0, font_sz * 1.1), vec2(text_w, font_sz * 1.5));
+                        let del_btn_rect = Rect::from_center_size(Pos2::new(text_rect.max.x + 10.0, text_rect.center().y), vec2(18.0, 18.0));
+
+                        if del_btn_rect.contains(c_pos) {
+                            hovered_text_delete = Some(idx);
+                            hovered_text_idx = Some(idx);
+                            break;
+                        } else if text_rect.contains(c_pos) {
+                            hovered_text_idx = Some(idx);
+                            break;
+                        }
+                    }
+                }
+
+                // C. Snap point detection (untuk tambah ukuran baru)
+                if state.measure_tool_active {
+                    let snap_threshold_mm = 14.0 / zoom;
+                    let mut closest_dist = snap_threshold_mm;
+                    for sp in &snap_points_mm {
+                        let d = (sp[0] - cursor_mm[0]).hypot(sp[1] - cursor_mm[1]);
+                        if d < closest_dist {
+                            closest_dist = d;
+                            active_snap_pt_mm = Some(*sp);
+                        }
+                    }
+                }
+
+                // D. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu)
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && sheet.show_dimensions {
                     for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
                         let p1 = mm_to_screen(dim.start[0], dim.start[1]);
                         let p2 = mm_to_screen(dim.end[0], dim.end[1]);
@@ -303,8 +440,8 @@ impl DrawingSheetView {
                     }
                 }
 
-                // C. View hit test (jika tidak sedang hover dimensi)
-                if hovered_dim_idx.is_none() {
+                // E. View hit test (jika tidak sedang hover teks atau dimensi)
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_dim_idx.is_none() {
                     for plc in &sheet.view_placements {
                         if !plc.visible {
                             continue;
@@ -331,12 +468,30 @@ impl DrawingSheetView {
         state.hovered_view = hovered_view_kind;
         state.hovered_dim_idx = hovered_dim_idx;
         state.hovered_dim_delete = hovered_dim_delete;
+        state.hovered_tb_field = hovered_tb_field;
+        state.hovered_text_idx = hovered_text_idx;
+        state.hovered_text_delete = hovered_text_delete;
 
         // Interaction Handler
         if !is_over_ui {
-            // Hapus dimensi yang sedang dipilih dengan tombol Delete / Backspace
-            if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
-                if let Some(sel_idx) = state.selected_dim_idx {
+            // Pintasan keyboard T untuk mengaktifkan Tool Teks
+            if state.active_text_edit.is_none() && ui.input(|i| i.key_pressed(egui::Key::T)) {
+                state.text_tool_active = !state.text_tool_active;
+                if state.text_tool_active {
+                    state.measure_tool_active = false;
+                }
+            }
+
+            // Hapus teks / dimensi yang sedang dipilih dengan tombol Delete / Backspace
+            if state.active_text_edit.is_none() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+                if let Some(t_idx) = state.selected_text_idx {
+                    if t_idx < sheet.custom_texts.len() {
+                        sheet.custom_texts.remove(t_idx);
+                        state.selected_text_idx = None;
+                        state.hovered_text_idx = None;
+                        state.hovered_text_delete = None;
+                    }
+                } else if let Some(sel_idx) = state.selected_dim_idx {
                     if sel_idx < sheet.auto_dimensions.len() {
                         sheet.auto_dimensions.remove(sel_idx);
                         state.selected_dim_idx = None;
@@ -374,9 +529,17 @@ impl DrawingSheetView {
                     }
                 }
             } else {
-                // Klik tombol hapus dimensi [ ✕ ] atau pilih dimensi
+                // Klik untuk pilih/hapus teks atau dimensi, atau tambah teks baru
                 if response.clicked() {
-                    if let Some(del_idx) = state.hovered_dim_delete {
+                    if let Some(del_t) = state.hovered_text_delete {
+                        if del_t < sheet.custom_texts.len() {
+                            sheet.custom_texts.remove(del_t);
+                            state.selected_text_idx = None;
+                            state.hovered_text_idx = None;
+                            state.hovered_text_delete = None;
+                            state.active_text_edit = None;
+                        }
+                    } else if let Some(del_idx) = state.hovered_dim_delete {
                         if del_idx < sheet.auto_dimensions.len() {
                             sheet.auto_dimensions.remove(del_idx);
                             state.selected_dim_idx = None;
@@ -384,27 +547,64 @@ impl DrawingSheetView {
                             state.hovered_dim_delete = None;
                             state.dragging_dim_idx = None;
                         }
+                    } else if let Some(field) = state.hovered_tb_field {
+                        state.active_text_edit = Some(ActiveTextTarget::TitleBlock(field));
+                        state.selected_text_idx = None;
+                        state.selected_dim_idx = None;
+                    } else if let Some(t_idx) = state.hovered_text_idx {
+                        state.active_text_edit = Some(ActiveTextTarget::CustomText(t_idx));
+                        state.selected_text_idx = Some(t_idx);
+                        state.selected_dim_idx = None;
                     } else if let Some(d_idx) = state.hovered_dim_idx {
                         state.selected_dim_idx = Some(d_idx);
+                        state.selected_text_idx = None;
+                        state.active_text_edit = None;
+                    } else if state.text_tool_active {
+                        // Tambah teks anotasi baru pada kertas di posisi klik
+                        if let Some(c_pos) = cursor_pos {
+                            let click_mm = screen_to_mm(c_pos);
+                            sheet.custom_texts.push(TextAnnotation {
+                                position: click_mm,
+                                text: String::new(),
+                                font_size: 3.5,
+                            });
+                            let new_idx = sheet.custom_texts.len() - 1;
+                            state.active_text_edit = Some(ActiveTextTarget::CustomText(new_idx));
+                            state.selected_text_idx = Some(new_idx);
+                            state.selected_dim_idx = None;
+                        }
                     } else {
                         state.selected_dim_idx = None;
+                        state.selected_text_idx = None;
+                        state.active_text_edit = None;
                     }
                 }
 
-                // Drag and drop geser ukuran ATAU geser tampak
+                // Drag and drop geser teks, ukuran, atau tampak
                 if response.drag_started_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if state.hovered_dim_delete.is_none() {
-                        if state.hovered_dim_idx.is_some() {
+                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() {
+                        if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
+                            state.dragging_text_idx = state.hovered_text_idx;
+                            state.selected_text_idx = state.hovered_text_idx;
+                        } else if state.hovered_dim_idx.is_some() {
                             state.dragging_dim_idx = state.hovered_dim_idx;
                             state.selected_dim_idx = state.hovered_dim_idx;
-                        } else {
+                        } else if state.hovered_tb_field.is_none() {
                             state.dragging_view = state.hovered_view;
                         }
                     }
                 }
 
                 if response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if let Some(d_idx) = state.dragging_dim_idx {
+                    if let Some(t_idx) = state.dragging_text_idx {
+                        if let Some(note) = sheet.custom_texts.get_mut(t_idx) {
+                            let delta_x = response.drag_delta().x / zoom;
+                            let delta_y = -response.drag_delta().y / zoom;
+                            note.position[0] += delta_x;
+                            note.position[1] += delta_y;
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if let Some(d_idx) = state.dragging_dim_idx {
                         if let Some(dim) = sheet.auto_dimensions.get_mut(d_idx) {
                             let delta_x = response.drag_delta().x / zoom;
                             let delta_y = -response.drag_delta().y / zoom;
@@ -435,6 +635,7 @@ impl DrawingSheetView {
                 }
 
                 if response.drag_stopped() {
+                    state.dragging_text_idx = None;
                     state.dragging_dim_idx = None;
                     state.dragging_view = None;
                 }
@@ -446,13 +647,18 @@ impl DrawingSheetView {
                         && state.dragging_view.is_none()
                         && state.hovered_view.is_none()
                         && state.dragging_dim_idx.is_none()
-                        && state.hovered_dim_idx.is_none())
+                        && state.hovered_dim_idx.is_none()
+                        && state.dragging_text_idx.is_none()
+                        && state.hovered_text_idx.is_none()
+                        && state.hovered_tb_field.is_none())
                 {
                     state.pan_offset += response.drag_delta();
                 }
 
-                if state.hovered_dim_delete.is_some() {
+                if state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                } else if state.text_tool_active || state.hovered_tb_field.is_some() || state.hovered_text_idx.is_some() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
                 } else if (state.hovered_dim_idx.is_some() && state.dragging_dim_idx.is_none())
                     || (state.hovered_view.is_some() && state.dragging_view.is_none())
                 {
@@ -470,7 +676,118 @@ impl DrawingSheetView {
         // Render Lembar Kertas & Konten Gambar 2D
         render_sheet_canvas(ui, canvas_rect, state, sheet, active_snap_pt_mm, cursor_pos);
 
-        // 4. Render Header Controls (Floating Top Bar Glassmorphism di Atas Kanvas)
+        // 4. Inline Live Text Edit Box (Mengedit langsung di tempat pada etiket atau teks bebas)
+        let mut finish_text_edit = false;
+        if let Some(target) = state.active_text_edit {
+            match target {
+                ActiveTextTarget::TitleBlock(field) => {
+                    let tb = sheet.title_block_rect_mm();
+                    let f_rect_mm = title_block_field_rect_mm(tb, field);
+                    let p_bl = mm_to_screen(f_rect_mm[0], f_rect_mm[1]);
+                    let p_tr = mm_to_screen(f_rect_mm[2], f_rect_mm[3]);
+                    let field_screen_rect = Rect::from_two_pos(p_bl, p_tr);
+
+                    let font_sz = match field {
+                        TitleBlockFieldId::ProjectTitle => (4.8 * zoom).clamp(9.0, 16.0),
+                        TitleBlockFieldId::CompanyName => (4.0 * zoom).clamp(8.5, 14.0),
+                        _ => (3.2 * zoom).clamp(7.5, 12.0),
+                    };
+
+                    let val_mut = field.get_mut_str(&mut sheet.title_block);
+                    let mut edit_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(field_screen_rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+
+                    Frame::NONE
+                        .fill(Color32::WHITE)
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(0, 130, 250)))
+                        .corner_radius(CornerRadius::same(2))
+                        .inner_margin(Margin::symmetric(3, 1))
+                        .show(&mut edit_ui, |ui| {
+                            let res = ui.add(
+                                egui::TextEdit::singleline(val_mut)
+                                    .font(FontId::proportional(font_sz))
+                                    .text_color(Color32::BLACK)
+                                    .frame(egui::Frame::NONE)
+                                    .hint_text("Ketik...")
+                                    .desired_width(field_screen_rect.width() - 6.0),
+                            );
+                            res.request_focus();
+                            if res.lost_focus()
+                                || ui.input(|i| {
+                                    i.key_pressed(egui::Key::Enter)
+                                        || i.key_pressed(egui::Key::Escape)
+                                })
+                            {
+                                finish_text_edit = true;
+                            }
+                        });
+                }
+                ActiveTextTarget::CustomText(idx) => {
+                    if idx < sheet.custom_texts.len() {
+                        let pos_mm = sheet.custom_texts[idx].position;
+                        let font_size = sheet.custom_texts[idx].font_size;
+                        let p_top_left = mm_to_screen(pos_mm[0], pos_mm[1]);
+                        let font_sz = (font_size * zoom).clamp(8.0, 22.0);
+                        let text_w = ((sheet.custom_texts[idx].text.len().max(12) as f32)
+                            * font_sz
+                            * 0.65
+                            + 30.0)
+                            .clamp(120.0, 450.0);
+                        let edit_rect = Rect::from_min_size(
+                            Pos2::new(p_top_left.x, p_top_left.y - font_sz * 1.2),
+                            vec2(text_w, font_sz * 1.8),
+                        );
+
+                        let val_mut = &mut sheet.custom_texts[idx].text;
+                        let mut edit_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(edit_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        Frame::NONE
+                            .fill(Color32::WHITE)
+                            .stroke(Stroke::new(1.5, Color32::from_rgb(0, 130, 250)))
+                            .corner_radius(CornerRadius::same(3))
+                            .inner_margin(Margin::symmetric(4, 2))
+                            .show(&mut edit_ui, |ui| {
+                                let res = ui.add(
+                                    egui::TextEdit::singleline(val_mut)
+                                        .font(FontId::proportional(font_sz))
+                                        .text_color(Color32::BLACK)
+                                        .frame(egui::Frame::NONE)
+                                        .hint_text("Ketik catatan...")
+                                        .desired_width(edit_rect.width() - 8.0),
+                                );
+                                res.request_focus();
+                                if res.lost_focus()
+                                    || ui.input(|i| {
+                                        i.key_pressed(egui::Key::Enter)
+                                            || i.key_pressed(egui::Key::Escape)
+                                    })
+                                {
+                                    finish_text_edit = true;
+                                }
+                            });
+                    } else {
+                        finish_text_edit = true;
+                    }
+                }
+            }
+        }
+        if finish_text_edit {
+            if let Some(ActiveTextTarget::CustomText(idx)) = state.active_text_edit {
+                if idx < sheet.custom_texts.len() && sheet.custom_texts[idx].text.trim().is_empty() {
+                    sheet.custom_texts.remove(idx);
+                    state.selected_text_idx = None;
+                }
+            }
+            state.active_text_edit = None;
+        }
+
+        // 5. Render Header Controls (Floating Top Bar Glassmorphism di Atas Kanvas)
         let mut header_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(topbar_rect)
@@ -515,7 +832,7 @@ impl DrawingSheetView {
                         }
                     });
 
-                // C. Skala Gambar Mode Sliding Fleksibel
+                // C. Skala Gambar Mode Sliding Panjang & Halus (Bisa langsung diklik untuk ketik angka)
                 ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));
                 let mut cur_scale = sheet.scale as f64;
                 let scale_slider = egui::Slider::new(&mut cur_scale, 0.01..=3.0)
@@ -535,8 +852,8 @@ impl DrawingSheetView {
                     .show_value(true);
 
                 let slider_resp = ui
-                    .add_sized([95.0, 20.0], scale_slider)
-                    .on_hover_text("Geser untuk mengubah skala proyeksi gambar secara fleksibel");
+                    .add_sized([260.0, 20.0], scale_slider)
+                    .on_hover_text("Geser untuk mengubah skala secara sangat halus, atau klik angka untuk mengetik rasio skala");
                 if slider_resp.changed() {
                     sheet.layout_with_scale(cur_scale as f32);
                 }
@@ -600,6 +917,9 @@ impl DrawingSheetView {
                 );
                 if measure_btn.clicked() {
                     state.measure_tool_active = !state.measure_tool_active;
+                    if state.measure_tool_active {
+                        state.text_tool_active = false;
+                    }
                     state.measure_first_pt = None;
                 }
 
@@ -617,18 +937,21 @@ impl DrawingSheetView {
                     sheet.show_centerlines = !sheet.show_centerlines;
                 }
 
-                let tb_btn = header_icon_btn(
+                let text_btn = header_icon_btn(
                     ui,
                     ICON_EDIT_NOTE.codepoint,
-                    state.title_block_editor_open,
-                    "Editor Kepala Gambar",
+                    state.text_tool_active,
+                    "Tool Input Teks & Edit Etiket (Live Text)",
                     Some("T"),
-                    Some("Buka panel informasi formulir Title Block ISO"),
+                    Some("Klik teks/etiket untuk edit langsung, atau klik kertas untuk menambah teks baru"),
                     Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
-                    Some(ACCENT_BLUE),
+                    Some(Color32::from_rgb(0, 180, 255)),
                 );
-                if tb_btn.clicked() {
-                    state.title_block_editor_open = !state.title_block_editor_open;
+                if text_btn.clicked() {
+                    state.text_tool_active = !state.text_tool_active;
+                    if state.text_tool_active {
+                        state.measure_tool_active = false;
+                    }
                 }
 
                 ui.add_space(2.0);
@@ -727,7 +1050,7 @@ impl DrawingSheetView {
             });
         });
 
-        // 5. Floating Zoom In / Zoom Out / Fit Toolbar di Pojok Kanan Bawah
+        // 6. Floating Zoom In / Zoom Out / Fit Toolbar di Pojok Kanan Bawah
         let mut zoom_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(zoom_controls_rect)
@@ -780,11 +1103,6 @@ impl DrawingSheetView {
                 }
             });
         });
-
-        // 6. Panel Form Floating: Edit Kepala Gambar (Title Block)
-        if state.title_block_editor_open {
-            render_title_block_editor(ui, canvas_rect, sheet, &mut state.title_block_editor_open);
-        }
 
         event
     }
@@ -902,7 +1220,7 @@ fn render_sheet_canvas(
     }
 
     // E. Kepala Gambar (Title Block ISO 7200)
-    render_title_block_screen(&painter, sheet, zoom, mm_to_screen);
+    render_title_block_screen(&painter, sheet, state, zoom, mm_to_screen);
 
     // F. Gambar Tampak-tampak Proyeksi (Front, Top, Right, Isometric)
     for plc in &sheet.view_placements {
@@ -1026,7 +1344,6 @@ fn render_sheet_canvas(
 
     // G. Anotasi Dimensi Presisi dengan Panah Terisi (Filled Arrowheads) & Extension Lines
     if sheet.show_dimensions {
-        let dim_stroke = Stroke::new((0.35 * zoom).clamp(0.8, 1.5), Color32::from_rgb(12, 70, 175));
         let font_dim = FontId::monospace((4.2 * zoom).clamp(5.5, 11.5));
         let arrow_sz = (2.2 * zoom).clamp(3.5, 7.5);
 
@@ -1184,7 +1501,59 @@ fn render_sheet_canvas(
         }
     }
 
-    // H. Indikator Snap Point & Pengukuran Live (Tambah Data Ukuran Manual)
+    // H. Anotasi Teks Bebas (Custom Text Notes)
+    for (idx, note) in sheet.custom_texts.iter().enumerate() {
+        let is_editing = state.active_text_edit == Some(ActiveTextTarget::CustomText(idx));
+        let is_hovered = state.hovered_text_idx == Some(idx);
+        let is_selected = state.selected_text_idx == Some(idx);
+        let is_del_hovered = state.hovered_text_delete == Some(idx);
+
+        let p_top_left = mm_to_screen(note.position[0], note.position[1]);
+        let font_sz = (note.font_size * zoom).clamp(7.0, 24.0);
+        let font_text = FontId::proportional(font_sz);
+
+        if !is_editing {
+            let display_text = if note.text.is_empty() { "Ketik teks..." } else { &note.text };
+            let galley = painter.layout_no_wrap(display_text.to_string(), font_text.clone(), Color32::BLACK);
+            let text_rect = Rect::from_min_size(p_top_left - vec2(0.0, galley.size().y), galley.size() + vec2(8.0, 4.0));
+
+            // Background highlight jika dipilih / di-hover
+            if is_hovered || is_selected {
+                painter.rect_filled(text_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(0, 140, 255, 25));
+                painter.rect_stroke(
+                    text_rect,
+                    CornerRadius::same(3),
+                    Stroke::new(1.2, if is_selected { Color32::from_rgb(255, 140, 0) } else { Color32::from_rgb(0, 140, 255) }),
+                    egui::StrokeKind::Outside,
+                );
+
+                // Tombol Hapus [ ✕ ]
+                let del_center = Pos2::new(text_rect.max.x + 9.5, text_rect.center().y);
+                let del_color = if is_del_hovered {
+                    Color32::from_rgb(230, 40, 40)
+                } else {
+                    Color32::from_rgba_premultiplied(185, 45, 45, 235)
+                };
+                painter.circle_filled(del_center, 7.0, del_color);
+                painter.text(
+                    del_center,
+                    Align2::CENTER_CENTER,
+                    "×",
+                    FontId::monospace(11.0),
+                    Color32::WHITE,
+                );
+            }
+
+            let text_color = if note.text.is_empty() {
+                Color32::from_rgb(140, 145, 160)
+            } else {
+                Color32::BLACK
+            };
+            painter.galley(p_top_left - vec2(-4.0, galley.size().y - 2.0), galley, text_color);
+        }
+    }
+
+    // I. Indikator Snap Point & Pengukuran Live (Tambah Data Ukuran Manual)
     if let Some(snap_mm) = active_snap_pt_mm {
         let p_snap = mm_to_screen(snap_mm[0], snap_mm[1]);
         painter.circle_stroke(p_snap, 5.0, Stroke::new(1.5, Color32::from_rgb(255, 140, 0)));
@@ -1222,10 +1591,11 @@ fn render_sheet_canvas(
     }
 }
 
-/// Render Kepala Gambar (Title Block) Standar ISO 7200 / DIN 6771 yang Presisi.
+/// Render Kepala Gambar (Title Block) Standar ISO 7200 / DIN 6771 yang Presisi dan Interaktif Langsung.
 fn render_title_block_screen<F>(
     painter: &egui::Painter,
     sheet: &DrawingSheet,
+    state: &DrawingSheetViewState,
     zoom: f32,
     mm_to_screen: F,
 ) where
@@ -1260,6 +1630,9 @@ fn render_title_block_screen<F>(
     let x_col_mid = mm_to_screen(tb[0] + 85.0, 0.0).x;
     painter.line_segment([Pos2::new(x_col_mid, y_row3), Pos2::new(x_col_mid, y_row2)], stroke_thick);
 
+    let x_rev_mid = mm_to_screen(tb[0] + 124.0, 0.0).x;
+    painter.line_segment([Pos2::new(x_rev_mid, y_row3), Pos2::new(x_rev_mid, y_row2)], stroke_thin);
+
     let x_b1 = mm_to_screen(tb[0] + 45.0, 0.0).x;
     let x_b2 = mm_to_screen(tb[0] + 90.0, 0.0).x;
     let x_b3 = mm_to_screen(tb[0] + 115.0, 0.0).x;
@@ -1267,6 +1640,20 @@ fn render_title_block_screen<F>(
     painter.line_segment([Pos2::new(x_b1, y_row2), Pos2::new(x_b1, y_row1)], stroke_thin);
     painter.line_segment([Pos2::new(x_b2, y_row2), Pos2::new(x_b2, tb_rect.max.y)], stroke_thin);
     painter.line_segment([Pos2::new(x_b3, y_row2), Pos2::new(x_b3, y_row1)], stroke_thin);
+
+    // Highlight hovered field pada Title Block
+    for field in TitleBlockFieldId::ALL {
+        let is_hovered = state.hovered_tb_field == Some(field);
+        let is_editing = state.active_text_edit == Some(ActiveTextTarget::TitleBlock(field));
+        if is_hovered && !is_editing {
+            let f_rect_mm = title_block_field_rect_mm(tb, field);
+            let p1 = mm_to_screen(f_rect_mm[0], f_rect_mm[1]);
+            let p2 = mm_to_screen(f_rect_mm[2], f_rect_mm[3]);
+            let f_rect = Rect::from_two_pos(p1, p2);
+            painter.rect_filled(f_rect, CornerRadius::same(2), Color32::from_rgba_premultiplied(0, 140, 255, 30));
+            painter.rect_stroke(f_rect, CornerRadius::same(2), Stroke::new(1.0, Color32::from_rgb(0, 140, 255)), egui::StrokeKind::Outside);
+        }
+    }
 
     // 4. Tipografi & Konten Teks Proporsional (Skala Kertas)
     let font_caption = FontId::proportional((2.6 * zoom).clamp(4.0, 8.5));
@@ -1277,9 +1664,16 @@ fn render_title_block_screen<F>(
     let col_caption = Color32::from_rgb(110, 115, 130);
     let col_val = Color32::BLACK;
 
+    let is_editing_field = |f: TitleBlockFieldId| -> bool {
+        state.active_text_edit == Some(ActiveTextTarget::TitleBlock(f))
+    };
+
     // A. Row 1: Perusahaan & Proyeksi
-    let p_comp = mm_to_screen(tb[0] + 3.0, tb[1] + 39.5);
-    painter.text(p_comp, Align2::LEFT_CENTER, &info.company_name, font_val_md.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::CompanyName) {
+        let p_comp = mm_to_screen(tb[0] + 3.0, tb[1] + 39.5);
+        let comp_name = if info.company_name.is_empty() { "DUCAD Studio CAD/CAM" } else { &info.company_name };
+        painter.text(p_comp, Align2::LEFT_CENTER, comp_name, font_val_md.clone(), col_val);
+    }
     let p_comp_sub = mm_to_screen(tb[0] + 3.0, tb[1] + 35.0);
     painter.text(
         p_comp_sub,
@@ -1293,7 +1687,7 @@ fn render_title_block_screen<F>(
     let p_proj = mm_to_screen(tb[0] + 117.0, tb[1] + 38.5);
     draw_3rd_angle_projection_symbol(painter, p_proj, zoom);
 
-    // B. Row 2: Judul Komponen & Nomor Gambar
+    // B. Row 2: Judul Komponen, Nomor Gambar, dan Revisi
     painter.text(
         mm_to_screen(tb[0] + 3.0, tb[1] + 27.5),
         Align2::LEFT_CENTER,
@@ -1301,14 +1695,16 @@ fn render_title_block_screen<F>(
         font_caption.clone(),
         col_caption,
     );
-    let proj_title = if info.project_title.is_empty() { "KOMPONEN UTAMA" } else { &info.project_title };
-    painter.text(
-        mm_to_screen(tb[0] + 3.0, tb[1] + 22.0),
-        Align2::LEFT_CENTER,
-        proj_title,
-        font_val_lg,
-        col_val,
-    );
+    if !is_editing_field(TitleBlockFieldId::ProjectTitle) {
+        let proj_title = if info.project_title.is_empty() { "KOMPONEN UTAMA" } else { &info.project_title };
+        painter.text(
+            mm_to_screen(tb[0] + 3.0, tb[1] + 22.0),
+            Align2::LEFT_CENTER,
+            proj_title,
+            font_val_lg,
+            col_val,
+        );
+    }
 
     painter.text(
         mm_to_screen(tb[0] + 88.0, tb[1] + 27.5),
@@ -1317,39 +1713,77 @@ fn render_title_block_screen<F>(
         font_caption.clone(),
         col_caption,
     );
+    if !is_editing_field(TitleBlockFieldId::DrawingNumber) {
+        let dwg_num = if info.drawing_number.is_empty() { "DWG-MODEL" } else { &info.drawing_number };
+        painter.text(
+            mm_to_screen(tb[0] + 88.0, tb[1] + 22.0),
+            Align2::LEFT_CENTER,
+            dwg_num,
+            font_val_md.clone(),
+            col_val,
+        );
+    }
+
     painter.text(
-        mm_to_screen(tb[0] + 88.0, tb[1] + 22.0),
+        mm_to_screen(tb[0] + 126.0, tb[1] + 27.5),
         Align2::LEFT_CENTER,
-        &info.drawing_number,
-        font_val_md.clone(),
-        col_val,
+        "REV:",
+        font_caption.clone(),
+        col_caption,
     );
+    if !is_editing_field(TitleBlockFieldId::Revision) {
+        let rev = if info.revision.is_empty() { "A" } else { &info.revision };
+        painter.text(
+            mm_to_screen(tb[0] + 126.0, tb[1] + 22.0),
+            Align2::LEFT_CENTER,
+            rev,
+            font_val_md.clone(),
+            col_val,
+        );
+    }
 
     // C. Row 3: Drafter, Tanggal, Skala, Lembar
     painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 15.0), Align2::LEFT_CENTER, "DIGAMBAR:", font_caption.clone(), col_caption);
-    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.drawn_by, font_val_sm.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::DrawnBy) {
+        let drafter = if info.drawn_by.is_empty() { "DUCAD Designer" } else { &info.drawn_by };
+        painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 11.5), Align2::LEFT_CENTER, drafter, font_val_sm.clone(), col_val);
+    }
 
     painter.text(mm_to_screen(tb[0] + 48.0, tb[1] + 15.0), Align2::LEFT_CENTER, "TANGGAL:", font_caption.clone(), col_caption);
-    painter.text(mm_to_screen(tb[0] + 48.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.date, font_val_sm.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::Date) {
+        let date_str = if info.date.is_empty() { "2026-08-25" } else { &info.date };
+        painter.text(mm_to_screen(tb[0] + 48.0, tb[1] + 11.5), Align2::LEFT_CENTER, date_str, font_val_sm.clone(), col_val);
+    }
 
     painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 15.0), Align2::LEFT_CENTER, "SKALA:", font_caption.clone(), col_caption);
-    painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.scale, font_val_sm.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::Scale) {
+        painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.scale, font_val_sm.clone(), col_val);
+    }
 
     painter.text(mm_to_screen(tb[0] + 118.0, tb[1] + 15.0), Align2::LEFT_CENTER, "LEMBAR:", font_caption.clone(), col_caption);
-    painter.text(mm_to_screen(tb[0] + 118.0, tb[1] + 11.5), Align2::LEFT_CENTER, &info.sheet_number, font_val_sm.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::SheetNumber) {
+        let sheet_num = if info.sheet_number.is_empty() { "1 / 1" } else { &info.sheet_number };
+        painter.text(mm_to_screen(tb[0] + 118.0, tb[1] + 11.5), Align2::LEFT_CENTER, sheet_num, font_val_sm.clone(), col_val);
+    }
 
     // D. Row 4: Material & Toleransi
     painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 6.5), Align2::LEFT_CENTER, "MATERIAL:", font_caption.clone(), col_caption);
-    painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 2.8), Align2::LEFT_CENTER, &info.material, font_val_sm.clone(), col_val);
+    if !is_editing_field(TitleBlockFieldId::Material) {
+        let mat = if info.material.is_empty() { "Aluminium 6061-T6" } else { &info.material };
+        painter.text(mm_to_screen(tb[0] + 3.0, tb[1] + 2.8), Align2::LEFT_CENTER, mat, font_val_sm.clone(), col_val);
+    }
 
     painter.text(mm_to_screen(tb[0] + 93.0, tb[1] + 6.5), Align2::LEFT_CENTER, "TOLERANSI & SATUAN:", font_caption.clone(), col_caption);
-    painter.text(
-        mm_to_screen(tb[0] + 93.0, tb[1] + 2.8),
-        Align2::LEFT_CENTER,
-        &format!("ISO 2768-m | {}", info.units),
-        font_val_sm,
-        col_val,
-    );
+    if !is_editing_field(TitleBlockFieldId::Units) {
+        let unit_str = if info.units.is_empty() { "mm" } else { &info.units };
+        painter.text(
+            mm_to_screen(tb[0] + 93.0, tb[1] + 2.8),
+            Align2::LEFT_CENTER,
+            &format!("ISO 2768-m | {}", unit_str),
+            font_val_sm,
+            col_val,
+        );
+    }
 }
 
 /// Gambar simbol proyeksi sudut ketiga (3rd Angle Projection Cone ISO standard).
@@ -1454,94 +1888,4 @@ fn draw_dashed_line(
         painter.line_segment([start, end], stroke);
         traveled += dash_len + gap_len;
     }
-}
-
-/// Form Editor Floating untuk mengubah isi Kepala Gambar (Title Block).
-fn render_title_block_editor(
-    ui: &mut Ui,
-    canvas_rect: Rect,
-    sheet: &mut DrawingSheet,
-    is_open: &mut bool,
-) {
-    let panel_w = 320.0;
-    let panel_h = 360.0;
-    let panel_rect = Rect::from_min_size(
-        Pos2::new(
-            canvas_rect.max.x - panel_w - 20.0,
-            canvas_rect.min.y + 20.0,
-        ),
-        Vec2::new(panel_w, panel_h),
-    );
-
-    let mut panel_ui = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(panel_rect)
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-
-    card_frame().show(&mut panel_ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!("{} Editor Kepala Gambar", ICON_EDIT_NOTE.codepoint))
-                    .strong()
-                    .size(13.0)
-                    .color(Color32::WHITE),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(ICON_CLOSE.codepoint).clicked() {
-                    *is_open = false;
-                }
-            });
-        });
-
-        ui.separator();
-        ui.add_space(4.0);
-
-        let info = &mut sheet.title_block;
-
-        egui::Grid::new("tb_editor_grid")
-            .num_columns(2)
-            .spacing([8.0, 6.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new("Judul:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.project_title);
-                ui.end_row();
-
-                ui.label(RichText::new("No. Gambar:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.drawing_number);
-                ui.end_row();
-
-                ui.label(RichText::new("Drafter:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.drawn_by);
-                ui.end_row();
-
-                ui.label(RichText::new("Tanggal:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.date);
-                ui.end_row();
-
-                ui.label(RichText::new("Material:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.material);
-                ui.end_row();
-
-                ui.label(RichText::new("Perusahaan:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.company_name);
-                ui.end_row();
-
-                ui.label(RichText::new("Revisi:").size(11.0).color(TEXT_SECONDARY));
-                ui.text_edit_singleline(&mut info.revision);
-                ui.end_row();
-            });
-
-        ui.add_space(8.0);
-        if ui
-            .button(
-                RichText::new(format!("{} Terapkan Perubahan", ICON_CHECK.codepoint))
-                    .strong()
-                    .color(Color32::WHITE),
-            )
-            .clicked()
-        {
-            *is_open = false;
-        }
-    });
 }

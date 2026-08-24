@@ -17,7 +17,7 @@ pub mod pdf;
 pub mod step_io;
 
 pub use drawing::{
-    DimensionAnnotation, DrawingSheet, PaperSize, SheetViewPlacement, TitleBlockInfo,
+    DimensionAnnotation, DrawingSheet, PaperSize, SheetViewPlacement, TextAnnotation, TitleBlockInfo,
 };
 pub use dxf::export_drawing_sheet;
 pub use pdf::export_pdf;

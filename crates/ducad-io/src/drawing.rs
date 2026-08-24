@@ -112,6 +112,27 @@ pub struct SheetViewPlacement {
     pub visible: bool,
 }
 
+/// Anotasi teks bebas pada lembar kerja (catatan teknis, keterangan khusus, instruksi).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextAnnotation {
+    /// Posisi teks pada kertas dalam milimeter (mm dari pojok kiri bawah kertas).
+    pub position: [f32; 2],
+    /// Isi string teks anotasi.
+    pub text: String,
+    /// Ukuran font dalam mm (standar ISO 2.5mm, 3.5mm, 5.0mm, atau 7.0mm).
+    pub font_size: f32,
+}
+
+impl Default for TextAnnotation {
+    fn default() -> Self {
+        Self {
+            position: [20.0, 20.0],
+            text: "CATATAN TEKNIS".to_string(),
+            font_size: 3.5,
+        }
+    }
+}
+
 /// Dokumen Lembar Kerja Teknik 2D lengkap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingSheet {
@@ -124,6 +145,8 @@ pub struct DrawingSheet {
     pub show_dimensions: bool,
     pub show_centerlines: bool,
     pub auto_dimensions: Vec<DimensionAnnotation>,
+    #[serde(default)]
+    pub custom_texts: Vec<TextAnnotation>,
 }
 
 impl DrawingSheet {
@@ -139,6 +162,7 @@ impl DrawingSheet {
             show_dimensions: true,
             show_centerlines: true,
             auto_dimensions: Vec::new(),
+            custom_texts: Vec::new(),
         };
 
         sheet.auto_layout();

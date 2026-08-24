@@ -168,6 +168,20 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
         }
     }
 
+    // E. Anotasi Teks Bebas
+    for note in &sheet.custom_texts {
+        if !note.text.trim().is_empty() {
+            push_text_layer(
+                &mut out,
+                "TEXT_NOTES",
+                note.position[0],
+                note.position[1],
+                note.font_size,
+                &note.text,
+            );
+        }
+    }
+
     out.push_str("0\nENDSEC\n0\nEOF\n");
     std::fs::write(path, out).context("gagal menulis file DXF lembar kerja")?;
     Ok(())

@@ -108,6 +108,9 @@ pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
         render_dimensions(&mut stream, sheet);
     }
 
+    // Render Anotasi Teks Bebas
+    render_custom_texts(&mut stream, sheet);
+
     // Objek 1: Font Helvetica Standar
     let font1_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
     // Objek 2: Font Helvetica-Bold Standar
@@ -507,6 +510,27 @@ fn render_dimensions(s: &mut String, sheet: &DrawingSheet) {
     }
 
     s.push_str("Q\n");
+}
+
+/// Render anotasi teks bebas (catatan teknis tambahan) pada lembar kerja PDF.
+fn render_custom_texts(s: &mut String, sheet: &DrawingSheet) {
+    if sheet.custom_texts.is_empty() {
+        return;
+    }
+    s.push_str("q 0 0 0 rg BT\n");
+    for note in &sheet.custom_texts {
+        if note.text.trim().is_empty() {
+            continue;
+        }
+        let x = mm_to_pt(note.position[0]);
+        let y = mm_to_pt(note.position[1]);
+        let font_pt = mm_to_pt(note.font_size);
+        s.push_str(&format!(
+            "/F2 {font_pt:.2} Tf 1 0 0 1 {x:.2} {y:.2} Tm ({}) Tj\n",
+            escape_pdf(&note.text)
+        ));
+    }
+    s.push_str("ET Q\n");
 }
 
 /// Menggambar panah dimensi lancip terisi (filled arrowhead).
