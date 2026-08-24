@@ -63,5 +63,29 @@ impl Sketch {
             .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
             .map(|(id, _)| id)
     }
+
+    /// Menghitung gabungan bounding box 2D (min, max) dari seluruh entitas yang terlihat di sketch.
+    pub fn bounding_box(&self) -> Option<(DVec2, DVec2)> {
+        let mut min_pt = DVec2::splat(f64::INFINITY);
+        let mut max_pt = DVec2::splat(f64::NEG_INFINITY);
+        let mut found = false;
+
+        for (id, entity) in &self.entities {
+            if self.is_hidden(id) {
+                continue;
+            }
+            if let Some((min, max)) = entity.bounding_box() {
+                min_pt = min_pt.min(min);
+                max_pt = max_pt.max(max);
+                found = true;
+            }
+        }
+
+        if found {
+            Some((min_pt, max_pt))
+        } else {
+            None
+        }
+    }
 }
 

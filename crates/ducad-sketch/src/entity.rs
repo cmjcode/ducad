@@ -135,6 +135,52 @@ impl Entity {
         }
     }
 
+    /// Menghitung bounding box 2D (min, max) dari entitas ini.
+    pub fn bounding_box(&self) -> Option<(DVec2, DVec2)> {
+        match self {
+            Entity::Line { start, end } => {
+                let min = DVec2::new(start.x.min(end.x), start.y.min(end.y));
+                let max = DVec2::new(start.x.max(end.x), start.y.max(end.y));
+                Some((min, max))
+            }
+            Entity::Circle { center, radius } => {
+                let r = radius.abs();
+                let min = DVec2::new(center.x - r, center.y - r);
+                let max = DVec2::new(center.x + r, center.y + r);
+                Some((min, max))
+            }
+            Entity::Arc { center, radius, .. } => {
+                let r = radius.abs();
+                let min = DVec2::new(center.x - r, center.y - r);
+                let max = DVec2::new(center.x + r, center.y + r);
+                Some((min, max))
+            }
+            Entity::Ellipse {
+                center,
+                radius_x,
+                radius_y,
+            } => {
+                let rx = radius_x.abs();
+                let ry = radius_y.abs();
+                let min = DVec2::new(center.x - rx, center.y - ry);
+                let max = DVec2::new(center.x + rx, center.y + ry);
+                Some((min, max))
+            }
+            Entity::Spline { points } => {
+                if points.is_empty() {
+                    return None;
+                }
+                let mut min = points[0];
+                let mut max = points[0];
+                for p in &points[1..] {
+                    min = min.min(*p);
+                    max = max.max(*p);
+                }
+                Some((min, max))
+            }
+        }
+    }
+
     /// Sama seperti `endpoints()`, tapi berpasangan dengan `PointRef` sumbernya.
     pub fn endpoint_refs(&self, id: EntityId) -> Vec<(PointRef, DVec2)> {
         match self {

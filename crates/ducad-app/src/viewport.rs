@@ -9,6 +9,7 @@ pub struct ViewportCallback {
     pub view_proj: Mat4,
     pub eye: Vec3,
     pub sketch_plane: SketchPlane,
+    pub grid_extent: f32,
     pub overlay_lines: Vec<LineVertex>,
     pub body_positions: Vec<[f32; 3]>,
     pub body_normals: Vec<[f32; 3]>,
@@ -31,7 +32,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
-            scene.set_grid_plane(device, &self.sketch_plane);
+            scene.set_grid_plane_with_extent(device, &self.sketch_plane, self.grid_extent, 10.0);
             scene.set_overlay_lines(device, &self.overlay_lines);
             scene.set_mesh(
                 device,

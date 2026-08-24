@@ -686,12 +686,14 @@ impl DuCADApp {
             self.build_combined_body_mesh();
         let (gizmo_positions, gizmo_normals, gizmo_colors, gizmo_indices) =
             self.build_gizmo_mesh(world_scale);
+        let grid_extent = self.calculate_grid_extent(raw_cursor);
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
                 view_proj: self.camera.view_proj(aspect),
                 eye: self.camera.eye(),
                 sketch_plane: self.active_plane,
+                grid_extent,
                 overlay_lines: overlay,
                 body_positions,
                 body_normals,
@@ -707,6 +709,67 @@ impl DuCADApp {
 
         self.dynamic_input_ui(ui, rect, raw_cursor);
     }
+
+    /// Hitung luas grid yang fleksibel & adaptif:
+    /// - Minimal 500.0 unit bawaan.
+    /// - Mengembang otomatis bila ada entitas sketch, pending drawing points, atau kursor yang melebihi 500.0.
+    /// - Mengembang sesuai jarak kamera / zoom-out agar grid tidak terpotong.
+    /// - Diberi padding aman dan dibulatkan ke kelipatan 100.0 (major grid interval) agar garis grid tetap rapi.
+    pub fn calculate_grid_extent(&self, cursor_plane_pt: Option<DVec2>) -> f32 {
+        calculate_grid_extent_for_params(
+            self.sketch(),
+            &self.pending_points,
+            self.is_sketching,
+            cursor_plane_pt,
+            self.camera.target,
+            self.camera.distance,
+        )
+    }
+}
+
+/// Helper murni untuk kalkulasi grid extent dinamis (bisa diuji tanpa eframe context).
+pub fn calculate_grid_extent_for_params(
+    sketch: &Sketch,
+    pending_points: &[DVec2],
+    is_sketching: bool,
+    cursor_plane_pt: Option<DVec2>,
+    cam_target: Vec3,
+    cam_distance: f32,
+) -> f32 {
+    let mut max_coord = 500.0f64;
+
+    // 1. Periksa seluruh entitas sketch
+    if let Some((min_pt, max_pt)) = sketch.bounding_box() {
+        max_coord = max_coord
+            .max(min_pt.x.abs())
+            .max(max_pt.x.abs())
+            .max(min_pt.y.abs())
+            .max(max_pt.y.abs());
+    }
+
+    // 2. Periksa pending points saat menggambar (misal multi-point spline, polyline, pattern, dll)
+    for pt in pending_points {
+        max_coord = max_coord.max(pt.x.abs()).max(pt.y.abs());
+    }
+
+    // 3. Periksa posisi kursor saat dalam mode sketch aktif
+    if is_sketching {
+        if let Some(p) = cursor_plane_pt {
+            max_coord = max_coord.max(p.x.abs()).max(p.y.abs());
+        }
+    }
+
+    // 4. Periksa jarak pandang kamera (zoom-out & pan)
+    let cam_dist = cam_distance as f64;
+    let cam_target_dist = cam_target.length() as f64;
+    max_coord = max_coord.max(cam_target_dist + cam_dist * 0.75);
+
+    // 5. Beri margin 100 unit dan bulatkan ke kelipatan major grid (100.0)
+    let padded = max_coord + 100.0;
+    let step = 100.0;
+    let extent = (padded / step).ceil() * step;
+
+    extent.clamp(500.0, 50_000.0) as f32
 }
 
 impl eframe::App for DuCADApp {
@@ -1947,5 +2010,76 @@ fn round_floating_icon_btn(
     resp.on_hover_text(tooltip)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ducad_sketch::{Entity, Sketch};
+    use glam::{DVec2, Vec3};
 
+    #[test]
+    fn test_calculate_grid_extent_default() {
+        let sketch = Sketch::default();
+        let extent = calculate_grid_extent_for_params(
+            &sketch,
+            &[],
+            false,
+            None,
+            Vec3::ZERO,
+            250.0,
+        );
+        // Default base extent is 500.0 (or default camera distance offset), minimum 500.0
+        assert!(extent >= 500.0);
+    }
+
+    #[test]
+    fn test_calculate_grid_extent_expands_with_large_sketch_entity() {
+        let mut sketch = Sketch::default();
+        // Insert a circle at (1200, 0) with radius 300 -> max coordinate = 1500
+        sketch.entities.insert(Entity::Circle {
+            center: DVec2::new(1200.0, 0.0),
+            radius: 300.0,
+        });
+
+        let extent = calculate_grid_extent_for_params(
+            &sketch,
+            &[],
+            false,
+            None,
+            Vec3::ZERO,
+            250.0,
+        );
+        // Should expand to encompass 1500 + padding (100) -> >= 1600
+        assert!(extent >= 1600.0, "Extent was {extent}, expected >= 1600.0");
+    }
+
+    #[test]
+    fn test_calculate_grid_extent_expands_with_cursor_when_sketching() {
+        let sketch = Sketch::default();
+        let cursor = Some(DVec2::new(2500.0, 0.0));
+        let extent = calculate_grid_extent_for_params(
+            &sketch,
+            &[],
+            true,
+            cursor,
+            Vec3::ZERO,
+            250.0,
+        );
+        assert!(extent >= 2600.0, "Extent was {extent}, expected >= 2600.0");
+    }
+
+    #[test]
+    fn test_calculate_grid_extent_expands_with_zoom_out() {
+        let sketch = Sketch::default();
+        let extent = calculate_grid_extent_for_params(
+            &sketch,
+            &[],
+            false,
+            None,
+            Vec3::ZERO,
+            5000.0,
+        );
+        // Camera distance 5000 * 0.75 = 3750 + 100 = 3850 -> ceil to 3900
+        assert!(extent >= 3900.0, "Extent was {extent}, expected >= 3900.0");
+    }
+}
 

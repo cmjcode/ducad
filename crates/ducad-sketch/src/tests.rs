@@ -797,3 +797,35 @@ fn test_snap_to_closed_region_centroid() {
     assert!(center_candidates.iter().any(|p| (p.x - 50.0).abs() < 1e-4 && (p.y - 50.0).abs() < 1e-4));
     assert!(center_candidates.iter().any(|p| (p.x - 10.0).abs() < 1e-4 && (p.y - 5.0).abs() < 1e-4));
 }
+
+#[test]
+fn test_bounding_box_entities_and_sketch() {
+    let mut sketch = Sketch::default();
+    assert!(sketch.bounding_box().is_none());
+
+    // Line from (-100, -50) to (200, 300)
+    let _id1 = sketch.entities.insert(Entity::Line {
+        start: DVec2::new(-100.0, -50.0),
+        end: DVec2::new(200.0, 300.0),
+    });
+
+    let (min, max) = sketch.bounding_box().unwrap();
+    assert_eq!(min, DVec2::new(-100.0, -50.0));
+    assert_eq!(max, DVec2::new(200.0, 300.0));
+
+    // Circle at (600, 0) with radius 150 -> x in [450, 750], y in [-150, 150]
+    let id2 = sketch.entities.insert(Entity::Circle {
+        center: DVec2::new(600.0, 0.0),
+        radius: 150.0,
+    });
+
+    let (min, max) = sketch.bounding_box().unwrap();
+    assert_eq!(min, DVec2::new(-100.0, -150.0));
+    assert_eq!(max, DVec2::new(750.0, 300.0));
+
+    // Hide circle -> bounding box reverts to line
+    sketch.set_visible(id2, false);
+    let (min, max) = sketch.bounding_box().unwrap();
+    assert_eq!(min, DVec2::new(-100.0, -50.0));
+    assert_eq!(max, DVec2::new(200.0, 300.0));
+}

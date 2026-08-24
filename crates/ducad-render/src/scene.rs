@@ -59,6 +59,9 @@ pub struct SceneRenderer {
     overlay_vertex_count: u32,
     /// Section view (Fase 7) — lihat `set_clip_plane`.
     clip_plane: [f32; 4],
+    current_grid_plane: Option<crate::plane::SketchPlane>,
+    current_grid_extent: f32,
+    current_grid_step: f32,
 }
 
 impl SceneRenderer {
@@ -271,6 +274,9 @@ impl SceneRenderer {
             overlay_vbuf: None,
             overlay_vertex_count: 0,
             clip_plane: CLIP_PLANE_DISABLED,
+            current_grid_plane: Some(crate::plane::SketchPlane::top()),
+            current_grid_extent: 500.0,
+            current_grid_step: 10.0,
         }
     }
 
@@ -311,16 +317,37 @@ impl SceneRenderer {
         self.overlay_vertex_count = verts.len() as u32;
     }
 
-    /// Perbarui buffer grid untuk bidang sketsa tertentu (`Top`, `Front`, `Right`).
-    pub fn set_grid_plane(&mut self, device: &wgpu::Device, plane: &crate::plane::SketchPlane) {
+    /// Perbarui buffer grid untuk bidang sketsa tertentu dengan extent & step dinamis.
+    pub fn set_grid_plane_with_extent(
+        &mut self,
+        device: &wgpu::Device,
+        plane: &crate::plane::SketchPlane,
+        half_extent: f32,
+        step: f32,
+    ) {
+        if self.current_grid_plane == Some(*plane)
+            && (self.current_grid_extent - half_extent).abs() < 1e-3
+            && (self.current_grid_step - step).abs() < 1e-3
+        {
+            return;
+        }
+
         use wgpu::util::DeviceExt;
-        let grid_verts = grid::generate_grid_for_plane(plane, 500.0, 10.0);
+        let grid_verts = grid::generate_grid_for_plane(plane, half_extent, step);
         self.grid_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("grid"),
             contents: bytemuck::cast_slice(&grid_verts),
             usage: wgpu::BufferUsages::VERTEX,
         });
         self.grid_vertex_count = grid_verts.len() as u32;
+        self.current_grid_plane = Some(*plane);
+        self.current_grid_extent = half_extent;
+        self.current_grid_step = step;
+    }
+
+    /// Perbarui buffer grid untuk bidang sketsa tertentu (`Top`, `Front`, `Right`) dengan ukuran default.
+    pub fn set_grid_plane(&mut self, device: &wgpu::Device, plane: &crate::plane::SketchPlane) {
+        self.set_grid_plane_with_extent(device, plane, 500.0, 10.0);
     }
 
     /// Upload mesh body (dari ducad-kernel) untuk ditampilkan. Body kosong
