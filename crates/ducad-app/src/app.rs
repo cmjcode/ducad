@@ -952,144 +952,146 @@ impl eframe::App for DuCADApp {
             items_button_rect: egui::Rect::NOTHING,
         };
 
-        egui::Area::new(egui::Id::new("ducad-topbar-area"))
-            .fixed_pos(egui::pos2(topbar_x, 10.0))
-            .order(egui::Order::Foreground)
-            .show(&ctx, |ui| {
-                ui.set_width(topbar_w);
-                if let Some(top_event) = TopBar::show(ui, &mut topbar_state) {
-                    match top_event {
-                        TopBarEvent::HomeClicked => {
-                            self.new_document();
-                        }
-                        TopBarEvent::SetUnit(u) => {
-                            self.unit = u;
-                            self.model.doc.unit = u;
-                        }
-                        TopBarEvent::SetLanguage(lang) => {
-                            self.language = lang;
-                            ducad_i18n::set_language(lang);
-                        }
-                        TopBarEvent::File(op) => match op {
-                            TopBarFileOp::New => self.new_document(),
-                            TopBarFileOp::Open => self.open_native(),
-                            TopBarFileOp::Save => self.save_native(),
-                            TopBarFileOp::SaveAs => self.save_native_as(),
-                            TopBarFileOp::ImportStep => self.import_step(),
-                            TopBarFileOp::ImportDxf => self.import_dxf(),
-                            TopBarFileOp::ExportStep => self.export_step(),
-                            TopBarFileOp::ExportStl => self.export_stl(),
-                            TopBarFileOp::ExportObj => self.export_obj(),
-                            TopBarFileOp::ExportDxf => self.export_dxf(),
-                            TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
-                            TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
-                            TopBarFileOp::OpenDrawingSheet => self.open_drawing_sheet(),
-                        },
-                        TopBarEvent::ToggleTheme => {
-                            self.theme = self.theme.toggled();
-                            ducad_ui::apply_theme(&ctx, self.theme);
-                        }
-                        TopBarEvent::OpenCommandPalette => {
-                            self.palette.open();
-                        }
-                        TopBarEvent::ToggleItemsDrawer => {
-                            self.items_drawer_open = !self.items_drawer_open;
-                        }
-                        TopBarEvent::OpenSearch => {
-                            self.palette.open();
-                        }
-                        TopBarEvent::OpenDrawingSheet => {
-                            self.open_drawing_sheet();
-                        }
-                        TopBarEvent::EnterSketching => {
-                            self.is_sketching = true;
-                            self.left_toolbar.is_sketching = true;
-                            self.camera.orient_to_plane(&self.active_plane);
-                        }
-                        TopBarEvent::ExitSketching => {
-                            self.is_sketching = false;
-                            self.left_toolbar.is_sketching = false;
-                            self.set_tool(ToolKind::Select);
-                        }
-                        TopBarEvent::SelectSketchPlane(idx) => {
-                            let kind = match idx {
-                                0 => PlaneKind::Top,
-                                1 => PlaneKind::Front,
-                                2 => PlaneKind::Right,
-                                _ => PlaneKind::Top,
-                            };
-                            self.set_sketch_plane(kind);
-                        }
-                        TopBarEvent::ToggleSectionView => {
-                            self.section_enabled = !self.section_enabled;
-                        }
-                        TopBarEvent::ToggleMeasurements => {
-                            self.show_all_dimensions = !self.show_all_dimensions;
-                        }
-                        TopBarEvent::ToggleZebraView => {
-                            self.zebra_config.enabled = !self.zebra_config.enabled;
-                        }
-                        TopBarEvent::ToggleStudioLighting => {
-                            self.lighting_drawer_open = !self.lighting_drawer_open;
-                            self.studio_config.enabled = self.lighting_drawer_open;
-                        }
-                        TopBarEvent::DeleteSelection => {
-                            if !self.selected.is_empty() {
-                                let to_delete: Vec<EntityId> =
-                                    self.selected.iter().copied().collect();
-                                self.execute_sketch_command(Box::new(DeleteEntities::new(
-                                    to_delete,
-                                )));
-                                self.selected.clear();
+        if !self.drawing_sheet_state.is_open {
+            egui::Area::new(egui::Id::new("ducad-topbar-area"))
+                .fixed_pos(egui::pos2(topbar_x, 10.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    ui.set_width(topbar_w);
+                    if let Some(top_event) = TopBar::show(ui, &mut topbar_state) {
+                        match top_event {
+                            TopBarEvent::HomeClicked => {
+                                self.new_document();
                             }
-                            if !self.selected_bodies.is_empty() {
-                                self.delete_selected_bodies();
+                            TopBarEvent::SetUnit(u) => {
+                                self.unit = u;
+                                self.model.doc.unit = u;
+                            }
+                            TopBarEvent::SetLanguage(lang) => {
+                                self.language = lang;
+                                ducad_i18n::set_language(lang);
+                            }
+                            TopBarEvent::File(op) => match op {
+                                TopBarFileOp::New => self.new_document(),
+                                TopBarFileOp::Open => self.open_native(),
+                                TopBarFileOp::Save => self.save_native(),
+                                TopBarFileOp::SaveAs => self.save_native_as(),
+                                TopBarFileOp::ImportStep => self.import_step(),
+                                TopBarFileOp::ImportDxf => self.import_dxf(),
+                                TopBarFileOp::ExportStep => self.export_step(),
+                                TopBarFileOp::ExportStl => self.export_stl(),
+                                TopBarFileOp::ExportObj => self.export_obj(),
+                                TopBarFileOp::ExportDxf => self.export_dxf(),
+                                TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
+                                TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
+                                TopBarFileOp::OpenDrawingSheet => self.open_drawing_sheet(),
+                            },
+                            TopBarEvent::ToggleTheme => {
+                                self.theme = self.theme.toggled();
+                                ducad_ui::apply_theme(&ctx, self.theme);
+                            }
+                            TopBarEvent::OpenCommandPalette => {
+                                self.palette.open();
+                            }
+                            TopBarEvent::ToggleItemsDrawer => {
+                                self.items_drawer_open = !self.items_drawer_open;
+                            }
+                            TopBarEvent::OpenSearch => {
+                                self.palette.open();
+                            }
+                            TopBarEvent::OpenDrawingSheet => {
+                                self.open_drawing_sheet();
+                            }
+                            TopBarEvent::EnterSketching => {
+                                self.is_sketching = true;
+                                self.left_toolbar.is_sketching = true;
+                                self.camera.orient_to_plane(&self.active_plane);
+                            }
+                            TopBarEvent::ExitSketching => {
+                                self.is_sketching = false;
+                                self.left_toolbar.is_sketching = false;
+                                self.set_tool(ToolKind::Select);
+                            }
+                            TopBarEvent::SelectSketchPlane(idx) => {
+                                let kind = match idx {
+                                    0 => PlaneKind::Top,
+                                    1 => PlaneKind::Front,
+                                    2 => PlaneKind::Right,
+                                    _ => PlaneKind::Top,
+                                };
+                                self.set_sketch_plane(kind);
+                            }
+                            TopBarEvent::ToggleSectionView => {
+                                self.section_enabled = !self.section_enabled;
+                            }
+                            TopBarEvent::ToggleMeasurements => {
+                                self.show_all_dimensions = !self.show_all_dimensions;
+                            }
+                            TopBarEvent::ToggleZebraView => {
+                                self.zebra_config.enabled = !self.zebra_config.enabled;
+                            }
+                            TopBarEvent::ToggleStudioLighting => {
+                                self.lighting_drawer_open = !self.lighting_drawer_open;
+                                self.studio_config.enabled = self.lighting_drawer_open;
+                            }
+                            TopBarEvent::DeleteSelection => {
+                                if !self.selected.is_empty() {
+                                    let to_delete: Vec<EntityId> =
+                                        self.selected.iter().copied().collect();
+                                    self.execute_sketch_command(Box::new(DeleteEntities::new(
+                                        to_delete,
+                                    )));
+                                    self.selected.clear();
+                                }
+                                if !self.selected_bodies.is_empty() {
+                                    self.delete_selected_bodies();
+                                }
                             }
                         }
                     }
-                }
-            });
+                });
 
-        self.plane_menu_open = topbar_state.plane_menu_open;
+            self.plane_menu_open = topbar_state.plane_menu_open;
 
-        self.left_toolbar.is_sketching = self.is_sketching;
-        let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
-        self.left_toolbar_content_sig = Some(self.is_sketching);
-        egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
-            .fixed_pos(egui::pos2(12.0, screen_rect.center().y))
-            .pivot(egui::Align2::LEFT_CENTER)
-            .constrain_to(screen_rect)
-            .default_size(egui::vec2(60.0, 460.0))
-            .sizing_pass(left_toolbar_force_resize)
-            .order(egui::Order::Foreground)
-            .show(&ctx, |ui| {
-                if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
-                    match tb_ev {
-                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
-                            self.section_enabled = !self.section_enabled;
-                        }
-                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::ZebraInspection) => {
-                            self.zebra_config.enabled = !self.zebra_config.enabled;
-                        }
-                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::DraftAnalysis) => {
-                            self.draft_config.enabled = !self.draft_config.enabled;
-                        }
-                        ToolbarEvent::SelectTool(t) => {
-                            let kind = ToolKind::from_toolbar_tool(t);
-                            match kind {
-                                ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
-                                    self.picking_mode = PickMode::Face;
-                                }
-                                ToolKind::Select => {
-                                    self.picking_mode = PickMode::None;
-                                }
-                                _ => {}
+            self.left_toolbar.is_sketching = self.is_sketching;
+            let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
+            self.left_toolbar_content_sig = Some(self.is_sketching);
+            egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
+                .fixed_pos(egui::pos2(12.0, screen_rect.center().y))
+                .pivot(egui::Align2::LEFT_CENTER)
+                .constrain_to(screen_rect)
+                .default_size(egui::vec2(60.0, 460.0))
+                .sizing_pass(left_toolbar_force_resize)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
+                        match tb_ev {
+                            ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
+                                self.section_enabled = !self.section_enabled;
                             }
-                            self.set_tool(kind);
+                            ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::ZebraInspection) => {
+                                self.zebra_config.enabled = !self.zebra_config.enabled;
+                            }
+                            ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::DraftAnalysis) => {
+                                self.draft_config.enabled = !self.draft_config.enabled;
+                            }
+                            ToolbarEvent::SelectTool(t) => {
+                                let kind = ToolKind::from_toolbar_tool(t);
+                                match kind {
+                                    ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
+                                        self.picking_mode = PickMode::Face;
+                                    }
+                                    ToolKind::Select => {
+                                        self.picking_mode = PickMode::None;
+                                    }
+                                    _ => {}
+                                }
+                                self.set_tool(kind);
+                            }
                         }
                     }
-                }
-            });
+                });
+        }
 
         let entities_2d: Vec<Entity2dItemInfo> = self
             .sketch()
@@ -1557,100 +1559,101 @@ impl eframe::App for DuCADApp {
         }
 
         // 2. Floating Buttons Bar di Pojok Kanan Bawah (Lighting, CMF Material, Draft Analysis, History, Folder)
-        let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
-        egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
-            .fixed_pos(btns_pos)
-            .pivot(egui::Align2::RIGHT_BOTTOM)
-            .order(egui::Order::Foreground)
-            .show(&ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+        if !self.drawing_sheet_state.is_open {
+            let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+            egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
+                .fixed_pos(btns_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    // Tombol Studio Lighting & SSAO
-                    let lighting_resp = round_floating_icon_btn(
-                        ui,
-                        egui_material_icons::icons::ICON_LIGHTBULB_ON.codepoint,
-                        self.lighting_drawer_open,
-                        "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
-                    );
-                    if lighting_resp.clicked() {
-                        self.lighting_drawer_open = !self.lighting_drawer_open;
-                        self.studio_config.enabled = self.lighting_drawer_open;
-                    }
+                        // Tombol Studio Lighting & SSAO
+                        let lighting_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                            self.lighting_drawer_open,
+                            "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
+                        );
+                        if lighting_resp.clicked() {
+                            self.lighting_drawer_open = !self.lighting_drawer_open;
+                            self.studio_config.enabled = self.lighting_drawer_open;
+                        }
 
-                    // Tombol Preset Industri & CMF Material
-                    let cmf_resp = round_floating_icon_btn(
-                        ui,
-                        egui_material_icons::icons::ICON_PALETTE.codepoint,
-                        self.cmf_drawer_open,
-                        "Preset Material Industri & CMF (Warna & Finishing)",
-                    );
-                    if cmf_resp.clicked() {
-                        self.cmf_drawer_open = !self.cmf_drawer_open;
-                    }
+                        // Tombol Preset Industri & CMF Material
+                        let cmf_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_PALETTE.codepoint,
+                            self.cmf_drawer_open,
+                            "Preset Material Industri & CMF (Warna & Finishing)",
+                        );
+                        if cmf_resp.clicked() {
+                            self.cmf_drawer_open = !self.cmf_drawer_open;
+                        }
 
-                    // Tombol Draft Analysis (Kiri dari History)
-                    let draft_resp = round_floating_icon_btn(
-                        ui,
-                        egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
-                        self.draft_config.enabled,
-                        "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
-                    );
-                    if draft_resp.clicked() {
-                        self.draft_config.enabled = !self.draft_config.enabled;
-                    }
+                        // Tombol Draft Analysis (Kiri dari History)
+                        let draft_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
+                            self.draft_config.enabled,
+                            "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
+                        );
+                        if draft_resp.clicked() {
+                            self.draft_config.enabled = !self.draft_config.enabled;
+                        }
 
-                    // Tombol History (Tengah)
-                    let hist_resp = round_floating_icon_btn(
-                        ui,
-                        egui_material_icons::icons::ICON_HISTORY.codepoint,
-                        self.history_drawer_open,
-                        "Riwayat Aktivitas & Perubahan (2D & 3D)",
-                    );
-                    if hist_resp.clicked() {
-                        self.history_drawer_open = !self.history_drawer_open;
-                    }
+                        // Tombol History (Tengah)
+                        let hist_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_HISTORY.codepoint,
+                            self.history_drawer_open,
+                            "Riwayat Aktivitas & Perubahan (2D & 3D)",
+                        );
+                        if hist_resp.clicked() {
+                            self.history_drawer_open = !self.history_drawer_open;
+                        }
 
-                    // Tombol Folder (Kanan)
-                    let folder_resp = round_floating_icon_btn(
-                        ui,
-                        egui_material_icons::icons::ICON_FOLDER.codepoint,
-                        self.items_drawer_open,
-                        "Properties Dokumen (Objek 2D & Solid Body 3D)",
-                    );
-                    if folder_resp.clicked() {
-                        self.items_drawer_open = !self.items_drawer_open;
-                    }
+                        // Tombol Folder (Kanan)
+                        let folder_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_FOLDER.codepoint,
+                            self.items_drawer_open,
+                            "Properties Dokumen (Objek 2D & Solid Body 3D)",
+                        );
+                        if folder_resp.clicked() {
+                            self.items_drawer_open = !self.items_drawer_open;
+                        }
+                    });
                 });
-            });
 
-
-        let viewcube_y = 102.0;
-        let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
-        let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
-        egui::Area::new(egui::Id::new("ducad-viewcube-area"))
-            .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
-            .order(egui::Order::Foreground)
-            .show(&ctx, |ui| {
-                if let Some(action) = self.viewcube.show(
-                    ui,
-                    viewcube_pos,
-                    self.camera.yaw,
-                    self.camera.pitch,
-                ) {
-                    match action {
-                        ViewCubeAction::Top => self.camera.set_preset(ViewPreset::Top),
-                        ViewCubeAction::Bottom => self.camera.set_preset(ViewPreset::Bottom),
-                        ViewCubeAction::Front => self.camera.set_preset(ViewPreset::Front),
-                        ViewCubeAction::Back => self.camera.set_preset(ViewPreset::Back),
-                        ViewCubeAction::Right => self.camera.set_preset(ViewPreset::Right),
-                        ViewCubeAction::Left => self.camera.set_preset(ViewPreset::Left),
-                        ViewCubeAction::Isometric => {
-                            self.camera.set_preset(ViewPreset::Isometric);
+            let viewcube_y = 102.0;
+            let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
+            let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
+            egui::Area::new(egui::Id::new("ducad-viewcube-area"))
+                .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(action) = self.viewcube.show(
+                        ui,
+                        viewcube_pos,
+                        self.camera.yaw,
+                        self.camera.pitch,
+                    ) {
+                        match action {
+                            ViewCubeAction::Top => self.camera.set_preset(ViewPreset::Top),
+                            ViewCubeAction::Bottom => self.camera.set_preset(ViewPreset::Bottom),
+                            ViewCubeAction::Front => self.camera.set_preset(ViewPreset::Front),
+                            ViewCubeAction::Back => self.camera.set_preset(ViewPreset::Back),
+                            ViewCubeAction::Right => self.camera.set_preset(ViewPreset::Right),
+                            ViewCubeAction::Left => self.camera.set_preset(ViewPreset::Left),
+                            ViewCubeAction::Isometric => {
+                                self.camera.set_preset(ViewPreset::Isometric);
+                            }
                         }
                     }
-                }
-            });
+                });
+        }
 
 
         if self.section_enabled {
@@ -1960,7 +1963,7 @@ impl eframe::App for DuCADApp {
         let has_face_sel = self.active_face.is_some();
         let has_body_sel = !self.selected_bodies.is_empty();
 
-        if has_sketch_sel || has_face_sel || has_body_sel {
+        if !self.drawing_sheet_state.is_open && (has_sketch_sel || has_face_sel || has_body_sel) {
             egui::Area::new(egui::Id::new("ducad-context-action-bar-area"))
                 .fixed_pos(egui::pos2(screen_center_x, screen_rect.max.y - 18.0))
                 .pivot(egui::Align2::CENTER_BOTTOM)
@@ -2096,7 +2099,7 @@ impl eframe::App for DuCADApp {
         // =========================================================================
         // RENAME POPUP (top-center HUD, muncul saat tombol Nama diklik)
         // =========================================================================
-        if self.rename_popup_open {
+        if !self.drawing_sheet_state.is_open && self.rename_popup_open {
             let popup_label = match &self.rename_target {
                 RenameTarget::Sketch2d => "Nama Grup Objek 2D",
                 RenameTarget::Body3d(_) => "Nama Body 3D",
@@ -2173,7 +2176,7 @@ impl eframe::App for DuCADApp {
                 | ToolKind::Pattern
         );
 
-        if !has_top_bar_hud {
+        if !has_top_bar_hud && !self.drawing_sheet_state.is_open {
             if let Some(ev) = CanvasHud::show_status_pill(
                 ui,
                 screen_rect,

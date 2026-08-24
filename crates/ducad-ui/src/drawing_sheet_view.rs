@@ -14,7 +14,36 @@ use egui_material_icons::icons::{
     ICON_REFRESH,
 };
 
-use crate::theme::{card_frame, glass_frame, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+
+/// Helper tombol toggle kustom untuk toolbar Drawing Sheet dengan kontras tinggi saat aktif.
+fn sheet_toggle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
+    let (bg_color, text_color, stroke) = if is_active {
+        (
+            ACCENT_BLUE,
+            Color32::WHITE,
+            Stroke::new(1.0, Color32::from_rgb(80, 170, 255)),
+        )
+    } else {
+        (
+            Color32::from_rgba_premultiplied(32, 36, 46, 160),
+            TEXT_PRIMARY,
+            Stroke::new(0.5, BORDER_SUBTLE),
+        )
+    };
+
+    let btn = egui::Button::new(
+        RichText::new(label.as_ref())
+            .size(11.0)
+            .strong()
+            .color(text_color),
+    )
+    .corner_radius(CornerRadius::same(6))
+    .fill(bg_color)
+    .stroke(stroke);
+
+    ui.add(btn)
+}
 
 /// Aksi / Event yang dihasilkan oleh DrawingSheetView ke aplikasi utama.
 #[derive(Debug, Clone)]
@@ -86,18 +115,8 @@ impl DrawingSheetView {
             ui.set_height(header_height - 6.0);
             ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
 
-            // A. Judul Mode
+            // A. Pemilih Ukuran Kertas (A4/A3)
             ui.add_space(4.0);
-            ui.label(
-                RichText::new(format!("{} {}", ICON_PICTURE_AS_PDF.codepoint, "GAMBAR KERJA TEKNIK 2D"))
-                    .strong()
-                    .size(13.0)
-                    .color(TEXT_PRIMARY),
-            );
-
-            ui.separator();
-
-            // B. Pemilih Ukuran Kertas (A4/A3)
             ui.label(RichText::new("Kertas:").size(11.0).color(TEXT_SECONDARY));
             egui::ComboBox::from_id_salt("paper_size_combo")
                 .selected_text(sheet.paper_size.label())
@@ -120,7 +139,7 @@ impl DrawingSheetView {
                     }
                 });
 
-            // C. Skala Gambar
+            // B. Skala Gambar
             ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));
             let current_scale_label = sheet.title_block.scale.clone();
             egui::ComboBox::from_id_salt("scale_combo")
@@ -152,13 +171,13 @@ impl DrawingSheetView {
 
             ui.separator();
 
-            // D. Toggles Visibilitas
+            // C. Toggles Visibilitas dengan Kontras Jelas
             let hidden_btn_txt = if sheet.show_hidden_lines {
                 format!("{} Garis Tersembunyi", ICON_CHECK.codepoint)
             } else {
                 "Garis Tersembunyi".to_string()
             };
-            if ui.selectable_label(sheet.show_hidden_lines, hidden_btn_txt).clicked() {
+            if sheet_toggle_btn(ui, hidden_btn_txt, sheet.show_hidden_lines).clicked() {
                 sheet.show_hidden_lines = !sheet.show_hidden_lines;
             }
 
@@ -167,7 +186,7 @@ impl DrawingSheetView {
             } else {
                 "Dimensi".to_string()
             };
-            if ui.selectable_label(sheet.show_dimensions, dim_btn_txt).clicked() {
+            if sheet_toggle_btn(ui, dim_btn_txt, sheet.show_dimensions).clicked() {
                 sheet.show_dimensions = !sheet.show_dimensions;
             }
 
@@ -176,28 +195,31 @@ impl DrawingSheetView {
             } else {
                 "Sumbu".to_string()
             };
-            if ui.selectable_label(sheet.show_centerlines, cl_btn_txt).clicked() {
+            if sheet_toggle_btn(ui, cl_btn_txt, sheet.show_centerlines).clicked() {
                 sheet.show_centerlines = !sheet.show_centerlines;
             }
 
-            // E. Tombol Edit Title Block
-            if ui
-                .selectable_label(
-                    state.title_block_editor_open,
-                    format!("{} Kepala Gambar", ICON_EDIT_NOTE.codepoint),
-                )
-                .clicked()
+            // D. Tombol Edit Title Block
+            if sheet_toggle_btn(
+                ui,
+                format!("{} Kepala Gambar", ICON_EDIT_NOTE.codepoint),
+                state.title_block_editor_open,
+            )
+            .clicked()
             {
                 state.title_block_editor_open = !state.title_block_editor_open;
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Tombol Tutup
+                // Tombol Tutup (X)
                 if ui
                     .button(
-                        RichText::new(format!("{} Selesai", ICON_CLOSE.codepoint))
+                        RichText::new(ICON_CLOSE.codepoint.to_string())
+                            .size(13.0)
+                            .strong()
                             .color(Color32::WHITE),
                     )
+                    .on_hover_text("Tutup Lembar Kerja")
                     .clicked()
                 {
                     event = Some(DrawingSheetEvent::Close);
@@ -225,16 +247,6 @@ impl DrawingSheetView {
                 {
                     event = Some(DrawingSheetEvent::ExportDxf);
                 }
-
-                // Tombol Fit to Sheet
-                if ui
-                    .button(format!("{} Fit", ICON_FIT_SCREEN.codepoint))
-                    .on_hover_text("Pusatkan Kertas ke Layar")
-                    .clicked()
-                {
-                    state.pan_offset = Vec2::ZERO;
-                    state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
-                }
             });
         });
 
@@ -261,7 +273,35 @@ impl DrawingSheetView {
         // Render Lembar Kertas & Konten Gambar 2D
         render_sheet_canvas(ui, canvas_rect, state, sheet);
 
-        // 4. Panel Form Floating: Edit Kepala Gambar (Title Block)
+        // 4. Tombol Fit Mengambang di Pojok Kanan Bawah (Ikon Saja, Tanpa Frame Pembungkus Ganda)
+        let fit_size = vec2(36.0, 36.0);
+        let fit_pos = Pos2::new(canvas_rect.max.x - 52.0, canvas_rect.max.y - 52.0);
+        let fit_rect = Rect::from_min_size(fit_pos, fit_size);
+        let mut fit_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(fit_rect)
+                .layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)),
+        );
+        let fit_btn = egui::Button::new(
+            RichText::new(ICON_FIT_SCREEN.codepoint.to_string())
+                .size(16.0)
+                .color(TEXT_PRIMARY),
+        )
+        .corner_radius(CornerRadius::same(8))
+        .fill(Color32::from_rgba_premultiplied(28, 32, 42, 200))
+        .stroke(Stroke::new(0.5, BORDER_SUBTLE))
+        .min_size(fit_size);
+
+        if fit_ui
+            .add(fit_btn)
+            .on_hover_text("Pusatkan Kertas ke Layar (Fit)")
+            .clicked()
+        {
+            state.pan_offset = Vec2::ZERO;
+            state.zoom = calculate_fit_zoom(canvas_rect, sheet.paper_size);
+        }
+
+        // 5. Panel Form Floating: Edit Kepala Gambar (Title Block)
         if state.title_block_editor_open {
             render_title_block_editor(ui, canvas_rect, sheet, &mut state.title_block_editor_open);
         }

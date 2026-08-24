@@ -521,6 +521,9 @@ impl DuCADApp {
         rect: egui::Rect,
         raw_cursor: Option<DVec2>,
     ) {
+        if self.drawing_sheet_state.is_open {
+            return;
+        }
         if !self.measurements.is_empty() {
             for m in &self.measurements {
                 let Some(value) = m.inline_value(self.unit) else {
