@@ -87,6 +87,7 @@ impl ToolGuides {
             ToolbarTool::Pattern => Self::render_pattern_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Boolean => Self::render_boolean_anim(&painter, card_rect, time),
             ToolbarTool::SectionView => Self::render_section_anim(&painter, card_rect, time),
+            ToolbarTool::ZebraInspection => Self::render_zebra_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
             _ => {}
@@ -2023,5 +2024,127 @@ impl ToolGuides {
         };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Animasi tutorial untuk Tool Zebra Stripes Reflection (Fase 3.1)
+    fn render_zebra_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        time: f64,
+    ) {
+        let cycle = 4.0;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.33 {
+            (t!("guide-zebra-step-1"), ACCENT_BLUE)
+        } else if phase < 0.66 {
+            (t!("guide-zebra-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-zebra-step-3"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-zebra-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-zebra-tip"));
+
+        // Render diagram lengkungan permukaan dengan pantulan garis zebra
+        let center = Pos2::new(card_rect.left() + 90.0, card_rect.center().y + 2.0);
+        let radius_x = 65.0;
+        let radius_y = 28.0;
+
+        // Gambar outline permukaan organik
+        let surf_rect = Rect::from_center_size(center, Vec2::new(radius_x * 2.0, radius_y * 2.0));
+        painter.rect_filled(
+            surf_rect,
+            6.0,
+            Color32::from_rgba_premultiplied(25, 32, 45, 200),
+        );
+        painter.rect_stroke(
+            surf_rect,
+            6.0,
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 200, 150)),
+            StrokeKind::Inside,
+        );
+
+        // Garis batas sambungan (seam) di tengah permukaan
+        let seam_x = center.x;
+        painter.line_segment(
+            [Pos2::new(seam_x, surf_rect.top()), Pos2::new(seam_x, surf_rect.bottom())],
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 200, 80, 180)),
+        );
+
+        // Pantulan garis-garis zebra yang bergerak halus
+        let stripe_count = 6;
+        let offset = (time * 25.0) as f32 % 24.0;
+
+        for i in -2..stripe_count + 2 {
+            let base_y = surf_rect.top() + (i as f32 * 12.0) + offset;
+            if base_y < surf_rect.top() - 10.0 || base_y > surf_rect.bottom() + 10.0 {
+                continue;
+            }
+
+            let mut left_points = Vec::new();
+            let mut right_points = Vec::new();
+
+            for step in 0..=8 {
+                let u = step as f32 / 8.0;
+                let x = surf_rect.left() + u * (seam_x - surf_rect.left());
+                // Lengkungan halus sisi kiri
+                let curve = (u * std::f32::consts::PI).sin() * 5.0;
+                let y = (base_y - curve).clamp(surf_rect.top(), surf_rect.bottom());
+                left_points.push(Pos2::new(x, y));
+            }
+
+            for step in 0..=8 {
+                let u = step as f32 / 8.0;
+                let x = seam_x + u * (surf_rect.right() - seam_x);
+                // Di fase G1 (sudut tajam di seam) vs G2 (mulus kontinu)
+                let curve = if phase < 0.5 {
+                    // Patahan sudut di seam (G1)
+                    (1.0 - u) * 4.0 + (u * std::f32::consts::PI).sin() * 4.0
+                } else {
+                    // Mulus kontinu (G2)
+                    (u * std::f32::consts::PI).sin() * 5.0
+                };
+                let y = (base_y - curve).clamp(surf_rect.top(), surf_rect.bottom());
+                right_points.push(Pos2::new(x, y));
+            }
+
+            let stripe_color = if i % 2 == 0 {
+                Color32::from_rgba_premultiplied(240, 245, 255, 220)
+            } else {
+                Color32::from_rgba_premultiplied(20, 22, 28, 220)
+            };
+
+            for pts in [&left_points, &right_points] {
+                for w in pts.windows(2) {
+                    painter.line_segment([w[0], w[1]], Stroke::new(4.0, stripe_color));
+                }
+            }
+        }
+
+        let badge_text = if phase < 0.33 {
+            "Spec Reflection"
+        } else if phase < 0.66 {
+            "G1 Tangent Sharp"
+        } else {
+            "G2 Smooth Class-A"
+        };
+
+        let badge_bg = if phase < 0.33 {
+            Color32::from_rgba_premultiplied(15, 45, 90, 220)
+        } else if phase < 0.66 {
+            Color32::from_rgba_premultiplied(90, 55, 10, 220)
+        } else {
+            Color32::from_rgba_premultiplied(15, 80, 45, 220)
+        };
+
+        let badge_pos = Pos2::new(card_rect.right() - 58.0, card_rect.center().y + 4.0);
+        Self::draw_badge(
+            painter,
+            badge_pos,
+            badge_text,
+            badge_bg,
+            Color32::WHITE,
+        );
     }
 }

@@ -16,7 +16,7 @@ use ducad_ui::{
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     RadialMenu, RenamePopupEvent,
     ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
-    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction,
+    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -114,6 +114,9 @@ pub struct DuCADApp {
     pub section_axis: SectionAxis,
     pub section_offset: f32,
     pub section_invert: bool,
+
+    /// Zebra stripes reflection inspection (Fase 3.1).
+    pub zebra_config: ducad_render::ZebraConfig,
 
     pub show_all_dimensions: bool,
     /// Entity yg pill dimensinya sedang dibuka utk diedit di kanvas (Fase 3 —
@@ -377,6 +380,7 @@ impl DuCADApp {
             section_axis: SectionAxis::Z,
             section_offset: 0.0,
             section_invert: false,
+            zebra_config: ducad_render::ZebraConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -731,6 +735,7 @@ impl DuCADApp {
                 gizmo_colors,
                 gizmo_indices,
                 clip_plane: self.section_clip_plane(),
+                zebra_config: self.zebra_config,
             },
         ));
 
@@ -858,6 +863,17 @@ impl eframe::App for DuCADApp {
             self.open_native();
         }
 
+        let z_pressed = ctx.input(|i| {
+            !i.modifiers.command
+                && !i.modifiers.alt
+                && !i.modifiers.ctrl
+                && !i.modifiers.shift
+                && i.key_pressed(egui::Key::Z)
+        });
+        if z_pressed && !self.is_sketching && self.editing_dimension_entity.is_none() {
+            self.zebra_config.enabled = !self.zebra_config.enabled;
+        }
+
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
@@ -887,6 +903,7 @@ impl eframe::App for DuCADApp {
             items_drawer_open: self.items_drawer_open,
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
+            zebra_view_active: self.zebra_config.enabled,
             active_plane_name: self.active_plane.name().to_string(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
@@ -960,6 +977,9 @@ impl eframe::App for DuCADApp {
                         TopBarEvent::ToggleMeasurements => {
                             self.show_all_dimensions = !self.show_all_dimensions;
                         }
+                        TopBarEvent::ToggleZebraView => {
+                            self.zebra_config.enabled = !self.zebra_config.enabled;
+                        }
                         TopBarEvent::DeleteSelection => {
                             if !self.selected.is_empty() {
                                 let to_delete: Vec<EntityId> =
@@ -994,6 +1014,9 @@ impl eframe::App for DuCADApp {
                     match tb_ev {
                         ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
                             self.section_enabled = !self.section_enabled;
+                        }
+                        ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::ZebraInspection) => {
+                            self.zebra_config.enabled = !self.zebra_config.enabled;
                         }
                         ToolbarEvent::SelectTool(t) => {
                             let kind = ToolKind::from_toolbar_tool(t);
@@ -1341,12 +1364,35 @@ impl eframe::App for DuCADApp {
 
         if self.section_enabled {
             egui::Area::new(egui::Id::new("ducad-hud-section-banner"))
-                .fixed_pos(egui::pos2(screen_center_x - 140.0, 94.0))
+                .fixed_pos(egui::pos2(screen_center_x, 94.0))
+                .pivot(egui::Align2::CENTER_TOP)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     if let Some(hud_ev) = CanvasHud::show_section_view_banner(ui) {
                         if hud_ev == CanvasHudEvent::TurnOffSectionView {
                             self.section_enabled = false;
+                        }
+                    }
+                });
+        }
+
+        if self.zebra_config.enabled {
+            egui::Area::new(egui::Id::new("ducad-hud-zebra-panel"))
+                .fixed_pos(egui::pos2(screen_center_x, 94.0))
+                .pivot(egui::Align2::CENTER_TOP)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(act) = CanvasHud::show_zebra_inspection_panel(
+                        ui,
+                        &mut self.zebra_config.frequency,
+                        &mut self.zebra_config.angle,
+                        &mut self.zebra_config.blend,
+                    ) {
+                        match act {
+                            ZebraHudAction::SetFrequency(f) => self.zebra_config.frequency = f,
+                            ZebraHudAction::SetAngle(a) => self.zebra_config.angle = a,
+                            ZebraHudAction::SetBlend(b) => self.zebra_config.blend = b,
+                            ZebraHudAction::TurnOff => self.zebra_config.enabled = false,
                         }
                     }
                 });

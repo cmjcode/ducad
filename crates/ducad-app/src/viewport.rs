@@ -1,4 +1,4 @@
-use ducad_render::{LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane};
+use ducad_render::{LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, ZebraConfig};
 use ducad_sketch::{EntityId, Sketch};
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -20,6 +20,7 @@ pub struct ViewportCallback {
     pub gizmo_colors: Vec<[f32; 4]>,
     pub gizmo_indices: Vec<u32>,
     pub clip_plane: Option<(Vec3, f32)>,
+    pub zebra_config: ZebraConfig,
 }
 
 impl egui_wgpu::CallbackTrait for ViewportCallback {
@@ -49,6 +50,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
                 &self.gizmo_indices,
             );
             scene.set_clip_plane(self.clip_plane);
+            scene.set_zebra_config(self.zebra_config);
             scene.prepare(queue, self.view_proj, self.eye);
         }
         Vec::new()

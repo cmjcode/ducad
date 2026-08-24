@@ -118,6 +118,14 @@ tool-boolean = Operasi Boolean
 tool-boolean-desc = Gabung, Kurang, atau Irisan benda 3D
 tool-section = Tampilan Irisan
 tool-section-desc = Bidang penampang interaktif
+tool-zebra-stripes = Garis Zebra
+tool-zebra-stripes-desc = Proyeksikan garis pantulan specular untuk inspeksi kontinuitas tangensi G1 & kurvatur G2 (Z)
+topbar-zebra-tooltip = Beralih Mode Analisis Refleksi Garis Zebra (Z)
+zebra-angle = Orientasi:
+zebra-horizontal = Horizontal
+zebra-vertical = Vertikal
+zebra-frequency = Garis:
+zebra-blend = Blend:
 tool-measure = Ukur Jarak
 tool-measure-desc = Ukur jarak antara titik, rusuk, atau bidang
 tool-measure-angle = Ukur Sudut
@@ -696,6 +704,12 @@ guide-pattern-step-2 = 2. Atur jumlah & jarak di Top HUD
 guide-pattern-step-3 = 3. Terapkan Pattern (Enter)
 guide-pattern-tip = 💡 Pintasan: P | Gunakan preset sudut 360°/180°/90° untuk Sirkular Pattern
 guide-pattern-badge = ⊞ Pattern
+
+guide-zebra-header = Panduan Inspeksi Garis Zebra:
+guide-zebra-step-1 = 1. Proyeksi Refleksi Specular
+guide-zebra-step-2 = 2. Kontinuitas Tangensi G1 (Patahan Sudut)
+guide-zebra-step-3 = 3. Kontinuitas Kurvatur G2 (Mulus Class-A)
+guide-zebra-tip = 💡 Validasi keluwesan pantulan cahaya pada sambungan permukaan
 
 # Units
 unit-mm = mm (Milimeter)

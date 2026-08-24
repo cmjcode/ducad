@@ -31,6 +31,7 @@ pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DraftHudAction, DraftPullDir,
     LoftHudAction, PatternAxisPreset, PatternHudAction, PatternKind, RenamePopupEvent,
     RevolveHudAction, RibHudAction, ShellHudAction, SplitHudAction, SplitMode, SplitPlaneKind, SweepHudAction,
+    ZebraHudAction,
 };
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};

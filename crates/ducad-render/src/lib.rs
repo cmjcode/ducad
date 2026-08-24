@@ -11,7 +11,7 @@ pub mod sketch;
 pub use camera::{OrbitCamera, ViewPreset};
 pub use grid::LineVertex;
 pub use plane::{PlaneKind, SketchPlane};
-pub use scene::{MeshVertex, SceneRenderer};
+pub use scene::{MeshVertex, SceneRenderer, ZebraConfig};
 
 // Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi
 // wgpu yang sama persis dengan egui (mismatch versi = error tipe misterius).

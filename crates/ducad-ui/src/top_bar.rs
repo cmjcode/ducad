@@ -14,7 +14,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_HOME,
     ICON_LANGUAGE, ICON_LAYERS, ICON_NOTE_ADD, ICON_PALETTE, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS,
-    ICON_SHARE, ICON_STRAIGHTEN, ICON_UPLOAD,
+    ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
 use ducad_core::LengthUnit;
@@ -48,6 +48,7 @@ pub enum TopBarEvent {
     SelectSketchPlane(usize),
     ToggleSectionView,
     ToggleMeasurements,
+    ToggleZebraView,
     DeleteSelection,
 }
 
@@ -64,6 +65,7 @@ pub struct TopBarState {
     pub items_drawer_open: bool,
     pub section_view_active: bool,
     pub is_measure_active: bool,
+    pub zebra_view_active: bool,
     pub active_plane_name: String,
     /// Dropdown popup pemilih Sketch Plane (Top/Front/Right). Dibaca & bisa
     /// diubah oleh `show` — caller wajib menyalin nilai baru balik ke state
@@ -242,7 +244,7 @@ impl TopBar {
                 ui.separator();
                 ui.add_space(4.0);
 
-                // 4. Utilities (Measurements) — Selalu Ada di Kedua Mode
+                // 4. Utilities (Measurements & Zebra Inspection) — Selalu Ada di Kedua Mode
                 let meas_title = t!("hud-show-dimensions");
                 let meas_sub = t!("hud-click-to-edit");
                 let meas_btn = header_icon_btn(
@@ -257,6 +259,22 @@ impl TopBar {
                 );
                 if meas_btn.clicked() {
                     event = Some(TopBarEvent::ToggleMeasurements);
+                }
+
+                let zebra_title = t!("tool-zebra-stripes");
+                let zebra_sub = t!("topbar-zebra-tooltip");
+                let zebra_btn = header_icon_btn(
+                    ui,
+                    ICON_TEXTURE.codepoint,
+                    state.zebra_view_active,
+                    &zebra_title,
+                    Some("Z"),
+                    Some(&zebra_sub),
+                    None,
+                    None,
+                );
+                if zebra_btn.clicked() {
+                    event = Some(TopBarEvent::ToggleZebraView);
                 }
 
                 ui.add_space(4.0);

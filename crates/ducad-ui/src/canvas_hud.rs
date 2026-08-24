@@ -10,7 +10,18 @@ use crate::theme::{
 };
 use ducad_i18n::t;
 use egui::{Align2, Color32, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2};
-use egui_material_icons::icons::{ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN};
+use egui_material_icons::icons::{
+    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LOCK, ICON_STRAIGHTEN,
+    ICON_TEXTURE,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ZebraHudAction {
+    SetFrequency(f32),
+    SetAngle(f32),
+    SetBlend(f32),
+    TurnOff,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RevolveHudAction {
@@ -322,6 +333,88 @@ impl CanvasHud {
             });
         });
         event
+    }
+
+    /// Render panel kontrol parameter inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection).
+    pub fn show_zebra_inspection_panel(
+        ui: &mut Ui,
+        frequency: &mut f32,
+        angle: &mut f32,
+        blend: &mut f32,
+    ) -> Option<ZebraHudAction> {
+        let mut action = None;
+        pill_frame().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")))
+                        .size(11.5)
+                        .strong()
+                        .color(ACCENT_BLUE),
+                );
+
+                ui.separator();
+
+                // Preset orientasi sudut garis zebra
+                ui.label(RichText::new(t!("zebra-angle")).size(10.5).color(TEXT_SECONDARY));
+                let is_horiz = angle.abs() < 1e-2;
+                let is_vert = (*angle - std::f32::consts::FRAC_PI_2).abs() < 1e-2;
+                let is_diag = (*angle - std::f32::consts::FRAC_PI_4).abs() < 1e-2;
+
+                if ui.selectable_label(is_horiz, t!("zebra-horizontal")).clicked() {
+                    *angle = 0.0;
+                    action = Some(ZebraHudAction::SetAngle(0.0));
+                }
+                if ui.selectable_label(is_vert, t!("zebra-vertical")).clicked() {
+                    *angle = std::f32::consts::FRAC_PI_2;
+                    action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_2));
+                }
+                if ui.selectable_label(is_diag, "45°").clicked() {
+                    *angle = std::f32::consts::FRAC_PI_4;
+                    action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_4));
+                }
+
+                ui.separator();
+
+                // Slider Frekuensi / Kerapatan Garis
+                ui.label(RichText::new(t!("zebra-frequency")).size(10.5).color(TEXT_SECONDARY));
+                let mut freq_val = *frequency;
+                let freq_slider = ui.add(
+                    egui::Slider::new(&mut freq_val, 5.0..=60.0)
+                        .step_by(1.0)
+                        .show_value(true),
+                );
+                if freq_slider.changed() {
+                    *frequency = freq_val;
+                    action = Some(ZebraHudAction::SetFrequency(freq_val));
+                }
+
+                ui.separator();
+
+                // Slider Blend / Opasitas Garis Zebra
+                ui.label(RichText::new(t!("zebra-blend")).size(10.5).color(TEXT_SECONDARY));
+                let mut blend_pct = (*blend * 100.0).round();
+                let blend_slider = ui.add(
+                    egui::Slider::new(&mut blend_pct, 10.0..=100.0)
+                        .suffix("%")
+                        .show_value(true),
+                );
+                if blend_slider.changed() {
+                    *blend = blend_pct / 100.0;
+                    action = Some(ZebraHudAction::SetBlend(*blend));
+                }
+
+                ui.separator();
+
+                // Tombol Nonaktifkan
+                if ui
+                    .button(RichText::new(format!("✕ {}", t!("hud-turn-off"))).size(10.5).color(TEXT_MUTED))
+                    .clicked()
+                {
+                    action = Some(ZebraHudAction::TurnOff);
+                }
+            });
+        });
+        action
     }
 
     /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di dalam container UI yang diberikan.

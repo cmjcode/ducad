@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CONTENT_CUT, ICON_CROP_16_9,
-    ICON_ELLIPSE_OUTLINE, ICON_GRID_VIEW, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
+    ICON_ELLIPSE_OUTLINE, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +45,7 @@ pub enum ToolbarTool {
     SplitBody,
     Boolean,
     SectionView,
+    ZebraInspection,
     // Shared Tools
     Measure,
     MeasureAngle,
@@ -170,13 +171,6 @@ impl LeftToolbar {
                         Some(&spline_desc),
                     ),
                     (
-                        ToolbarTool::Pattern,
-                        ICON_GRID_VIEW.codepoint,
-                        &pattern_title,
-                        Some("P"),
-                        Some(&pattern_desc),
-                    ),
-                    (
                         ToolbarTool::Loft,
                         ICON_LAYERS.codepoint,
                         &loft_title,
@@ -204,29 +198,8 @@ impl LeftToolbar {
                 let draft_desc = t!("tool-draft-angle-desc");
                 let split_title = t!("tool-split-body");
                 let split_desc = t!("tool-split-body-desc");
-                let pattern_title = t!("tool-pattern");
-                let pattern_desc = t!("tool-pattern-desc");
-
-                let shell_title = t!("tool-shell-name");
-                let shell_desc = t!("tool-shell-desc");
-                let rib_title = t!("tool-rib-name");
-                let rib_desc = t!("tool-rib-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
-                    (
-                        ToolbarTool::Shell,
-                        ICON_CROP_16_9.codepoint,
-                        &shell_title,
-                        Some("H"),
-                        Some(&shell_desc),
-                    ),
-                    (
-                        ToolbarTool::Rib,
-                        ICON_TIMELINE.codepoint,
-                        &rib_title,
-                        Some("R"),
-                        Some(&rib_desc),
-                    ),
                     (
                         ToolbarTool::SplitBody,
                         ICON_CONTENT_CUT.codepoint,
@@ -240,13 +213,6 @@ impl LeftToolbar {
                         &draft_title,
                         Some("D"),
                         Some(&draft_desc),
-                    ),
-                    (
-                        ToolbarTool::Pattern,
-                        ICON_GRID_VIEW.codepoint,
-                        &pattern_title,
-                        Some("P"),
-                        Some(&pattern_desc),
                     ),
                     (
                         ToolbarTool::Sweep,

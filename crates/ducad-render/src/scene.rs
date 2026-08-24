@@ -10,6 +10,31 @@ use crate::grid;
 /// mesh-nya. Dipakai `SceneRenderer::new`/`set_clip_plane(None)`.
 const CLIP_PLANE_DISABLED: [f32; 4] = [0.0, 0.0, 0.0, 1.0e9];
 
+/// Konfigurasi inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection Shader).
+/// Memproyeksikan refleksi specular garis-garis berfrekuensi tinggi untuk
+/// mengevaluasi kontinuitas tangensial (G1) dan kurvatur (G2) pada permukaan CAD.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZebraConfig {
+    pub enabled: bool,
+    /// Frekuensi atau kerapatan garis (default: 20.0).
+    pub frequency: f32,
+    /// Orientasi sudut garis dalam radian (0.0 = horizontal, PI/2 = vertikal).
+    pub angle: f32,
+    /// Faktor pencampuran antara warna shading standar dan zebra (0.0 = standar, 1.0 = zebra penuh).
+    pub blend: f32,
+}
+
+impl Default for ZebraConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            frequency: 20.0,
+            angle: 0.0,
+            blend: 1.0,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -18,6 +43,8 @@ struct Globals {
     light_dir: [f32; 4],
     /// Section view (Fase 7) — lihat komentar `clip_plane` di `shader.wgsl`.
     clip_plane: [f32; 4],
+    /// Zebra stripes reflection (Fase 3.1) — [enabled (0.0/1.0), freq, angle, blend].
+    zebra_params: [f32; 4],
 }
 
 #[repr(C)]
@@ -59,6 +86,8 @@ pub struct SceneRenderer {
     overlay_vertex_count: u32,
     /// Section view (Fase 7) — lihat `set_clip_plane`.
     clip_plane: [f32; 4],
+    /// Zebra stripes reflection config (Fase 3.1).
+    zebra_config: ZebraConfig,
     current_grid_plane: Option<crate::plane::SketchPlane>,
     current_grid_extent: f32,
     current_grid_step: f32,
@@ -274,10 +303,21 @@ impl SceneRenderer {
             overlay_vbuf: None,
             overlay_vertex_count: 0,
             clip_plane: CLIP_PLANE_DISABLED,
+            zebra_config: ZebraConfig::default(),
             current_grid_plane: Some(crate::plane::SketchPlane::top()),
             current_grid_extent: 500.0,
             current_grid_step: 10.0,
         }
+    }
+
+    /// Konfigurasi inspeksi garis zebra (Fase 3.1 Zebra Stripes Reflection Shader).
+    pub fn set_zebra_config(&mut self, config: ZebraConfig) {
+        self.zebra_config = config;
+    }
+
+    /// Dapatkan konfigurasi inspeksi garis zebra yang sedang aktif.
+    pub fn zebra_config(&self) -> ZebraConfig {
+        self.zebra_config
     }
 
     /// Bidang potong section view (Fase 7): `Some((normal, offset))`
@@ -446,11 +486,18 @@ impl SceneRenderer {
 
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3) {
         let light = Vec3::new(0.4, 0.3, 0.85).normalize();
+        let zebra_params = [
+            if self.zebra_config.enabled { 1.0 } else { 0.0 },
+            self.zebra_config.frequency.max(1.0),
+            self.zebra_config.angle,
+            self.zebra_config.blend.clamp(0.0, 1.0),
+        ];
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
             eye: [eye.x, eye.y, eye.z, 1.0],
             light_dir: [light.x, light.y, light.z, 0.0],
             clip_plane: self.clip_plane,
+            zebra_params,
         };
         queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
     }
@@ -483,5 +530,32 @@ impl SceneRenderer {
             rpass.set_index_buffer(gizmo.index_buf.slice(..), wgpu::IndexFormat::Uint32);
             rpass.draw_indexed(0..gizmo.index_count, 0, 0..1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zebra_config_defaults() {
+        let cfg = ZebraConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.frequency, 20.0);
+        assert_eq!(cfg.angle, 0.0);
+        assert_eq!(cfg.blend, 1.0);
+    }
+
+    #[test]
+    fn test_globals_uniform_buffer_layout() {
+        // Uniform buffer alignment in WebGPU is 16 bytes:
+        // mat4x4<f32>: 64 bytes
+        // eye: 16 bytes
+        // light_dir: 16 bytes
+        // clip_plane: 16 bytes
+        // zebra_params: 16 bytes
+        // Total = 128 bytes (multiple of 16)
+        assert_eq!(std::mem::size_of::<Globals>(), 128);
+        assert_eq!(std::mem::align_of::<Globals>(), 4);
     }
 }

@@ -118,6 +118,14 @@ tool-boolean = Boolean
 tool-boolean-desc = Union, Subtract, or Intersect 3D bodies
 tool-section = Section View
 tool-section-desc = Interactive cross-section plane
+tool-zebra-stripes = Zebra Stripes
+tool-zebra-stripes-desc = Project specular reflection stripes to inspect G1 tangency and G2 curvature surface continuity (Z)
+topbar-zebra-tooltip = Toggle Zebra Stripes Reflection Analysis (Z)
+zebra-angle = Orientation:
+zebra-horizontal = Horizontal
+zebra-vertical = Vertical
+zebra-frequency = Stripes:
+zebra-blend = Blend:
 tool-measure = Measure Distance
 tool-measure-desc = Measure distance between points, edges, or faces
 tool-measure-angle = Measure Angle
@@ -696,6 +704,12 @@ guide-pattern-step-2 = 2. Adjust count & pitch in Top HUD
 guide-pattern-step-3 = 3. Apply Pattern (Enter)
 guide-pattern-tip = 💡 Shortcut: P | Use angle presets 360°/180°/90° for Circular Pattern
 guide-pattern-badge = ⊞ Pattern
+
+guide-zebra-header = Zebra Stripes Inspection Guide:
+guide-zebra-step-1 = 1. Specular Reflection Projection
+guide-zebra-step-2 = 2. G1 Tangent Continuity (Sharp Kinks)
+guide-zebra-step-3 = 3. G2 Curvature Continuity (Smooth Class-A)
+guide-zebra-tip = 💡 Inspect light flow continuity across surface seams & fillets
 
 # Units
 unit-mm = mm (Millimeter)

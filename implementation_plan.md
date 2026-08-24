@@ -52,7 +52,7 @@ Tujuan: Memungkinkan perancangan casing produk injeksi plastik dan part mekanika
 
 ### Fase 3: Analisis & Inspeksi Kualitas Permukaan (Quality Inspection)
 Tujuan: Memberikan alat verifikasi visual kelayakan desain industri secara *real-time*.
-- [ ] **3.1 Zebra Stripes Reflection Shader**:
+- [x] **3.1 Zebra Stripes Reflection Shader**:
   - Fragment shader kustom pada pipeline `ducad-render` (wgpu) yang memproyeksikan garis zebra pantulan (*specular reflection stripes*) untuk memvalidasi kontinuitas tangensial (G1) dan kurvatur (G2).
 - [ ] **3.2 Draft Angle Heatmap Inspector**:
   - Shader pewarnaan sudut permukaan terhadap arah buka cetakan (*pull direction*):

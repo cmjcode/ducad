@@ -1825,6 +1825,7 @@ impl DuCADApp {
             | ToolKind::Pattern
             | ToolKind::Boolean
             | ToolKind::SectionView
+            | ToolKind::ZebraInspection
             | ToolKind::History => {
                 self.last_snap = None;
             }

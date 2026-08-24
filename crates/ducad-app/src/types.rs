@@ -49,6 +49,8 @@ pub enum ToolKind {
     SplitBody,
     Boolean,
     SectionView,
+    /// Inspeksi Garis Zebra (Fase 3.1 Zebra Stripes Reflection Shader).
+    ZebraInspection,
     // Shared Utilities
     /// Non-destruktif Ukur Jarak.
     Measure,
@@ -87,6 +89,7 @@ impl ToolKind {
             ToolKind::SplitBody => ToolbarTool::SplitBody,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
+            ToolKind::ZebraInspection => ToolbarTool::ZebraInspection,
             ToolKind::Measure => ToolbarTool::Measure,
             ToolKind::MeasureAngle => ToolbarTool::MeasureAngle,
             ToolKind::History => ToolbarTool::History,
@@ -121,6 +124,7 @@ impl ToolKind {
             ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
+            ToolbarTool::ZebraInspection => ToolKind::ZebraInspection,
             ToolbarTool::Measure => ToolKind::Measure,
             ToolbarTool::MeasureAngle => ToolKind::MeasureAngle,
             ToolbarTool::History => ToolKind::History,
@@ -189,6 +193,7 @@ pub enum PaletteAction {
     ModelRedo,
     DeleteSelection,
     ToggleTheme,
+    ToggleZebraView,
     SetSketchPlane(ducad_render::PlaneKind),
     EnterSketching,
     ExitSketching,
@@ -225,6 +230,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::SplitBody
         | ToolKind::Boolean
         | ToolKind::SectionView
+        | ToolKind::ZebraInspection
         | ToolKind::History => 0,
     }
 }

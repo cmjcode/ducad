@@ -209,6 +209,11 @@ impl DuCADApp {
                 PaletteAction::ExitSketching,
             ),
             (
+                "Inspeksi Garis Zebra (Zebra Reflection)".to_string(),
+                "Z".to_string(),
+                PaletteAction::ToggleZebraView,
+            ),
+            (
                 format!("Ganti Tema ({})", self.theme.toggled().label()),
                 String::new(),
                 PaletteAction::ToggleTheme,
@@ -269,6 +274,9 @@ impl DuCADApp {
             PaletteAction::ToggleTheme => {
                 self.theme = self.theme.toggled();
                 ducad_ui::apply_theme(ctx, self.theme);
+            }
+            PaletteAction::ToggleZebraView => {
+                self.zebra_config.enabled = !self.zebra_config.enabled;
             }
             PaletteAction::ClearMeasurements => {
                 self.measurements.clear();
@@ -388,6 +396,7 @@ impl DuCADApp {
             ToolKind::Pattern => ducad_i18n::t!("status-prompt-pattern"),
             ToolKind::Boolean => ducad_i18n::t!("status-prompt-boolean"),
             ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
+            ToolKind::ZebraInspection => ducad_i18n::t!("tool-zebra-stripes-desc"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
         match &self.last_snap {
