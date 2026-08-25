@@ -180,8 +180,8 @@ pub(crate) fn resolve_planar_face_along_ray_fallback(shape: &Shape, ray: PickRay
     best.map(|(face, point, _)| (face, point))
 }
 
-/// Susun titik tepi sebuah `Face` jadi LOOP TERSAMBUNG berdasarkan
-/// konektivitas titik ujung.
+/// Susun titik tepi sebuah `Face` jadi LOOP TERSAMBUNG dan ambil loop terluar (outer boundary),
+/// mengabaikan loop lubang internal agar kontur face tidak tertukar / rusak.
 pub(crate) fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
     let edge_pointlists: Vec<Vec<DVec3>> = face
         .edges()
@@ -195,45 +195,74 @@ pub(crate) fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
         return edge_pointlists.into_iter().next().expect("sudah dicek len()==1");
     }
 
-    const EPS: f64 = 1e-6;
+    const EPS: f64 = 1e-4;
     let mut used = vec![false; edge_pointlists.len()];
-    let mut chain = edge_pointlists[0].clone();
-    used[0] = true;
-    let mut remaining = edge_pointlists.len() - 1;
-    while remaining > 0 {
-        let tail = *chain.last().expect("chain tidak pernah kosong setelah inisialisasi");
-        let mut found = false;
-        for (i, pts) in edge_pointlists.iter().enumerate() {
-            if used[i] {
-                continue;
+    let mut loops: Vec<Vec<DVec3>> = Vec::new();
+
+    for start_idx in 0..edge_pointlists.len() {
+        if used[start_idx] {
+            continue;
+        }
+        used[start_idx] = true;
+        let mut chain = edge_pointlists[start_idx].clone();
+
+        loop {
+            let tail = *chain.last().expect("chain tidak pernah kosong");
+            let mut found = false;
+            for (i, pts) in edge_pointlists.iter().enumerate() {
+                if used[i] {
+                    continue;
+                }
+                let start = pts[0];
+                let end = *pts.last().expect("edge_pointlists sudah difilter len()>=2");
+                if (start - tail).length_squared() < EPS {
+                    chain.extend(pts.iter().skip(1).copied());
+                    used[i] = true;
+                    found = true;
+                    break;
+                }
+                if (end - tail).length_squared() < EPS {
+                    chain.extend(pts.iter().rev().skip(1).copied());
+                    used[i] = true;
+                    found = true;
+                    break;
+                }
             }
-            let start = pts[0];
-            let end = *pts.last().expect("edge_pointlists sudah difilter len()>=2");
-            if (start - tail).length_squared() < EPS {
-                chain.extend(pts.iter().skip(1).copied());
-                used[i] = true;
-                found = true;
-                remaining -= 1;
+            if !found {
                 break;
             }
-            if (end - tail).length_squared() < EPS {
-                chain.extend(pts.iter().rev().skip(1).copied());
-                used[i] = true;
-                found = true;
-                remaining -= 1;
+            if chain.len() > 2 && (chain[0] - *chain.last().unwrap()).length_squared() < EPS {
                 break;
             }
         }
-        if !found {
-            return edge_pointlists.into_iter().flatten().collect();
+
+        if chain.len() > 1 && (chain[0] - *chain.last().unwrap()).length_squared() < EPS {
+            chain.pop();
         }
+        loops.push(chain);
     }
-    if chain.len() > 1
-        && (chain[0] - *chain.last().expect("chain tidak kosong")).length_squared() < EPS
-    {
-        chain.pop();
-    }
-    chain
+
+    // Ambil loop dengan bounding box diagonal terbesar (outer contour loop dari face)
+    loops
+        .into_iter()
+        .max_by(|l1, l2| {
+            let bbox_diag = |pts: &[DVec3]| -> f64 {
+                if pts.is_empty() {
+                    return 0.0;
+                }
+                let mut min = pts[0];
+                let mut max = pts[0];
+                for p in pts {
+                    min = min.min(*p);
+                    max = max.max(*p);
+                }
+                (max - min).length()
+            };
+            bbox_diag(l1)
+                .partial_cmp(&bbox_diag(l2))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or_default()
 }
 
 /// Hitung vektor normal satuan ke arah luar (*outward normal*) dan titik pusat (*centroid*) dari sebuah `Face`.
