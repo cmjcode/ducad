@@ -769,6 +769,26 @@ guide-draft-analysis-step-2 = 2. Sudut Lepas Aman (Hijau ≥ Target)
 guide-draft-analysis-step-3 = 3. Draft Kritis (Kuning) & Undercut Terjebak (Merah)
 guide-draft-analysis-tip = 💡 Pastikan part dapat lepas dari cetakan injeksi plastik sebelum diproduksi
 
+# Datum Plane Guides
+guide-datum-offset-header = Panduan Offset Plane:
+guide-datum-offset-step-1 = 1. Pilih Face / Bidang Dasar
+guide-datum-offset-step-2 = 2. Atur Jarak Offset (mm)
+guide-datum-offset-step-3 = 3. Klik 'Create Plane' (Enter)
+guide-datum-offset-tip = 💡 Masukkan nilai negatif atau klik Flip untuk membalik arah
+
+guide-datum-angled-header = Panduan Angled Plane:
+guide-datum-angled-step-1 = 1. Pilih Edge / Garis Sumbu Putar
+guide-datum-angled-step-2 = 2. Atur Sudut Kemiringan (θ°)
+guide-datum-angled-step-3 = 3. Klik 'Create Plane' (Enter)
+guide-datum-angled-tip = 💡 Memutar bidang terhadap garis edge 3D atau garis sketsa
+
+guide-datum-3point-header = Panduan 3-Point Plane:
+guide-datum-3point-step-1 = 1. Klik Titik P1 (Vertex/Face/Grid)
+guide-datum-3point-step-2 = 2. Klik Titik P2
+guide-datum-3point-step-3 = 3. Klik Titik P3
+guide-datum-3point-step-done = ✓ 3 Titik Terpilih — Klik 'Create Plane'
+guide-datum-3point-tip = 💡 Membentuk bidang datar yang melalui 3 titik acuan
+
 # Units
 unit-mm = mm (Milimeter)
 unit-cm = cm (Sentimeter)

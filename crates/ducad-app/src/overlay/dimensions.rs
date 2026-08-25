@@ -1057,6 +1057,30 @@ impl DuCADApp {
                 }
             };
 
+            if self.datum_mode == ducad_ui::DatumPlaneMode::ThreePoints {
+                let painter = ui.painter();
+                let mut screen_pts = Vec::new();
+                for (i, pt) in self.datum_selected_points.iter().enumerate() {
+                    if let Some(sp) = crate::viewport::world_to_screen_pos(&self.camera, rect, *pt) {
+                        screen_pts.push(sp);
+                        // Glowing outer pin
+                        painter.circle_stroke(sp, 11.0, egui::Stroke::new(2.5, egui::Color32::from_rgb(0, 180, 255)));
+                        painter.circle_filled(sp, 8.5, egui::Color32::from_rgb(15, 25, 45));
+                        let label = format!("P{}", i + 1);
+                        let gal = painter.layout_no_wrap(label, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+                        painter.galley(sp - gal.size() * 0.5, gal, egui::Color32::WHITE);
+                    }
+                }
+                if screen_pts.len() >= 2 {
+                    for w in screen_pts.windows(2) {
+                        painter.line_segment([w[0], w[1]], egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(0, 200, 255, 200)));
+                    }
+                    if screen_pts.len() == 3 {
+                        painter.line_segment([screen_pts[2], screen_pts[0]], egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(0, 200, 255, 200)));
+                    }
+                }
+            }
+
             if let Some(plane) = candidate_plane {
                 let half_extent = ducad_render::grid::INACTIVE_PLANE_HALF_EXTENT;
                 let c_top_left = plane.to_world(glam::DVec2::new(-half_extent as f64, -half_extent as f64), 0.0);
@@ -1088,6 +1112,15 @@ impl DuCADApp {
                     painter.galley(bg_r.min + egui::vec2(6.0, 3.0), gal, egui::Color32::WHITE);
                 }
             }
+
+            ToolGuides::render_datum_plane_guide(
+                ui,
+                rect,
+                self.datum_mode,
+                self.datum_selected_points.len(),
+                self.active_face.is_some() || !self.selected_edges.is_empty(),
+                ui.input(|i| i.time),
+            );
         } else if self.tool == ToolKind::Boolean {
             let selected_count = self.selected_bodies.len();
 

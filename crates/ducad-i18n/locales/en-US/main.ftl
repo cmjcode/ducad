@@ -769,6 +769,26 @@ guide-draft-analysis-step-2 = 2. Safe Mold Release Angle (Green ≥ Target)
 guide-draft-analysis-step-3 = 3. Critical Draft (Yellow) & Undercut Trapped (Red)
 guide-draft-analysis-tip = 💡 Verify injection mold and die-cast release feasibility before production
 
+# Datum Plane Guides
+guide-datum-offset-header = Offset Plane Guide:
+guide-datum-offset-step-1 = 1. Select Base Face / Plane
+guide-datum-offset-step-2 = 2. Set Offset Distance (mm)
+guide-datum-offset-step-3 = 3. Click 'Create Plane' (Enter)
+guide-datum-offset-tip = 💡 Set negative distance or toggle Flip to reverse direction
+
+guide-datum-angled-header = Angled Plane Guide:
+guide-datum-angled-step-1 = 1. Select Rotation Edge Axis
+guide-datum-angled-step-2 = 2. Set Angle (θ°)
+guide-datum-angled-step-3 = 3. Click 'Create Plane' (Enter)
+guide-datum-angled-tip = 💡 Rotate smoothly around linear 3D edge or sketch line
+
+guide-datum-3point-header = 3-Point Plane Guide:
+guide-datum-3point-step-1 = 1. Click Point P1 (Vertex/Face/Grid)
+guide-datum-3point-step-2 = 2. Click Point P2
+guide-datum-3point-step-3 = 3. Click Point P3
+guide-datum-3point-step-done = ✓ 3 Points Selected — Click 'Create Plane'
+guide-datum-3point-tip = 💡 Forms a flat reference plane through 3 non-collinear points
+
 # Units
 unit-mm = mm (Millimeter)
 unit-cm = cm (Centimeter)

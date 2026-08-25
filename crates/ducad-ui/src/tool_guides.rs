@@ -94,7 +94,59 @@ impl ToolGuides {
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Text => Self::render_text_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::DatumPlane => Self::render_datum_offset_anim(&painter, card_rect, has_selection, time),
             _ => {}
+        }
+    }
+
+    /// Render kartu tutorial animasi khusus untuk Datum Plane (Offset, Angled, 3-Point)
+    pub fn render_datum_plane_guide(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        mode: crate::canvas_hud::DatumPlaneMode,
+        points_count: usize,
+        has_selection: bool,
+        time: f64,
+    ) {
+        ui.ctx().request_repaint();
+
+        let card_width = 320.0;
+        let card_height = 152.0;
+        let margin_bottom = 44.0;
+        let margin_left = 68.0;
+
+        let card_rect = Rect::from_min_size(
+            Pos2::new(
+                canvas_rect.left() + margin_left,
+                canvas_rect.bottom() - card_height - margin_bottom,
+            ),
+            Vec2::new(card_width, card_height),
+        );
+
+        let painter = ui.painter_at(card_rect);
+
+        painter.rect_filled(
+            card_rect,
+            8.0,
+            Color32::from_rgba_premultiplied(12, 14, 18, 230),
+        );
+        painter.rect_stroke(
+            card_rect,
+            8.0,
+            Stroke::new(1.0, BORDER_SUBTLE),
+            StrokeKind::Inside,
+        );
+
+        match mode {
+            crate::canvas_hud::DatumPlaneMode::Offset => {
+                Self::render_datum_offset_anim(&painter, card_rect, has_selection, time);
+            }
+            crate::canvas_hud::DatumPlaneMode::Angled => {
+                Self::render_datum_angled_anim(&painter, card_rect, has_selection, time);
+            }
+            crate::canvas_hud::DatumPlaneMode::ThreePoints => {
+                Self::render_datum_3point_anim(&painter, card_rect, points_count, time);
+            }
         }
     }
 
@@ -2587,6 +2639,340 @@ impl ToolGuides {
                 Color32::WHITE,
             );
         }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Animasi tutorial untuk Tool Datum Plane - Offset Plane Mode
+    fn render_datum_offset_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        _has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 4.0;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.35 {
+            (t!("guide-datum-offset-step-1"), ACCENT_BLUE)
+        } else if phase < 0.70 {
+            (t!("guide-datum-offset-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-datum-offset-step-3"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-datum-offset-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-datum-offset-tip"));
+
+        let center = Pos2::new(card_rect.left() + 100.0, card_rect.center().y + 12.0);
+
+        // 1. Gambar Base Face Plate (Isometric)
+        let base_w = 42.0;
+        let base_h = 18.0;
+        let p_top = Pos2::new(center.x, center.y - base_h);
+        let p_right = Pos2::new(center.x + base_w, center.y - base_h * 0.5);
+        let p_bot = Pos2::new(center.x, center.y);
+        let p_left = Pos2::new(center.x - base_w, center.y - base_h * 0.5);
+
+        // Fill Base Plate
+        painter.add(egui::Shape::convex_polygon(
+            vec![p_top, p_right, p_bot, p_left],
+            Color32::from_rgba_premultiplied(30, 40, 55, 200),
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 130, 180, 160)),
+        ));
+
+        // 2. Animasi Offset Plane Naik
+        let offset_t = if phase < 0.35 {
+            0.0
+        } else if phase < 0.70 {
+            ((phase - 0.35) / 0.35).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+
+        let lift = offset_t * 26.0;
+        let p_top_off = Pos2::new(p_top.x, p_top.y - lift);
+        let p_right_off = Pos2::new(p_right.x, p_right.y - lift);
+        let p_bot_off = Pos2::new(p_bot.x, p_bot.y - lift);
+        let p_left_off = Pos2::new(p_left.x, p_left.y - lift);
+
+        // Garis panah jarak offset
+        if offset_t > 0.05 {
+            let arrow_bot = Pos2::new(center.x, center.y - base_h * 0.5);
+            let arrow_top = Pos2::new(center.x, center.y - base_h * 0.5 - lift);
+            painter.line_segment(
+                [arrow_bot, arrow_top],
+                Stroke::new(1.5, Color32::from_rgb(0, 200, 255)),
+            );
+            // Panah atas
+            painter.line_segment(
+                [arrow_top, Pos2::new(arrow_top.x - 3.0, arrow_top.y + 4.0)],
+                Stroke::new(1.5, Color32::from_rgb(0, 200, 255)),
+            );
+            painter.line_segment(
+                [arrow_top, Pos2::new(arrow_top.x + 3.0, arrow_top.y + 4.0)],
+                Stroke::new(1.5, Color32::from_rgb(0, 200, 255)),
+            );
+
+            // Badge Jarak
+            let badge_pos = Pos2::new(card_rect.right() - 52.0, card_rect.center().y - 2.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                &format!("+{:.0} mm", offset_t * 25.0),
+                Color32::from_rgba_premultiplied(0, 80, 160, 220),
+                Color32::WHITE,
+            );
+        }
+
+        // Gambar Offset Plane yang Melayang
+        let plane_fill = if phase >= 0.70 {
+            Color32::from_rgba_premultiplied(0, 180, 255, 60)
+        } else {
+            Color32::from_rgba_premultiplied(0, 140, 220, 35)
+        };
+        let plane_stroke = if phase >= 0.70 {
+            Stroke::new(1.8, Color32::from_rgb(0, 230, 255))
+        } else {
+            Stroke::new(1.2, Color32::from_rgb(0, 160, 230))
+        };
+
+        painter.add(egui::Shape::convex_polygon(
+            vec![p_top_off, p_right_off, p_bot_off, p_left_off],
+            plane_fill,
+            plane_stroke,
+        ));
+
+        // Kursor animasi
+        let cursor_pos = if phase < 0.35 {
+            let t = (phase / 0.35).clamp(0.0, 1.0);
+            Pos2::new(center.x - 15.0 + t * 15.0, center.y - base_h * 0.5)
+        } else if phase < 0.70 {
+            let t = ((phase - 0.35) / 0.35).clamp(0.0, 1.0);
+            Pos2::new(center.x, center.y - base_h * 0.5 - t * 26.0)
+        } else {
+            let t = ((phase - 0.70) / 0.30).clamp(0.0, 1.0);
+            Pos2::new(center.x + t * 40.0, center.y - base_h * 0.5 - 26.0)
+        };
+        let is_clicking = (phase > 0.28 && phase < 0.35) || (phase > 0.65 && phase < 0.72) || phase > 0.93;
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Animasi tutorial untuk Tool Datum Plane - Angled Plane Mode
+    fn render_datum_angled_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        _has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 4.0;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.35 {
+            (t!("guide-datum-angled-step-1"), ACCENT_BLUE)
+        } else if phase < 0.70 {
+            (t!("guide-datum-angled-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-datum-angled-step-3"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-datum-angled-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-datum-angled-tip"));
+
+        let center = Pos2::new(card_rect.left() + 95.0, card_rect.center().y + 8.0);
+
+        // 1. Sumbu Rotasi (Garis Edge Tebal Menyala)
+        let edge_p1 = Pos2::new(center.x - 45.0, center.y);
+        let edge_p2 = Pos2::new(center.x + 45.0, center.y);
+        painter.line_segment([edge_p1, edge_p2], Stroke::new(2.5, ACCENT_ORANGE));
+        painter.circle_filled(edge_p1, 3.5, ACCENT_ORANGE);
+        painter.circle_filled(edge_p2, 3.5, ACCENT_ORANGE);
+
+        // 2. Sudut Rotasi (0° -> 45°)
+        let angle_t = if phase < 0.35 {
+            0.0
+        } else if phase < 0.70 {
+            ((phase - 0.35) / 0.35).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let angle_rad = angle_t * (45.0f32.to_radians());
+
+        // Plane dasar (horizontal)
+        let depth = 32.0;
+        let base_top1 = Pos2::new(edge_p1.x + 15.0, edge_p1.y - depth);
+        let base_top2 = Pos2::new(edge_p2.x + 15.0, edge_p2.y - depth);
+        painter.line_segment([edge_p1, base_top1], Stroke::new(1.0, TEXT_MUTED));
+        painter.line_segment([base_top1, base_top2], Stroke::new(1.0, TEXT_MUTED));
+        painter.line_segment([base_top2, edge_p2], Stroke::new(1.0, TEXT_MUTED));
+
+        // Angled Plane yang berputar
+        let rot_dx = 15.0 * angle_rad.cos() - depth * 0.4 * angle_rad.sin();
+        let rot_dy = -depth * angle_rad.cos() - 15.0 * angle_rad.sin();
+        let rot_p1 = Pos2::new(edge_p1.x + rot_dx, edge_p1.y + rot_dy);
+        let rot_p2 = Pos2::new(edge_p2.x + rot_dx, edge_p2.y + rot_dy);
+
+        let plane_fill = if phase >= 0.70 {
+            Color32::from_rgba_premultiplied(0, 180, 255, 60)
+        } else {
+            Color32::from_rgba_premultiplied(0, 140, 220, 35)
+        };
+        let plane_stroke = if phase >= 0.70 {
+            Stroke::new(1.8, Color32::from_rgb(0, 230, 255))
+        } else {
+            Stroke::new(1.2, Color32::from_rgb(0, 160, 230))
+        };
+
+        painter.add(egui::Shape::convex_polygon(
+            vec![edge_p1, rot_p1, rot_p2, edge_p2],
+            plane_fill,
+            plane_stroke,
+        ));
+
+        // Busur Sudut (Angle Arc)
+        if angle_t > 0.05 {
+            let arc_c = edge_p2;
+            let arc_r = 18.0;
+            let mut arc_pts = Vec::new();
+            for s in 0..=8 {
+                let frac = s as f32 / 8.0 * angle_rad;
+                let ax = arc_c.x - arc_r * (frac + std::f32::consts::FRAC_PI_2).cos();
+                let ay = arc_c.y - arc_r * (frac + std::f32::consts::FRAC_PI_2).sin();
+                arc_pts.push(Pos2::new(ax, ay));
+            }
+            if arc_pts.len() >= 2 {
+                for w in arc_pts.windows(2) {
+                    painter.line_segment([w[0], w[1]], Stroke::new(1.5, ACCENT_ORANGE));
+                }
+            }
+
+            // Badge Sudut
+            let badge_pos = Pos2::new(card_rect.right() - 52.0, card_rect.center().y - 2.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                &format!("{:.0}°", angle_t * 45.0),
+                Color32::from_rgba_premultiplied(140, 70, 10, 220),
+                Color32::WHITE,
+            );
+        }
+
+        // Kursor animasi
+        let cursor_pos = if phase < 0.35 {
+            Pos2::new(center.x, center.y)
+        } else if phase < 0.70 {
+            let t = ((phase - 0.35) / 0.35).clamp(0.0, 1.0);
+            Pos2::new(center.x + t * 20.0, center.y - t * 18.0)
+        } else {
+            Pos2::new(center.x + 35.0, center.y - 20.0)
+        };
+        let is_clicking = (phase > 0.28 && phase < 0.35) || (phase > 0.65 && phase < 0.72) || phase > 0.93;
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Animasi tutorial untuk Tool Datum Plane - 3-Point Plane Mode
+    fn render_datum_3point_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        points_count: usize,
+        time: f64,
+    ) {
+        let cycle = 4.5;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if points_count == 0 {
+            if phase < 0.30 {
+                (t!("guide-datum-3point-step-1"), ACCENT_BLUE)
+            } else if phase < 0.60 {
+                (t!("guide-datum-3point-step-2"), ACCENT_ORANGE)
+            } else if phase < 0.85 {
+                (t!("guide-datum-3point-step-3"), ACCENT_ORANGE)
+            } else {
+                (t!("guide-datum-3point-step-done"), ACCENT_GREEN)
+            }
+        } else if points_count == 1 {
+            (t!("guide-datum-3point-step-2"), ACCENT_ORANGE)
+        } else if points_count == 2 {
+            (t!("guide-datum-3point-step-3"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-datum-3point-step-done"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-datum-3point-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-datum-3point-tip"));
+
+        let center = Pos2::new(card_rect.left() + 95.0, card_rect.center().y + 4.0);
+
+        let p1 = Pos2::new(center.x - 42.0, center.y + 14.0);
+        let p2 = Pos2::new(center.x + 36.0, center.y + 18.0);
+        let p3 = Pos2::new(center.x - 4.0, center.y - 24.0);
+
+        let has_p1 = points_count >= 1 || phase >= 0.22;
+        let has_p2 = points_count >= 2 || phase >= 0.52;
+        let has_p3 = points_count >= 3 || phase >= 0.80;
+
+        // Garis penghubung segitiga
+        if has_p1 && has_p2 {
+            painter.line_segment([p1, p2], Stroke::new(1.8, Color32::from_rgb(0, 180, 255)));
+        }
+        if has_p2 && has_p3 {
+            painter.line_segment([p2, p3], Stroke::new(1.8, Color32::from_rgb(0, 180, 255)));
+        }
+        if has_p3 && has_p1 {
+            painter.line_segment([p3, p1], Stroke::new(1.8, Color32::from_rgb(0, 180, 255)));
+        }
+
+        // Bidang planar terisi saat ketiga titik ada
+        if has_p3 {
+            painter.add(egui::Shape::convex_polygon(
+                vec![p1, p2, p3],
+                Color32::from_rgba_premultiplied(0, 180, 255, 50),
+                Stroke::new(1.8, Color32::from_rgb(0, 220, 255)),
+            ));
+
+            // Badge 3-Point Plane
+            let badge_pos = Pos2::new(card_rect.right() - 52.0, card_rect.center().y - 2.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "✨ 3-Point Plane",
+                Color32::from_rgba_premultiplied(0, 90, 170, 220),
+                Color32::WHITE,
+            );
+        }
+
+        // Gambar Pin P1, P2, P3
+        if has_p1 {
+            painter.circle_stroke(p1, 7.0, Stroke::new(2.0, Color32::from_rgb(0, 180, 255)));
+            painter.circle_filled(p1, 5.0, Color32::from_rgb(15, 25, 40));
+            painter.text(p1, Align2::CENTER_CENTER, "1", FontId::proportional(9.0), Color32::WHITE);
+        }
+        if has_p2 {
+            painter.circle_stroke(p2, 7.0, Stroke::new(2.0, Color32::from_rgb(0, 180, 255)));
+            painter.circle_filled(p2, 5.0, Color32::from_rgb(15, 25, 40));
+            painter.text(p2, Align2::CENTER_CENTER, "2", FontId::proportional(9.0), Color32::WHITE);
+        }
+        if has_p3 {
+            painter.circle_stroke(p3, 7.0, Stroke::new(2.0, Color32::from_rgb(0, 180, 255)));
+            painter.circle_filled(p3, 5.0, Color32::from_rgb(15, 25, 40));
+            painter.text(p3, Align2::CENTER_CENTER, "3", FontId::proportional(9.0), Color32::WHITE);
+        }
+
+        // Kursor animasi
+        let (cursor_pos, is_clicking) = if phase < 0.30 {
+            let t = (phase / 0.30).clamp(0.0, 1.0);
+            (Pos2::new(p1.x - 20.0 + t * 20.0, p1.y - 10.0 + t * 10.0), phase > 0.22 && phase < 0.30)
+        } else if phase < 0.60 {
+            let t = ((phase - 0.30) / 0.30).clamp(0.0, 1.0);
+            (Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y)), phase > 0.52 && phase < 0.60)
+        } else if phase < 0.85 {
+            let t = ((phase - 0.60) / 0.25).clamp(0.0, 1.0);
+            (Pos2::new(p2.x + t * (p3.x - p2.x), p2.y + t * (p3.y - p2.y)), phase > 0.77 && phase < 0.85)
+        } else {
+            (Pos2::new(p3.x + 25.0, p3.y - 10.0), phase > 0.92)
+        };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }

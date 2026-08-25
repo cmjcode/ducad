@@ -1145,6 +1145,89 @@ impl DuCADApp {
                         None
                     };
 
+                    // Prioritas 0: Penanganan Khusus Tool Datum Plane (3-Point, Angled, Offset)
+                    if self.tool == ToolKind::DatumPlane {
+                        match self.datum_mode {
+                            ducad_ui::DatumPlaneMode::ThreePoints => {
+                                let mut pt_found: Option<glam::Vec3> = None;
+
+                                // 1. Deteksi Vertex / Edge / Face pada Objek 3D
+                                if let Some(pos) = click_pos {
+                                    if let Some((_b_id, _ray, vhit)) = self.pick_body_vertex_at_cursor(rect, pos) {
+                                        pt_found = Some(glam::vec3(vhit.0 as f32, vhit.1 as f32, vhit.2 as f32));
+                                    } else if let Some((_b_id, _ray, ehit)) = self.pick_body_edge_at_cursor(rect, pos) {
+                                        pt_found = Some(glam::vec3(ehit.0 as f32, ehit.1 as f32, ehit.2 as f32));
+                                    } else if let Some((_b_id, _ray, hit)) = self.pick_body_face_at_cursor(rect, pos) {
+                                        pt_found = Some(glam::vec3(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32));
+                                    }
+                                }
+
+                                // 2. Deteksi Snap / Sudut Sketsa 2D
+                                if pt_found.is_none() {
+                                    if let Some(snap) = self.last_snap {
+                                        pt_found = Some(self.active_plane.to_world(snap.point, 0.0));
+                                    } else if let Some((_, _, corner)) = corner_pick_2d {
+                                        pt_found = Some(self.active_plane.to_world(corner, 0.0));
+                                    } else {
+                                        // 3. Fallback ke koordinat 3D bidang sketsa aktif pada posisi kursor
+                                        pt_found = Some(self.active_plane.to_world(raw, 0.0));
+                                    }
+                                }
+
+                                if let Some(pt) = pt_found {
+                                    if self.datum_selected_points.len() < 3 {
+                                        self.datum_selected_points.push(pt);
+                                        let count = self.datum_selected_points.len();
+                                        if count == 3 {
+                                            self.model_status = Some(format!(
+                                                "3/3 titik terpilih: ({:.1}, {:.1}, {:.1}) ✓ Klik 'Create Plane' atau tekan Enter",
+                                                pt.x, pt.y, pt.z
+                                            ));
+                                        } else {
+                                            self.model_status = Some(format!(
+                                                "Titik {}/3 terpilih: ({:.1}, {:.1}, {:.1}). Klik titik ke-{} berikutnya.",
+                                                count, pt.x, pt.y, pt.z, count + 1
+                                            ));
+                                        }
+                                    } else {
+                                        self.datum_selected_points = vec![pt];
+                                        self.model_status = Some(format!(
+                                            "Memulai ulang pemilihan titik: Titik 1/3 ({:.1}, {:.1}, {:.1}). Klik titik ke-2.",
+                                            pt.x, pt.y, pt.z
+                                        ));
+                                    }
+                                }
+                                return;
+                            }
+                            ducad_ui::DatumPlaneMode::Angled => {
+                                if let Some(pos) = click_pos {
+                                    let (origin, dir) = crate::viewport::screen_to_ray(&self.camera, rect, pos);
+                                    let ray = ducad_kernel::PickRay {
+                                        origin: (origin.x as f64, origin.y as f64, origin.z as f64),
+                                        dir: (dir.x as f64, dir.y as f64, dir.z as f64),
+                                    };
+                                    let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                                    for (_id, geo) in self.model.geometry.iter() {
+                                        if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, tol) {
+                                            self.selected_edges = vec![crate::types::PickedEdge { ray, polyline }];
+                                            self.model_status = Some("Edge 3D terpilih sebagai sumbu putar ✓".to_string());
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            ducad_ui::DatumPlaneMode::Offset => {
+                                if let Some(pos) = click_pos {
+                                    if let Some((b_id, ray, hit)) = self.pick_body_face_at_cursor(rect, pos) {
+                                        self.active_face = Some((b_id, ray, hit));
+                                        self.model_status = Some("Face 3D terpilih sebagai acuan offset ✓".to_string());
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if let Some((id1, id2, corner)) = corner_pick_2d {
                         self.selected.clear();
                         self.selected_bodies.clear();
@@ -1404,30 +1487,6 @@ impl DuCADApp {
                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
                                 },
                             );
-                        }
-                    } else if self.tool == ToolKind::DatumPlane {
-                        if self.datum_mode == ducad_ui::DatumPlaneMode::ThreePoints {
-                            let pt_opt = if let Some((_, _, vtx)) = &self.active_vertex {
-                                Some(glam::vec3(vtx.0 as f32, vtx.1 as f32, vtx.2 as f32))
-                            } else if let Some((_, _, hit)) = &self.active_face {
-                                Some(glam::vec3(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32))
-                            } else if let Some(edge) = self.selected_edges.first() {
-                                edge.polyline.first().map(|&(x, y, z)| glam::vec3(x as f32, y as f32, z as f32))
-                            } else {
-                                let world_pt = self.active_plane.to_world(raw, 0.0);
-                                Some(world_pt)
-                            };
-
-                            if let Some(pt) = pt_opt {
-                                if self.datum_selected_points.len() < 3 {
-                                    self.datum_selected_points.push(pt);
-                                    self.model_status = Some(format!(
-                                        "Titik {}/3 terpilih: ({:.1}, {:.1}, {:.1})",
-                                        self.datum_selected_points.len(),
-                                        pt.x, pt.y, pt.z
-                                    ));
-                                }
-                            }
                         }
                     } else if self.tool == ToolKind::Sweep {
                         self.active_face = None;
