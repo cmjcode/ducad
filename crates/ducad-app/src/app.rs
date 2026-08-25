@@ -1741,6 +1741,50 @@ impl eframe::App for DuCADApp {
                 popup_ev = HistoryPopup::show(&ctx, &mut state, screen_rect);
             }
             ToolKind::HoleWizard => {
+                // Siapkan daftar lubang yang tersedia pada bodi saat ini
+                if let Some((body_id, _, _)) = &self.active_face {
+                    if let Some(hist) = self.hole_history.get(body_id) {
+                        self.hole_popup_state.available_holes = hist
+                            .features
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, feat)| {
+                                let label = format!(
+                                    "#{} ({} @ {:.1}, {:.1})",
+                                    idx + 1,
+                                    feat.spec.technical_callout(),
+                                    feat.offset_u,
+                                    feat.offset_v
+                                );
+                                (idx, label)
+                            })
+                            .collect();
+
+                        if !hist.features.is_empty() {
+                            if self.hole_popup_state.selected_hole_idx.is_none()
+                                || self
+                                    .hole_popup_state
+                                    .selected_hole_idx
+                                    .is_some_and(|i| i >= hist.features.len())
+                            {
+                                let default_idx = self
+                                    .editing_hole_idx
+                                    .map(|(_, i)| i)
+                                    .unwrap_or(0)
+                                    .min(hist.features.len() - 1);
+                                self.hole_popup_state.selected_hole_idx = Some(default_idx);
+                            }
+                        } else {
+                            self.hole_popup_state.selected_hole_idx = None;
+                        }
+                    } else {
+                        self.hole_popup_state.available_holes.clear();
+                        self.hole_popup_state.selected_hole_idx = None;
+                    }
+                }
+
+                let prev_selected = self.hole_popup_state.selected_hole_idx;
+
                 popup_ev = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "hole_wizard_popup",
@@ -1757,6 +1801,27 @@ impl eframe::App for DuCADApp {
                 )
                 .0
                 .flatten();
+
+                // Jika pengguna mengganti pilihan lubang di combobox, sinkronkan spesifikasi dan posisinya
+                if self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole {
+                    if let Some(new_idx) = self.hole_popup_state.selected_hole_idx {
+                        let needs_sync = prev_selected != Some(new_idx)
+                            || self.editing_hole_idx.map(|(_, i)| i) != Some(new_idx);
+                        if needs_sync {
+                            if let Some((body_id, _, _)) = &self.active_face {
+                                self.editing_hole_idx = Some((*body_id, new_idx));
+                                if let Some(hist) = self.hole_history.get(body_id) {
+                                    if let Some(feat) = hist.features.get(new_idx) {
+                                        self.hole_popup_state.spec = feat.spec.clone();
+                                        self.hole_popup_state.offset_u = feat.offset_u;
+                                        self.hole_popup_state.offset_v = feat.offset_v;
+                                        self.hole_popup_state.current_pos_3d = Some(feat.pos);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         }

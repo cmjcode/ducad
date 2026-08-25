@@ -2816,15 +2816,21 @@ impl DuCADApp {
                     let is_hovered = handle_resp.hovered()
                         || handle_resp.dragged()
                         || self.hole_popup_state.is_dragging;
-                    let stroke_color = if is_hovered {
-                        egui::Color32::from_rgb(255, 230, 50)
+                    let red_color = if is_hovered {
+                        egui::Color32::from_rgb(255, 60, 60)
                     } else {
-                        egui::Color32::from_rgb(0, 220, 255)
+                        egui::Color32::from_rgb(255, 20, 20)
                     };
+                    let black_color = egui::Color32::from_rgb(15, 15, 20);
 
-                    ui.painter()
-                        .circle_stroke(hole_2d, 10.0, egui::Stroke::new(2.5, stroke_color));
-                    ui.painter().circle_filled(hole_2d, 4.0, stroke_color);
+                    // 1. Lingkaran luar hitam tebal (kontras tinggi)
+                    ui.painter().circle_filled(hole_2d, 12.0, black_color);
+                    // 2. Stroke merah menyala
+                    ui.painter().circle_stroke(hole_2d, 10.0, egui::Stroke::new(2.5, red_color));
+                    // 3. Ring hitam tengah
+                    ui.painter().circle_filled(hole_2d, 5.5, black_color);
+                    // 4. Titik bullseye merah menyala di tengah
+                    ui.painter().circle_filled(hole_2d, 3.5, red_color);
 
                     if handle_resp.drag_started() {
                         self.hole_popup_state.is_dragging = true;

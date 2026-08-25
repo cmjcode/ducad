@@ -371,9 +371,9 @@ impl DuCADApp {
                     } as f32;
                     let inner_radius = (self.hole_popup_state.spec.diameter / 2.0) as f32;
 
-                    // 1. Lingkaran preview lubang luar (Cyan terang)
-                    const HOLE_RING_COLOR: [f32; 4] = [0.0, 0.95, 1.0, 0.95];
-                    const SEGMENTS: usize = 32;
+                    // 1. Lingkaran preview lubang luar (Merah menyala)
+                    const HOLE_RING_COLOR: [f32; 4] = [1.0, 0.12, 0.12, 1.0]; // Merah Menyala
+                    const SEGMENTS: usize = 36;
                     for k in 0..SEGMENTS {
                         let a1 = (k as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
                         let a2 = ((k + 1) as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
@@ -391,7 +391,7 @@ impl DuCADApp {
 
                     // 2. Lingkaran dalam (jika bertingkat / counterbore / countersink / tapped)
                     if (outer_radius - inner_radius).abs() > 0.05 {
-                        const INNER_RING_COLOR: [f32; 4] = [0.15, 0.70, 0.95, 0.70];
+                        const INNER_RING_COLOR: [f32; 4] = [0.95, 0.28, 0.28, 0.95];
                         for k in 0..SEGMENTS {
                             let a1 = (k as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
                             let a2 = ((k + 1) as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
@@ -408,9 +408,9 @@ impl DuCADApp {
                         }
                     }
 
-                    // 3. Crosshair target pada titik pusat lubang (Kuning Emas)
-                    let cross_len = (outer_radius + 3.5).max(6.0);
-                    const CROSS_COLOR: [f32; 4] = [1.0, 0.85, 0.10, 0.95];
+                    // 3. Crosshair target pada titik pusat lubang (Merah Menyala)
+                    let cross_len = (outer_radius + 4.5).max(7.0);
+                    const CROSS_COLOR: [f32; 4] = [1.0, 0.10, 0.10, 1.0]; // Merah Menyala
                     let cu1 = hole_pos - u_axis * cross_len;
                     let cu2 = hole_pos + u_axis * cross_len;
                     let cv1 = hole_pos - v_axis * cross_len;
@@ -432,9 +432,9 @@ impl DuCADApp {
                         color: CROSS_COLOR,
                     });
 
-                    // 4. Ruler bantu ke tepi-tepi terdekat (Garis Putus-Putus Oranye)
+                    // 4. Ruler bantu ke tepi-tepi terdekat (Garis Putus-Putus Merah & Titik Hitam)
                     let closest_edges = self.compute_hole_closest_edges(hit, hole_pos);
-                    const RULER_LINE_COLOR: [f32; 4] = [1.0, 0.55, 0.15, 0.90];
+                    const RULER_LINE_COLOR: [f32; 4] = [1.0, 0.18, 0.18, 0.95]; // Merah Menyala
                     for (q, dist, _, _) in &closest_edges {
                         if *dist > 0.1 {
                             verts.extend(sketch_render::dashed_line_3d(
@@ -448,11 +448,11 @@ impl DuCADApp {
                             let tick_p2 = *q - tick_dir * 1.5;
                             verts.push(LineVertex {
                                 position: [tick_p1.x, tick_p1.y, tick_p1.z],
-                                color: RULER_LINE_COLOR,
+                                color: [0.08, 0.08, 0.10, 1.0], // Hitam
                             });
                             verts.push(LineVertex {
                                 position: [tick_p2.x, tick_p2.y, tick_p2.z],
-                                color: RULER_LINE_COLOR,
+                                color: [0.08, 0.08, 0.10, 1.0], // Hitam
                             });
                         }
                     }

@@ -823,5 +823,7 @@ hole-offset-u = Offset U (X):
 hole-offset-v = Offset V (Y):
 hole-center-btn = Center
 hole-drag-hint = Click or drag target in viewport to reposition.
+hole-select-target = Select Hole to Edit:
+hole-no-holes-found = No existing holes found on this body to edit. Switch to New Hole.
 selection-face-selected = Face Selected
 selection-hole-selected = Hole Selected

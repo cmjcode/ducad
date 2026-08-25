@@ -823,5 +823,7 @@ hole-offset-u = Offset U (X):
 hole-offset-v = Offset V (Y):
 hole-center-btn = Pusat (Center)
 hole-drag-hint = Klik atau drag titik target di viewport untuk menggeser.
+hole-select-target = Pilih Lubang yang Diedit:
+hole-no-holes-found = Belum ada lubang pada bodi ini untuk diedit. Beralih ke Buat Baru.
 selection-face-selected = Face Terpilih
 selection-hole-selected = Lubang Terpilih

@@ -36,6 +36,10 @@ pub struct HolePopupState {
     pub mode: HoleOperationMode,
     /// Apakah ada lubang eksisting yang terdeteksi pada face terpilih
     pub has_existing_hole: bool,
+    /// Daftar lubang yang tersedia pada bodi untuk diedit: (index, label_summary)
+    pub available_holes: Vec<(usize, String)>,
+    /// Indeks lubang yang sedang dipilih untuk diedit
+    pub selected_hole_idx: Option<usize>,
 }
 
 impl Default for HolePopupState {
@@ -48,6 +52,8 @@ impl Default for HolePopupState {
             is_dragging: false,
             mode: HoleOperationMode::NewHole,
             has_existing_hole: false,
+            available_holes: Vec::new(),
+            selected_hole_idx: None,
         }
     }
 }
@@ -132,6 +138,56 @@ impl HolePopup {
             });
         });
         ui.separator();
+
+        // =========================================================================
+        // 1.5. COMBOBOX PILIH LUBANG (HANYA MUNCUL PADA MODE EDIT)
+        // =========================================================================
+        if state.mode == HoleOperationMode::EditHole {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(t!("hole-select-target"))
+                        .size(10.0)
+                        .color(TEXT_PRIMARY)
+                        .strong(),
+                );
+            });
+
+            if state.available_holes.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!("ℹ️ {}", t!("hole-no-holes-found")))
+                        .size(9.5)
+                        .color(Color32::from_rgb(220, 180, 100)),
+                );
+                ui.add_space(4.0);
+                return event;
+            }
+
+            let curr_idx = state.selected_hole_idx.unwrap_or(0);
+            let selected_text = state
+                .available_holes
+                .iter()
+                .find(|(i, _)| *i == curr_idx)
+                .map(|(_, text)| text.clone())
+                .unwrap_or_else(|| state.available_holes[0].1.clone());
+
+            egui::ComboBox::from_id_salt("hole_wizard_select_combobox")
+                .width(DRAWER_W - 8.0)
+                .selected_text(RichText::new(&selected_text).size(10.0).color(TEXT_PRIMARY))
+                .show_ui(ui, |ui| {
+                    for (idx, label) in &state.available_holes {
+                        if ui
+                            .selectable_value(&mut state.selected_hole_idx, Some(*idx), RichText::new(label).size(9.5))
+                            .clicked()
+                        {
+                            state.selected_hole_idx = Some(*idx);
+                        }
+                    }
+                });
+
+            ui.add_space(2.0);
+            ui.separator();
+        }
 
         // =========================================================================
         // 2. TIPE LUBANG (HOLE TYPE TABS)
