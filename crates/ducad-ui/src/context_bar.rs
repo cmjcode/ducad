@@ -4,6 +4,7 @@
 //! pengguna memilih elemen geometri (sketch entity 2D, face 3D, atau body 3D).
 //! Menggantikan radial menu acak dengan aksi kontekstual yang presisi.
 
+use ducad_i18n::t;
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
@@ -189,17 +190,25 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi 3D Face.
-    pub fn show_face_selection(ui: &mut Ui) -> Option<ContextAction> {
+    pub fn show_face_selection(ui: &mut Ui, is_editing_hole: bool) -> Option<ContextAction> {
         let mut action = None;
 
         pill_frame().show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Face Terpilih")
-                        .size(11.0)
-                        .strong()
-                        .color(ACCENT_ORANGE),
+                    RichText::new(if is_editing_hole {
+                        t!("selection-hole-selected")
+                    } else {
+                        t!("selection-face-selected")
+                    })
+                    .size(11.0)
+                    .strong()
+                    .color(if is_editing_hole {
+                        ACCENT_BLUE
+                    } else {
+                        ACCENT_ORANGE
+                    }),
                 );
 
                 ui.add_space(4.0);
@@ -281,12 +290,12 @@ impl ContextActionBar {
                 // Hole Wizard (Standar ISO Fastener)
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{}  Hole Wizard", ICON_ADJUST.codepoint))
+                        RichText::new(format!("{}  {}", ICON_ADJUST.codepoint, t!("tool-hole-wizard")))
                             .size(11.5)
                             .color(ACCENT_BLUE),
                     ),
                 );
-                if btn.on_hover_text("Buat lubang baut standar ISO (Counterbore, Countersink, Tapped, Simple)").clicked() {
+                if btn.on_hover_text(t!("tool-hole-wizard-desc")).clicked() {
                     action = Some(ContextAction::HoleWizard);
                 }
 

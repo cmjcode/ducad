@@ -1268,7 +1268,7 @@ impl DuCADApp {
                         self.model_status = Some(
                             "Rusuk (edge) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
-                    } else if let Some((b_id, ray, hit)) = face_pick_3d {
+                    } else if let Some((b_id, ray, mut hit)) = face_pick_3d {
                         self.selected.clear();
                         if is_double_click {
                             // Klik 2x / Klik ulang: Memilih seluruh objek (body) -> memunculkan 3D Transform Gizmo
@@ -1288,11 +1288,57 @@ impl DuCADApp {
                         } else {
                             // Klik 1x: Memilih face / sisi yang diklik saja -> memunculkan handle extrude face
                             self.selected_bodies.clear();
-                            if self.tool == ToolKind::HoleWizard {
-                                self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
-                                self.hole_popup_state.offset_u = 0.0;
-                                self.hole_popup_state.offset_v = 0.0;
+
+                            // Deteksi apakah face/area yang diklik adalah lubang yang sudah ada (Hole Feature Memory)
+                            self.editing_hole_idx = None;
+                            let mut detected_hole = false;
+                            if let Some(hist) = self.hole_history.get(&b_id) {
+                                for (feat_idx, feat) in hist.features.iter().enumerate() {
+                                    let feat_p = Vec3::new(
+                                        feat.pos.0 as f32,
+                                        feat.pos.1 as f32,
+                                        feat.pos.2 as f32,
+                                    );
+                                    let click_p = Vec3::new(
+                                        hit.hit_point.0 as f32,
+                                        hit.hit_point.1 as f32,
+                                        hit.hit_point.2 as f32,
+                                    );
+                                    let center_p = Vec3::new(
+                                        hit.centroid.0 as f32,
+                                        hit.centroid.1 as f32,
+                                        hit.centroid.2 as f32,
+                                    );
+                                    let max_r = (feat.spec.counterbore_diameter.max(feat.spec.diameter)
+                                        / 2.0
+                                        + 4.0) as f32;
+                                    if (click_p - feat_p).length() <= max_r
+                                        || (center_p - feat_p).length() <= max_r
+                                    {
+                                        self.editing_hole_idx = Some((b_id, feat_idx));
+                                        self.hole_popup_state.spec = feat.spec.clone();
+                                        self.hole_popup_state.offset_u = feat.offset_u;
+                                        self.hole_popup_state.offset_v = feat.offset_v;
+                                        self.hole_popup_state.current_pos_3d = Some(feat.pos);
+                                        self.hole_popup_state.has_existing_hole = true;
+                                        self.hole_popup_state.mode = ducad_ui::HoleOperationMode::EditHole;
+                                        hit = feat.face_hit.clone();
+                                        detected_hole = true;
+                                        break;
+                                    }
+                                }
                             }
+
+                            if !detected_hole {
+                                self.hole_popup_state.has_existing_hole = false;
+                                self.hole_popup_state.mode = ducad_ui::HoleOperationMode::NewHole;
+                                if self.tool == ToolKind::HoleWizard {
+                                    self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
+                                    self.hole_popup_state.offset_u = 0.0;
+                                    self.hole_popup_state.offset_v = 0.0;
+                                }
+                            }
+
                             self.active_face = Some((b_id, ray, hit));
                             self.active_vertex = None;
                             self.active_edge = None;
@@ -1302,7 +1348,9 @@ impl DuCADApp {
                             self.face_gizmo_edit_input = "15".to_string();
                             self.last_body_select_click = Some((b_id, now));
                             self.model_status = Some(
-                                if self.tool == ToolKind::HoleWizard {
+                                if detected_hole {
+                                    "Fitur lubang terpilih — klik Hole Wizard untuk ubah dimensi / geser posisi".to_string()
+                                } else if self.tool == ToolKind::HoleWizard {
                                     "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
                                 } else {
                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
@@ -1409,7 +1457,7 @@ impl DuCADApp {
                             (None, false) => {
                                 self.selected.clear();
                                 if let Some(pos) = click_pos {
-                                    if let Some((b_id, ray, hit)) =
+                                    if let Some((b_id, ray, mut hit)) =
                                         self.pick_body_face_at_cursor(rect, pos)
                                     {
                                         let is_double = is_double_click
@@ -1425,11 +1473,57 @@ impl DuCADApp {
                                             self.model_status = Some("Objek (solid body) terpilih — gunakan 3D Gizmo untuk geser atau putar".to_string());
                                         } else {
                                             self.selected_bodies.clear();
-                                            if self.tool == ToolKind::HoleWizard {
-                                                self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
-                                                self.hole_popup_state.offset_u = 0.0;
-                                                self.hole_popup_state.offset_v = 0.0;
+
+                                            // Deteksi apakah face/area yang diklik adalah lubang yang sudah ada (Hole Feature Memory)
+                                            self.editing_hole_idx = None;
+                                            let mut detected_hole = false;
+                                            if let Some(hist) = self.hole_history.get(&b_id) {
+                                                for (feat_idx, feat) in hist.features.iter().enumerate() {
+                                                    let feat_p = Vec3::new(
+                                                        feat.pos.0 as f32,
+                                                        feat.pos.1 as f32,
+                                                        feat.pos.2 as f32,
+                                                    );
+                                                    let click_p = Vec3::new(
+                                                        hit.hit_point.0 as f32,
+                                                        hit.hit_point.1 as f32,
+                                                        hit.hit_point.2 as f32,
+                                                    );
+                                                    let center_p = Vec3::new(
+                                                        hit.centroid.0 as f32,
+                                                        hit.centroid.1 as f32,
+                                                        hit.centroid.2 as f32,
+                                                    );
+                                                    let max_r = (feat.spec.counterbore_diameter.max(feat.spec.diameter)
+                                                        / 2.0
+                                                        + 4.0) as f32;
+                                                    if (click_p - feat_p).length() <= max_r
+                                                        || (center_p - feat_p).length() <= max_r
+                                                    {
+                                                        self.editing_hole_idx = Some((b_id, feat_idx));
+                                                        self.hole_popup_state.spec = feat.spec.clone();
+                                                        self.hole_popup_state.offset_u = feat.offset_u;
+                                                        self.hole_popup_state.offset_v = feat.offset_v;
+                                                        self.hole_popup_state.current_pos_3d = Some(feat.pos);
+                                                        self.hole_popup_state.has_existing_hole = true;
+                                                        self.hole_popup_state.mode = ducad_ui::HoleOperationMode::EditHole;
+                                                        hit = feat.face_hit.clone();
+                                                        detected_hole = true;
+                                                        break;
+                                                    }
+                                                }
                                             }
+
+                                            if !detected_hole {
+                                                self.hole_popup_state.has_existing_hole = false;
+                                                self.hole_popup_state.mode = ducad_ui::HoleOperationMode::NewHole;
+                                                if self.tool == ToolKind::HoleWizard {
+                                                    self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
+                                                    self.hole_popup_state.offset_u = 0.0;
+                                                    self.hole_popup_state.offset_v = 0.0;
+                                                }
+                                            }
+
                                             self.active_face = Some((b_id, ray, hit));
                                             self.active_vertex = None;
                                             self.active_edge = None;
@@ -1438,7 +1532,9 @@ impl DuCADApp {
                                             self.face_gizmo_edit_input = "15".to_string();
                                             self.last_body_select_click = Some((b_id, now));
                                             self.model_status = Some(
-                                                if self.tool == ToolKind::HoleWizard {
+                                                if detected_hole {
+                                                    "Fitur lubang terpilih — klik Hole Wizard untuk ubah dimensi / geser posisi".to_string()
+                                                } else if self.tool == ToolKind::HoleWizard {
                                                     "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
                                                 } else {
                                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()

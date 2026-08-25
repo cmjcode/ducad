@@ -25,7 +25,7 @@ pub use draft_popup::{DraftAnalysisPopup, DraftPopupState};
 pub use entity_popup::{Entity2dPopup, Entity2dPopupState};
 pub use extrude_popup::{ExtrudePopup, ExtrudePopupState};
 pub use history_popup::{HistoryPopup, HistoryPopupState};
-pub use hole_popup::{HolePopup, HolePopupState};
+pub use hole_popup::{HoleOperationMode, HolePopup, HolePopupState};
 pub use loft_popup::{LoftPopup, LoftPopupState};
 pub use measure_popup::{MeasurePopup, MeasurePopupState};
 pub use revolve_popup::{RevolvePopup, RevolvePopupState};

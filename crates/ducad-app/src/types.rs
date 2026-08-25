@@ -372,3 +372,18 @@ pub struct RoundHistory {
     pub base: ducad_kernel::KernelShape,
     pub features: Vec<RoundFeature>,
 }
+
+#[derive(Clone, Debug)]
+pub struct HoleFeature {
+    pub spec: ducad_core::hole::HoleSpec,
+    pub pos: (f64, f64, f64),
+    pub normal: (f64, f64, f64),
+    pub face_hit: ducad_kernel::FaceHit,
+    pub offset_u: f64,
+    pub offset_v: f64,
+}
+
+pub struct HoleHistory {
+    pub base: ducad_kernel::KernelShape,
+    pub features: Vec<HoleFeature>,
+}

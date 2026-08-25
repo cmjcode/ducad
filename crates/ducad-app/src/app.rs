@@ -199,6 +199,8 @@ pub struct DuCADApp {
 
     pub round_history: std::collections::HashMap<BodyId, RoundHistory>,
     pub editing_round: Option<(BodyId, usize)>,
+    pub hole_history: std::collections::HashMap<BodyId, crate::types::HoleHistory>,
+    pub editing_hole_idx: Option<(BodyId, usize)>,
 
     pub sketch_move_target: Option<HashSet<EntityId>>,
     pub sketch_move_dragging: bool,
@@ -470,6 +472,8 @@ impl DuCADApp {
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
+            hole_history: std::collections::HashMap::new(),
+            editing_hole_idx: None,
 
             sketch_move_target: None,
             sketch_move_dragging: false,
@@ -2089,7 +2093,8 @@ impl eframe::App for DuCADApp {
                             }
                         }
                     } else if has_face_sel {
-                        if let Some(act) = ContextActionBar::show_face_selection(ui) {
+                        let is_editing_hole = self.editing_hole_idx.is_some();
+                        if let Some(act) = ContextActionBar::show_face_selection(ui, is_editing_hole) {
                             match act {
                                 ContextAction::Extrude => {
                                     self.extruding_face_from_gizmo = true;

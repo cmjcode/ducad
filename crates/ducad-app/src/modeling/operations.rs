@@ -1269,11 +1269,105 @@ impl DuCADApp {
         let pos = (hole_pos.x as f64, hole_pos.y as f64, hole_pos.z as f64);
         let normal = hit.normal;
 
-        match ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal) {
+        let new_feature = crate::types::HoleFeature {
+            spec: spec.clone(),
+            pos,
+            normal,
+            face_hit: hit.clone(),
+            offset_u: self.hole_popup_state.offset_u,
+            offset_v: self.hole_popup_state.offset_v,
+        };
+
+        let wants_edit = self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole;
+
+        let (new_shape_res, is_reedit) = if wants_edit {
+            if let Some(hist) = self.hole_history.get_mut(&body_id) {
+                if !hist.features.is_empty() {
+                    // Tentukan indeks fitur yang diedit
+                    let target_idx = if let Some((edit_body, edit_idx)) = self.editing_hole_idx {
+                        if edit_body == body_id && edit_idx < hist.features.len() {
+                            edit_idx
+                        } else {
+                            hist.features.len() - 1
+                        }
+                    } else {
+                        // Cari fitur lubang yang paling dekat dengan titik target
+                        let mut best_idx = hist.features.len() - 1;
+                        let mut best_dist_sq = f64::MAX;
+                        for (i, f) in hist.features.iter().enumerate() {
+                            let d2 = (f.pos.0 - pos.0).powi(2)
+                                + (f.pos.1 - pos.1).powi(2)
+                                + (f.pos.2 - pos.2).powi(2);
+                            if d2 < best_dist_sq {
+                                best_dist_sq = d2;
+                                best_idx = i;
+                            }
+                        }
+                        best_idx
+                    };
+
+                    hist.features[target_idx] = new_feature.clone();
+
+                    // Rebuild all holes from base shape
+                    match ducad_kernel::clone_shape(&hist.base) {
+                        Ok(mut curr_shape) => {
+                            let mut err = None;
+                            for feat in &hist.features {
+                                match ducad_kernel::apply_hole(&curr_shape, &feat.spec, feat.pos, feat.normal) {
+                                    Ok(sh) => curr_shape = sh,
+                                    Err(e) => {
+                                        err = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(e) = err {
+                                (Err(e), true)
+                            } else {
+                                (Ok(curr_shape), true)
+                            }
+                        }
+                        Err(e) => (Err(e), true),
+                    }
+                } else {
+                    (ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal), false)
+                }
+            } else {
+                (ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal), false)
+            }
+        } else {
+            // Lubang baru pada solid body (New Hole)
+            match ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal) {
+                Ok(sh) => {
+                    if !self.hole_history.contains_key(&body_id) {
+                        if let Ok(base_sh) = ducad_kernel::clone_shape(&geo.shape) {
+                            self.hole_history.insert(
+                                body_id,
+                                crate::types::HoleHistory {
+                                    base: base_sh,
+                                    features: Vec::new(),
+                                },
+                            );
+                        }
+                    }
+                    if let Some(hist) = self.hole_history.get_mut(&body_id) {
+                        hist.features.push(new_feature);
+                    }
+                    (Ok(sh), false)
+                }
+                Err(e) => (Err(e), false),
+            }
+        };
+
+        match new_shape_res {
             Ok(new_shape) => {
                 let new_geo = BodyGeometry::from_shape(new_shape);
                 let callout = spec.technical_callout();
-                let history_msg = format!("Hole Wizard: {callout}");
+                let history_msg = if is_reedit {
+                    format!("Edit Hole: {callout}")
+                } else {
+                    format!("Hole Wizard: {callout}")
+                };
 
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new(
@@ -1285,6 +1379,7 @@ impl DuCADApp {
                 );
 
                 self.active_face = None;
+                self.editing_hole_idx = None;
                 self.hole_popup_state.offset_u = 0.0;
                 self.hole_popup_state.offset_v = 0.0;
                 self.hole_popup_state.current_pos_3d = None;
