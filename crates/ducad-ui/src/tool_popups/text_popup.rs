@@ -1,7 +1,6 @@
-//! 2D Text & Emboss/Deboss Tool Popup — Pojok Kanan Bawah.
+//! 2D Text Tool Popup — Pojok Kanan Bawah.
 //!
-//! Dialog interaktif pengaturan teks 2D (string, tinggi font, perataan, spasi, custom TTF/OTF)
-//! serta aksi langsung pembuatan profil sketsa dan ekstrusi Emboss (timbul) / Deboss (ukir).
+//! Dialog interaktif pengaturan teks 2D (string, font family, tinggi font, perataan, spasi, custom TTF/OTF).
 
 use ducad_i18n::t;
 use egui::{
@@ -14,15 +13,8 @@ use egui_material_icons::icons::{
 
 use super::ToolPopupEvent;
 use crate::theme::{
-    ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY,
+    ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextPopupMode {
-    SketchOnly,
-    Emboss,
-    Deboss,
-}
 
 #[derive(Debug, Clone)]
 pub struct TextPopupState {
@@ -31,10 +23,9 @@ pub struct TextPopupState {
     pub letter_spacing: f64,
     pub line_spacing: f64,
     pub align: ducad_sketch::TextAlign,
+    pub font_preset: ducad_sketch::FontPreset,
     pub is_construction: bool,
     pub custom_font_name: Option<String>,
-    pub mode: TextPopupMode,
-    pub emboss_depth: f64,
 }
 
 impl Default for TextPopupState {
@@ -45,10 +36,9 @@ impl Default for TextPopupState {
             letter_spacing: 1.0,
             line_spacing: 1.2,
             align: ducad_sketch::TextAlign::Left,
+            font_preset: ducad_sketch::FontPreset::Arial,
             is_construction: false,
             custom_font_name: None,
-            mode: TextPopupMode::SketchOnly,
-            emboss_depth: 2.0,
         }
     }
 }
@@ -88,7 +78,53 @@ impl TextPopup {
         ui.add_space(2.0);
 
         // =========================================================================
-        // 2. DIMENSI TEKS (TINGGI FONT & SPASI)
+        // 2. PILIHAN FONT FAMILY (COMBOBOX LIVE)
+        // =========================================================================
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("🔤 Font:")
+                    .size(10.5)
+                    .color(TEXT_SECONDARY),
+            );
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new(ICON_FOLDER_OPEN.codepoint).size(12.0))
+                            .corner_radius(CornerRadius::same(4)),
+                    )
+                    .on_hover_text(t!("text-font-browse"))
+                    .clicked()
+                {
+                    pick_font_clicked = true;
+                }
+
+                let current_label = if let Some(custom) = &state.custom_font_name {
+                    custom.as_str()
+                } else {
+                    state.font_preset.display_name()
+                };
+
+                egui::ComboBox::from_id_salt("text_font_family_combo")
+                    .selected_text(RichText::new(current_label).size(11.0))
+                    .width(140.0)
+                    .show_ui(ui, |ui| {
+                        for preset in ducad_sketch::FontPreset::all() {
+                            if ui
+                                .selectable_value(&mut state.font_preset, *preset, preset.display_name())
+                                .clicked()
+                            {
+                                state.custom_font_name = None;
+                            }
+                        }
+                    });
+            });
+        });
+
+        ui.add_space(2.0);
+
+        // =========================================================================
+        // 3. DIMENSI TEKS (TINGGI FONT & SPASI)
         // =========================================================================
         ui.horizontal(|ui| {
             ui.label(
@@ -125,7 +161,7 @@ impl TextPopup {
         });
 
         // =========================================================================
-        // 3. PERATAAN (ALIGNMENT) & FONT PICKER
+        // 4. PERATAAN (ALIGNMENT)
         // =========================================================================
         ui.horizontal(|ui| {
             ui.label(
@@ -170,124 +206,21 @@ impl TextPopup {
             });
         });
 
-        // Pilihan Berkas Font Kustom
-        ui.horizontal(|ui| {
-            let default_font_label = t!("text-font-default");
-            let font_label = state
-                .custom_font_name
-                .as_deref()
-                .unwrap_or(&default_font_label);
-            ui.label(
-                RichText::new(format!("🔤 {}", font_label))
-                    .size(10.0)
-                    .color(TEXT_SECONDARY),
-            );
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new(format!("{} {}", ICON_FOLDER_OPEN.codepoint, t!("text-font-browse")))
-                                .size(10.0)
-                                .color(TEXT_PRIMARY),
-                        )
-                        .corner_radius(CornerRadius::same(4)),
-                    )
-                    .clicked()
-                {
-                    pick_font_clicked = true;
-                }
-            });
-        });
-
-        ui.add_space(2.0);
+        ui.add_space(4.0);
         ui.separator();
-        ui.add_space(2.0);
-
-        // =========================================================================
-        // 4. PILIHAN OUTPUT (SKETCH / EMBOSS / DEBOSS)
-        // =========================================================================
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(t!("text-output-mode"))
-                    .strong()
-                    .size(10.5)
-                    .color(TEXT_PRIMARY),
-            );
-        });
-
-        ui.horizontal(|ui| {
-            let modes = [
-                (TextPopupMode::SketchOnly, t!("text-mode-sketch")),
-                (TextPopupMode::Emboss, t!("text-mode-emboss")),
-                (TextPopupMode::Deboss, t!("text-mode-deboss")),
-            ];
-
-            for (m, label) in modes {
-                let is_sel = state.mode == m;
-                let bg = if is_sel {
-                    if m == TextPopupMode::Deboss {
-                        ACCENT_ORANGE
-                    } else {
-                        ACCENT_BLUE
-                    }
-                } else {
-                    Color32::from_rgba_premultiplied(35, 38, 48, 180)
-                };
-                let text_color = if is_sel { Color32::WHITE } else { TEXT_SECONDARY };
-
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new(label).size(10.5).color(text_color))
-                            .fill(bg)
-                            .corner_radius(CornerRadius::same(5)),
-                    )
-                    .clicked()
-                {
-                    state.mode = m;
-                }
-            }
-        });
-
-        if state.mode != TextPopupMode::SketchOnly {
-            ui.horizontal(|ui| {
-                let depth_label = if state.mode == TextPopupMode::Emboss {
-                    t!("text-emboss-height")
-                } else {
-                    t!("text-deboss-depth")
-                };
-                ui.label(RichText::new(depth_label).size(10.5).color(TEXT_SECONDARY));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
-                    ui.add(
-                        DragValue::new(&mut state.emboss_depth)
-                            .range(0.1..=100.0)
-                            .speed(0.1)
-                            .max_decimals(2),
-                    );
-                });
-            });
-        }
-
         ui.add_space(4.0);
 
         // =========================================================================
-        // 5. TOMBOL AKSI UTAMA (APPLY)
+        // 5. TOMBOL AKSI UTAMA (PLACE ON SKETCH)
         // =========================================================================
-        let (apply_label, apply_color) = match state.mode {
-            TextPopupMode::SketchOnly => (t!("text-apply-sketch"), ACCENT_BLUE),
-            TextPopupMode::Emboss => (t!("text-apply-emboss"), ACCENT_BLUE),
-            TextPopupMode::Deboss => (t!("text-apply-deboss"), ACCENT_ORANGE),
-        };
-
         let apply_btn = ui.add(
             egui::Button::new(
-                RichText::new(format!("{} {}", ICON_CHECK.codepoint, apply_label))
+                RichText::new(format!("{} {}", ICON_CHECK.codepoint, t!("text-apply-sketch")))
                     .size(11.5)
                     .strong()
                     .color(Color32::WHITE),
             )
-            .fill(apply_color)
+            .fill(ACCENT_BLUE)
             .corner_radius(CornerRadius::same(6))
             .min_size(Vec2::new(DRAWER_W, 28.0)),
         );
@@ -304,9 +237,8 @@ impl TextPopup {
                 font_height_mm: state.font_height_mm,
                 letter_spacing: state.letter_spacing,
                 align: state.align,
+                font_preset: state.font_preset,
                 is_construction: state.is_construction,
-                mode: state.mode,
-                depth: state.emboss_depth,
             });
         }
 

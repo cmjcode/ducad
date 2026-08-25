@@ -39,21 +39,27 @@ impl DuCADApp {
                 return;
             }
         };
-        let profile = match crate::model::build_profile_from_selection(self.sketch(), &self.selected)
-        {
-            Ok(p) => p,
-            Err(msg) => {
-                self.model_status = Some(msg);
-                return;
-            }
-        };
-        match self.extrude_profile_active_plane(&profile, distance) {
-            Ok(shape) => {
-                let geo = BodyGeometry::from_shape(shape);
-                self.execute_model_command(
-                    Box::new(AddSolidCommand::new("Extrude", geo)),
-                    &format!("Membuat solid baru setinggi {:.1} mm", distance),
-                );
+
+        match crate::model::extrude_selection_with_holes_on_plane(
+            self.sketch(),
+            &self.selected,
+            &self.active_plane,
+            distance,
+        ) {
+            Ok(solids) => {
+                if solids.len() == 1 {
+                    let (name, geo) = solids.into_iter().next().unwrap();
+                    self.execute_model_command(
+                        Box::new(AddSolidCommand::new("Extrude", geo)),
+                        &format!("Membuat solid {name} setinggi {:.1} mm", distance),
+                    );
+                } else if !solids.is_empty() {
+                    let count = solids.len();
+                    self.execute_model_command(
+                        Box::new(crate::model::AddMultipleSolidsCommand::new("Teks 3D", solids)),
+                        &format!("Membuat {} solid 3D setinggi {:.1} mm", count, distance),
+                    );
+                }
                 self.model_status = None;
             }
             Err(e) => self.model_status = Some(format!("Extrude gagal: {e}")),
@@ -1419,10 +1425,20 @@ impl DuCADApp {
                     return;
                 }
                 let count = entities.len();
+                let prev_keys: std::collections::HashSet<_> = self.sketch().entities.keys().collect();
                 self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::new(
                     "Teks 2D",
                     entities,
                 )));
+                let new_ids: std::collections::HashSet<_> = self
+                    .sketch()
+                    .entities
+                    .keys()
+                    .filter(|k| !prev_keys.contains(k))
+                    .collect();
+                if !new_ids.is_empty() {
+                    self.selected = new_ids;
+                }
                 self.model_status = Some(format!("Teks '{text}' berhasil dibuat ({count} segmen)"));
             }
             Err(e) => {

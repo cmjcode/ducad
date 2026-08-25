@@ -89,15 +89,31 @@ pub(crate) fn build_wire_on_plane(
             }
             let edges: Vec<Edge> = segments
                 .iter()
-                .map(|s| match s {
+                .filter_map(|s| match s {
                     ProfileSegment::Line { start, end } => {
-                        Edge::segment(to_3d(*start), to_3d(*end))
+                        let p0 = to_3d(*start);
+                        let p1 = to_3d(*end);
+                        if (p0 - p1).length() > 1e-4 {
+                            Some(Edge::segment(p0, p1))
+                        } else {
+                            None
+                        }
                     }
                     ProfileSegment::Arc { start, via, end } => {
-                        Edge::arc(to_3d(*start), to_3d(*via), to_3d(*end))
+                        let p0 = to_3d(*start);
+                        let p1 = to_3d(*via);
+                        let p2 = to_3d(*end);
+                        if (p0 - p2).length() > 1e-4 {
+                            Some(Edge::arc(p0, p1, p2))
+                        } else {
+                            None
+                        }
                     }
                 })
                 .collect();
+            if edges.is_empty() {
+                bail!("semua segmen loop degenerate");
+            }
             Ok(Wire::from_edges(edges.iter()))
         }
     }
@@ -140,17 +156,31 @@ pub(crate) fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
             }
             let edges: Vec<Edge> = segments
                 .iter()
-                .map(|s| match s {
+                .filter_map(|s| match s {
                     ProfileSegment::Line { start, end } => {
-                        Edge::segment(dvec3(start.0, start.1, z), dvec3(end.0, end.1, z))
+                        let p0 = dvec3(start.0, start.1, z);
+                        let p1 = dvec3(end.0, end.1, z);
+                        if (p0 - p1).length() > 1e-4 {
+                            Some(Edge::segment(p0, p1))
+                        } else {
+                            None
+                        }
                     }
-                    ProfileSegment::Arc { start, via, end } => Edge::arc(
-                        dvec3(start.0, start.1, z),
-                        dvec3(via.0, via.1, z),
-                        dvec3(end.0, end.1, z),
-                    ),
+                    ProfileSegment::Arc { start, via, end } => {
+                        let p0 = dvec3(start.0, start.1, z);
+                        let p1 = dvec3(via.0, via.1, z);
+                        let p2 = dvec3(end.0, end.1, z);
+                        if (p0 - p2).length() > 1e-4 {
+                            Some(Edge::arc(p0, p1, p2))
+                        } else {
+                            None
+                        }
+                    }
                 })
                 .collect();
+            if edges.is_empty() {
+                bail!("semua segmen loop degenerate");
+            }
             Ok(Wire::from_edges(edges.iter()))
         }
     }

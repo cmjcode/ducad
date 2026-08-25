@@ -933,6 +933,7 @@ impl DuCADApp {
                         letter_spacing: self.text_popup_state.letter_spacing,
                         line_spacing: self.text_popup_state.line_spacing,
                         align: self.text_popup_state.align,
+                        font_preset: self.text_popup_state.font_preset,
                         is_construction: self.construction_mode,
                     };
                     if let Ok(entities) = ducad_sketch::text_to_entities(
@@ -964,8 +965,7 @@ impl DuCADApp {
         }
 
         let show_candidate_points = self.sketch_move_dragging
-            || self.tool == ToolKind::Pattern
-            || (self.is_sketching && (raw_cursor.is_some() || !self.pending_points.is_empty()));
+            || self.tool == ToolKind::Pattern;
 
         if show_candidate_points {
             let exclude_set = if self.sketch_move_dragging {

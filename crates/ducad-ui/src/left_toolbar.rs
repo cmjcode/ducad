@@ -46,7 +46,6 @@ pub enum ToolbarTool {
     Shell,
     Rib,
     DraftAngle,
-    Emboss,
     SplitBody,
     Boolean,
     SectionView,
@@ -229,8 +228,6 @@ impl LeftToolbar {
                 let sweep_desc = t!("tool-sweep-desc");
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
-                let emboss_title = t!("tool-emboss");
-                let emboss_desc = t!("tool-emboss-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
@@ -246,13 +243,6 @@ impl LeftToolbar {
                         &sweep_title,
                         None,
                         Some(&sweep_desc),
-                    ),
-                    (
-                        ToolbarTool::Emboss,
-                        ICON_LAYERS.codepoint,
-                        &emboss_title,
-                        None,
-                        Some(&emboss_desc),
                     ),
                     (
                         ToolbarTool::SectionView,

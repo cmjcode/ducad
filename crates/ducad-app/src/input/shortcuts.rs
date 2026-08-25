@@ -114,11 +114,6 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Text),
             ),
             (
-                ducad_i18n::t!("tool-emboss"),
-                String::new(),
-                PaletteAction::SetTool(ToolKind::Emboss),
-            ),
-            (
                 "Arc".to_string(),
                 "A".to_string(),
                 PaletteAction::SetTool(ToolKind::Arc),
@@ -396,7 +391,6 @@ impl DuCADApp {
                 _ => ducad_i18n::t!("status-prompt-slot-2"),
             },
             ToolKind::Text => ducad_i18n::t!("status-prompt-text-0"),
-            ToolKind::Emboss => ducad_i18n::t!("tool-emboss-desc"),
             ToolKind::Spline => match self.pending_points.len() {
                 0 => "Klik titik awal kurva Spline".to_string(),
                 1 => "Klik titik berikutnya untuk membentuk kurva".to_string(),

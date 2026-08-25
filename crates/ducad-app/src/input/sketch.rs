@@ -520,6 +520,7 @@ impl DuCADApp {
                     letter_spacing: self.text_popup_state.letter_spacing,
                     line_spacing: self.text_popup_state.line_spacing,
                     align: self.text_popup_state.align,
+                    font_preset: self.text_popup_state.font_preset,
                     is_construction: self.construction_mode,
                 };
                 ducad_sketch::text_to_entities(
@@ -1057,7 +1058,7 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         match self.tool {
-            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::Emboss => {
+            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep => {
                 self.last_snap = None;
 
                 if self.extruding_from_gizmo {
@@ -1499,7 +1500,18 @@ impl DuCADApp {
                                 self.active_face = None;
                                 self.active_vertex = None;
                                 self.active_edge = None;
-                                self.selected.insert(hit);
+                                if let Some(r) = find_region_containing_entity(self.sketch(), hit) {
+                                    for id in &r.entity_ids {
+                                        self.selected.insert(*id);
+                                    }
+                                } else {
+                                    self.selected.insert(hit);
+                                }
+                                self.gizmo_distance = 20.0;
+                                self.gizmo_edit_input = format!(
+                                    "{:.0}",
+                                    self.unit.to_display_val(self.gizmo_distance)
+                                );
                             }
                             (None, false) => {
                                 self.selected.clear();

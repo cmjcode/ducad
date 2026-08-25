@@ -113,41 +113,51 @@ impl DuCADApp {
     /// Eksekusi commit extrude/cut saat drag gizmo selesai atau nilai presisi di-enter.
     pub fn commit_gizmo_extrusion(&mut self) {
         if self.gizmo_distance.abs() > 0.1 {
-            if let Ok(profile) =
-                crate::model::build_profile_from_selection(self.sketch(), &self.selected)
-            {
-                if let Ok(swept) =
-                    self.extrude_profile_active_plane(&profile, self.gizmo_distance)
-                {
-                    if self.gizmo_is_cutting {
-                        if let Some(target_id) = self.gizmo_target_body {
-                            if let Some(target_geo) = self.model.geometry.get(target_id) {
-                                if let Ok(cut_res) =
-                                    ducad_kernel::subtract(&target_geo.shape, &swept)
-                                {
-                                    let new_geo = BodyGeometry::from_shape(cut_res);
-                                    self.execute_model_command(
-                                        Box::new(ReplaceGeometryCommand::new(
-                                            "Cut Extrude",
-                                            target_id,
-                                            new_geo,
-                                        )),
-                                        &format!("Memotong solid 3D sedalam {:.1} mm", self.gizmo_distance),
-                                    );
-                                    self.round_history.remove(&target_id);
+            if let Ok(solids) = crate::model::extrude_selection_with_holes_on_plane(
+                self.sketch(),
+                &self.selected,
+                &self.active_plane,
+                self.gizmo_distance,
+            ) {
+                if self.gizmo_is_cutting {
+                    if let Some(target_id) = self.gizmo_target_body {
+                        if let Some(target_geo) = self.model.geometry.get(target_id) {
+                            let mut cur_target_shape: Option<ducad_kernel::KernelShape> = None;
+                            for (_, solid_geo) in &solids {
+                                let base = cur_target_shape.as_ref().unwrap_or(&target_geo.shape);
+                                if let Ok(cut_res) = ducad_kernel::subtract(base, &solid_geo.shape) {
+                                    cur_target_shape = Some(cut_res);
                                 }
                             }
+                            if let Some(final_shape) = cur_target_shape {
+                                let new_geo = BodyGeometry::from_shape(final_shape);
+                                self.execute_model_command(
+                                    Box::new(ReplaceGeometryCommand::new(
+                                        "Cut Extrude",
+                                        target_id,
+                                        new_geo,
+                                    )),
+                                    &format!("Memotong solid 3D sedalam {:.1} mm", self.gizmo_distance),
+                                );
+                                self.round_history.remove(&target_id);
+                            }
                         }
-                    } else {
-                        let geo = BodyGeometry::from_shape(swept);
-                        let cmd = AddSolidCommand::new("Extrude", geo);
-                        self.execute_model_command(
-                            Box::new(cmd),
-                            &format!("Membuat solid baru setinggi {:.1} mm", self.gizmo_distance),
-                        );
                     }
-                    self.selected.clear();
+                } else if solids.len() == 1 {
+                    let (name, geo) = solids.into_iter().next().unwrap();
+                    let cmd = AddSolidCommand::new("Extrude", geo);
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &format!("Membuat solid {name} setinggi {:.1} mm", self.gizmo_distance),
+                    );
+                } else if !solids.is_empty() {
+                    let count = solids.len();
+                    self.execute_model_command(
+                        Box::new(crate::model::AddMultipleSolidsCommand::new("Teks 3D", solids)),
+                        &format!("Membuat {} solid 3D setinggi {:.1} mm", count, self.gizmo_distance),
+                    );
                 }
+                self.selected.clear();
             }
         }
         self.extruding_from_gizmo = false;

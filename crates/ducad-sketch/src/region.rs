@@ -260,14 +260,15 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                 let first = points[0];
                 let last = *points.last().unwrap();
                 if (first - last).length() < 0.05 {
-                    let sampled = crate::entity::sample_catmull_rom(points, 24);
-                    let (centroid, area) = polygon_centroid_and_area(&sampled);
+                    let boundary = points.clone();
+                    let (centroid, area) = polygon_centroid_and_area(&boundary);
+                    let area = area.abs();
                     if area > 1e-4 {
                         let mut ids = HashSet::new();
                         ids.insert(id);
                         regions.push(ClosedRegion {
                             entity_ids: ids,
-                            boundary_points: sampled,
+                            boundary_points: boundary,
                             centroid,
                             area,
                         });
@@ -350,11 +351,6 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
             let mut success = false;
 
             for _ in 0..segments.len() {
-                if (current_tail - target_head).length() < CHAIN_EPS && chain.len() >= 2 {
-                    success = true;
-                    break;
-                }
-
                 // Cari sambungan berikutnya yang paling dekat
                 let mut best_next: Option<(usize, bool, f64)> = None;
                 for (next_idx, seg) in segments.iter().enumerate() {
@@ -379,7 +375,15 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     chain.push((next_idx, rev));
                     visited.insert(next_idx);
                     current_tail = if !rev { segments[next_idx].end } else { segments[next_idx].start };
+
+                    if (current_tail - target_head).length() < CHAIN_EPS && chain.len() >= 3 {
+                        success = true;
+                        break;
+                    }
                 } else {
+                    if (current_tail - target_head).length() < CHAIN_EPS && chain.len() >= 3 {
+                        success = true;
+                    }
                     break;
                 }
             }
@@ -391,7 +395,6 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                 for (idx, rev) in &chain {
                     let seg = &segments[*idx];
                     entity_ids.insert(seg.id);
-                    used_in_region.insert(seg.id);
 
                     if !*rev {
                         let pts = &seg.sampled_pts;
@@ -408,7 +411,11 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                 }
 
                 let (centroid, area) = polygon_centroid_and_area(&boundary_pts);
-                if area > 1e-4 {
+                // Hanya tandai used_in_region dan simpan jika area valid nyata (bukan poligon palsu 0 luas)
+                if area > 1e-3 {
+                    for id in &entity_ids {
+                        used_in_region.insert(*id);
+                    }
                     regions.push(ClosedRegion {
                         entity_ids,
                         boundary_points: boundary_pts,

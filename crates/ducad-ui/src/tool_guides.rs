@@ -94,7 +94,6 @@ impl ToolGuides {
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Text => Self::render_text_anim(&painter, card_rect, pending_points_count, time),
-            ToolbarTool::Emboss => Self::render_emboss_anim(&painter, card_rect, has_selection, time),
             _ => {}
         }
     }
@@ -2527,6 +2526,7 @@ impl ToolGuides {
     }
 
     /// Emboss / Deboss Tool
+    #[allow(dead_code)]
     fn render_emboss_anim(
         painter: &egui::Painter,
         card_rect: Rect,

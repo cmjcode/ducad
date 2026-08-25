@@ -1843,15 +1843,11 @@ impl eframe::App for DuCADApp {
                     }
                 }
             }
-            ToolKind::Text | ToolKind::Emboss => {
-                let popup_title = if self.tool == ToolKind::Emboss {
-                    ducad_i18n::t!("tool-emboss")
-                } else {
-                    ducad_i18n::t!("tool-text")
-                };
+            ToolKind::Text => {
+                let popup_title = ducad_i18n::t!("tool-text");
                 popup_ev = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
-                    "text_emboss_popup",
+                    "text_popup",
                     &popup_title,
                     egui_material_icons::icons::ICON_TITLE.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
@@ -1891,30 +1887,20 @@ impl eframe::App for DuCADApp {
                     font_height_mm,
                     letter_spacing,
                     align,
+                    font_preset,
                     is_construction,
-                    mode,
-                    depth,
                 } => {
                     let options = ducad_sketch::TextOptions {
                         font_height_mm,
                         letter_spacing,
                         line_spacing: self.text_popup_state.line_spacing,
                         align,
+                        font_preset,
                         is_construction,
                     };
                     let origin = self.pending_points.first().copied().unwrap_or(glam::DVec2::ZERO);
                     self.apply_text_to_sketch(&text, origin, &options);
                     self.pending_points.clear();
-
-                    match mode {
-                        ducad_ui::TextPopupMode::SketchOnly => {}
-                        ducad_ui::TextPopupMode::Emboss => {
-                            self.apply_emboss_deboss(depth, false);
-                        }
-                        ducad_ui::TextPopupMode::Deboss => {
-                            self.apply_emboss_deboss(depth, true);
-                        }
-                    }
                 }
                 ToolPopupEvent::PickCustomFont => {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1932,12 +1918,6 @@ impl eframe::App for DuCADApp {
                             self.model_status = Some("Font kustom berhasil dimuat".to_string());
                         }
                     }
-                }
-                ToolPopupEvent::ApplyEmboss { depth } => {
-                    self.apply_emboss_deboss(depth, false);
-                }
-                ToolPopupEvent::ApplyDeboss { depth } => {
-                    self.apply_emboss_deboss(depth, true);
                 }
                 ToolPopupEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
                     let preset = match preset_idx {
@@ -2250,14 +2230,6 @@ impl eframe::App for DuCADApp {
                                     self.rename_target = RenameTarget::Sketch2d;
                                     self.rename_popup_open = true;
                                 }
-                                ContextAction::Emboss => {
-                                    self.text_popup_state.mode = ducad_ui::TextPopupMode::Emboss;
-                                    self.set_tool(ToolKind::Emboss);
-                                }
-                                ContextAction::Deboss => {
-                                    self.text_popup_state.mode = ducad_ui::TextPopupMode::Deboss;
-                                    self.set_tool(ToolKind::Emboss);
-                                }
                                 _ => {}
                             }
                         }
@@ -2293,14 +2265,6 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::HoleWizard => {
                                     self.set_tool(ToolKind::HoleWizard);
-                                }
-                                ContextAction::Emboss => {
-                                    self.text_popup_state.mode = ducad_ui::TextPopupMode::Emboss;
-                                    self.set_tool(ToolKind::Emboss);
-                                }
-                                ContextAction::Deboss => {
-                                    self.text_popup_state.mode = ducad_ui::TextPopupMode::Deboss;
-                                    self.set_tool(ToolKind::Emboss);
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;

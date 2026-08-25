@@ -31,8 +31,6 @@ pub enum ContextAction {
     Fillet,
     SketchOnFace,
     HoleWizard,
-    Emboss,
-    Deboss,
     Delete,
     ClearSelection,
     Rename,
@@ -139,18 +137,6 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Sapu profil 2D menyusuri kurva jalur pemandu (Sweep)").clicked() {
                     action = Some(ContextAction::Sweep);
-                }
-
-                // 7. Emboss / Deboss (Fase 9.5)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Emboss", egui_material_icons::icons::ICON_LAYERS.codepoint))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if btn.on_hover_text("Ekstrusi timbul (Emboss) atau ukiran (Deboss) pada bodi 3D").clicked() {
-                    action = Some(ContextAction::Emboss);
                 }
 
                 ui.add_space(2.0);
@@ -310,18 +296,6 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text(t!("tool-hole-wizard-desc")).clicked() {
                     action = Some(ContextAction::HoleWizard);
-                }
-
-                // Emboss / Deboss (Fase 9.5)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  {}", egui_material_icons::icons::ICON_LAYERS.codepoint, t!("tool-emboss")))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if btn.on_hover_text(t!("tool-emboss-desc")).clicked() {
-                    action = Some(ContextAction::Emboss);
                 }
 
                 ui.add_space(2.0);

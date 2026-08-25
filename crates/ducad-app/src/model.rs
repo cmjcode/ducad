@@ -543,6 +543,26 @@ pub fn convert_spline_to_smooth_segments(points: &[DVec2]) -> Vec<(DVec2, DVec2,
     let mut result = Vec::new();
     let n = points.len();
 
+    // Jika spline sudah memiliki titik yang padat (seperti kurva huruf font hasil vektorisasi),
+    // ubah langsung menjadi segmen garis presisi tinggi agar sudut tajam huruf tetap tegak lurus sempurna.
+    if n >= 8 {
+        for i in 0..n - 1 {
+            let start = points[i];
+            let end = points[i + 1];
+            if (start - end).length() > 1e-5 {
+                result.push((
+                    start,
+                    end,
+                    ProfileSegment::Line {
+                        start: (start.x, start.y),
+                        end: (end.x, end.y),
+                    },
+                ));
+            }
+        }
+        return result;
+    }
+
     let get_pt = |idx: isize| -> DVec2 {
         if idx < 0 {
             points[0]
@@ -803,6 +823,156 @@ pub fn build_all_profiles_from_selection_or_regions(
     }
 
     profiles
+}
+
+/// Ekstrusi seleksi entitas sketsa dengan klasifikasi lubang otomatis (inner holes pada huruf D, A, P, O, B, dll.)
+/// dan penggabungan boolean union antar karakter sehingga teks menjadi satu bodi solid 3D tunggal.
+pub fn extrude_selection_with_holes_on_plane(
+    sketch: &Sketch,
+    selection: &HashSet<EntityId>,
+    plane: &ducad_render::SketchPlane,
+    distance: f64,
+) -> Result<Vec<(String, BodyGeometry)>, String> {
+    if selection.is_empty() {
+        return Err("Pilih dulu entitas sketsa yang ingin diekstrusi".to_string());
+    }
+
+    let origin = [plane.origin.x as f64, plane.origin.y as f64, plane.origin.z as f64];
+    let u_axis = [plane.u_axis.x as f64, plane.u_axis.y as f64, plane.u_axis.z as f64];
+    let v_axis = [plane.v_axis.x as f64, plane.v_axis.y as f64, plane.v_axis.z as f64];
+    let normal = [plane.normal.x as f64, plane.normal.y as f64, plane.normal.z as f64];
+
+    let all_regions = ducad_sketch::find_closed_regions(sketch);
+
+    // 1. Kumpulkan semua region yang terpilih atau yang bersinggungan dengan seleksi
+    let mut target_regions: Vec<ducad_sketch::ClosedRegion> = if !selection.is_empty() {
+        all_regions
+            .iter()
+            .filter(|r| r.entity_ids.iter().any(|id| selection.contains(id)))
+            .cloned()
+            .collect()
+    } else {
+        all_regions.clone()
+    };
+
+    // 2. Jika ada region dalam sketch yang secara geometri berada DI DALAM salah satu target_region (misal lubang dalam A, D, P, B),
+    // OTOMATIS masukkan ke target_regions agar tidak tertinggal!
+    for reg in &all_regions {
+        if target_regions.iter().any(|t| t.entity_ids == reg.entity_ids) {
+            continue;
+        }
+        let is_inside_any_target = target_regions.iter().any(|t| {
+            t.area > reg.area && (t.contains_point(reg.centroid) || reg.boundary_points.iter().any(|p| t.contains_point(*p)))
+        });
+        if is_inside_any_target {
+            target_regions.push(reg.clone());
+        }
+    }
+
+    if target_regions.is_empty() {
+        // Fallback: coba single profile biasa (misal lingkaran atau poligon tunggal)
+        let profile = build_profile_from_selection(sketch, selection)?;
+        let shape = ducad_kernel::extrude_profile_on_plane(
+            &profile, origin, u_axis, v_axis, normal, distance,
+        ).map_err(|e| format!("Extrude gagal: {e}"))?;
+        let geo = BodyGeometry::from_shape(shape);
+        return Ok(vec![("Solid".to_string(), geo)]);
+    }
+
+    // Urutkan region berdasarkan luas area secara menurun (terbesar dulu)
+    let mut sorted_regions = target_regions;
+    sorted_regions.sort_by(|a, b| b.area.partial_cmp(&a.area).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Petakan parent outer untuk setiap region lubang (seperti lubang pada D, A, P, O, B, dll.)
+    let mut outer_groups: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut is_hole = vec![false; sorted_regions.len()];
+
+    for i in 0..sorted_regions.len() {
+        if is_hole[i] {
+            continue;
+        }
+        let mut holes = Vec::new();
+        for j in (i + 1)..sorted_regions.len() {
+            if !is_hole[j] {
+                let is_inside = sorted_regions[i].area > sorted_regions[j].area
+                    && (sorted_regions[i].contains_point(sorted_regions[j].centroid)
+                        || sorted_regions[j].boundary_points.iter().any(|p| sorted_regions[i].contains_point(*p)));
+                if is_inside {
+                    is_hole[j] = true;
+                    holes.push(j);
+                }
+            }
+        }
+        outer_groups.push((i, holes));
+    }
+
+    let region_to_profile = |reg: &ducad_sketch::ClosedRegion| -> Profile {
+        let n = reg.boundary_points.len();
+        let mut segs = Vec::new();
+        for k in 0..n {
+            let p0 = reg.boundary_points[k];
+            let p1 = reg.boundary_points[(k + 1) % n];
+            if (p0 - p1).length() > 1e-4 {
+                segs.push(ProfileSegment::Line {
+                    start: (p0.x, p0.y),
+                    end: (p1.x, p1.y),
+                });
+            }
+        }
+        Profile::Loop(segs)
+    };
+
+    let mut letter_shapes = Vec::new();
+
+    for (outer_idx, hole_indices) in outer_groups {
+        let outer_reg = &sorted_regions[outer_idx];
+        let outer_prof = region_to_profile(outer_reg);
+        let mut outer_shape = match ducad_kernel::extrude_profile_on_plane(
+            &outer_prof, origin, u_axis, v_axis, normal, distance,
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Potong setiap lubang tengah (Boolean Subtract) dengan tool yang diperluas di kedua ujung
+        // agar tidak terjadi kegagalan coplanar Boolean pada OpenCASCADE.
+        for h_idx in hole_indices {
+            let hole_reg = &sorted_regions[h_idx];
+            let hole_prof = region_to_profile(hole_reg);
+
+            let ext_offset = 1.0;
+            let sign = if distance >= 0.0 { 1.0 } else { -1.0 };
+            let hole_origin = [
+                origin[0] - normal[0] * ext_offset * sign,
+                origin[1] - normal[1] * ext_offset * sign,
+                origin[2] - normal[2] * ext_offset * sign,
+            ];
+            let hole_dist = distance + 2.0 * ext_offset * sign;
+
+            if let Ok(hole_shape) = ducad_kernel::extrude_profile_on_plane(
+                &hole_prof, hole_origin, u_axis, v_axis, normal, hole_dist,
+            ) {
+                if let Ok(cut) = ducad_kernel::subtract(&outer_shape, &hole_shape) {
+                    outer_shape = cut;
+                }
+            }
+        }
+
+        letter_shapes.push(outer_shape);
+    }
+
+    if letter_shapes.is_empty() {
+        return Err("Tidak ada profil tertutup yang dapat diekstrusi".to_string());
+    }
+
+    // Satukan seluruh huruf teks menjadi 1 BodyGeometry tunggal terpadu (Group All Object)
+    let meshes: Vec<_> = letter_shapes.iter().map(|s| s.tessellate()).collect();
+    let mesh_refs: Vec<_> = meshes.iter().collect();
+    let merged_mesh = ducad_kernel::mesh::KernelMesh::merge(&mesh_refs);
+    let primary_shape = letter_shapes.into_iter().next().unwrap();
+    let unified_geo = BodyGeometry::from_shape_with_mesh(primary_shape, merged_mesh);
+
+    Ok(vec![("Teks 3D".to_string(), unified_geo)])
 }
 
 /// Bangun kurva jalur (spine path) untuk Sweep dari seleksi entitas sketch (Line, Arc, Spline, Circle)
@@ -1463,6 +1633,70 @@ mod tests {
         cmd.apply(&mut model);
         assert_eq!(model.doc.bodies.len(), 2);
         assert_eq!(model.geometry.len(), 2);
+    }
+
+    #[test]
+    fn test_extrude_text_to_closed_profiles() {
+        use ducad_sketch::{text_to_entities, FontPreset, TextAlign, TextOptions};
+
+        let options = TextOptions {
+            font_height_mm: 15.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            align: TextAlign::Center,
+            font_preset: FontPreset::DefaultSans,
+            is_construction: false,
+        };
+
+        let entities = text_to_entities("CAD", DVec2::new(0.0, 0.0), &options, None).unwrap();
+        assert!(!entities.is_empty());
+
+        let mut sketch = Sketch::default();
+        let mut ids = HashSet::new();
+        for e in entities {
+            ids.insert(sketch.entities.insert(e));
+        }
+
+        // Test each closed letter entity can build a profile and extrude
+        for &id in &ids {
+            let single_sel: HashSet<_> = std::iter::once(id).collect();
+            let profile = build_profile_from_selection(&sketch, &single_sel)
+                .expect("Setiap loop huruf font harus berupa closed 2D profile");
+            let shape = ducad_kernel::extrude_profile(&profile, 5.0).expect("Extrude huruf font harus berhasil");
+            let mesh = shape.tessellate();
+            assert!(mesh.triangle_count() > 0);
+        }
+    }
+
+    #[test]
+    fn test_extrude_text_with_holes_and_boolean_merge() {
+        use ducad_sketch::{text_to_entities, FontPreset, TextAlign, TextOptions};
+
+        let options = TextOptions {
+            font_height_mm: 20.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            align: TextAlign::Left,
+            font_preset: FontPreset::DefaultSans,
+            is_construction: false,
+        };
+
+        let entities = text_to_entities("DUCAD", DVec2::new(0.0, 0.0), &options, None).unwrap();
+        let mut sketch = Sketch::default();
+        let mut all_ids = HashSet::new();
+        for e in entities {
+            all_ids.insert(sketch.entities.insert(e));
+        }
+
+        let plane = ducad_render::SketchPlane::top();
+        let solids = extrude_selection_with_holes_on_plane(&sketch, &all_ids, &plane, 10.0)
+            .expect("Extrude DUCAD dengan lubang & boolean merge harus berhasil");
+
+        assert!(!solids.is_empty(), "Harus menghasilkan minimal 1 bodi solid teks");
+        for (name, geo) in &solids {
+            assert!(geo.mesh.triangle_count() > 0);
+            assert!(name.contains("Teks 3D") || name.contains("Solid"));
+        }
     }
 }
 

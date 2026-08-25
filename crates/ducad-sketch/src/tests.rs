@@ -975,13 +975,14 @@ fn test_slot_center_to_center_and_overall() {
 
 #[test]
 fn test_text_vectorization() {
-    use crate::text::{text_to_entities, TextAlign, TextOptions};
+    use crate::text::{text_to_entities, FontPreset, TextAlign, TextOptions};
 
     let options = TextOptions {
         font_height_mm: 15.0,
         letter_spacing: 1.0,
         line_spacing: 1.2,
         align: TextAlign::Center,
+        font_preset: FontPreset::DefaultSans,
         is_construction: false,
     };
 
@@ -989,8 +990,8 @@ fn test_text_vectorization() {
         .expect("Vektorisasi teks DUCAD harus berhasil");
 
     assert!(!entities.is_empty(), "Entitas teks tidak boleh kosong");
-    // Huruf D, U, C, A, D masing-masing punya banyak segmen garis kurva
-    assert!(entities.len() > 20, "Jumlah segmen garis huruf harus > 20");
+    // Huruf D, U, C, A, D masing-masing membentuk objek kurva 2D tertutup (Spline closed loops)
+    assert!(entities.len() >= 5, "Jumlah loop huruf harus >= 5");
 
     let mut sketch = Sketch::default();
     for e in entities {
@@ -998,8 +999,8 @@ fn test_text_vectorization() {
     }
 
     let regions = crate::region::find_closed_regions(&sketch);
-    // DUCAD memiliki closed regions untuk D (luar + counter), U, C, A (luar + counter), D (luar + counter)
-    assert!(!regions.is_empty(), "Teks DUCAD harus menghasilkan minimal 1 closed region");
+    // DUCAD memiliki closed regions untuk D, U, C, A, D
+    assert!(regions.len() >= 5, "Teks DUCAD harus menghasilkan minimal 5 closed regions (got {})", regions.len());
 }
 
 

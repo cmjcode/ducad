@@ -20,6 +20,126 @@ pub enum TextAlign {
     Right,
 }
 
+/// Pilihan keluarga font standar atau kustom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FontPreset {
+    #[default]
+    Arial,
+    ArialBold,
+    ArialRounded,
+    TimesNewRoman,
+    CourierNew,
+    Georgia,
+    Impact,
+    Trebuchet,
+    Verdana,
+    DefaultSans,
+}
+
+impl FontPreset {
+    pub fn all() -> &'static [FontPreset] {
+        &[
+            FontPreset::Arial,
+            FontPreset::ArialBold,
+            FontPreset::ArialRounded,
+            FontPreset::TimesNewRoman,
+            FontPreset::CourierNew,
+            FontPreset::Georgia,
+            FontPreset::Impact,
+            FontPreset::Trebuchet,
+            FontPreset::Verdana,
+            FontPreset::DefaultSans,
+        ]
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            FontPreset::Arial => "Arial",
+            FontPreset::ArialBold => "Arial Bold",
+            FontPreset::ArialRounded => "Arial Rounded",
+            FontPreset::TimesNewRoman => "Times New Roman (Serif)",
+            FontPreset::CourierNew => "Courier New (Monospace)",
+            FontPreset::Georgia => "Georgia",
+            FontPreset::Impact => "Impact (Heavy)",
+            FontPreset::Trebuchet => "Trebuchet MS",
+            FontPreset::Verdana => "Verdana",
+            FontPreset::DefaultSans => "Standard Sans (Embedded)",
+        }
+    }
+
+    /// Ambil bytes berkas font sistem atau fallback ke default bawaan.
+    pub fn load_font_bytes(&self) -> Vec<u8> {
+        let candidates: &[&str] = match self {
+            FontPreset::Arial => &[
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/Library/Fonts/Arial.ttf",
+                "C:\\Windows\\Fonts\\arial.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ],
+            FontPreset::ArialBold => &[
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                "/Library/Fonts/Arial Bold.ttf",
+                "C:\\Windows\\Fonts\\arialbd.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            ],
+            FontPreset::ArialRounded => &[
+                "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf",
+                "/Library/Fonts/Arial Rounded Bold.ttf",
+                "C:\\Windows\\Fonts\\ARLRDBD.TTF",
+            ],
+            FontPreset::TimesNewRoman => &[
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/Library/Fonts/Times New Roman.ttf",
+                "C:\\Windows\\Fonts\\times.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+            ],
+            FontPreset::CourierNew => &[
+                "/System/Library/Fonts/Supplemental/Courier New.ttf",
+                "/Library/Fonts/Courier New.ttf",
+                "C:\\Windows\\Fonts\\cour.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Courier_New.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            ],
+            FontPreset::Georgia => &[
+                "/System/Library/Fonts/Supplemental/Georgia.ttf",
+                "/Library/Fonts/Georgia.ttf",
+                "C:\\Windows\\Fonts\\georgia.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf",
+            ],
+            FontPreset::Impact => &[
+                "/System/Library/Fonts/Supplemental/Impact.ttf",
+                "/Library/Fonts/Impact.ttf",
+                "C:\\Windows\\Fonts\\impact.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+            ],
+            FontPreset::Trebuchet => &[
+                "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
+                "/Library/Fonts/Trebuchet MS.ttf",
+                "C:\\Windows\\Fonts\\trebuc.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Trebuchet_MS.ttf",
+            ],
+            FontPreset::Verdana => &[
+                "/System/Library/Fonts/Supplemental/Verdana.ttf",
+                "/Library/Fonts/Verdana.ttf",
+                "C:\\Windows\\Fonts\\verdana.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf",
+            ],
+            FontPreset::DefaultSans => &[],
+        };
+
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                return bytes;
+            }
+        }
+
+        DEFAULT_FONT_BYTES.to_vec()
+    }
+}
+
 /// Opsi konfigurasi pemformatan teks 2D.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TextOptions {
@@ -31,6 +151,8 @@ pub struct TextOptions {
     pub line_spacing: f64,
     /// Perataan horizontal teks.
     pub align: TextAlign,
+    /// Keluarga font yang dipilih.
+    pub font_preset: FontPreset,
     /// Apakah entitas hasil vektorisasi dijadikan garis konstruksi.
     pub is_construction: bool,
 }
@@ -42,6 +164,7 @@ impl Default for TextOptions {
             letter_spacing: 1.0,
             line_spacing: 1.2,
             align: TextAlign::Left,
+            font_preset: FontPreset::Arial,
             is_construction: false,
         }
     }
@@ -52,7 +175,7 @@ struct GlyphOutlineBuilder {
     offset: DVec2,
     scale: f64,
     current_pt: DVec2,
-    contour_start: DVec2,
+    contour_points: Vec<DVec2>,
     entities: Vec<Entity>,
     is_construction: bool,
 }
@@ -63,7 +186,7 @@ impl GlyphOutlineBuilder {
             offset,
             scale,
             current_pt: offset,
-            contour_start: offset,
+            contour_points: Vec::new(),
             entities: Vec::new(),
             is_construction,
         }
@@ -76,28 +199,41 @@ impl GlyphOutlineBuilder {
         )
     }
 
-    fn add_line(&mut self, start: DVec2, end: DVec2) {
-        if (start - end).length_squared() > 1e-10 {
-            self.entities.push(Entity::Line {
-                start,
-                end,
+    fn add_point(&mut self, pt: DVec2) {
+        if self.contour_points.last().is_none_or(|last| (*last - pt).length_squared() > 1e-8) {
+            self.contour_points.push(pt);
+        }
+    }
+
+    fn finish_contour(&mut self) {
+        if self.contour_points.len() >= 3 {
+            let first = self.contour_points[0];
+            let last = *self.contour_points.last().unwrap();
+            if (first - last).length_squared() > 1e-8 {
+                self.contour_points.push(first);
+            }
+            let pts = std::mem::take(&mut self.contour_points);
+            self.entities.push(Entity::Spline {
+                points: pts,
                 is_construction: self.is_construction,
             });
+        } else {
+            self.contour_points.clear();
         }
     }
 }
 
 impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     fn move_to(&mut self, x: f32, y: f32) {
+        self.finish_contour();
         let pt = self.to_world(x, y);
         self.current_pt = pt;
-        self.contour_start = pt;
+        self.contour_points.push(pt);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
         let pt = self.to_world(x, y);
-        let start = self.current_pt;
-        self.add_line(start, pt);
+        self.add_point(pt);
         self.current_pt = pt;
     }
 
@@ -118,7 +254,6 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
             ((chord_len * 2.0).ceil() as usize).clamp(4, 10)
         };
 
-        let mut prev = p0;
         for step in 1..=num_segments {
             let t = (step as f64) / (num_segments as f64);
             let pt = if step == num_segments {
@@ -127,8 +262,7 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
                 let one_minus_t = 1.0 - t;
                 one_minus_t * one_minus_t * p0 + 2.0 * one_minus_t * t * p1 + t * t * p2
             };
-            self.add_line(prev, pt);
-            prev = pt;
+            self.add_point(pt);
         }
         self.current_pt = p2;
     }
@@ -151,7 +285,6 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
             ((chord_len * 2.5).ceil() as usize).clamp(5, 14)
         };
 
-        let mut prev = p0;
         for step in 1..=num_segments {
             let t = (step as f64) / (num_segments as f64);
             let pt = if step == num_segments {
@@ -163,17 +296,13 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
                     + 3.0 * one_minus_t * t * t * p2
                     + t * t * t * p3
             };
-            self.add_line(prev, pt);
-            prev = pt;
+            self.add_point(pt);
         }
         self.current_pt = p3;
     }
 
     fn close(&mut self) {
-        let start = self.current_pt;
-        let end = self.contour_start;
-        self.add_line(start, end);
-        self.current_pt = end;
+        self.finish_contour();
     }
 }
 
@@ -188,7 +317,14 @@ pub fn text_to_entities(
         return Ok(Vec::new());
     }
 
-    let font_data = custom_font_bytes.unwrap_or(DEFAULT_FONT_BYTES);
+    let font_buf;
+    let font_data: &[u8] = if let Some(custom) = custom_font_bytes {
+        custom
+    } else {
+        font_buf = options.font_preset.load_font_bytes();
+        &font_buf
+    };
+
     let face = ttf_parser::Face::parse(font_data, 0)
         .map_err(|e| format!("Gagal mem-parsing berkas font TTF/OTF: {e}"))?;
 
@@ -231,6 +367,7 @@ pub fn text_to_entities(
                 );
 
                 if let Some(_bbox) = face.outline_glyph(glyph_id, &mut builder) {
+                    builder.finish_contour();
                     all_entities.extend(builder.entities);
                 }
 
