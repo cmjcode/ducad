@@ -6,7 +6,7 @@
 
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
+    ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL,
     ICON_REFRESH, ICON_ROUTE,
 };
@@ -29,6 +29,7 @@ pub enum ContextAction {
     Boolean,
     Fillet,
     SketchOnFace,
+    HoleWizard,
     Delete,
     ClearSelection,
     Rename,
@@ -275,6 +276,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
                     action = Some(ContextAction::SplitFace);
+                }
+
+                // Hole Wizard (Standar ISO Fastener)
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{}  Hole Wizard", ICON_ADJUST.codepoint))
+                            .size(11.5)
+                            .color(ACCENT_BLUE),
+                    ),
+                );
+                if btn.on_hover_text("Buat lubang baut standar ISO (Counterbore, Countersink, Tapped, Simple)").clicked() {
+                    action = Some(ContextAction::HoleWizard);
                 }
 
                 ui.add_space(2.0);

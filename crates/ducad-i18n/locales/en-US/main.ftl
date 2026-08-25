@@ -791,5 +791,26 @@ file-exported-drawing-dxf = Successfully exported Drawing DXF: { $name }
 file-export-drawing-dxf-failed = Failed to export Drawing DXF: { $error }
 file-pdf-filter = PDF Document (*.pdf)
 file-drawing-dxf-filter = AutoCAD DXF Drawing (*.dxf)
-
-
+# Hole Wizard & ISO Fasteners (Fase 9.2)
+tool-hole-wizard = Hole Wizard
+tool-hole-wizard-desc = Create standard ISO threaded, counterbore, countersink, and simple holes
+hole-type = Hole Type:
+hole-type-simple = Simple Hole
+hole-type-counterbore = Counterbore
+hole-type-countersink = Countersink
+hole-type-tapped = Tapped Thread
+hole-iso-standard = ISO Metric Fastener:
+hole-dia = Hole Diameter:
+hole-depth = Hole Depth:
+hole-through-all = Through All
+hole-blind = Blind Depth
+hole-cbore-dia = Counterbore Dia:
+hole-cbore-depth = Counterbore Depth:
+hole-csink-dia = Countersink Dia:
+hole-csink-angle = Countersink Angle:
+hole-thread-pitch = Thread Pitch:
+hole-thread-depth = Thread Depth:
+hole-drill-tip = 118° Standard Drill Tip
+hole-flat-bottom = Flat Bottom
+hole-apply = Apply Hole
+hole-applied = Created { $callout }

@@ -23,7 +23,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
   - Renderer `ducad-render` menggambar garis putus-putus (*dashed line*) oranye.
   - Modifikasi `ClosedRegion` di `ducad-sketch` agar garis konstruksi diabaikan dari deteksi loop tertutup sehingga tidak ikut di-extrude.
   - Shortcut keyboard `X` untuk mengubah entitas aktif menjadi garis konstruksi.
-- [ ] **9.2 Hole Wizard & Standar Baut ISO (*Counterbore / Countersink / Tapped*)**:
+- [x] **9.2 Hole Wizard & Standar Baut ISO (*Counterbore / Countersink / Tapped*)**:
   - Integrasi generator fitur lubang di `ducad-kernel` menggunakan operasi Boolean silinder bertingkat dan tirus:
     - *Simple Hole*: Lubang silinder lurus (tembus atau berkedalaman tertentu).
     - *Counterbore Hole*: Lubang bertingkat untuk kepala baut L (*Socket Head Cap Screw*).

@@ -5,6 +5,9 @@
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
+pub mod hole;
+pub use hole::{HoleKind, HoleSpec, IsoMetricThread};
+
 /// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum LengthUnit {

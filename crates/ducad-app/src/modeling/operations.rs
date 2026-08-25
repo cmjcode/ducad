@@ -1238,4 +1238,70 @@ impl DuCADApp {
         self.model_status = Some(format!("{} solid baru ditambahkan via Pattern 3D ✓", total_new));
         self.set_tool(crate::types::ToolKind::Select);
     }
+
+    /// Terapkan operasi pembuatan lubang (*Hole Wizard*) pada face bodi 3D yang aktif.
+    pub fn apply_hole_wizard(&mut self, spec: ducad_core::hole::HoleSpec) {
+        let (body_id, hit) = match &self.active_face {
+            Some((id, _, hit)) => (*id, hit.clone()),
+            None => {
+                self.alert_modal.show_error(
+                    "Hole Wizard Gagal",
+                    "Tidak ada face yang dipilih. Klik salah satu permukaan datar pada objek 3D terlebih dahulu.",
+                    vec![
+                        "Gunakan Tool Pilih (S) dan klik permukaan datar (face).",
+                        "Buka kembali Hole Wizard dari menu aksi di bagian bawah layar.",
+                    ],
+                );
+                self.model_status = Some("Pilih permukaan face untuk membuat lubang".to_string());
+                return;
+            }
+        };
+
+        let geo = match self.model.geometry.get(body_id) {
+            Some(g) => g,
+            None => {
+                self.model_status = Some("Geometri solid tidak ditemukan".to_string());
+                return;
+            }
+        };
+
+        let (hole_pos, _, _, _) = self.compute_active_hole_position_and_basis(&hit);
+        let pos = (hole_pos.x as f64, hole_pos.y as f64, hole_pos.z as f64);
+        let normal = hit.normal;
+
+        match ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal) {
+            Ok(new_shape) => {
+                let new_geo = BodyGeometry::from_shape(new_shape);
+                let callout = spec.technical_callout();
+                let history_msg = format!("Hole Wizard: {callout}");
+
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new(
+                        "Hole Wizard",
+                        body_id,
+                        new_geo,
+                    )),
+                    &history_msg,
+                );
+
+                self.active_face = None;
+                self.hole_popup_state.offset_u = 0.0;
+                self.hole_popup_state.offset_v = 0.0;
+                self.hole_popup_state.current_pos_3d = None;
+                self.model_status = Some(ducad_i18n::t!("hole-applied", callout = &callout));
+            }
+            Err(e) => {
+                self.alert_modal.show_error(
+                    "Operasi Hole Wizard Gagal",
+                    format!("{e}"),
+                    vec![
+                        "Pastikan diameter lubang tidak melebihi dimensi permukaan benda.",
+                        "Untuk lubang berkedalaman (blind), pastikan kedalaman tidak melebihi ketebalan benda atau gunakan opsi Tembus (Through All).",
+                        "Untuk lubang bertingkat (Counterbore/Countersink), pastikan diameter kepala lebih besar dari diameter lubang utama.",
+                    ],
+                );
+                self.model_status = Some(format!("Hole Wizard gagal: {e}"));
+            }
+        }
+    }
 }

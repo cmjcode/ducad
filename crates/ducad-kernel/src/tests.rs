@@ -1755,6 +1755,121 @@ fn test_hlr_extract_views_cylinder() {
     assert!((dim_z - 40.0).abs() < 1e-2, "Tinggi silinder Z 40mm");
 }
 
+#[test]
+fn test_hole_wizard_simple_blind_and_through() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(50.0, 50.0);
+    let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
 
+    // 1. Simple Blind Hole (Ø10mm, depth 15mm, 118° drill tip)
+    let spec_blind = ducad_core::hole::HoleSpec {
+        kind: ducad_core::hole::HoleKind::Simple,
+        thread_size: ducad_core::hole::IsoMetricThread::Custom,
+        diameter: 10.0,
+        depth: 15.0,
+        is_through: false,
+        counterbore_diameter: 0.0,
+        counterbore_depth: 0.0,
+        countersink_diameter: 0.0,
+        countersink_angle_deg: 90.0,
+        thread_pitch: 1.5,
+        thread_depth: 10.0,
+        has_drill_tip: true,
+    };
 
+    let holed_blind = apply_hole(&box_shape, &spec_blind, (25.0, 25.0, 30.0), (0.0, 0.0, 1.0))
+        .expect("apply blind hole");
+    let mesh_blind = holed_blind.tessellate();
+    assert!(mesh_blind.triangle_count() > 12, "mesh hasil blind hole harus memiliki segitiga lubang");
 
+    // 2. Simple Through Hole (Ø12mm, Through All)
+    let mut spec_through = spec_blind;
+    spec_through.is_through = true;
+    spec_through.diameter = 12.0;
+
+    let holed_through = apply_hole(&box_shape, &spec_through, (25.0, 25.0, 30.0), (0.0, 0.0, 1.0))
+        .expect("apply through hole");
+    let mesh_through = holed_through.tessellate();
+    assert!(mesh_through.triangle_count() > 12, "mesh hasil through hole harus valid");
+}
+
+#[test]
+fn test_hole_wizard_counterbore_iso4762_m6() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(60.0, 60.0);
+    let box_shape = extrude_profile(&box_prof, 40.0).expect("extrude box");
+
+    let spec_cbore = ducad_core::hole::HoleSpec::for_iso(
+        ducad_core::hole::IsoMetricThread::M6,
+        ducad_core::hole::HoleKind::Counterbore,
+        25.0,
+    );
+    assert_eq!(spec_cbore.counterbore_diameter, 11.5);
+    assert_eq!(spec_cbore.counterbore_depth, 6.5);
+    assert_eq!(spec_cbore.diameter, 6.6);
+
+    let holed = apply_hole(&box_shape, &spec_cbore, (30.0, 30.0, 40.0), (0.0, 0.0, 1.0))
+        .expect("apply counterbore hole");
+    let mesh = holed.tessellate();
+    assert!(mesh.triangle_count() > 20, "mesh counterbore harus memiliki segitiga bertingkat");
+}
+
+#[test]
+fn test_hole_wizard_countersink_iso10642_m4() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(50.0, 50.0);
+    let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
+
+    let spec_csink = ducad_core::hole::HoleSpec::for_iso(
+        ducad_core::hole::IsoMetricThread::M4,
+        ducad_core::hole::HoleKind::Countersink,
+        15.0,
+    );
+    assert_eq!(spec_csink.countersink_diameter, 8.9);
+    assert_eq!(spec_csink.countersink_angle_deg, 90.0);
+    assert_eq!(spec_csink.diameter, 4.5);
+
+    let holed = apply_hole(&box_shape, &spec_csink, (25.0, 25.0, 30.0), (0.0, 0.0, 1.0))
+        .expect("apply countersink hole");
+    let mesh = holed.tessellate();
+    assert!(mesh.triangle_count() > 20, "mesh countersink harus memiliki segitiga kerucut tirus");
+}
+
+#[test]
+fn test_hole_wizard_tapped_m8() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(50.0, 50.0);
+    let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
+
+    let spec_tap = ducad_core::hole::HoleSpec::for_iso(
+        ducad_core::hole::IsoMetricThread::M8,
+        ducad_core::hole::HoleKind::Tapped,
+        20.0,
+    );
+    assert_eq!(spec_tap.diameter, 6.8); // Tap drill M8
+    assert_eq!(spec_tap.thread_pitch, 1.25);
+
+    let holed = apply_hole(&box_shape, &spec_tap, (25.0, 25.0, 30.0), (0.0, 0.0, 1.0))
+        .expect("apply tapped hole");
+    let mesh = holed.tessellate();
+    assert!(mesh.triangle_count() > 15, "mesh tapped hole harus valid");
+}
+
+#[test]
+fn test_hole_wizard_on_side_face() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(40.0, 40.0);
+    let box_shape = extrude_profile(&box_prof, 40.0).expect("extrude box");
+
+    let spec = ducad_core::hole::HoleSpec::for_iso(
+        ducad_core::hole::IsoMetricThread::M5,
+        ducad_core::hole::HoleKind::Counterbore,
+        15.0,
+    );
+
+    // Buat lubang pada sisi X+ (normal: (1.0, 0.0, 0.0)) di (40.0, 20.0, 20.0)
+    let holed = apply_hole(&box_shape, &spec, (40.0, 20.0, 20.0), (1.0, 0.0, 0.0))
+        .expect("apply counterbore hole on X+ face");
+    let mesh = holed.tessellate();
+    assert!(mesh.triangle_count() > 20, "mesh side hole harus valid");
+}

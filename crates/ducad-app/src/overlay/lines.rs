@@ -352,7 +352,111 @@ impl DuCADApp {
                     hit.pull_dir.2 as f32,
                 );
 
-                if self.extruding_face_from_gizmo {
+                if self.tool == ToolKind::HoleWizard {
+                    let (hole_pos, u_axis, v_axis, _normal) =
+                        self.compute_active_hole_position_and_basis(hit);
+                    let outer_radius = match self.hole_popup_state.spec.kind {
+                        ducad_core::hole::HoleKind::Counterbore => {
+                            self.hole_popup_state.spec.counterbore_diameter / 2.0
+                        }
+                        ducad_core::hole::HoleKind::Countersink => {
+                            self.hole_popup_state.spec.countersink_diameter / 2.0
+                        }
+                        ducad_core::hole::HoleKind::Tapped => {
+                            self.hole_popup_state.spec.thread_size.standard_params().0 / 2.0
+                        }
+                        ducad_core::hole::HoleKind::Simple => {
+                            self.hole_popup_state.spec.diameter / 2.0
+                        }
+                    } as f32;
+                    let inner_radius = (self.hole_popup_state.spec.diameter / 2.0) as f32;
+
+                    // 1. Lingkaran preview lubang luar (Cyan terang)
+                    const HOLE_RING_COLOR: [f32; 4] = [0.0, 0.95, 1.0, 0.95];
+                    const SEGMENTS: usize = 32;
+                    for k in 0..SEGMENTS {
+                        let a1 = (k as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
+                        let a2 = ((k + 1) as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
+                        let p1 = hole_pos + (u_axis * a1.cos() + v_axis * a1.sin()) * outer_radius;
+                        let p2 = hole_pos + (u_axis * a2.cos() + v_axis * a2.sin()) * outer_radius;
+                        verts.push(LineVertex {
+                            position: [p1.x, p1.y, p1.z],
+                            color: HOLE_RING_COLOR,
+                        });
+                        verts.push(LineVertex {
+                            position: [p2.x, p2.y, p2.z],
+                            color: HOLE_RING_COLOR,
+                        });
+                    }
+
+                    // 2. Lingkaran dalam (jika bertingkat / counterbore / countersink / tapped)
+                    if (outer_radius - inner_radius).abs() > 0.05 {
+                        const INNER_RING_COLOR: [f32; 4] = [0.15, 0.70, 0.95, 0.70];
+                        for k in 0..SEGMENTS {
+                            let a1 = (k as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
+                            let a2 = ((k + 1) as f32) * std::f32::consts::TAU / (SEGMENTS as f32);
+                            let p1 = hole_pos + (u_axis * a1.cos() + v_axis * a1.sin()) * inner_radius;
+                            let p2 = hole_pos + (u_axis * a2.cos() + v_axis * a2.sin()) * inner_radius;
+                            verts.push(LineVertex {
+                                position: [p1.x, p1.y, p1.z],
+                                color: INNER_RING_COLOR,
+                            });
+                            verts.push(LineVertex {
+                                position: [p2.x, p2.y, p2.z],
+                                color: INNER_RING_COLOR,
+                            });
+                        }
+                    }
+
+                    // 3. Crosshair target pada titik pusat lubang (Kuning Emas)
+                    let cross_len = (outer_radius + 3.5).max(6.0);
+                    const CROSS_COLOR: [f32; 4] = [1.0, 0.85, 0.10, 0.95];
+                    let cu1 = hole_pos - u_axis * cross_len;
+                    let cu2 = hole_pos + u_axis * cross_len;
+                    let cv1 = hole_pos - v_axis * cross_len;
+                    let cv2 = hole_pos + v_axis * cross_len;
+                    verts.push(LineVertex {
+                        position: [cu1.x, cu1.y, cu1.z],
+                        color: CROSS_COLOR,
+                    });
+                    verts.push(LineVertex {
+                        position: [cu2.x, cu2.y, cu2.z],
+                        color: CROSS_COLOR,
+                    });
+                    verts.push(LineVertex {
+                        position: [cv1.x, cv1.y, cv1.z],
+                        color: CROSS_COLOR,
+                    });
+                    verts.push(LineVertex {
+                        position: [cv2.x, cv2.y, cv2.z],
+                        color: CROSS_COLOR,
+                    });
+
+                    // 4. Ruler bantu ke tepi-tepi terdekat (Garis Putus-Putus Oranye)
+                    let closest_edges = self.compute_hole_closest_edges(hit, hole_pos);
+                    const RULER_LINE_COLOR: [f32; 4] = [1.0, 0.55, 0.15, 0.90];
+                    for (q, dist, _, _) in &closest_edges {
+                        if *dist > 0.1 {
+                            verts.extend(sketch_render::dashed_line_3d(
+                                [hole_pos.x, hole_pos.y, hole_pos.z],
+                                [q.x, q.y, q.z],
+                                3.0,
+                                RULER_LINE_COLOR,
+                            ));
+                            let tick_dir = (hole_pos - *q).normalize_or_zero();
+                            let tick_p1 = *q + tick_dir * 1.5;
+                            let tick_p2 = *q - tick_dir * 1.5;
+                            verts.push(LineVertex {
+                                position: [tick_p1.x, tick_p1.y, tick_p1.z],
+                                color: RULER_LINE_COLOR,
+                            });
+                            verts.push(LineVertex {
+                                position: [tick_p2.x, tick_p2.y, tick_p2.z],
+                                color: RULER_LINE_COLOR,
+                            });
+                        }
+                    }
+                } else if self.extruding_face_from_gizmo {
                     let dist = self.face_gizmo_distance as f32;
                     let c_top = Vec3::from(c_base) + pull_dir * dist;
                     let c_top_arr = [c_top.x, c_top.y, c_top.z];
@@ -1499,5 +1603,110 @@ impl DuCADApp {
             (normal, self.section_offset)
         };
         Some((n, offset))
+    }
+
+    /// Hitung posisi 3D titik pusat lubang aktif dan basis vektor (U, V, Normal) pada permukaan face.
+    pub fn compute_active_hole_position_and_basis(
+        &self,
+        hit: &ducad_kernel::FaceHit,
+    ) -> (Vec3, Vec3, Vec3, Vec3) {
+        let normal = Vec3::new(
+            hit.normal.0 as f32,
+            hit.normal.1 as f32,
+            hit.normal.2 as f32,
+        )
+        .normalize_or_zero();
+        let normal = if normal == Vec3::ZERO {
+            Vec3::Z
+        } else {
+            normal
+        };
+
+        let u_axis = if hit.boundary_points.len() >= 2 {
+            let p0 = Vec3::new(
+                hit.boundary_points[0].0 as f32,
+                hit.boundary_points[0].1 as f32,
+                hit.boundary_points[0].2 as f32,
+            );
+            let p1 = Vec3::new(
+                hit.boundary_points[1].0 as f32,
+                hit.boundary_points[1].1 as f32,
+                hit.boundary_points[1].2 as f32,
+            );
+            let raw_u = (p1 - p0).normalize_or_zero();
+            let perp_u = (raw_u - normal * raw_u.dot(normal)).normalize_or_zero();
+            if perp_u != Vec3::ZERO {
+                perp_u
+            } else if normal.dot(Vec3::Z).abs() < 0.9 {
+                Vec3::Z.cross(normal).normalize_or_zero()
+            } else {
+                Vec3::X.cross(normal).normalize_or_zero()
+            }
+        } else if normal.dot(Vec3::Z).abs() < 0.9 {
+            Vec3::Z.cross(normal).normalize_or_zero()
+        } else {
+            Vec3::X.cross(normal).normalize_or_zero()
+        };
+
+        let v_axis = normal.cross(u_axis).normalize_or_zero();
+
+        let base_pt = Vec3::new(
+            hit.hit_point.0 as f32,
+            hit.hit_point.1 as f32,
+            hit.hit_point.2 as f32,
+        );
+
+        let hole_pos = if let Some(custom) = self.hole_popup_state.current_pos_3d {
+            Vec3::new(custom.0 as f32, custom.1 as f32, custom.2 as f32)
+        } else {
+            base_pt
+                + u_axis * (self.hole_popup_state.offset_u as f32)
+                + v_axis * (self.hole_popup_state.offset_v as f32)
+        };
+
+        (hole_pos, u_axis, v_axis, normal)
+    }
+
+    /// Hitung jarak dan titik proyeksi ke tepi-tepi terdekat dari face untuk ruler bantu Hole Wizard.
+    pub fn compute_hole_closest_edges(
+        &self,
+        hit: &ducad_kernel::FaceHit,
+        hole_pos: Vec3,
+    ) -> Vec<(Vec3, f32, Vec3, Vec3)> {
+        if hit.boundary_points.len() < 2 {
+            return Vec::new();
+        }
+
+        let mut edge_hits = Vec::new();
+        let len = hit.boundary_points.len();
+
+        for i in 0..len {
+            let j = (i + 1) % len;
+            let a = Vec3::new(
+                hit.boundary_points[i].0 as f32,
+                hit.boundary_points[i].1 as f32,
+                hit.boundary_points[i].2 as f32,
+            );
+            let b = Vec3::new(
+                hit.boundary_points[j].0 as f32,
+                hit.boundary_points[j].1 as f32,
+                hit.boundary_points[j].2 as f32,
+            );
+            let ab = b - a;
+            let ab_len_sq = ab.length_squared();
+            if ab_len_sq > 1e-6 {
+                let t = ((hole_pos - a).dot(ab) / ab_len_sq).clamp(0.0, 1.0);
+                let q = a + ab * t;
+                let dist = (hole_pos - q).length();
+                edge_hits.push((q, dist, a, b));
+            }
+        }
+
+        edge_hits.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        // Ambil maksimal 4 tepi terdekat
+        edge_hits.truncate(4);
+        edge_hits
     }
 }

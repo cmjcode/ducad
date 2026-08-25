@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+ducad-core = { workspace = true }
 opencascade = { workspace = true }
 glam = { workspace = true }
 anyhow = { workspace = true }

@@ -271,6 +271,11 @@ pub struct DuCADApp {
     /// State Lembar Kerja Gambar Teknik 2D (Fase 5).
     pub drawing_sheet_state: ducad_ui::DrawingSheetViewState,
     pub drawing_sheet_doc: Option<ducad_io::drawing::DrawingSheet>,
+
+    /// State Hole Wizard & Standar Baut ISO (Fase 9.2).
+    pub hole_popup_state: ducad_ui::HolePopupState,
+    pub editing_hole_ruler_idx: Option<usize>,
+    pub editing_hole_ruler_input: String,
 }
 
 /// Target objek yang sedang di-rename.
@@ -529,6 +534,9 @@ impl DuCADApp {
 
             drawing_sheet_state: ducad_ui::DrawingSheetViewState::default(),
             drawing_sheet_doc: None,
+            hole_popup_state: ducad_ui::HolePopupState::default(),
+            editing_hole_ruler_idx: None,
+            editing_hole_ruler_input: String::new(),
         }
     }
 
@@ -1728,6 +1736,24 @@ impl eframe::App for DuCADApp {
                 };
                 popup_ev = HistoryPopup::show(&ctx, &mut state, screen_rect);
             }
+            ToolKind::HoleWizard => {
+                popup_ev = ducad_ui::render_bottom_right_panel_custom(
+                    &ctx,
+                    "hole_wizard_popup",
+                    &ducad_i18n::t!("tool-hole-wizard"),
+                    egui_material_icons::icons::ICON_ADJUST.codepoint,
+                    ducad_ui::theme::ACCENT_BLUE,
+                    screen_rect,
+                    280.0,
+                    false,
+                    |ui| {
+                        let ev = ducad_ui::HolePopup::show(ui, &mut self.hole_popup_state);
+                        (ev, false)
+                    },
+                )
+                .0
+                .flatten();
+            }
             _ => {}
         }
 
@@ -1815,6 +1841,10 @@ impl eframe::App for DuCADApp {
                 }
                 ToolPopupEvent::ApplyBooleanIntersect => {
                     self.boolean_selected(BooleanKind::Intersect, "Intersect", "Intersect");
+                }
+                ToolPopupEvent::ApplyHole(spec) => {
+                    self.apply_hole_wizard(spec);
+                    self.set_tool(ToolKind::Select);
                 }
                 ToolPopupEvent::UndoModel => {
                     self.model_undo.undo(&mut self.model);
@@ -2086,6 +2116,9 @@ impl eframe::App for DuCADApp {
                                 ContextAction::SplitFace => {
                                     self.split_mode = ducad_ui::SplitMode::SplitFace;
                                     self.set_tool(ToolKind::SplitBody);
+                                }
+                                ContextAction::HoleWizard => {
+                                    self.set_tool(ToolKind::HoleWizard);
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;

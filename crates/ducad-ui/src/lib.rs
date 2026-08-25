@@ -64,8 +64,9 @@ pub use theme::{
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{
-    BooleanPopup, BooleanPopupState, DraftAnalysisPopup, DraftPopupState, Entity2dPopup,
-    Entity2dPopupState, ExtrudePopup, ExtrudePopupState, HistoryPopup, HistoryPopupState, LoftPopup,
+    render_bottom_right_panel_custom, render_bottom_right_popup, BooleanPopup, BooleanPopupState,
+    DraftAnalysisPopup, DraftPopupState, Entity2dPopup, Entity2dPopupState, ExtrudePopup,
+    ExtrudePopupState, HistoryPopup, HistoryPopupState, HolePopup, HolePopupState, LoftPopup,
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, ToolPopupEvent,
 };

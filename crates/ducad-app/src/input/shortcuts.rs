@@ -436,6 +436,7 @@ impl DuCADApp {
             ToolKind::SectionView => ducad_i18n::t!("status-prompt-section"),
             ToolKind::ZebraInspection => ducad_i18n::t!("tool-zebra-stripes-desc"),
             ToolKind::DraftAnalysis => ducad_i18n::t!("tool-draft-analysis-desc"),
+            ToolKind::HoleWizard => ducad_i18n::t!("tool-hole-wizard-desc"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
         match &self.last_snap {

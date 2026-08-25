@@ -7,6 +7,7 @@
 
 pub mod csg;
 pub mod hlr;
+pub mod hole;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
@@ -59,6 +60,7 @@ pub use hlr::{
     HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
     ProjectedViewKind,
 };
+pub use hole::{apply_hole, create_hole_cutter};
 pub use mesh::KernelMesh;
 pub use modify::{
     chamfer_all, chamfer_edges, chamfer_vertex, circular_pattern_shape, create_rib,

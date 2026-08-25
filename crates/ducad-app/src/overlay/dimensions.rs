@@ -2706,5 +2706,167 @@ impl DuCADApp {
             }
         }
         } // end if self.is_sketching
+
+        // =========================================================================
+        // HOLE WIZARD — RULER DIMENSION PILLS & DRAGGABLE TARGET HANDLE (FASE 9.2)
+        // =========================================================================
+        if self.tool == ToolKind::HoleWizard {
+            if let Some((_, _, hit)) = &self.active_face {
+                let (hole_pos, u_axis, v_axis, normal) =
+                    self.compute_active_hole_position_and_basis(hit);
+                let closest_edges = self.compute_hole_closest_edges(hit, hole_pos);
+
+                // 1. Render label penggaris jarak (ruler distance pills) ke tepi terdekat
+                let base_pt = Vec3::new(
+                    hit.hit_point.0 as f32,
+                    hit.hit_point.1 as f32,
+                    hit.hit_point.2 as f32,
+                );
+
+                for (idx, (q, dist, _, _)) in closest_edges.iter().enumerate() {
+                    if *dist > 0.4 {
+                        let mid = (hole_pos + *q) * 0.5;
+                        if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid) {
+                            let text = format!("📏 {}", self.unit.format(*dist as f64));
+                            CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
+
+                            let pill_rect =
+                                egui::Rect::from_center_size(pos_2d, egui::vec2(60.0, 22.0));
+                            let pill_resp = ui.interact(
+                                pill_rect,
+                                ui.make_persistent_id(("hole_ruler_pill_click", idx)),
+                                egui::Sense::click(),
+                            );
+
+                            if pill_resp.clicked() {
+                                self.editing_hole_ruler_idx = Some(idx);
+                                self.editing_hole_ruler_input = format!(
+                                    "{:.1}",
+                                    self.unit.to_display_val(*dist as f64)
+                                );
+                            }
+
+                            if self.editing_hole_ruler_idx == Some(idx) {
+                                let popup_rect = egui::Rect::from_center_size(
+                                    pos_2d + egui::vec2(0.0, 26.0),
+                                    egui::vec2(90.0, 30.0),
+                                );
+                                egui::Area::new(egui::Id::new((
+                                    "ducad-hole-ruler-edit-popup",
+                                    idx,
+                                )))
+                                .fixed_pos(popup_rect.min)
+                                .order(egui::Order::Foreground)
+                                .show(ui.ctx(), |ui| {
+                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                        let resp = ui.text_edit_singleline(
+                                            &mut self.editing_hole_ruler_input,
+                                        );
+                                        resp.request_focus();
+                                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                            self.editing_hole_ruler_idx = None;
+                                        } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                            if let Ok(val) = self
+                                                .editing_hole_ruler_input
+                                                .trim()
+                                                .parse::<f64>()
+                                            {
+                                                let target_dist_mm = self
+                                                    .unit
+                                                    .to_internal_mm(val)
+                                                    .max(0.0)
+                                                    as f32;
+                                                let dir =
+                                                    (hole_pos - *q).normalize_or_zero();
+                                                let new_hole_pos = *q + dir * target_dist_mm;
+                                                self.hole_popup_state.current_pos_3d = Some((
+                                                    new_hole_pos.x as f64,
+                                                    new_hole_pos.y as f64,
+                                                    new_hole_pos.z as f64,
+                                                ));
+                                                let diff = new_hole_pos - base_pt;
+                                                self.hole_popup_state.offset_u = (diff.dot(u_axis)
+                                                    as f64
+                                                    * 10.0)
+                                                    .round()
+                                                    / 10.0;
+                                                self.hole_popup_state.offset_v = (diff.dot(v_axis)
+                                                    as f64
+                                                    * 10.0)
+                                                    .round()
+                                                    / 10.0;
+                                            }
+                                            self.editing_hole_ruler_idx = None;
+                                        } else if resp.lost_focus() {
+                                            self.editing_hole_ruler_idx = None;
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 2. Render target handle di pusat lubang yang dapat di-drag
+                if let Some(hole_2d) = world_to_screen_pos(&self.camera, rect, hole_pos) {
+                    let handle_id = ui.make_persistent_id("hole_wizard_target_drag_handle");
+                    let handle_rect = egui::Rect::from_center_size(hole_2d, egui::vec2(28.0, 28.0));
+                    let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::drag());
+
+                    let is_hovered = handle_resp.hovered()
+                        || handle_resp.dragged()
+                        || self.hole_popup_state.is_dragging;
+                    let stroke_color = if is_hovered {
+                        egui::Color32::from_rgb(255, 230, 50)
+                    } else {
+                        egui::Color32::from_rgb(0, 220, 255)
+                    };
+
+                    ui.painter()
+                        .circle_stroke(hole_2d, 10.0, egui::Stroke::new(2.5, stroke_color));
+                    ui.painter().circle_filled(hole_2d, 4.0, stroke_color);
+
+                    if handle_resp.drag_started() {
+                        self.hole_popup_state.is_dragging = true;
+                    }
+
+                    if handle_resp.dragged()
+                        || (self.hole_popup_state.is_dragging
+                            && ui.input(|i| i.pointer.is_decidedly_dragging()))
+                    {
+                        if let Some(mouse_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                            let (ray_origin, ray_dir) =
+                                crate::viewport::screen_to_ray(&self.camera, rect, mouse_pos);
+                            let denom = ray_dir.dot(normal);
+                            if denom.abs() > 1e-4 {
+                                let face_center = Vec3::new(
+                                    hit.centroid.0 as f32,
+                                    hit.centroid.1 as f32,
+                                    hit.centroid.2 as f32,
+                                );
+                                let t = (face_center - ray_origin).dot(normal) / denom;
+                                let new_3d = ray_origin + ray_dir * t;
+                                self.hole_popup_state.current_pos_3d =
+                                    Some((new_3d.x as f64, new_3d.y as f64, new_3d.z as f64));
+                                let base_pt = Vec3::new(
+                                    hit.hit_point.0 as f32,
+                                    hit.hit_point.1 as f32,
+                                    hit.hit_point.2 as f32,
+                                );
+                                let diff = new_3d - base_pt;
+                                self.hole_popup_state.offset_u =
+                                    (diff.dot(u_axis) as f64 * 10.0).round() / 10.0;
+                                self.hole_popup_state.offset_v =
+                                    (diff.dot(v_axis) as f64 * 10.0).round() / 10.0;
+                            }
+                        }
+                    }
+
+                    if handle_resp.drag_stopped() {
+                        self.hole_popup_state.is_dragging = false;
+                    }
+                }
+            }
+        }
     }
 }

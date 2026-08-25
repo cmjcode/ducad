@@ -791,5 +791,26 @@ file-exported-drawing-dxf = Berhasil mengekspor DXF Gambar Kerja: { $name }
 file-export-drawing-dxf-failed = Gagal mengekspor DXF Gambar Kerja: { $error }
 file-pdf-filter = Dokumen PDF (*.pdf)
 file-drawing-dxf-filter = AutoCAD DXF Drawing (*.dxf)
-
-
+# Hole Wizard & ISO Fasteners (Fase 9.2)
+tool-hole-wizard = Hole Wizard
+tool-hole-wizard-desc = Buat lubang ulir, counterbore, countersink, dan silinder lurus standar ISO
+hole-type = Tipe Lubang:
+hole-type-simple = Lubang Silinder (Simple)
+hole-type-counterbore = Kepala Baut L (Counterbore)
+hole-type-countersink = Kepala Rata (Countersink)
+hole-type-tapped = Lubang Ulir (Tapped Thread)
+hole-iso-standard = Standar Baut Metrik ISO:
+hole-dia = Diameter Lubang:
+hole-depth = Kedalaman Lubang:
+hole-through-all = Tembus (Through All)
+hole-blind = Berkedalaman (Blind)
+hole-cbore-dia = Diameter Counterbore:
+hole-cbore-depth = Kedalaman Counterbore:
+hole-csink-dia = Diameter Countersink:
+hole-csink-angle = Sudut Tirus Countersink:
+hole-thread-pitch = Kisar Ulir (Pitch):
+hole-thread-depth = Kedalaman Ulir:
+hole-drill-tip = Ujung Bor Standar 118°
+hole-flat-bottom = Dasar Datar (Flat Bottom)
+hole-apply = Terapkan Lubang
+hole-applied = Berhasil membuat { $callout }

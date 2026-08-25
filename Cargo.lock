@@ -1181,6 +1181,7 @@ name = "ducad-kernel"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ducad-core",
  "glam",
  "opencascade",
  "serde",

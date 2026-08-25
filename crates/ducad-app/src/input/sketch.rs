@@ -1288,6 +1288,11 @@ impl DuCADApp {
                         } else {
                             // Klik 1x: Memilih face / sisi yang diklik saja -> memunculkan handle extrude face
                             self.selected_bodies.clear();
+                            if self.tool == ToolKind::HoleWizard {
+                                self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
+                                self.hole_popup_state.offset_u = 0.0;
+                                self.hole_popup_state.offset_v = 0.0;
+                            }
                             self.active_face = Some((b_id, ray, hit));
                             self.active_vertex = None;
                             self.active_edge = None;
@@ -1297,7 +1302,11 @@ impl DuCADApp {
                             self.face_gizmo_edit_input = "15".to_string();
                             self.last_body_select_click = Some((b_id, now));
                             self.model_status = Some(
-                                "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string(),
+                                if self.tool == ToolKind::HoleWizard {
+                                    "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
+                                } else {
+                                    "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
+                                },
                             );
                         }
                     } else if self.tool == ToolKind::Sweep {
@@ -1416,6 +1425,11 @@ impl DuCADApp {
                                             self.model_status = Some("Objek (solid body) terpilih — gunakan 3D Gizmo untuk geser atau putar".to_string());
                                         } else {
                                             self.selected_bodies.clear();
+                                            if self.tool == ToolKind::HoleWizard {
+                                                self.hole_popup_state.current_pos_3d = Some(hit.hit_point);
+                                                self.hole_popup_state.offset_u = 0.0;
+                                                self.hole_popup_state.offset_v = 0.0;
+                                            }
                                             self.active_face = Some((b_id, ray, hit));
                                             self.active_vertex = None;
                                             self.active_edge = None;
@@ -1423,7 +1437,13 @@ impl DuCADApp {
                                             self.face_gizmo_distance = 15.0;
                                             self.face_gizmo_edit_input = "15".to_string();
                                             self.last_body_select_click = Some((b_id, now));
-                                            self.model_status = Some("Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string());
+                                            self.model_status = Some(
+                                                if self.tool == ToolKind::HoleWizard {
+                                                    "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
+                                                } else {
+                                                    "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
+                                                },
+                                            );
                                         }
                                     } else {
                                         self.selected_bodies.clear();
@@ -1863,6 +1883,7 @@ impl DuCADApp {
             | ToolKind::SectionView
             | ToolKind::ZebraInspection
             | ToolKind::DraftAnalysis
+            | ToolKind::HoleWizard
             | ToolKind::History => {
                 self.last_snap = None;
             }

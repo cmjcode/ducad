@@ -58,6 +58,8 @@ pub enum ToolKind {
     Measure,
     /// Non-destruktif Ukur Sudut.
     MeasureAngle,
+    /// Hole Wizard — Lubang standar baut ISO (Fase 9.2).
+    HoleWizard,
     /// Riwayat Dokumen & Undo/Redo.
     History,
 }
@@ -95,6 +97,7 @@ impl ToolKind {
             ToolKind::DraftAnalysis => ToolbarTool::DraftAnalysis,
             ToolKind::Measure => ToolbarTool::Measure,
             ToolKind::MeasureAngle => ToolbarTool::MeasureAngle,
+            ToolKind::HoleWizard => ToolbarTool::Select,
             ToolKind::History => ToolbarTool::History,
         }
     }
@@ -242,6 +245,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::SectionView
         | ToolKind::ZebraInspection
         | ToolKind::DraftAnalysis
+        | ToolKind::HoleWizard
         | ToolKind::History => 0,
     }
 }
