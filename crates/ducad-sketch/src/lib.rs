@@ -25,7 +25,8 @@ pub use ops::{
     find_all_fillet_targets, find_corner_lines_at_point, line_intersection_params_in_sketch,
     linear_pattern_entities, mirror_entity, offset_entity, project_t, reflect_point,
     regular_polygon_entities, regular_polygon_vertices, rotate_entity, rotate_point,
-    translate_entity, trim_segments, Chamfer2DResult, Fillet2DResult, FilletTarget, PolygonMode,
+    slot_from_points, slot_from_radius, translate_entity, trim_segments, Chamfer2DResult,
+    Fillet2DResult, FilletTarget, PolygonMode, SlotMode,
 };
 pub use region::{
     detect_rectangle, find_closed_regions, find_region_at_point, find_region_containing_entity,

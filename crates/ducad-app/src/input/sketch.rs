@@ -502,6 +502,18 @@ impl DuCADApp {
                     Box::new(InsertEntities::new("Segi-N", lines)) as Box<dyn Command<Sketch>>
                 })
             }
+            ToolKind::Slot => {
+                ducad_sketch::slot_from_points(
+                    pts[0],
+                    pts[1],
+                    pts[2],
+                    self.slot_mode,
+                    self.construction_mode,
+                )
+                .map(|entities| {
+                    Box::new(InsertEntities::new("Slot", entities)) as Box<dyn Command<Sketch>>
+                })
+            }
             ToolKind::Spline => {
                 (pts.len() >= 2).then(|| {
                     Box::new(InsertEntities::new(
@@ -1677,6 +1689,7 @@ impl DuCADApp {
             | ToolKind::Circle
             | ToolKind::Ellipse
             | ToolKind::Polygon
+            | ToolKind::Slot
             | ToolKind::Arc
             | ToolKind::Measure
             | ToolKind::MeasureAngle => {

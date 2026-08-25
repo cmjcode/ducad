@@ -15,6 +15,16 @@ pub enum PolygonMode {
     Circumscribed,
 }
 
+/// Mode penentuan ukuran slot lonjong (lubang pengait / rel baut).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SlotMode {
+    /// Slot diukur dari pusat busur pertama ke pusat busur kedua (Center-to-Center Slot).
+    #[default]
+    CenterToCenter,
+    /// Slot diukur dari ujung luar busur pertama ke ujung luar busur kedua (Overall Slot).
+    Overall,
+}
+
 /// Bangun Arc yang melalui tiga titik: `p1` jadi salah satu ujung, `p3`
 /// ujung lainnya, `p2` menentukan sisi mana yang jadi busur.
 pub fn arc_from_three_points(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<Entity> {
@@ -992,3 +1002,114 @@ pub fn regular_polygon_entities(
         .collect();
     Some(lines)
 }
+
+/// Bangun entitas pembentuk slot lonjong (2 Line dan 2 Arc) berdasarkan 2 titik aksis dan 1 titik penentu radius/lebar.
+pub fn slot_from_points(
+    p1: DVec2,
+    p2: DVec2,
+    p3: DVec2,
+    mode: SlotMode,
+    is_construction: bool,
+) -> Option<Vec<Entity>> {
+    let delta = p2 - p1;
+    let len = delta.length();
+    if len < 1e-6 {
+        return None;
+    }
+    let u = delta / len;
+    let normal = DVec2::new(-u.y, u.x);
+    let radius = ((p3 - p1).dot(normal)).abs();
+    if radius < 1e-6 {
+        return None;
+    }
+    slot_from_radius(p1, p2, radius, mode, is_construction)
+}
+
+/// Bangun entitas pembentuk slot lonjong (2 Line dan 2 Arc) berdasarkan 2 titik aksis dan nilai radius/setengah-lebar $R$.
+pub fn slot_from_radius(
+    p1: DVec2,
+    p2: DVec2,
+    radius: f64,
+    mode: SlotMode,
+    is_construction: bool,
+) -> Option<Vec<Entity>> {
+    let radius = radius.abs();
+    if radius < 1e-6 {
+        return None;
+    }
+    let delta = p2 - p1;
+    let len = delta.length();
+    if len < 1e-6 {
+        return None;
+    }
+    let u = delta / len;
+    let v = DVec2::new(-u.y, u.x);
+    let theta = u.y.atan2(u.x);
+
+    let (c1, c2) = match mode {
+        SlotMode::CenterToCenter => (p1, p2),
+        SlotMode::Overall => {
+            if len <= 2.0 * radius {
+                let mid = (p1 + p2) * 0.5;
+                (mid, mid)
+            } else {
+                (p1 + u * radius, p2 - u * radius)
+            }
+        }
+    };
+
+    // 4 Corner / Tangent Points:
+    // a: top-left (c1 + v * R)
+    // b: top-right (c2 + v * R)
+    // c: bottom-right (c2 - v * R)
+    // d: bottom-left (c1 - v * R)
+    let a = c1 + v * radius;
+    let b = c2 + v * radius;
+    let c = c2 - v * radius;
+    let d = c1 - v * radius;
+
+    // Arc at c2 (right cap): sweeps CCW from -v (theta - PI/2) through +u (theta) to +v (theta + PI/2)
+    // Start at c, End at b
+    let arc2_start = theta - PI * 0.5;
+    let arc2_end = theta + PI * 0.5;
+
+    // Arc at c1 (left cap): sweeps CCW from +v (theta + PI/2) through -u (theta + PI) to -v (theta + 3*PI/2)
+    // Start at a, End at d
+    let arc1_start = theta + PI * 0.5;
+    let arc1_end = theta + PI * 1.5;
+
+    // Closed CCW Loop:
+    // 1. Arc c2: c -> b
+    // 2. Line: b -> a
+    // 3. Arc c1: a -> d
+    // 4. Line: d -> c
+    let entities = vec![
+        Entity::Arc {
+            center: c2,
+            radius,
+            start_angle: arc2_start,
+            end_angle: arc2_end,
+            is_construction,
+        },
+        Entity::Line {
+            start: b,
+            end: a,
+            is_construction,
+        },
+        Entity::Arc {
+            center: c1,
+            radius,
+            start_angle: arc1_start,
+            end_angle: arc1_end,
+            is_construction,
+        },
+        Entity::Line {
+            start: d,
+            end: c,
+            is_construction,
+        },
+    ];
+
+    Some(entities)
+}
+

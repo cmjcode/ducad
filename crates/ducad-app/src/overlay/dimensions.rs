@@ -1514,6 +1514,32 @@ impl DuCADApp {
                 false,
                 ui.input(|i| i.time),
             );
+        } else if self.tool == ToolKind::Slot {
+            if let Some(action) = CanvasHud::render_slot_top_bar_hud(
+                ui,
+                rect,
+                self.pending_points.len(),
+                self.slot_mode,
+                self.slot_width,
+            ) {
+                match action {
+                    ducad_ui::SlotHudAction::SetMode(mode) => {
+                        self.slot_mode = mode;
+                    }
+                    ducad_ui::SlotHudAction::SetWidth(w) => {
+                        self.slot_width = w.max(0.1);
+                    }
+                }
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                false,
+                ui.input(|i| i.time),
+            );
         } else {
             ToolGuides::render_tool_guide(
                 ui,
@@ -1608,6 +1634,45 @@ impl DuCADApp {
                             &format!("{} {} · ∠ {:.1}° (N={})", mode_str, self.unit.format_precise(radius), angle_deg, self.polygon_sides),
                             false,
                         );
+                    }
+                }
+                ToolKind::Slot if self.pending_points.len() == 1 => {
+                    let first = self.pending_points[0];
+                    let len = (effective - first).length();
+                    let mid = (first + effective) * 0.5;
+                    let mid_3d = self.active_plane.to_world(mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid_3d) {
+                        let mode_str = match self.slot_mode {
+                            ducad_sketch::SlotMode::CenterToCenter => ducad_i18n::t!("dim-slot-c2c"),
+                            ducad_sketch::SlotMode::Overall => ducad_i18n::t!("dim-slot-overall"),
+                        };
+                        CanvasHud::render_dimension_pill(
+                            ui,
+                            pos_2d,
+                            &format!("{} L {}", mode_str, self.unit.format_precise(len)),
+                            false,
+                        );
+                    }
+                }
+                ToolKind::Slot if self.pending_points.len() == 2 => {
+                    let p1 = self.pending_points[0];
+                    let p2 = self.pending_points[1];
+                    let len = (p2 - p1).length();
+                    let axis_dir = (p2 - p1).normalize_or_zero();
+                    if axis_dir != glam::DVec2::ZERO {
+                        let normal = glam::DVec2::new(-axis_dir.y, axis_dir.x);
+                        let radius = ((effective - p1).dot(normal)).abs();
+                        let width = radius * 2.0;
+                        let mid = (p1 + p2) * 0.5;
+                        let mid_3d = self.active_plane.to_world(mid, 0.0);
+                        if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid_3d) {
+                            CanvasHud::render_dimension_pill(
+                                ui,
+                                pos_2d,
+                                &format!("Ø {} (R {}) · L {}", self.unit.format_precise(width), self.unit.format_precise(radius), self.unit.format_precise(len)),
+                                false,
+                            );
+                        }
                     }
                 }
                 ToolKind::Measure if self.pending_points.len() == 1 => {

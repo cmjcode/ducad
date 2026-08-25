@@ -71,6 +71,7 @@ impl ToolGuides {
             ToolbarTool::Arc => Self::render_arc_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Ellipse => Self::render_ellipse_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Polygon => Self::render_polygon_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Slot => Self::render_slot_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Spline => Self::render_spline_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Offset => Self::render_offset_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Mirror => Self::render_mirror_anim(&painter, card_rect, has_selection, pending_points_count, time),
@@ -716,6 +717,124 @@ impl ToolGuides {
         }
 
         painter.circle_filled(center, 3.5, if phase >= 0.28 { ACCENT_ORANGE } else { TEXT_MUTED });
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Slot Tool (Lubang Pengait / Rel Baut)
+    fn render_slot_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        pending_points: usize,
+        time: f64,
+    ) {
+        let cycle = 4.0;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if pending_points == 1 {
+            (t!("guide-slot-step-2-active"), ACCENT_GREEN)
+        } else if pending_points >= 2 {
+            (t!("guide-slot-step-3-active"), ACCENT_GREEN)
+        } else if phase < 0.30 {
+            (t!("guide-slot-step-1"), ACCENT_ORANGE)
+        } else if phase < 0.65 {
+            (t!("guide-slot-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-slot-step-3"), ACCENT_ORANGE)
+        };
+
+        Self::draw_header(
+            painter,
+            card_rect,
+            &t!("guide-slot-header"),
+            &step_title,
+            step_color,
+        );
+        Self::draw_footer(painter, card_rect, &t!("guide-slot-tip"));
+
+        let c1 = Pos2::new(card_rect.left() + 55.0, card_rect.center().y + 4.0);
+        let c2 = Pos2::new(card_rect.left() + 105.0, card_rect.center().y + 4.0);
+        let max_r = 16.0;
+
+        let (cursor_pos, is_clicking, axis_progress, radius_progress) = if phase < 0.30 {
+            let t = (phase / 0.30).clamp(0.0, 1.0);
+            let pos = Pos2::new(c1.x - (1.0 - t) * 15.0, c1.y - (1.0 - t) * 10.0);
+            (pos, t > 0.75, 0.0, 0.0)
+        } else if phase < 0.65 {
+            let t = ((phase - 0.30) / 0.35).clamp(0.0, 1.0);
+            let pos = Pos2::new(c1.x + (c2.x - c1.x) * t, c1.y);
+            (pos, t > 0.85, t, 0.0)
+        } else if phase < 0.90 {
+            let t = ((phase - 0.65) / 0.25).clamp(0.0, 1.0);
+            let pos = Pos2::new(c2.x, c2.y - max_r * t);
+            (pos, t > 0.85, 1.0, t)
+        } else {
+            (Pos2::new(c2.x, c2.y - max_r), false, 1.0, 1.0)
+        };
+
+        // Axis line between centers
+        if axis_progress > 0.0 {
+            let cur_c2 = Pos2::new(c1.x + (c2.x - c1.x) * axis_progress, c1.y);
+            painter.line_segment(
+                [c1, cur_c2],
+                Stroke::new(1.2, ACCENT_ORANGE.gamma_multiply(0.6)),
+            );
+        }
+
+        // Draw slot stadium boundary
+        if radius_progress > 0.0 {
+            let r = max_r * radius_progress;
+            let top_left = Pos2::new(c1.x, c1.y - r);
+            let top_right = Pos2::new(c2.x, c2.y - r);
+            let bot_right = Pos2::new(c2.x, c2.y + r);
+            let bot_left = Pos2::new(c1.x, c1.y + r);
+
+            // Parallel lines
+            painter.line_segment([top_left, top_right], Stroke::new(1.8, ACCENT_BLUE));
+            painter.line_segment([bot_left, bot_right], Stroke::new(1.8, ACCENT_BLUE));
+
+            // Right semi-circle arc (sweeping from -PI/2 to PI/2)
+            let arc_segs = 12;
+            let mut arc2_pts = Vec::new();
+            for i in 0..=arc_segs {
+                let a = -std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::PI / (arc_segs as f32);
+                arc2_pts.push(Pos2::new(c2.x + r * a.cos(), c2.y + r * a.sin()));
+            }
+            for w in arc2_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], Stroke::new(1.8, ACCENT_BLUE));
+            }
+
+            // Left semi-circle arc (sweeping from PI/2 to 3*PI/2)
+            let mut arc1_pts = Vec::new();
+            for i in 0..=arc_segs {
+                let a = std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::PI / (arc_segs as f32);
+                arc1_pts.push(Pos2::new(c1.x + r * a.cos(), c1.y + r * a.sin()));
+            }
+            for w in arc1_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], Stroke::new(1.8, ACCENT_BLUE));
+            }
+
+            // Radius leader line
+            painter.line_segment(
+                [c2, Pos2::new(c2.x, c2.y - r)],
+                Stroke::new(1.0, ACCENT_ORANGE.gamma_multiply(0.8)),
+            );
+
+            let badge_pos = Pos2::new(card_rect.right() - 44.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "Ø 20 mm",
+                Color32::from_rgba_premultiplied(20, 60, 110, 220),
+                Color32::WHITE,
+            );
+        }
+
+        // Center markers
+        painter.circle_filled(c1, 3.5, if phase >= 0.25 { ACCENT_ORANGE } else { TEXT_MUTED });
+        if axis_progress >= 0.95 {
+            painter.circle_filled(c2, 3.5, if phase >= 0.60 { ACCENT_ORANGE } else { TEXT_MUTED });
+        }
+
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }
 

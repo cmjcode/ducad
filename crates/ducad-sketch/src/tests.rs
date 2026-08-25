@@ -927,3 +927,50 @@ fn test_regular_polygon_inscribed_and_circumscribed() {
     assert!((regions[0].area - expected_area).abs() < 1e-3);
 }
 
+#[test]
+fn test_slot_center_to_center_and_overall() {
+    use crate::ops::{slot_from_points, slot_from_radius, SlotMode};
+
+    let p1 = DVec2::new(0.0, 0.0);
+    let p2 = DVec2::new(50.0, 0.0);
+    let radius = 10.0; // width = 20.0
+
+    // 1. Center-to-Center Slot
+    let c2c_entities = slot_from_radius(p1, p2, radius, SlotMode::CenterToCenter, false).unwrap();
+    assert_eq!(c2c_entities.len(), 4, "Slot harus terdiri dari 4 entitas (2 Line, 2 Arc)");
+
+    let mut sketch_c2c = Sketch::default();
+    for e in c2c_entities {
+        sketch_c2c.entities.insert(e);
+    }
+    let regions_c2c = crate::region::find_closed_regions(&sketch_c2c);
+    assert_eq!(regions_c2c.len(), 1, "Center-to-Center slot harus membentuk 1 closed region");
+    // Expected area: rectangle (50 * 20 = 1000) + circle (pi * 10^2 = 314.159) = 1314.159
+    let expected_c2c_area = 50.0 * 20.0 + std::f64::consts::PI * 100.0;
+    assert!(
+        (regions_c2c[0].area - expected_c2c_area).abs() < 5.0,
+        "Luas slot C2C harus ~1314.16 mm² (got {})",
+        regions_c2c[0].area
+    );
+
+    // 2. Overall Slot (Total Length = 50.0, so center distance = 50 - 20 = 30.0)
+    let p3 = DVec2::new(25.0, 10.0); // radius 10.0
+    let ov_entities = slot_from_points(p1, p2, p3, SlotMode::Overall, false).unwrap();
+    assert_eq!(ov_entities.len(), 4);
+
+    let mut sketch_ov = Sketch::default();
+    for e in ov_entities {
+        sketch_ov.entities.insert(e);
+    }
+    let regions_ov = crate::region::find_closed_regions(&sketch_ov);
+    assert_eq!(regions_ov.len(), 1, "Overall slot harus membentuk 1 closed region");
+    // Expected area: rectangle (30 * 20 = 600) + circle (pi * 10^2 = 314.159) = 914.159
+    let expected_ov_area = 30.0 * 20.0 + std::f64::consts::PI * 100.0;
+    assert!(
+        (regions_ov[0].area - expected_ov_area).abs() < 5.0,
+        "Luas slot Overall harus ~914.16 mm² (got {})",
+        regions_ov[0].area
+    );
+}
+
+

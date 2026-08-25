@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
-    ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_TIMELINE,
+    ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub enum ToolbarTool {
     Circle,
     Ellipse,
     Polygon,
+    Slot,
     Spline,
     Fillet2D,
     Chamfer2D,
@@ -127,6 +128,8 @@ impl LeftToolbar {
                 let ellipse_desc = t!("tool-ellipse-desc");
                 let polygon_title = t!("tool-polygon");
                 let polygon_desc = t!("tool-polygon-desc");
+                let slot_title = t!("tool-slot");
+                let slot_desc = t!("tool-slot-desc");
                 let spline_title = t!("tool-spline");
                 let spline_desc = t!("tool-spline-desc");
                 let loft_title = t!("tool-loft");
@@ -174,6 +177,13 @@ impl LeftToolbar {
                         &polygon_title,
                         Some("Y"),
                         Some(&polygon_desc),
+                    ),
+                    (
+                        ToolbarTool::Slot,
+                        ICON_STADIUM.codepoint,
+                        &slot_title,
+                        None,
+                        Some(&slot_desc),
                     ),
                     (
                         ToolbarTool::Spline,

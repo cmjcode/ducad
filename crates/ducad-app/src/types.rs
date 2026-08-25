@@ -14,6 +14,8 @@ pub enum ToolKind {
     Ellipse,
     /// Poligon N-sisi beraturan (Segi-3, Segi-5, Segi-6, Segi-8).
     Polygon,
+    /// Slot lonjong / rel baut (Center-to-Center / Overall Length).
+    Slot,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
     /// 2D Fillet (busur sudut tangensial).
@@ -76,6 +78,7 @@ impl ToolKind {
             ToolKind::Circle => ToolbarTool::Circle,
             ToolKind::Ellipse => ToolbarTool::Ellipse,
             ToolKind::Polygon => ToolbarTool::Polygon,
+            ToolKind::Slot => ToolbarTool::Slot,
             ToolKind::Spline => ToolbarTool::Spline,
             ToolKind::Fillet2D => ToolbarTool::Fillet2D,
             ToolKind::Chamfer2D => ToolbarTool::Chamfer2D,
@@ -114,6 +117,7 @@ impl ToolKind {
             ToolbarTool::Circle => ToolKind::Circle,
             ToolbarTool::Ellipse => ToolKind::Ellipse,
             ToolbarTool::Polygon => ToolKind::Polygon,
+            ToolbarTool::Slot => ToolKind::Slot,
             ToolbarTool::Spline => ToolKind::Spline,
             ToolbarTool::Fillet2D => ToolKind::Fillet2D,
             ToolbarTool::Chamfer2D => ToolKind::Chamfer2D,
@@ -228,7 +232,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Mirror
         | ToolKind::Revolve
         | ToolKind::Measure => 2,
-        ToolKind::Arc | ToolKind::MeasureAngle => 3,
+        ToolKind::Arc | ToolKind::Slot | ToolKind::MeasureAngle => 3,
         ToolKind::Select
         | ToolKind::Line
         | ToolKind::Spline

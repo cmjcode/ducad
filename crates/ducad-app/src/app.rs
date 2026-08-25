@@ -239,6 +239,10 @@ pub struct DuCADApp {
     pub polygon_sides: usize,
     pub polygon_mode: ducad_sketch::PolygonMode,
 
+    /// State Slot (Fase 9.4 — Lubang Pengait / Rel Baut: Center-to-Center vs Overall).
+    pub slot_mode: ducad_sketch::SlotMode,
+    pub slot_width: f64,
+
     /// State Pattern / Array (Fase 2.3 — Linier & Sirkular 2D & 3D).
     pub pattern_kind: ducad_ui::PatternKind,
     pub pattern_count_x: usize,
@@ -510,6 +514,9 @@ impl DuCADApp {
 
             polygon_sides: 6,
             polygon_mode: ducad_sketch::PolygonMode::Inscribed,
+
+            slot_mode: ducad_sketch::SlotMode::CenterToCenter,
+            slot_width: 10.0,
 
             pattern_kind: ducad_ui::PatternKind::Linear,
             pattern_count_x: 3,
@@ -2320,6 +2327,7 @@ impl eframe::App for DuCADApp {
                 | ToolKind::Sweep
                 | ToolKind::Pattern
                 | ToolKind::Polygon
+                | ToolKind::Slot
         );
 
         if !has_top_bar_hud && !self.drawing_sheet_state.is_open {

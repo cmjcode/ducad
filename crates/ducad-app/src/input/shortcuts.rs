@@ -104,6 +104,11 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Polygon),
             ),
             (
+                ducad_i18n::t!("tool-slot"),
+                String::new(),
+                PaletteAction::SetTool(ToolKind::Slot),
+            ),
+            (
                 "Arc".to_string(),
                 "A".to_string(),
                 PaletteAction::SetTool(ToolKind::Arc),
@@ -374,6 +379,11 @@ impl DuCADApp {
             ToolKind::Polygon => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-polygon-0", sides = self.polygon_sides),
                 _ => ducad_i18n::t!("status-prompt-polygon-1", sides = self.polygon_sides),
+            },
+            ToolKind::Slot => match self.pending_points.len() {
+                0 => ducad_i18n::t!("status-prompt-slot-0"),
+                1 => ducad_i18n::t!("status-prompt-slot-1"),
+                _ => ducad_i18n::t!("status-prompt-slot-2"),
             },
             ToolKind::Spline => match self.pending_points.len() {
                 0 => "Klik titik awal kurva Spline".to_string(),

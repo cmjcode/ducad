@@ -273,6 +273,12 @@ pub enum PolygonHudAction {
     SetMode(ducad_sketch::PolygonMode),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SlotHudAction {
+    SetMode(ducad_sketch::SlotMode),
+    SetWidth(f64),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
@@ -2166,6 +2172,66 @@ p_tip,
                     let is_active = mode == m;
                     if Self::hud_toggle_btn(ui, label, is_active).clicked() {
                         hud_action = Some(PolygonHudAction::SetMode(m));
+                    }
+                }
+
+                hud_action
+            },
+        )
+    }
+
+    /// Render Top Bar HUD mengambang untuk fitur Slot (Lubang Lonjong / Rel Baut).
+    pub fn render_slot_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        pending_points_count: usize,
+        mode: ducad_sketch::SlotMode,
+        width: f64,
+    ) -> Option<SlotHudAction> {
+        let banner_w = 580.0;
+
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-slot-banner",
+            |ui| {
+                let mut hud_action = None;
+
+                let step_text = match pending_points_count {
+                    0 => t!("hud-slot-prompt-p1"),
+                    1 => t!("hud-slot-prompt-p2"),
+                    _ => t!("hud-slot-prompt-width"),
+                };
+
+                Self::hud_title(ui, &step_text, true);
+                ui.separator();
+
+                // Mode Selector: Center-to-Center vs Overall
+                let c2c_label = t!("hud-slot-center-to-center");
+                let overall_label = t!("hud-slot-overall");
+                let modes = [
+                    (ducad_sketch::SlotMode::CenterToCenter, c2c_label.as_str()),
+                    (ducad_sketch::SlotMode::Overall, overall_label.as_str()),
+                ];
+
+                for (m, label) in modes {
+                    let is_active = mode == m;
+                    if Self::hud_toggle_btn(ui, label, is_active).clicked() {
+                        hud_action = Some(SlotHudAction::SetMode(m));
+                    }
+                }
+
+                ui.separator();
+
+                // Quick width presets
+                ui.label(RichText::new(t!("hud-slot-width")).size(10.0).color(TEXT_SECONDARY));
+                for &w in &[5.0, 10.0, 20.0, 30.0] {
+                    let is_active = (width - w).abs() < 1e-3;
+                    let label = format!("{}", w);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        hud_action = Some(SlotHudAction::SetWidth(w));
                     }
                 }
 

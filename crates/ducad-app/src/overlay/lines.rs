@@ -739,6 +739,50 @@ impl DuCADApp {
                         ));
                     }
                 }
+                ToolKind::Slot => {
+                    let effective = self.snapped_or(raw);
+                    match self.pending_points.len() {
+                        1 => {
+                            let first = self.pending_points[0];
+                            let preview = Entity::line(first, effective).with_construction(self.construction_mode);
+                            verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+                            verts.extend(sketch_render::dimension_leader_lines(
+                                first,
+                                effective,
+                                offset_dist * 0.5,
+                                &self.active_plane,
+                            ));
+                        }
+                        2 => {
+                            let p1 = self.pending_points[0];
+                            let p2 = self.pending_points[1];
+                            if let Some(entities) = ducad_sketch::slot_from_points(
+                                p1,
+                                p2,
+                                effective,
+                                self.slot_mode,
+                                self.construction_mode,
+                            ) {
+                                for e in &entities {
+                                    verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+                                }
+
+                                // Dashed centerline axis
+                                let center_axis = Entity::line(p1, p2).with_construction(true);
+                                verts.extend(sketch_render::preview_lines(&center_axis, &self.active_plane));
+
+                                // Leader line for radius / width
+                                let axis_dir = (p2 - p1).normalize_or_zero();
+                                if axis_dir != glam::DVec2::ZERO {
+                                    let proj = p1 + axis_dir * (effective - p1).dot(axis_dir);
+                                    let perp_line = Entity::line(proj, effective).with_construction(true);
+                                    verts.extend(sketch_render::preview_lines(&perp_line, &self.active_plane));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 ToolKind::Spline => {
                     let effective = self.snapped_or(raw);
                     let mut pts = self.pending_points.clone();
