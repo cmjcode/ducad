@@ -99,6 +99,11 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Ellipse),
             ),
             (
+                ducad_i18n::t!("tool-polygon"),
+                "Y".to_string(),
+                PaletteAction::SetTool(ToolKind::Polygon),
+            ),
+            (
                 "Arc".to_string(),
                 "A".to_string(),
                 PaletteAction::SetTool(ToolKind::Arc),
@@ -365,6 +370,10 @@ impl DuCADApp {
             ToolKind::Ellipse => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-ellipse-0"),
                 _ => ducad_i18n::t!("status-prompt-ellipse-box"),
+            },
+            ToolKind::Polygon => match self.pending_points.len() {
+                0 => ducad_i18n::t!("status-prompt-polygon-0", sides = self.polygon_sides),
+                _ => ducad_i18n::t!("status-prompt-polygon-1", sides = self.polygon_sides),
             },
             ToolKind::Spline => match self.pending_points.len() {
                 0 => "Klik titik awal kurva Spline".to_string(),

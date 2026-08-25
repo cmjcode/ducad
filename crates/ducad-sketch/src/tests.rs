@@ -874,3 +874,56 @@ fn test_construction_entities_and_closed_regions() {
     assert_eq!(rect_regions[0].entity_ids.len(), 4);
     assert!((rect_regions[0].area - 400.0).abs() < 1e-4);
 }
+
+#[test]
+fn test_regular_polygon_inscribed_and_circumscribed() {
+    use crate::ops::{regular_polygon_entities, regular_polygon_vertices, PolygonMode};
+
+    let center = DVec2::new(10.0, 20.0);
+    let p2 = DVec2::new(20.0, 20.0); // radius 10.0 along +X
+
+    // 1. Inscribed Hexagon (N=6)
+    let verts_inscribed = regular_polygon_vertices(center, p2, 6, PolygonMode::Inscribed).unwrap();
+    assert_eq!(verts_inscribed.len(), 6);
+    // Vertex 0 must equal p2 exactly
+    assert!((verts_inscribed[0] - p2).length() < 1e-6);
+    // All vertices must be distance 10.0 from center
+    for v in &verts_inscribed {
+        assert!(((v - center).length() - 10.0).abs() < 1e-6);
+    }
+
+    // 2. Circumscribed Hexagon (N=6)
+    let verts_circumscribed = regular_polygon_vertices(center, p2, 6, PolygonMode::Circumscribed).unwrap();
+    assert_eq!(verts_circumscribed.len(), 6);
+    // Midpoint of first edge (v0 to v1) must equal p2 (tangent to circle at p2)
+    let mid01 = (verts_circumscribed[0] + verts_circumscribed[1]) * 0.5;
+    assert!((mid01 - p2).length() < 1e-6, "Titik tengah sisi pertama harus berada tepat di p2");
+    // Circumradius = 10.0 / cos(30 deg) = 20 / sqrt(3) ~= 11.547
+    let expected_r_v = 10.0 / (std::f64::consts::PI / 6.0).cos();
+    for v in &verts_circumscribed {
+        assert!(((v - center).length() - expected_r_v).abs() < 1e-6);
+    }
+
+    // 3. Circumscribed Square (N=4)
+    let verts_sq = regular_polygon_vertices(center, p2, 4, PolygonMode::Circumscribed).unwrap();
+    assert_eq!(verts_sq.len(), 4);
+    let mid_sq = (verts_sq[0] + verts_sq[1]) * 0.5;
+    assert!((mid_sq - p2).length() < 1e-6);
+    // Side length of circumscribed square with in-radius 10 is 20
+    let side_len = (verts_sq[1] - verts_sq[0]).length();
+    assert!((side_len - 20.0).abs() < 1e-6);
+
+    // 4. Entities and Closed Region
+    let mut sketch = Sketch::default();
+    let entities = regular_polygon_entities(center, p2, 6, PolygonMode::Inscribed, false).unwrap();
+    assert_eq!(entities.len(), 6);
+    for e in entities {
+        sketch.entities.insert(e);
+    }
+    let regions = crate::region::find_closed_regions(&sketch);
+    assert_eq!(regions.len(), 1, "Hexagon harus membentuk 1 closed region");
+    // Area of regular hexagon of radius R=10: (3 * sqrt(3) / 2) * R^2 ~= 259.8076
+    let expected_area = (3.0 * 3.0_f64.sqrt() / 2.0) * 100.0;
+    assert!((regions[0].area - expected_area).abs() < 1e-3);
+}
+

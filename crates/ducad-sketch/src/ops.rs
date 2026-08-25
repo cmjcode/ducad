@@ -1,9 +1,19 @@
 use glam::DVec2;
-use std::f64::consts::TAU;
+use serde::{Deserialize, Serialize};
+use std::f64::consts::{PI, TAU};
 
 use crate::entity::{Entity, EntityId};
 use crate::sketch::Sketch;
 use crate::snap::line_intersection_params;
+
+/// Mode penentuan ukuran poligon N-sisi beraturan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PolygonMode {
+    /// Ukuran diukur dari pusat ke titik sudut / vertex (inscribed / di dalam lingkaran).
+    Inscribed,
+    /// Ukuran diukur dari pusat ke titik tengah sisi (circumscribed / di luar lingkaran).
+    Circumscribed,
+}
 
 /// Bangun Arc yang melalui tiga titik: `p1` jadi salah satu ujung, `p3`
 /// ujung lainnya, `p2` menentukan sisi mana yang jadi busur.
@@ -925,4 +935,60 @@ pub fn compute_entities_centroid(entities: &[Entity]) -> Option<DVec2> {
     } else {
         None
     }
+}
+
+/// Hitung daftar titik sudut (vertices) untuk poligon $N$-sisi beraturan.
+///
+/// - `center`: Titik pusat poligon $C$.
+/// - `point2`: Titik kedua (kursor) yang menentukan radius dan sudut orientasi.
+/// - `sides`: Jumlah sisi $N$ ($N \ge 3$).
+/// - `mode`: `Inscribed` (radius ke titik sudut) atau `Circumscribed` (radius ke titik tengah sisi).
+pub fn regular_polygon_vertices(
+    center: DVec2,
+    point2: DVec2,
+    sides: usize,
+    mode: PolygonMode,
+) -> Option<Vec<DVec2>> {
+    let sides = sides.max(3);
+    let delta = point2 - center;
+    let r = delta.length();
+    if r < 1e-6 {
+        return None;
+    }
+    let base_angle = delta.y.atan2(delta.x);
+    let step_angle = TAU / sides as f64;
+
+    let (r_vertex, start_angle) = match mode {
+        PolygonMode::Inscribed => (r, base_angle),
+        PolygonMode::Circumscribed => {
+            let half_step = PI / sides as f64;
+            let r_v = r / half_step.cos();
+            (r_v, base_angle - half_step)
+        }
+    };
+
+    let vertices: Vec<DVec2> = (0..sides)
+        .map(|i| {
+            let angle = start_angle + i as f64 * step_angle;
+            center + DVec2::new(r_vertex * angle.cos(), r_vertex * angle.sin())
+        })
+        .collect();
+
+    Some(vertices)
+}
+
+/// Bangun entitas `Line` tersambung membentuk loop tertutup poligon $N$-sisi beraturan.
+pub fn regular_polygon_entities(
+    center: DVec2,
+    point2: DVec2,
+    sides: usize,
+    mode: PolygonMode,
+    is_construction: bool,
+) -> Option<Vec<Entity>> {
+    let verts = regular_polygon_vertices(center, point2, sides, mode)?;
+    let n = verts.len();
+    let lines = (0..n)
+        .map(|i| Entity::line(verts[i], verts[(i + 1) % n]).with_construction(is_construction))
+        .collect();
+    Some(lines)
 }

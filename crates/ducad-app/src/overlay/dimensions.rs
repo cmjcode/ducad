@@ -1488,6 +1488,32 @@ impl DuCADApp {
                 has_profile || has_path,
                 ui.input(|i| i.time),
             );
+        } else if self.tool == ToolKind::Polygon {
+            if let Some(action) = CanvasHud::render_polygon_top_bar_hud(
+                ui,
+                rect,
+                self.pending_points.len(),
+                self.polygon_sides,
+                self.polygon_mode,
+            ) {
+                match action {
+                    ducad_ui::PolygonHudAction::SetSides(sides) => {
+                        self.polygon_sides = sides.clamp(3, 64);
+                    }
+                    ducad_ui::PolygonHudAction::SetMode(mode) => {
+                        self.polygon_mode = mode;
+                    }
+                }
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                false,
+                ui.input(|i| i.time),
+            );
         } else {
             ToolGuides::render_tool_guide(
                 ui,
@@ -1560,6 +1586,26 @@ impl DuCADApp {
                             ui,
                             pos_2d,
                             &format!("R {}", self.unit.format_precise(radius)),
+                            false,
+                        );
+                    }
+                }
+                ToolKind::Polygon if self.pending_points.len() == 1 => {
+                    let first = self.pending_points[0];
+                    let radius = (effective - first).length();
+                    let delta = effective - first;
+                    let angle_deg = delta.y.atan2(delta.x).to_degrees();
+                    let mid = (first + effective) * 0.5;
+                    let mid_3d = self.active_plane.to_world(mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, mid_3d) {
+                        let mode_str = match self.polygon_mode {
+                            ducad_sketch::PolygonMode::Inscribed => ducad_i18n::t!("dim-polygon-inscribed"),
+                            ducad_sketch::PolygonMode::Circumscribed => ducad_i18n::t!("dim-polygon-circumscribed"),
+                        };
+                        CanvasHud::render_dimension_pill(
+                            ui,
+                            pos_2d,
+                            &format!("{} {} · ∠ {:.1}° (N={})", mode_str, self.unit.format_precise(radius), angle_deg, self.polygon_sides),
                             false,
                         );
                     }

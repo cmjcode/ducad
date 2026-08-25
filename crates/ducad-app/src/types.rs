@@ -12,6 +12,8 @@ pub enum ToolKind {
     Rectangle,
     Circle,
     Ellipse,
+    /// Poligon N-sisi beraturan (Segi-3, Segi-5, Segi-6, Segi-8).
+    Polygon,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
     /// 2D Fillet (busur sudut tangensial).
@@ -73,6 +75,7 @@ impl ToolKind {
             ToolKind::Rectangle => ToolbarTool::Rectangle,
             ToolKind::Circle => ToolbarTool::Circle,
             ToolKind::Ellipse => ToolbarTool::Ellipse,
+            ToolKind::Polygon => ToolbarTool::Polygon,
             ToolKind::Spline => ToolbarTool::Spline,
             ToolKind::Fillet2D => ToolbarTool::Fillet2D,
             ToolKind::Chamfer2D => ToolbarTool::Chamfer2D,
@@ -110,6 +113,7 @@ impl ToolKind {
             ToolbarTool::Rectangle => ToolKind::Rectangle,
             ToolbarTool::Circle => ToolKind::Circle,
             ToolbarTool::Ellipse => ToolKind::Ellipse,
+            ToolbarTool::Polygon => ToolKind::Polygon,
             ToolbarTool::Spline => ToolKind::Spline,
             ToolbarTool::Fillet2D => ToolKind::Fillet2D,
             ToolbarTool::Chamfer2D => ToolKind::Chamfer2D,
@@ -151,11 +155,12 @@ pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 ];
 
 #[allow(dead_code)]
-pub const KEYBOARD_SHORTCUTS: [(&str, &str); 22] = [
+pub const KEYBOARD_SHORTCUTS: [(&str, &str); 23] = [
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
     ("E", "Tool Ellips / Extrude"),
+    ("Y", "Tool Segi-N Beraturan (Polygon)"),
     ("A", "Tool Arc"),
     ("O", "Tool Offset"),
     ("M", "Tool Mirror"),
@@ -219,6 +224,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         ToolKind::Rectangle
         | ToolKind::Circle
         | ToolKind::Ellipse
+        | ToolKind::Polygon
         | ToolKind::Mirror
         | ToolKind::Revolve
         | ToolKind::Measure => 2,

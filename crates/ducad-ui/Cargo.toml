@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 ducad-core = { workspace = true }
+ducad-sketch = { workspace = true }
 ducad-kernel = { workspace = true }
 ducad-io = { workspace = true }
 ducad-i18n = { workspace = true }

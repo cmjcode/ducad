@@ -70,6 +70,7 @@ impl ToolGuides {
             ToolbarTool::Circle => Self::render_circle_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Arc => Self::render_arc_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Ellipse => Self::render_ellipse_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Polygon => Self::render_polygon_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Spline => Self::render_spline_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::Offset => Self::render_offset_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Mirror => Self::render_mirror_anim(&painter, card_rect, has_selection, pending_points_count, time),
@@ -636,6 +637,79 @@ impl ToolGuides {
                 painter,
                 badge_pos,
                 "35×20 mm",
+                Color32::from_rgba_premultiplied(20, 60, 110, 220),
+                Color32::WHITE,
+            );
+        }
+
+        painter.circle_filled(center, 3.5, if phase >= 0.28 { ACCENT_ORANGE } else { TEXT_MUTED });
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Regular Polygon Tool (Segi-N Beraturan: Heksagonal, Segitiga, Octagon, dll.)
+    fn render_polygon_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        pending_points: usize,
+        time: f64,
+    ) {
+        let cycle = 3.2;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if pending_points > 0 {
+            (t!("guide-polygon-step-2-active"), ACCENT_GREEN)
+        } else if phase < 0.35 {
+            (t!("guide-polygon-step-1"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-polygon-step-2"), ACCENT_ORANGE)
+        };
+
+        Self::draw_header(
+            painter,
+            card_rect,
+            &t!("guide-polygon-header"),
+            &step_title,
+            step_color,
+        );
+        Self::draw_footer(painter, card_rect, &t!("guide-polygon-tip"));
+
+        let center = Pos2::new(card_rect.left() + 80.0, card_rect.center().y + 4.0);
+        let max_r = 28.0;
+        let sides = 6;
+
+        let (cursor_pos, is_clicking, poly_progress) = if phase < 0.35 {
+            let t = (phase / 0.35).clamp(0.0, 1.0);
+            let pos = Pos2::new(center.x - (1.0 - t) * 15.0, center.y - (1.0 - t) * 10.0);
+            (pos, t > 0.75, 0.0)
+        } else if phase < 0.82 {
+            let t = ((phase - 0.35) / 0.47).clamp(0.0, 1.0);
+            let pos = Pos2::new(center.x + max_r * t, center.y);
+            (pos, t > 0.9, t)
+        } else {
+            (Pos2::new(center.x + max_r, center.y), false, 1.0)
+        };
+
+        if poly_progress > 0.0 {
+            let cur_r = max_r * poly_progress;
+            let mut poly_pts = Vec::new();
+            for i in 0..=sides {
+                let angle = (i as f32) * std::f32::consts::TAU / (sides as f32);
+                poly_pts.push(Pos2::new(center.x + cur_r * angle.cos(), center.y + cur_r * angle.sin()));
+            }
+            for w in poly_pts.windows(2) {
+                painter.line_segment([w[0], w[1]], Stroke::new(1.8, ACCENT_BLUE));
+            }
+            // Radius leader line
+            painter.line_segment(
+                [center, Pos2::new(center.x + cur_r, center.y)],
+                Stroke::new(1.0, ACCENT_ORANGE.gamma_multiply(0.7)),
+            );
+
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "R 25 mm (N=6)",
                 Color32::from_rgba_premultiplied(20, 60, 110, 220),
                 Color32::WHITE,
             );

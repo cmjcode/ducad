@@ -1216,6 +1216,7 @@ dependencies = [
  "ducad-i18n",
  "ducad-io",
  "ducad-kernel",
+ "ducad-sketch",
  "egui",
  "egui_material_icons",
  "glam",

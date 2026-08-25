@@ -6,6 +6,8 @@
 - Dari tool di bottom menu, jika perlu data lebih lanjut yang inputannya sedikit, maka ditaruh di HUD menu di header ( Wajib ikuti standar design hud menu yang sudah ada ). 
 - Jika terlalu banyak, buat window popup di pojok kanan bawah ( Wajib ikuti design window dari history, folder atau yang lain )
 - Untuk penambahan menu di implementasi ini WAJIB mengikuti arahan diatas.
+- Untuk setiap pembuatan menu baru WAJIB terapkan langsung 18in ya, default menu in ENGLISH
+
 
 ## Roadmap Menuju CAD Kelas Industri Kompetitor AutoCAD & Shapr3D
 
@@ -30,7 +32,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
     - *Countersink Hole*: Lubang tirus 90° untuk baut kepala rata (*Flat Head Screw*).
     - *Tapped Hole*: Lubang ulir standar metrik (M2, M2.5, M3, M4, M5, M6, M8, M10, M12).
   - Dialog pop-up UI terintegrasi dengan tabel dimensi ISO standar.
-- [ ] **9.3 Regular Polygon Tool (Segi-N Beraturan)**:
+- [x] **9.3 Regular Polygon Tool (Segi-N Beraturan)**:
   - Tool pembuatan poligon $N$-sisi (segi-3, segi-5, segi-6 heksagonal untuk kepala baut/mur, segi-8).
   - Mode penentuan ukuran: *Inscribed* (di dalam lingkaran) atau *Circumscribed* (di luar lingkaran).
 - [ ] **9.4 Slot Tool (Lubang Pengait / Rel Baut)**:

@@ -490,6 +490,18 @@ impl DuCADApp {
                     )) as Box<dyn Command<Sketch>>
                 })
             }
+            ToolKind::Polygon => {
+                ducad_sketch::regular_polygon_entities(
+                    pts[0],
+                    pts[1],
+                    self.polygon_sides,
+                    self.polygon_mode,
+                    self.construction_mode,
+                )
+                .map(|lines| {
+                    Box::new(InsertEntities::new("Segi-N", lines)) as Box<dyn Command<Sketch>>
+                })
+            }
             ToolKind::Spline => {
                 (pts.len() >= 2).then(|| {
                     Box::new(InsertEntities::new(
@@ -961,6 +973,9 @@ impl DuCADApp {
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::E)) {
                     self.set_tool(ToolKind::Ellipse);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Y)) {
+                    self.set_tool(ToolKind::Polygon);
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::A)) {
                     self.set_tool(ToolKind::Arc);
@@ -1661,6 +1676,7 @@ impl DuCADApp {
             ToolKind::Rectangle
             | ToolKind::Circle
             | ToolKind::Ellipse
+            | ToolKind::Polygon
             | ToolKind::Arc
             | ToolKind::Measure
             | ToolKind::MeasureAngle => {

@@ -268,6 +268,12 @@ pub enum PatternHudAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolygonHudAction {
+    SetSides(usize),
+    SetMode(ducad_sketch::PolygonMode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
     TurnOffSectionView,
@@ -2093,6 +2099,74 @@ p_tip,
                 // Tombol Batal
                 if Self::hud_cancel_btn(ui, t!("hud-sweep-cancel")).clicked() {
                     hud_action = Some(SweepHudAction::Cancel);
+                }
+
+                hud_action
+            },
+        )
+    }
+
+    /// Render Top Bar HUD mengambang untuk tool Regular Polygon (Segi-N Beraturan 2D).
+    pub fn render_polygon_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        pending_points_count: usize,
+        sides: usize,
+        mode: ducad_sketch::PolygonMode,
+    ) -> Option<PolygonHudAction> {
+        let banner_w = 490.0;
+
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            true,
+            "ducad-hud-polygon-banner",
+            |ui| {
+                let mut hud_action = None;
+
+                let step_text = match pending_points_count {
+                    0 => t!("hud-polygon-title", sides = sides),
+                    _ => t!("hud-polygon-prompt-radius", sides = sides),
+                };
+
+                Self::hud_title(ui, &step_text, true);
+                ui.separator();
+
+                // Sides selector: Quick preset chips [3, 4, 5, 6, 8]
+                ui.label(RichText::new(t!("hud-polygon-sides")).size(10.0).color(TEXT_SECONDARY));
+                for &n in &[3, 4, 5, 6, 8] {
+                    let is_active = sides == n;
+                    let label = format!("{}", n);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        hud_action = Some(PolygonHudAction::SetSides(n));
+                    }
+                }
+
+                // Custom N DragValue
+                let mut current_n = sides;
+                if ui
+                    .add(egui::DragValue::new(&mut current_n).range(3..=64).speed(0.2))
+                    .changed()
+                {
+                    hud_action = Some(PolygonHudAction::SetSides(current_n));
+                }
+
+                ui.separator();
+
+                // Mode Selector: Inscribed vs Circumscribed
+                let inscribed_label = t!("hud-polygon-inscribed");
+                let circumscribed_label = t!("hud-polygon-circumscribed");
+                let modes = [
+                    (ducad_sketch::PolygonMode::Inscribed, inscribed_label.as_str()),
+                    (ducad_sketch::PolygonMode::Circumscribed, circumscribed_label.as_str()),
+                ];
+
+                for (m, label) in modes {
+                    let is_active = mode == m;
+                    if Self::hud_toggle_btn(ui, label, is_active).clicked() {
+                        hud_action = Some(PolygonHudAction::SetMode(m));
+                    }
                 }
 
                 hud_action

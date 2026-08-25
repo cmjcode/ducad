@@ -23,8 +23,9 @@ pub use ops::{
     arc_from_three_points, circular_pattern_entities, circular_pattern_entities_with_radius,
     compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, find_all_corners,
     find_all_fillet_targets, find_corner_lines_at_point, line_intersection_params_in_sketch,
-    linear_pattern_entities, mirror_entity, offset_entity, project_t, reflect_point, rotate_entity,
-    rotate_point, translate_entity, trim_segments, Chamfer2DResult, Fillet2DResult, FilletTarget,
+    linear_pattern_entities, mirror_entity, offset_entity, project_t, reflect_point,
+    regular_polygon_entities, regular_polygon_vertices, rotate_entity, rotate_point,
+    translate_entity, trim_segments, Chamfer2DResult, Fillet2DResult, FilletTarget, PolygonMode,
 };
 pub use region::{
     detect_rectangle, find_closed_regions, find_region_at_point, find_region_containing_entity,

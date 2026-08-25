@@ -709,6 +709,36 @@ impl DuCADApp {
                         verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
+                ToolKind::Polygon if self.pending_points.len() == 1 => {
+                    let first = self.pending_points[0];
+                    let effective = self.snapped_or(raw);
+                    if let Some(entities) = ducad_sketch::regular_polygon_entities(
+                        first,
+                        effective,
+                        self.polygon_sides,
+                        self.polygon_mode,
+                        self.construction_mode,
+                    ) {
+                        for e in &entities {
+                            verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+                        }
+
+                        // Reference dashed guide circle and radius line
+                        let radius = (effective - first).length();
+                        let guide_circle = Entity::circle(first, radius).with_construction(true);
+                        verts.extend(sketch_render::preview_lines(&guide_circle, &self.active_plane));
+
+                        let guide_line = Entity::line(first, effective).with_construction(true);
+                        verts.extend(sketch_render::preview_lines(&guide_line, &self.active_plane));
+
+                        verts.extend(sketch_render::dimension_leader_lines(
+                            first,
+                            effective,
+                            offset_dist * 0.5,
+                            &self.active_plane,
+                        ));
+                    }
+                }
                 ToolKind::Spline => {
                     let effective = self.snapped_or(raw);
                     let mut pts = self.pending_points.clone();

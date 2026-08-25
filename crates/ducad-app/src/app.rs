@@ -235,6 +235,10 @@ pub struct DuCADApp {
     pub split_plane: ducad_ui::SplitPlaneKind,
     pub split_offset_input: String,
 
+    /// State Regular Polygon (Fase 9.3 — Segi-N Beraturan: Inscribed vs Circumscribed).
+    pub polygon_sides: usize,
+    pub polygon_mode: ducad_sketch::PolygonMode,
+
     /// State Pattern / Array (Fase 2.3 — Linier & Sirkular 2D & 3D).
     pub pattern_kind: ducad_ui::PatternKind,
     pub pattern_count_x: usize,
@@ -503,6 +507,9 @@ impl DuCADApp {
             split_mode: ducad_ui::SplitMode::SplitBody,
             split_plane: ducad_ui::SplitPlaneKind::XY,
             split_offset_input: "0.0".to_string(),
+
+            polygon_sides: 6,
+            polygon_mode: ducad_sketch::PolygonMode::Inscribed,
 
             pattern_kind: ducad_ui::PatternKind::Linear,
             pattern_count_x: 3,
@@ -2312,6 +2319,7 @@ impl eframe::App for DuCADApp {
                 | ToolKind::Boolean
                 | ToolKind::Sweep
                 | ToolKind::Pattern
+                | ToolKind::Polygon
         );
 
         if !has_top_bar_hud && !self.drawing_sheet_state.is_open {
