@@ -46,6 +46,8 @@ pub enum ToolKind {
     Revolve,
     Loft,
     Sweep,
+    /// Kurva spiral & generator solid pegas/ulir 3D (Helix / Coil — Fase 10.2).
+    Helix,
     Shell,
     /// Tulang Penguat (Rib / Stiffener Support — Fase 2.4).
     Rib,
@@ -98,6 +100,7 @@ impl ToolKind {
             ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::Loft => ToolbarTool::Loft,
             ToolKind::Sweep => ToolbarTool::Sweep,
+            ToolKind::Helix => ToolbarTool::Helix,
             ToolKind::Shell => ToolbarTool::Shell,
             ToolKind::Rib => ToolbarTool::Rib,
             ToolKind::DraftAngle => ToolbarTool::DraftAngle,
@@ -139,6 +142,7 @@ impl ToolKind {
             ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::Loft => ToolKind::Loft,
             ToolbarTool::Sweep => ToolKind::Sweep,
+            ToolbarTool::Helix => ToolKind::Helix,
             ToolbarTool::Shell => ToolKind::Shell,
             ToolbarTool::Rib => ToolKind::Rib,
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
@@ -257,6 +261,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Extrude
         | ToolKind::Loft
         | ToolKind::Sweep
+        | ToolKind::Helix
         | ToolKind::Shell
         | ToolKind::Rib
         | ToolKind::DraftAngle

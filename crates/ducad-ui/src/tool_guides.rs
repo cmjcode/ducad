@@ -82,6 +82,7 @@ impl ToolGuides {
             ToolbarTool::Extrude => Self::render_extrude_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Loft => Self::render_loft_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Sweep => Self::render_sweep_anim(&painter, card_rect, time),
+            ToolbarTool::Helix => Self::render_helix_anim(&painter, card_rect, time),
             ToolbarTool::Shell => Self::render_shell_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Rib => Self::render_rib_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::DraftAngle => Self::render_draft_anim(&painter, card_rect, has_selection, time),
@@ -1727,6 +1728,116 @@ impl ToolGuides {
         };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Helix / Coil Tool
+    fn render_helix_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        time: f64,
+    ) {
+        let cycle = 4.8;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.35 {
+            (t!("guide-helix-step-1"), ACCENT_BLUE)
+        } else if phase < 0.70 {
+            (t!("guide-helix-step-2"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-helix-step-done"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-helix-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-helix-tip"));
+
+        // Center base point for 3D Helix rendering
+        let base_center = Pos2::new(card_rect.left() + 72.0, card_rect.bottom() - 32.0);
+
+        // 1. Draw 3D Base Reference Circle & Axis
+        let r_x = 26.0;
+        let r_y = 10.0;
+        let total_turns = 4.0;
+        let total_height = 42.0;
+
+        // Base ellipse
+        let base_pts: Vec<Pos2> = (0..=32)
+            .map(|i| {
+                let ang = (i as f32) * std::f32::consts::TAU / 32.0;
+                Pos2::new(base_center.x + ang.cos() * r_x, base_center.y + ang.sin() * r_y)
+            })
+            .collect();
+        for w in base_pts.windows(2) {
+            painter.line_segment([w[0], w[1]], Stroke::new(0.8, TEXT_MUTED.gamma_multiply(0.35)));
+        }
+
+        // Center Axis dashed line
+        let top_axis = Pos2::new(base_center.x, base_center.y - total_height);
+        painter.line_segment([base_center, top_axis], Stroke::new(1.0, TEXT_MUTED.gamma_multiply(0.5)));
+
+        // 2. Parametric Helix 3D Spiral Points
+        let total_segments = 64;
+        let visible_frac = if phase < 0.35 {
+            ((phase / 0.35) * 1.1).clamp(0.1, 1.0)
+        } else {
+            1.0
+        };
+        let visible_count = ((total_segments as f32 * visible_frac).ceil() as usize).max(2);
+
+        let mut helix_pts = Vec::with_capacity(visible_count);
+        for i in 0..visible_count {
+            let t = i as f32 / (total_segments - 1) as f32;
+            let ang = t * total_turns * std::f32::consts::TAU;
+            let x = base_center.x + ang.cos() * r_x;
+            let y = (base_center.y + ang.sin() * r_y) - t * total_height;
+            helix_pts.push(Pos2::new(x, y));
+        }
+
+        // Draw Helix Spine Wire
+        let wire_color = if phase < 0.35 {
+            ACCENT_BLUE
+        } else if phase < 0.70 {
+            ACCENT_ORANGE
+        } else {
+            ACCENT_GREEN
+        };
+        for w in helix_pts.windows(2) {
+            painter.line_segment([w[0], w[1]], Stroke::new(1.8, wire_color));
+        }
+
+        // 3. Draw Cross-Section / Solid Tube (Phase >= 0.70)
+        if phase >= 0.70 {
+            let tube_r = 3.5;
+            for w in helix_pts.windows(2) {
+                let tangent = (w[1] - w[0]).normalized();
+                let normal = Vec2::new(-tangent.y, tangent.x) * tube_r;
+                let top1 = w[0] + normal;
+                let top2 = w[1] + normal;
+                let bot1 = w[0] - normal;
+                let bot2 = w[1] - normal;
+
+                painter.line_segment([top1, top2], Stroke::new(1.2, ACCENT_GREEN.gamma_multiply(0.85)));
+                painter.line_segment([bot1, bot2], Stroke::new(1.2, ACCENT_GREEN.gamma_multiply(0.85)));
+            }
+
+            let badge_pos = Pos2::new(card_rect.right() - 52.0, card_rect.center().y);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "✓ Spring 3D",
+                Color32::from_rgba_premultiplied(15, 80, 40, 220),
+                Color32::WHITE,
+            );
+        }
+
+        // Cursor Movement
+        let cursor_pos = if phase < 0.35 {
+            helix_pts.last().copied().unwrap_or(base_center)
+        } else if phase < 0.70 {
+            Pos2::new(card_rect.center().x + 25.0, card_rect.bottom() - 16.0)
+        } else {
+            Pos2::new(card_rect.center().x + 30.0, card_rect.top() + 32.0)
+        };
+        Self::draw_cursor(painter, cursor_pos, phase > 0.65 && phase < 0.75, time);
     }
 
     /// Shell Tool

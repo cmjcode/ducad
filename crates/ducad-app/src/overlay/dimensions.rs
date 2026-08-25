@@ -1102,14 +1102,45 @@ impl DuCADApp {
                         egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 200, 255)),
                     ));
 
-                    // Label badge
+                    // Label badge interaktif dengan dukungan drag
                     let center_pos = egui::pos2((s1.x + s2.x + s3.x + s4.x) * 0.25, (s1.y + s2.y + s3.y + s4.y) * 0.25);
-                    let label_text = format!("✨ Datum Plane Preview");
+                    let label_text = match self.datum_mode {
+                        ducad_ui::DatumPlaneMode::Offset => format!("✨ Datum Plane ({:+0.1} mm) ↕ Drag", offset_val),
+                        ducad_ui::DatumPlaneMode::Angled => format!("✨ Datum Plane ({:0.1}°) ↕ Drag", angle_val),
+                        ducad_ui::DatumPlaneMode::ThreePoints => "✨ 3-Point Datum Plane Preview".to_string(),
+                    };
                     let gal = painter.layout_no_wrap(label_text, egui::FontId::proportional(11.0), egui::Color32::WHITE);
-                    let bg_r = egui::Rect::from_center_size(center_pos, gal.size() + egui::vec2(12.0, 6.0));
-                    painter.rect_filled(bg_r, 4.0, egui::Color32::from_rgba_unmultiplied(15, 25, 40, 220));
+                    let bg_r = egui::Rect::from_center_size(center_pos, gal.size() + egui::vec2(14.0, 8.0));
+                    painter.rect_filled(bg_r, 4.0, egui::Color32::from_rgba_unmultiplied(15, 25, 40, 230));
                     painter.rect_stroke(bg_r, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 180, 255)), egui::StrokeKind::Inside);
-                    painter.galley(bg_r.min + egui::vec2(6.0, 3.0), gal, egui::Color32::WHITE);
+                    painter.galley(bg_r.min + egui::vec2(7.0, 4.0), gal, egui::Color32::WHITE);
+
+                    // Dukungan Drag Langsung pada Viewport
+                    if self.datum_mode == ducad_ui::DatumPlaneMode::Offset {
+                        let handle_id = egui::Id::new("datum_offset_viewport_drag");
+                        let handle_resp = ui.interact(bg_r, handle_id, egui::Sense::drag());
+                        if handle_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        }
+                        if handle_resp.dragged() {
+                            let delta = -handle_resp.drag_delta().y as f64 * 0.3;
+                            let mut cur = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
+                            cur = (cur + delta).clamp(-500.0, 500.0);
+                            self.datum_offset_input = format!("{:.1}", cur);
+                        }
+                    } else if self.datum_mode == ducad_ui::DatumPlaneMode::Angled {
+                        let handle_id = egui::Id::new("datum_angle_viewport_drag");
+                        let handle_resp = ui.interact(bg_r, handle_id, egui::Sense::drag());
+                        if handle_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        }
+                        if handle_resp.dragged() {
+                            let delta = -handle_resp.drag_delta().y as f64 * 0.5;
+                            let mut cur = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
+                            cur = (cur + delta).clamp(-360.0, 360.0);
+                            self.datum_angle_input = format!("{:.1}", cur);
+                        }
+                    }
                 }
             }
 
@@ -1644,6 +1675,22 @@ impl DuCADApp {
                 self.tool.to_toolbar_tool(),
                 self.pending_points.len(),
                 has_profile || has_path,
+                ui.input(|i| i.time),
+            );
+        } else if self.tool == ToolKind::Helix {
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let (params, profile) = self.helix_popup_state.to_kernel_params([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+                self.create_helix_coil_with_params(params, profile);
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                true,
                 ui.input(|i| i.time),
             );
         } else if self.tool == ToolKind::Polygon {

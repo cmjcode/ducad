@@ -302,6 +302,9 @@ pub struct DuCADApp {
     /// State Teks 2D & Emboss/Deboss (Fase 9.5).
     pub text_popup_state: ducad_ui::TextPopupState,
     pub custom_font_bytes: Option<Vec<u8>>,
+
+    /// State Helix / Coil / Spring Tool (Fase 10.2).
+    pub helix_popup_state: ducad_ui::HelixPopupState,
 }
 
 /// Target objek yang sedang di-rename.
@@ -584,6 +587,7 @@ impl DuCADApp {
             editing_hole_ruler_input: String::new(),
             text_popup_state: ducad_ui::TextPopupState::default(),
             custom_font_bytes: None,
+            helix_popup_state: ducad_ui::HelixPopupState::default(),
         }
     }
 
@@ -1256,12 +1260,14 @@ impl eframe::App for DuCADApp {
             })
             .collect();
 
+        let has_tool_popup = matches!(self.tool, ToolKind::Helix | ToolKind::Text | ToolKind::HoleWizard);
         let open_drawers_count = (self.items_drawer_open as usize)
             + (self.history_drawer_open as usize)
             + (self.planes_drawer_open as usize)
             + (self.cmf_drawer_open as usize)
             + (self.lighting_drawer_open as usize)
-            + (self.draft_config.enabled as usize);
+            + (self.draft_config.enabled as usize)
+            + (has_tool_popup as usize);
         let screen_avail_h = (screen_rect.height() - 140.0).max(300.0);
         let max_drawer_h = if open_drawers_count > 1 {
             ((screen_rect.height() - 180.0) * 0.75).clamp(200.0, screen_avail_h)
@@ -1661,6 +1667,7 @@ impl eframe::App for DuCADApp {
         }
 
         // 6. Studio Lighting & SSAO Drawer (Pojok Kanan Bawah)
+        let mut lighting_top_y = None;
         if self.lighting_drawer_open {
             let lighting_bottom_y = if self.cmf_drawer_open {
                 cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1684,7 +1691,7 @@ impl eframe::App for DuCADApp {
                 ducad_render::StudioPreset::DramaticDark => ducad_ui::StudioLightingPresetUi::DramaticDark,
             };
 
-            egui::Area::new(egui::Id::new("ducad-lighting-drawer-area"))
+            let lighting_area_resp = egui::Area::new(egui::Id::new("ducad-lighting-drawer-area"))
                 .fixed_pos(lighting_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
@@ -1743,7 +1750,26 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+
+            lighting_top_y = Some(lighting_area_resp.response.rect.min.y);
         }
+
+        // Posisi anchor bottom untuk Tool Popups (Helix, Text, Hole Wizard, dll) yang tersusun rapi di atas drawer aktif
+        let tool_popup_bottom_y = if self.lighting_drawer_open {
+            lighting_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.cmf_drawer_open {
+            cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.draft_config.enabled {
+            draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.planes_drawer_open {
+            planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.history_drawer_open {
+            hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.items_drawer_open {
+            folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else {
+            folder_bottom_y
+        };
 
         // 2. Floating Buttons Bar di Pojok Kanan Bawah (Lighting, CMF Material, Draft Analysis, History, Folder)
         if !self.drawing_sheet_state.is_open {
@@ -1940,6 +1966,7 @@ impl eframe::App for DuCADApp {
 
                 let prev_selected = self.hole_popup_state.selected_hole_idx;
 
+                let mut hole_custom_h = None;
                 popup_ev = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "hole_wizard_popup",
@@ -1947,6 +1974,10 @@ impl eframe::App for DuCADApp {
                     egui_material_icons::icons::ICON_ADJUST.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
                     screen_rect,
+                    tool_popup_bottom_y,
+                    max_drawer_h,
+                    &mut hole_custom_h,
+                    340.0,
                     280.0,
                     false,
                     |ui| {
@@ -1980,6 +2011,7 @@ impl eframe::App for DuCADApp {
             }
             ToolKind::Text => {
                 let popup_title = ducad_i18n::t!("tool-text");
+                let mut text_custom_h = None;
                 popup_ev = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "text_popup",
@@ -1987,7 +2019,11 @@ impl eframe::App for DuCADApp {
                     egui_material_icons::icons::ICON_TITLE.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
                     screen_rect,
-                    280.0,
+                    tool_popup_bottom_y,
+                    max_drawer_h,
+                    &mut text_custom_h,
+                    320.0,
+                    250.0,
                     false,
                     |ui| {
                         let ev = ducad_ui::TextPopup::show(ui, &mut self.text_popup_state);
@@ -1997,6 +2033,31 @@ impl eframe::App for DuCADApp {
                 .0
                 .flatten();
             }
+            ToolKind::Helix => {
+                let popup_title = ducad_i18n::t!("tool-helix");
+                let mut custom_h = self.helix_popup_state.custom_height;
+                popup_ev = ducad_ui::render_bottom_right_panel_custom(
+                    &ctx,
+                    "helix_popup",
+                    &popup_title,
+                    egui_material_icons::icons::ICON_HEATING_COIL.codepoint,
+                    ducad_ui::theme::ACCENT_BLUE,
+                    screen_rect,
+                    tool_popup_bottom_y,
+                    max_drawer_h,
+                    &mut custom_h,
+                    360.0,
+                    230.0,
+                    false,
+                    |ui| {
+                        let ev = ducad_ui::HelixPopup::show(ui, &mut self.helix_popup_state);
+                        (ev, false)
+                    },
+                )
+                .0
+                .flatten();
+                self.helix_popup_state.custom_height = custom_h;
+            }
             _ => {}
         }
 
@@ -2005,6 +2066,9 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::Close => {
                     self.set_tool(ToolKind::Select);
                     self.picking_mode = PickMode::None;
+                }
+                ToolPopupEvent::ApplyHelix { params, profile } => {
+                    self.create_helix_coil_with_params(params, profile);
                 }
                 ToolPopupEvent::ApplyExtrude { distance } => {
                     self.extrude_distance_input = distance.to_string();
@@ -2339,6 +2403,9 @@ impl eframe::App for DuCADApp {
                                     }
                                     self.set_tool(ToolKind::Sweep);
                                 }
+                                ContextAction::Helix => {
+                                    self.set_tool(ToolKind::Helix);
+                                }
                                 ContextAction::Delete => {
                                     if !self.selected.is_empty() {
                                         let to_delete: Vec<EntityId> = self.selected.iter().copied().collect();
@@ -2384,6 +2451,9 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::Revolve => {
                                     self.open_revolve_dialog();
+                                }
+                                ContextAction::Helix => {
+                                    self.set_tool(ToolKind::Helix);
                                 }
                                 ContextAction::Shell => {
                                     self.set_tool(ToolKind::Shell);

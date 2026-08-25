@@ -344,7 +344,63 @@ impl DuCADApp {
         }
     }
 
+    /// Buat solid 3D pegas / ulir atau kurva spiral 3D (Helix / Coil Tool — Fase 10.2).
+    pub fn create_helix_coil_with_params(
+        &mut self,
+        mut params: ducad_kernel::HelixParams,
+        profile: Option<ducad_kernel::HelixProfileKind>,
+    ) {
+        // Jika sedang ada face aktif atau sketch plane aktif, orientasikan helix relatif terhadapnya
+        if let Some((_, _, hit)) = &self.active_face {
+            let n = glam::dvec3(hit.normal.0, hit.normal.1, hit.normal.2).normalize();
+            let c = glam::dvec3(hit.centroid.0, hit.centroid.1, hit.centroid.2);
+            params.origin = [c.x, c.y, c.z];
+            params.axis = [n.x, n.y, n.z];
+        } else if self.is_sketching {
+            let plane = self.active_plane;
+            let o = plane.origin;
+            let n = plane.normal;
+            let u = plane.u_axis;
+            params.origin = [o.x as f64, o.y as f64, o.z as f64];
+            params.axis = [n.x as f64, n.y as f64, n.z as f64];
+            params.start_dir = [u.x as f64, u.y as f64, u.z as f64];
+        }
 
+        if let Some(prof) = profile {
+            let solid_name = match prof {
+                ducad_kernel::HelixProfileKind::Circle { .. } => "Spring",
+                ducad_kernel::HelixProfileKind::Rectangle { .. } => "Auger Blade",
+                ducad_kernel::HelixProfileKind::Triangle { .. } => "Helix Thread",
+            };
+
+            match ducad_kernel::create_helix_solid(&params, prof, 36) {
+                Ok(shape) => {
+                    let geo = BodyGeometry::from_shape(shape);
+                    self.execute_model_command(
+                        Box::new(AddSolidCommand::new(solid_name, geo)),
+                        &format!("Membuat solid 3D {} (Pitch {:.1} mm, {} Putaran)", solid_name, params.pitch, params.turns),
+                    );
+                    self.model_status = Some(format!("✓ Solid 3D {} berhasil dibuat!", solid_name));
+                    self.set_tool(ToolKind::Select);
+                }
+                Err(e) => {
+                    self.model_status = Some(format!("Pembuatan Helix Solid gagal: {e}"));
+                }
+            }
+        } else {
+            // Mode Curve Path Only: Buat kurva jalur spine untuk Sweep
+            match ducad_kernel::create_helix_path_segments(&params, 36) {
+                Ok(segments) => {
+                    self.pending_sweep_path = Some(segments);
+                    self.model_status = Some("✓ Kurva spiral 3D disimpan sebagai jalur Sweep! Pilih profil lalu buat Sweep.".to_string());
+                    self.set_tool(ToolKind::Sweep);
+                }
+                Err(e) => {
+                    self.model_status = Some(format!("Pembuatan kurva Helix gagal: {e}"));
+                }
+            }
+        }
+    }
 
     /// Union/Subtract/Intersect dua body terpilih.
     pub fn boolean_selected(&mut self, kind: BooleanKind, label: &'static str, result_name: &str) {

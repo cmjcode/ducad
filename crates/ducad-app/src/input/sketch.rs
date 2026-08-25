@@ -2115,6 +2115,7 @@ impl DuCADApp {
                 }
             }
             ToolKind::Extrude
+            | ToolKind::Helix
             | ToolKind::Shell
             | ToolKind::Rib
             | ToolKind::DraftAngle

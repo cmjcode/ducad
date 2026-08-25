@@ -130,6 +130,65 @@ impl DuCADApp {
             }
         }
 
+        // Live 3D Helix / Coil / Spring Preview (Fase 10.2)
+        if self.tool == ToolKind::Helix {
+            let (origin, axis, start_dir) = if let Some((_, _, hit)) = &self.active_face {
+                let n = glam::dvec3(hit.normal.0, hit.normal.1, hit.normal.2).normalize();
+                let c = glam::dvec3(hit.centroid.0, hit.centroid.1, hit.centroid.2);
+                ([c.x, c.y, c.z], [n.x, n.y, n.z], [1.0, 0.0, 0.0])
+            } else if self.is_sketching {
+                let plane = self.active_plane;
+                (
+                    [plane.origin.x as f64, plane.origin.y as f64, plane.origin.z as f64],
+                    [plane.normal.x as f64, plane.normal.y as f64, plane.normal.z as f64],
+                    [plane.u_axis.x as f64, plane.u_axis.y as f64, plane.u_axis.z as f64],
+                )
+            } else {
+                ([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0])
+            };
+
+            let (params, profile) = self.helix_popup_state.to_kernel_params(origin, axis, start_dir);
+            if let Ok(pts) = ducad_kernel::generate_helix_points(&params, 36) {
+                let color_spine = [0.08, 0.85, 0.95, 1.0]; // Bright cyan for spine curve
+                for w in pts.windows(2) {
+                    verts.push(LineVertex {
+                        position: [w[0][0] as f32, w[0][1] as f32, w[0][2] as f32],
+                        color: color_spine,
+                    });
+                    verts.push(LineVertex {
+                        position: [w[1][0] as f32, w[1][1] as f32, w[1][2] as f32],
+                        color: color_spine,
+                    });
+                }
+
+                // If profile is circular or rectangular, draw cross-section circles along the coil at intervals
+                let color_wire = [0.15, 0.85, 0.40, 0.75]; // Greenish wire preview
+                let stride = (pts.len() / (params.turns.abs() as usize * 4).max(4)).max(1);
+                for (idx, p) in pts.iter().enumerate() {
+                    if idx % stride == 0 || idx == pts.len() - 1 {
+                        let center = glam::dvec3(p[0], p[1], p[2]);
+                        let r = match profile {
+                            Some(ducad_kernel::HelixProfileKind::Circle { radius }) => radius,
+                            Some(ducad_kernel::HelixProfileKind::Rectangle { width, height }) => width.max(height) * 0.5,
+                            Some(ducad_kernel::HelixProfileKind::Triangle { width, height }) => width.max(height) * 0.5,
+                            None => 0.0,
+                        };
+                        if r > 0.1 {
+                            let segs = 16;
+                            for s in 0..segs {
+                                let a1 = s as f64 * std::f64::consts::TAU / segs as f64;
+                                let a2 = (s + 1) as f64 * std::f64::consts::TAU / segs as f64;
+                                let p1 = center + glam::dvec3(a1.cos() * r, a1.sin() * r, 0.0);
+                                let p2 = center + glam::dvec3(a2.cos() * r, a2.sin() * r, 0.0);
+                                verts.push(LineVertex { position: [p1.x as f32, p1.y as f32, p1.z as f32], color: color_wire });
+                                verts.push(LineVertex { position: [p2.x as f32, p2.y as f32, p2.z as f32], color: color_wire });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Live 2D Pattern Ghost Preview
         if self.tool == ToolKind::Pattern && !self.selected.is_empty() {
             let entities: Vec<Entity> = self

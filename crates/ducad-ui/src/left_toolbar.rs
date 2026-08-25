@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
-    ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
+    ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
     ICON_TITLE,
 };
 
@@ -43,6 +43,7 @@ pub enum ToolbarTool {
     Revolve,
     Loft,
     Sweep,
+    Helix,
     Shell,
     Rib,
     DraftAngle,
@@ -238,6 +239,8 @@ impl LeftToolbar {
                 let section_desc = t!("tool-section-desc");
                 let sweep_title = t!("tool-sweep");
                 let sweep_desc = t!("tool-sweep-desc");
+                let helix_title = t!("tool-helix");
+                let helix_desc = t!("tool-helix-desc");
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
 
@@ -262,6 +265,13 @@ impl LeftToolbar {
                         &sweep_title,
                         None,
                         Some(&sweep_desc),
+                    ),
+                    (
+                        ToolbarTool::Helix,
+                        ICON_HEATING_COIL.codepoint,
+                        &helix_title,
+                        Some("G"),
+                        Some(&helix_desc),
                     ),
                     (
                         ToolbarTool::SectionView,

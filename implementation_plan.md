@@ -54,7 +54,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
     2. *Angled Plane*: Memutar $\theta^\circ$ terhadap edge linear acuan.
     3. *3-Point Plane*: Membentuk bidang datar yang melalui 3 titik vertex acuan.
   - Pemilih bidang sketsa aktif terintegrasi dengan penyorotan visual transparan di viewport.
-- [ ] **10.2 Helix / Coil / Spring Tool (Kurva Spiral 3D)**:
+- [x] **10.2 Helix / Coil / Spring Tool (Kurva Spiral 3D)**:
   - Generator kurva parametrik 3D:
     $$x(t) = R \cos(2\pi t), \quad y(t) = R \sin(2\pi t), \quad z(t) = \text{pitch} \cdot t$$
   - Disambungkan ke fungsi `sweep_profile_along_path` untuk menghasilkan pegas kawat (*spring*), ulir botol, dan pisau ulir sekrup (*auger*).

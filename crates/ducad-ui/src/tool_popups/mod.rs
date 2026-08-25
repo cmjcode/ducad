@@ -7,6 +7,7 @@ pub mod boolean_popup;
 pub mod draft_popup;
 pub mod entity_popup;
 pub mod extrude_popup;
+pub mod helix_popup;
 pub mod history_popup;
 pub mod hole_popup;
 pub mod loft_popup;
@@ -25,6 +26,7 @@ pub use boolean_popup::{BooleanPopup, BooleanPopupState};
 pub use draft_popup::{DraftAnalysisPopup, DraftPopupState};
 pub use entity_popup::{Entity2dPopup, Entity2dPopupState};
 pub use extrude_popup::{ExtrudePopup, ExtrudePopupState};
+pub use helix_popup::{HelixPopup, HelixPopupState, HelixPreset, HelixSectionType};
 pub use history_popup::{HistoryPopup, HistoryPopupState};
 pub use hole_popup::{HoleOperationMode, HolePopup, HolePopupState};
 pub use loft_popup::{LoftPopup, LoftPopupState};
@@ -41,6 +43,11 @@ pub enum ToolPopupEvent {
     ApplyExtrude { distance: f64 },
     ApplyFaceExtrude { distance: f64 },
     SketchOnFace,
+    // Helix / Coil (Fase 10.2)
+    ApplyHelix {
+        params: ducad_kernel::HelixParams,
+        profile: Option<ducad_kernel::HelixProfileKind>,
+    },
     // Text (Fase 9.5)
     ApplyText {
         text: String,
@@ -136,6 +143,7 @@ pub fn render_bottom_right_popup<R>(
     screen_rect: Rect,
     content: impl FnOnce(&mut Ui) -> (R, bool),
 ) -> (Option<R>, bool) {
+    let mut custom_h = None;
     render_bottom_right_panel_custom(
         ctx,
         id_str,
@@ -143,13 +151,17 @@ pub fn render_bottom_right_popup<R>(
         icon,
         accent_color,
         screen_rect,
-        260.0,
+        screen_rect.max.y - 62.0,
+        (screen_rect.height() - 140.0).max(300.0),
+        &mut custom_h,
+        320.0,
+        230.0,
         true,
         content,
     )
 }
 
-/// Helper pembungkus panel mengambang di pojok kanan bawah dengan ukuran & kebijakan tutup fleksibel.
+/// Helper pembungkus panel mengambang di pojok kanan bawah dengan ukuran, posisi stacking & resize interaktif.
 pub fn render_bottom_right_panel_custom<R>(
     ctx: &Context,
     id_str: &str,
@@ -157,6 +169,10 @@ pub fn render_bottom_right_panel_custom<R>(
     icon: &str,
     accent_color: Color32,
     screen_rect: Rect,
+    anchor_bottom_y: f32,
+    max_height: f32,
+    custom_height: &mut Option<f32>,
+    default_height: f32,
     width: f32,
     close_on_outside_click: bool,
     content: impl FnOnce(&mut Ui) -> (R, bool),
@@ -165,8 +181,7 @@ pub fn render_bottom_right_panel_custom<R>(
     let mut result = None;
 
     let margin_right = 16.0;
-    let margin_bottom = 28.0;
-    let pos = Pos2::new(screen_rect.max.x - margin_right, screen_rect.max.y - margin_bottom);
+    let pos = Pos2::new(screen_rect.max.x - margin_right, anchor_bottom_y);
 
     let area_response = egui::Area::new(Id::new(id_str))
         .fixed_pos(pos)
@@ -177,6 +192,42 @@ pub fn render_bottom_right_panel_custom<R>(
             glass_frame().show(ui, |ui| {
                 ui.set_width(width);
                 ui.spacing_mut().item_spacing = Vec2::new(3.0, 4.0);
+
+                let cur_h = custom_height.unwrap_or(default_height).clamp(120.0, max_height);
+
+                // Top Resize Handle (Tarik ke atas / bawah untuk mengubah tinggi panel)
+                let (handle_rect, handle_resp) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), 10.0),
+                    egui::Sense::click_and_drag(),
+                );
+                if handle_resp.hovered() || handle_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                let pill_rect = egui::Rect::from_center_size(handle_rect.center(), Vec2::new(36.0, 4.0));
+                let pill_color = if handle_resp.dragged() {
+                    accent_color
+                } else if handle_resp.hovered() {
+                    TEXT_SECONDARY
+                } else {
+                    Color32::from_rgb(70, 75, 90)
+                };
+                ui.painter().rect_filled(
+                    pill_rect,
+                    egui::CornerRadius::same(2),
+                    pill_color,
+                );
+
+                if handle_resp.dragged() {
+                    let delta_y = handle_resp.drag_delta().y;
+                    let new_h = (cur_h - delta_y).clamp(120.0, max_height);
+                    *custom_height = Some(new_h);
+                    ui.ctx().request_repaint();
+                }
+
+                if handle_resp.double_clicked() {
+                    *custom_height = None;
+                    ui.ctx().request_repaint();
+                }
 
                 // Header
                 ui.horizontal(|ui| {
@@ -200,11 +251,16 @@ pub fn render_bottom_right_panel_custom<R>(
 
                 ui.separator();
 
-                let (res, req_close) = content(ui);
-                result = Some(res);
-                if req_close {
-                    close_clicked = true;
-                }
+                egui::ScrollArea::vertical()
+                    .max_height(cur_h)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let (res, req_close) = content(ui);
+                        result = Some(res);
+                        if req_close {
+                            close_clicked = true;
+                        }
+                    });
             });
         });
 

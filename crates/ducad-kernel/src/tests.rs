@@ -1922,3 +1922,131 @@ fn test_emboss_and_deboss_profiles() {
         "mesh deboss solid harus valid"
     );
 }
+
+#[test]
+fn helix_points_and_wire_generation() {
+    let params = HelixParams {
+        radius: 15.0,
+        end_radius: None,
+        pitch: 8.0,
+        turns: 3.0,
+        handedness: HelixHandedness::RightHand,
+        origin: [0.0, 0.0, 0.0],
+        axis: [0.0, 0.0, 1.0],
+        start_dir: [1.0, 0.0, 0.0],
+    };
+
+    let pts = generate_helix_points(&params, 32).expect("generate helix points");
+    assert!(pts.len() >= 32 * 3);
+
+    // Titik awal harus di (15, 0, 0)
+    assert!((pts[0][0] - 15.0).abs() < 1e-4);
+    assert!(pts[0][1].abs() < 1e-4);
+    assert!(pts[0][2].abs() < 1e-4);
+
+    // Titik akhir harus di Z = pitch * turns = 24.0
+    let last = pts.last().unwrap();
+    assert!((last[2] - 24.0).abs() < 1e-3);
+
+    let _wire = create_helix_wire(&params, 32).expect("create helix wire");
+}
+
+#[test]
+fn helix_solid_circular_spring_produces_mesh() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let params = HelixParams {
+        radius: 20.0,
+        end_radius: None,
+        pitch: 10.0,
+        turns: 2.0,
+        handedness: HelixHandedness::RightHand,
+        origin: [0.0, 0.0, 0.0],
+        axis: [0.0, 0.0, 1.0],
+        start_dir: [1.0, 0.0, 0.0],
+    };
+
+    let spring = create_helix_solid(&params, HelixProfileKind::Circle { radius: 2.0 }, 32)
+        .expect("create circular spring solid");
+
+    let mesh = spring.tessellate();
+    assert!(mesh.triangle_count() > 50, "mesh spring solid harus valid");
+    assert!(!mesh.positions.is_empty());
+}
+
+#[test]
+fn helix_solid_rectangular_auger_blade_produces_mesh() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let params = HelixParams {
+        radius: 25.0,
+        end_radius: None,
+        pitch: 15.0,
+        turns: 1.5,
+        handedness: HelixHandedness::RightHand,
+        origin: [0.0, 0.0, 0.0],
+        axis: [0.0, 0.0, 1.0],
+        start_dir: [1.0, 0.0, 0.0],
+    };
+
+    let auger = create_helix_solid(
+        &params,
+        HelixProfileKind::Rectangle {
+            width: 8.0,
+            height: 2.5,
+        },
+        32,
+    )
+    .expect("create rectangular auger blade");
+
+    let mesh = auger.tessellate();
+    assert!(mesh.triangle_count() > 50, "mesh auger blade solid harus valid");
+}
+
+#[test]
+fn helix_solid_triangular_thread_produces_mesh() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let params = HelixParams {
+        radius: 12.0,
+        end_radius: None,
+        pitch: 5.0,
+        turns: 2.0,
+        handedness: HelixHandedness::LeftHand,
+        origin: [0.0, 0.0, 0.0],
+        axis: [0.0, 0.0, 1.0],
+        start_dir: [1.0, 0.0, 0.0],
+    };
+
+    let thread = create_helix_solid(
+        &params,
+        HelixProfileKind::Triangle {
+            width: 3.0,
+            height: 2.0,
+        },
+        32,
+    )
+    .expect("create triangular thread");
+
+    let mesh = thread.tessellate();
+    assert!(mesh.triangle_count() > 50, "mesh thread solid harus valid");
+}
+
+#[test]
+fn conical_tapered_helix_spring_produces_mesh() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let params = HelixParams {
+        radius: 25.0,
+        end_radius: Some(10.0), // Tirus mengecil dari R=25 ke R=10
+        pitch: 8.0,
+        turns: 2.0,
+        handedness: HelixHandedness::RightHand,
+        origin: [0.0, 0.0, 0.0],
+        axis: [0.0, 0.0, 1.0],
+        start_dir: [1.0, 0.0, 0.0],
+    };
+
+    let conical_spring = create_helix_solid(&params, HelixProfileKind::Circle { radius: 1.5 }, 32)
+        .expect("create conical spring solid");
+
+    let mesh = conical_spring.tessellate();
+    assert!(mesh.triangle_count() > 50, "mesh conical spring solid harus valid");
+}
+

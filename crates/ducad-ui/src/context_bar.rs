@@ -22,6 +22,7 @@ pub enum ContextAction {
     Pattern,
     Revolve,
     Sweep,
+    Helix,
     Shell,
     Rib,
     DraftAngle,
@@ -140,6 +141,18 @@ impl ContextActionBar {
                     action = Some(ContextAction::Sweep);
                 }
 
+                // 7. Helix / Coil
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Helix", egui_material_icons::icons::ICON_HEATING_COIL.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Buat pegas atau ulir spiral 3D (Helix / Coil)").clicked() {
+                    action = Some(ContextAction::Helix);
+                }
+
                 ui.add_space(2.0);
                 ui.separator();
                 ui.add_space(2.0);
@@ -237,6 +250,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Putar bidang mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
+                }
+
+                // Helix / Coil Face
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Helix", egui_material_icons::icons::ICON_HEATING_COIL.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Buat ulir spiral atau pegas dari permukaan ini (Helix)").clicked() {
+                    action = Some(ContextAction::Helix);
                 }
 
                 // Shell / Hollow Face

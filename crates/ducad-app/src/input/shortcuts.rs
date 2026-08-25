@@ -159,6 +159,11 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Sweep),
             ),
             (
+                "Helix / Coil / Spring 3D (Kurva Spiral & Pegas Solid)".to_string(),
+                "G".to_string(),
+                PaletteAction::SetTool(ToolKind::Helix),
+            ),
+            (
                 "Draft Angle (Kemiringan Cetakan)".to_string(),
                 "D".to_string(),
                 PaletteAction::SetTool(ToolKind::DraftAngle),
@@ -460,6 +465,7 @@ impl DuCADApp {
             ToolKind::Extrude => ducad_i18n::t!("status-prompt-extrude"),
             ToolKind::Loft => ducad_i18n::t!("status-prompt-loft"),
             ToolKind::Sweep => ducad_i18n::t!("status-prompt-sweep"),
+            ToolKind::Helix => ducad_i18n::t!("status-prompt-helix"),
             ToolKind::Shell => ducad_i18n::t!("status-prompt-shell"),
             ToolKind::Rib => "Pilih body casing & garis tulang penguat, atur tebal & kedalaman, lalu tekan Enter".to_string(),
             ToolKind::DraftAngle => ducad_i18n::t!("status-prompt-draft"),

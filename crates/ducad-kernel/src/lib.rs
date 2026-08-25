@@ -6,6 +6,7 @@
 //! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
 
 pub mod csg;
+pub mod helix;
 pub mod hlr;
 pub mod hole;
 pub mod mesh;
@@ -55,6 +56,10 @@ pub use csg::{
     emboss_profiles_on_plane, extrude_profile, extrude_profile_on_plane, intersect, loft_profiles,
     revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
+};
+pub use helix::{
+    create_helix_path_segments, create_helix_solid, create_helix_solid_with_custom_profile,
+    create_helix_wire, generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
 };
 pub use hlr::{
     HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
