@@ -282,7 +282,7 @@ impl PlanesDrawer {
                                                 let icon = if plane.is_custom {
                                                     ICON_GRID_4X4.codepoint
                                                 } else {
-                                                    ICON_LAYERS.codepoint
+                                                    ICON_LAYERS_OFF.codepoint
                                                 };
                                                 let icon_color = if is_active {
                                                     ACCENT_BLUE

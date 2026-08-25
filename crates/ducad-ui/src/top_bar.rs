@@ -13,7 +13,7 @@ use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
-    ICON_LAYERS, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
+    ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
     ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
@@ -266,7 +266,7 @@ impl TopBar {
                 if state.is_sketching {
                     let plane_btn = header_icon_btn(
                         ui,
-                        ICON_LAYERS.codepoint,
+                        ICON_LAYERS_OFF.codepoint,
                         state.plane_menu_open,
                         &t!(
                             "topbar-sketch-plane",
@@ -312,7 +312,7 @@ impl TopBar {
                                             plane_active,
                                             RichText::new(format!(
                                                 "{} {}",
-                                                ICON_LAYERS.codepoint, label
+                                                ICON_LAYERS_OFF.codepoint, label
                                             ))
                                             .size(11.5),
                                         );
@@ -336,7 +336,7 @@ impl TopBar {
                                                 plane_active,
                                                 RichText::new(format!(
                                                     "{} {}",
-                                                    ICON_LAYERS.codepoint, name
+                                                    ICON_LAYERS_OFF.codepoint, name
                                                 ))
                                                 .size(11.0),
                                             );
@@ -359,7 +359,7 @@ impl TopBar {
                                     }
 
                                     let manage_btn = ui.button(
-                                        RichText::new(format!("{} {}", ICON_LAYERS.codepoint, t!("planes-drawer-title")))
+                                        RichText::new(format!("{} {}", ICON_LAYERS_OFF.codepoint, t!("planes-drawer-title")))
                                             .size(10.5)
                                             .color(TEXT_PRIMARY),
                                     );

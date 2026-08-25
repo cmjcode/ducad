@@ -1793,7 +1793,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Reference Planes (Kiri dari History)
                         let planes_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_LAYERS.codepoint,
+                            egui_material_icons::icons::ICON_LAYERS_OFF.codepoint,
                             self.planes_drawer_open,
                             "Daftar Bidang Referensi 3D (Reference Planes)",
                         );
