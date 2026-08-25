@@ -76,6 +76,7 @@ impl ToolGuides {
             ToolbarTool::Offset => Self::render_offset_anim(&painter, card_rect, has_selection, time),
             ToolbarTool::Mirror => Self::render_mirror_anim(&painter, card_rect, has_selection, pending_points_count, time),
             ToolbarTool::Trim => Self::render_trim_anim(&painter, card_rect, time),
+            ToolbarTool::Extend => Self::render_extend_anim(&painter, card_rect, time),
             ToolbarTool::PointCoincident => Self::render_coincident_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::PointFixed => Self::render_fixed_anim(&painter, card_rect, time),
             ToolbarTool::PointSymmetric => Self::render_symmetric_anim(&painter, card_rect, pending_points_count, time),
@@ -1202,6 +1203,72 @@ impl ToolGuides {
                 badge_pos,
                 &t!("guide-trim-badge"),
                 Color32::from_rgba_premultiplied(100, 30, 30, 220),
+                Color32::WHITE,
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Extend Tool
+    fn render_extend_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        time: f64,
+    ) {
+        let cycle = 3.0;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if phase < 0.45 {
+            ("1. Arahkan kursor ke ujung garis", ACCENT_ORANGE)
+        } else {
+            ("2. Klik untuk memperpanjang", ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, "Perpanjang Garis (Extend)", step_title, step_color);
+        Self::draw_footer(painter, card_rect, "Tips: Garis otomatis memanjang sampai menyentuh batas terdekat");
+
+        let inter_x = card_rect.right() - 50.0;
+        let inter_y = card_rect.center().y + 4.0;
+
+        // Garis batas vertikal (target)
+        painter.line_segment(
+            [Pos2::new(inter_x, card_rect.top() + 38.0), Pos2::new(inter_x, card_rect.bottom() - 36.0)],
+            Stroke::new(2.0, Color32::from_rgb(180, 180, 190)),
+        );
+
+        let line_start = Pos2::new(card_rect.left() + 40.0, inter_y);
+        let orig_end = Pos2::new(card_rect.left() + 110.0, inter_y);
+
+        // Garis dasar
+        painter.line_segment([line_start, orig_end], Stroke::new(2.0, ACCENT_BLUE));
+
+        let (cursor_pos, is_clicking) = if phase < 0.45 {
+            let t = (phase / 0.45).clamp(0.0, 1.0);
+            let pos = Pos2::new(orig_end.x - (1.0 - t) * 25.0, inter_y + (1.0 - t) * 15.0);
+            (pos, false)
+        } else {
+            (orig_end, phase < 0.70)
+        };
+
+        if phase >= 0.45 && phase < 0.70 {
+            // Preview garis perpanjangan cyan putus-putus
+            painter.line_segment(
+                [orig_end, Pos2::new(inter_x, inter_y)],
+                Stroke::new(2.0, Color32::from_rgb(64, 200, 255)),
+            );
+        } else if phase >= 0.70 {
+            // Garis sudah tersambung penuh
+            painter.line_segment(
+                [orig_end, Pos2::new(inter_x, inter_y)],
+                Stroke::new(2.0, ACCENT_BLUE),
+            );
+            let badge_pos = Pos2::new(card_rect.right() - 44.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "EXTENDED",
+                Color32::from_rgba_premultiplied(30, 90, 40, 220),
                 Color32::WHITE,
             );
         }

@@ -11,7 +11,7 @@ use crate::theme::{
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
     ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
     ICON_TITLE,
 };
@@ -34,6 +34,7 @@ pub enum ToolbarTool {
     Offset,
     Mirror,
     Trim,
+    Extend,
     PointCoincident,
     PointFixed,
     PointSymmetric,
@@ -138,6 +139,8 @@ impl LeftToolbar {
                 let spline_desc = t!("tool-spline-desc");
                 let text_title = t!("tool-text");
                 let text_desc = t!("tool-text-desc");
+                let extend_title = t!("tool-extend");
+                let extend_desc = t!("tool-extend-desc");
                 let datum_title = t!("tool-datum-plane");
                 let datum_desc = t!("tool-datum-plane-desc");
                 let loft_title = t!("tool-loft");
@@ -206,6 +209,13 @@ impl LeftToolbar {
                         &text_title,
                         Some("T"),
                         Some(&text_desc),
+                    ),
+                    (
+                        ToolbarTool::Extend,
+                        ICON_ARROWS_OUTWARD.codepoint,
+                        &extend_title,
+                        Some("Shift+E"),
+                        Some(&extend_desc),
                     ),
                     (
                         ToolbarTool::DatumPlane,

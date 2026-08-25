@@ -32,6 +32,8 @@ pub enum ToolKind {
     Mirror,
     /// Klik segmen Line yang mau dipotong.
     Trim,
+    /// Perpanjang segmen garis sampai kurva batas terdekat (Extend).
+    Extend,
     /// Constraint Coincident.
     CoincidentPick,
     /// Constraint Fixed.
@@ -92,6 +94,7 @@ impl ToolKind {
             ToolKind::Offset => ToolbarTool::Offset,
             ToolKind::Mirror => ToolbarTool::Mirror,
             ToolKind::Trim => ToolbarTool::Trim,
+            ToolKind::Extend => ToolbarTool::Extend,
             ToolKind::CoincidentPick => ToolbarTool::PointCoincident,
             ToolKind::FixedPick => ToolbarTool::PointFixed,
             ToolKind::SymmetricPick => ToolbarTool::PointSymmetric,
@@ -134,6 +137,7 @@ impl ToolKind {
             ToolbarTool::Offset => ToolKind::Offset,
             ToolbarTool::Mirror => ToolKind::Mirror,
             ToolbarTool::Trim => ToolKind::Trim,
+            ToolbarTool::Extend => ToolKind::Extend,
             ToolbarTool::PointCoincident => ToolKind::CoincidentPick,
             ToolbarTool::PointFixed => ToolKind::FixedPick,
             ToolbarTool::PointSymmetric => ToolKind::SymmetricPick,
@@ -254,6 +258,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Chamfer2D
         | ToolKind::Offset
         | ToolKind::Trim
+        | ToolKind::Extend
         | ToolKind::CoincidentPick
         | ToolKind::FixedPick
         | ToolKind::SymmetricPick

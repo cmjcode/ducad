@@ -58,7 +58,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
   - Generator kurva parametrik 3D:
     $$x(t) = R \cos(2\pi t), \quad y(t) = R \sin(2\pi t), \quad z(t) = \text{pitch} \cdot t$$
   - Disambungkan ke fungsi `sweep_profile_along_path` untuk menghasilkan pegas kawat (*spring*), ulir botol, dan pisau ulir sekrup (*auger*).
-- [ ] **10.3 Extend Tool & Bi-Arc Parallel Offset**:
+- [x] **10.3 Extend Tool & Bi-Arc Parallel Offset**:
   - Algoritma `extend_segment` pada `ducad-sketch` yang memperpanjang garis sampai menyentuh batas kurva terdekat.
   - Perluasan fungsi `offset_entity` agar mendukung kurva Ellipse dan Spline menggunakan pendekatan multi-arc tangensial.
 - [ ] **10.4 Variable Radius Fillet (Fillet Radius Berubah)**:

@@ -2387,6 +2387,7 @@ impl eframe::App for DuCADApp {
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
+                                ContextAction::Extend => self.set_tool(ToolKind::Extend),
                                 ContextAction::Pattern => self.set_tool(ToolKind::Pattern),
                                 ContextAction::Revolve => self.open_revolve_dialog(),
                                 ContextAction::Sweep => {

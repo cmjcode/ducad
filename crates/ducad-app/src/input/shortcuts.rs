@@ -134,6 +134,11 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Trim),
             ),
             (
+                "Extend (Perpanjang Garis)".to_string(),
+                "⇧E".to_string(),
+                PaletteAction::SetTool(ToolKind::Extend),
+            ),
+            (
                 "Fillet 2D".to_string(),
                 "F".to_string(),
                 PaletteAction::SetTool(ToolKind::Fillet2D),
@@ -429,6 +434,7 @@ impl DuCADApp {
                 }
             }
             ToolKind::Trim => ducad_i18n::t!("status-prompt-trim"),
+            ToolKind::Extend => ducad_i18n::t!("status-prompt-extend"),
             ToolKind::Fillet2D => ducad_i18n::t!("status-prompt-fillet-2d"),
             ToolKind::Chamfer2D => ducad_i18n::t!("status-prompt-chamfer-2d"),
             ToolKind::Revolve => {

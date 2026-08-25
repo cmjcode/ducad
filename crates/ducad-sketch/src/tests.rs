@@ -179,13 +179,33 @@ fn offset_circle_uses_reference_distance_as_new_radius() {
 }
 
 #[test]
-fn offset_ellipse_is_unsupported() {
+fn offset_ellipse_and_spline_are_supported() {
     let ellipse = Entity::ellipse(
         DVec2::ZERO,
         5.0,
         3.0,
     );
-    assert!(offset_entity(&ellipse, DVec2::new(8.0, 0.0)).is_none());
+    let offset_ell = offset_entity(&ellipse, DVec2::new(7.0, 0.0)).unwrap();
+    if let Entity::Ellipse { center, radius_x, radius_y, .. } = offset_ell {
+        assert_eq!(center, DVec2::ZERO);
+        assert!((radius_x - 7.0).abs() < 1e-4);
+        assert!((radius_y - 5.0).abs() < 1e-4);
+    } else {
+        panic!("Offset harus menghasilkan Entity::Ellipse");
+    }
+
+    let spline = Entity::spline(vec![
+        DVec2::new(0.0, 0.0),
+        DVec2::new(10.0, 5.0),
+        DVec2::new(20.0, 0.0),
+    ]);
+    let offset_sp = offset_entity(&spline, DVec2::new(10.0, 8.0)).unwrap();
+    if let Entity::Spline { points, .. } = offset_sp {
+        assert_eq!(points.len(), 3);
+        assert!(points[1].y > 5.0);
+    } else {
+        panic!("Offset harus menghasilkan Entity::Spline");
+    }
 }
 
 #[test]
@@ -1002,5 +1022,104 @@ fn test_text_vectorization() {
     // DUCAD memiliki closed regions untuk D, U, C, A, D
     assert!(regions.len() >= 5, "Teks DUCAD harus menghasilkan minimal 5 closed regions (got {})", regions.len());
 }
+
+#[test]
+fn test_extend_segment_towards_line_circle_and_spline() {
+    use crate::ops::{extend_preview, extend_segment, ray_intersect_entity};
+
+    let mut sketch = Sketch::default();
+    // Line 1 to extend: (0, 0) -> (5, 0)
+    let line1 = sketch.entities.insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)));
+    // Boundary line at x = 10, y from -10 to 10
+    let bound_line = sketch.entities.insert(Entity::line(DVec2::new(10.0, -10.0), DVec2::new(10.0, 10.0)));
+
+    // 1. Extend line1 forward (click near end at (4.0, 0.0))
+    let ext_line = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0)).expect("Harus bisa di-extend ke garis batas x=10");
+    if let Entity::Line { start, end, .. } = ext_line {
+        assert_eq!(start, DVec2::new(0.0, 0.0));
+        assert_eq!(end, DVec2::new(10.0, 0.0));
+    } else {
+        panic!("Hasil extend harus Line");
+    }
+
+    // 2. Extend preview check
+    let prev = extend_preview(&sketch, line1, DVec2::new(4.0, 0.0)).expect("Preview harus ada");
+    assert_eq!(prev.0, DVec2::new(5.0, 0.0));
+    assert_eq!(prev.1, DVec2::new(10.0, 0.0));
+
+    // 3. Extend towards Circle: remove boundary line and insert circle at (15, 0) radius 3
+    sketch.entities.remove(bound_line);
+    let _bound_circle = sketch.entities.insert(Entity::circle(DVec2::new(15.0, 0.0), 3.0));
+    // Sinar dari (5,0) ke arah +X akan menyentuh lingkaran di x = 15 - 3 = 12
+    let ext_circle = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0)).expect("Harus bisa di-extend ke lingkaran");
+    if let Entity::Line { start, end, .. } = ext_circle {
+        assert_eq!(start, DVec2::new(0.0, 0.0));
+        assert_eq!(end, DVec2::new(12.0, 0.0));
+    } else {
+        panic!("Hasil extend harus Line");
+    }
+
+    // 4. Extend backwards (click near start at (1.0, 0.0)) towards an ellipse at (-10, 0) rx=2, ry=4
+    let _bound_ellipse = sketch.entities.insert(Entity::ellipse(DVec2::new(-10.0, 0.0), 2.0, 4.0));
+    // Sinar dari (0,0) ke arah -X akan menyentuh elips di x = -10 + 2 = -8
+    let ext_ellipse = extend_segment(&sketch, line1, DVec2::new(1.0, 0.0)).expect("Harus bisa di-extend ke elips");
+    if let Entity::Line { start, end, .. } = ext_ellipse {
+        assert_eq!(start, DVec2::new(-8.0, 0.0));
+        assert_eq!(end, DVec2::new(5.0, 0.0));
+    } else {
+        panic!("Hasil extend harus Line");
+    }
+
+    // 5. Test ray intersection with Arc (top half arc center (0,10) radius 5, angle 0..PI)
+    // Ray from (0,0) upwards will pass through bottom at y=5 (not in 0..PI) and hit top at y=15 (angle PI/2 in 0..PI)
+    let arc_top = Entity::arc(DVec2::new(0.0, 10.0), 5.0, 0.0, std::f64::consts::PI);
+    let ts_top = ray_intersect_entity(DVec2::new(0.0, 0.0), DVec2::new(0.0, 1.0), &arc_top);
+    assert_eq!(ts_top.len(), 1);
+    assert!((ts_top[0] - 15.0).abs() < 1e-4);
+
+    // Bottom half arc (PI..2*PI) will be hit at y=5 (t=5.0)
+    let arc_bottom = Entity::arc(DVec2::new(0.0, 10.0), 5.0, std::f64::consts::PI, std::f64::consts::TAU);
+    let ts_bottom = ray_intersect_entity(DVec2::new(0.0, 0.0), DVec2::new(0.0, 1.0), &arc_bottom);
+    assert_eq!(ts_bottom.len(), 1);
+    assert!((ts_bottom[0] - 5.0).abs() < 1e-4);
+}
+
+#[test]
+fn test_biarc_and_multi_arc_offset() {
+    use crate::ops::{biarc_fit, multi_arc_parallel_offset_ellipse, multi_arc_parallel_offset_spline, offset_entity_multi_arc};
+
+    // 1. Bi-Arc Fitting between two points with tangents
+    let p0 = DVec2::new(0.0, 0.0);
+    let t0 = DVec2::new(1.0, 0.0);
+    let p1 = DVec2::new(10.0, 5.0);
+    let t1 = DVec2::new(0.0, 1.0);
+    let biarc = biarc_fit(p0, t0, p1, t1, false).expect("Bi-Arc fit harus berhasil");
+    assert!(matches!(biarc.0, Entity::Arc { .. }));
+    assert!(matches!(biarc.1, Entity::Arc { .. }));
+
+    // 2. Multi-arc parallel offset of Ellipse
+    let ellipse = Entity::ellipse(DVec2::ZERO, 20.0, 10.0);
+    let multi_arcs = multi_arc_parallel_offset_ellipse(DVec2::ZERO, 20.0, 10.0, 5.0, 8, false);
+    assert_eq!(multi_arcs.len(), 16, "8 spans bi-arc harus menghasilkan 16 busur tangensial");
+
+    // 3. Multi-arc parallel offset of Spline
+    let spline_pts = vec![
+        DVec2::new(0.0, 0.0),
+        DVec2::new(15.0, 10.0),
+        DVec2::new(30.0, 0.0),
+        DVec2::new(45.0, 15.0),
+    ];
+    let spline = Entity::spline(spline_pts.clone());
+    let spline_arcs = multi_arc_parallel_offset_spline(&spline_pts, 3.0, 6, false);
+    assert!(!spline_arcs.is_empty(), "Multi-arc spline offset harus menghasilkan busur");
+
+    // 4. offset_entity_multi_arc helper
+    let decomposed = offset_entity_multi_arc(&ellipse, DVec2::new(25.0, 0.0), 8).expect("Harus menghasilkan multi-arc");
+    assert_eq!(decomposed.len(), 16);
+
+    let decomposed_sp = offset_entity_multi_arc(&spline, DVec2::new(15.0, 15.0), 6).expect("Harus menghasilkan multi-arc");
+    assert!(!decomposed_sp.is_empty());
+}
+
 
 

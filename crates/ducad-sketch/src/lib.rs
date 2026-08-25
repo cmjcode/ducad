@@ -21,10 +21,12 @@ pub use commands::{
 };
 pub use entity::{Entity, EntityId};
 pub use ops::{
-    arc_from_three_points, circular_pattern_entities, circular_pattern_entities_with_radius,
-    compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, find_all_corners,
-    find_all_fillet_targets, find_corner_lines_at_point, line_intersection_params_in_sketch,
-    linear_pattern_entities, mirror_entity, offset_entity, project_t, reflect_point,
+    arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
+    compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, extend_preview,
+    extend_segment, find_all_corners, find_all_fillet_targets, find_corner_lines_at_point,
+    line_intersection_params_in_sketch, linear_pattern_entities, mirror_entity,
+    multi_arc_parallel_offset_ellipse, multi_arc_parallel_offset_spline, offset_entity,
+    offset_entity_multi_arc, project_t, ray_intersect_entity, reflect_point,
     regular_polygon_entities, regular_polygon_vertices, rotate_entity, rotate_point,
     slot_from_points, slot_from_radius, translate_entity, trim_segments, Chamfer2DResult,
     Fillet2DResult, FilletTarget, PolygonMode, SlotMode,

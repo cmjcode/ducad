@@ -7,7 +7,7 @@
 use ducad_i18n::t;
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
+    ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL,
     ICON_REFRESH, ICON_ROUTE,
 };
@@ -19,6 +19,7 @@ pub enum ContextAction {
     Offset,
     Mirror,
     Trim,
+    Extend,
     Pattern,
     Revolve,
     Sweep,
@@ -103,6 +104,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Pangkas segmen garis yang bersilangan (T)").clicked() {
                     action = Some(ContextAction::Trim);
+                }
+
+                // 4.1 Extend
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Extend", ICON_ARROWS_OUTWARD.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn.on_hover_text("Perpanjang garis sampai kurva batas terdekat (Shift+E)").clicked() {
+                    action = Some(ContextAction::Extend);
                 }
 
                 // 4.5 Pattern

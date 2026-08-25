@@ -960,6 +960,17 @@ impl DuCADApp {
                         }
                     }
                 }
+                ToolKind::Extend => {
+                    if let Some(id) = self.hovered {
+                        if let Some((a, b)) = ducad_sketch::extend_preview(self.sketch(), id, raw) {
+                            let preview = Entity::line(a, b);
+                            verts.extend(sketch_render::preview_lines(
+                                &preview,
+                                &self.active_plane,
+                            ));
+                        }
+                    }
+                }
                 ToolKind::Fillet2D => {
                     let tol = 12.0 * world_scale;
                     if let Some(res) = fillet_2d_preview(

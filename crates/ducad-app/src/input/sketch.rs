@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, find_corner_lines_at_point,
-    find_region_at_point, find_region_containing_entity, find_snap, find_snap_with_extra,
-    line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t, trim_segments,
-    Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId, Fillet2DResult,
-    InsertEntities, ReplaceEntities, Sketch, ToggleConstruction, TranslateEntities,
+    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, extend_preview, extend_segment,
+    find_corner_lines_at_point, find_region_at_point, find_region_containing_entity, find_snap,
+    find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
+    project_t, trim_segments, Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId,
+    Fillet2DResult, InsertEntities, ReplaceEntities, Sketch, ToggleConstruction, TranslateEntities,
 };
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -1004,8 +1004,11 @@ impl DuCADApp {
                 if ui.input(|i| i.key_pressed(egui::Key::C)) {
                     self.set_tool(ToolKind::Circle);
                 }
-                if ui.input(|i| i.key_pressed(egui::Key::E)) {
+                if ui.input(|i| !i.modifiers.shift && i.key_pressed(egui::Key::E)) {
                     self.set_tool(ToolKind::Ellipse);
+                }
+                if ui.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::E)) {
+                    self.set_tool(ToolKind::Extend);
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::Y)) {
                     self.set_tool(ToolKind::Polygon);
@@ -1893,6 +1896,28 @@ impl DuCADApp {
                                 "Trim",
                                 vec![id],
                                 new_lines,
+                            )));
+                            self.hovered = None;
+                        }
+                    }
+                }
+            }
+            ToolKind::Extend => {
+                self.last_snap = None;
+                self.hovered = response
+                    .hovered()
+                    .then(|| self.hit_test_hover(rect, response, tol))
+                    .flatten()
+                    .filter(|id| {
+                        matches!(self.sketch().entities.get(*id), Some(Entity::Line { .. }))
+                    });
+                if response.clicked() {
+                    if let Some(id) = self.hovered {
+                        if let Some(extended_line) = extend_segment(self.sketch(), id, raw) {
+                            self.execute_sketch_command(Box::new(ReplaceEntities::new(
+                                "Extend",
+                                vec![id],
+                                vec![extended_line],
                             )));
                             self.hovered = None;
                         }

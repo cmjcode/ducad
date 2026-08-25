@@ -2,7 +2,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{PI, TAU};
 
-use crate::entity::{Entity, EntityId};
+use crate::entity::{angle_in_range, distance_point_segment, sample_catmull_rom, Entity, EntityId};
 use crate::sketch::Sketch;
 use crate::snap::line_intersection_params;
 
@@ -113,7 +113,79 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
                 is_construction,
             })
         }
-        Entity::Ellipse { .. } | Entity::Spline { .. } => None,
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            ..
+        } => {
+            let rel = reference_point - *center;
+            let rx = *radius_x;
+            let ry = *radius_y;
+            if rx <= 1e-6 || ry <= 1e-6 {
+                return None;
+            }
+            let norm_dist_sq = (rel.x / rx).powi(2) + (rel.y / ry).powi(2);
+            let dist = entity.distance_to(reference_point);
+            let signed_d = if norm_dist_sq >= 1.0 { dist } else { -dist };
+            let new_rx = rx + signed_d;
+            let new_ry = ry + signed_d;
+            if new_rx > 1e-4 && new_ry > 1e-4 {
+                Some(Entity::Ellipse {
+                    center: *center,
+                    radius_x: new_rx,
+                    radius_y: new_ry,
+                    is_construction,
+                })
+            } else {
+                None
+            }
+        }
+        Entity::Spline { points, .. } => {
+            if points.len() < 2 {
+                return None;
+            }
+            let dist = entity.distance_to(reference_point);
+            if dist < 1e-9 {
+                return Some(entity.clone());
+            }
+            let sampled = sample_catmull_rom(points, 16);
+            let mut nearest_seg = (sampled[0], sampled[1]);
+            let mut min_seg_dist = f64::INFINITY;
+            for w in sampled.windows(2) {
+                let d = distance_point_segment(reference_point, w[0], w[1]);
+                if d < min_seg_dist {
+                    min_seg_dist = d;
+                    nearest_seg = (w[0], w[1]);
+                }
+            }
+            let seg_dir = (nearest_seg.1 - nearest_seg.0).normalize_or_zero();
+            let seg_normal = DVec2::new(-seg_dir.y, seg_dir.x);
+            let mid_seg = (nearest_seg.0 + nearest_seg.1) * 0.5;
+            let signed_d = if (reference_point - mid_seg).dot(seg_normal) >= 0.0 {
+                dist
+            } else {
+                -dist
+            };
+
+            let n = points.len();
+            let mut new_points = Vec::with_capacity(n);
+            for i in 0..n {
+                let dir = if i == 0 {
+                    (points[1] - points[0]).normalize_or_zero()
+                } else if i == n - 1 {
+                    (points[n - 1] - points[n - 2]).normalize_or_zero()
+                } else {
+                    (points[i + 1] - points[i - 1]).normalize_or_zero()
+                };
+                let normal = DVec2::new(-dir.y, dir.x);
+                new_points.push(points[i] + normal * signed_d);
+            }
+            Some(Entity::Spline {
+                points: new_points,
+                is_construction,
+            })
+        }
     }
 }
 
@@ -1112,4 +1184,478 @@ pub fn slot_from_radius(
 
     Some(entities)
 }
+
+/// Sepasang Arc lingkaran tangensial (G1 continuous Bi-Arc) yang menghubungkan titik `p0` (vektor singgung `t0`)
+/// ke titik `p1` (vektor singgung `t1`).
+pub fn biarc_fit(
+    p0: DVec2,
+    t0: DVec2,
+    p1: DVec2,
+    t1: DVec2,
+    is_construction: bool,
+) -> Option<(Entity, Entity)> {
+    let chord = p1 - p0;
+    let chord_len = chord.length();
+    if chord_len < 1e-6 {
+        return None;
+    }
+    let t0 = t0.normalize_or_zero();
+    let t1 = t1.normalize_or_zero();
+    if t0 == DVec2::ZERO || t1 == DVec2::ZERO {
+        return None;
+    }
+
+    let n0 = DVec2::new(-t0.y, t0.x);
+    let n1 = DVec2::new(-t1.y, t1.x);
+
+    let k = 2.0 * (1.0 - t0.dot(t1));
+    let pm = if k.abs() < 1e-6 {
+        (p0 + p1) * 0.5
+    } else {
+        let b = -2.0 * chord.dot(t0 + t1);
+        let c = 2.0 * chord.length_squared();
+        let discr = (b * b - 4.0 * k * (-c)).max(0.0);
+        let d = (-b + discr.sqrt()) / (2.0 * k);
+        let d = if d.is_finite() && d > 0.0 {
+            d
+        } else {
+            chord_len * 0.5
+        };
+        let q0 = p0 + t0 * (d * 0.5);
+        let q1 = p1 - t1 * (d * 0.5);
+        (q0 + q1) * 0.5
+    };
+
+    let mid1 = (p0 + pm) * 0.5;
+    let chord1 = pm - p0;
+    let bisector1_dir = DVec2::new(-chord1.y, chord1.x);
+    let c1 = line_intersection_2d(p0, n0, mid1, bisector1_dir).unwrap_or(mid1);
+    let r1 = (p0 - c1).length().max(1e-4);
+    let a0 = (p0 - c1).y.atan2((p0 - c1).x);
+    let am1 = (pm - c1).y.atan2((pm - c1).x);
+    let (s1, e1) = orient_arc_angles(a0, am1, t0, p0 - c1);
+
+    let mid2 = (pm + p1) * 0.5;
+    let chord2 = p1 - pm;
+    let bisector2_dir = DVec2::new(-chord2.y, chord2.x);
+    let c2 = line_intersection_2d(p1, n1, mid2, bisector2_dir).unwrap_or(mid2);
+    let r2 = (p1 - c2).length().max(1e-4);
+    let am2 = (pm - c2).y.atan2((pm - c2).x);
+    let a1 = (p1 - c2).y.atan2((p1 - c2).x);
+    let (s2, e2) = orient_arc_angles(am2, a1, t1, p1 - c2);
+
+    let arc1 = Entity::Arc {
+        center: c1,
+        radius: r1,
+        start_angle: s1,
+        end_angle: e1,
+        is_construction,
+    };
+    let arc2 = Entity::Arc {
+        center: c2,
+        radius: r2,
+        start_angle: s2,
+        end_angle: e2,
+        is_construction,
+    };
+    Some((arc1, arc2))
+}
+
+fn line_intersection_2d(p1: DVec2, d1: DVec2, p2: DVec2, d2: DVec2) -> Option<DVec2> {
+    let denom = d1.x * d2.y - d1.y * d2.x;
+    if denom.abs() < 1e-9 {
+        return None;
+    }
+    let diff = p2 - p1;
+    let t = (diff.x * d2.y - diff.y * d2.x) / denom;
+    Some(p1 + d1 * t)
+}
+
+fn orient_arc_angles(from: f64, to: f64, tangent: DVec2, radial: DVec2) -> (f64, f64) {
+    let cross = radial.x * tangent.y - radial.y * tangent.x;
+    if cross >= 0.0 {
+        (from, to)
+    } else {
+        (to, from)
+    }
+}
+
+/// Aproksimasi offset kurva elips menjadi deretan Arc lingkaran tangensial (Bi-Arcs).
+pub fn multi_arc_parallel_offset_ellipse(
+    center: DVec2,
+    rx: f64,
+    ry: f64,
+    offset_dist: f64,
+    num_spans: usize,
+    is_construction: bool,
+) -> Vec<Entity> {
+    let spans = num_spans.max(4);
+    let mut entities = Vec::new();
+    let sample_ellipse_offset = |t: f64| -> (DVec2, DVec2) {
+        let p = center + DVec2::new(rx * t.cos(), ry * t.sin());
+        let unnorm_normal = DVec2::new(ry * t.cos(), rx * t.sin());
+        let normal = unnorm_normal.normalize_or_zero();
+        let offset_p = p + normal * offset_dist;
+        let tangent = DVec2::new(-normal.y, normal.x);
+        (offset_p, tangent)
+    };
+
+    for i in 0..spans {
+        let t0 = TAU * (i as f64) / (spans as f64);
+        let t1 = TAU * ((i + 1) as f64) / (spans as f64);
+        let (p0, v0) = sample_ellipse_offset(t0);
+        let (p1, v1) = sample_ellipse_offset(t1);
+        if let Some((arc1, arc2)) = biarc_fit(p0, v0, p1, v1, is_construction) {
+            entities.push(arc1);
+            entities.push(arc2);
+        }
+    }
+    entities
+}
+
+/// Aproksimasi offset kurva spline menjadi deretan Arc lingkaran tangensial (Bi-Arcs).
+pub fn multi_arc_parallel_offset_spline(
+    points: &[DVec2],
+    offset_dist: f64,
+    num_spans: usize,
+    is_construction: bool,
+) -> Vec<Entity> {
+    if points.len() < 2 {
+        return Vec::new();
+    }
+    let dense = sample_catmull_rom(points, num_spans.max(4));
+    if dense.len() < 2 {
+        return Vec::new();
+    }
+    let n = dense.len();
+    let mut offset_pts = Vec::with_capacity(n);
+    let mut tangents = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let t = if i == 0 {
+            (dense[1] - dense[0]).normalize_or_zero()
+        } else if i == n - 1 {
+            (dense[n - 1] - dense[n - 2]).normalize_or_zero()
+        } else {
+            (dense[i + 1] - dense[i - 1]).normalize_or_zero()
+        };
+        let norm = DVec2::new(-t.y, t.x);
+        offset_pts.push(dense[i] + norm * offset_dist);
+        tangents.push(t);
+    }
+
+    let mut entities = Vec::new();
+    for i in 0..(n - 1) {
+        if let Some((arc1, arc2)) = biarc_fit(
+            offset_pts[i],
+            tangents[i],
+            offset_pts[i + 1],
+            tangents[i + 1],
+            is_construction,
+        ) {
+            entities.push(arc1);
+            entities.push(arc2);
+        }
+    }
+    entities
+}
+
+/// Konversi entitas menjadi multi-arc tangensial offset jika berupa Ellipse atau Spline, atau entitas offset tunggal untuk Line/Circle/Arc.
+pub fn offset_entity_multi_arc(
+    entity: &Entity,
+    reference_point: DVec2,
+    num_spans: usize,
+) -> Option<Vec<Entity>> {
+    let is_construction = entity.is_construction();
+    match entity {
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            ..
+        } => {
+            let rel = reference_point - *center;
+            let rx = *radius_x;
+            let ry = *radius_y;
+            if rx <= 1e-6 || ry <= 1e-6 {
+                return None;
+            }
+            let norm_dist_sq = (rel.x / rx).powi(2) + (rel.y / ry).powi(2);
+            let dist = entity.distance_to(reference_point);
+            let signed_d = if norm_dist_sq >= 1.0 { dist } else { -dist };
+            let arcs = multi_arc_parallel_offset_ellipse(
+                *center,
+                rx,
+                ry,
+                signed_d,
+                num_spans,
+                is_construction,
+            );
+            if arcs.is_empty() {
+                None
+            } else {
+                Some(arcs)
+            }
+        }
+        Entity::Spline { points, .. } => {
+            if points.len() < 2 {
+                return None;
+            }
+            let dist = entity.distance_to(reference_point);
+            let sampled = sample_catmull_rom(points, 16);
+            let mut nearest_seg = (sampled[0], sampled[1]);
+            let mut min_seg_dist = f64::INFINITY;
+            for w in sampled.windows(2) {
+                let d = distance_point_segment(reference_point, w[0], w[1]);
+                if d < min_seg_dist {
+                    min_seg_dist = d;
+                    nearest_seg = (w[0], w[1]);
+                }
+            }
+            let seg_dir = (nearest_seg.1 - nearest_seg.0).normalize_or_zero();
+            let seg_normal = DVec2::new(-seg_dir.y, seg_dir.x);
+            let mid_seg = (nearest_seg.0 + nearest_seg.1) * 0.5;
+            let signed_d = if (reference_point - mid_seg).dot(seg_normal) >= 0.0 {
+                dist
+            } else {
+                -dist
+            };
+
+            let arcs = multi_arc_parallel_offset_spline(
+                points,
+                signed_d,
+                num_spans,
+                is_construction,
+            );
+            if arcs.is_empty() {
+                None
+            } else {
+                Some(arcs)
+            }
+        }
+        _ => offset_entity(entity, reference_point).map(|e| vec![e]),
+    }
+}
+
+/// Parameter jarak sinar `origin + t * dir` (dengan `t > 1e-5`) terhadap suatu `Entity`.
+pub fn ray_intersect_entity(origin: DVec2, dir: DVec2, entity: &Entity) -> Vec<f64> {
+    let dir = dir.normalize_or_zero();
+    if dir == DVec2::ZERO {
+        return Vec::new();
+    }
+    match entity {
+        Entity::Line { start, end, .. } => {
+            let v = *end - *start;
+            let denom = dir.x * v.y - dir.y * v.x;
+            if denom.abs() < 1e-9 {
+                return Vec::new();
+            }
+            let diff = *start - origin;
+            let t = (diff.x * v.y - diff.y * v.x) / denom;
+            let u = (diff.x * dir.y - diff.y * dir.x) / denom;
+            if t > 1e-5 && (-1e-5..=1.0 + 1e-5).contains(&u) {
+                vec![t]
+            } else {
+                Vec::new()
+            }
+        }
+        Entity::Circle { center, radius, .. } => {
+            let r = *radius;
+            let m = origin - *center;
+            let b = m.dot(dir);
+            let c = m.length_squared() - r * r;
+            let discr = b * b - c;
+            if discr < 0.0 {
+                return Vec::new();
+            }
+            let sqrt_discr = discr.sqrt();
+            let mut ts = Vec::new();
+            let t1 = -b - sqrt_discr;
+            let t2 = -b + sqrt_discr;
+            if t1 > 1e-5 {
+                ts.push(t1);
+            }
+            if t2 > 1e-5 && (t2 - t1).abs() > 1e-6 {
+                ts.push(t2);
+            }
+            ts
+        }
+        Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            ..
+        } => {
+            let r = *radius;
+            let m = origin - *center;
+            let b = m.dot(dir);
+            let c = m.length_squared() - r * r;
+            let discr = b * b - c;
+            if discr < 0.0 {
+                return Vec::new();
+            }
+            let sqrt_discr = discr.sqrt();
+            let mut ts = Vec::new();
+            for &t in &[-b - sqrt_discr, -b + sqrt_discr] {
+                if t > 1e-5 {
+                    let q = origin + dir * t;
+                    let to_q = q - *center;
+                    let angle = to_q.y.atan2(to_q.x);
+                    if angle_in_range(angle, *start_angle, *end_angle) {
+                        ts.push(t);
+                    }
+                }
+            }
+            ts
+        }
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            ..
+        } => {
+            let rx = *radius_x;
+            let ry = *radius_y;
+            if rx <= 1e-6 || ry <= 1e-6 {
+                return Vec::new();
+            }
+            let m = origin - *center;
+            let mx = m.x / rx;
+            let my = m.y / ry;
+            let dx = dir.x / rx;
+            let dy = dir.y / ry;
+            let a = dx * dx + dy * dy;
+            if a < 1e-12 {
+                return Vec::new();
+            }
+            let b = 2.0 * (mx * dx + my * dy);
+            let c = mx * mx + my * my - 1.0;
+            let discr = b * b - 4.0 * a * c;
+            if discr < 0.0 {
+                return Vec::new();
+            }
+            let sqrt_discr = discr.sqrt();
+            let mut ts = Vec::new();
+            let t1 = (-b - sqrt_discr) / (2.0 * a);
+            let t2 = (-b + sqrt_discr) / (2.0 * a);
+            if t1 > 1e-5 {
+                ts.push(t1);
+            }
+            if t2 > 1e-5 && (t2 - t1).abs() > 1e-6 {
+                ts.push(t2);
+            }
+            ts
+        }
+        Entity::Spline { points, .. } => {
+            let sampled = sample_catmull_rom(points, 24);
+            let mut ts = Vec::new();
+            for w in sampled.windows(2) {
+                let seg = Entity::line(w[0], w[1]);
+                let seg_ts = ray_intersect_entity(origin, dir, &seg);
+                ts.extend(seg_ts);
+            }
+            ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+            ts
+        }
+    }
+}
+
+/// Memperpanjang segmen garis `line_id` pada `sketch` sampai menyentuh kurva pembatas terdekat.
+/// `click_pos` menentukan ujung garis mana yang akan diperpanjang.
+pub fn extend_segment(
+    sketch: &Sketch,
+    line_id: EntityId,
+    click_pos: DVec2,
+) -> Option<Entity> {
+    let Entity::Line { start, end, is_construction } = sketch.entities.get(line_id)?.clone() else {
+        return None;
+    };
+    let t_click = project_t(start, end, click_pos);
+    let extend_end = t_click >= 0.5;
+
+    let (origin, dir) = if extend_end {
+        (end, (end - start).normalize_or_zero())
+    } else {
+        (start, (start - end).normalize_or_zero())
+    };
+
+    if dir == DVec2::ZERO {
+        return None;
+    }
+
+    let mut min_t = f64::INFINITY;
+    for (id, entity) in &sketch.entities {
+        if id == line_id || sketch.is_hidden(id) {
+            continue;
+        }
+        for t in ray_intersect_entity(origin, dir, entity) {
+            if t > 1e-5 && t < min_t {
+                min_t = t;
+            }
+        }
+    }
+
+    if min_t.is_finite() {
+        let target_pt = origin + dir * min_t;
+        if extend_end {
+            Some(Entity::Line {
+                start,
+                end: target_pt,
+                is_construction,
+            })
+        } else {
+            Some(Entity::Line {
+                start: target_pt,
+                end,
+                is_construction,
+            })
+        }
+    } else {
+        None
+    }
+}
+
+/// Helper preview perpanjangan: mengembalikan pasangan titik segmen tambahan (ujung garis -> titik potong target).
+pub fn extend_preview(
+    sketch: &Sketch,
+    line_id: EntityId,
+    click_pos: DVec2,
+) -> Option<(DVec2, DVec2)> {
+    let Entity::Line { start, end, .. } = sketch.entities.get(line_id)?.clone() else {
+        return None;
+    };
+    let t_click = project_t(start, end, click_pos);
+    let extend_end = t_click >= 0.5;
+
+    let (origin, dir) = if extend_end {
+        (end, (end - start).normalize_or_zero())
+    } else {
+        (start, (start - end).normalize_or_zero())
+    };
+
+    if dir == DVec2::ZERO {
+        return None;
+    }
+
+    let mut min_t = f64::INFINITY;
+    for (id, entity) in &sketch.entities {
+        if id == line_id || sketch.is_hidden(id) {
+            continue;
+        }
+        for t in ray_intersect_entity(origin, dir, entity) {
+            if t > 1e-5 && t < min_t {
+                min_t = t;
+            }
+        }
+    }
+
+    if min_t.is_finite() {
+        Some((origin, origin + dir * min_t))
+    } else {
+        None
+    }
+}
+
 
