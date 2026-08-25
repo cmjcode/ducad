@@ -204,6 +204,12 @@ param-angle-val = Angle: { $val }
 measure-angle-undefined = Angle: undefined (coincident points)
 param-thickness = Thickness
 param-radius = Radius
+param-radius-start = Start R
+param-radius-end = End R
+tool-fillet-name = Fillet
+tool-chamfer-name = Chamfer
+tool-fillet-variable = Variable Fillet
+inspector-fillet-variable-toggle = Variable Radius (R_start != R_end)
 param-length = Length
 param-width = Width
 param-axis = Axis

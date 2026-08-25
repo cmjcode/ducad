@@ -666,6 +666,13 @@ pub mod ffi {
 
         #[rust_name = "add_edge"]
         pub fn Add(self: Pin<&mut BRepFilletAPI_MakeFillet>, radius: f64, edge: &TopoDS_Edge);
+        #[rust_name = "add_edge_variable"]
+        pub fn Add(
+            self: Pin<&mut BRepFilletAPI_MakeFillet>,
+            radius1: f64,
+            radius2: f64,
+            edge: &TopoDS_Edge,
+        );
         pub fn Shape(self: Pin<&mut BRepFilletAPI_MakeFillet>) -> &TopoDS_Shape;
         pub fn Build(self: Pin<&mut BRepFilletAPI_MakeFillet>, progress: &Message_ProgressRange);
         pub fn IsDone(self: &BRepFilletAPI_MakeFillet) -> bool;

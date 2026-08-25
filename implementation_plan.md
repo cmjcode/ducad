@@ -61,7 +61,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
 - [x] **10.3 Extend Tool & Bi-Arc Parallel Offset**:
   - Algoritma `extend_segment` pada `ducad-sketch` yang memperpanjang garis sampai menyentuh batas kurva terdekat.
   - Perluasan fungsi `offset_entity` agar mendukung kurva Ellipse dan Spline menggunakan pendekatan multi-arc tangensial.
-- [ ] **10.4 Variable Radius Fillet (Fillet Radius Berubah)**:
+- [x] **10.4 Variable Radius Fillet (Fillet Radius Berubah)**:
   - Integrasi API OpenCASCADE `BRepFilletAPI_MakeFillet` dengan parameter radius variabel di titik awal dan titik akhir ($R_{\text{start}} \ne R_{\text{end}}$).
 
 ---

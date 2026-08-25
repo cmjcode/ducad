@@ -396,6 +396,7 @@ pub struct RoundFeature {
     pub ray: PickRay,
     pub anchor: (f64, f64, f64),
     pub radius: f64,
+    pub radius_end: Option<f64>,
     pub polyline: Vec<(f64, f64, f64)>,
 }
 

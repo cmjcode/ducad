@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, extend_preview, extend_segment,
+    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, extend_segment,
     find_corner_lines_at_point, find_region_at_point, find_region_containing_entity, find_snap,
     find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
     project_t, trim_segments, Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId,

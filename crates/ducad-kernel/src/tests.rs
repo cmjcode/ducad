@@ -529,6 +529,33 @@ fn fillet_edges_no_match_errors() {
     assert!(fillet_edges(&shape, 2.0, &[ray], 1.0).is_err());
 }
 
+#[test]
+fn fillet_edges_variable_success() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (-5.0, -5.0, 7.5),
+        dir: (1.0, 1.0, 0.0),
+    };
+    let filleted_var = fillet_edges_variable(&shape, 1.0, 4.0, &[ray], 1.0).unwrap();
+    let original_verts = shape.tessellate().positions.len();
+    let var_verts = filleted_var.tessellate().positions.len();
+    assert!(var_verts > original_verts, "variable radius fillet harus memodifikasi mesh tepi");
+}
+
+#[test]
+fn fillet_edges_variable_validation_errors() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+    let ray = PickRay {
+        origin: (-5.0, -5.0, 7.5),
+        dir: (1.0, 1.0, 0.0),
+    };
+    assert!(fillet_edges_variable(&shape, 0.0, 4.0, &[ray], 1.0).is_err());
+    assert!(fillet_edges_variable(&shape, 2.0, -1.0, &[ray], 1.0).is_err());
+    assert!(fillet_edges_variable(&shape, 2.0, 4.0, &[], 1.0).is_err());
+}
+
 // ---- Vertex Fillet Gizmo: fillet SEMUA tepi yang bertemu di 1 sudut ----
 
 #[test]

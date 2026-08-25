@@ -204,6 +204,12 @@ param-angle-val = Sudut: { $val }
 measure-angle-undefined = Sudut: tidak terdefinisi (titik berimpit)
 param-thickness = Tebal
 param-radius = Radius
+param-radius-start = Radius Awal
+param-radius-end = Radius Akhir
+tool-fillet-name = Fillet
+tool-chamfer-name = Chamfer
+tool-fillet-variable = Fillet Variabel
+inspector-fillet-variable-toggle = Radius Variabel (R_awal != R_akhir)
 param-length = Panjang
 param-width = Lebar
 param-axis = Sumbu

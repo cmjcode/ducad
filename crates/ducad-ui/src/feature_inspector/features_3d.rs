@@ -519,18 +519,63 @@ pub fn show_3d_cards(
             }
 
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}:", t!("param-radius"))).size(10.5).color(TEXT_SECONDARY));
-                ui.add_sized(
-                    Vec2::new(55.0, 18.0),
-                    egui::TextEdit::singleline(&mut state.fillet_input),
-                );
-                if ui.button(RichText::new(t!("tool-fillet-name")).size(10.5)).clicked() {
-                    if let Ok(r) = state.fillet_input.trim().parse::<f64>() {
-                        *event = Some(InspectorEvent::ApplyFillet { radius: r });
+            ui.checkbox(
+                &mut state.fillet_variable_enabled,
+                RichText::new(t!("inspector-fillet-variable-toggle")).size(10.0),
+            );
+            if state.fillet_variable_enabled {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-radius-start")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
+                    ui.add_sized(
+                        Vec2::new(42.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.fillet_input),
+                    );
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-radius-end")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
+                    ui.add_sized(
+                        Vec2::new(42.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.fillet_radius_end_input),
+                    );
+                });
+                if ui
+                    .button(RichText::new(t!("tool-fillet-variable")).size(10.5))
+                    .clicked()
+                {
+                    if let (Ok(r1), Ok(r2)) = (
+                        state.fillet_input.trim().parse::<f64>(),
+                        state.fillet_radius_end_input.trim().parse::<f64>(),
+                    ) {
+                        *event = Some(InspectorEvent::ApplyVariableFillet {
+                            radius_start: r1,
+                            radius_end: r2,
+                        });
                     }
                 }
-            });
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-radius")))
+                            .size(10.5)
+                            .color(TEXT_SECONDARY),
+                    );
+                    ui.add_sized(
+                        Vec2::new(55.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.fillet_input),
+                    );
+                    if ui.button(RichText::new(t!("tool-fillet-name")).size(10.5)).clicked() {
+                        if let Ok(r) = state.fillet_input.trim().parse::<f64>() {
+                            *event = Some(InspectorEvent::ApplyFillet { radius: r });
+                        }
+                    }
+                });
+            }
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("{}:", t!("param-distance"))).size(10.5).color(TEXT_SECONDARY));

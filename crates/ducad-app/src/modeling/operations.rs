@@ -463,22 +463,57 @@ impl DuCADApp {
             return;
         };
         let rays: Vec<PickRay> = self.selected_edges.iter().map(|e| e.ray).collect();
-        let result = if rays.is_empty() {
-            ducad_kernel::fillet_all(&geo.shape, radius)
+        let (result, label, desc) = if self.fillet_variable_enabled {
+            let Ok(radius_end) = self.fillet_radius_end_input.trim().parse::<f64>() else {
+                self.model_status = Some("Radius akhir fillet variabel tidak valid".to_string());
+                return;
+            };
+            if rays.is_empty() {
+                self.model_status =
+                    Some("Pilih minimal 1 tepi/rusuk untuk Fillet Variabel".to_string());
+                return;
+            }
+            let res = ducad_kernel::fillet_edges_variable(
+                &geo.shape,
+                radius,
+                radius_end,
+                &rays,
+                Self::EDGE_REAPPLY_TOLERANCE_MM,
+            );
+            (
+                res,
+                "Fillet Variabel",
+                format!(
+                    "Melengkungkan sudut rusuk body (Radius Variabel R_start: {:.1} mm -> R_end: {:.1} mm)",
+                    radius, radius_end
+                ),
+            )
+        } else if rays.is_empty() {
+            let res = ducad_kernel::fillet_all(&geo.shape, radius);
+            (
+                res,
+                "Fillet",
+                format!("Melengkungkan semua rusuk body (Radius {:.1} mm)", radius),
+            )
         } else {
-            ducad_kernel::fillet_edges(
+            let res = ducad_kernel::fillet_edges(
                 &geo.shape,
                 radius,
                 &rays,
                 Self::EDGE_REAPPLY_TOLERANCE_MM,
+            );
+            (
+                res,
+                "Fillet",
+                format!("Melengkungkan sudut rusuk body (Radius {:.1} mm)", radius),
             )
         };
         match result {
             Ok(shape) => {
                 let new_geo = BodyGeometry::from_shape(shape);
                 self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new("Fillet", id, new_geo)),
-                    &format!("Melengkungkan sudut rusuk body (Radius {:.1} mm)", radius),
+                    Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
+                    &desc,
                 );
                 self.round_history.remove(&id);
                 self.selected_edges.clear();

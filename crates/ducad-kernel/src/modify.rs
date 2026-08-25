@@ -100,6 +100,36 @@ pub fn fillet_edges(
     Ok(KernelShape::from_inner(cloned))
 }
 
+/// Fillet tepi yang di-pick lewat `rays` dengan radius variabel dari
+/// `radius_start` (di ujung awal rusuk) ke `radius_end` (di ujung akhir rusuk).
+pub fn fillet_edges_variable(
+    shape: &KernelShape,
+    radius_start: f64,
+    radius_end: f64,
+    rays: &[PickRay],
+    tolerance: f64,
+) -> Result<KernelShape> {
+    if radius_start <= 0.0 || radius_end <= 0.0 {
+        bail!("radius fillet variabel (start dan end) harus > 0");
+    }
+    if rays.is_empty() {
+        bail!("pilih minimal 1 tepi untuk fillet variabel");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(shape.inner())?;
+    let mut edges = Vec::with_capacity(rays.len());
+    for ray in rays {
+        let Some((edge, _, _)) = resolve_edge_along_ray(&cloned, *ray, tolerance) else {
+            bail!("salah satu tepi terpilih tidak ditemukan lagi pada shape");
+        };
+        edges.push(edge);
+    }
+    cloned
+        .fillet_edges_variable(radius_start, radius_end, &edges)
+        .context("radius fillet variabel terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    Ok(KernelShape::from_inner(cloned))
+}
+
 /// Fillet SEMUA tepi yang bertemu di 1 vertex (sudut) yang di-pick lewat
 /// `ray` — beda dari `fillet_edges` yang fillet tepi spesifik hasil pick:
 /// di sini user klik SUDUT, kernel yang mencari sendiri tepi-tepi yang

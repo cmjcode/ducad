@@ -288,12 +288,33 @@ impl DuCADApp {
                     f.ray,
                     Self::EDGE_REAPPLY_TOLERANCE_MM,
                 ),
-                (RoundKind::Edge, RoundStyle::Fillet) => ducad_kernel::fillet_edges(
-                    &shape,
-                    f.radius,
-                    &[f.ray],
-                    Self::EDGE_REAPPLY_TOLERANCE_MM,
-                ),
+                (RoundKind::Edge, RoundStyle::Fillet) => {
+                    if let Some(r_end) = f.radius_end {
+                        if (r_end - f.radius).abs() > 1e-4 {
+                            ducad_kernel::fillet_edges_variable(
+                                &shape,
+                                f.radius,
+                                r_end,
+                                &[f.ray],
+                                Self::EDGE_REAPPLY_TOLERANCE_MM,
+                            )
+                        } else {
+                            ducad_kernel::fillet_edges(
+                                &shape,
+                                f.radius,
+                                &[f.ray],
+                                Self::EDGE_REAPPLY_TOLERANCE_MM,
+                            )
+                        }
+                    } else {
+                        ducad_kernel::fillet_edges(
+                            &shape,
+                            f.radius,
+                            &[f.ray],
+                            Self::EDGE_REAPPLY_TOLERANCE_MM,
+                        )
+                    }
+                }
                 (RoundKind::Edge, RoundStyle::Chamfer) => ducad_kernel::chamfer_edges(
                     &shape,
                     f.radius,
@@ -392,6 +413,7 @@ impl DuCADApp {
                     ray,
                     anchor,
                     radius: magnitude,
+                    radius_end: None,
                     polyline,
                 });
             }
@@ -492,6 +514,7 @@ impl DuCADApp {
                     ray,
                     anchor,
                     radius: magnitude,
+                    radius_end: None,
                     polyline,
                 });
             }

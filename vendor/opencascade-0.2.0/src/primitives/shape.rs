@@ -143,6 +143,45 @@ impl Shape {
         Ok(())
     }
 
+    pub fn fillet_edge_variable(
+        &mut self,
+        radius_start: f64,
+        radius_end: f64,
+        edge: &Edge,
+    ) -> Result<(), crate::Error> {
+        let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
+        make_fillet
+            .pin_mut()
+            .add_edge_variable(radius_start, radius_end, &edge.inner);
+
+        let filleted_shape = ffi::BRepFilletAPI_MakeFillet_shape_checked(make_fillet.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
+
+        self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
+        Ok(())
+    }
+
+    pub fn fillet_edges_variable<T: AsRef<Edge>>(
+        &mut self,
+        radius_start: f64,
+        radius_end: f64,
+        edges: impl IntoIterator<Item = T>,
+    ) -> Result<(), crate::Error> {
+        let mut make_fillet = ffi::BRepFilletAPI_MakeFillet_ctor(&self.inner);
+
+        for edge in edges.into_iter() {
+            make_fillet
+                .pin_mut()
+                .add_edge_variable(radius_start, radius_end, &edge.as_ref().inner);
+        }
+
+        let filleted_shape = ffi::BRepFilletAPI_MakeFillet_shape_checked(make_fillet.pin_mut())
+            .map_err(|e| crate::Error::FilletFailed(e.what().to_string()))?;
+
+        self.inner = ffi::TopoDS_Shape_to_owned(filleted_shape);
+        Ok(())
+    }
+
     pub fn chamfer_edges<T: AsRef<Edge>>(
         &mut self,
         distance: f64,
