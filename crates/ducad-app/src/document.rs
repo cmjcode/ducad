@@ -78,14 +78,24 @@ impl DuCADApp {
     pub fn delete_datum_plane(&mut self, id: u32) {
         if let Some(pos) = self.datum_planes.iter().position(|dp| dp.id == id) {
             let idx = pos + 3;
-            if self.active_plane_index() == idx {
+            let is_active = match self.active_plane.kind {
+                PlaneKind::Custom(active_id) => active_id == id,
+                _ => false,
+            };
+            if is_active {
                 self.set_sketch_plane(PlaneKind::Top);
             }
+            let name = self.datum_planes[pos].name.clone();
             self.datum_planes.remove(pos);
             if idx < self.sketches.len() {
                 self.sketches.remove(idx);
                 self.undos.remove(idx);
             }
+            self.record_activity(
+                ducad_ui::ActivityKindUi::Solid3D,
+                "Hapus Bidang Referensi",
+                &format!("Menghapus bidang referensi '{}'", name),
+            );
         }
     }
 
@@ -165,6 +175,7 @@ impl DuCADApp {
         let new_id = self.create_datum_plane(name.clone(), plane);
         self.set_sketch_plane(PlaneKind::Custom(new_id));
         self.datum_selected_points.clear();
+        self.planes_drawer_open = true;
         self.model_status = Some(format!("Bidang referensi '{}' berhasil dibuat", name));
         self.set_tool(ToolKind::Select);
     }
@@ -475,6 +486,26 @@ mod tests {
             0,
         );
         assert_eq!(hit, Some(3));
+    }
+
+    #[test]
+    fn test_delete_datum_plane_logic() {
+        let mut datum_planes = vec![
+            ducad_render::plane::DatumPlane::new(1, "Plane 1".to_string(), SketchPlane::top().offset(10.0)),
+            ducad_render::plane::DatumPlane::new(2, "Plane 2".to_string(), SketchPlane::top().offset(20.0)),
+        ];
+        let mut sketches = vec![Sketch::default(), Sketch::default(), Sketch::default(), Sketch::default(), Sketch::default()];
+
+        // Delete Plane 1 (id: 1)
+        if let Some(pos) = datum_planes.iter().position(|dp| dp.id == 1) {
+            let idx = pos + 3;
+            datum_planes.remove(pos);
+            sketches.remove(idx);
+        }
+
+        assert_eq!(datum_planes.len(), 1);
+        assert_eq!(datum_planes[0].id, 2);
+        assert_eq!(sketches.len(), 4);
     }
 }
 

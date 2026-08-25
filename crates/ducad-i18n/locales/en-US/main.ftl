@@ -919,3 +919,11 @@ datum-select-points = Points:
 datum-planes-header = Datum Planes
 datum-plane-new = + New Datum Plane
 status-prompt-datum-plane = Datum Plane: choose mode (Offset, Angled, 3-Point), adjust parameters, and click Create Plane
+
+# Planes Drawer
+planes-drawer-title = Reference Planes
+planes-drawer-new = + New Plane
+planes-drawer-active = Active
+planes-drawer-search = Search plane...
+planes-drawer-empty = No reference planes found
+planes-drawer-delete-tooltip = Delete this custom datum plane

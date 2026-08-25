@@ -919,3 +919,11 @@ datum-select-points = Titik:
 datum-planes-header = Bidang Referensi
 datum-plane-new = + Buat Bidang Baru
 status-prompt-datum-plane = Bidang Referensi: pilih mode (Offset, Angled, 3-Point), atur parameter, lalu klik Buat Bidang
+
+# Planes Drawer
+planes-drawer-title = Bidang Referensi
+planes-drawer-new = + Buat Bidang
+planes-drawer-active = Aktif
+planes-drawer-search = Cari bidang...
+planes-drawer-empty = Tidak ada bidang referensi ditemukan
+planes-drawer-delete-tooltip = Hapus bidang kustom ini

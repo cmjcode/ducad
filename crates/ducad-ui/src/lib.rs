@@ -22,6 +22,7 @@ pub mod history_drawer;
 pub mod items_drawer;
 pub mod left_toolbar;
 pub mod lighting_drawer;
+pub mod planes_drawer;
 pub mod radial_menu;
 pub mod revolve_dialog;
 pub mod theme;
@@ -52,6 +53,7 @@ pub use history_drawer::{
 pub use items_drawer::{BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent};
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
+pub use planes_drawer::{PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};
 pub use radial_menu::RadialMenu;
 pub use revolve_dialog::{
     AlertModal, AlertModalState, RevolveAxisPreset, RevolveDialog, RevolveDialogEvent,

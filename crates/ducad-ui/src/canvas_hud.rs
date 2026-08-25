@@ -2051,7 +2051,7 @@ p_tip,
             DatumPlaneMode::Angled => true,
             DatumPlaneMode::ThreePoints => points_count >= 3,
         };
-        let banner_w = 760.0;
+        let banner_w = 690.0;
 
         Self::render_header_hud_container(
             ui,
@@ -2102,7 +2102,7 @@ p_tip,
                             .selected_text(
                                 RichText::new(&current_label).size(10.5).color(TEXT_PRIMARY),
                             )
-                            .width(90.0)
+                            .width(85.0)
                             .show_ui(ui, |ui| {
                                 for (idx, name) in plane_names {
                                     if ui
@@ -2126,9 +2126,9 @@ p_tip,
                                 .size(10.0)
                                 .color(TEXT_SECONDARY),
                         );
-                        for &off in &[-20.0, -10.0, 0.0, 10.0, 20.0, 50.0] {
+                        for &off in &[0.0, 10.0, 20.0, 50.0] {
                             let is_active = (offset_val - off).abs() < 0.05;
-                            let label = format!("{:+0.0}", off);
+                            let label = format!("{:.0}", off);
                             if Self::hud_circle_btn(ui, &label, is_active).clicked() {
                                 *offset_input = format!("{:.1}", off);
                                 hud_action = Some(DatumPlaneHudAction::SetOffset(off));
@@ -2136,7 +2136,7 @@ p_tip,
                         }
 
                         let text_edit = egui::TextEdit::singleline(offset_input)
-                            .desired_width(40.0)
+                            .desired_width(38.0)
                             .font(egui::FontId::monospace(10.5));
                         let resp = ui.add(text_edit);
                         if resp.changed() {
@@ -2168,7 +2168,7 @@ p_tip,
                                 .size(10.0)
                                 .color(TEXT_SECONDARY),
                         );
-                        for &ang in &[15.0, 30.0, 45.0, 60.0, 90.0] {
+                        for &ang in &[15.0, 30.0, 45.0, 90.0] {
                             let is_active = (angle_val - ang).abs() < 0.05;
                             let label = format!("{}°", ang as i32);
                             if Self::hud_circle_btn(ui, &label, is_active).clicked() {

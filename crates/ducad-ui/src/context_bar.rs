@@ -302,7 +302,7 @@ impl ContextActionBar {
                 // New Datum Plane from Face
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{}  + Offset Plane", egui_material_icons::icons::ICON_LAYERS.codepoint))
+                        RichText::new(format!("{}  + Offset Plane", egui_material_icons::icons::ICON_LAYERS_OFF.codepoint))
                             .size(11.5)
                             .color(crate::theme::ACCENT_ORANGE),
                     ),

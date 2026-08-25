@@ -1,7 +1,6 @@
 use eframe::egui;
 
 use crate::app::DuCADApp;
-use crate::types::ToolKind;
 
 impl DuCADApp {
     pub fn handle_navigation(
@@ -65,6 +64,7 @@ impl DuCADApp {
     ) -> bool {
         let all_planes = self.all_planes();
 
+        self.hovered_plane_idx = None;
         if let Some(pos) = response.hover_pos() {
             if let Some(idx) = crate::viewport::pick_inactive_plane_index_at_cursor(
                 &self.camera,
@@ -77,7 +77,7 @@ impl DuCADApp {
             }
         }
 
-        if response.clicked() && (ui.input(|i| i.modifiers.command) || self.tool == ToolKind::Select) {
+        if response.clicked() && ui.input(|i| i.modifiers.command) {
             if let Some(pos) = response.interact_pointer_pos() {
                 if let Some(idx) = crate::viewport::pick_inactive_plane_index_at_cursor(
                     &self.camera,

@@ -14,7 +14,7 @@ use ducad_ui::{
     CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
     Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LightingDrawer, RadialMenu, RenamePopupEvent, ThemeMode,
+    LightingDrawer, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent, RadialMenu, RenamePopupEvent, ThemeMode,
     ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube,
     ViewCubeAction, ZebraHudAction,
 };
@@ -138,11 +138,13 @@ pub struct DuCADApp {
     pub history_drawer: HistoryDrawer,
     pub cmf_drawer: CmfDrawer,
     pub lighting_drawer: LightingDrawer,
+    pub planes_drawer: PlanesDrawer,
     pub viewcube: ViewCube,
     pub items_drawer_open: bool,
     pub history_drawer_open: bool,
     pub cmf_drawer_open: bool,
     pub lighting_drawer_open: bool,
+    pub planes_drawer_open: bool,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -438,11 +440,13 @@ impl DuCADApp {
             history_drawer: HistoryDrawer::default(),
             cmf_drawer: CmfDrawer::default(),
             lighting_drawer: LightingDrawer::default(),
+            planes_drawer: PlanesDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
             history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
+            planes_drawer_open: false,
             history_db,
             activity_cache,
             plane_menu_open: false,
@@ -1087,6 +1091,9 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::CreateDatumPlane => {
                                 self.set_tool(ToolKind::DatumPlane);
                             }
+                            TopBarEvent::TogglePlanesDrawer => {
+                                self.planes_drawer_open = !self.planes_drawer_open;
+                            }
                             TopBarEvent::ToggleSectionView => {
                                 self.section_enabled = !self.section_enabled;
                             }
@@ -1251,6 +1258,7 @@ impl eframe::App for DuCADApp {
 
         let open_drawers_count = (self.items_drawer_open as usize)
             + (self.history_drawer_open as usize)
+            + (self.planes_drawer_open as usize)
             + (self.cmf_drawer_open as usize)
             + (self.lighting_drawer_open as usize)
             + (self.draft_config.enabled as usize);
@@ -1460,10 +1468,90 @@ impl eframe::App for DuCADApp {
             hist_top_y = Some(hist_area_resp.response.rect.min.y);
         }
 
-        // 3. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/History drawer atau di atas floating buttons)
+        // 3. Reference Planes Drawer (Pojok Kanan Bawah)
+        let mut planes_top_y = None;
+        if self.planes_drawer_open {
+            let planes_bottom_y = if self.history_drawer_open {
+                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let planes_pos = egui::pos2(screen_rect.max.x - 16.0, planes_bottom_y);
+
+            let all_planes_info: Vec<PlaneItemInfo> = self
+                .all_planes()
+                .iter()
+                .map(|(idx, _, name)| {
+                    let is_custom = *idx >= 3;
+                    let custom_id = if is_custom {
+                        self.datum_planes.get(*idx - 3).map(|p| p.id)
+                    } else {
+                        None
+                    };
+                    PlaneItemInfo {
+                        index: *idx,
+                        name: name.clone(),
+                        is_active: *idx == self.active_plane_index(),
+                        is_custom,
+                        custom_id,
+                    }
+                })
+                .collect();
+
+            let planes_area_resp = egui::Area::new(egui::Id::new("ducad-planes-drawer-area"))
+                .fixed_pos(planes_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    if let Some(ev) = self.planes_drawer.show(
+                        ui,
+                        &all_planes_info,
+                        max_drawer_h,
+                        planes_bottom_y,
+                    ) {
+                        match ev {
+                            PlanesDrawerEvent::SelectPlane(idx) => {
+                                self.set_sketch_plane_by_index(idx);
+                                let label = all_planes_info
+                                    .iter()
+                                    .find(|p| p.index == idx)
+                                    .map(|p| p.name.as_str())
+                                    .unwrap_or("Plane");
+                                self.model_status = Some(format!(
+                                    "Bidang '{}' kini aktif untuk sketsa",
+                                    label
+                                ));
+                                ctx.request_repaint();
+                            }
+                            PlanesDrawerEvent::DeletePlane(custom_id) => {
+                                self.delete_datum_plane(custom_id);
+                                self.model_status = Some(format!(
+                                    "Bidang referensi kustom #{} dihapus",
+                                    custom_id
+                                ));
+                                ctx.request_repaint();
+                            }
+                            PlanesDrawerEvent::CreateNewPlane => {
+                                self.set_tool(ToolKind::DatumPlane);
+                            }
+                            PlanesDrawerEvent::Close => {
+                                self.planes_drawer_open = false;
+                            }
+                        }
+                    }
+                });
+
+            planes_top_y = Some(planes_area_resp.response.rect.min.y);
+        }
+
+        // 4. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/History/Planes drawer atau di atas floating buttons)
         let mut draft_top_y = None;
         if self.draft_config.enabled {
-            let draft_bottom_y = if self.history_drawer_open {
+            let draft_bottom_y = if self.planes_drawer_open {
+                planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.history_drawer_open {
                 hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1505,11 +1593,13 @@ impl eframe::App for DuCADApp {
             draft_top_y = Some(draft_area_resp.response.rect.min.y);
         }
 
-        // 4. Preset Material Industri & CMF Drawer (Pojok Kanan Bawah)
+        // 5. Preset Material Industri & CMF Drawer (Pojok Kanan Bawah)
         let mut cmf_top_y = None;
         if self.cmf_drawer_open {
             let cmf_bottom_y = if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.planes_drawer_open {
+                planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.history_drawer_open {
                 hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
@@ -1570,12 +1660,14 @@ impl eframe::App for DuCADApp {
             cmf_top_y = Some(cmf_area_resp.response.rect.min.y);
         }
 
-        // 5. Studio Lighting & SSAO Drawer (Pojok Kanan Bawah)
+        // 6. Studio Lighting & SSAO Drawer (Pojok Kanan Bawah)
         if self.lighting_drawer_open {
             let lighting_bottom_y = if self.cmf_drawer_open {
                 cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.planes_drawer_open {
+                planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.history_drawer_open {
                 hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
@@ -1696,6 +1788,17 @@ impl eframe::App for DuCADApp {
                         );
                         if draft_resp.clicked() {
                             self.draft_config.enabled = !self.draft_config.enabled;
+                        }
+
+                        // Tombol Reference Planes (Kiri dari History)
+                        let planes_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_LAYERS.codepoint,
+                            self.planes_drawer_open,
+                            "Daftar Bidang Referensi 3D (Reference Planes)",
+                        );
+                        if planes_resp.clicked() {
+                            self.planes_drawer_open = !self.planes_drawer_open;
                         }
 
                         // Tombol History (Tengah)
@@ -2421,6 +2524,7 @@ impl eframe::App for DuCADApp {
                 | ToolKind::Rib
                 | ToolKind::DraftAngle
                 | ToolKind::SplitBody
+                | ToolKind::DatumPlane
                 | ToolKind::Boolean
                 | ToolKind::Sweep
                 | ToolKind::Pattern

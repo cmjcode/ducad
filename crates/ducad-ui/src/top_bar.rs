@@ -50,6 +50,7 @@ pub enum TopBarEvent {
     ExitSketching,
     SelectSketchPlane(usize),
     CreateDatumPlane,
+    TogglePlanesDrawer,
     ToggleSectionView,
     ToggleMeasurements,
     ToggleZebraView,
@@ -354,6 +355,16 @@ impl TopBar {
                                     );
                                     if new_plane_btn.clicked() {
                                         event = Some(TopBarEvent::CreateDatumPlane);
+                                        state.plane_menu_open = false;
+                                    }
+
+                                    let manage_btn = ui.button(
+                                        RichText::new(format!("{} {}", ICON_LAYERS.codepoint, t!("planes-drawer-title")))
+                                            .size(10.5)
+                                            .color(TEXT_PRIMARY),
+                                    );
+                                    if manage_btn.clicked() {
+                                        event = Some(TopBarEvent::TogglePlanesDrawer);
                                         state.plane_menu_open = false;
                                     }
                                 });

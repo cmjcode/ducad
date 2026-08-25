@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
-    ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
+    ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
     ICON_TITLE,
 };
 
@@ -137,6 +137,8 @@ impl LeftToolbar {
                 let spline_desc = t!("tool-spline-desc");
                 let text_title = t!("tool-text");
                 let text_desc = t!("tool-text-desc");
+                let datum_title = t!("tool-datum-plane");
+                let datum_desc = t!("tool-datum-plane-desc");
                 let loft_title = t!("tool-loft");
                 let loft_desc = t!("tool-loft-desc");
 
@@ -205,6 +207,13 @@ impl LeftToolbar {
                         Some(&text_desc),
                     ),
                     (
+                        ToolbarTool::DatumPlane,
+                        ICON_LAYERS_OFF.codepoint,
+                        &datum_title,
+                        Some("P"),
+                        Some(&datum_desc),
+                    ),
+                    (
                         ToolbarTool::Loft,
                         ICON_LAYERS.codepoint,
                         &loft_title,
@@ -235,9 +244,9 @@ impl LeftToolbar {
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
                         ToolbarTool::DatumPlane,
-                        ICON_LAYERS.codepoint,
+                        ICON_LAYERS_OFF.codepoint,
                         &datum_title,
-                        None,
+                        Some("P"),
                         Some(&datum_desc),
                     ),
                     (
