@@ -184,7 +184,7 @@ pub(crate) fn find_intersections_with_exclude_set(
         .iter()
         .filter(|(id, _)| !is_excluded(*id) && !sketch.is_hidden(*id))
         .filter_map(|(_, e)| match e {
-            Entity::Line { start, end } => Some((*start, *end)),
+            Entity::Line { start, end, .. } => Some((*start, *end)),
             _ => None,
         })
         .collect();

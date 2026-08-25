@@ -6,7 +6,7 @@ use ducad_sketch::{
     find_region_at_point, find_region_containing_entity, find_snap, find_snap_with_extra,
     line_intersection_params_in_sketch, mirror_entity, offset_entity, project_t, trim_segments,
     Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId, Fillet2DResult,
-    InsertEntities, ReplaceEntities, Sketch, TranslateEntities,
+    InsertEntities, ReplaceEntities, Sketch, ToggleConstruction, TranslateEntities,
 };
 use eframe::egui;
 use glam::{DVec2, Vec3};
@@ -22,7 +22,7 @@ pub fn trim_removal_preview(
     id: EntityId,
     hover: DVec2,
 ) -> Option<(DVec2, DVec2)> {
-    let Entity::Line { start, end } = sketch.entities.get(id)?.clone() else {
+    let Entity::Line { start, end, .. } = sketch.entities.get(id)?.clone() else {
         return None;
     };
     let click_t = project_t(start, end, hover).clamp(0.0, 1.0);
@@ -47,20 +47,20 @@ pub fn fillet_2d_preview(
     first_selected: Option<EntityId>,
 ) -> Option<Fillet2DResult> {
     if let Some((id1, id2, _corner)) = find_corner_lines_at_point(sketch, hover, tol) {
-        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+        let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
         };
-        let Entity::Line { start: s2, end: e2 } = sketch.entities.get(id2)?.clone() else {
+        let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(id2)?.clone() else {
             return None;
         };
         compute_fillet_2d((s1, e1), (s2, e2), radius)
     } else if let Some(id1) = first_selected {
-        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+        let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
         };
         let hovered_id = sketch.hit_test(hover, tol)?;
         if hovered_id != id1 {
-            let Entity::Line { start: s2, end: e2 } = sketch.entities.get(hovered_id)?.clone() else {
+            let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(hovered_id)?.clone() else {
                 return None;
             };
             compute_fillet_2d((s1, e1), (s2, e2), radius)
@@ -81,20 +81,20 @@ pub fn chamfer_2d_preview(
     first_selected: Option<EntityId>,
 ) -> Option<Chamfer2DResult> {
     if let Some((id1, id2, _corner)) = find_corner_lines_at_point(sketch, hover, tol) {
-        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+        let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
         };
-        let Entity::Line { start: s2, end: e2 } = sketch.entities.get(id2)?.clone() else {
+        let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(id2)?.clone() else {
             return None;
         };
         compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
     } else if let Some(id1) = first_selected {
-        let Entity::Line { start: s1, end: e1 } = sketch.entities.get(id1)?.clone() else {
+        let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
         };
         let hovered_id = sketch.hit_test(hover, tol)?;
         if hovered_id != id1 {
-            let Entity::Line { start: s2, end: e2 } = sketch.entities.get(hovered_id)?.clone() else {
+            let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(hovered_id)?.clone() else {
                 return None;
             };
             compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
@@ -205,9 +205,9 @@ impl DuCADApp {
                     self.sketch().entities.get(id2).cloned(),
                 );
                 if let (
-                    Some(Entity::Arc { center, radius: _, start_angle, end_angle }),
-                    Some(Entity::Line { start: s1, end: e1 }),
-                    Some(Entity::Line { start: s2, end: e2 }),
+                    Some(Entity::Arc { center, start_angle, end_angle, .. }),
+                    Some(Entity::Line { start: s1, end: e1, .. }),
+                    Some(Entity::Line { start: s2, end: e2, .. }),
                 ) = (arc_opt, e1_opt, e2_opt) {
                     let ap1 = center + glam::DVec2::new(start_angle.cos(), start_angle.sin()) * 1.0;
                     let _ap2 = center + glam::DVec2::new(end_angle.cos(), end_angle.sin()) * 1.0;
@@ -239,8 +239,8 @@ impl DuCADApp {
                                 "Hapus Fillet 2D",
                                 vec![id1, id2, arc_id],
                                 vec![
-                                    Entity::Line { start: f1, end: apex },
-                                    Entity::Line { start: f2, end: apex },
+                                    Entity::line(f1, apex),
+                                    Entity::line(f2, apex),
                                 ],
                             )));
                             self.model_status = Some("✓ Fillet 2D dihapus — dikembalikan ke sudut tajam".to_string());
@@ -266,7 +266,7 @@ impl DuCADApp {
                 self.sketch().entities.get(id2).cloned(),
             );
             match (e1_opt, e2_opt) {
-                (Some(Entity::Line { start: s1, end: e1 }), Some(Entity::Line { start: s2, end: e2 })) => {
+                (Some(Entity::Line { start: s1, end: e1, .. }), Some(Entity::Line { start: s2, end: e2, .. })) => {
                     if r > 0.0 {
                         if let Some(res) = compute_fillet_2d((s1, e1), (s2, e2), r) {
                             self.execute_sketch_command(Box::new(ReplaceEntities::new(
@@ -409,7 +409,7 @@ impl DuCADApp {
 
         self.execute_sketch_command(Box::new(InsertEntities::new(
             "Garis",
-            vec![Entity::Line { start: last, end }],
+            vec![Entity::line(last, end).with_construction(self.construction_mode)],
         )));
         self.line_chain_segments += 1;
 
@@ -461,9 +461,9 @@ impl DuCADApp {
                     DVec2::new(min.x, max.y),
                 ];
                 let lines = (0..4)
-                    .map(|i| Entity::Line {
-                        start: corners[i],
-                        end: corners[(i + 1) % 4],
+                    .map(|i| {
+                        Entity::line(corners[i], corners[(i + 1) % 4])
+                            .with_construction(self.construction_mode)
                     })
                     .collect();
                 Some(Box::new(InsertEntities::new("Persegi", lines)))
@@ -473,10 +473,7 @@ impl DuCADApp {
                 (radius > 1e-6).then(|| {
                     Box::new(InsertEntities::new(
                         "Lingkaran",
-                        vec![Entity::Circle {
-                            center: pts[0],
-                            radius,
-                        }],
+                        vec![Entity::circle(pts[0], radius).with_construction(self.construction_mode)],
                     )) as Box<dyn Command<Sketch>>
                 })
             }
@@ -486,11 +483,10 @@ impl DuCADApp {
                 (radius_x > 1e-6 && radius_y > 1e-6).then(|| {
                     Box::new(InsertEntities::new(
                         "Ellips",
-                        vec![Entity::Ellipse {
-                            center: pts[0],
-                            radius_x,
-                            radius_y,
-                        }],
+                        vec![
+                            Entity::ellipse(pts[0], radius_x, radius_y)
+                                .with_construction(self.construction_mode),
+                        ],
                     )) as Box<dyn Command<Sketch>>
                 })
             }
@@ -498,12 +494,16 @@ impl DuCADApp {
                 (pts.len() >= 2).then(|| {
                     Box::new(InsertEntities::new(
                         "Spline",
-                        vec![Entity::Spline { points: pts }],
+                        vec![Entity::spline(pts).with_construction(self.construction_mode)],
                     )) as Box<dyn Command<Sketch>>
                 })
             }
-            ToolKind::Arc => arc_from_three_points(pts[0], pts[1], pts[2])
-                .map(|e| Box::new(InsertEntities::new("Arc", vec![e])) as _),
+            ToolKind::Arc => arc_from_three_points(pts[0], pts[1], pts[2]).map(|e| {
+                Box::new(InsertEntities::new(
+                    "Arc",
+                    vec![e.with_construction(self.construction_mode)],
+                )) as _
+            }),
             ToolKind::Mirror => {
                 let (axis_a, axis_b) = (pts[0], pts[1]);
                 let mirrored: Vec<Entity> = self
@@ -557,6 +557,39 @@ impl DuCADApp {
             self.execute_sketch_command(c);
             self.dynamic_input.clear();
             self.dynamic_focus_pending = false;
+        }
+    }
+
+    /// Toggle mode garis konstruksi atau toggle status garis konstruksi pada entitas yang dipilih / di-hover.
+    pub fn toggle_construction_action(&mut self) {
+        if !self.selected.is_empty() {
+            let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+            let all_construction = ids.iter().all(|id| {
+                self.sketch().entities.get(*id).map_or(false, |e| e.is_construction())
+            });
+            let target_construction = !all_construction;
+            self.execute_sketch_command(Box::new(ToggleConstruction::new(ids, target_construction)));
+            self.model_status = Some(if target_construction {
+                "Entitas diubah menjadi Garis Konstruksi (Reference Line)".to_string()
+            } else {
+                "Entitas diubah menjadi Garis Standar".to_string()
+            });
+        } else if let Some(hovered_id) = self.hovered {
+            let curr = self.sketch().entities.get(hovered_id).map_or(false, |e| e.is_construction());
+            let target = !curr;
+            self.execute_sketch_command(Box::new(ToggleConstruction::new(vec![hovered_id], target)));
+            self.model_status = Some(if target {
+                "Garis Konstruksi diaktifkan".to_string()
+            } else {
+                "Garis Standar diaktifkan".to_string()
+            });
+        } else {
+            self.construction_mode = !self.construction_mode;
+            self.model_status = Some(if self.construction_mode {
+                "Mode Garis Konstruksi: AKTIF (Oranye Putus-putus)".to_string()
+            } else {
+                "Mode Garis Konstruksi: NONAKTIF (Garis Normal)".to_string()
+            });
         }
     }
 
@@ -946,6 +979,9 @@ impl DuCADApp {
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::V)) {
                     self.open_revolve_dialog();
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::X)) {
+                    self.toggle_construction_action();
                 }
             }
         }
@@ -1440,11 +1476,11 @@ impl DuCADApp {
                                 .filter(|(id, _)| !self.sketch().is_hidden(*id))
                                 .filter_map(|(id, entity)| {
                                     let inside = match entity {
-                                        Entity::Line { start, end } => {
+                                        Entity::Line { start, end, .. } => {
                                             (start.x >= min.x && start.x <= max.x && start.y >= min.y && start.y <= max.y)
                                                 || (end.x >= min.x && end.x <= max.x && end.y >= min.y && end.y <= max.y)
                                         }
-                                        Entity::Circle { center, radius } => {
+                                        Entity::Circle { center, radius, .. } => {
                                             center.x + radius >= min.x
                                                 && center.x - radius <= max.x
                                                 && center.y + radius >= min.y
@@ -1462,7 +1498,7 @@ impl DuCADApp {
                                                 && center.y + radius >= min.y
                                                 && center.y - radius <= max.y
                                         }
-                                        Entity::Spline { points } => {
+                                        Entity::Spline { points, .. } => {
                                             points.iter().any(|pt| {
                                                 pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y
                                             })
@@ -1578,7 +1614,7 @@ impl DuCADApp {
                     });
                 if response.clicked() {
                     if let Some(id) = self.hovered {
-                        if let Some(Entity::Line { start, end }) =
+                        if let Some(Entity::Line { start, end, .. }) =
                             self.sketch().entities.get(id).cloned()
                         {
                             let click_t = project_t(start, end, raw).clamp(0.0, 1.0);
@@ -1590,7 +1626,7 @@ impl DuCADApp {
                             let remaining = trim_segments(start, end, &cuts, click_t);
                             let new_lines = remaining
                                 .into_iter()
-                                .map(|(s, e)| Entity::Line { start: s, end: e })
+                                .map(|(s, e)| Entity::line(s, e))
                                 .collect();
                             self.execute_sketch_command(Box::new(ReplaceEntities::new(
                                 "Trim",
@@ -1624,8 +1660,8 @@ impl DuCADApp {
                 if response.clicked() {
                     if let Some((id1, id2, _corner)) = corner_hit {
                         if let (
-                            Some(Entity::Line { start: s1, end: e1 }),
-                            Some(Entity::Line { start: s2, end: e2 }),
+                            Some(Entity::Line { start: s1, end: e1, .. }),
+                            Some(Entity::Line { start: s2, end: e2, .. }),
                         ) = (
                             self.sketch().entities.get(id1).cloned(),
                             self.sketch().entities.get(id2).cloned(),
@@ -1646,8 +1682,8 @@ impl DuCADApp {
                         if let Some(first_id) = self.fillet_chamfer_first_line {
                             if first_id != clicked_id {
                                 if let (
-                                    Some(Entity::Line { start: s1, end: e1 }),
-                                    Some(Entity::Line { start: s2, end: e2 }),
+                                    Some(Entity::Line { start: s1, end: e1, .. }),
+                                    Some(Entity::Line { start: s2, end: e2, .. }),
                                 ) = (
                                     self.sketch().entities.get(first_id).cloned(),
                                     self.sketch().entities.get(clicked_id).cloned(),
@@ -1699,8 +1735,8 @@ impl DuCADApp {
                 if response.clicked() {
                     if let Some((id1, id2, _corner)) = corner_hit {
                         if let (
-                            Some(Entity::Line { start: s1, end: e1 }),
-                            Some(Entity::Line { start: s2, end: e2 }),
+                            Some(Entity::Line { start: s1, end: e1, .. }),
+                            Some(Entity::Line { start: s2, end: e2, .. }),
                         ) = (
                             self.sketch().entities.get(id1).cloned(),
                             self.sketch().entities.get(id2).cloned(),
@@ -1724,8 +1760,8 @@ impl DuCADApp {
                         if let Some(first_id) = self.fillet_chamfer_first_line {
                             if first_id != clicked_id {
                                 if let (
-                                    Some(Entity::Line { start: s1, end: e1 }),
-                                    Some(Entity::Line { start: s2, end: e2 }),
+                                    Some(Entity::Line { start: s1, end: e1, .. }),
+                                    Some(Entity::Line { start: s2, end: e2, .. }),
                                 ) = (
                                     self.sketch().entities.get(first_id).cloned(),
                                     self.sketch().entities.get(clicked_id).cloned(),
@@ -1875,15 +1911,15 @@ mod tests {
         camera.orbit(-0.5, 0.4);
 
         // Top sketch (plane 0) has a circle
-        let c_id = sketches[0].entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 10.0,
-        });
+        let c_id = sketches[0].entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            10.0,
+        ));
         // Front sketch (plane 1) has a line along Z
-        let l_id = sketches[1].entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(0.0, 40.0),
-        });
+        let l_id = sketches[1].entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(0.0, 40.0),
+        ));
 
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 600.0));
         // Hit on front sketch (plane 1) line at Z=20

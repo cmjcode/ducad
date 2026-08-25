@@ -167,6 +167,7 @@ pub struct DuCADApp {
     pub editing_edge_dim_input: String,
 
     pub is_sketching: bool,
+    pub construction_mode: bool,
     pub active_plane: SketchPlane,
     pub unit: LengthUnit,
 
@@ -329,6 +330,7 @@ impl DuCADApp {
             dynamic_input: String::new(),
             dynamic_focus_pending: false,
             constraint_status: None,
+            construction_mode: false,
 
             model: ModelDoc::default(),
             model_undo: ducad_core::UndoStack::default(),
@@ -1099,35 +1101,64 @@ impl eframe::App for DuCADApp {
             .iter()
             .map(|(id, entity)| {
                 let (name, icon_str) = match entity {
-                    Entity::Line { start, end } => {
+                    Entity::Line { start, end, .. } => {
                         let len = start.distance(*end);
+                        let label = if entity.is_construction() {
+                            format!("Garis [Konstruksi] ({:.1} mm)", len)
+                        } else {
+                            format!("Garis ({:.1} mm)", len)
+                        };
                         (
-                            format!("Garis ({:.1} mm)", len),
+                            label,
                             egui_material_icons::icons::ICON_HORIZONTAL_RULE.codepoint,
                         )
                     }
                     Entity::Circle { radius, .. } => {
+                        let label = if entity.is_construction() {
+                            format!("Lingkaran [Konstruksi] (R: {:.1} mm)", radius)
+                        } else {
+                            format!("Lingkaran (R: {:.1} mm)", radius)
+                        };
                         (
-                            format!("Lingkaran (R: {:.1} mm)", radius),
+                            label,
                             egui_material_icons::icons::ICON_CIRCLE.codepoint,
                         )
                     }
                     Entity::Arc { radius, .. } => {
+                        let label = if entity.is_construction() {
+                            format!("Busur [Konstruksi] (R: {:.1} mm)", radius)
+                        } else {
+                            format!("Busur (R: {:.1} mm)", radius)
+                        };
                         (
-                            format!("Busur (R: {:.1} mm)", radius),
+                            label,
                             egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
                         )
                     }
                     Entity::Ellipse {
                         radius_x, radius_y, ..
-                    } => (
-                        format!("Elips ({:.1}x{:.1} mm)", radius_x, radius_y),
-                        egui_material_icons::icons::ICON_HOME_MINI.codepoint,
-                    ),
-                    Entity::Spline { points } => (
-                        format!("Spline ({} titik)", points.len()),
-                        egui_material_icons::icons::ICON_TIMELINE.codepoint,
-                    ),
+                    } => {
+                        let label = if entity.is_construction() {
+                            format!("Elips [Konstruksi] ({:.1}x{:.1} mm)", radius_x, radius_y)
+                        } else {
+                            format!("Elips ({:.1}x{:.1} mm)", radius_x, radius_y)
+                        };
+                        (
+                            label,
+                            egui_material_icons::icons::ICON_HOME_MINI.codepoint,
+                        )
+                    }
+                    Entity::Spline { points, .. } => {
+                        let label = if entity.is_construction() {
+                            format!("Spline [Konstruksi] ({} titik)", points.len())
+                        } else {
+                            format!("Spline ({} titik)", points.len())
+                        };
+                        (
+                            label,
+                            egui_material_icons::icons::ICON_TIMELINE.codepoint,
+                        )
+                    }
                 };
                 Entity2dItemInfo {
                     id_raw: id.data().as_ffi(),
@@ -1812,10 +1843,11 @@ impl eframe::App for DuCADApp {
                     end_y,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let new_entity = Entity::Line {
-                            start: DVec2::new(start_x, start_y),
-                            end: DVec2::new(end_x, end_y),
-                        };
+                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let new_entity = Entity::line(
+                            DVec2::new(start_x, start_y),
+                            DVec2::new(end_x, end_y),
+                        ).with_construction(is_const);
                         self.execute_sketch_command(Box::new(
                             UpdateEntity::new("Ubah Garis", id, new_entity),
                         ));
@@ -1828,10 +1860,11 @@ impl eframe::App for DuCADApp {
                     radius,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let new_entity = Entity::Circle {
-                            center: DVec2::new(center_x, center_y),
+                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let new_entity = Entity::circle(
+                            DVec2::new(center_x, center_y),
                             radius,
-                        };
+                        ).with_construction(is_const);
                         self.execute_sketch_command(Box::new(
                             UpdateEntity::new("Ubah Lingkaran", id, new_entity),
                         ));
@@ -1846,12 +1879,13 @@ impl eframe::App for DuCADApp {
                     end_angle_deg,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let new_entity = Entity::Arc {
-                            center: DVec2::new(center_x, center_y),
+                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let new_entity = Entity::arc(
+                            DVec2::new(center_x, center_y),
                             radius,
-                            start_angle: start_angle_deg.to_radians(),
-                            end_angle: end_angle_deg.to_radians(),
-                        };
+                            start_angle_deg.to_radians(),
+                            end_angle_deg.to_radians(),
+                        ).with_construction(is_const);
                         self.execute_sketch_command(Box::new(
                             UpdateEntity::new("Ubah Busur", id, new_entity),
                         ));
@@ -1865,11 +1899,12 @@ impl eframe::App for DuCADApp {
                     radius_y,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let new_entity = Entity::Ellipse {
-                            center: DVec2::new(center_x, center_y),
+                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let new_entity = Entity::ellipse(
+                            DVec2::new(center_x, center_y),
                             radius_x,
                             radius_y,
-                        };
+                        ).with_construction(is_const);
                         self.execute_sketch_command(Box::new(
                             UpdateEntity::new("Ubah Elips", id, new_entity),
                         ));
@@ -2449,10 +2484,10 @@ mod tests {
     fn test_calculate_grid_extent_expands_with_large_sketch_entity() {
         let mut sketch = Sketch::default();
         // Insert a circle at (1200, 0) with radius 300 -> max coordinate = 1500
-        sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(1200.0, 0.0),
-            radius: 300.0,
-        });
+        sketch.entities.insert(Entity::circle(
+            DVec2::new(1200.0, 0.0),
+            300.0,
+        ));
 
         let extent = calculate_grid_extent_for_params(
             &sketch,

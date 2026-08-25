@@ -202,6 +202,7 @@ pub enum PaletteAction {
     ToggleTheme,
     ToggleZebraView,
     ToggleStudioLighting,
+    ToggleConstruction,
     OpenDrawingSheet,
     SetSketchPlane(ducad_render::PlaneKind),
     EnterSketching,

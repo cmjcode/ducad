@@ -614,7 +614,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
 
     if ids.len() == 1 {
         let id = *ids.iter().next().unwrap();
-        if let Some(Entity::Circle { center, radius }) = sketch.entities.get(id) {
+        if let Some(Entity::Circle { center, radius, .. }) = sketch.entities.get(id) {
             return Ok(Profile::Circle {
                 center: (center.x, center.y),
                 radius: *radius,
@@ -624,6 +624,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
             center,
             radius_x,
             radius_y,
+            ..
         }) = sketch.entities.get(id)
         {
             if *radius_x <= 0.0 || *radius_y <= 0.0 {
@@ -635,7 +636,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                 radius_y: *radius_y,
             });
         }
-        if let Some(Entity::Spline { points }) = sketch.entities.get(id) {
+        if let Some(Entity::Spline { points, .. }) = sketch.entities.get(id) {
             if points.len() >= 3 {
                 let first = points[0];
                 let last = *points.last().unwrap();
@@ -662,7 +663,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     let mut segs: Vec<Seg> = Vec::new();
     for id in ids {
         match sketch.entities.get(*id) {
-            Some(Entity::Line { start, end }) => segs.push(Seg {
+            Some(Entity::Line { start, end, .. }) => segs.push(Seg {
                 start: *start,
                 end: *end,
                 seg: ProfileSegment::Line {
@@ -675,6 +676,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                 radius,
                 start_angle,
                 end_angle,
+                ..
             }) => {
                 let (s, via, e) = arc_endpoints_and_via(*center, *radius, *start_angle, *end_angle);
                 segs.push(Seg {
@@ -687,7 +689,7 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
                     },
                 });
             }
-            Some(Entity::Spline { points }) => {
+            Some(Entity::Spline { points, .. }) => {
                 for (start, end, seg) in convert_spline_to_smooth_segments(points) {
                     segs.push(Seg { start, end, seg });
                 }
@@ -778,7 +780,7 @@ pub fn build_path_from_selection_on_plane(
     // Kasus khusus 1 Circle penuh sebagai jalur
     if ids.len() == 1 {
         let id = *ids.iter().next().unwrap();
-        if let Some(Entity::Circle { center, radius }) = sketch.entities.get(id) {
+        if let Some(Entity::Circle { center, radius, .. }) = sketch.entities.get(id) {
             let (cx, cy, r) = (center.x, center.y, *radius);
             let p1 = plane.to_world_f64((cx + r, cy), 0.0);
             let p2 = plane.to_world_f64((cx, cy + r), 0.0);
@@ -808,7 +810,7 @@ pub fn build_path_from_selection_on_plane(
     let mut segs: Vec<PathSeg2D> = Vec::new();
     for id in ids {
         match sketch.entities.get(*id) {
-            Some(Entity::Line { start, end }) => segs.push(PathSeg2D {
+            Some(Entity::Line { start, end, .. }) => segs.push(PathSeg2D {
                 start: *start,
                 end: *end,
                 seg: ProfileSegment::Line {
@@ -821,6 +823,7 @@ pub fn build_path_from_selection_on_plane(
                 radius,
                 start_angle,
                 end_angle,
+                ..
             }) => {
                 let (s, via, e) = arc_endpoints_and_via(*center, *radius, *start_angle, *end_angle);
                 segs.push(PathSeg2D {
@@ -833,12 +836,12 @@ pub fn build_path_from_selection_on_plane(
                     },
                 });
             }
-            Some(Entity::Spline { points }) => {
+            Some(Entity::Spline { points, .. }) => {
                 for (start, end, seg) in convert_spline_to_smooth_segments(points) {
                     segs.push(PathSeg2D { start, end, seg });
                 }
             }
-            Some(Entity::Circle { center, radius }) => {
+            Some(Entity::Circle { center, radius, .. }) => {
                 let (cx, cy, r) = (center.x, center.y, *radius);
                 let p1 = DVec2::new(cx + r, cy);
                 let p2 = DVec2::new(cx, cy + r);
@@ -952,13 +955,13 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
         if let Some(e) = sketch.entities.get(*id) {
             count += 1;
             match e {
-                Entity::Line { start, end } => {
+                Entity::Line { start, end, .. } => {
                     min_x = min_x.min(start.x.min(end.x));
                     max_x = max_x.max(start.x.max(end.x));
                     min_y = min_y.min(start.y.min(end.y));
                     max_y = max_y.max(start.y.max(end.y));
                 }
-                Entity::Circle { center, radius } => {
+                Entity::Circle { center, radius, .. } => {
                     min_x = min_x.min(center.x - radius);
                     max_x = max_x.max(center.x + radius);
                     min_y = min_y.min(center.y - radius);
@@ -974,13 +977,14 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
                     center,
                     radius_x,
                     radius_y,
+                    ..
                 } => {
                     min_x = min_x.min(center.x - radius_x);
                     max_x = max_x.max(center.x + radius_x);
                     min_y = min_y.min(center.y - radius_y);
                     max_y = max_y.max(center.y + radius_y);
                 }
-                Entity::Spline { points } => {
+                Entity::Spline { points, .. } => {
                     for p in points {
                         min_x = min_x.min(p.x);
                         max_x = max_x.max(p.x);
@@ -1007,10 +1011,10 @@ mod tests {
     #[test]
     fn build_profile_single_circle() {
         let mut sketch = Sketch::default();
-        let id = sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(1.0, 2.0),
-            radius: 5.0,
-        });
+        let id = sketch.entities.insert(Entity::circle(
+            DVec2::new(1.0, 2.0),
+            5.0,
+        ));
         let ids: HashSet<_> = [id].into_iter().collect();
         let profile = build_profile_from_selection(&sketch, &ids).unwrap();
         assert!(matches!(profile, Profile::Circle { radius, .. } if radius == 5.0));
@@ -1028,22 +1032,22 @@ mod tests {
         // Sisipkan sisi dalam urutan yang SENGAJA diacak & sebagian
         // dibalik arahnya, supaya chain-builder benar-benar diuji.
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: corners[2],
-            end: corners[1],
-        }));
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: corners[0],
-            end: corners[1],
-        }));
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: corners[3],
-            end: corners[0],
-        }));
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: corners[2],
-            end: corners[3],
-        }));
+        ids.insert(sketch.entities.insert(Entity::line(
+            corners[2],
+            corners[1],
+        )));
+        ids.insert(sketch.entities.insert(Entity::line(
+            corners[0],
+            corners[1],
+        )));
+        ids.insert(sketch.entities.insert(Entity::line(
+            corners[3],
+            corners[0],
+        )));
+        ids.insert(sketch.entities.insert(Entity::line(
+            corners[2],
+            corners[3],
+        )));
 
         let profile = build_profile_from_selection(&sketch, &ids).unwrap();
         match profile {
@@ -1056,18 +1060,18 @@ mod tests {
     fn build_profile_open_chain_errors() {
         let mut sketch = Sketch::default();
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 0.0),
-        }));
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 0.0),
-            end: DVec2::new(10.0, 5.0),
-        }));
-        ids.insert(sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 5.0),
-            end: DVec2::new(0.0, 5.0),
-        }));
+        ids.insert(sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+        )));
+        ids.insert(sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 5.0),
+        )));
+        ids.insert(sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 5.0),
+            DVec2::new(0.0, 5.0),
+        )));
         // Sengaja tidak ditutup (tidak ada segmen balik ke (0,0)).
         let err = build_profile_from_selection(&sketch, &ids).unwrap_err();
         assert!(err.contains("tertutup"));
@@ -1082,14 +1086,14 @@ mod tests {
     #[test]
     fn compute_profile_bbox_rect_and_circle() {
         let mut sketch = Sketch::default();
-        let id1 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(5.0, 10.0),
-            end: DVec2::new(15.0, 20.0),
-        });
-        let id2 = sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 3.0,
-        });
+        let id1 = sketch.entities.insert(Entity::line(
+            DVec2::new(5.0, 10.0),
+            DVec2::new(15.0, 20.0),
+        ));
+        let id2 = sketch.entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            3.0,
+        ));
         let ids: HashSet<_> = [id1, id2].into_iter().collect();
         let bbox = compute_profile_bbox(&sketch, &ids).unwrap();
         assert_eq!(bbox, [-3.0, -3.0, 15.0, 20.0]);
@@ -1109,19 +1113,19 @@ mod tests {
         ];
         let mut r1_ids = HashSet::new();
         for i in 0..4 {
-            let id = sketch.entities.insert(Entity::Line {
-                start: corners[i],
-                end: corners[(i + 1) % 4],
-            });
+            let id = sketch.entities.insert(Entity::line(
+                corners[i],
+                corners[(i + 1) % 4],
+            ));
             r1_ids.insert(id);
         }
 
         // Region 2: Circle radius 10 at (50, 0)
         let mut r2_ids = HashSet::new();
-        let c_id = sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(50.0, 0.0),
-            radius: 10.0,
-        });
+        let c_id = sketch.entities.insert(Entity::circle(
+            DVec2::new(50.0, 0.0),
+            10.0,
+        ));
         r2_ids.insert(c_id);
 
         let p1 = build_profile_from_selection(&sketch, &r1_ids).unwrap();
@@ -1137,19 +1141,19 @@ mod tests {
         let mut sketch = Sketch::default();
         // Region 1: Ellipse at (0, 0)
         let mut r1_ids = HashSet::new();
-        let e_id = sketch.entities.insert(Entity::Ellipse {
-            center: DVec2::new(0.0, 0.0),
-            radius_x: 25.0,
-            radius_y: 15.0,
-        });
+        let e_id = sketch.entities.insert(Entity::ellipse(
+            DVec2::new(0.0, 0.0),
+            25.0,
+            15.0,
+        ));
         r1_ids.insert(e_id);
 
         // Region 2: Circle at (0, 0)
         let mut r2_ids = HashSet::new();
-        let c_id = sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 10.0,
-        });
+        let c_id = sketch.entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            10.0,
+        ));
         r2_ids.insert(c_id);
 
         let p1 = build_profile_from_selection(&sketch, &r1_ids).unwrap();
@@ -1163,11 +1167,11 @@ mod tests {
     #[test]
     fn extrude_ellipse_horizontal_and_vertical() {
         let mut sketch = Sketch::default();
-        let e1 = sketch.entities.insert(Entity::Ellipse {
-            center: DVec2::new(0.0, 0.0),
-            radius_x: 30.0,
-            radius_y: 10.0,
-        });
+        let e1 = sketch.entities.insert(Entity::ellipse(
+            DVec2::new(0.0, 0.0),
+            30.0,
+            10.0,
+        ));
         let mut set1 = HashSet::new();
         set1.insert(e1);
         let p1 = build_profile_from_selection(&sketch, &set1).unwrap();
@@ -1175,11 +1179,11 @@ mod tests {
         let mesh1 = shape1.tessellate();
         assert!(mesh1.triangle_count() > 0);
 
-        let e2 = sketch.entities.insert(Entity::Ellipse {
-            center: DVec2::new(50.0, 0.0),
-            radius_x: 10.0,
-            radius_y: 30.0,
-        });
+        let e2 = sketch.entities.insert(Entity::ellipse(
+            DVec2::new(50.0, 0.0),
+            10.0,
+            30.0,
+        ));
         let mut set2 = HashSet::new();
         set2.insert(e2);
         let p2 = build_profile_from_selection(&sketch, &set2).unwrap();
@@ -1192,22 +1196,20 @@ mod tests {
     fn test_extrude_spline_and_arc_profile() {
         let mut sketch = Sketch::default();
         // Spline from (20, 0) to (-20, 0) bending upwards
-        let spline_id = sketch.entities.insert(Entity::Spline {
-            points: vec![
-                DVec2::new(20.0, 0.0),
-                DVec2::new(10.0, 15.0),
-                DVec2::new(-10.0, 15.0),
-                DVec2::new(-20.0, 0.0),
-            ],
-        });
+        let spline_id = sketch.entities.insert(Entity::spline(vec![
+            DVec2::new(20.0, 0.0),
+            DVec2::new(10.0, 15.0),
+            DVec2::new(-10.0, 15.0),
+            DVec2::new(-20.0, 0.0),
+        ]));
         // Arc (semicircle) below X axis from (-20, 0) to (20, 0), center at (0, 0), radius 20
         // angle PI (left, (-20,0)) to 0 (right, (20,0)) passing through (0, -20)
-        let arc_id = sketch.entities.insert(Entity::Arc {
-            center: DVec2::new(0.0, 0.0),
-            radius: 20.0,
-            start_angle: std::f64::consts::PI,
-            end_angle: std::f64::consts::TAU,
-        });
+        let arc_id = sketch.entities.insert(Entity::arc(
+            DVec2::new(0.0, 0.0),
+            20.0,
+            std::f64::consts::PI,
+            std::f64::consts::TAU,
+        ));
 
         let mut sel = HashSet::new();
         sel.insert(spline_id);
@@ -1222,15 +1224,13 @@ mod tests {
     #[test]
     fn test_extrude_self_closed_spline() {
         let mut sketch = Sketch::default();
-        let spline_id = sketch.entities.insert(Entity::Spline {
-            points: vec![
-                DVec2::new(0.0, 0.0),
-                DVec2::new(10.0, 15.0),
-                DVec2::new(20.0, 0.0),
-                DVec2::new(10.0, -15.0),
-                DVec2::new(0.0, 0.0),
-            ],
-        });
+        let spline_id = sketch.entities.insert(Entity::spline(vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 15.0),
+            DVec2::new(20.0, 0.0),
+            DVec2::new(10.0, -15.0),
+            DVec2::new(0.0, 0.0),
+        ]));
         let mut sel = HashSet::new();
         sel.insert(spline_id);
 
@@ -1243,18 +1243,18 @@ mod tests {
     #[test]
     fn test_sweep_from_selection() {
         let mut sketch = Sketch::default();
-        let c_id = sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 5.0,
-        });
+        let c_id = sketch.entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            5.0,
+        ));
         let mut prof_sel = HashSet::new();
         prof_sel.insert(c_id);
         let profile = build_profile_from_selection(&sketch, &prof_sel).unwrap();
 
-        let l_id = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(0.0, 40.0),
-        });
+        let l_id = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(0.0, 40.0),
+        ));
         let mut path_sel = HashSet::new();
         path_sel.insert(l_id);
         let path = build_path_from_selection(&sketch, &path_sel).unwrap();
@@ -1267,10 +1267,10 @@ mod tests {
     #[test]
     fn test_sweep_multi_plane_profile_top_path_front() {
         let mut top_sketch = Sketch::default();
-        let c_id = top_sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 8.0,
-        });
+        let c_id = top_sketch.entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            8.0,
+        ));
         let mut prof_sel = HashSet::new();
         prof_sel.insert(c_id);
         let profile = build_profile_from_selection(&top_sketch, &prof_sel).unwrap();
@@ -1278,10 +1278,10 @@ mod tests {
 
         let mut front_sketch = Sketch::default();
         // Path on Front plane (XZ): goes from origin (0, 0) up along Z (0, 50)
-        let l_id = front_sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(0.0, 50.0),
-        });
+        let l_id = front_sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(0.0, 50.0),
+        ));
         let mut path_sel = HashSet::new();
         path_sel.insert(l_id);
         let front_plane = ducad_render::SketchPlane::front();
@@ -1309,10 +1309,10 @@ mod tests {
     #[test]
     fn test_sweep_along_smooth_spline_path() {
         let mut top_sketch = Sketch::default();
-        let c_id = top_sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(0.0, 0.0),
-            radius: 5.0,
-        });
+        let c_id = top_sketch.entities.insert(Entity::circle(
+            DVec2::new(0.0, 0.0),
+            5.0,
+        ));
         let mut prof_sel = HashSet::new();
         prof_sel.insert(c_id);
         let profile = build_profile_from_selection(&top_sketch, &prof_sel).unwrap();
@@ -1320,14 +1320,12 @@ mod tests {
 
         let mut front_sketch = Sketch::default();
         // Curving S-path on Front Plane (XZ)
-        let s_id = front_sketch.entities.insert(Entity::Spline {
-            points: vec![
-                DVec2::new(0.0, 0.0),
-                DVec2::new(0.0, 30.0),
-                DVec2::new(30.0, 60.0),
-                DVec2::new(60.0, 60.0),
-            ],
-        });
+        let s_id = front_sketch.entities.insert(Entity::spline(vec![
+            DVec2::new(0.0, 0.0),
+            DVec2::new(0.0, 30.0),
+            DVec2::new(30.0, 60.0),
+            DVec2::new(60.0, 60.0),
+        ]));
         let mut path_sel = HashSet::new();
         path_sel.insert(s_id);
         let front_plane = ducad_render::SketchPlane::front();

@@ -217,9 +217,15 @@ pub fn export(sketch: &Sketch, path: impl AsRef<Path>) -> Result<usize> {
     let mut skipped = 0usize;
     for (_, entity) in sketch.entities.iter() {
         match entity {
-            Entity::Line { start, end } => push_line(&mut out, *start, *end),
-            Entity::Circle { center, radius } => push_circle(&mut out, *center, *radius),
-            Entity::Arc { center, radius, start_angle, end_angle } => {
+            Entity::Line { start, end, .. } => push_line(&mut out, *start, *end),
+            Entity::Circle { center, radius, .. } => push_circle(&mut out, *center, *radius),
+            Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                ..
+            } => {
                 push_arc(&mut out, *center, *radius, *start_angle, *end_angle)
             }
             Entity::Ellipse { .. } | Entity::Spline { .. } => skipped += 1,
@@ -306,20 +312,20 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
     macro_rules! flush {
         () => {
             match current {
-                Some("LINE") => entities.push(Entity::Line {
-                    start: DVec2::new(fields.x0, fields.y0),
-                    end: DVec2::new(fields.x1, fields.y1),
-                }),
-                Some("CIRCLE") => entities.push(Entity::Circle {
-                    center: DVec2::new(fields.x0, fields.y0),
-                    radius: fields.radius,
-                }),
-                Some("ARC") => entities.push(Entity::Arc {
-                    center: DVec2::new(fields.x0, fields.y0),
-                    radius: fields.radius,
-                    start_angle: fields.start_angle.to_radians(),
-                    end_angle: fields.end_angle.to_radians(),
-                }),
+                Some("LINE") => entities.push(Entity::line(
+                    DVec2::new(fields.x0, fields.y0),
+                    DVec2::new(fields.x1, fields.y1),
+                )),
+                Some("CIRCLE") => entities.push(Entity::circle(
+                    DVec2::new(fields.x0, fields.y0),
+                    fields.radius,
+                )),
+                Some("ARC") => entities.push(Entity::arc(
+                    DVec2::new(fields.x0, fields.y0),
+                    fields.radius,
+                    fields.start_angle.to_radians(),
+                    fields.end_angle.to_radians(),
+                )),
                 _ => {}
             }
         };
@@ -341,19 +347,17 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
                     None
                 }
             };
-            continue;
-        }
-        let Some(cur) = current else { continue };
-        let parsed: f64 = value.parse().unwrap_or(0.0);
-        match (cur, code) {
-            (_, "10") => fields.x0 = parsed,
-            (_, "20") => fields.y0 = parsed,
-            ("LINE", "11") => fields.x1 = parsed,
-            ("LINE", "21") => fields.y1 = parsed,
-            (_, "40") => fields.radius = parsed,
-            ("ARC", "50") => fields.start_angle = parsed,
-            ("ARC", "51") => fields.end_angle = parsed,
-            _ => {}
+        } else if let Some(parsed) = value.parse::<f64>().ok() {
+            match (current.unwrap_or(""), code) {
+                (_, "10") => fields.x0 = parsed,
+                (_, "20") => fields.y0 = parsed,
+                ("LINE", "11") => fields.x1 = parsed,
+                ("LINE", "21") => fields.y1 = parsed,
+                (_, "40") => fields.radius = parsed,
+                ("ARC", "50") => fields.start_angle = parsed,
+                ("ARC", "51") => fields.end_angle = parsed,
+                _ => {}
+            }
         }
     }
 
@@ -367,25 +371,25 @@ mod tests {
 
     fn sample_sketch() -> Sketch {
         let mut sketch = Sketch::default();
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 5.0),
-        });
-        sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(3.0, 4.0),
-            radius: 2.5,
-        });
-        sketch.entities.insert(Entity::Arc {
-            center: DVec2::new(1.0, 1.0),
-            radius: 5.0,
-            start_angle: 0.0,
-            end_angle: PI,
-        });
-        sketch.entities.insert(Entity::Ellipse {
-            center: DVec2::new(0.0, 0.0),
-            radius_x: 3.0,
-            radius_y: 1.0,
-        });
+        sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 5.0),
+        ));
+        sketch.entities.insert(Entity::circle(
+            DVec2::new(3.0, 4.0),
+            2.5,
+        ));
+        sketch.entities.insert(Entity::arc(
+            DVec2::new(1.0, 1.0),
+            5.0,
+            0.0,
+            PI,
+        ));
+        sketch.entities.insert(Entity::ellipse(
+            DVec2::new(0.0, 0.0),
+            3.0,
+            1.0,
+        ));
         sketch
     }
 
@@ -412,17 +416,17 @@ mod tests {
         let has_line = result
             .entities
             .iter()
-            .any(|e| matches!(e, Entity::Line { start, end } if (*start - DVec2::new(0.0,0.0)).length() < 1e-9 && (*end - DVec2::new(10.0,5.0)).length() < 1e-9));
+            .any(|e| matches!(e, Entity::Line { start, end, .. } if (*start - DVec2::new(0.0,0.0)).length() < 1e-9 && (*end - DVec2::new(10.0,5.0)).length() < 1e-9));
         assert!(has_line);
 
         let has_circle = result
             .entities
             .iter()
-            .any(|e| matches!(e, Entity::Circle { center, radius } if (*center - DVec2::new(3.0,4.0)).length() < 1e-9 && (radius - 2.5).abs() < 1e-9));
+            .any(|e| matches!(e, Entity::Circle { center, radius, .. } if (*center - DVec2::new(3.0,4.0)).length() < 1e-9 && (radius - 2.5).abs() < 1e-9));
         assert!(has_circle);
 
         let has_arc = result.entities.iter().any(|e| {
-            matches!(e, Entity::Arc { center, radius, start_angle, end_angle }
+            matches!(e, Entity::Arc { center, radius, start_angle, end_angle, .. }
                 if (*center - DVec2::new(1.0,1.0)).length() < 1e-9
                 && (radius - 5.0).abs() < 1e-9
                 && start_angle.abs() < 1e-9

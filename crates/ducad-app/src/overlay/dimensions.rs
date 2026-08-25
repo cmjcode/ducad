@@ -70,7 +70,7 @@ impl DuCADApp {
             return;
         };
         match entity {
-            Entity::Line { start, end } => {
+            Entity::Line { start, end, is_construction } => {
                 if let Some(region) = find_region_containing_entity(self.sketch(), id) {
                     if let Some(r) = detect_rectangle(self.sketch(), &region.entity_ids) {
                         if let Some(side_idx) = r.entity_ids.iter().position(|&e| e == id) {
@@ -92,21 +92,21 @@ impl DuCADApp {
                 self.execute_sketch_command(Box::new(UpdateEntity::new(
                     "Ubah Panjang Garis",
                     id,
-                    Entity::Line { start, end: new_end },
+                    Entity::line(start, new_end).with_construction(is_construction),
                 )));
             }
-            Entity::Circle { center, .. } => {
+            Entity::Circle { center, is_construction, .. } => {
                 self.execute_sketch_command(Box::new(UpdateEntity::new(
                     "Ubah Radius Lingkaran",
                     id,
-                    Entity::Circle { center, radius: new_value_mm },
+                    Entity::circle(center, new_value_mm).with_construction(is_construction),
                 )));
             }
-            Entity::Arc { center, start_angle, end_angle, .. } => {
+            Entity::Arc { center, start_angle, end_angle, is_construction, .. } => {
                 self.execute_sketch_command(Box::new(UpdateEntity::new(
                     "Ubah Radius Busur",
                     id,
-                    Entity::Arc { center, radius: new_value_mm, start_angle, end_angle },
+                    Entity::arc(center, new_value_mm, start_angle, end_angle).with_construction(is_construction),
                 )));
             }
             // Ellipse punya 2 angka (Rx/Ry) sekaligus — popup 1-angka tidak pas, jadi
@@ -331,7 +331,7 @@ impl DuCADApp {
         for (id, entity) in &entities {
             let id = *id;
             match entity {
-                Entity::Line { start, end } => {
+                Entity::Line { start, end, .. } => {
                     let len = (*end - *start).length();
                     let mid = (*start + *end) * 0.5;
                     let label_3d = self.active_plane.to_world(mid, 0.0);
@@ -378,7 +378,7 @@ impl DuCADApp {
                         }
                     }
                 }
-                Entity::Circle { center, radius } => {
+                Entity::Circle { center, radius, .. } => {
                     let edge_pt = *center + DVec2::new(*radius, 0.0);
                     let label_3d = self.active_plane.to_world(edge_pt, 0.0);
 
@@ -420,6 +420,7 @@ impl DuCADApp {
                     radius,
                     start_angle,
                     end_angle,
+                    ..
                 } => {
                     let mid_angle = (start_angle + end_angle) * 0.5;
                     let mid_pt =
@@ -463,6 +464,7 @@ impl DuCADApp {
                     center,
                     radius_x,
                     radius_y,
+                    ..
                 } => {
                     let label_3d = self.active_plane.to_world(*center, 0.0);
                     if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {

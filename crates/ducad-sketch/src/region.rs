@@ -214,8 +214,12 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
     let mut regions = Vec::new();
 
     // 1. Lingkaran mandiri (Circle)
-    for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
-        if let Entity::Circle { center, radius } = entity {
+    for (id, entity) in sketch
+        .entities
+        .iter()
+        .filter(|(id, e)| !sketch.is_hidden(*id) && !e.is_construction())
+    {
+        if let Entity::Circle { center, radius, .. } = entity {
             if *radius > 1e-6 {
                 const SAMPLES: usize = 48;
                 let mut pts = Vec::with_capacity(SAMPLES);
@@ -233,7 +237,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     area: std::f64::consts::PI * radius * radius,
                 });
             }
-        } else if let Entity::Ellipse { center, radius_x, radius_y } = entity {
+        } else if let Entity::Ellipse { center, radius_x, radius_y, .. } = entity {
             if *radius_x > 1e-6 && *radius_y > 1e-6 {
                 const SAMPLES: usize = 48;
                 let mut pts = Vec::with_capacity(SAMPLES);
@@ -251,7 +255,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     area: std::f64::consts::PI * radius_x * radius_y,
                 });
             }
-        } else if let Entity::Spline { points } = entity {
+        } else if let Entity::Spline { points, .. } = entity {
             if points.len() >= 3 {
                 let first = points[0];
                 let last = *points.last().unwrap();
@@ -283,9 +287,13 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
 
     const CHAIN_EPS: f64 = 0.05;
     let mut segments = Vec::new();
-    for (id, entity) in sketch.entities.iter().filter(|(id, _)| !sketch.is_hidden(*id)) {
+    for (id, entity) in sketch
+        .entities
+        .iter()
+        .filter(|(id, e)| !sketch.is_hidden(*id) && !e.is_construction())
+    {
         match entity {
-            Entity::Line { start, end } => {
+            Entity::Line { start, end, .. } => {
                 if (*start - *end).length() > 1e-4 {
                     segments.push(SegmentInfo {
                         id,
@@ -295,7 +303,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     });
                 }
             }
-            Entity::Arc { center, radius, start_angle, end_angle } => {
+            Entity::Arc { center, radius, start_angle, end_angle, .. } => {
                 let sampled = sample_arc_points(*center, *radius, *start_angle, *end_angle, 16);
                 if let (Some(&s), Some(&e)) = (sampled.first(), sampled.last()) {
                     segments.push(SegmentInfo {
@@ -306,7 +314,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     });
                 }
             }
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.len() >= 2 {
                     let sampled = crate::entity::sample_catmull_rom(points, 16);
                     if let (Some(&s), Some(&e)) = (sampled.first(), sampled.last()) {
@@ -508,6 +516,7 @@ impl RectangleShape {
                     Entity::Line {
                         start: new_corners[k],
                         end: new_corners[(k + 1) % 4],
+                        is_construction: false,
                     },
                 )
             })
@@ -538,8 +547,16 @@ pub fn detect_rectangle(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<Rect
             return None;
         }
         match sketch.entities.get(id) {
-            Some(Entity::Line { start, end }) if (*start - *end).length() > EPS => {
-                segs.push(Seg { id, start: *start, end: *end });
+            Some(Entity::Line {
+                start,
+                end,
+                is_construction,
+            }) if !*is_construction && (*start - *end).length() > EPS => {
+                segs.push(Seg {
+                    id,
+                    start: *start,
+                    end: *end,
+                });
             }
             _ => return None,
         }
@@ -644,10 +661,10 @@ mod tests {
         let p2 = DVec2::new(10.0, 5.0);
         let p3 = DVec2::new(0.0, 5.0);
 
-        sketch.entities.insert(Entity::Line { start: p0, end: p1 });
-        sketch.entities.insert(Entity::Line { start: p1, end: p2 });
-        sketch.entities.insert(Entity::Line { start: p2, end: p3 });
-        sketch.entities.insert(Entity::Line { start: p3, end: p0 });
+        sketch.entities.insert(Entity::line(p0, p1));
+        sketch.entities.insert(Entity::line(p1, p2));
+        sketch.entities.insert(Entity::line(p2, p3));
+        sketch.entities.insert(Entity::line(p3, p0));
 
         let regions = find_closed_regions(&sketch);
         assert_eq!(regions.len(), 1);
@@ -672,10 +689,10 @@ mod tests {
         let p3 = DVec2::new(0.0, 5.0);
 
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+        ids.insert(sketch.entities.insert(Entity::line(p0, p1)));
+        ids.insert(sketch.entities.insert(Entity::line(p1, p2)));
+        ids.insert(sketch.entities.insert(Entity::line(p2, p3)));
+        ids.insert(sketch.entities.insert(Entity::line(p3, p0)));
 
         let rect = detect_rectangle(&sketch, &ids).expect("harus terdeteksi sebagai rectangle");
         assert!((rect.length_p - 10.0).abs() < 1e-3 || (rect.length_l - 10.0).abs() < 1e-3);
@@ -695,10 +712,10 @@ mod tests {
         let p3 = rot(0.0, 3.0);
 
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+        ids.insert(sketch.entities.insert(Entity::line(p0, p1)));
+        ids.insert(sketch.entities.insert(Entity::line(p1, p2)));
+        ids.insert(sketch.entities.insert(Entity::line(p2, p3)));
+        ids.insert(sketch.entities.insert(Entity::line(p3, p0)));
 
         let rect = detect_rectangle(&sketch, &ids).expect("rectangle rotated harus tetap terdeteksi");
         assert!((rect.length_p - 8.0).abs() < 1e-3 || (rect.length_l - 8.0).abs() < 1e-3);
@@ -715,10 +732,10 @@ mod tests {
         let p3 = DVec2::new(2.0, 5.0);
 
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+        ids.insert(sketch.entities.insert(Entity::line(p0, p1)));
+        ids.insert(sketch.entities.insert(Entity::line(p1, p2)));
+        ids.insert(sketch.entities.insert(Entity::line(p2, p3)));
+        ids.insert(sketch.entities.insert(Entity::line(p3, p0)));
 
         assert!(detect_rectangle(&sketch, &ids).is_none());
     }
@@ -732,10 +749,10 @@ mod tests {
         let p3 = DVec2::new(0.0, 5.0);
 
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+        ids.insert(sketch.entities.insert(Entity::line(p0, p1)));
+        ids.insert(sketch.entities.insert(Entity::line(p1, p2)));
+        ids.insert(sketch.entities.insert(Entity::line(p2, p3)));
+        ids.insert(sketch.entities.insert(Entity::line(p3, p0)));
 
         let rect = detect_rectangle(&sketch, &ids).unwrap();
         let anchor_before = rect.anchor_point(RectAnchor::Corner0);
@@ -744,7 +761,7 @@ mod tests {
 
         // Corner0 (sudut anchor) harus tetap ada persis di posisi semula pada salah satu endpoint.
         let touches_anchor = new_lines.iter().any(|(_, e)| match e {
-            Entity::Line { start, end } => {
+            Entity::Line { start, end, .. } => {
                 (*start - anchor_before).length() < 1e-6 || (*end - anchor_before).length() < 1e-6
             }
             _ => false,
@@ -761,10 +778,10 @@ mod tests {
         let p3 = DVec2::new(0.0, 5.0);
 
         let mut ids = HashSet::new();
-        ids.insert(sketch.entities.insert(Entity::Line { start: p0, end: p1 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p1, end: p2 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p2, end: p3 }));
-        ids.insert(sketch.entities.insert(Entity::Line { start: p3, end: p0 }));
+        ids.insert(sketch.entities.insert(Entity::line(p0, p1)));
+        ids.insert(sketch.entities.insert(Entity::line(p1, p2)));
+        ids.insert(sketch.entities.insert(Entity::line(p2, p3)));
+        ids.insert(sketch.entities.insert(Entity::line(p3, p0)));
 
         let rect = detect_rectangle(&sketch, &ids).unwrap();
         let center_before = rect.anchor_point(RectAnchor::Center);
@@ -783,10 +800,10 @@ mod tests {
     #[test]
     fn test_circle_region_detection() {
         let mut sketch = Sketch::default();
-        sketch.entities.insert(Entity::Circle {
-            center: DVec2::new(20.0, 20.0),
-            radius: 10.0,
-        });
+        sketch.entities.insert(Entity::circle(
+            DVec2::new(20.0, 20.0),
+            10.0,
+        ));
 
         let regions = find_closed_regions(&sketch);
         assert_eq!(regions.len(), 1);

@@ -12,26 +12,28 @@ fn entity_dof(entity: &Entity) -> usize {
         Entity::Circle { .. } => 3,
         Entity::Arc { .. } => 5,
         Entity::Ellipse { .. } => 4,
-        Entity::Spline { points } => points.len() * 2,
+        Entity::Spline { points, .. } => points.len() * 2,
     }
 }
 
 fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
     match entity {
-        Entity::Line { start, end } => out.extend([start.x, start.y, end.x, end.y]),
-        Entity::Circle { center, radius } => out.extend([center.x, center.y, *radius]),
+        Entity::Line { start, end, .. } => out.extend([start.x, start.y, end.x, end.y]),
+        Entity::Circle { center, radius, .. } => out.extend([center.x, center.y, *radius]),
         Entity::Arc {
             center,
             radius,
             start_angle,
             end_angle,
+            ..
         } => out.extend([center.x, center.y, *radius, *start_angle, *end_angle]),
         Entity::Ellipse {
             center,
             radius_x,
             radius_y,
+            ..
         } => out.extend([center.x, center.y, *radius_x, *radius_y]),
-        Entity::Spline { points } => {
+        Entity::Spline { points, .. } => {
             for p in points {
                 out.extend([p.x, p.y]);
             }
@@ -41,11 +43,11 @@ fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
 
 fn unpack_entity(entity: &mut Entity, params: &[f64]) {
     match entity {
-        Entity::Line { start, end } => {
+        Entity::Line { start, end, .. } => {
             *start = DVec2::new(params[0], params[1]);
             *end = DVec2::new(params[2], params[3]);
         }
-        Entity::Circle { center, radius } => {
+        Entity::Circle { center, radius, .. } => {
             *center = DVec2::new(params[0], params[1]);
             *radius = params[2];
         }
@@ -54,6 +56,7 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
             radius,
             start_angle,
             end_angle,
+            ..
         } => {
             *center = DVec2::new(params[0], params[1]);
             *radius = params[2];
@@ -64,12 +67,13 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
             center,
             radius_x,
             radius_y,
+            ..
         } => {
             *center = DVec2::new(params[0], params[1]);
             *radius_x = params[2];
             *radius_y = params[3];
         }
-        Entity::Spline { points } => {
+        Entity::Spline { points, .. } => {
             for (i, p) in points.iter_mut().enumerate() {
                 if 2 * i + 1 < params.len() {
                     *p = DVec2::new(params[2 * i], params[2 * i + 1]);

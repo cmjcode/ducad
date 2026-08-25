@@ -16,7 +16,7 @@ mod tests;
 
 pub use commands::{
     DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
-    TranslateEntities, UndoStack, UpdateEntity,
+    ToggleConstruction, TranslateEntities, UndoStack, UpdateEntity,
 };
 pub use entity::{Entity, EntityId};
 pub use ops::{

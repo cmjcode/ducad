@@ -202,10 +202,10 @@ mod tests {
     fn save_load_roundtrip_preserves_sketch_and_body() {
         let _guard = TEST_LOCK.lock().unwrap();
         let mut sketch = Sketch::default();
-        let line_id = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 0.0),
-        });
+        let line_id = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+        ));
         sketch
             .constraints
             .push(ducad_sketch::constraint::Constraint::Horizontal { line: line_id });
@@ -286,11 +286,11 @@ mod tests {
     fn save_load_multi_plane_roundtrip() {
         let _guard = TEST_LOCK.lock().unwrap();
         let mut top = Sketch::default();
-        top.entities.insert(Entity::Circle { center: DVec2::ZERO, radius: 10.0 });
+        top.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
         let mut front = Sketch::default();
-        front.entities.insert(Entity::Line { start: DVec2::ZERO, end: DVec2::new(10.0, 20.0) });
+        front.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 20.0)));
         let mut right = Sketch::default();
-        right.entities.insert(Entity::Circle { center: DVec2::new(5.0, 5.0), radius: 3.0 });
+        right.entities.insert(Entity::circle(DVec2::new(5.0, 5.0), 3.0));
 
         let sketches = [top, front, right];
         let path = temp_path("multi_plane");

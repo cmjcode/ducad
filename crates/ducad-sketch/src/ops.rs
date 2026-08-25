@@ -33,6 +33,7 @@ pub fn arc_from_three_points(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<Entity> 
         radius,
         start_angle,
         end_angle,
+        is_construction: false,
     })
 }
 
@@ -54,8 +55,9 @@ pub(crate) fn circumcenter(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<DVec2> {
 
 /// Bangun entitas sejajar `entity` yang melalui (atau mendekati) `reference_point`.
 pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> {
+    let is_construction = entity.is_construction();
     match entity {
-        Entity::Line { start, end } => {
+        Entity::Line { start, end, .. } => {
             let dir = (*end - *start).normalize_or_zero();
             if dir == DVec2::ZERO {
                 return None;
@@ -65,6 +67,7 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
             Some(Entity::Line {
                 start: *start + offset_vec,
                 end: *end + offset_vec,
+                is_construction,
             })
         }
         Entity::Circle { center, .. } => {
@@ -72,6 +75,7 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
             (radius > 1e-6).then_some(Entity::Circle {
                 center: *center,
                 radius,
+                is_construction,
             })
         }
         Entity::Arc {
@@ -86,6 +90,7 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
                 radius,
                 start_angle: *start_angle,
                 end_angle: *end_angle,
+                is_construction,
             })
         }
         Entity::Ellipse { .. } | Entity::Spline { .. } => None,
@@ -108,21 +113,25 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
         return None;
     }
     let reflect = |p: DVec2| reflect_point(p, axis_a, axis_b);
+    let is_construction = entity.is_construction();
 
     Some(match entity {
-        Entity::Line { start, end } => Entity::Line {
+        Entity::Line { start, end, .. } => Entity::Line {
             start: reflect(*start),
             end: reflect(*end),
+            is_construction,
         },
-        Entity::Circle { center, radius } => Entity::Circle {
+        Entity::Circle { center, radius, .. } => Entity::Circle {
             center: reflect(*center),
             radius: *radius,
+            is_construction,
         },
         Entity::Arc {
             center,
             radius,
             start_angle,
             end_angle,
+            ..
         } => {
             let axis_angle = axis_dir.y.atan2(axis_dir.x);
             let reflect_angle = |a: f64| 2.0 * axis_angle - a;
@@ -131,56 +140,68 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
                 radius: *radius,
                 start_angle: reflect_angle(*end_angle),
                 end_angle: reflect_angle(*start_angle),
+                is_construction,
             }
         }
         Entity::Ellipse {
             center,
             radius_x,
             radius_y,
+            ..
         } => Entity::Ellipse {
             center: reflect(*center),
             radius_x: *radius_x,
             radius_y: *radius_y,
+            is_construction,
         },
-        Entity::Spline { points } => Entity::Spline {
+        Entity::Spline { points, .. } => Entity::Spline {
             points: points.iter().map(|p| reflect(*p)).collect(),
+            is_construction,
         },
     })
 }
 
 /// Geser entitas sepanjang bidang sketsa-nya (u,v lokal) sejauh `delta`.
 pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
+    let is_construction = entity.is_construction();
     match entity {
-        Entity::Line { start, end } => Entity::Line {
+        Entity::Line { start, end, .. } => Entity::Line {
             start: *start + delta,
             end: *end + delta,
+            is_construction,
         },
-        Entity::Circle { center, radius } => Entity::Circle {
+        Entity::Circle { center, radius, .. } => Entity::Circle {
             center: *center + delta,
             radius: *radius,
+            is_construction,
         },
         Entity::Arc {
             center,
             radius,
             start_angle,
             end_angle,
+            ..
         } => Entity::Arc {
             center: *center + delta,
             radius: *radius,
             start_angle: *start_angle,
             end_angle: *end_angle,
+            is_construction,
         },
         Entity::Ellipse {
             center,
             radius_x,
             radius_y,
+            ..
         } => Entity::Ellipse {
             center: *center + delta,
             radius_x: *radius_x,
             radius_y: *radius_y,
+            is_construction,
         },
-        Entity::Spline { points } => Entity::Spline {
+        Entity::Spline { points, .. } => Entity::Spline {
             points: points.iter().map(|p| *p + delta).collect(),
+            is_construction,
         },
     }
 }
@@ -196,7 +217,7 @@ pub fn line_intersection_params_in_sketch(
         .iter()
         .filter(|(id, _)| *id != exclude)
         .filter_map(|(_, e)| match e {
-            Entity::Line { start, end } => line_intersection_params(line, (*start, *end)),
+            Entity::Line { start, end, .. } => line_intersection_params(line, (*start, *end)),
             _ => None,
         })
         .map(|(t, _u)| t)
@@ -360,18 +381,35 @@ pub fn compute_fillet_2d(
         radius,
         start_angle,
         end_angle,
+        is_construction: false,
     };
 
     let trimmed_line1 = if l1_start_is_v {
-        Entity::Line { start: t1, end: p1 }
+        Entity::Line {
+            start: t1,
+            end: p1,
+            is_construction: false,
+        }
     } else {
-        Entity::Line { start: p1, end: t1 }
+        Entity::Line {
+            start: p1,
+            end: t1,
+            is_construction: false,
+        }
     };
 
     let trimmed_line2 = if l2_start_is_v {
-        Entity::Line { start: t2, end: p2 }
+        Entity::Line {
+            start: t2,
+            end: p2,
+            is_construction: false,
+        }
     } else {
-        Entity::Line { start: p2, end: t2 }
+        Entity::Line {
+            start: p2,
+            end: t2,
+            is_construction: false,
+        }
     };
 
     Some(Fillet2DResult {
@@ -418,18 +456,38 @@ pub fn compute_chamfer_2d(
     let t1 = v + u1 * dist1;
     let t2 = v + u2 * dist2;
 
-    let bevel_line = Entity::Line { start: t1, end: t2 };
+    let bevel_line = Entity::Line {
+        start: t1,
+        end: t2,
+        is_construction: false,
+    };
 
     let trimmed_line1 = if l1_start_is_v {
-        Entity::Line { start: t1, end: p1 }
+        Entity::Line {
+            start: t1,
+            end: p1,
+            is_construction: false,
+        }
     } else {
-        Entity::Line { start: p1, end: t1 }
+        Entity::Line {
+            start: p1,
+            end: t1,
+            is_construction: false,
+        }
     };
 
     let trimmed_line2 = if l2_start_is_v {
-        Entity::Line { start: t2, end: p2 }
+        Entity::Line {
+            start: t2,
+            end: p2,
+            is_construction: false,
+        }
     } else {
-        Entity::Line { start: p2, end: t2 }
+        Entity::Line {
+            start: p2,
+            end: t2,
+            is_construction: false,
+        }
     };
 
     Some(Chamfer2DResult {
@@ -452,7 +510,7 @@ pub fn find_corner_lines_at_point(
         .iter()
         .filter(|(id, _)| !sketch.is_hidden(*id))
         .filter_map(|(id, entity)| match *entity {
-            Entity::Line { start, end } => Some((id, start, end)),
+            Entity::Line { start, end, .. } => Some((id, start, end)),
             _ => None,
         })
         .collect();
@@ -520,7 +578,7 @@ pub fn find_all_fillet_targets(sketch: &Sketch) -> Vec<FilletTarget> {
         .iter()
         .filter(|(id, _)| !sketch.is_hidden(*id))
         .filter_map(|(id, e)| match e {
-            Entity::Line { start, end } => Some((id, *start, *end)),
+            Entity::Line { start, end, .. } => Some((id, *start, *end)),
             _ => None,
         })
         .collect();
@@ -535,6 +593,7 @@ pub fn find_all_fillet_targets(sketch: &Sketch) -> Vec<FilletTarget> {
                 radius,
                 start_angle,
                 end_angle,
+                ..
             } => {
                 let p1 = *center + DVec2::new(*radius * start_angle.cos(), *radius * start_angle.sin());
                 let p2 = *center + DVec2::new(*radius * end_angle.cos(), *radius * end_angle.sin());
@@ -677,30 +736,36 @@ pub fn rotate_point(p: DVec2, pivot: DVec2, angle_rad: f64) -> DVec2 {
 
 /// Putar entitas 2D mengelilingi titik pusat `pivot` sebesar `angle_rad` radian.
 pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
+    let is_construction = entity.is_construction();
     match entity {
-        Entity::Line { start, end } => Entity::Line {
+        Entity::Line { start, end, .. } => Entity::Line {
             start: rotate_point(*start, pivot, angle_rad),
             end: rotate_point(*end, pivot, angle_rad),
+            is_construction,
         },
-        Entity::Circle { center, radius } => Entity::Circle {
+        Entity::Circle { center, radius, .. } => Entity::Circle {
             center: rotate_point(*center, pivot, angle_rad),
             radius: *radius,
+            is_construction,
         },
         Entity::Arc {
             center,
             radius,
             start_angle,
             end_angle,
+            ..
         } => Entity::Arc {
             center: rotate_point(*center, pivot, angle_rad),
             radius: *radius,
             start_angle: start_angle + angle_rad,
             end_angle: end_angle + angle_rad,
+            is_construction,
         },
         Entity::Ellipse {
             center,
             radius_x,
             radius_y,
+            ..
         } => {
             let norm_angle = ((angle_rad % std::f64::consts::TAU) + std::f64::consts::TAU) % std::f64::consts::TAU;
             let is_perpendicular = (norm_angle - std::f64::consts::FRAC_PI_2).abs() < 0.01
@@ -714,13 +779,15 @@ pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
                 center: rotate_point(*center, pivot, angle_rad),
                 radius_x: rx,
                 radius_y: ry,
+                is_construction,
             }
         }
-        Entity::Spline { points } => Entity::Spline {
+        Entity::Spline { points, .. } => Entity::Spline {
             points: points
                 .iter()
                 .map(|p| rotate_point(*p, pivot, angle_rad))
                 .collect(),
+            is_construction,
         },
     }
 }

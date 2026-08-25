@@ -129,6 +129,11 @@ impl DuCADApp {
                 PaletteAction::SetTool(ToolKind::Chamfer2D),
             ),
             (
+                "Garis Konstruksi / Reference Line (Toggle)".to_string(),
+                "X".to_string(),
+                PaletteAction::ToggleConstruction,
+            ),
+            (
                 "Revolve (Putar 3D)".to_string(),
                 "V".to_string(),
                 PaletteAction::OpenRevolveDialog,
@@ -301,6 +306,9 @@ impl DuCADApp {
             PaletteAction::ToggleStudioLighting => {
                 self.lighting_drawer_open = !self.lighting_drawer_open;
                 self.studio_config.enabled = self.lighting_drawer_open;
+            }
+            PaletteAction::ToggleConstruction => {
+                self.toggle_construction_action();
             }
             PaletteAction::OpenDrawingSheet => {
                 self.open_drawing_sheet();

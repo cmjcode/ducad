@@ -65,10 +65,10 @@ fn measurement_arrowheads_degenerate_coincident_points_no_panic() {
 #[test]
 fn inactive_entity_lines_front_and_right_planes() {
     let mut sketch = Sketch::default();
-    sketch.entities.insert(Entity::Line {
-        start: DVec2::new(10.0, 20.0),
-        end: DVec2::new(30.0, 40.0),
-    });
+    sketch.entities.insert(Entity::line(
+        DVec2::new(10.0, 20.0),
+        DVec2::new(30.0, 40.0),
+    ));
 
     let front_plane = SketchPlane::front();
     let front_verts = inactive_entity_lines(&sketch, &front_plane);

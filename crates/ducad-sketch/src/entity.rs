@@ -15,35 +15,120 @@ pub enum Entity {
     Line {
         start: DVec2,
         end: DVec2,
+        #[serde(default)]
+        is_construction: bool,
     },
     Circle {
         center: DVec2,
         radius: f64,
+        #[serde(default)]
+        is_construction: bool,
     },
     Arc {
         center: DVec2,
         radius: f64,
         start_angle: f64,
         end_angle: f64,
+        #[serde(default)]
+        is_construction: bool,
     },
     /// Ellips axis-aligned (sumbu sejajar X/Y).
     Ellipse {
         center: DVec2,
         radius_x: f64,
         radius_y: f64,
+        #[serde(default)]
+        is_construction: bool,
     },
     /// Kurva Spline halus yang melalui deretan titik kontrol/fit (Catmull-Rom).
     Spline {
         points: Vec<DVec2>,
+        #[serde(default)]
+        is_construction: bool,
     },
 }
 
 impl Entity {
+    /// Konstruktor helper untuk Line biasa.
+    pub fn line(start: DVec2, end: DVec2) -> Self {
+        Self::Line {
+            start,
+            end,
+            is_construction: false,
+        }
+    }
+
+    /// Konstruktor helper untuk Circle biasa.
+    pub fn circle(center: DVec2, radius: f64) -> Self {
+        Self::Circle {
+            center,
+            radius,
+            is_construction: false,
+        }
+    }
+
+    /// Konstruktor helper untuk Arc biasa.
+    pub fn arc(center: DVec2, radius: f64, start_angle: f64, end_angle: f64) -> Self {
+        Self::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            is_construction: false,
+        }
+    }
+
+    /// Konstruktor helper untuk Ellipse biasa.
+    pub fn ellipse(center: DVec2, radius_x: f64, radius_y: f64) -> Self {
+        Self::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            is_construction: false,
+        }
+    }
+
+    /// Konstruktor helper untuk Spline biasa.
+    pub fn spline(points: Vec<DVec2>) -> Self {
+        Self::Spline {
+            points,
+            is_construction: false,
+        }
+    }
+
+    /// Mengecek apakah entitas adalah garis konstruksi / referensi.
+    pub fn is_construction(&self) -> bool {
+        match self {
+            Entity::Line { is_construction, .. }
+            | Entity::Circle { is_construction, .. }
+            | Entity::Arc { is_construction, .. }
+            | Entity::Ellipse { is_construction, .. }
+            | Entity::Spline { is_construction, .. } => *is_construction,
+        }
+    }
+
+    /// Mengatur status konstruksi entitas.
+    pub fn set_construction(&mut self, construction: bool) {
+        match self {
+            Entity::Line { is_construction, .. }
+            | Entity::Circle { is_construction, .. }
+            | Entity::Arc { is_construction, .. }
+            | Entity::Ellipse { is_construction, .. }
+            | Entity::Spline { is_construction, .. } => *is_construction = construction,
+        }
+    }
+
+    /// Builder pattern untuk mengubah status garis konstruksi.
+    pub fn with_construction(mut self, construction: bool) -> Self {
+        self.set_construction(construction);
+        self
+    }
+
     /// Titik-titik endpoint sebagai kandidat snap "endpoint".
     pub fn endpoints(&self) -> Vec<DVec2> {
         match self {
-            Entity::Line { start, end } => vec![*start, *end],
-            Entity::Circle { center, radius } => vec![
+            Entity::Line { start, end, .. } => vec![*start, *end],
+            Entity::Circle { center, radius, .. } => vec![
                 *center + DVec2::new(*radius, 0.0),
                 *center + DVec2::new(0.0, *radius),
                 *center + DVec2::new(-*radius, 0.0),
@@ -53,6 +138,7 @@ impl Entity {
                 center,
                 radius_x,
                 radius_y,
+                ..
             } => vec![
                 *center + DVec2::new(*radius_x, 0.0),
                 *center + DVec2::new(0.0, *radius_y),
@@ -64,11 +150,12 @@ impl Entity {
                 radius,
                 start_angle,
                 end_angle,
+                ..
             } => vec![
                 *center + DVec2::new(radius * start_angle.cos(), radius * start_angle.sin()),
                 *center + DVec2::new(radius * end_angle.cos(), radius * end_angle.sin()),
             ],
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.is_empty() {
                     vec![]
                 } else if points.len() == 1 {
@@ -86,12 +173,13 @@ impl Entity {
 
     pub fn midpoint(&self) -> Option<DVec2> {
         match self {
-            Entity::Line { start, end } => Some((*start + *end) * 0.5),
+            Entity::Line { start, end, .. } => Some((*start + *end) * 0.5),
             Entity::Arc {
                 center,
                 radius,
                 start_angle,
                 end_angle,
+                ..
             } => {
                 let tau = std::f64::consts::TAU;
                 let span = {
@@ -105,7 +193,7 @@ impl Entity {
                 let mid_angle = start_angle + span * 0.5;
                 Some(*center + DVec2::new(radius * mid_angle.cos(), radius * mid_angle.sin()))
             }
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.len() >= 2 {
                     let sampled = sample_catmull_rom(points, 8);
                     if !sampled.is_empty() {
@@ -123,7 +211,7 @@ impl Entity {
             Entity::Circle { center, .. }
             | Entity::Arc { center, .. }
             | Entity::Ellipse { center, .. } => Some(*center),
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.is_empty() {
                     None
                 } else {
@@ -138,12 +226,12 @@ impl Entity {
     /// Menghitung bounding box 2D (min, max) dari entitas ini.
     pub fn bounding_box(&self) -> Option<(DVec2, DVec2)> {
         match self {
-            Entity::Line { start, end } => {
+            Entity::Line { start, end, .. } => {
                 let min = DVec2::new(start.x.min(end.x), start.y.min(end.y));
                 let max = DVec2::new(start.x.max(end.x), start.y.max(end.y));
                 Some((min, max))
             }
-            Entity::Circle { center, radius } => {
+            Entity::Circle { center, radius, .. } => {
                 let r = radius.abs();
                 let min = DVec2::new(center.x - r, center.y - r);
                 let max = DVec2::new(center.x + r, center.y + r);
@@ -159,6 +247,7 @@ impl Entity {
                 center,
                 radius_x,
                 radius_y,
+                ..
             } => {
                 let rx = radius_x.abs();
                 let ry = radius_y.abs();
@@ -166,7 +255,7 @@ impl Entity {
                 let max = DVec2::new(center.x + rx, center.y + ry);
                 Some((min, max))
             }
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.is_empty() {
                     return None;
                 }
@@ -184,7 +273,7 @@ impl Entity {
     /// Sama seperti `endpoints()`, tapi berpasangan dengan `PointRef` sumbernya.
     pub fn endpoint_refs(&self, id: EntityId) -> Vec<(PointRef, DVec2)> {
         match self {
-            Entity::Line { start, end } => vec![
+            Entity::Line { start, end, .. } => vec![
                 (PointRef::LineStart(id), *start),
                 (PointRef::LineEnd(id), *end),
             ],
@@ -193,6 +282,7 @@ impl Entity {
                 radius,
                 start_angle,
                 end_angle,
+                ..
             } => vec![
                 (
                     PointRef::LineStart(id),
@@ -203,7 +293,7 @@ impl Entity {
                     *center + DVec2::new(radius * end_angle.cos(), radius * end_angle.sin()),
                 ),
             ],
-            Entity::Circle { center, radius } => vec![
+            Entity::Circle { center, radius, .. } => vec![
                 (PointRef::Center(id), *center + DVec2::new(*radius, 0.0)),
                 (PointRef::Center(id), *center + DVec2::new(0.0, *radius)),
                 (PointRef::Center(id), *center + DVec2::new(-*radius, 0.0)),
@@ -213,13 +303,14 @@ impl Entity {
                 center,
                 radius_x,
                 radius_y,
+                ..
             } => vec![
                 (PointRef::Center(id), *center + DVec2::new(*radius_x, 0.0)),
                 (PointRef::Center(id), *center + DVec2::new(0.0, *radius_y)),
                 (PointRef::Center(id), *center + DVec2::new(-*radius_x, 0.0)),
                 (PointRef::Center(id), *center + DVec2::new(0.0, -*radius_y)),
             ],
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.len() >= 2 {
                     let mut refs = vec![
                         (PointRef::LineStart(id), points[0]),
@@ -246,13 +337,14 @@ impl Entity {
     /// Jarak titik ke entitas — dipakai hit-testing seleksi & snap.
     pub fn distance_to(&self, p: DVec2) -> f64 {
         match self {
-            Entity::Line { start, end } => distance_point_segment(p, *start, *end),
-            Entity::Circle { center, radius } => ((p - *center).length() - radius).abs(),
+            Entity::Line { start, end, .. } => distance_point_segment(p, *start, *end),
+            Entity::Circle { center, radius, .. } => ((p - *center).length() - radius).abs(),
             Entity::Arc {
                 center,
                 radius,
                 start_angle,
                 end_angle,
+                ..
             } => {
                 let to_p = p - *center;
                 let angle = to_p.y.atan2(to_p.x);
@@ -269,6 +361,7 @@ impl Entity {
                 center,
                 radius_x,
                 radius_y,
+                ..
             } => {
                 const SAMPLES: usize = 64;
                 (0..SAMPLES)
@@ -280,7 +373,7 @@ impl Entity {
                     })
                     .fold(f64::INFINITY, f64::min)
             }
-            Entity::Spline { points } => {
+            Entity::Spline { points, .. } => {
                 if points.is_empty() {
                     return f64::INFINITY;
                 }

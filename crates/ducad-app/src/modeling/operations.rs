@@ -643,7 +643,7 @@ impl DuCADApp {
         let (p_start, p_end, normal) = if let (Some(s), Some(e)) = (self.rib_start_pt, self.rib_end_pt) {
             (s, e, self.rib_normal_dir)
         } else if let Some(first_sel) = self.selected.iter().next() {
-            if let Some(ducad_sketch::Entity::Line { start, end }) = self.sketch().entities.get(*first_sel) {
+            if let Some(ducad_sketch::Entity::Line { start, end, .. }) = self.sketch().entities.get(*first_sel) {
                 let plane = self.active_plane;
                 let s3 = plane.to_world(*start, 0.0);
                 let e3 = plane.to_world(*end, 0.0);

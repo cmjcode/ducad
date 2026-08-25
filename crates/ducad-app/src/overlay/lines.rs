@@ -160,13 +160,13 @@ impl DuCADApp {
                 let ghost_color = [0.0, 0.85, 1.0, 0.75];
                 for entity in ghost_entities {
                     match &entity {
-                        Entity::Line { start, end } => {
+                        Entity::Line { start, end, .. } => {
                             let p1 = self.active_plane.to_world(*start, 0.03);
                             let p2 = self.active_plane.to_world(*end, 0.03);
                             verts.push(LineVertex { position: [p1.x, p1.y, p1.z], color: ghost_color });
                             verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
                         }
-                        Entity::Circle { center, radius } => {
+                        Entity::Circle { center, radius, .. } => {
                             let segs = 36;
                             for i in 0..segs {
                                 let a1 = i as f64 * std::f64::consts::TAU / segs as f64;
@@ -177,7 +177,7 @@ impl DuCADApp {
                                 verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: ghost_color });
                             }
                         }
-                        Entity::Arc { center, radius, start_angle, end_angle } => {
+                        Entity::Arc { center, radius, start_angle, end_angle, .. } => {
                             let (p_start, p_via, p_end) = {
                                 let tau = std::f64::consts::TAU;
                                 let span = if end_angle - start_angle <= 0.0 { end_angle - start_angle + tau } else { end_angle - start_angle };
@@ -492,12 +492,12 @@ impl DuCADApp {
                 self.sketch().entities.get(id2),
             );
             if let (
-                Some(Entity::Line { start: s1, end: e1 }),
-                Some(Entity::Line { start: s2, end: e2 }),
+                Some(Entity::Line { start: s1, end: e1, .. }),
+                Some(Entity::Line { start: s2, end: e2, .. }),
             ) = (e1_opt, e2_opt)
             {
                 if let Some(arc_id) = self.active_sketch_fillet_arc {
-                    if let Some(Entity::Arc { center, radius: _, start_angle, end_angle: _ }) =
+                    if let Some(Entity::Arc { center, start_angle, .. }) =
                         self.sketch().entities.get(arc_id)
                     {
                         let ap1 = *center + glam::DVec2::new(start_angle.cos(), start_angle.sin());
@@ -535,7 +535,7 @@ impl DuCADApp {
                 ToolKind::Line if self.pending_points.len() == 1 => {
                     let start = self.pending_points[0];
                     let end = self.snapped_or(raw);
-                    let preview = Entity::Line { start, end };
+                    let preview = Entity::line(start, end).with_construction(self.construction_mode);
                     verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     verts.extend(sketch_render::dimension_leader_lines(
                         start,
@@ -556,10 +556,10 @@ impl DuCADApp {
                         DVec2::new(min.x, max.y),
                     ];
                     for i in 0..4 {
-                        let preview = Entity::Line {
-                            start: corners[i],
-                            end: corners[(i + 1) % 4],
-                        };
+                        let preview = Entity::line(
+                            corners[i],
+                            corners[(i + 1) % 4],
+                        ).with_construction(self.construction_mode);
                         verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                     verts.extend(sketch_render::dimension_leader_lines(
@@ -579,10 +579,10 @@ impl DuCADApp {
                     let first = self.pending_points[0];
                     let effective = self.snapped_or(raw);
                     let radius = (effective - first).length();
-                    let preview = Entity::Circle {
-                        center: first,
+                    let preview = Entity::circle(
+                        first,
                         radius,
-                    };
+                    ).with_construction(self.construction_mode);
                     verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     verts.extend(sketch_render::dimension_leader_lines(
                         first,
@@ -597,11 +597,11 @@ impl DuCADApp {
                     let radius_x = (effective.x - first.x).abs();
                     let radius_y = (effective.y - first.y).abs();
                     if radius_x > 1e-6 && radius_y > 1e-6 {
-                        let preview = Entity::Ellipse {
-                            center: first,
+                        let preview = Entity::ellipse(
+                            first,
                             radius_x,
                             radius_y,
-                        };
+                        ).with_construction(self.construction_mode);
                         verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
@@ -610,7 +610,7 @@ impl DuCADApp {
                     let mut pts = self.pending_points.clone();
                     pts.push(effective);
                     if pts.len() >= 2 {
-                        let preview = Entity::Spline { points: pts };
+                        let preview = Entity::spline(pts).with_construction(self.construction_mode);
                         verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
@@ -618,10 +618,10 @@ impl DuCADApp {
                     let effective = self.snapped_or(raw);
                     match self.pending_points.len() {
                         1 => {
-                            let preview = Entity::Line {
-                                start: self.pending_points[0],
-                                end: effective,
-                            };
+                            let preview = Entity::line(
+                                self.pending_points[0],
+                                effective,
+                            ).with_construction(self.construction_mode);
                             verts.extend(sketch_render::preview_lines(
                                 &preview,
                                 &self.active_plane,
@@ -634,11 +634,12 @@ impl DuCADApp {
                             ));
                         }
                         2 => {
-                            if let Some(preview) = arc_from_three_points(
+                            if let Some(mut preview) = arc_from_three_points(
                                 self.pending_points[0],
                                 self.pending_points[1],
                                 effective,
                             ) {
+                                preview.set_construction(self.construction_mode);
                                 verts.extend(sketch_render::preview_lines(
                                     &preview,
                                     &self.active_plane,
@@ -653,10 +654,10 @@ impl DuCADApp {
                 {
                     let axis_a = self.pending_points[0];
                     let axis_b = self.snapped_or(raw);
-                    let axis_preview = Entity::Line {
-                        start: axis_a,
-                        end: axis_b,
-                    };
+                    let axis_preview = Entity::line(
+                        axis_a,
+                        axis_b,
+                    );
                     verts.extend(sketch_render::preview_lines(
                         &axis_preview,
                         &self.active_plane,
@@ -677,16 +678,16 @@ impl DuCADApp {
                 ToolKind::Revolve => {
                     let has_target = !self.selected.is_empty() || self.active_face.is_some();
                     if has_target && self.pending_points.len() == 1 {
-                        let axis_preview = Entity::Line {
-                            start: self.pending_points[0],
-                            end: self.snapped_or(raw),
-                        };
+                        let axis_preview = Entity::line(
+                            self.pending_points[0],
+                            self.snapped_or(raw),
+                        );
                         verts.extend(sketch_render::preview_lines(
                             &axis_preview,
                             &self.active_plane,
                         ));
                     } else if let Some((start, end)) = self.revolve_staged_axis {
-                        let axis_preview = Entity::Line { start, end };
+                        let axis_preview = Entity::line(start, end);
                         verts.extend(sketch_render::preview_lines(
                             &axis_preview,
                             &self.active_plane,

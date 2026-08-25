@@ -363,12 +363,12 @@ impl DuCADApp {
         let plane = &self.active_plane;
         for (_, entity) in &self.sketch().entities {
             match entity {
-                ducad_sketch::Entity::Line { start, end } => {
+                ducad_sketch::Entity::Line { start, end, .. } => {
                     let p1 = plane.to_world(*start, 0.0);
                     let p2 = plane.to_world(*end, 0.0);
                     sketch_segments.push((p1, p2));
                 }
-                ducad_sketch::Entity::Circle { center, radius } => {
+                ducad_sketch::Entity::Circle { center, radius, .. } => {
                     let steps = 36;
                     let mut prev = plane.to_world(
                         *center + glam::DVec2::new(*radius, 0.0),
@@ -389,6 +389,7 @@ impl DuCADApp {
                     radius,
                     start_angle,
                     end_angle,
+                    ..
                 } => {
                     let steps = 24;
                     let span = if *end_angle >= *start_angle {
@@ -411,7 +412,7 @@ impl DuCADApp {
                         prev = pt;
                     }
                 }
-                ducad_sketch::Entity::Spline { points } => {
+                ducad_sketch::Entity::Spline { points, .. } => {
                     if points.len() >= 2 {
                         for w in points.windows(2) {
                             let p1 = plane.to_world(w[0], 0.0);
@@ -424,6 +425,7 @@ impl DuCADApp {
                     center,
                     radius_x,
                     radius_y,
+                    ..
                 } => {
                     let steps = 36;
                     let mut prev = plane.to_world(
@@ -461,7 +463,7 @@ impl DuCADApp {
         // Tambahkan entitas sketsa profil (lingkaran, busur, ellips) secara permanen ke fitur geometris Tampak Atas
         for (_, entity) in &self.sketch().entities {
             match entity {
-                ducad_sketch::Entity::Circle { center, radius } => {
+                ducad_sketch::Entity::Circle { center, radius, .. } => {
                     let feat = ducad_kernel::HlrGeometricFeature::Circle {
                         center: [center.x as f32, center.y as f32],
                         radius: *radius as f32,
@@ -480,6 +482,7 @@ impl DuCADApp {
                     radius,
                     start_angle,
                     end_angle,
+                    ..
                 } => {
                     let feat = ducad_kernel::HlrGeometricFeature::Arc {
                         center: [center.x as f32, center.y as f32],
@@ -493,6 +496,7 @@ impl DuCADApp {
                     center,
                     radius_x,
                     radius_y,
+                    ..
                 } => {
                     let feat = ducad_kernel::HlrGeometricFeature::Ellipse {
                         center: [center.x as f32, center.y as f32],

@@ -288,3 +288,44 @@ impl Command<Sketch> for RenameEntities {
         }
     }
 }
+
+/// Toggle atau set status garis konstruksi untuk sekumpulan entitas (undoable).
+pub struct ToggleConstruction {
+    label: &'static str,
+    ids: Vec<EntityId>,
+    target_state: bool,
+    old_states: Vec<(EntityId, bool)>,
+}
+
+impl ToggleConstruction {
+    pub fn new(ids: Vec<EntityId>, target_state: bool) -> Self {
+        Self {
+            label: "Garis Konstruksi",
+            ids,
+            target_state,
+            old_states: Vec::new(),
+        }
+    }
+}
+
+impl Command<Sketch> for ToggleConstruction {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        self.old_states.clear();
+        for &id in &self.ids {
+            if let Some(e) = sketch.entities.get_mut(id) {
+                self.old_states.push((id, e.is_construction()));
+                e.set_construction(self.target_state);
+            }
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        for &(id, old_state) in &self.old_states {
+            if let Some(e) = sketch.entities.get_mut(id) {
+                e.set_construction(old_state);
+            }
+        }
+    }
+}

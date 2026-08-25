@@ -170,38 +170,38 @@ mod tests {
     #[test]
     fn snaps_to_other_closed_region_centroid() {
         let mut sketch = Sketch::default();
-        let a0 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 0.0),
-        });
-        let a1 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 0.0),
-            end: DVec2::new(10.0, 5.0),
-        });
-        let a2 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 5.0),
-            end: DVec2::new(0.0, 5.0),
-        });
-        let a3 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 5.0),
-            end: DVec2::new(0.0, 0.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(20.0, 0.0),
-            end: DVec2::new(30.0, 0.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(30.0, 0.0),
-            end: DVec2::new(30.0, 5.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(30.0, 5.0),
-            end: DVec2::new(20.0, 5.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(20.0, 5.0),
-            end: DVec2::new(20.0, 0.0),
-        });
+        let a0 = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+        ));
+        let a1 = sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 5.0),
+        ));
+        let a2 = sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 5.0),
+            DVec2::new(0.0, 5.0),
+        ));
+        let a3 = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 5.0),
+            DVec2::new(0.0, 0.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(20.0, 0.0),
+            DVec2::new(30.0, 0.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(30.0, 0.0),
+            DVec2::new(30.0, 5.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(30.0, 5.0),
+            DVec2::new(20.0, 5.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(20.0, 5.0),
+            DVec2::new(20.0, 0.0),
+        ));
 
         let selected: HashSet<EntityId> = [a0, a1, a2, a3].into_iter().collect();
         let near_target = DVec2::new(24.5, 2.6);
@@ -212,22 +212,22 @@ mod tests {
     #[test]
     fn ignores_region_belonging_to_excluded_selection() {
         let mut sketch = Sketch::default();
-        let a0 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 0.0),
-        });
-        let a1 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 0.0),
-            end: DVec2::new(10.0, 5.0),
-        });
-        let a2 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 5.0),
-            end: DVec2::new(0.0, 5.0),
-        });
-        let a3 = sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 5.0),
-            end: DVec2::new(0.0, 0.0),
-        });
+        let a0 = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+        ));
+        let a1 = sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 5.0),
+        ));
+        let a2 = sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 5.0),
+            DVec2::new(0.0, 5.0),
+        ));
+        let a3 = sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 5.0),
+            DVec2::new(0.0, 0.0),
+        ));
         let selected: HashSet<EntityId> = [a0, a1, a2, a3].into_iter().collect();
         let hit = region_center_snap(&sketch, &selected, DVec2::new(5.0, 2.5), 2.0);
         assert_eq!(hit, None);
@@ -236,22 +236,22 @@ mod tests {
     #[test]
     fn no_snap_when_outside_tolerance() {
         let mut sketch = Sketch::default();
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 0.0),
-            end: DVec2::new(10.0, 0.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 0.0),
-            end: DVec2::new(10.0, 5.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(10.0, 5.0),
-            end: DVec2::new(0.0, 5.0),
-        });
-        sketch.entities.insert(Entity::Line {
-            start: DVec2::new(0.0, 5.0),
-            end: DVec2::new(0.0, 0.0),
-        });
+        sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 0.0),
+            DVec2::new(10.0, 0.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 0.0),
+            DVec2::new(10.0, 5.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(10.0, 5.0),
+            DVec2::new(0.0, 5.0),
+        ));
+        sketch.entities.insert(Entity::line(
+            DVec2::new(0.0, 5.0),
+            DVec2::new(0.0, 0.0),
+        ));
 
         let far_target = DVec2::new(500.0, 500.0);
         let hit = region_center_snap(&sketch, &HashSet::new(), far_target, 2.0);
