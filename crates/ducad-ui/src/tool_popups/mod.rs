@@ -13,6 +13,7 @@ pub mod loft_popup;
 pub mod measure_popup;
 pub mod revolve_popup;
 pub mod shell_popup;
+pub mod text_popup;
 
 use ducad_i18n::t;
 use egui::{Align2, Color32, Context, Id, Pos2, Rect, RichText, Ui, Vec2};
@@ -30,6 +31,7 @@ pub use loft_popup::{LoftPopup, LoftPopupState};
 pub use measure_popup::{MeasurePopup, MeasurePopupState};
 pub use revolve_popup::{RevolvePopup, RevolvePopupState};
 pub use shell_popup::{ShellPopup, ShellPopupState};
+pub use text_popup::{TextPopup, TextPopupMode, TextPopupState};
 
 /// Event umum yang dihasilkan oleh berbagai Tool Popup.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +41,19 @@ pub enum ToolPopupEvent {
     ApplyExtrude { distance: f64 },
     ApplyFaceExtrude { distance: f64 },
     SketchOnFace,
+    // Text & Emboss/Deboss (Fase 9.5)
+    ApplyText {
+        text: String,
+        font_height_mm: f64,
+        letter_spacing: f64,
+        align: ducad_sketch::TextAlign,
+        is_construction: bool,
+        mode: TextPopupMode,
+        depth: f64,
+    },
+    PickCustomFont,
+    ApplyEmboss { depth: f64 },
+    ApplyDeboss { depth: f64 },
     // Revolve
     ApplyRevolvePreset { preset_idx: u8, angle_deg: f64 },
     StartManualRevolve,

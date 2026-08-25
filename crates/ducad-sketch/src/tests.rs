@@ -973,4 +973,33 @@ fn test_slot_center_to_center_and_overall() {
     );
 }
 
+#[test]
+fn test_text_vectorization() {
+    use crate::text::{text_to_entities, TextAlign, TextOptions};
+
+    let options = TextOptions {
+        font_height_mm: 15.0,
+        letter_spacing: 1.0,
+        line_spacing: 1.2,
+        align: TextAlign::Center,
+        is_construction: false,
+    };
+
+    let entities = text_to_entities("DUCAD", DVec2::new(0.0, 0.0), &options, None)
+        .expect("Vektorisasi teks DUCAD harus berhasil");
+
+    assert!(!entities.is_empty(), "Entitas teks tidak boleh kosong");
+    // Huruf D, U, C, A, D masing-masing punya banyak segmen garis kurva
+    assert!(entities.len() > 20, "Jumlah segmen garis huruf harus > 20");
+
+    let mut sketch = Sketch::default();
+    for e in entities {
+        sketch.entities.insert(e);
+    }
+
+    let regions = crate::region::find_closed_regions(&sketch);
+    // DUCAD memiliki closed regions untuk D (luar + counter), U, C, A (luar + counter), D (luar + counter)
+    assert!(!regions.is_empty(), "Teks DUCAD harus menghasilkan minimal 1 closed region");
+}
+
 

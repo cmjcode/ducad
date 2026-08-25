@@ -13,6 +13,7 @@ use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, U
 use egui_material_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
     ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
+    ICON_TITLE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub enum ToolbarTool {
     Polygon,
     Slot,
     Spline,
+    Text,
     Fillet2D,
     Chamfer2D,
     Offset,
@@ -44,6 +46,7 @@ pub enum ToolbarTool {
     Shell,
     Rib,
     DraftAngle,
+    Emboss,
     SplitBody,
     Boolean,
     SectionView,
@@ -132,6 +135,8 @@ impl LeftToolbar {
                 let slot_desc = t!("tool-slot-desc");
                 let spline_title = t!("tool-spline");
                 let spline_desc = t!("tool-spline-desc");
+                let text_title = t!("tool-text");
+                let text_desc = t!("tool-text-desc");
                 let loft_title = t!("tool-loft");
                 let loft_desc = t!("tool-loft-desc");
 
@@ -193,6 +198,13 @@ impl LeftToolbar {
                         Some(&spline_desc),
                     ),
                     (
+                        ToolbarTool::Text,
+                        ICON_TITLE.codepoint,
+                        &text_title,
+                        Some("T"),
+                        Some(&text_desc),
+                    ),
+                    (
                         ToolbarTool::Loft,
                         ICON_LAYERS.codepoint,
                         &loft_title,
@@ -217,6 +229,8 @@ impl LeftToolbar {
                 let sweep_desc = t!("tool-sweep-desc");
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
+                let emboss_title = t!("tool-emboss");
+                let emboss_desc = t!("tool-emboss-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
@@ -232,6 +246,13 @@ impl LeftToolbar {
                         &sweep_title,
                         None,
                         Some(&sweep_desc),
+                    ),
+                    (
+                        ToolbarTool::Emboss,
+                        ICON_LAYERS.codepoint,
+                        &emboss_title,
+                        None,
+                        Some(&emboss_desc),
                     ),
                     (
                         ToolbarTool::SectionView,

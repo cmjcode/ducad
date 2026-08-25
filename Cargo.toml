@@ -20,6 +20,7 @@ ducad-i18n = { path = "crates/ducad-i18n" }
 fluent-bundle = "0.16"
 fluent-syntax = "0.12"
 unic-langid = { version = "0.9", features = ["macros"] }
+ttf-parser = "0.25"
 
 glam = { version = "0.33", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }

@@ -93,6 +93,8 @@ impl ToolGuides {
             ToolbarTool::DraftAnalysis => Self::render_draft_analysis_anim(&painter, card_rect, time),
             ToolbarTool::Measure => Self::render_measure_dist_anim(&painter, card_rect, pending_points_count, time),
             ToolbarTool::MeasureAngle => Self::render_measure_angle_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Text => Self::render_text_anim(&painter, card_rect, pending_points_count, time),
+            ToolbarTool::Emboss => Self::render_emboss_anim(&painter, card_rect, has_selection, time),
             _ => {}
         }
     }
@@ -2458,5 +2460,134 @@ impl ToolGuides {
             badge_bg,
             Color32::WHITE,
         );
+    }
+
+    /// Text Tool (2D Text on Sketch)
+    fn render_text_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        pending_points: usize,
+        time: f64,
+    ) {
+        let cycle = 3.2;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if pending_points == 0 && phase < 0.5 {
+            (t!("guide-text-step-1"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-text-step-2"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-text-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-text-tip"));
+
+        let origin = Pos2::new(card_rect.left() + 45.0, card_rect.center().y + 4.0);
+
+        let (cursor_pos, is_clicking, show_text) = if phase < 0.45 {
+            let t = (phase / 0.45).clamp(0.0, 1.0);
+            let pos = Pos2::new(origin.x - (1.0 - t) * 20.0, origin.y);
+            (pos, t > 0.8, false)
+        } else {
+            let t = ((phase - 0.45) / 0.55).clamp(0.0, 1.0);
+            let pos = Pos2::new(origin.x + 90.0 * t, origin.y);
+            (pos, false, true)
+        };
+
+        painter.circle_filled(origin, 3.5, if show_text { ACCENT_BLUE } else { ACCENT_ORANGE });
+
+        if show_text {
+            let text_pos = Pos2::new(origin.x + 8.0, origin.y - 12.0);
+            painter.text(
+                text_pos,
+                Align2::LEFT_TOP,
+                "DUCAD",
+                FontId::proportional(22.0),
+                ACCENT_BLUE,
+            );
+
+            let bbox = Rect::from_min_size(text_pos, Vec2::new(88.0, 26.0));
+            painter.rect_stroke(
+                bbox,
+                4.0,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 180, 255, 120)),
+                StrokeKind::Inside,
+            );
+
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                "10 mm",
+                Color32::from_rgba_premultiplied(20, 60, 110, 220),
+                Color32::WHITE,
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+
+    /// Emboss / Deboss Tool
+    fn render_emboss_anim(
+        painter: &egui::Painter,
+        card_rect: Rect,
+        has_selection: bool,
+        time: f64,
+    ) {
+        let cycle = 3.6;
+        let phase = ((time % cycle) / cycle) as f32;
+
+        let (step_title, step_color) = if !has_selection && phase < 0.45 {
+            (t!("guide-emboss-step-1"), ACCENT_ORANGE)
+        } else {
+            (t!("guide-emboss-step-2"), ACCENT_GREEN)
+        };
+
+        Self::draw_header(painter, card_rect, &t!("guide-emboss-header"), &step_title, step_color);
+        Self::draw_footer(painter, card_rect, &t!("guide-emboss-tip"));
+
+        let center = Pos2::new(card_rect.left() + 75.0, card_rect.center().y + 8.0);
+
+        let (cursor_pos, is_clicking, extrude_t) = if phase < 0.45 {
+            let t = (phase / 0.45).clamp(0.0, 1.0);
+            (Pos2::new(center.x - 20.0 + t * 20.0, center.y), t > 0.85, 0.0)
+        } else {
+            let t = ((phase - 0.45) / 0.55).clamp(0.0, 1.0);
+            (Pos2::new(center.x, center.y - 18.0 * t), false, t)
+        };
+
+        let base_w = 40.0;
+        let base_h = 20.0;
+        let p_top = Pos2::new(center.x, center.y - base_h);
+        let p_right = Pos2::new(center.x + base_w, center.y - base_h * 0.5);
+        let p_bot = Pos2::new(center.x, center.y);
+        let p_left = Pos2::new(center.x - base_w, center.y - base_h * 0.5);
+
+        painter.line_segment([p_top, p_right], Stroke::new(1.2, TEXT_MUTED));
+        painter.line_segment([p_right, p_bot], Stroke::new(1.2, TEXT_MUTED));
+        painter.line_segment([p_bot, p_left], Stroke::new(1.2, TEXT_MUTED));
+        painter.line_segment([p_left, p_top], Stroke::new(1.2, TEXT_MUTED));
+
+        let lift = extrude_t * 14.0;
+        let text_c = Pos2::new(center.x, center.y - base_h * 0.5 - lift);
+        painter.text(
+            text_c,
+            Align2::CENTER_CENTER,
+            "DUCAD",
+            FontId::proportional(14.0),
+            if extrude_t > 0.05 { ACCENT_ORANGE } else { ACCENT_BLUE },
+        );
+
+        if extrude_t > 0.1 {
+            let badge_pos = Pos2::new(card_rect.right() - 48.0, card_rect.center().y + 4.0);
+            Self::draw_badge(
+                painter,
+                badge_pos,
+                &format!("+{:.1} mm", extrude_t * 2.0),
+                Color32::from_rgba_premultiplied(120, 60, 10, 220),
+                Color32::WHITE,
+            );
+        }
+
+        Self::draw_cursor(painter, cursor_pos, is_clicking, time);
     }
 }

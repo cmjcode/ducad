@@ -355,28 +355,31 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     break;
                 }
 
-                // Cari sambungan berikutnya
-                let mut found_next = false;
+                // Cari sambungan berikutnya yang paling dekat
+                let mut best_next: Option<(usize, bool, f64)> = None;
                 for (next_idx, seg) in segments.iter().enumerate() {
                     if visited.contains(&next_idx) {
                         continue;
                     }
-                    if (seg.start - current_tail).length() < CHAIN_EPS {
-                        chain.push((next_idx, false));
-                        visited.insert(next_idx);
-                        current_tail = seg.end;
-                        found_next = true;
-                        break;
-                    } else if (seg.end - current_tail).length() < CHAIN_EPS {
-                        chain.push((next_idx, true));
-                        visited.insert(next_idx);
-                        current_tail = seg.start;
-                        found_next = true;
-                        break;
+                    let d_start = (seg.start - current_tail).length();
+                    if d_start < CHAIN_EPS {
+                        if best_next.as_ref().is_none_or(|(_, _, best_d)| d_start < *best_d) {
+                            best_next = Some((next_idx, false, d_start));
+                        }
+                    }
+                    let d_end = (seg.end - current_tail).length();
+                    if d_end < CHAIN_EPS {
+                        if best_next.as_ref().is_none_or(|(_, _, best_d)| d_end < *best_d) {
+                            best_next = Some((next_idx, true, d_end));
+                        }
                     }
                 }
 
-                if !found_next {
+                if let Some((next_idx, rev, _)) = best_next {
+                    chain.push((next_idx, rev));
+                    visited.insert(next_idx);
+                    current_tail = if !rev { segments[next_idx].end } else { segments[next_idx].start };
+                } else {
                     break;
                 }
             }

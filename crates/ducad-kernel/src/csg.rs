@@ -195,3 +195,53 @@ pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     }
     Ok(KernelShape::from_inner(adhoc.0))
 }
+
+/// Operasi Emboss (timbul) atau Deboss (ukiran tenggelam / cut) untuk satu atau banyak profil pada bidang 3D.
+///
+/// - `base_shape`: Bodi 3D yang akan dikenai emboss/deboss (opsional).
+/// - `profiles`: Daftar profil 2D tertutup (misal teks atau logo).
+/// - `origin`, `u_axis`, `v_axis`, `normal`: Posisi & orientasi bidang sketsa.
+/// - `depth`: Tinggi timbul (emboss) atau kedalaman ukiran (deboss) dalam mm (harus > 0).
+/// - `is_deboss`: `false` untuk Emboss (timbul / union), `true` untuk Deboss (ukiran tenggelam / subtract).
+pub fn emboss_profiles_on_plane(
+    base_shape: Option<&KernelShape>,
+    profiles: &[Profile],
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+    depth: f64,
+    is_deboss: bool,
+) -> Result<KernelShape> {
+    if depth <= 0.0 {
+        bail!("kedalaman emboss/deboss harus > 0");
+    }
+    if profiles.is_empty() {
+        bail!("tidak ada profil untuk di-emboss/deboss");
+    }
+
+    let ext_distance = if is_deboss { -depth } else { depth };
+
+    let mut tool_shape = extrude_profile_on_plane(&profiles[0], origin, u_axis, v_axis, normal, ext_distance)?;
+
+    for p in &profiles[1..] {
+        if let Ok(next_shape) = extrude_profile_on_plane(p, origin, u_axis, v_axis, normal, ext_distance) {
+            if let Ok(joined) = union(&tool_shape, &next_shape) {
+                tool_shape = joined;
+            }
+        }
+    }
+
+    if let Some(base) = base_shape {
+        if is_deboss {
+            subtract(base, &tool_shape)
+        } else {
+            match union(base, &tool_shape) {
+                Ok(res) => Ok(res),
+                Err(_) => Ok(tool_shape),
+            }
+        }
+    } else {
+        Ok(tool_shape)
+    }
+}

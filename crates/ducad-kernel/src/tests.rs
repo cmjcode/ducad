@@ -1873,3 +1873,52 @@ fn test_hole_wizard_on_side_face() {
     let mesh = holed.tessellate();
     assert!(mesh.triangle_count() > 20, "mesh side hole harus valid");
 }
+
+#[test]
+fn test_emboss_and_deboss_profiles() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(50.0, 50.0);
+    let box_shape = extrude_profile(&box_prof, 20.0).expect("extrude base box");
+
+    // 1. Emboss profil lingkaran di atas balok (Z = 20)
+    let circle_prof = Profile::Circle {
+        center: (25.0, 25.0),
+        radius: 8.0,
+    };
+    let embossed = emboss_profiles_on_plane(
+        Some(&box_shape),
+        &[circle_prof.clone()],
+        [0.0, 0.0, 20.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        3.0,
+        false, // Emboss (timbul)
+    )
+    .expect("emboss circle on top face");
+
+    let mesh_emboss = embossed.tessellate();
+    assert!(
+        mesh_emboss.triangle_count() > 12,
+        "mesh emboss solid harus valid"
+    );
+
+    // 2. Deboss (ukiran tenggelam) lingkaran ke dalam balok
+    let debossed = emboss_profiles_on_plane(
+        Some(&box_shape),
+        &[circle_prof],
+        [0.0, 0.0, 20.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        4.0,
+        true, // Deboss (ukir / subtract)
+    )
+    .expect("deboss circle into top face");
+
+    let mesh_deboss = debossed.tessellate();
+    assert!(
+        mesh_deboss.triangle_count() > 12,
+        "mesh deboss solid harus valid"
+    );
+}

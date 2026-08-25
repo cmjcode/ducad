@@ -514,6 +514,26 @@ impl DuCADApp {
                     Box::new(InsertEntities::new("Slot", entities)) as Box<dyn Command<Sketch>>
                 })
             }
+            ToolKind::Text => {
+                let options = ducad_sketch::TextOptions {
+                    font_height_mm: self.text_popup_state.font_height_mm,
+                    letter_spacing: self.text_popup_state.letter_spacing,
+                    line_spacing: self.text_popup_state.line_spacing,
+                    align: self.text_popup_state.align,
+                    is_construction: self.construction_mode,
+                };
+                ducad_sketch::text_to_entities(
+                    &self.text_popup_state.text,
+                    pts[0],
+                    &options,
+                    self.custom_font_bytes.as_deref(),
+                )
+                .ok()
+                .filter(|ents| !ents.is_empty())
+                .map(|entities| {
+                    Box::new(InsertEntities::new("Teks 2D", entities)) as Box<dyn Command<Sketch>>
+                })
+            }
             ToolKind::Spline => {
                 (pts.len() >= 2).then(|| {
                     Box::new(InsertEntities::new(
@@ -1037,7 +1057,7 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         match self.tool {
-            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep => {
+            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::Emboss => {
                 self.last_snap = None;
 
                 if self.extruding_from_gizmo {
@@ -1690,6 +1710,7 @@ impl DuCADApp {
             | ToolKind::Ellipse
             | ToolKind::Polygon
             | ToolKind::Slot
+            | ToolKind::Text
             | ToolKind::Arc
             | ToolKind::Measure
             | ToolKind::MeasureAngle => {

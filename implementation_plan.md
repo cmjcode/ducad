@@ -3,7 +3,7 @@
 ## Pandungan SANGAT PENTING DuCAD WORKFLOW
 - Sidebar menu ( baik 2D / Sketch ataupun 3D ) berisi menu untuk create object yang belum ada.
 - Jika harus melibatkan object yang sudah ada, misal face, atau object nya. maka workflow object di klik dg tool select, lalu menu edit itu ditempatkan di bottom menu.
-- Dari tool di bottom menu, jika perlu data lebih lanjut yang inputannya sedikit, maka ditaruh di HUD menu di header ( Wajib ikuti standar design hud menu yang sudah ada ). 
+- Dari tool di bottom menu, jika perlu data lebih lanjut yang inputannya sedikit, maka ditaruh di HUD menu di header ( Wajib ikuti standar design hud menu yang sudah ada ) perhatikan jangan sampai tumpang tindih dg text notifikasi. 
 - Jika terlalu banyak, buat window popup di pojok kanan bawah ( Wajib ikuti design window dari history, folder atau yang lain )
 - Untuk penambahan menu di implementasi ini WAJIB mengikuti arahan diatas.
 - Untuk setiap pembuatan menu baru WAJIB terapkan langsung 18in ya, default text button atau informasi di aplikasi pakai ENGLISH, catatan buat programmer pakai bahasa
@@ -38,7 +38,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
   - Mode penentuan ukuran: *Inscribed* (di dalam lingkaran) atau *Circumscribed* (di luar lingkaran).
 - [x] **9.4 Slot Tool (Lubang Pengait / Rel Baut)**:
   - Pembuatan slot lonjong otomatis dari 2 titik pusat (*Center-to-Center Slot*) atau panjang total (*Overall Slot*) dan diameter lebar.
-- [ ] **9.5 2D Text on Sketch & Emboss/Deboss**:
+- [x] **9.5 2D Text on Sketch & Emboss/Deboss**:
   - Rasterisasi/vektorisasi huruf font TTF/OTF ke kurva 2D sketsa.
   - Mendukung ekstrusi timbul (*Emboss*) dan ukiran tenggelam (*Deboss/Engrave*) pada permukaan bodi 3D.
 

@@ -764,6 +764,47 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     Ok(Profile::Loop(ordered.into_iter().map(|s| s.seg).collect()))
 }
 
+/// Bangun seluruh profil tertutup (misal huruf-huruf teks atau multi-loop) dari seleksi atau seluruh closed region sketch.
+pub fn build_all_profiles_from_selection_or_regions(
+    sketch: &Sketch,
+    selection: &HashSet<EntityId>,
+) -> Vec<Profile> {
+    if !selection.is_empty() {
+        if let Ok(single) = build_profile_from_selection(sketch, selection) {
+            return vec![single];
+        }
+    }
+
+    let regions = ducad_sketch::find_closed_regions(sketch);
+    let target_regions: Vec<&ducad_sketch::ClosedRegion> = if !selection.is_empty() {
+        regions
+            .iter()
+            .filter(|r| r.entity_ids.iter().any(|id| selection.contains(id)))
+            .collect()
+    } else {
+        regions.iter().collect()
+    };
+
+    let mut profiles = Vec::new();
+    for reg in target_regions {
+        if reg.boundary_points.len() >= 3 {
+            let mut segs = Vec::new();
+            let n = reg.boundary_points.len();
+            for i in 0..n {
+                let p0 = reg.boundary_points[i];
+                let p1 = reg.boundary_points[(i + 1) % n];
+                segs.push(ProfileSegment::Line {
+                    start: (p0.x, p0.y),
+                    end: (p1.x, p1.y),
+                });
+            }
+            profiles.push(Profile::Loop(segs));
+        }
+    }
+
+    profiles
+}
+
 /// Bangun kurva jalur (spine path) untuk Sweep dari seleksi entitas sketch (Line, Arc, Spline, Circle)
 /// dengan transformasi ke koordinat 3D dunia berdasarkan `SketchPlane`.
 /// Spline Catmull-Rom dipecah menjadi busur-busur analitik kontinu tangensial (smooth arcs)

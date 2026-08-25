@@ -52,8 +52,8 @@ pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
 
 // Re-exports for public API compatibility
 pub use csg::{
-    extrude_profile, extrude_profile_on_plane, intersect, loft_profiles, revolve_profile,
-    subtract, sweep_profile_along_path, sweep_profile_along_wire,
+    emboss_profiles_on_plane, extrude_profile, extrude_profile_on_plane, intersect, loft_profiles,
+    revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
 };
 pub use hlr::{

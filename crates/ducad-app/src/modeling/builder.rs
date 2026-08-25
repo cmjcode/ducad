@@ -51,6 +51,35 @@ impl DuCADApp {
         ducad_kernel::extrude_profile_on_plane(profile, orig, u_ax, v_ax, n_ax, distance)
     }
 
+    /// Emboss atau Deboss profil-profil pada bidang sketsa aktif ke bodi target atau sebagai solid baru.
+    pub fn emboss_profiles_active_plane(
+        &self,
+        base_shape: Option<&ducad_kernel::KernelShape>,
+        profiles: &[ducad_kernel::Profile],
+        depth: f64,
+        is_deboss: bool,
+    ) -> anyhow::Result<ducad_kernel::KernelShape> {
+        let orig = self.active_plane.to_world_f64((0.0, 0.0), 0.0);
+        let u_ax = [
+            self.active_plane.u_axis.x as f64,
+            self.active_plane.u_axis.y as f64,
+            self.active_plane.u_axis.z as f64,
+        ];
+        let v_ax = [
+            self.active_plane.v_axis.x as f64,
+            self.active_plane.v_axis.y as f64,
+            self.active_plane.v_axis.z as f64,
+        ];
+        let n_ax = [
+            self.active_plane.normal.x as f64,
+            self.active_plane.normal.y as f64,
+            self.active_plane.normal.z as f64,
+        ];
+        ducad_kernel::emboss_profiles_on_plane(
+            base_shape, profiles, orig, u_ax, v_ax, n_ax, depth, is_deboss,
+        )
+    }
+
     /// Hitung centroid rata-rata dari profil sketch tertutup yang sedang aktif terpilih.
     pub fn selected_closed_region_centroid(&self) -> Option<DVec2> {
         if self.tool != crate::types::ToolKind::Select || self.selected.is_empty() {

@@ -10,6 +10,7 @@ pub mod ops;
 pub mod region;
 pub mod sketch;
 pub mod snap;
+pub mod text;
 
 #[cfg(test)]
 mod tests;
@@ -37,5 +38,6 @@ pub use snap::{
     all_snap_candidate_points, all_snap_candidate_points_with_exclude_set, find_intersections,
     find_snap, find_snap_with_exclude_set, find_snap_with_extra, SnapHit, SnapKind,
 };
+pub use text::{text_to_entities, TextAlign, TextOptions, DEFAULT_FONT_BYTES};
 
 

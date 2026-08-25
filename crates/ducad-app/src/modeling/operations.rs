@@ -1399,4 +1399,128 @@ impl DuCADApp {
             }
         }
     }
+
+    /// Tempatkan teks tervektorisasi 2D pada bidang sketsa aktif.
+    pub fn apply_text_to_sketch(
+        &mut self,
+        text: &str,
+        origin: DVec2,
+        options: &ducad_sketch::TextOptions,
+    ) {
+        if text.trim().is_empty() {
+            self.model_status = Some("Teks tidak boleh kosong".to_string());
+            return;
+        }
+
+        match ducad_sketch::text_to_entities(text, origin, options, self.custom_font_bytes.as_deref()) {
+            Ok(entities) => {
+                if entities.is_empty() {
+                    self.model_status = Some("Tidak ada kurva huruf yang dihasilkan dari teks".to_string());
+                    return;
+                }
+                let count = entities.len();
+                self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::new(
+                    "Teks 2D",
+                    entities,
+                )));
+                self.model_status = Some(format!("Teks '{text}' berhasil dibuat ({count} segmen)"));
+            }
+            Err(e) => {
+                self.alert_modal.show_error(
+                    "Vektorisasi Teks Gagal",
+                    format!("{e}"),
+                    vec![
+                        "Pastikan berkas font yang dipilih berformat TrueType (.ttf) atau OpenType (.otf) yang valid.",
+                        "Periksa apakah teks memuat karakter yang didukung oleh font.",
+                    ],
+                );
+                self.model_status = Some(format!("Gagal membuat teks: {e}"));
+            }
+        }
+    }
+
+    /// Eksekusi Emboss (timbul) atau Deboss (ukiran tenggelam) dari profil sketch aktif.
+    pub fn apply_emboss_deboss(&mut self, depth: f64, is_deboss: bool) {
+        if depth <= 0.0 {
+            self.model_status = Some("Kedalaman emboss/deboss harus > 0".to_string());
+            return;
+        }
+
+        let profiles = crate::model::build_all_profiles_from_selection_or_regions(
+            self.sketch(),
+            &self.selected,
+        );
+
+        if profiles.is_empty() {
+            self.alert_modal.show_error(
+                "Emboss / Deboss Gagal: Profil Tidak Ditemukan",
+                "Tidak ada profil tertutup atau teks yang dapat di-ekstrusi.".to_string(),
+                vec![
+                    "Pastikan sketsa membentuk kontur tertutup sempurna (misal: teks, kotak, atau lingkaran).",
+                    "Pilih entitas huruf/profil yang ingin di-emboss menggunakan Tool Pilih (S).",
+                ],
+            );
+            self.model_status = Some("Pilih profil tertutup untuk di-emboss".to_string());
+            return;
+        }
+
+        let target_body_id = self
+            .active_face
+            .as_ref()
+            .map(|(b, _, _)| *b)
+            .or_else(|| self.selected_bodies.iter().next().copied())
+            .or_else(|| self.model.doc.bodies.keys().next());
+
+        let base_shape = target_body_id.and_then(|id| {
+            self.model
+                .geometry
+                .get(id)
+                .map(|geo| &geo.shape)
+        });
+
+        match self.emboss_profiles_active_plane(base_shape, &profiles, depth, is_deboss) {
+            Ok(new_shape) => {
+                let geo = BodyGeometry::from_shape(new_shape);
+                let op_name = if is_deboss { "Deboss" } else { "Emboss" };
+                let desc = if is_deboss {
+                    format!("Ukiran tenggelam (Deboss) sedalam {:.1} mm", depth)
+                } else {
+                    format!("Timbul (Emboss) setinggi {:.1} mm", depth)
+                };
+
+                if let Some(target_id) = target_body_id {
+                    if base_shape.is_some() {
+                        self.execute_model_command(
+                            Box::new(ReplaceGeometryCommand::new(op_name, target_id, geo)),
+                            &desc,
+                        );
+                    } else {
+                        self.execute_model_command(
+                            Box::new(AddSolidCommand::new(op_name, geo)),
+                            &desc,
+                        );
+                    }
+                } else {
+                    self.execute_model_command(
+                        Box::new(AddSolidCommand::new(op_name, geo)),
+                        &desc,
+                    );
+                }
+
+                self.model_status = Some(format!("{op_name} berhasil diterapkan"));
+            }
+            Err(e) => {
+                let op_name = if is_deboss { "Deboss" } else { "Emboss" };
+                self.alert_modal.show_error(
+                    format!("{op_name} Gagal"),
+                    format!("{e}"),
+                    vec![
+                        "Pastikan profil berada di atas permukaan bodi dan tidak melayang di luar batas.",
+                        "Periksa kedalaman agar tidak melebihi ketebalan bodi solid.",
+                    ],
+                );
+                self.model_status = Some(format!("{op_name} gagal: {e}"));
+            }
+        }
+    }
 }

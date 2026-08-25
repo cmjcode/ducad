@@ -18,6 +18,8 @@ pub enum ToolKind {
     Slot,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
+    /// Teks 2D sketsa (vektorisasi font TTF/OTF — Fase 9.5).
+    Text,
     /// 2D Fillet (busur sudut tangensial).
     Fillet2D,
     /// 2D Chamfer (garis sudut bevel).
@@ -49,6 +51,8 @@ pub enum ToolKind {
     Rib,
     /// Draft Angle — kemiringan cetakan plastik (injection molding, Fase 2.1).
     DraftAngle,
+    /// Emboss & Deboss — Ekstrusi timbul & ukiran tenggelam 3D (Fase 9.5).
+    Emboss,
     /// Split Body & Split Face (Fase 2.2 — Potong Benda).
     SplitBody,
     Boolean,
@@ -80,6 +84,7 @@ impl ToolKind {
             ToolKind::Polygon => ToolbarTool::Polygon,
             ToolKind::Slot => ToolbarTool::Slot,
             ToolKind::Spline => ToolbarTool::Spline,
+            ToolKind::Text => ToolbarTool::Text,
             ToolKind::Fillet2D => ToolbarTool::Fillet2D,
             ToolKind::Chamfer2D => ToolbarTool::Chamfer2D,
             ToolKind::Offset => ToolbarTool::Offset,
@@ -96,6 +101,7 @@ impl ToolKind {
             ToolKind::Shell => ToolbarTool::Shell,
             ToolKind::Rib => ToolbarTool::Rib,
             ToolKind::DraftAngle => ToolbarTool::DraftAngle,
+            ToolKind::Emboss => ToolbarTool::Emboss,
             ToolKind::SplitBody => ToolbarTool::SplitBody,
             ToolKind::Boolean => ToolbarTool::Boolean,
             ToolKind::SectionView => ToolbarTool::SectionView,
@@ -119,6 +125,7 @@ impl ToolKind {
             ToolbarTool::Polygon => ToolKind::Polygon,
             ToolbarTool::Slot => ToolKind::Slot,
             ToolbarTool::Spline => ToolKind::Spline,
+            ToolbarTool::Text => ToolKind::Text,
             ToolbarTool::Fillet2D => ToolKind::Fillet2D,
             ToolbarTool::Chamfer2D => ToolKind::Chamfer2D,
             ToolbarTool::Offset => ToolKind::Offset,
@@ -135,6 +142,7 @@ impl ToolKind {
             ToolbarTool::Shell => ToolKind::Shell,
             ToolbarTool::Rib => ToolKind::Rib,
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
+            ToolbarTool::Emboss => ToolKind::Emboss,
             ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
             ToolbarTool::SectionView => ToolKind::SectionView,
@@ -225,6 +233,7 @@ pub enum PaletteAction {
 
 pub fn required_points(tool: ToolKind) -> usize {
     match tool {
+        ToolKind::Text => 1,
         ToolKind::Rectangle
         | ToolKind::Circle
         | ToolKind::Ellipse
@@ -250,6 +259,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::Shell
         | ToolKind::Rib
         | ToolKind::DraftAngle
+        | ToolKind::Emboss
         | ToolKind::SplitBody
         | ToolKind::Boolean
         | ToolKind::SectionView

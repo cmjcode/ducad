@@ -926,6 +926,26 @@ impl DuCADApp {
                         ));
                     }
                 }
+                ToolKind::Text => {
+                    let origin = self.pending_points.first().copied().unwrap_or_else(|| self.snapped_or(raw));
+                    let options = ducad_sketch::TextOptions {
+                        font_height_mm: self.text_popup_state.font_height_mm,
+                        letter_spacing: self.text_popup_state.letter_spacing,
+                        line_spacing: self.text_popup_state.line_spacing,
+                        align: self.text_popup_state.align,
+                        is_construction: self.construction_mode,
+                    };
+                    if let Ok(entities) = ducad_sketch::text_to_entities(
+                        &self.text_popup_state.text,
+                        origin,
+                        &options,
+                        self.custom_font_bytes.as_deref(),
+                    ) {
+                        for e in &entities {
+                            verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+                        }
+                    }
+                }
                 ToolKind::Measure | ToolKind::MeasureAngle => {
                     let effective = self.snapped_or(raw);
                     let mut preview_points = self.pending_points.clone();
@@ -953,10 +973,25 @@ impl DuCADApp {
             } else {
                 None
             };
-            let candidates = all_snap_candidate_points_with_exclude_set(
+            let mut candidates = all_snap_candidate_points_with_exclude_set(
                 self.sketch(),
                 exclude_set,
             );
+
+            // Filter kandidat berdasarkan kedekatan dengan kursor jika ada banyak entitas
+            if let Some(cursor) = raw_cursor {
+                let max_snap_dist = (35.0 * world_scale).max(15.0);
+                candidates.retain(|(pt, _)| (*pt - cursor).length() <= max_snap_dist);
+                if candidates.len() > 30 {
+                    candidates.sort_by(|(a, _), (b, _)| {
+                        (*a - cursor).length_squared().partial_cmp(&(*b - cursor).length_squared()).unwrap()
+                    });
+                    candidates.truncate(30);
+                }
+            } else if candidates.len() > 40 {
+                candidates.truncate(40);
+            }
+
             verts.extend(sketch_render::candidate_snap_points_glyphs(
                 &candidates,
                 &self.active_plane,

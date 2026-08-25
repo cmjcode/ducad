@@ -10,3 +10,4 @@ ducad-core = { workspace = true }
 glam = { workspace = true }
 slotmap = { workspace = true }
 serde = { workspace = true }
+ttf-parser = { workspace = true }

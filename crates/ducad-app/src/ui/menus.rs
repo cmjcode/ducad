@@ -13,6 +13,7 @@ impl DuCADApp {
         let circle_label = format!("{} (C)", t!("tool-circle"));
         let ellipse_label = format!("{} (E)", t!("tool-ellipse"));
         let polygon_label = format!("{} (Y)", t!("tool-polygon"));
+        let text_label = format!("{} (T)", t!("tool-text"));
         let spline_label = format!("{} (S)", t!("tool-spline"));
         let fillet_label = format!("{} (F)", t!("tool-fillet-2d"));
         let chamfer_label = t!("tool-chamfer-2d");
@@ -29,6 +30,7 @@ impl DuCADApp {
             (ToolKind::Circle, circle_label.as_str()),
             (ToolKind::Ellipse, ellipse_label.as_str()),
             (ToolKind::Polygon, polygon_label.as_str()),
+            (ToolKind::Text, text_label.as_str()),
             (ToolKind::Spline, spline_label.as_str()),
             (ToolKind::Fillet2D, fillet_label.as_str()),
             (ToolKind::Chamfer2D, chamfer_label.as_str()),
