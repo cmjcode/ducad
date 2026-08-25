@@ -156,6 +156,46 @@ pub fn pick_inactive_plane_for_ray(
     best.map(|(kind, _)| kind)
 }
 
+/// Hit-test ray kamera terhadap seluruh bidang aktif & kustom.
+pub fn pick_plane_index_for_ray(
+    p_near: Vec3,
+    dir: Vec3,
+    planes: &[(usize, SketchPlane, String)],
+    active_idx: usize,
+) -> Option<usize> {
+    let half_extent = ducad_render::grid::INACTIVE_PLANE_HALF_EXTENT as f64;
+    let mut best: Option<(usize, f64)> = None;
+    for (idx, plane, _) in planes {
+        if *idx == active_idx {
+            continue;
+        }
+        let Some(uv) = plane.ray_intersection(p_near, dir) else {
+            continue;
+        };
+        if uv.x.abs() > half_extent || uv.y.abs() > half_extent {
+            continue;
+        }
+        let hit = plane.to_world(uv, 0.0);
+        let dist = (hit - p_near).length() as f64;
+        if best.is_none_or(|(_, best_dist)| dist < best_dist) {
+            best = Some((*idx, dist));
+        }
+    }
+    best.map(|(idx, _)| idx)
+}
+
+/// Hit-test cursor terhadap seluruh bidang (standar & kustom).
+pub fn pick_inactive_plane_index_at_cursor(
+    camera: &OrbitCamera,
+    rect: egui::Rect,
+    pos: egui::Pos2,
+    planes: &[(usize, SketchPlane, String)],
+    active_idx: usize,
+) -> Option<usize> {
+    let (p_near, dir) = screen_to_ray(camera, rect, pos);
+    pick_plane_index_for_ray(p_near, dir, planes, active_idx)
+}
+
 /// Perkiraan unit-dunia per piksel layar pada kedalaman target kamera.
 pub fn pixel_tolerance_to_world(camera: &OrbitCamera, rect: egui::Rect) -> f64 {
     let world_per_pixel =

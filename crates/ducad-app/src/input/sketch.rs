@@ -1058,7 +1058,7 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         match self.tool {
-            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep => {
+            ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
                 self.last_snap = None;
 
                 if self.extruding_from_gizmo {
@@ -1405,6 +1405,30 @@ impl DuCADApp {
                                 },
                             );
                         }
+                    } else if self.tool == ToolKind::DatumPlane {
+                        if self.datum_mode == ducad_ui::DatumPlaneMode::ThreePoints {
+                            let pt_opt = if let Some((_, _, vtx)) = &self.active_vertex {
+                                Some(glam::vec3(vtx.0 as f32, vtx.1 as f32, vtx.2 as f32))
+                            } else if let Some((_, _, hit)) = &self.active_face {
+                                Some(glam::vec3(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32))
+                            } else if let Some(edge) = self.selected_edges.first() {
+                                edge.polyline.first().map(|&(x, y, z)| glam::vec3(x as f32, y as f32, z as f32))
+                            } else {
+                                let world_pt = self.active_plane.to_world(raw, 0.0);
+                                Some(world_pt)
+                            };
+
+                            if let Some(pt) = pt_opt {
+                                if self.datum_selected_points.len() < 3 {
+                                    self.datum_selected_points.push(pt);
+                                    self.model_status = Some(format!(
+                                        "Titik {}/3 terpilih: ({:.1}, {:.1}, {:.1})",
+                                        self.datum_selected_points.len(),
+                                        pt.x, pt.y, pt.z
+                                    ));
+                                }
+                            }
+                        }
                     } else if self.tool == ToolKind::Sweep {
                         self.active_face = None;
                         self.active_vertex = None;
@@ -1413,7 +1437,7 @@ impl DuCADApp {
                         let multi_hit = click_pos.and_then(|pos| self.hit_test_click_multi_plane(rect, pos, tol));
                         let target = multi_hit.or_else(|| self.hovered.and_then(|h| self.hovered_plane_idx.map(|p| (p, h))));
                         if let Some((plane_idx, ent_id)) = target {
-                            let plane = Self::plane_for_index(plane_idx);
+                            let plane = self.plane_for_index(plane_idx);
                             if self.pending_sweep_profile.is_none() {
                                 if let Some(r) = find_region_containing_entity(&self.sketches[plane_idx], ent_id) {
                                     let ids: HashSet<EntityId> = r.entity_ids.into_iter().collect();
@@ -2049,11 +2073,11 @@ impl DuCADApp {
     }
 }
 
-/// Cari entitas yang kena ray kursor di antara 3 bidang kerja (Top, Front, Right).
+/// Cari entitas yang kena ray kursor di antara bidang kerja.
 pub fn hit_test_multi_plane(
     camera: &ducad_render::OrbitCamera,
     rect: egui::Rect,
-    sketches: &[Sketch; 3],
+    sketches: &[Sketch],
     pos: egui::Pos2,
     tolerance: f64,
     cycle: usize,
@@ -2061,8 +2085,8 @@ pub fn hit_test_multi_plane(
     let (p_near, dir) = crate::viewport::screen_to_ray(camera, rect, pos);
     let mut best: Option<(usize, EntityId, f32)> = None;
 
-    for idx in 0..3 {
-        let plane = DuCADApp::plane_for_index(idx);
+    for idx in 0..sketches.len().min(3) {
+        let plane = DuCADApp::static_plane_for_index(idx);
         let Some(uv) = plane.ray_intersection(p_near, dir) else {
             continue;
         };

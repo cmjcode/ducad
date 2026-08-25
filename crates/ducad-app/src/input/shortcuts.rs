@@ -234,6 +234,11 @@ impl DuCADApp {
                 PaletteAction::SetSketchPlane(PlaneKind::Right),
             ),
             (
+                "3D: Bidang Referensi Baru (Datum Plane)".to_string(),
+                "P".to_string(),
+                PaletteAction::CreateDatumPlane,
+            ),
+            (
                 "Mode Sketch (2D)".to_string(),
                 "⌘⇧2".to_string(),
                 PaletteAction::EnterSketching,
@@ -324,6 +329,9 @@ impl DuCADApp {
             }
             PaletteAction::ToggleConstruction => {
                 self.toggle_construction_action();
+            }
+            PaletteAction::CreateDatumPlane => {
+                self.set_tool(ToolKind::DatumPlane);
             }
             PaletteAction::OpenDrawingSheet => {
                 self.open_drawing_sheet();
@@ -462,6 +470,7 @@ impl DuCADApp {
             ToolKind::ZebraInspection => ducad_i18n::t!("tool-zebra-stripes-desc"),
             ToolKind::DraftAnalysis => ducad_i18n::t!("tool-draft-analysis-desc"),
             ToolKind::HoleWizard => ducad_i18n::t!("tool-hole-wizard-desc"),
+            ToolKind::DatumPlane => ducad_i18n::t!("status-prompt-datum-plane"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
         match &self.last_snap {

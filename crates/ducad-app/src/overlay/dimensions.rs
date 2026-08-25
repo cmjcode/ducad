@@ -963,6 +963,131 @@ impl DuCADApp {
                     }
                 }
             }
+        } else if self.tool == ToolKind::DatumPlane {
+            let offset_val = self.datum_offset_input.trim().parse::<f64>().unwrap_or(20.0);
+            let angle_val = self.datum_angle_input.trim().parse::<f64>().unwrap_or(45.0);
+            let plane_names: Vec<(usize, String)> = self.all_planes().into_iter().map(|(i, _, n)| (i, n)).collect();
+            let points_count = self.datum_selected_points.len();
+            let has_edge = !self.selected_edges.is_empty();
+            let has_face = self.active_face.is_some();
+
+            if let Some(action) = CanvasHud::render_datum_plane_hud(
+                ui,
+                rect,
+                &mut self.datum_mode,
+                &mut self.datum_base_plane_idx,
+                &plane_names,
+                offset_val,
+                &mut self.datum_offset_input,
+                angle_val,
+                &mut self.datum_angle_input,
+                self.datum_flip,
+                points_count,
+                has_edge,
+                has_face,
+            ) {
+                match action {
+                    ducad_ui::DatumPlaneHudAction::SetMode(m) => {
+                        self.datum_mode = m;
+                    }
+                    ducad_ui::DatumPlaneHudAction::SetBasePlane(idx) => {
+                        self.datum_base_plane_idx = idx;
+                    }
+                    ducad_ui::DatumPlaneHudAction::SetOffset(off) => {
+                        self.datum_offset_input = format!("{:.1}", off);
+                    }
+                    ducad_ui::DatumPlaneHudAction::SetAngle(ang) => {
+                        self.datum_angle_input = format!("{:.1}", ang);
+                    }
+                    ducad_ui::DatumPlaneHudAction::ToggleFlip => {
+                        self.datum_flip = !self.datum_flip;
+                    }
+                    ducad_ui::DatumPlaneHudAction::ClearPoints => {
+                        self.datum_selected_points.clear();
+                    }
+                    ducad_ui::DatumPlaneHudAction::Commit => {
+                        self.apply_create_datum_plane();
+                    }
+                    ducad_ui::DatumPlaneHudAction::Cancel => {
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
+
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.apply_create_datum_plane();
+            } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
+            }
+
+            // Visual 3D Preview of candidate plane
+            let candidate_plane: Option<SketchPlane> = match self.datum_mode {
+                ducad_ui::DatumPlaneMode::Offset => {
+                    let dist = if self.datum_flip { -offset_val } else { offset_val } as f32;
+                    if let Some((_, _, hit)) = &self.active_face {
+                        let origin = glam::vec3(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32);
+                        let norm = glam::vec3(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+                        Some(SketchPlane::from_face_offset(origin, norm, dist))
+                    } else {
+                        let base = self.plane_for_index(self.datum_base_plane_idx);
+                        Some(base.offset(dist))
+                    }
+                }
+                ducad_ui::DatumPlaneMode::Angled => {
+                    let ang = if self.datum_flip { -angle_val } else { angle_val } as f32;
+                    if let Some(edge) = self.selected_edges.first() {
+                        let p1 = edge.polyline.first().map(|&(x, y, z)| glam::vec3(x as f32, y as f32, z as f32)).unwrap_or(glam::Vec3::ZERO);
+                        let p2 = edge.polyline.last().map(|&(x, y, z)| glam::vec3(x as f32, y as f32, z as f32)).unwrap_or(glam::Vec3::new(50.0, 0.0, 0.0));
+                        let ref_norm = glam::Vec3::Z;
+                        Some(SketchPlane::from_angle_and_edge(p1, p2, ref_norm, ang))
+                    } else {
+                        Some(SketchPlane::from_angle_and_edge(glam::Vec3::ZERO, glam::Vec3::new(50.0, 0.0, 0.0), glam::Vec3::Z, ang))
+                    }
+                }
+                ducad_ui::DatumPlaneMode::ThreePoints => {
+                    if self.datum_selected_points.len() >= 3 {
+                        SketchPlane::from_3_points(
+                            self.datum_selected_points[0],
+                            self.datum_selected_points[1],
+                            self.datum_selected_points[2],
+                        )
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(plane) = candidate_plane {
+                let half_extent = ducad_render::grid::INACTIVE_PLANE_HALF_EXTENT;
+                let c_top_left = plane.to_world(glam::DVec2::new(-half_extent as f64, -half_extent as f64), 0.0);
+                let c_top_right = plane.to_world(glam::DVec2::new(half_extent as f64, -half_extent as f64), 0.0);
+                let c_bot_right = plane.to_world(glam::DVec2::new(half_extent as f64, half_extent as f64), 0.0);
+                let c_bot_left = plane.to_world(glam::DVec2::new(-half_extent as f64, half_extent as f64), 0.0);
+
+                let scr1 = crate::viewport::world_to_screen_pos(&self.camera, rect, c_top_left);
+                let scr2 = crate::viewport::world_to_screen_pos(&self.camera, rect, c_top_right);
+                let scr3 = crate::viewport::world_to_screen_pos(&self.camera, rect, c_bot_right);
+                let scr4 = crate::viewport::world_to_screen_pos(&self.camera, rect, c_bot_left);
+
+                if let (Some(s1), Some(s2), Some(s3), Some(s4)) = (scr1, scr2, scr3, scr4) {
+                    let painter = ui.painter();
+                    // Semi-transparent quad fill
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![s1, s2, s3, s4],
+                        egui::Color32::from_rgba_unmultiplied(0, 180, 255, 35),
+                        egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 200, 255)),
+                    ));
+
+                    // Label badge
+                    let center_pos = egui::pos2((s1.x + s2.x + s3.x + s4.x) * 0.25, (s1.y + s2.y + s3.y + s4.y) * 0.25);
+                    let label_text = format!("✨ Datum Plane Preview");
+                    let gal = painter.layout_no_wrap(label_text, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+                    let bg_r = egui::Rect::from_center_size(center_pos, gal.size() + egui::vec2(12.0, 6.0));
+                    painter.rect_filled(bg_r, 4.0, egui::Color32::from_rgba_unmultiplied(15, 25, 40, 220));
+                    painter.rect_stroke(bg_r, 4.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 180, 255)), egui::StrokeKind::Inside);
+                    painter.galley(bg_r.min + egui::vec2(6.0, 3.0), gal, egui::Color32::WHITE);
+                }
+            }
         } else if self.tool == ToolKind::Boolean {
             let selected_count = self.selected_bodies.len();
 

@@ -54,6 +54,8 @@ pub enum ToolKind {
     /// Split Body & Split Face (Fase 2.2 — Potong Benda).
     SplitBody,
     Boolean,
+    /// Bidang Referensi Bebas 3D (Datum Reference Plane — Fase 10.1).
+    DatumPlane,
     SectionView,
     /// Inspeksi Garis Zebra (Fase 3.1 Zebra Stripes Reflection Shader).
     ZebraInspection,
@@ -101,6 +103,7 @@ impl ToolKind {
             ToolKind::DraftAngle => ToolbarTool::DraftAngle,
             ToolKind::SplitBody => ToolbarTool::SplitBody,
             ToolKind::Boolean => ToolbarTool::Boolean,
+            ToolKind::DatumPlane => ToolbarTool::DatumPlane,
             ToolKind::SectionView => ToolbarTool::SectionView,
             ToolKind::ZebraInspection => ToolbarTool::ZebraInspection,
             ToolKind::DraftAnalysis => ToolbarTool::DraftAnalysis,
@@ -141,6 +144,7 @@ impl ToolKind {
             ToolbarTool::DraftAngle => ToolKind::DraftAngle,
             ToolbarTool::SplitBody => ToolKind::SplitBody,
             ToolbarTool::Boolean => ToolKind::Boolean,
+            ToolbarTool::DatumPlane => ToolKind::DatumPlane,
             ToolbarTool::SectionView => ToolKind::SectionView,
             ToolbarTool::ZebraInspection => ToolKind::ZebraInspection,
             ToolbarTool::DraftAnalysis => ToolKind::DraftAnalysis,
@@ -209,6 +213,7 @@ pub enum FileOp {
 #[derive(Debug, Clone, Copy)]
 pub enum PaletteAction {
     SetTool(ToolKind),
+    CreateDatumPlane,
     OpenRevolveDialog,
     Undo,
     Redo,
@@ -261,6 +266,7 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::ZebraInspection
         | ToolKind::DraftAnalysis
         | ToolKind::HoleWizard
+        | ToolKind::DatumPlane
         | ToolKind::History => 0,
     }
 }

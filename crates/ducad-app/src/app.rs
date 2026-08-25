@@ -32,8 +32,10 @@ use crate::viewport::{pixel_tolerance_to_world, screen_to_plane_point, ViewportC
 
 pub struct DuCADApp {
     pub camera: OrbitCamera,
-    pub sketches: [Sketch; 3],
-    pub undos: [ducad_sketch::UndoStack; 3],
+    pub sketches: Vec<Sketch>,
+    pub undos: Vec<ducad_sketch::UndoStack>,
+    pub datum_planes: Vec<ducad_render::plane::DatumPlane>,
+    pub datum_plane_counter: u32,
 
     pub tool: ToolKind,
     pub pending_points: Vec<DVec2>,
@@ -235,6 +237,14 @@ pub struct DuCADApp {
     pub split_plane: ducad_ui::SplitPlaneKind,
     pub split_offset_input: String,
 
+    /// State Datum Plane (Fase 10.1 — Bidang Referensi Bebas).
+    pub datum_mode: ducad_ui::DatumPlaneMode,
+    pub datum_offset_input: String,
+    pub datum_angle_input: String,
+    pub datum_flip: bool,
+    pub datum_base_plane_idx: usize,
+    pub datum_selected_points: Vec<glam::Vec3>,
+
     /// State Regular Polygon (Fase 9.3 — Segi-N Beraturan: Inscribed vs Circumscribed).
     pub polygon_sides: usize,
     pub polygon_mode: ducad_sketch::PolygonMode,
@@ -331,12 +341,14 @@ impl DuCADApp {
 
         Self {
             camera: OrbitCamera::default(),
-            sketches: [Sketch::default(), Sketch::default(), Sketch::default()],
-            undos: [
+            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
+            undos: vec![
                 ducad_sketch::UndoStack::default(),
                 ducad_sketch::UndoStack::default(),
                 ducad_sketch::UndoStack::default(),
             ],
+            datum_planes: Vec::new(),
+            datum_plane_counter: 0,
             tool: ToolKind::Select,
             pending_points: Vec::new(),
             pending_point_refs: Vec::new(),
@@ -516,6 +528,13 @@ impl DuCADApp {
             split_plane: ducad_ui::SplitPlaneKind::XY,
             split_offset_input: "0.0".to_string(),
 
+            datum_mode: ducad_ui::DatumPlaneMode::Offset,
+            datum_offset_input: "20.0".to_string(),
+            datum_angle_input: "45.0".to_string(),
+            datum_flip: false,
+            datum_base_plane_idx: 0,
+            datum_selected_points: Vec::new(),
+
             polygon_sides: 6,
             polygon_mode: ducad_sketch::PolygonMode::Inscribed,
 
@@ -577,12 +596,14 @@ impl DuCADApp {
     pub fn restore_snapshot_from_json(&mut self, json: &str) -> anyhow::Result<()> {
         let loaded = ducad_io::native::deserialize_from_json(json)?;
 
-        self.sketches = [loaded.sketch, loaded.front_sketch, loaded.right_sketch];
-        self.undos = [
+        self.sketches = vec![loaded.sketch, loaded.front_sketch, loaded.right_sketch];
+        self.undos = vec![
             ducad_sketch::UndoStack::default(),
             ducad_sketch::UndoStack::default(),
             ducad_sketch::UndoStack::default(),
         ];
+        self.datum_planes.clear();
+        self.datum_plane_counter = 0;
         self.selected.clear();
         self.hovered = None;
         self.pending_points.clear();
@@ -981,7 +1002,21 @@ impl eframe::App for DuCADApp {
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
             studio_lighting_active: self.studio_config.enabled,
-            active_plane_name: self.active_plane.name().to_string(),
+            active_plane_name: match self.active_plane.kind {
+                PlaneKind::Custom(id) => self
+                    .datum_planes
+                    .iter()
+                    .find(|dp| dp.id == id)
+                    .map(|dp| dp.name.clone())
+                    .unwrap_or_else(|| self.active_plane.name().to_string()),
+                _ => self.active_plane.name().to_string(),
+            },
+            custom_planes: self
+                .datum_planes
+                .iter()
+                .enumerate()
+                .map(|(i, dp)| (i + 3, dp.name.clone()))
+                .collect(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
         };
@@ -1047,13 +1082,10 @@ impl eframe::App for DuCADApp {
                                 self.set_tool(ToolKind::Select);
                             }
                             TopBarEvent::SelectSketchPlane(idx) => {
-                                let kind = match idx {
-                                    0 => PlaneKind::Top,
-                                    1 => PlaneKind::Front,
-                                    2 => PlaneKind::Right,
-                                    _ => PlaneKind::Top,
-                                };
-                                self.set_sketch_plane(kind);
+                                self.set_sketch_plane_by_index(idx);
+                            }
+                            TopBarEvent::CreateDatumPlane => {
+                                self.set_tool(ToolKind::DatumPlane);
                             }
                             TopBarEvent::ToggleSectionView => {
                                 self.section_enabled = !self.section_enabled;
@@ -2265,6 +2297,10 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::HoleWizard => {
                                     self.set_tool(ToolKind::HoleWizard);
+                                }
+                                ContextAction::OffsetPlane => {
+                                    self.datum_mode = ducad_ui::DatumPlaneMode::Offset;
+                                    self.set_tool(ToolKind::DatumPlane);
                                 }
                                 ContextAction::ClearSelection => {
                                     self.active_face = None;

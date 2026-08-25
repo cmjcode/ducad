@@ -82,7 +82,7 @@ impl LoadedDocument {
 
 /// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
 pub fn serialize_to_json(
-    sketches: &[Sketch; 3],
+    sketches: &[Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<String> {
     let bodies = bodies
@@ -101,9 +101,9 @@ pub fn serialize_to_json(
 
     let file = DuCADFile {
         format_version: FORMAT_VERSION,
-        sketch: sketches[0].clone(),
-        front_sketch: Some(sketches[1].clone()),
-        right_sketch: Some(sketches[2].clone()),
+        sketch: sketches.first().cloned().unwrap_or_default(),
+        front_sketch: sketches.get(1).cloned(),
+        right_sketch: sketches.get(2).cloned(),
         bodies,
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
@@ -149,7 +149,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
 /// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
 pub fn save_multi_plane(
     path: impl AsRef<Path>,
-    sketches: &[Sketch; 3],
+    sketches: &[Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<()> {
     let json = serialize_to_json(sketches, bodies)?;

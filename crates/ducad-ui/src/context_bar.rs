@@ -31,6 +31,7 @@ pub enum ContextAction {
     Fillet,
     SketchOnFace,
     HoleWizard,
+    OffsetPlane,
     Delete,
     ClearSelection,
     Rename,
@@ -296,6 +297,18 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text(t!("tool-hole-wizard-desc")).clicked() {
                     action = Some(ContextAction::HoleWizard);
+                }
+
+                // New Datum Plane from Face
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{}  + Offset Plane", egui_material_icons::icons::ICON_LAYERS.codepoint))
+                            .size(11.5)
+                            .color(crate::theme::ACCENT_ORANGE),
+                    ),
+                );
+                if btn.on_hover_text("Buat bidang kerja referensi 3D (Datum Plane) dari permukaan ini").clicked() {
+                    action = Some(ContextAction::OffsetPlane);
                 }
 
                 ui.add_space(2.0);

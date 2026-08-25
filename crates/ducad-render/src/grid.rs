@@ -41,6 +41,7 @@ pub fn generate_grid_for_plane(plane: &SketchPlane, half_extent: f32, step: f32)
         PlaneKind::Top => (AXIS_X, AXIS_Y, AXIS_Z),
         PlaneKind::Front => (AXIS_X, AXIS_Z, AXIS_Y),
         PlaneKind::Right => (AXIS_Y, AXIS_Z, AXIS_X),
+        PlaneKind::Custom(_) => ([0.20, 0.80, 1.00, 1.0], [0.95, 0.70, 0.20, 1.0], [0.85, 0.25, 0.90, 1.0]),
     };
 
     let u = plane.u_axis;

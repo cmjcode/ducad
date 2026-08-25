@@ -18,14 +18,15 @@ impl DuCADApp {
         let mut verts = Vec::new();
 
         let empty_set = std::collections::HashSet::new();
-        for idx in 0..3 {
-            let plane = Self::plane_for_index(idx);
+        let all_planes = self.all_planes();
+        for (idx, plane, _) in all_planes {
             let is_active_plane = idx == self.active_plane_index();
             let is_sweep = self.tool == ToolKind::Sweep;
+            let is_hovered_plane = self.hovered_plane_idx == Some(idx);
 
             if is_active_plane || is_sweep {
                 let h = if is_sweep {
-                    if self.hovered_plane_idx == Some(idx) {
+                    if is_hovered_plane {
                         self.hovered
                     } else {
                         None
@@ -48,13 +49,15 @@ impl DuCADApp {
                     &empty_set
                 };
 
-                verts.extend(sketch_render::entity_lines(
-                    &self.sketches[idx],
-                    h,
-                    sel,
-                    &plane,
-                ));
-            } else {
+                if idx < self.sketches.len() {
+                    verts.extend(sketch_render::entity_lines(
+                        &self.sketches[idx],
+                        h,
+                        sel,
+                        &plane,
+                    ));
+                }
+            } else if idx < self.sketches.len() {
                 verts.extend(sketch_render::inactive_entity_lines(
                     &self.sketches[idx],
                     &plane,
@@ -62,7 +65,9 @@ impl DuCADApp {
             }
 
             if !is_active_plane {
-                let outline_color: [f32; 4] = if self.is_sketching {
+                let outline_color: [f32; 4] = if is_hovered_plane {
+                    [0.25, 0.85, 1.00, 0.85] // Cyan highlight saat kursor hover di atas bidang
+                } else if self.is_sketching {
                     [0.10, 0.55, 0.95, 0.30]
                 } else {
                     [0.10, 0.55, 0.95, 0.18]

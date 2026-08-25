@@ -201,6 +201,36 @@ pub enum SplitHudAction {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DatumPlaneMode {
+    #[default]
+    Offset,
+    Angled,
+    ThreePoints,
+}
+
+impl DatumPlaneMode {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Offset => t!("datum-mode-offset"),
+            Self::Angled => t!("datum-mode-angled"),
+            Self::ThreePoints => t!("datum-mode-3point"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DatumPlaneHudAction {
+    SetMode(DatumPlaneMode),
+    SetBasePlane(usize),
+    SetOffset(f64),
+    SetAngle(f64),
+    ToggleFlip,
+    ClearPoints,
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanHudAction {
     SelectOp(BooleanOpKind),
@@ -1992,6 +2022,203 @@ p_tip,
                 };
                 if Self::hud_commit_btn(ui, &btn_label).clicked() {
                     hud_action = Some(SplitHudAction::Commit);
+                }
+
+                hud_action
+            },
+        )
+    }
+
+    /// Render Top Bar HUD mengambang untuk pembuatan Datum Reference Plane 3D Bebas
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_datum_plane_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        mode: &mut DatumPlaneMode,
+        base_plane_idx: &mut usize,
+        plane_names: &[(usize, String)],
+        offset_val: f64,
+        offset_input: &mut String,
+        angle_val: f64,
+        angle_input: &mut String,
+        flip: bool,
+        points_count: usize,
+        has_edge: bool,
+        has_face: bool,
+    ) -> Option<DatumPlaneHudAction> {
+        let is_ready = match *mode {
+            DatumPlaneMode::Offset => true,
+            DatumPlaneMode::Angled => true,
+            DatumPlaneMode::ThreePoints => points_count >= 3,
+        };
+        let banner_w = 760.0;
+
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            is_ready,
+            "ducad-hud-datum-plane-banner",
+            |ui| {
+                let mut hud_action = None;
+
+                Self::hud_title(ui, &format!("📐 {}", t!("hud-datum-plane-title")), is_ready);
+
+                ui.separator();
+
+                // Mode Selector: [Offset] [Angled] [3-Point]
+                for m in &[
+                    DatumPlaneMode::Offset,
+                    DatumPlaneMode::Angled,
+                    DatumPlaneMode::ThreePoints,
+                ] {
+                    let is_active = *mode == *m;
+                    if Self::hud_toggle_btn(ui, m.label(), is_active).clicked() {
+                        *mode = *m;
+                        hud_action = Some(DatumPlaneHudAction::SetMode(*m));
+                    }
+                }
+
+                ui.separator();
+
+                match *mode {
+                    DatumPlaneMode::Offset => {
+                        // Base plane selector
+                        ui.label(
+                            RichText::new(format!("{}:", t!("datum-select-base")))
+                                .size(10.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                        let current_label = if has_face {
+                            "Face".to_string()
+                        } else {
+                            plane_names
+                                .iter()
+                                .find(|(i, _)| *i == *base_plane_idx)
+                                .map(|(_, n)| n.clone())
+                                .unwrap_or_else(|| "Top".to_string())
+                        };
+                        egui::ComboBox::from_id_salt("ducad-datum-base-plane-combo")
+                            .selected_text(
+                                RichText::new(&current_label).size(10.5).color(TEXT_PRIMARY),
+                            )
+                            .width(90.0)
+                            .show_ui(ui, |ui| {
+                                for (idx, name) in plane_names {
+                                    if ui
+                                        .selectable_value(
+                                            base_plane_idx,
+                                            *idx,
+                                            RichText::new(name).size(10.5),
+                                        )
+                                        .clicked()
+                                    {
+                                        hud_action = Some(DatumPlaneHudAction::SetBasePlane(*idx));
+                                    }
+                                }
+                            });
+
+                        ui.separator();
+
+                        // Distance input + Presets
+                        ui.label(
+                            RichText::new(format!("{}:", t!("datum-distance")))
+                                .size(10.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                        for &off in &[-20.0, -10.0, 0.0, 10.0, 20.0, 50.0] {
+                            let is_active = (offset_val - off).abs() < 0.05;
+                            let label = format!("{:+0.0}", off);
+                            if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                                *offset_input = format!("{:.1}", off);
+                                hud_action = Some(DatumPlaneHudAction::SetOffset(off));
+                            }
+                        }
+
+                        let text_edit = egui::TextEdit::singleline(offset_input)
+                            .desired_width(40.0)
+                            .font(egui::FontId::monospace(10.5));
+                        let resp = ui.add(text_edit);
+                        if resp.changed() {
+                            if let Ok(v) = offset_input.trim().parse::<f64>() {
+                                hud_action = Some(DatumPlaneHudAction::SetOffset(v));
+                            }
+                        }
+                        ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+
+                        // Flip button
+                        if Self::hud_toggle_btn(ui, t!("datum-flip"), flip).clicked() {
+                            hud_action = Some(DatumPlaneHudAction::ToggleFlip);
+                        }
+                    }
+                    DatumPlaneMode::Angled => {
+                        ui.label(
+                            RichText::new(format!("{}:", t!("datum-select-edge")))
+                                .size(10.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                        let edge_label = if has_edge { "Selected Edge" } else { "X-Axis" };
+                        ui.label(RichText::new(edge_label).size(10.5).color(ACCENT_BLUE));
+
+                        ui.separator();
+
+                        // Angle input + Presets
+                        ui.label(
+                            RichText::new(format!("{}:", t!("datum-angle")))
+                                .size(10.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                        for &ang in &[15.0, 30.0, 45.0, 60.0, 90.0] {
+                            let is_active = (angle_val - ang).abs() < 0.05;
+                            let label = format!("{}°", ang as i32);
+                            if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                                *angle_input = format!("{:.1}", ang);
+                                hud_action = Some(DatumPlaneHudAction::SetAngle(ang));
+                            }
+                        }
+
+                        let text_edit = egui::TextEdit::singleline(angle_input)
+                            .desired_width(40.0)
+                            .font(egui::FontId::monospace(10.5));
+                        let resp = ui.add(text_edit);
+                        if resp.changed() {
+                            if let Ok(v) = angle_input.trim().parse::<f64>() {
+                                hud_action = Some(DatumPlaneHudAction::SetAngle(v));
+                            }
+                        }
+                        ui.label(RichText::new("°").size(10.0).color(TEXT_SECONDARY));
+
+                        // Flip button
+                        if Self::hud_toggle_btn(ui, t!("datum-flip"), flip).clicked() {
+                            hud_action = Some(DatumPlaneHudAction::ToggleFlip);
+                        }
+                    }
+                    DatumPlaneMode::ThreePoints => {
+                        let pts_text = format!("{}/3 points", points_count);
+                        ui.label(RichText::new(pts_text).size(10.5).color(if points_count >= 3 {
+                            ACCENT_BLUE
+                        } else {
+                            ACCENT_ORANGE
+                        }));
+
+                        if points_count > 0 {
+                            if Self::hud_toggle_btn(ui, "Clear", false).clicked() {
+                                hud_action = Some(DatumPlaneHudAction::ClearPoints);
+                            }
+                        }
+                    }
+                }
+
+                ui.separator();
+
+                // Create Plane Commit Button
+                if Self::hud_commit_btn(ui, t!("datum-create")).clicked() {
+                    hud_action = Some(DatumPlaneHudAction::Commit);
+                }
+
+                // Cancel button
+                if Self::hud_toggle_btn(ui, t!("datum-cancel"), false).clicked() {
+                    hud_action = Some(DatumPlaneHudAction::Cancel);
                 }
 
                 hud_action

@@ -49,6 +49,7 @@ pub enum TopBarEvent {
     EnterSketching,
     ExitSketching,
     SelectSketchPlane(usize),
+    CreateDatumPlane,
     ToggleSectionView,
     ToggleMeasurements,
     ToggleZebraView,
@@ -73,7 +74,8 @@ pub struct TopBarState {
     pub zebra_view_active: bool,
     pub studio_lighting_active: bool,
     pub active_plane_name: String,
-    /// Dropdown popup pemilih Sketch Plane (Top/Front/Right). Dibaca & bisa
+    pub custom_planes: Vec<(usize, String)>,
+    /// Dropdown popup pemilih Sketch Plane (Top/Front/Right/Custom). Dibaca & bisa
     /// diubah oleh `show` — caller wajib menyalin nilai baru balik ke state
     /// persisten miliknya setelah `show` selesai (sama seperti field-field
     /// input lain di `FeatureInspectorState`).
@@ -317,6 +319,42 @@ impl TopBar {
                                             event = Some(TopBarEvent::SelectSketchPlane(idx));
                                             state.plane_menu_open = false;
                                         }
+                                    }
+
+                                    if !state.custom_planes.is_empty() {
+                                        ui.separator();
+                                        ui.label(
+                                            RichText::new(t!("datum-planes-header"))
+                                                .strong()
+                                                .size(9.5)
+                                                .color(TEXT_SECONDARY),
+                                        );
+                                        for (idx, name) in &state.custom_planes {
+                                            let plane_active = state.active_plane_name.contains(name);
+                                            let btn = ui.selectable_label(
+                                                plane_active,
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    ICON_LAYERS.codepoint, name
+                                                ))
+                                                .size(11.0),
+                                            );
+                                            if btn.clicked() {
+                                                event = Some(TopBarEvent::SelectSketchPlane(*idx));
+                                                state.plane_menu_open = false;
+                                            }
+                                        }
+                                    }
+
+                                    ui.separator();
+                                    let new_plane_btn = ui.button(
+                                        RichText::new(t!("datum-plane-new"))
+                                            .size(10.5)
+                                            .color(ACCENT_BLUE),
+                                    );
+                                    if new_plane_btn.clicked() {
+                                        event = Some(TopBarEvent::CreateDatumPlane);
+                                        state.plane_menu_open = false;
                                     }
                                 });
                             });

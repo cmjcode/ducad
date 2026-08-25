@@ -285,7 +285,7 @@ impl DuCADApp {
 
         let Some(path_segments) = self.pending_sweep_path.clone().or_else(|| {
             let path_plane_idx = self.sweep_path_plane_idx.unwrap_or_else(|| self.active_plane_index());
-            let path_plane = Self::plane_for_index(path_plane_idx);
+            let path_plane = self.plane_for_index(path_plane_idx);
             crate::model::build_path_from_selection_on_plane(
                 &self.sketches[path_plane_idx],
                 &self.selected,

@@ -124,9 +124,18 @@ impl OrbitCamera {
         self.set_preset(ViewPreset::Top);
     }
 
-    /// Selaraskan pandangan tegak lurus ke bidang sketsa tertentu (`Top`, `Front`, atau `Right`).
+    /// Selaraskan pandangan tegak lurus ke bidang sketsa tertentu (`Top`, `Front`, `Right`, atau `Custom`).
     pub fn orient_to_plane(&mut self, plane: &crate::plane::SketchPlane) {
-        self.set_preset(plane.camera_preset());
+        let norm = plane.normal.normalize_or_zero();
+        if norm.length_squared() > 1e-6 {
+            self.target = plane.origin;
+            let pitch = norm.z.clamp(-0.9999, 0.9999).asin();
+            let yaw = norm.x.atan2(-norm.y);
+            self.pitch = pitch;
+            self.yaw = yaw;
+        } else {
+            self.set_preset(plane.camera_preset());
+        }
     }
 }
 

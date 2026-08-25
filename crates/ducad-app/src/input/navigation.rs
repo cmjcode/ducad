@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use crate::app::DuCADApp;
-use crate::viewport::pick_inactive_plane_at_cursor;
+use crate::types::ToolKind;
 
 impl DuCADApp {
     pub fn handle_navigation(
@@ -63,12 +63,37 @@ impl DuCADApp {
         response: &egui::Response,
         rect: egui::Rect,
     ) -> bool {
-        if response.clicked() && ui.input(|i| i.modifiers.command) {
+        let all_planes = self.all_planes();
+
+        if let Some(pos) = response.hover_pos() {
+            if let Some(idx) = crate::viewport::pick_inactive_plane_index_at_cursor(
+                &self.camera,
+                rect,
+                pos,
+                &all_planes,
+                self.active_plane_index(),
+            ) {
+                self.hovered_plane_idx = Some(idx);
+            }
+        }
+
+        if response.clicked() && (ui.input(|i| i.modifiers.command) || self.tool == ToolKind::Select) {
             if let Some(pos) = response.interact_pointer_pos() {
-                if let Some(kind) =
-                    pick_inactive_plane_at_cursor(&self.camera, rect, pos, self.active_plane.kind)
-                {
-                    self.activate_plane_from_viewport(kind);
+                if let Some(idx) = crate::viewport::pick_inactive_plane_index_at_cursor(
+                    &self.camera,
+                    rect,
+                    pos,
+                    &all_planes,
+                    self.active_plane_index(),
+                ) {
+                    self.set_sketch_plane_by_index(idx);
+                    let label = all_planes
+                        .iter()
+                        .find(|(i, _, _)| *i == idx)
+                        .map(|(_, _, n)| n.as_str())
+                        .unwrap_or("Plane");
+                    self.model_status =
+                        Some(format!("Bidang '{}' kini aktif untuk sketsa", label));
                     return true;
                 }
             }
@@ -87,13 +112,21 @@ impl DuCADApp {
                     let elapsed = now - t.start_time;
                     let drift = t.center_pos.distance(t.start_pos);
                     if elapsed <= TAP_MAX_SECS && drift <= TAP_MOVE_TOLERANCE {
-                        if let Some(kind) = pick_inactive_plane_at_cursor(
+                        if let Some(idx) = crate::viewport::pick_inactive_plane_index_at_cursor(
                             &self.camera,
                             rect,
                             t.center_pos,
-                            self.active_plane.kind,
+                            &all_planes,
+                            self.active_plane_index(),
                         ) {
-                            self.activate_plane_from_viewport(kind);
+                            self.set_sketch_plane_by_index(idx);
+                            let label = all_planes
+                                .iter()
+                                .find(|(i, _, _)| *i == idx)
+                                .map(|(_, _, n)| n.as_str())
+                                .unwrap_or("Plane");
+                            self.model_status =
+                                Some(format!("Bidang '{}' kini aktif untuk sketsa", label));
                             return true;
                         }
                     }

@@ -116,12 +116,14 @@ impl DuCADApp {
         };
         match ducad_io::native::load(&path) {
             Ok(loaded) => {
-                self.sketches = [loaded.sketch, loaded.front_sketch, loaded.right_sketch];
-                self.undos = [
+                self.sketches = vec![loaded.sketch, loaded.front_sketch, loaded.right_sketch];
+                self.undos = vec![
                     ducad_sketch::UndoStack::default(),
                     ducad_sketch::UndoStack::default(),
                     ducad_sketch::UndoStack::default(),
                 ];
+                self.datum_planes.clear();
+                self.datum_plane_counter = 0;
                 self.selected.clear();
                 self.hovered = None;
                 self.pending_points.clear();

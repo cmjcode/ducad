@@ -48,6 +48,7 @@ pub enum ToolbarTool {
     DraftAngle,
     SplitBody,
     Boolean,
+    DatumPlane,
     SectionView,
     ZebraInspection,
     DraftAnalysis,
@@ -222,6 +223,8 @@ impl LeftToolbar {
                 }
             } else {
                 // ==================== MODE 3D SOLID ====================
+                let datum_title = t!("tool-datum-plane");
+                let datum_desc = t!("tool-datum-plane-desc");
                 let section_title = t!("tool-section");
                 let section_desc = t!("tool-section-desc");
                 let sweep_title = t!("tool-sweep");
@@ -230,6 +233,13 @@ impl LeftToolbar {
                 let draft_desc = t!("tool-draft-angle-desc");
 
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (
+                        ToolbarTool::DatumPlane,
+                        ICON_LAYERS.codepoint,
+                        &datum_title,
+                        None,
+                        Some(&datum_desc),
+                    ),
                     (
                         ToolbarTool::DraftAngle,
                         ICON_ARCHITECTURE.codepoint,
