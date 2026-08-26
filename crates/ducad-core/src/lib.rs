@@ -15,8 +15,9 @@ pub use parametric::{
 
 pub mod assembly;
 pub use assembly::{
-    AssemblyInstance, AssemblyInstanceId, AssemblyTree, DegreesOfFreedom, MateConstraint,
-    MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind, SubAssembly, SubAssemblyId,
+    AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
+    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind,
+    SubAssembly, SubAssemblyId,
 };
 
 /// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.

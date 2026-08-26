@@ -160,6 +160,9 @@ pub struct DuCADApp {
     pub mate_flip_alignment: bool,
     pub mate_lock_rotation: bool,
     pub staged_mate_targets: Vec<(BodyId, PickRay, ducad_kernel::FaceHit)>,
+    pub clash_report: Option<ducad_core::ClashReport>,
+    pub active_clash_shapes: Vec<ducad_kernel::BodyClash>,
+    pub selected_clash_id: Option<u32>,
     pub parametric_dag: ducad_core::ParametricDag,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
@@ -481,6 +484,9 @@ impl DuCADApp {
             mate_flip_alignment: false,
             mate_lock_rotation: false,
             staged_mate_targets: Vec::new(),
+            clash_report: None,
+            active_clash_shapes: Vec::new(),
+            selected_clash_id: None,
             parametric_dag: ducad_core::ParametricDag::new(),
             history_db,
             activity_cache,
@@ -747,6 +753,9 @@ impl DuCADApp {
             mate_flip_alignment: false,
             mate_lock_rotation: false,
             staged_mate_targets: Vec::new(),
+            clash_report: None,
+            active_clash_shapes: Vec::new(),
+            selected_clash_id: None,
             parametric_dag: ducad_core::ParametricDag::new(),
             history_db,
             activity_cache: Vec::new(),
@@ -2015,6 +2024,8 @@ impl eframe::App for DuCADApp {
                         &self.assembly_tree,
                         self.selected_assembly_instance,
                         self.selected_assembly_mate,
+                        self.clash_report.as_ref(),
+                        self.selected_clash_id,
                     );
                     for ev in evs {
                         match ev {
@@ -2105,6 +2116,35 @@ impl eframe::App for DuCADApp {
                                 self.solve_and_apply_assembly();
                                 self.model_status =
                                     Some("Pohon perakitan berhasil dihitung ulang".to_string());
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::RunClashDetection { tolerance } => {
+                                self.run_clash_detection(tolerance);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::SelectClash(id) => {
+                                self.selected_clash_id = id;
+                                if let Some(cid) = id {
+                                    if let Some(clash) = self.active_clash_shapes.iter().find(|c| c.id == cid) {
+                                        self.selected_bodies.clear();
+                                        for (bid, _) in &self.model.doc.bodies {
+                                            let ffi = bid.data().as_ffi();
+                                            if ffi == clash.body_a_id || ffi == clash.body_b_id {
+                                                self.selected_bodies.insert(bid);
+                                            }
+                                        }
+                                    }
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::ConvertClashToBody(clash_id) => {
+                                self.convert_clash_to_body(clash_id);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::ClearClashes => {
+                                self.clash_report = None;
+                                self.active_clash_shapes.clear();
+                                self.selected_clash_id = None;
                                 ctx.request_repaint();
                             }
                             AssemblyDrawerEvent::Close => {
@@ -3117,6 +3157,10 @@ impl eframe::App for DuCADApp {
                                 }
                                 ContextAction::Boolean => {
                                     self.set_tool(ToolKind::Boolean);
+                                }
+                                ContextAction::CheckClash => {
+                                    self.assembly_drawer_open = true;
+                                    self.run_clash_detection(0.001);
                                 }
                                 ContextAction::Delete => {
                                     self.delete_selected_bodies();

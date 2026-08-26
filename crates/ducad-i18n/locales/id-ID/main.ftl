@@ -1078,6 +1078,26 @@ topbar-assembly-tooltip = Pohon Perakitan & Mate Constraints
 guide-mate-header = Panduan Mate Perakitan:
 guide-mate-step-1 = 1. Pilih bidang acuan atau silinder pada part A
 guide-mate-step-2 = 2. Shift-pilih bidang target atau silinder pada part B
-guide-mate-step-done = 3. Klik jenis mate pada bilah bawah untuk mengunci posisi
 guide-mate-tip = 💡 Gabungkan Concentric dan Coincident mate untuk perakitan poros dalam lubang sempurna
 
+# Clash & Interference Detection (Phase 12.3)
+assembly-clash-tab = Tabrakan
+assembly-clash-title = Uji Tabrakan & Interferensi (Clash)
+assembly-clash-desc = Uji tabrakan fisik otomatis antar bodi solid menggunakan operasi Boolean interseksi
+assembly-clash-run = Periksa Tabrakan
+assembly-clash-running = Menguji...
+assembly-clash-tolerance = Toleransi Volume:
+assembly-clash-tolerance-unit = mm³
+assembly-clash-clean = Tidak Ada Tabrakan Terdeteksi
+assembly-clash-clean-desc = Seluruh komponen terpasang presisi tanpa tumpang tindih fisik
+assembly-clash-detected = { $count } Tabrakan Terdeteksi
+assembly-clash-total-volume = Total Volume Tabrakan: { $vol } mm³
+assembly-clash-pair = { $part_a } ↔ { $part_b }
+assembly-clash-vol-label = Volume: { $vol } mm³
+assembly-clash-centroid-label = Pusat: ({ $x }, { $y }, { $z })
+assembly-clash-focus = Fokus
+assembly-clash-isolate = Isolasi
+assembly-clash-create-body = Ubah Jadi Bodi
+assembly-clash-clear = Bersihkan Hasil
+assembly-clash-created-body-notify = Volume tabrakan berhasil diubah menjadi bodi solid baru '{ $name }'
+context-check-clash = Uji Tabrakan

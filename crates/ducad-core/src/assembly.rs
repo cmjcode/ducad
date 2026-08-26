@@ -481,4 +481,71 @@ mod tests {
         tree.toggle_suppress_mate(concentric_id);
         assert_eq!(tree.mates[&concentric_id].status, MateStatus::Suppressed);
     }
+
+    #[test]
+    fn test_clash_report_summary() {
+        let mut report = ClashReport::new();
+        report.add_clash(ClashItem {
+            id: 1,
+            body_a_id: 10,
+            body_b_id: 20,
+            body_a_name: "Pin".to_string(),
+            body_b_name: "Base".to_string(),
+            volume: 125.5,
+            center: (5.0, 5.0, 10.0),
+            bbox_min: (0.0, 0.0, 0.0),
+            bbox_max: (10.0, 10.0, 20.0),
+        });
+
+        assert_eq!(report.clashes.len(), 1);
+        assert_eq!(report.total_volume, 125.5);
+        assert!(report.has_clashes());
+    }
 }
+
+/// Satu entri laporan benturan / tabrakan fisik antar bodi solid (Clash Item).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClashItem {
+    pub id: u32,
+    pub body_a_id: u64,
+    pub body_b_id: u64,
+    pub body_a_name: String,
+    pub body_b_name: String,
+    /// Volume tabrakan dalam mm³.
+    pub volume: f64,
+    /// Titik pusat tabrakan (X, Y, Z).
+    pub center: (f64, f64, f64),
+    pub bbox_min: (f64, f64, f64),
+    pub bbox_max: (f64, f64, f64),
+}
+
+/// Laporan lengkap hasil uji deteksi tabrakan & interferensi (Clash Report).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClashReport {
+    pub clashes: Vec<ClashItem>,
+    pub total_volume: f64,
+    pub evaluated_pairs: usize,
+    pub timestamp_epoch_ms: u64,
+}
+
+impl ClashReport {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn has_clashes(&self) -> bool {
+        !self.clashes.is_empty()
+    }
+
+    pub fn add_clash(&mut self, item: ClashItem) {
+        self.total_volume += item.volume;
+        self.clashes.push(item);
+    }
+
+    pub fn clear(&mut self) {
+        self.clashes.clear();
+        self.total_volume = 0.0;
+        self.evaluated_pairs = 0;
+    }
+}
+

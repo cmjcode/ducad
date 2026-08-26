@@ -1163,6 +1163,32 @@ impl DuCADApp {
             }
         }
 
+        // Bounding box dashed box untuk Selected Clash (Interference)
+        if let Some(cid) = self.selected_clash_id {
+            if let Some(clash) = self.active_clash_shapes.iter().find(|c| c.id == cid) {
+                let min = [clash.bbox_min[0] as f32, clash.bbox_min[1] as f32, clash.bbox_min[2] as f32];
+                let max = [clash.bbox_max[0] as f32, clash.bbox_max[1] as f32, clash.bbox_max[2] as f32];
+                let col = [1.0, 0.2, 0.2, 0.95];
+                let p000 = [min[0], min[1], min[2]];
+                let p100 = [max[0], min[1], min[2]];
+                let p010 = [min[0], max[1], min[2]];
+                let p110 = [max[0], max[1], min[2]];
+                let p001 = [min[0], min[1], max[2]];
+                let p101 = [max[0], min[1], max[2]];
+                let p011 = [min[0], max[1], max[2]];
+                let p111 = [max[0], max[1], max[2]];
+
+                let edges = [
+                    (p000, p100), (p100, p110), (p110, p010), (p010, p000),
+                    (p001, p101), (p101, p111), (p111, p011), (p011, p001),
+                    (p000, p001), (p100, p101), (p110, p111), (p010, p011),
+                ];
+                for (a, b) in edges {
+                    verts.extend(sketch_render::dashed_line_3d(a, b, 3.0, col));
+                }
+            }
+        }
+
         verts
     }
 
@@ -1406,6 +1432,29 @@ impl DuCADApp {
                 colors.extend(c);
                 indices.extend(i.into_iter().map(|idx| idx + base));
             }
+        }
+
+        // =========================================================================
+        // SOLID 3D CLASH & INTERFERENCE DETECTION HIGHLIGHT MESH (Phase 12.3)
+        // =========================================================================
+        for clash in &self.active_clash_shapes {
+            let is_selected = self.selected_clash_id == Some(clash.id);
+            let is_any_selected = self.selected_clash_id.is_some();
+            if is_any_selected && !is_selected {
+                continue;
+            }
+
+            let clash_color = if is_selected {
+                [1.0, 0.12, 0.12, 0.95] // Bright vivid red
+            } else {
+                [1.0, 0.40, 0.10, 0.85] // Warning orange-red
+            };
+
+            let base = positions.len() as u32;
+            positions.extend_from_slice(&clash.clash_mesh.positions);
+            normals.extend_from_slice(&clash.clash_mesh.normals);
+            colors.resize(positions.len(), clash_color);
+            indices.extend(clash.clash_mesh.indices.iter().map(|idx| idx + base));
         }
 
         (positions, normals, colors, indices)

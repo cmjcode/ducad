@@ -1806,4 +1806,102 @@ impl DuCADApp {
             }
         }
     }
+
+    /// Jalankan deteksi tabrakan fisik otomatis (Clash & Interference Detection) antar seluruh solid body.
+    pub fn run_clash_detection(&mut self, tolerance: f64) {
+        let mut body_tuples = Vec::new();
+        for (b_id, body_entry) in &self.model.doc.bodies {
+            if let Some(geo) = self.model.geometry.get(b_id) {
+                body_tuples.push((
+                    b_id.data().as_ffi(),
+                    body_entry.name.clone(),
+                    &geo.shape,
+                ));
+            }
+        }
+
+        let evaluated_pairs = if body_tuples.len() >= 2 {
+            (body_tuples.len() * (body_tuples.len() - 1)) / 2
+        } else {
+            0
+        };
+
+        let raw_clashes = ducad_kernel::detect_interference(&body_tuples, tolerance);
+
+        let mut report = ducad_core::ClashReport::new();
+        report.evaluated_pairs = evaluated_pairs;
+        report.timestamp_epoch_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        for c in &raw_clashes {
+            report.add_clash(ducad_core::ClashItem {
+                id: c.id,
+                body_a_id: c.body_a_id,
+                body_b_id: c.body_b_id,
+                body_a_name: c.body_a_name.clone(),
+                body_b_name: c.body_b_name.clone(),
+                volume: c.volume,
+                center: (c.center[0], c.center[1], c.center[2]),
+                bbox_min: (c.bbox_min[0], c.bbox_min[1], c.bbox_min[2]),
+                bbox_max: (c.bbox_max[0], c.bbox_max[1], c.bbox_max[2]),
+            });
+        }
+
+        let clash_count = raw_clashes.len();
+        let total_vol = report.total_volume;
+        self.active_clash_shapes = raw_clashes;
+        self.clash_report = Some(report);
+        self.selected_clash_id = None;
+
+        if clash_count > 0 {
+            self.model_status = Some(format!(
+                "Deteksi tabrakan: {} tabrakan ditemukan (Total: {:.2} mm³)",
+                clash_count, total_vol
+            ));
+        } else {
+            self.model_status =
+                Some("Deteksi tabrakan: Tidak ada interferensi (Clean Fit)".to_string());
+        }
+    }
+
+    /// Ekstrak volume tabrakan dan ubah menjadi bodi solid baru di dokumen pemodelan.
+    pub fn convert_clash_to_body(&mut self, clash_id: u32) {
+        let Some(clash) = self.active_clash_shapes.iter().find(|c| c.id == clash_id).cloned() else {
+            return;
+        };
+
+        // Cari shape A dan shape B
+        let shape_a = self.model.doc.bodies.iter().find_map(|(id, _)| {
+            if id.data().as_ffi() == clash.body_a_id {
+                self.model.geometry.get(id).map(|g| &g.shape)
+            } else {
+                None
+            }
+        });
+        let shape_b = self.model.doc.bodies.iter().find_map(|(id, _)| {
+            if id.data().as_ffi() == clash.body_b_id {
+                self.model.geometry.get(id).map(|g| &g.shape)
+            } else {
+                None
+            }
+        });
+
+        if let (Some(sa), Some(sb)) = (shape_a, shape_b) {
+            if let Ok(intersect_shape) = ducad_kernel::intersect(sa, sb) {
+                let name = format!("Clash-{}x{}", clash.body_a_name, clash.body_b_name);
+                let body_id = self.model.doc.add_body(&name);
+                let geo = BodyGeometry::from_shape(intersect_shape);
+                self.model.geometry.insert(body_id, geo);
+                self.model.doc.dirty = true;
+                self.selected_bodies.clear();
+                self.selected_bodies.insert(body_id);
+                self.model_status = Some(format!(
+                    "Volume tabrakan berhasil diubah jadi bodi solid baru '{}'",
+                    name
+                ));
+            }
+        }
+    }
 }

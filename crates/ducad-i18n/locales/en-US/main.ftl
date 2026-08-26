@@ -1078,6 +1078,26 @@ topbar-assembly-tooltip = Assembly Tree & Mates
 guide-mate-header = Assembly Mate Guide:
 guide-mate-step-1 = 1. Select reference face or cylinder on component A
 guide-mate-step-2 = 2. Shift-select target face or cylinder on component B
-guide-mate-step-done = 3. Click mate type in bottom bar to lock position
 guide-mate-tip = 💡 Combine Concentric and Coincident mates for complete pin-in-hole assembly
 
+# Clash & Interference Detection (Phase 12.3)
+assembly-clash-tab = Interference
+assembly-clash-title = Clash & Interference Detection
+assembly-clash-desc = Physical collision test between solid bodies using Boolean intersection
+assembly-clash-run = Check Interference
+assembly-clash-running = Checking...
+assembly-clash-tolerance = Volume Tolerance:
+assembly-clash-tolerance-unit = mm³
+assembly-clash-clean = No Interference Detected
+assembly-clash-clean-desc = All components fit cleanly without physical collision
+assembly-clash-detected = { $count } Clashes Detected
+assembly-clash-total-volume = Total Clash Volume: { $vol } mm³
+assembly-clash-pair = { $part_a } ↔ { $part_b }
+assembly-clash-vol-label = Volume: { $vol } mm³
+assembly-clash-centroid-label = Center: ({ $x }, { $y }, { $z })
+assembly-clash-focus = Focus
+assembly-clash-isolate = Isolate
+assembly-clash-create-body = Convert to Body
+assembly-clash-clear = Clear Results
+assembly-clash-created-body-notify = Clash volume converted to new solid body '{ $name }'
+context-check-clash = Check Clash

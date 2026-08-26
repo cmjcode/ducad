@@ -96,7 +96,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
     - *Concentric Mate*: Mengunci sumbu silinder poros dengan lubang.
     - *Coincident Mate*: Menempelkan dua permukaan datar.
     - *Distance / Angle Mate*: Mengatur jarak atau sudut rotasi engsel.
-- [ ] **12.3 Clash & Interference Detection**:
+- [x] **12.3 Clash & Interference Detection**:
   - Uji tabrakan fisik otomatis antar bodi solid menggunakan operasi Boolean interseksi untuk mencegah kesalahan perakitan di pabrik.
 - [ ] **12.4 Persistent Bottom Command Prompt Bar (CLI)**:
   - Baris input teks perintah di bagian bawah layar ala AutoCAD yang menerima perintah singkat keyboard (`L`, `C`, `REC`, `TR`, `EX`, `DIM`, `EXT`) dengan pelengkapan otomatis (*autocomplete*).

@@ -11,6 +11,7 @@ pub mod detail;
 pub mod helix;
 pub mod hlr;
 pub mod hole;
+pub mod interference;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
@@ -74,6 +75,10 @@ pub use hlr::{
     ProjectedViewKind,
 };
 pub use hole::{apply_hole, create_hole_cutter};
+pub use interference::{
+    compute_mesh_centroid, compute_mesh_volume, compute_pair_interference, detect_interference,
+    BodyClash,
+};
 pub use mesh::KernelMesh;
 pub use modify::{
     chamfer_all, chamfer_edges, chamfer_vertex, circular_pattern_shape, create_rib,

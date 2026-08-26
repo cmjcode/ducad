@@ -10,6 +10,7 @@ use egui_material_icons::icons::{
     ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CATEGORY,
     ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT,
     ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
+    ICON_WARNING,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -42,6 +43,7 @@ pub enum ContextAction {
     MateDistance,
     MateAngle,
     OpenAssemblyTree,
+    CheckClash,
 }
 
 #[derive(Default)]
@@ -543,6 +545,21 @@ impl ContextActionBar {
                         .clicked()
                     {
                         action = Some(ContextAction::Boolean);
+                    }
+
+                    // Uji Tabrakan / Clash Detection
+                    let clash_btn = ui.add(
+                        Button::new(
+                            RichText::new(format!("{} {}", ICON_WARNING.codepoint, t!("context-check-clash")))
+                                .size(11.5)
+                                .color(ACCENT_ORANGE),
+                        ),
+                    );
+                    if clash_btn
+                        .on_hover_text(t!("assembly-clash-desc"))
+                        .clicked()
+                    {
+                        action = Some(ContextAction::CheckClash);
                     }
 
                     ui.add_space(2.0);

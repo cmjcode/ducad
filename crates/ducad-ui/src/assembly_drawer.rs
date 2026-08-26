@@ -10,18 +10,18 @@ use crate::theme::{
     TEXT_SECONDARY,
 };
 use ducad_core::assembly::{
-    AssemblyInstanceId, AssemblyTree, MateConstraint, MateConstraintId, MateKind, MateStatus,
-    SubAssemblyId,
+    AssemblyInstanceId, AssemblyTree, ClashReport, MateConstraint, MateConstraintId, MateKind,
+    MateStatus, SubAssemblyId,
 };
 use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui,
 };
 use egui_material_icons::icons::{
-    ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CATEGORY, ICON_CHECK_CIRCLE, ICON_CLEAR,
-    ICON_CLOSE, ICON_DELETE, ICON_EDIT, ICON_ERROR, ICON_FLIP, ICON_FOLDER, ICON_HORIZONTAL_RULE,
-    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_LOCK, ICON_LOCK_OPEN, ICON_PLAY_ARROW,
-    ICON_SEARCH, ICON_STRAIGHTEN,
+    ICON_ADD, ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CATEGORY, ICON_CHECK_CIRCLE,
+    ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_EDIT, ICON_ERROR, ICON_FLIP, ICON_FOLDER,
+    ICON_HORIZONTAL_RULE, ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_LOCK,
+    ICON_LOCK_OPEN, ICON_PLAY_ARROW, ICON_SEARCH, ICON_STRAIGHTEN, ICON_VISIBILITY, ICON_WARNING,
 };
 
 #[derive(Debug, Clone)]
@@ -52,6 +52,16 @@ pub enum AssemblyDrawerEvent {
     },
     /// Picu solver perakitan untuk menghitung ulang posisi seluruh part.
     SolveAssembly,
+    /// Jalankan deteksi tabrakan fisik otomatis (Clash & Interference Detection).
+    RunClashDetection {
+        tolerance: f64,
+    },
+    /// Pilih / sorot hasil tabrakan tertentu di 3D viewport.
+    SelectClash(Option<u32>),
+    /// Ubah volume tabrakan menjadi bodi solid independen baru.
+    ConvertClashToBody(u32),
+    /// Bersihkan hasil deteksi tabrakan.
+    ClearClashes,
     /// Tutup panel Assembly Tree.
     Close,
 }
@@ -61,6 +71,8 @@ pub struct AssemblyDrawer {
     pub custom_height: Option<f32>,
     pub components_expanded: bool,
     pub mates_expanded: bool,
+    pub clash_expanded: bool,
+    pub clash_tolerance_mm3: f64,
     pub editing_mate_id: Option<MateConstraintId>,
     pub edit_input_val: String,
     pub edit_flip_alignment: bool,
@@ -73,6 +85,8 @@ impl Default for AssemblyDrawer {
             custom_height: None,
             components_expanded: true,
             mates_expanded: true,
+            clash_expanded: true,
+            clash_tolerance_mm3: 0.001,
             editing_mate_id: None,
             edit_input_val: String::new(),
             edit_flip_alignment: false,
@@ -121,12 +135,14 @@ impl AssemblyDrawer {
         tree: &AssemblyTree,
         selected_instance: Option<AssemblyInstanceId>,
         selected_mate: Option<MateConstraintId>,
+        clash_report: Option<&ClashReport>,
+        selected_clash_id: Option<u32>,
     ) -> Vec<AssemblyDrawerEvent> {
         let mut events = Vec::new();
 
         glass_frame().show(ui, |ui| {
             let width = 340.0;
-            let height = self.custom_height.unwrap_or(480.0);
+            let height = self.custom_height.unwrap_or(520.0);
             ui.set_width(width);
             ui.set_height(height);
 
@@ -687,6 +703,279 @@ impl AssemblyDrawer {
                                 });
                                 ui.add_space(2.0);
                             }
+                        }
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // SEKSI 3: Clash & Interference Detection (Fase 12.3)
+                    ui.horizontal(|ui| {
+                        let icon = if self.clash_expanded {
+                            ICON_KEYBOARD_ARROW_DOWN.codepoint
+                        } else {
+                            ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                        };
+                        if ui
+                            .button(RichText::new(icon).size(13.0).color(TEXT_SECONDARY))
+                            .clicked()
+                        {
+                            self.clash_expanded = !self.clash_expanded;
+                        }
+                        ui.label(
+                            RichText::new(format!(
+                                "INTERFERENCE ({})",
+                                clash_report.map_or(0, |r| r.clashes.len())
+                            ))
+                            .size(11.0)
+                            .strong()
+                            .color(if clash_report.map_or(false, |r| r.has_clashes()) {
+                                ACCENT_ORANGE
+                            } else {
+                                TEXT_SECONDARY
+                            }),
+                        );
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        ICON_PLAY_ARROW.codepoint,
+                                        t!("assembly-clash-run")
+                                    ))
+                                    .size(10.0)
+                                    .color(ACCENT_BLUE),
+                                )
+                                .on_hover_text(t!("assembly-clash-desc"))
+                                .clicked()
+                            {
+                                events.push(AssemblyDrawerEvent::RunClashDetection {
+                                    tolerance: self.clash_tolerance_mm3,
+                                });
+                            }
+                        });
+                    });
+
+                    if self.clash_expanded {
+                        ui.add_space(3.0);
+
+                        // Input toleransi volume
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(t!("assembly-clash-tolerance"))
+                                    .size(10.0)
+                                    .color(TEXT_MUTED),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut self.clash_tolerance_mm3)
+                                    .speed(0.001)
+                                    .range(0.0001..=10.0)
+                                    .max_decimals(4)
+                                    .suffix(format!(" {}", t!("assembly-clash-tolerance-unit"))),
+                            );
+                        });
+
+                        ui.add_space(3.0);
+
+                        if let Some(report) = clash_report {
+                            if report.has_clashes() {
+                                // Status banner: Clashes detected
+                                card_frame().show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(ICON_WARNING.codepoint)
+                                                .size(14.0)
+                                                .color(ACCENT_ORANGE),
+                                        );
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(t!(
+                                                    "assembly-clash-detected",
+                                                    count = report.clashes.len()
+                                                ))
+                                                .size(11.0)
+                                                .strong()
+                                                .color(ACCENT_ORANGE),
+                                            );
+                                            ui.label(
+                                                RichText::new(t!(
+                                                    "assembly-clash-total-volume",
+                                                    vol = format!("{:.2}", report.total_volume)
+                                                ))
+                                                .size(9.5)
+                                                .color(TEXT_MUTED),
+                                            );
+                                        });
+
+                                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                            if ui
+                                                .button(
+                                                    RichText::new(ICON_CLEAR.codepoint)
+                                                        .size(11.0)
+                                                        .color(TEXT_MUTED),
+                                                )
+                                                .on_hover_text(t!("assembly-clash-clear"))
+                                                .clicked()
+                                            {
+                                                events.push(AssemblyDrawerEvent::ClearClashes);
+                                            }
+                                        });
+                                    });
+                                });
+
+                                ui.add_space(4.0);
+
+                                // List of clashes
+                                for clash in &report.clashes {
+                                    let is_selected = selected_clash_id == Some(clash.id);
+                                    let frame = if is_selected {
+                                        card_frame().stroke(Stroke::new(1.0, ACCENT_BLUE))
+                                    } else {
+                                        card_frame()
+                                    };
+
+                                    frame.show(ui, |ui| {
+                                        ui.vertical(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new(ICON_ERROR.codepoint)
+                                                        .size(12.0)
+                                                        .color(ACCENT_ORANGE),
+                                                );
+                                                let pair_label = ui.add(
+                                                    egui::Button::new(
+                                                        RichText::new(t!(
+                                                            "assembly-clash-pair",
+                                                            part_a = &clash.body_a_name,
+                                                            part_b = &clash.body_b_name
+                                                        ))
+                                                        .size(11.0)
+                                                        .strong()
+                                                        .color(TEXT_PRIMARY),
+                                                    )
+                                                    .frame(false),
+                                                );
+                                                if pair_label.clicked() {
+                                                    events.push(AssemblyDrawerEvent::SelectClash(
+                                                        if is_selected { None } else { Some(clash.id) },
+                                                    ));
+                                                }
+                                            });
+
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new(t!(
+                                                        "assembly-clash-vol-label",
+                                                        vol = format!("{:.3}", clash.volume)
+                                                    ))
+                                                    .size(9.5)
+                                                    .color(TEXT_MUTED),
+                                                );
+                                                ui.label(
+                                                    RichText::new(t!(
+                                                        "assembly-clash-centroid-label",
+                                                        x = format!("{:.1}", clash.center.0),
+                                                        y = format!("{:.1}", clash.center.1),
+                                                        z = format!("{:.1}", clash.center.2)
+                                                    ))
+                                                    .size(9.0)
+                                                    .color(TEXT_MUTED),
+                                                );
+                                            });
+
+                                            ui.horizontal(|ui| {
+                                                if ui
+                                                    .button(
+                                                        RichText::new(format!(
+                                                            "{} {}",
+                                                            ICON_VISIBILITY.codepoint,
+                                                            t!("assembly-clash-focus")
+                                                        ))
+                                                        .size(9.5)
+                                                        .color(if is_selected { ACCENT_BLUE } else { TEXT_SECONDARY }),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    events.push(AssemblyDrawerEvent::SelectClash(Some(clash.id)));
+                                                }
+
+                                                if ui
+                                                    .button(
+                                                        RichText::new(format!(
+                                                            "{} {}",
+                                                            ICON_ADD.codepoint,
+                                                            t!("assembly-clash-create-body")
+                                                        ))
+                                                        .size(9.5)
+                                                        .color(TEXT_MUTED),
+                                                    )
+                                                    .on_hover_text("Ekstrak volume tabrakan jadi bodi solid baru")
+                                                    .clicked()
+                                                {
+                                                    events.push(AssemblyDrawerEvent::ConvertClashToBody(clash.id));
+                                                }
+                                            });
+                                        });
+                                    });
+                                    ui.add_space(2.0);
+                                }
+                            } else {
+                                // Status banner: Clean (No clashes)
+                                card_frame().show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(ICON_CHECK_CIRCLE.codepoint)
+                                                .size(14.0)
+                                                .color(Color32::from_rgb(46, 204, 113)),
+                                        );
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(t!("assembly-clash-clean"))
+                                                    .size(11.0)
+                                                    .strong()
+                                                    .color(Color32::from_rgb(46, 204, 113)),
+                                            );
+                                            ui.label(
+                                                RichText::new(t!("assembly-clash-clean-desc"))
+                                                    .size(9.5)
+                                                    .color(TEXT_MUTED),
+                                            );
+                                        });
+                                    });
+                                });
+                            }
+                        } else {
+                            // Belum dijalankan
+                            card_frame().show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        RichText::new(t!("assembly-clash-desc"))
+                                            .size(9.5)
+                                            .color(TEXT_MUTED),
+                                    );
+                                    ui.add_space(2.0);
+                                    if ui
+                                        .button(
+                                            RichText::new(format!(
+                                                "{} {}",
+                                                ICON_PLAY_ARROW.codepoint,
+                                                t!("assembly-clash-run")
+                                            ))
+                                            .size(11.0)
+                                            .color(ACCENT_BLUE),
+                                        )
+                                        .clicked()
+                                    {
+                                        events.push(AssemblyDrawerEvent::RunClashDetection {
+                                            tolerance: self.clash_tolerance_mm3,
+                                        });
+                                    }
+                                    ui.add_space(2.0);
+                                });
+                            });
                         }
                     }
                 });
