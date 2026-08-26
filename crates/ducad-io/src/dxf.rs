@@ -178,13 +178,17 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
         }
     }
 
-    // D. Dimensi Otomatis
-    if sheet.show_dimensions {
-        for dim in &sheet.auto_dimensions {
-            let x1 = dim.start[0] as f64;
-            let y1 = dim.start[1] as f64;
-            let x2 = dim.end[0] as f64;
-            let y2 = dim.end[1] as f64;
+    // D. Dimensi (Otomatis & Manual)
+    let dims_to_export: Vec<&crate::drawing::DimensionAnnotation> = if sheet.show_dimensions {
+        sheet.auto_dimensions.iter().chain(sheet.manual_dimensions.iter()).collect()
+    } else {
+        sheet.manual_dimensions.iter().collect()
+    };
+    for dim in dims_to_export {
+        let x1 = dim.start[0] as f64;
+        let y1 = dim.start[1] as f64;
+        let x2 = dim.end[0] as f64;
+        let y2 = dim.end[1] as f64;
 
             let is_leader = dim.text.starts_with('R')
                 || dim.text.starts_with('Ø')
@@ -218,7 +222,6 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
                 push_text_layer(&mut out, "DIMENSIONS", ((x1 + x2) * 0.5 - 5.0) as f32, (dim_y + 1.5) as f32, 2.5, &dim.text);
             }
         }
-    }
 
     // E. Anotasi Teks Bebas
     for note in &sheet.custom_texts {

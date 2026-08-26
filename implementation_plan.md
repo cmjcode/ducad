@@ -75,7 +75,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
   - Indikator garis potong panah `A ─── A` pada tampak acuan.
 - [x] **11.2 Detail View (Lingkaran Pembesar Skala Detail)**:
   - Pembuatan viewport lingkaran dengan faktor skala pembesar independen (2:1, 5:1, 10:1) untuk area part dengan detail mikro.
-- [ ] **11.3 Manual Dimensioning Canvas**:
+- [x] **11.3 Manual Dimensioning Canvas**:
   - Penambahan interaksi klik 2 titik sembarang di kanvas `DrawingSheetView` untuk menambahkan garis dimensi linier, sudut, atau diameter secara kustom di luar dimensi otomatis.
 - [ ] **11.4 Ekspor Format GLTF / GLB (3D Web & Augmented Reality)**:
   - Modul eksportir binary `.glb` pada `ducad-io` lengkap dengan material PBR (albedo, roughness, metallic) untuk penayangan di browser web e-commerce atau AR Quick Look di iPhone/iPad/Android.

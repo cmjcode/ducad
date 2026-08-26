@@ -156,6 +156,8 @@ pub struct DrawingSheet {
     pub show_hatch: bool,
     pub auto_dimensions: Vec<DimensionAnnotation>,
     #[serde(default)]
+    pub manual_dimensions: Vec<DimensionAnnotation>,
+    #[serde(default)]
     pub custom_texts: Vec<TextAnnotation>,
 }
 
@@ -175,6 +177,7 @@ impl DrawingSheet {
             show_detail_views: true,
             show_hatch: true,
             auto_dimensions: Vec::new(),
+            manual_dimensions: Vec::new(),
             custom_texts: Vec::new(),
         };
 
@@ -913,5 +916,43 @@ mod tests {
         assert!(has_radius, "Dimensi radius busur R harus muncul");
         assert!(has_ellipse, "Dimensi radius ellips Rx/Ry harus muncul");
         assert!(has_angle, "Dimensi sudut ° harus muncul");
+    }
+
+    #[test]
+    fn test_manual_dimensions_persistence() {
+        let drawing = make_test_drawing(100.0, 50.0, 40.0);
+        let mut sheet = DrawingSheet::new(drawing, PaperSize::A4Landscape);
+
+        // Tambahkan dimensi kustom manual
+        sheet.manual_dimensions.push(DimensionAnnotation {
+            start: [20.0, 30.0],
+            end: [80.0, 30.0],
+            line_pos: [50.0, 35.0],
+            is_vertical: false,
+            text: "60.00 mm (Custom)".to_string(),
+        });
+        sheet.manual_dimensions.push(DimensionAnnotation {
+            start: [50.0, 50.0],
+            end: [60.0, 60.0],
+            line_pos: [65.0, 62.0],
+            is_vertical: false,
+            text: "Ø 20.00 mm".to_string(),
+        });
+        sheet.manual_dimensions.push(DimensionAnnotation {
+            start: [50.0, 50.0],
+            end: [70.0, 50.0],
+            line_pos: [65.0, 65.0],
+            is_vertical: false,
+            text: "45.0°".to_string(),
+        });
+
+        assert_eq!(sheet.manual_dimensions.len(), 3);
+
+        // Pastikan regenerate auto dimensions tidak menghapus manual dimensions
+        sheet.generate_auto_dimensions();
+        assert_eq!(sheet.manual_dimensions.len(), 3);
+        assert_eq!(sheet.manual_dimensions[0].text, "60.00 mm (Custom)");
+        assert_eq!(sheet.manual_dimensions[1].text, "Ø 20.00 mm");
+        assert_eq!(sheet.manual_dimensions[2].text, "45.0°");
     }
 }

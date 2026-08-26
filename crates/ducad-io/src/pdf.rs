@@ -590,7 +590,13 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
 fn render_dimensions(s: &mut String, sheet: &DrawingSheet) {
     s.push_str("q 0.1 0.25 0.7 RG 0.1 0.25 0.7 rg 0.5 w [] 0 d\n");
 
-    for dim in &sheet.auto_dimensions {
+    let dims: Vec<&crate::drawing::DimensionAnnotation> = if sheet.show_dimensions {
+        sheet.auto_dimensions.iter().chain(sheet.manual_dimensions.iter()).collect()
+    } else {
+        sheet.manual_dimensions.iter().collect()
+    };
+
+    for dim in dims {
         let x1 = mm_to_pt(dim.start[0]);
         let y1 = mm_to_pt(dim.start[1]);
         let x2 = mm_to_pt(dim.end[0]);

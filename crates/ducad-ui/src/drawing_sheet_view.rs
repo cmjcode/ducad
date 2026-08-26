@@ -168,6 +168,50 @@ fn title_block_field_rect_mm(tb: [f32; 4], field: TitleBlockFieldId) -> [f32; 4]
     }
 }
 
+/// Mode dimensi kustom manual pada lembar kerja gambar teknik.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ManualDimensionMode {
+    #[default]
+    Linear,
+    Diameter,
+    Radius,
+    Angle,
+}
+
+impl ManualDimensionMode {
+    pub const ALL: [ManualDimensionMode; 4] = [
+        ManualDimensionMode::Linear,
+        ManualDimensionMode::Diameter,
+        ManualDimensionMode::Radius,
+        ManualDimensionMode::Angle,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ManualDimensionMode::Linear => "Linear",
+            ManualDimensionMode::Diameter => "Diameter (Ø)",
+            ManualDimensionMode::Radius => "Radius (R)",
+            ManualDimensionMode::Angle => "Angle (∠)",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            ManualDimensionMode::Linear => "📏",
+            ManualDimensionMode::Diameter => "⌀",
+            ManualDimensionMode::Radius => "R",
+            ManualDimensionMode::Angle => "∠",
+        }
+    }
+}
+
+/// Target anotasi dimensi (otomatis atau manual kustom).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DimensionTarget {
+    Auto(usize),
+    Manual(usize),
+}
+
 /// State persisten untuk tampilan Lembar Kerja Gambar Teknik.
 pub struct DrawingSheetViewState {
     pub is_open: bool,
@@ -182,11 +226,13 @@ pub struct DrawingSheetViewState {
     pub hovered_tb_field: Option<TitleBlockFieldId>,
     pub dragging_view: Option<ProjectedViewKind>,
     pub hovered_view: Option<ProjectedViewKind>,
-    pub dragging_dim_idx: Option<usize>,
-    pub hovered_dim_idx: Option<usize>,
-    pub selected_dim_idx: Option<usize>,
-    pub hovered_dim_delete: Option<usize>,
+    pub dragging_dim: Option<DimensionTarget>,
+    pub hovered_dim: Option<DimensionTarget>,
+    pub selected_dim: Option<DimensionTarget>,
+    pub hovered_dim_delete: Option<DimensionTarget>,
     pub measure_tool_active: bool,
+    pub dimension_mode: ManualDimensionMode,
+    pub measure_points: Vec<[f32; 2]>,
     pub measure_first_pt: Option<[f32; 2]>,
     pub detail_tool_active: bool,
     pub dragging_detail_label: Option<char>,
@@ -212,11 +258,13 @@ impl Default for DrawingSheetViewState {
             hovered_tb_field: None,
             dragging_view: None,
             hovered_view: None,
-            dragging_dim_idx: None,
-            hovered_dim_idx: None,
-            selected_dim_idx: None,
+            dragging_dim: None,
+            hovered_dim: None,
+            selected_dim: None,
             hovered_dim_delete: None,
             measure_tool_active: false,
+            dimension_mode: ManualDimensionMode::Linear,
+            measure_points: Vec::new(),
             measure_first_pt: None,
             detail_tool_active: false,
             dragging_detail_label: None,
@@ -301,7 +349,7 @@ impl DrawingSheetView {
             )
         };
 
-        // Kumpulkan titik snap (ujung garis, titik pusat lingkaran/busur) dari seluruh tampak
+        // Kumpulkan titik snap (ujung garis, titik tengah, titik pusat & kuadran lingkaran/busur) dari seluruh tampak
         let mut snap_points_mm: Vec<[f32; 2]> = Vec::new();
         for plc in &sheet.view_placements {
             if !plc.visible {
@@ -315,25 +363,44 @@ impl DrawingSheetView {
 
             for seg in &view.segments {
                 if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
-                    snap_points_mm.push([
+                    let p_start = [
                         cx + (seg.start[0] - v_center[0]) * s,
                         cy + (seg.start[1] - v_center[1]) * s,
-                    ]);
-                    snap_points_mm.push([
+                    ];
+                    let p_end = [
                         cx + (seg.end[0] - v_center[0]) * s,
                         cy + (seg.end[1] - v_center[1]) * s,
-                    ]);
+                    ];
+                    let p_mid = [
+                        (p_start[0] + p_end[0]) * 0.5,
+                        (p_start[1] + p_end[1]) * 0.5,
+                    ];
+                    snap_points_mm.push(p_start);
+                    snap_points_mm.push(p_end);
+                    snap_points_mm.push(p_mid);
                 }
             }
             for feat in &view.features {
                 match feat {
-                    ducad_kernel::HlrGeometricFeature::Circle { center, .. }
-                    | ducad_kernel::HlrGeometricFeature::Arc { center, .. }
-                    | ducad_kernel::HlrGeometricFeature::Ellipse { center, .. } => {
-                        snap_points_mm.push([
-                            cx + (center[0] - v_center[0]) * s,
-                            cy + (center[1] - v_center[1]) * s,
-                        ]);
+                    ducad_kernel::HlrGeometricFeature::Circle { center, radius, .. }
+                    | ducad_kernel::HlrGeometricFeature::Arc { center, radius, .. } => {
+                        let c_x = cx + (center[0] - v_center[0]) * s;
+                        let c_y = cy + (center[1] - v_center[1]) * s;
+                        let r_s = *radius * s;
+                        snap_points_mm.push([c_x, c_y]);
+                        snap_points_mm.push([c_x + r_s, c_y]);
+                        snap_points_mm.push([c_x - r_s, c_y]);
+                        snap_points_mm.push([c_x, c_y + r_s]);
+                        snap_points_mm.push([c_x, c_y - r_s]);
+                    }
+                    ducad_kernel::HlrGeometricFeature::Ellipse { center, radius_x, radius_y, .. } => {
+                        let c_x = cx + (center[0] - v_center[0]) * s;
+                        let c_y = cy + (center[1] - v_center[1]) * s;
+                        snap_points_mm.push([c_x, c_y]);
+                        snap_points_mm.push([c_x + *radius_x * s, c_y]);
+                        snap_points_mm.push([c_x - *radius_x * s, c_y]);
+                        snap_points_mm.push([c_x, c_y + *radius_y * s]);
+                        snap_points_mm.push([c_x, c_y - *radius_y * s]);
                     }
                     _ => {}
                 }
@@ -344,7 +411,7 @@ impl DrawingSheetView {
         let is_over_ui = cursor_pos.map_or(false, |p| topbar_rect.contains(p) || zoom_controls_rect.contains(p));
 
         let mut hovered_view_kind = None;
-        let mut hovered_dim_idx = None;
+        let mut hovered_dim = None;
         let mut hovered_dim_delete = None;
         let mut hovered_tb_field = None;
         let mut hovered_text_idx = None;
@@ -435,9 +502,19 @@ impl DrawingSheetView {
                     }
                 }
 
-                // D. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && sheet.show_dimensions {
-                    for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
+                // D. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu: Otomatis & Manual)
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() {
+                    let mut dim_list: Vec<(DimensionTarget, &ducad_io::drawing::DimensionAnnotation)> = Vec::new();
+                    if sheet.show_dimensions {
+                        for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
+                            dim_list.push((DimensionTarget::Auto(idx), dim));
+                        }
+                    }
+                    for (idx, dim) in sheet.manual_dimensions.iter().enumerate() {
+                        dim_list.push((DimensionTarget::Manual(idx), dim));
+                    }
+
+                    for (target, dim) in dim_list {
                         let p1 = mm_to_screen(dim.start[0], dim.start[1]);
                         let p2 = mm_to_screen(dim.end[0], dim.end[1]);
                         let is_leader = dim.text.starts_with('R')
@@ -476,18 +553,18 @@ impl DrawingSheetView {
                         let del_btn_rect = Rect::from_center_size(text_center + vec2(35.0, 0.0), vec2(18.0, 18.0));
 
                         if del_btn_rect.contains(c_pos) {
-                            hovered_dim_delete = Some(idx);
-                            hovered_dim_idx = Some(idx);
+                            hovered_dim_delete = Some(target);
+                            hovered_dim = Some(target);
                             break;
                         } else if text_hit_rect.contains(c_pos) || line_hit_rect.contains(c_pos) {
-                            hovered_dim_idx = Some(idx);
+                            hovered_dim = Some(target);
                             break;
                         }
                     }
                 }
 
                 // E. View hit test (jika tidak sedang hover teks, detail, atau dimensi)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && hovered_dim_idx.is_none() {
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && hovered_dim.is_none() {
                     for plc in &sheet.view_placements {
                         if !plc.visible {
                             continue;
@@ -512,7 +589,7 @@ impl DrawingSheetView {
             }
         }
         state.hovered_view = hovered_view_kind;
-        state.hovered_dim_idx = hovered_dim_idx;
+        state.hovered_dim = hovered_dim;
         state.hovered_dim_delete = hovered_dim_delete;
         state.hovered_tb_field = hovered_tb_field;
         state.hovered_text_idx = hovered_text_idx;
@@ -522,13 +599,15 @@ impl DrawingSheetView {
 
         // Interaction Handler
         if !is_over_ui {
-            // Pintasan keyboard T untuk Tool Teks dan B untuk Detail View
+            // Pintasan keyboard T (Teks), B (Detail View), M (Dimensi Manual), Escape
             if state.active_text_edit.is_none() {
                 if ui.input(|i| i.key_pressed(egui::Key::T)) {
                     state.text_tool_active = !state.text_tool_active;
                     if state.text_tool_active {
                         state.measure_tool_active = false;
                         state.detail_tool_active = false;
+                        state.measure_points.clear();
+                        state.measure_first_pt = None;
                     }
                 }
                 if ui.input(|i| i.key_pressed(egui::Key::B)) {
@@ -536,6 +615,33 @@ impl DrawingSheetView {
                     if state.detail_tool_active {
                         state.text_tool_active = false;
                         state.measure_tool_active = false;
+                        state.measure_points.clear();
+                        state.measure_first_pt = None;
+                    }
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::M)) {
+                    state.measure_tool_active = !state.measure_tool_active;
+                    if state.measure_tool_active {
+                        state.text_tool_active = false;
+                        state.detail_tool_active = false;
+                    }
+                    state.measure_points.clear();
+                    state.measure_first_pt = None;
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    if !state.measure_points.is_empty() {
+                        state.measure_points.clear();
+                        state.measure_first_pt = None;
+                    } else if state.measure_tool_active {
+                        state.measure_tool_active = false;
+                    } else if state.detail_tool_active {
+                        state.detail_tool_active = false;
+                    } else if state.text_tool_active {
+                        state.text_tool_active = false;
+                    } else {
+                        state.selected_dim = None;
+                        state.selected_text_idx = None;
+                        state.selected_detail_label = None;
                     }
                 }
             }
@@ -554,14 +660,23 @@ impl DrawingSheetView {
                         state.hovered_text_idx = None;
                         state.hovered_text_delete = None;
                     }
-                } else if let Some(sel_idx) = state.selected_dim_idx {
-                    if sel_idx < sheet.auto_dimensions.len() {
-                        sheet.auto_dimensions.remove(sel_idx);
-                        state.selected_dim_idx = None;
-                        state.hovered_dim_idx = None;
-                        state.hovered_dim_delete = None;
-                        state.dragging_dim_idx = None;
+                } else if let Some(target) = state.selected_dim {
+                    match target {
+                        DimensionTarget::Auto(idx) => {
+                            if idx < sheet.auto_dimensions.len() {
+                                sheet.auto_dimensions.remove(idx);
+                            }
+                        }
+                        DimensionTarget::Manual(idx) => {
+                            if idx < sheet.manual_dimensions.len() {
+                                sheet.manual_dimensions.remove(idx);
+                            }
+                        }
                     }
+                    state.selected_dim = None;
+                    state.hovered_dim = None;
+                    state.hovered_dim_delete = None;
+                    state.dragging_dim = None;
                 }
             }
 
@@ -614,24 +729,115 @@ impl DrawingSheetView {
                 if response.clicked() {
                     let click_pt_mm = active_snap_pt_mm.or_else(|| cursor_pos.map(screen_to_mm));
                     if let Some(pt) = click_pt_mm {
-                        if let Some(first_pt) = state.measure_first_pt {
-                            let p1 = first_pt;
-                            let p2 = pt;
-                            let raw_dist_mm = (p2[0] - p1[0]).hypot(p2[1] - p1[1]) / sheet.scale;
-                            if raw_dist_mm > 0.05 {
-                                let is_vert = (p2[0] - p1[0]).abs() < (p2[1] - p1[1]).abs();
-                                let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-                                sheet.auto_dimensions.push(ducad_io::drawing::DimensionAnnotation {
-                                    start: p1,
-                                    end: p2,
-                                    line_pos: mid,
-                                    is_vertical: is_vert,
-                                    text: format!("{:.2} mm", raw_dist_mm),
-                                });
+                        match state.dimension_mode {
+                            ManualDimensionMode::Linear => {
+                                if let Some(first_pt) = state.measure_points.first().copied() {
+                                    let p1 = first_pt;
+                                    let p2 = pt;
+                                    let raw_dist_mm = (p2[0] - p1[0]).hypot(p2[1] - p1[1]) / sheet.scale;
+                                    if raw_dist_mm > 0.05 {
+                                        let is_vert = (p2[0] - p1[0]).abs() < (p2[1] - p1[1]).abs();
+                                        let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                                        sheet.manual_dimensions.push(ducad_io::drawing::DimensionAnnotation {
+                                            start: p1,
+                                            end: p2,
+                                            line_pos: mid,
+                                            is_vertical: is_vert,
+                                            text: format!("{:.2} mm", raw_dist_mm),
+                                        });
+                                    }
+                                    state.measure_points.clear();
+                                    state.measure_first_pt = None;
+                                } else {
+                                    state.measure_points = vec![pt];
+                                    state.measure_first_pt = Some(pt);
+                                }
                             }
-                            state.measure_first_pt = None;
-                        } else {
-                            state.measure_first_pt = Some(pt);
+                            ManualDimensionMode::Diameter => {
+                                if let Some(center_pt) = state.measure_points.first().copied() {
+                                    let p1 = center_pt;
+                                    let p2 = pt;
+                                    let radius_mm = (p2[0] - p1[0]).hypot(p2[1] - p1[1]) / sheet.scale;
+                                    let diam_mm = radius_mm * 2.0;
+                                    if diam_mm > 0.05 {
+                                        let dir_x = (p2[0] - p1[0]).signum();
+                                        let dir_y = (p2[1] - p1[1]).signum();
+                                        let offset_x = if dir_x == 0.0 { 10.0 } else { dir_x * 12.0 };
+                                        let offset_y = if dir_y == 0.0 { 6.0 } else { dir_y * 8.0 };
+                                        let line_pos = [p2[0] + offset_x, p2[1] + offset_y];
+                                        sheet.manual_dimensions.push(ducad_io::drawing::DimensionAnnotation {
+                                            start: p1,
+                                            end: p2,
+                                            line_pos,
+                                            is_vertical: false,
+                                            text: format!("Ø {:.2} mm", diam_mm),
+                                        });
+                                    }
+                                    state.measure_points.clear();
+                                    state.measure_first_pt = None;
+                                } else {
+                                    state.measure_points = vec![pt];
+                                    state.measure_first_pt = Some(pt);
+                                }
+                            }
+                            ManualDimensionMode::Radius => {
+                                if let Some(center_pt) = state.measure_points.first().copied() {
+                                    let p1 = center_pt;
+                                    let p2 = pt;
+                                    let radius_mm = (p2[0] - p1[0]).hypot(p2[1] - p1[1]) / sheet.scale;
+                                    if radius_mm > 0.05 {
+                                        let dir_x = (p2[0] - p1[0]).signum();
+                                        let dir_y = (p2[1] - p1[1]).signum();
+                                        let offset_x = if dir_x == 0.0 { 10.0 } else { dir_x * 12.0 };
+                                        let offset_y = if dir_y == 0.0 { 6.0 } else { dir_y * 8.0 };
+                                        let line_pos = [p2[0] + offset_x, p2[1] + offset_y];
+                                        sheet.manual_dimensions.push(ducad_io::drawing::DimensionAnnotation {
+                                            start: p1,
+                                            end: p2,
+                                            line_pos,
+                                            is_vertical: false,
+                                            text: format!("R {:.2} mm", radius_mm),
+                                        });
+                                    }
+                                    state.measure_points.clear();
+                                    state.measure_first_pt = None;
+                                } else {
+                                    state.measure_points = vec![pt];
+                                    state.measure_first_pt = Some(pt);
+                                }
+                            }
+                            ManualDimensionMode::Angle => {
+                                if state.measure_points.is_empty() {
+                                    state.measure_points.push(pt); // Vertex
+                                    state.measure_first_pt = Some(pt);
+                                } else if state.measure_points.len() == 1 {
+                                    state.measure_points.push(pt); // Leg 1
+                                } else if state.measure_points.len() >= 2 {
+                                    let p_v = state.measure_points[0];
+                                    let p_a1 = state.measure_points[1];
+                                    let p_a2 = pt; // Leg 2
+
+                                    let v1 = [p_a1[0] - p_v[0], p_a1[1] - p_v[1]];
+                                    let v2 = [p_a2[0] - p_v[0], p_a2[1] - p_v[1]];
+                                    let len1 = (v1[0] * v1[0] + v1[1] * v1[1]).sqrt();
+                                    let len2 = (v2[0] * v2[0] + v2[1] * v2[1]).sqrt();
+
+                                    if len1 > 1e-3 && len2 > 1e-3 {
+                                        let dot = v1[0] * v2[0] + v1[1] * v2[1];
+                                        let cos_val = (dot / (len1 * len2)).clamp(-1.0, 1.0);
+                                        let deg = cos_val.acos().to_degrees();
+                                        sheet.manual_dimensions.push(ducad_io::drawing::DimensionAnnotation {
+                                            start: p_v,
+                                            end: p_a1,
+                                            line_pos: p_a2,
+                                            is_vertical: false,
+                                            text: format!("{:.1}°", deg),
+                                        });
+                                    }
+                                    state.measure_points.clear();
+                                    state.measure_first_pt = None;
+                                }
+                            }
                         }
                     }
                 }
@@ -651,31 +857,40 @@ impl DrawingSheetView {
                             state.hovered_text_delete = None;
                             state.active_text_edit = None;
                         }
-                    } else if let Some(del_idx) = state.hovered_dim_delete {
-                        if del_idx < sheet.auto_dimensions.len() {
-                            sheet.auto_dimensions.remove(del_idx);
-                            state.selected_dim_idx = None;
-                            state.hovered_dim_idx = None;
-                            state.hovered_dim_delete = None;
-                            state.dragging_dim_idx = None;
+                    } else if let Some(target) = state.hovered_dim_delete {
+                        match target {
+                            DimensionTarget::Auto(idx) => {
+                                if idx < sheet.auto_dimensions.len() {
+                                    sheet.auto_dimensions.remove(idx);
+                                }
+                            }
+                            DimensionTarget::Manual(idx) => {
+                                if idx < sheet.manual_dimensions.len() {
+                                    sheet.manual_dimensions.remove(idx);
+                                }
+                            }
                         }
+                        state.selected_dim = None;
+                        state.hovered_dim = None;
+                        state.hovered_dim_delete = None;
+                        state.dragging_dim = None;
                     } else if let Some(lbl) = state.hovered_detail_label {
                         state.selected_detail_label = Some(lbl);
                         state.selected_text_idx = None;
-                        state.selected_dim_idx = None;
+                        state.selected_dim = None;
                         state.active_text_edit = None;
                     } else if let Some(field) = state.hovered_tb_field {
                         state.active_text_edit = Some(ActiveTextTarget::TitleBlock(field));
                         state.selected_text_idx = None;
-                        state.selected_dim_idx = None;
+                        state.selected_dim = None;
                         state.selected_detail_label = None;
                     } else if let Some(t_idx) = state.hovered_text_idx {
                         state.active_text_edit = Some(ActiveTextTarget::CustomText(t_idx));
                         state.selected_text_idx = Some(t_idx);
-                        state.selected_dim_idx = None;
+                        state.selected_dim = None;
                         state.selected_detail_label = None;
-                    } else if let Some(d_idx) = state.hovered_dim_idx {
-                        state.selected_dim_idx = Some(d_idx);
+                    } else if let Some(dim_target) = state.hovered_dim {
+                        state.selected_dim = Some(dim_target);
                         state.selected_text_idx = None;
                         state.selected_detail_label = None;
                         state.active_text_edit = None;
@@ -691,11 +906,11 @@ impl DrawingSheetView {
                             let new_idx = sheet.custom_texts.len() - 1;
                             state.active_text_edit = Some(ActiveTextTarget::CustomText(new_idx));
                             state.selected_text_idx = Some(new_idx);
-                            state.selected_dim_idx = None;
+                            state.selected_dim = None;
                             state.selected_detail_label = None;
                         }
                     } else {
-                        state.selected_dim_idx = None;
+                        state.selected_dim = None;
                         state.selected_text_idx = None;
                         state.selected_detail_label = None;
                         state.active_text_edit = None;
@@ -711,9 +926,9 @@ impl DrawingSheetView {
                         } else if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
                             state.dragging_text_idx = state.hovered_text_idx;
                             state.selected_text_idx = state.hovered_text_idx;
-                        } else if state.hovered_dim_idx.is_some() {
-                            state.dragging_dim_idx = state.hovered_dim_idx;
-                            state.selected_dim_idx = state.hovered_dim_idx;
+                        } else if state.hovered_dim.is_some() {
+                            state.dragging_dim = state.hovered_dim;
+                            state.selected_dim = state.hovered_dim;
                         } else if state.hovered_tb_field.is_none() {
                             state.dragging_view = state.hovered_view;
                         }
@@ -746,8 +961,12 @@ impl DrawingSheetView {
                             note.position[1] += delta_y;
                         }
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                    } else if let Some(d_idx) = state.dragging_dim_idx {
-                        if let Some(dim) = sheet.auto_dimensions.get_mut(d_idx) {
+                    } else if let Some(target) = state.dragging_dim {
+                        let dim_opt = match target {
+                            DimensionTarget::Auto(idx) => sheet.auto_dimensions.get_mut(idx),
+                            DimensionTarget::Manual(idx) => sheet.manual_dimensions.get_mut(idx),
+                        };
+                        if let Some(dim) = dim_opt {
                             let delta_x = response.drag_delta().x / zoom;
                             let delta_y = -response.drag_delta().y / zoom;
                             let is_radial_leader = dim.text.starts_with('R')
@@ -779,7 +998,7 @@ impl DrawingSheetView {
                 if response.drag_stopped() {
                     state.dragging_detail_label = None;
                     state.dragging_text_idx = None;
-                    state.dragging_dim_idx = None;
+                    state.dragging_dim = None;
                     state.dragging_view = None;
                 }
 
@@ -791,8 +1010,8 @@ impl DrawingSheetView {
                         && state.hovered_detail_label.is_none()
                         && state.dragging_view.is_none()
                         && state.hovered_view.is_none()
-                        && state.dragging_dim_idx.is_none()
-                        && state.hovered_dim_idx.is_none()
+                        && state.dragging_dim.is_none()
+                        && state.hovered_dim.is_none()
                         && state.dragging_text_idx.is_none()
                         && state.hovered_text_idx.is_none()
                         && state.hovered_tb_field.is_none())
@@ -805,7 +1024,7 @@ impl DrawingSheetView {
                 } else if state.text_tool_active || state.hovered_tb_field.is_some() || state.hovered_text_idx.is_some() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
                 } else if (state.hovered_detail_label.is_some() && state.dragging_detail_label.is_none())
-                    || (state.hovered_dim_idx.is_some() && state.dragging_dim_idx.is_none())
+                    || (state.hovered_dim.is_some() && state.dragging_dim.is_none())
                     || (state.hovered_view.is_some() && state.dragging_view.is_none())
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -1055,9 +1274,9 @@ impl DrawingSheetView {
                     ui,
                     ICON_STRAIGHTEN.codepoint,
                     state.measure_tool_active,
-                    "Tambah Ukuran Baru (Ukur)",
+                    "Manual Dimension Tool (Ukur)",
                     Some("M"),
-                    Some("Klik 2 titik pada gambar untuk menambah dimensi ukuran baru secara manual"),
+                    Some("Klik titik pada gambar untuk menambah dimensi linier, diameter, radius, atau sudut secara kustom"),
                     Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
                     Some(Color32::from_rgb(255, 140, 0)),
                 );
@@ -1065,8 +1284,69 @@ impl DrawingSheetView {
                     state.measure_tool_active = !state.measure_tool_active;
                     if state.measure_tool_active {
                         state.text_tool_active = false;
+                        state.detail_tool_active = false;
                     }
+                    state.measure_points.clear();
                     state.measure_first_pt = None;
+                }
+
+                if state.measure_tool_active {
+                    ui.add_space(2.0);
+                    ui.label(RichText::new("Dim:").size(10.5).color(Color32::from_rgb(255, 140, 0)));
+                    for mode in ManualDimensionMode::ALL {
+                        let is_sel = state.dimension_mode == mode;
+                        let btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!("{} {}", mode.icon(), mode.label()))
+                                    .size(10.0)
+                                    .strong()
+                                    .color(if is_sel { Color32::WHITE } else { TEXT_SECONDARY }),
+                            )
+                            .fill(if is_sel {
+                                Color32::from_rgb(200, 100, 0)
+                            } else {
+                                Color32::from_rgba_premultiplied(35, 40, 50, 180)
+                            })
+                            .corner_radius(CornerRadius::same(3))
+                            .min_size(Vec2::new(26.0, 18.0)),
+                        );
+                        if btn.clicked() {
+                            state.dimension_mode = mode;
+                            state.measure_points.clear();
+                            state.measure_first_pt = None;
+                        }
+                    }
+
+                    // Prompt hint
+                    let prompt_text = match state.dimension_mode {
+                        ManualDimensionMode::Linear => {
+                            if state.measure_points.is_empty() {
+                                "Pilih Titik 1"
+                            } else {
+                                "Pilih Titik 2 (Selesai)"
+                            }
+                        }
+                        ManualDimensionMode::Diameter => {
+                            if state.measure_points.is_empty() {
+                                "Pilih Titik Pusat"
+                            } else {
+                                "Pilih Tepi Lingkaran (Ø)"
+                            }
+                        }
+                        ManualDimensionMode::Radius => {
+                            if state.measure_points.is_empty() {
+                                "Pilih Titik Pusat"
+                            } else {
+                                "Pilih Tepi Busur (R)"
+                            }
+                        }
+                        ManualDimensionMode::Angle => match state.measure_points.len() {
+                            0 => "Pilih Titik Sudut/Puncak",
+                            1 => "Pilih Kaki Garis 1",
+                            _ => "Pilih Kaki Garis 2 (∠)",
+                        },
+                    };
+                    ui.label(RichText::new(format!("({})", prompt_text)).size(10.0).color(Color32::from_rgb(255, 200, 100)));
                 }
 
                 let cl_btn = header_icon_btn(
@@ -1375,6 +1655,13 @@ fn render_sheet_canvas(
             sheet_min.x + x_mm * zoom,
             sheet_max.y - y_mm * zoom, // Balik sumbu Y (Y mm naik ke atas)
         )
+    };
+
+    let screen_to_mm = |p: Pos2| -> [f32; 2] {
+        [
+            (p.x - sheet_min.x) / zoom,
+            (sheet_max.y - p.y) / zoom,
+        ]
     };
 
     // A. Drop shadow kertas
@@ -1696,12 +1983,22 @@ fn render_sheet_canvas(
         );
     }
 
-    // G. Anotasi Dimensi Presisi dengan Panah Terisi (Filled Arrowheads) & Extension Lines
+    // G. Anotasi Dimensi Presisi (Otomatis & Manual) dengan Panah Terisi & Extension Lines
+    let mut dims_to_render: Vec<(DimensionTarget, &ducad_io::drawing::DimensionAnnotation, bool)> = Vec::new();
     if sheet.show_dimensions {
+        for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
+            dims_to_render.push((DimensionTarget::Auto(idx), dim, false));
+        }
+    }
+    for (idx, dim) in sheet.manual_dimensions.iter().enumerate() {
+        dims_to_render.push((DimensionTarget::Manual(idx), dim, true));
+    }
+
+    if !dims_to_render.is_empty() {
         let font_dim = FontId::monospace((4.2 * zoom).clamp(5.5, 11.5));
         let arrow_sz = (2.2 * zoom).clamp(3.5, 7.5);
 
-        for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
+        for (target, dim, is_manual) in dims_to_render {
             let p1 = mm_to_screen(dim.start[0], dim.start[1]);
             let p2 = mm_to_screen(dim.end[0], dim.end[1]);
 
@@ -1710,15 +2007,17 @@ fn render_sheet_canvas(
                 || dim.text.starts_with("Rx");
             let is_angle = dim.text.ends_with('°');
 
-            let is_dim_hovered = state.hovered_dim_idx == Some(idx);
-            let is_dim_selected = state.selected_dim_idx == Some(idx);
-            let is_dim_dragging = state.dragging_dim_idx == Some(idx);
-            let is_del_hovered = state.hovered_dim_delete == Some(idx);
+            let is_dim_hovered = state.hovered_dim == Some(target);
+            let is_dim_selected = state.selected_dim == Some(target);
+            let is_dim_dragging = state.dragging_dim == Some(target);
+            let is_del_hovered = state.hovered_dim_delete == Some(target);
 
             let active_dim_color = if is_dim_selected || is_dim_dragging {
                 Color32::from_rgb(255, 135, 15)
             } else if is_dim_hovered {
                 Color32::from_rgb(0, 110, 230)
+            } else if is_manual {
+                Color32::from_rgb(18, 90, 190)
             } else {
                 Color32::from_rgb(12, 70, 175)
             };
@@ -1915,32 +2214,119 @@ fn render_sheet_canvas(
     }
 
     if state.measure_tool_active {
-        if let Some(p1_mm) = state.measure_first_pt {
-            let p1 = mm_to_screen(p1_mm[0], p1_mm[1]);
-            let p2 = if let Some(snap_mm) = active_snap_pt_mm {
-                mm_to_screen(snap_mm[0], snap_mm[1])
-            } else if let Some(c_pos) = cursor_pos {
-                c_pos
-            } else {
-                p1
-            };
-            let p2_mm = [
-                (p2.x - sheet_min.x) / zoom,
-                (sheet_max.y - p2.y) / zoom,
-            ];
-            let live_dist_mm = (p2_mm[0] - p1_mm[0]).hypot(p2_mm[1] - p1_mm[1]) / sheet.scale;
+        let p_cur = if let Some(snap_mm) = active_snap_pt_mm {
+            mm_to_screen(snap_mm[0], snap_mm[1])
+        } else if let Some(c_pos) = cursor_pos {
+            c_pos
+        } else {
+            sheet_min
+        };
+        let p_cur_mm = screen_to_mm(p_cur);
 
-            let measure_stroke = Stroke::new(1.5, Color32::from_rgb(255, 140, 0));
-            draw_dashed_line(&painter, p1, p2, measure_stroke, 4.0, 2.5);
-            painter.circle_filled(p1, 3.5, Color32::from_rgb(255, 140, 0));
-            painter.circle_filled(p2, 3.5, Color32::from_rgb(255, 140, 0));
+        let font_meas = FontId::monospace((4.5 * zoom).clamp(7.0, 13.0));
+        let measure_stroke = Stroke::new(1.5, Color32::from_rgb(255, 140, 0));
+        let guide_stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 160, 40, 160));
 
-            let font_meas = FontId::monospace((4.5 * zoom).clamp(7.0, 13.0));
-            let mid_p = Pos2::new((p1.x + p2.x) * 0.5, (p1.y + p2.y) * 0.5 - 12.0);
-            let galley = painter.layout_no_wrap(format!("{:.2} mm", live_dist_mm), font_meas, Color32::from_rgb(255, 180, 50));
-            let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
-            painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
-            painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
+        match state.dimension_mode {
+            ManualDimensionMode::Linear => {
+                if let Some(p1_mm) = state.measure_points.first().copied() {
+                    let p1 = mm_to_screen(p1_mm[0], p1_mm[1]);
+                    let p2 = p_cur;
+                    let live_dist_mm = (p_cur_mm[0] - p1_mm[0]).hypot(p_cur_mm[1] - p1_mm[1]) / sheet.scale;
+
+                    draw_dashed_line(&painter, p1, p2, measure_stroke, 4.0, 2.5);
+                    painter.circle_filled(p1, 3.5, Color32::from_rgb(255, 140, 0));
+                    painter.circle_filled(p2, 3.5, Color32::from_rgb(255, 140, 0));
+
+                    let mid_p = Pos2::new((p1.x + p2.x) * 0.5, (p1.y + p2.y) * 0.5 - 12.0);
+                    let galley = painter.layout_no_wrap(format!("{:.2} mm", live_dist_mm), font_meas, Color32::from_rgb(255, 180, 50));
+                    let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
+                    painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
+                    painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
+                }
+            }
+            ManualDimensionMode::Diameter => {
+                if let Some(p1_mm) = state.measure_points.first().copied() {
+                    let p1 = mm_to_screen(p1_mm[0], p1_mm[1]);
+                    let p2 = p_cur;
+                    let r_px = (p2 - p1).length();
+                    let live_diam_mm = (p_cur_mm[0] - p1_mm[0]).hypot(p_cur_mm[1] - p1_mm[1]) * 2.0 / sheet.scale;
+
+                    painter.circle_stroke(p1, r_px, guide_stroke);
+                    painter.circle_filled(p1, 3.5, Color32::from_rgb(255, 140, 0));
+                    painter.circle_filled(p2, 3.5, Color32::from_rgb(255, 140, 0));
+                    draw_dashed_line(&painter, p1, p2, measure_stroke, 4.0, 2.5);
+
+                    let mid_p = Pos2::new(p2.x + 14.0, p2.y - 12.0);
+                    let galley = painter.layout_no_wrap(format!("Ø {:.2} mm", live_diam_mm), font_meas, Color32::from_rgb(255, 180, 50));
+                    let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
+                    painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
+                    painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
+                }
+            }
+            ManualDimensionMode::Radius => {
+                if let Some(p1_mm) = state.measure_points.first().copied() {
+                    let p1 = mm_to_screen(p1_mm[0], p1_mm[1]);
+                    let p2 = p_cur;
+                    let live_rad_mm = (p_cur_mm[0] - p1_mm[0]).hypot(p_cur_mm[1] - p1_mm[1]) / sheet.scale;
+
+                    painter.circle_filled(p1, 3.5, Color32::from_rgb(255, 140, 0));
+                    painter.circle_filled(p2, 3.5, Color32::from_rgb(255, 140, 0));
+                    draw_dashed_line(&painter, p1, p2, measure_stroke, 4.0, 2.5);
+
+                    let dir_vec = if (p2 - p1).length_sq() > 1e-4 {
+                        (p2 - p1).normalized()
+                    } else {
+                        Vec2::new(1.0, 0.0)
+                    };
+                    let arrow_sz = (2.2 * zoom).clamp(3.5, 7.5);
+                    draw_arrowhead(&painter, p2, dir_vec, arrow_sz, Color32::from_rgb(255, 140, 0));
+
+                    let mid_p = Pos2::new(p2.x + 14.0, p2.y - 12.0);
+                    let galley = painter.layout_no_wrap(format!("R {:.2} mm", live_rad_mm), font_meas, Color32::from_rgb(255, 180, 50));
+                    let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
+                    painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
+                    painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
+                }
+            }
+            ManualDimensionMode::Angle => {
+                if state.measure_points.len() == 1 {
+                    let p_v_mm = state.measure_points[0];
+                    let p_v = mm_to_screen(p_v_mm[0], p_v_mm[1]);
+                    painter.circle_filled(p_v, 3.5, Color32::from_rgb(255, 140, 0));
+                    draw_dashed_line(&painter, p_v, p_cur, guide_stroke, 4.0, 2.5);
+                } else if state.measure_points.len() >= 2 {
+                    let p_v_mm = state.measure_points[0];
+                    let p_a1_mm = state.measure_points[1];
+                    let p_v = mm_to_screen(p_v_mm[0], p_v_mm[1]);
+                    let p_a1 = mm_to_screen(p_a1_mm[0], p_a1_mm[1]);
+                    let p_a2 = p_cur;
+
+                    painter.circle_filled(p_v, 4.0, Color32::from_rgb(255, 140, 0));
+                    painter.circle_filled(p_a1, 3.0, Color32::from_rgb(255, 140, 0));
+                    painter.circle_filled(p_a2, 3.0, Color32::from_rgb(255, 140, 0));
+                    painter.line_segment([p_v, p_a1], measure_stroke);
+                    painter.line_segment([p_v, p_a2], measure_stroke);
+
+                    let v1 = [p_a1_mm[0] - p_v_mm[0], p_a1_mm[1] - p_v_mm[1]];
+                    let v2 = [p_cur_mm[0] - p_v_mm[0], p_cur_mm[1] - p_v_mm[1]];
+                    let len1 = (v1[0] * v1[0] + v1[1] * v1[1]).sqrt();
+                    let len2 = (v2[0] * v2[0] + v2[1] * v2[1]).sqrt();
+                    let live_angle_deg = if len1 > 1e-3 && len2 > 1e-3 {
+                        let dot = v1[0] * v2[0] + v1[1] * v2[1];
+                        let cos_val = (dot / (len1 * len2)).clamp(-1.0, 1.0);
+                        cos_val.acos().to_degrees()
+                    } else {
+                        0.0
+                    };
+
+                    let mid_p = Pos2::new((p_v.x + p_a2.x) * 0.5 + 14.0, (p_v.y + p_a2.y) * 0.5 - 12.0);
+                    let galley = painter.layout_no_wrap(format!("{:.1}°", live_angle_deg), font_meas, Color32::from_rgb(255, 180, 50));
+                    let bg_rect = Rect::from_center_size(mid_p, galley.size() + vec2(6.0, 4.0));
+                    painter.rect_filled(bg_rect, CornerRadius::same(3), Color32::from_rgba_premultiplied(30, 30, 30, 230));
+                    painter.galley(bg_rect.min + vec2(3.0, 2.0), galley, Color32::from_rgb(255, 180, 50));
+                }
+            }
         }
     }
 }
