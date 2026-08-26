@@ -100,6 +100,7 @@ pub struct DuCADApp {
 
     pub language: ducad_i18n::Language,
     pub theme: ThemeMode,
+    pub icon_size: f32,
     pub palette: CommandPalette,
     pub radial_menu: RadialMenu,
     pub radial_press: Option<(egui::Pos2, f64)>,
@@ -431,6 +432,7 @@ impl DuCADApp {
 
             language: ducad_i18n::Language::default(),
             theme,
+            icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
             radial_menu: RadialMenu::default(),
             radial_press: None,
@@ -700,6 +702,7 @@ impl DuCADApp {
 
             language: ducad_i18n::Language::default(),
             theme: ThemeMode::default(),
+            icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
             radial_menu: RadialMenu::default(),
             radial_press: None,
@@ -1342,6 +1345,7 @@ impl eframe::App for DuCADApp {
                 .collect(),
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
+            icon_size: self.icon_size,
         };
 
         if !self.drawing_sheet_state.is_open {
@@ -1362,6 +1366,10 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::SetLanguage(lang) => {
                                 self.language = lang;
                                 ducad_i18n::set_language(lang);
+                            }
+                            TopBarEvent::SetIconSize(sz) => {
+                                self.icon_size = sz;
+                                self.left_toolbar.icon_size = sz;
                             }
                             TopBarEvent::File(op) => match op {
                                 TopBarFileOp::New => self.new_document(),
@@ -1452,6 +1460,7 @@ impl eframe::App for DuCADApp {
             self.plane_menu_open = topbar_state.plane_menu_open;
 
             self.left_toolbar.is_sketching = self.is_sketching;
+            self.left_toolbar.icon_size = self.icon_size;
             let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
             self.left_toolbar_content_sig = Some(self.is_sketching);
             egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
@@ -2399,6 +2408,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_LIGHTBULB_ON.codepoint,
                             self.lighting_drawer_open,
                             "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
+                            self.icon_size,
                         );
                         if lighting_resp.clicked() {
                             self.lighting_drawer_open = !self.lighting_drawer_open;
@@ -2411,6 +2421,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_PALETTE.codepoint,
                             self.cmf_drawer_open,
                             "Preset Material Industri & CMF (Warna & Finishing)",
+                            self.icon_size,
                         );
                         if cmf_resp.clicked() {
                             self.cmf_drawer_open = !self.cmf_drawer_open;
@@ -2422,6 +2433,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_ARCHITECTURE.codepoint,
                             self.draft_config.enabled,
                             "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
+                            self.icon_size,
                         );
                         if draft_resp.clicked() {
                             self.draft_config.enabled = !self.draft_config.enabled;
@@ -2433,6 +2445,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_TIMELINE.codepoint,
                             self.feature_tree_drawer_open,
                             "Feature Tree & Riwayat Desain (Pohon Parametrik & Time-Travel)",
+                            self.icon_size,
                         );
                         if feat_tree_resp.clicked() {
                             self.feature_tree_drawer_open = !self.feature_tree_drawer_open;
@@ -2444,6 +2457,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_LAYERS_OFF.codepoint,
                             self.planes_drawer_open,
                             "Daftar Bidang Referensi 3D (Reference Planes)",
+                            self.icon_size,
                         );
                         if planes_resp.clicked() {
                             self.planes_drawer_open = !self.planes_drawer_open;
@@ -2455,6 +2469,7 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_FOLDER.codepoint,
                             self.items_drawer_open,
                             "Properties Dokumen (Objek 2D & Solid Body 3D)",
+                            self.icon_size,
                         );
                         if folder_resp.clicked() {
                             self.items_drawer_open = !self.items_drawer_open;
@@ -2994,7 +3009,7 @@ impl eframe::App for DuCADApp {
                     if has_sketch_sel {
                         let has_closed = self.selected_closed_region_centroid().is_some()
                             || crate::model::build_profile_from_selection(self.sketch(), &self.selected).is_ok();
-                        if let Some(act) = ContextActionBar::show_sketch_selection(ui, self.selected.len(), has_closed) {
+                        if let Some(act) = ContextActionBar::show_sketch_selection(ui, self.selected.len(), has_closed, self.icon_size) {
                             match act {
                                 ContextAction::Extrude => self.extrude_selected(),
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
@@ -3054,6 +3069,7 @@ impl eframe::App for DuCADApp {
                             if let Some(act) = ContextActionBar::show_multi_face_selection(
                                 ui,
                                 self.staged_mate_targets.len(),
+                                self.icon_size,
                             ) {
                                 match act {
                                     ContextAction::MateConcentric => {
@@ -3097,7 +3113,7 @@ impl eframe::App for DuCADApp {
                         } else {
                             let is_editing_hole = self.editing_hole_idx.is_some();
                             if let Some(act) =
-                                ContextActionBar::show_face_selection(ui, is_editing_hole)
+                                ContextActionBar::show_face_selection(ui, is_editing_hole, self.icon_size)
                             {
                                 match act {
                                     ContextAction::Extrude => {
@@ -3146,7 +3162,7 @@ impl eframe::App for DuCADApp {
                             }
                         }
                     } else if has_body_sel {
-                        if let Some(act) = ContextActionBar::show_body_selection(ui, self.selected_bodies.len()) {
+                        if let Some(act) = ContextActionBar::show_body_selection(ui, self.selected_bodies.len(), self.icon_size) {
                             match act {
                                 ContextAction::SplitBody => {
                                     self.split_mode = ducad_ui::SplitMode::SplitBody;
@@ -3478,8 +3494,11 @@ fn round_floating_icon_btn(
     icon: &'static str,
     is_active: bool,
     tooltip: &str,
+    icon_size: f32,
 ) -> egui::Response {
-    let size = egui::Vec2::splat(38.0);
+    let icon_sz = icon_size.clamp(12.0, 18.0);
+    let btn_side = (icon_sz + 18.0).max(34.0);
+    let size = egui::Vec2::splat(btn_side);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
 
     let is_hovered = resp.hovered();
@@ -3499,7 +3518,7 @@ fn round_floating_icon_btn(
 
     ui.painter().rect(
         rect,
-        egui::CornerRadius::same(19),
+        egui::CornerRadius::same((btn_side / 2.0).round() as u8),
         bg_color,
         egui::Stroke::new(if is_active || is_hovered { 1.5 } else { 1.0 }, stroke_color),
         egui::StrokeKind::Inside,
@@ -3515,7 +3534,7 @@ fn round_floating_icon_btn(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         icon,
-        egui::FontId::proportional(19.0),
+        egui::FontId::proportional(icon_sz),
         icon_color,
     );
 

@@ -16,6 +16,9 @@ pub const MIN_TOUCH_TARGET: f32 = 28.0;
 /// Lebar standar terpadu untuk semua panel drawer dan popup dialog di pojok kanan bawah.
 pub const BOTTOM_RIGHT_PANEL_WIDTH: f32 = 260.0;
 
+/// Ukuran standar terpadu untuk semua ikon antarmuka utama (18px).
+pub const ICON_SIZE_DEFAULT: f32 = 18.0;
+
 
 // Token Warna Shapr3D
 pub const ACCENT_BLUE: Color32 = Color32::from_rgb(10, 132, 255); // #0a84ff

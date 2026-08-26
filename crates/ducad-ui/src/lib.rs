@@ -66,8 +66,8 @@ pub use revolve_dialog::{
 pub use theme::{
     apply as apply_theme, card_frame, dimension_pill_frame, glass_frame, pill_frame, ThemeMode,
     ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS, BG_CARD_DARK,
-    BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, BOTTOM_RIGHT_PANEL_WIDTH, MIN_TOUCH_TARGET,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, BOTTOM_RIGHT_PANEL_WIDTH, ICON_SIZE_DEFAULT,
+    MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{

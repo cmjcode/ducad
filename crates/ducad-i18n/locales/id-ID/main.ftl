@@ -30,6 +30,7 @@ menu-settings = Pengaturan
 menu-theme = Tema
 menu-theme-dark = Mode Gelap
 menu-theme-light = Mode Terang
+settings-icon-size = Ukuran Ikon
 menu-shortcuts = Pintasan Keyboard
 menu-command-palette = Palet Perintah
 cmd-no-match = Tidak ada perintah cocok

@@ -30,6 +30,7 @@ menu-settings = Settings
 menu-theme = Theme
 menu-theme-dark = Dark Mode
 menu-theme-light = Light Mode
+settings-icon-size = Icon Size
 menu-shortcuts = Keyboard Shortcuts
 menu-command-palette = Command Palette
 cmd-no-match = No matching command

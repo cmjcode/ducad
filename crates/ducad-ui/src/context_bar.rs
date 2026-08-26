@@ -59,8 +59,10 @@ impl ContextActionBar {
         ui: &mut Ui,
         selected_count: usize,
         _has_closed_profile: bool,
+        icon_size: f32,
     ) -> Option<ContextAction> {
         let mut action = None;
+        let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
@@ -78,98 +80,42 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // 1. Offset
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Offset", ICON_OPEN_IN_FULL.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Offset kurva / kontur terpilih (O)").clicked() {
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Offset", TEXT_PRIMARY, icon_sz, "Offset kurva / kontur terpilih (O)").clicked() {
                     action = Some(ContextAction::Offset);
                 }
 
                 // 3. Mirror
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Mirror", ICON_FLIP.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Cerminkan elemen terpilih terhadap garis sumbu (M)").clicked() {
+                if context_action_btn(ui, ICON_FLIP.codepoint, "Mirror", TEXT_PRIMARY, icon_sz, "Cerminkan elemen terpilih terhadap garis sumbu (M)").clicked() {
                     action = Some(ContextAction::Mirror);
                 }
 
                 // 4. Trim
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Trim", ICON_CONTENT_CUT.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Pangkas segmen garis yang bersilangan (T)").clicked() {
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Trim", TEXT_PRIMARY, icon_sz, "Pangkas segmen garis yang bersilangan (T)").clicked() {
                     action = Some(ContextAction::Trim);
                 }
 
                 // 4.1 Extend
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Extend", ICON_ARROWS_OUTWARD.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Perpanjang garis sampai kurva batas terdekat (Shift+E)").clicked() {
+                if context_action_btn(ui, ICON_ARROWS_OUTWARD.codepoint, "Extend", TEXT_PRIMARY, icon_sz, "Perpanjang garis sampai kurva batas terdekat (Shift+E)").clicked() {
                     action = Some(ContextAction::Extend);
                 }
 
                 // 4.5 Pattern
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Pattern", ICON_GRID_VIEW.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Duplikasi entitas dalam kisi Linier / Sirkular (P)").clicked() {
+                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi entitas dalam kisi Linier / Sirkular (P)").clicked() {
                     action = Some(ContextAction::Pattern);
                 }
 
                 // 5. Revolve
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Revolve", ICON_REFRESH.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Putar profil 360° mengelilingi sumbu (V)").clicked() {
+                if context_action_btn(ui, ICON_REFRESH.codepoint, "Revolve", TEXT_PRIMARY, icon_sz, "Putar profil 360° mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
                 }
 
                 // 6. Sweep
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Sweep", ICON_ROUTE.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Sapu profil 2D menyusuri kurva jalur pemandu (Sweep)").clicked() {
+                if context_action_btn(ui, ICON_ROUTE.codepoint, "Sweep", TEXT_PRIMARY, icon_sz, "Sapu profil 2D menyusuri kurva jalur pemandu (Sweep)").clicked() {
                     action = Some(ContextAction::Sweep);
                 }
 
                 // 7. Helix / Coil
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Helix", egui_icons::icons::ICON_HEATING_COIL.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Buat pegas atau ulir spiral 3D (Helix / Coil)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, "Helix", TEXT_PRIMARY, icon_sz, "Buat pegas atau ulir spiral 3D (Helix / Coil)").clicked() {
                     action = Some(ContextAction::Helix);
                 }
 
@@ -178,14 +124,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Rename / Beri Nama Grup
-                let rename_btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Nama", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if rename_btn.on_hover_text("Beri nama / kelompokkan entitas terpilih").clicked() {
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / kelompokkan entitas terpilih").clicked() {
                     action = Some(ContextAction::Rename);
                 }
 
@@ -194,26 +133,12 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // 6. Delete
-                let del_btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Hapus", ICON_DELETE.codepoint))
-                            .size(11.5)
-                            .color(egui::Color32::from_rgb(255, 110, 110)),
-                    ),
-                );
-                if del_btn.on_hover_text("Hapus elemen terpilih (Delete)").clicked() {
+                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus elemen terpilih (Delete)").clicked() {
                     action = Some(ContextAction::Delete);
                 }
 
                 // 7. Deselect / Close
-                let close_btn = ui.add(
-                    Button::new(
-                        RichText::new(ICON_CLOSE.codepoint)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    ),
-                );
-                if close_btn.on_hover_text("Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -223,8 +148,9 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi 3D Face.
-    pub fn show_face_selection(ui: &mut Ui, is_editing_hole: bool) -> Option<ContextAction> {
+    pub fn show_face_selection(ui: &mut Ui, is_editing_hole: bool, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
+        let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
@@ -249,110 +175,47 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Sketch On Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Sketsa di Face", ICON_EDIT.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Jadikan bidang ini sebagai bidang sketsa baru").clicked() {
+                if context_action_btn(ui, ICON_EDIT.codepoint, "Sketsa di Face", TEXT_PRIMARY, icon_sz, "Jadikan bidang ini sebagai bidang sketsa baru").clicked() {
                     action = Some(ContextAction::SketchOnFace);
                 }
 
                 // Revolve Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Revolve", ICON_REFRESH.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Putar bidang mengelilingi sumbu (V)").clicked() {
+                if context_action_btn(ui, ICON_REFRESH.codepoint, "Revolve", TEXT_PRIMARY, icon_sz, "Putar bidang mengelilingi sumbu (V)").clicked() {
                     action = Some(ContextAction::Revolve);
                 }
 
                 // Helix / Coil Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Helix", egui_icons::icons::ICON_HEATING_COIL.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Buat ulir spiral atau pegas dari permukaan ini (Helix)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, "Helix", TEXT_PRIMARY, icon_sz, "Buat ulir spiral atau pegas dari permukaan ini (Helix)").clicked() {
                     action = Some(ContextAction::Helix);
                 }
 
                 // Shell / Hollow Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Shell / Hollow", ICON_OPEN_IN_FULL.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Ronggakan benda 3D dengan ketebalan dinding (H)").clicked() {
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Shell / Hollow", TEXT_PRIMARY, icon_sz, "Ronggakan benda 3D dengan ketebalan dinding (H)").clicked() {
                     action = Some(ContextAction::Shell);
                 }
 
                 // Rib / Tulang Penguat
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  Rib (Tulang)", egui_icons::icons::ICON_TIMELINE.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Buat tulang penguat (stiffener rib) pada casing ini (R)").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_TIMELINE.codepoint, "Rib (Tulang)", TEXT_PRIMARY, icon_sz, "Buat tulang penguat (stiffener rib) pada casing ini (R)").clicked() {
                     action = Some(ContextAction::Rib);
                 }
 
                 // Draft Angle
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  Draft Angle", ICON_ARCHITECTURE.codepoint))
-                            .size(11.5)
-                            .color(crate::theme::ACCENT_ORANGE),
-                    ),
-                );
-                if btn.on_hover_text("Tambahkan kemiringan cetakan plastik (draft angle) ke face ini (D)").clicked() {
+                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, "Draft Angle", crate::theme::ACCENT_ORANGE, icon_sz, "Tambahkan kemiringan cetakan plastik (draft angle) ke face ini (D)").clicked() {
                     action = Some(ContextAction::DraftAngle);
                 }
 
                 // Split Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  Split Face", ICON_CONTENT_CUT.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn.on_hover_text("Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Face", TEXT_PRIMARY, icon_sz, "Bagi permukaan (face) ini menjadi bagian terpisah (S)").clicked() {
                     action = Some(ContextAction::SplitFace);
                 }
 
                 // Hole Wizard (Standar ISO Fastener)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  {}", ICON_ADJUST.codepoint, t!("tool-hole-wizard")))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if btn.on_hover_text(t!("tool-hole-wizard-desc")).clicked() {
+                if context_action_btn(ui, ICON_ADJUST.codepoint, &t!("tool-hole-wizard"), ACCENT_BLUE, icon_sz, &t!("tool-hole-wizard-desc")).clicked() {
                     action = Some(ContextAction::HoleWizard);
                 }
 
                 // New Datum Plane from Face
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{}  + Offset Plane", egui_icons::icons::ICON_LAYERS_OFF.codepoint))
-                            .size(11.5)
-                            .color(crate::theme::ACCENT_ORANGE),
-                    ),
-                );
-                if btn.on_hover_text("Buat bidang kerja referensi 3D (Datum Plane) dari permukaan ini").clicked() {
+                if context_action_btn(ui, egui_icons::icons::ICON_LAYERS_OFF.codepoint, "+ Offset Plane", crate::theme::ACCENT_ORANGE, icon_sz, "Buat bidang kerja referensi 3D (Datum Plane) dari permukaan ini").clicked() {
                     action = Some(ContextAction::OffsetPlane);
                 }
 
@@ -361,14 +224,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Deselect
-                let close_btn = ui.add(
-                    Button::new(
-                        RichText::new(ICON_CLOSE.codepoint)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    ),
-                );
-                if close_btn.on_hover_text("Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -378,8 +234,9 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi multi-face 3D (Mate Constraints Perakitan).
-    pub fn show_multi_face_selection(ui: &mut Ui, count: usize) -> Option<ContextAction> {
+    pub fn show_multi_face_selection(ui: &mut Ui, count: usize, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
+        let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
@@ -396,62 +253,22 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // 1. Concentric Mate (◎)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Concentric", ICON_ADJUST.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn
-                    .on_hover_text(t!("assembly-mate-concentric-desc"))
-                    .clicked()
-                {
+                if context_action_btn(ui, ICON_ADJUST.codepoint, "Concentric", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-concentric-desc")).clicked() {
                     action = Some(ContextAction::MateConcentric);
                 }
 
                 // 2. Coincident Mate (⫦)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Coincident", ICON_CALL_MERGE.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn
-                    .on_hover_text(t!("assembly-mate-coincident-desc"))
-                    .clicked()
-                {
+                if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Coincident", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-coincident-desc")).clicked() {
                     action = Some(ContextAction::MateCoincident);
                 }
 
                 // 3. Distance Mate (↔)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Distance", ICON_STRAIGHTEN.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn
-                    .on_hover_text(t!("assembly-mate-distance-desc"))
-                    .clicked()
-                {
+                if context_action_btn(ui, ICON_STRAIGHTEN.codepoint, "Distance", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-distance-desc")).clicked() {
                     action = Some(ContextAction::MateDistance);
                 }
 
                 // 4. Angle Mate (∡)
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Angle", ICON_ARCHITECTURE.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if btn
-                    .on_hover_text(t!("assembly-mate-angle-desc"))
-                    .clicked()
-                {
+                if context_action_btn(ui, ICON_ARCHITECTURE.codepoint, "Angle", TEXT_PRIMARY, icon_sz, &t!("assembly-mate-angle-desc")).clicked() {
                     action = Some(ContextAction::MateAngle);
                 }
 
@@ -460,14 +277,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Open Assembly Drawer
-                let btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Assembly", ICON_CATEGORY.codepoint))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if btn.on_hover_text(t!("topbar-assembly-tooltip")).clicked() {
+                if context_action_btn(ui, ICON_CATEGORY.codepoint, "Assembly", ACCENT_BLUE, icon_sz, &t!("topbar-assembly-tooltip")).clicked() {
                     action = Some(ContextAction::OpenAssemblyTree);
                 }
 
@@ -476,14 +286,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Deselect
-                let close_btn = ui.add(
-                    Button::new(
-                        RichText::new(ICON_CLOSE.codepoint)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    ),
-                );
-                if close_btn.on_hover_text("Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
@@ -493,8 +296,9 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi 3D Body.
-    pub fn show_body_selection(ui: &mut Ui, count: usize) -> Option<ContextAction> {
+    pub fn show_body_selection(ui: &mut Ui, count: usize, icon_size: f32) -> Option<ContextAction> {
         let mut action = None;
+        let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
@@ -512,17 +316,7 @@ impl ContextActionBar {
 
                 // Split Body jika 1 body dipilih
                 if count == 1 {
-                    let split_btn = ui.add(
-                        Button::new(
-                            RichText::new(format!("{} Split Body", ICON_CONTENT_CUT.codepoint))
-                                .size(11.5)
-                                .color(TEXT_PRIMARY),
-                        ),
-                    );
-                    if split_btn
-                        .on_hover_text("Potong solid 3D menjadi 2 body terpisah menggunakan bidang pemotong (S)")
-                        .clicked()
-                    {
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Split Body", TEXT_PRIMARY, icon_sz, "Potong solid 3D menjadi 2 body terpisah menggunakan bidang pemotong (S)").clicked() {
                         action = Some(ContextAction::SplitBody);
                     }
 
@@ -533,32 +327,12 @@ impl ContextActionBar {
 
                 // Operasi Boolean jika minimal 2 body dipilih
                 if count >= 2 {
-                    let bool_btn = ui.add(
-                        Button::new(
-                            RichText::new(format!("{} Boolean", ICON_CALL_MERGE.codepoint))
-                                .size(11.5)
-                                .color(TEXT_PRIMARY),
-                        ),
-                    );
-                    if bool_btn
-                        .on_hover_text("Operasi Boolean: Union (Gabung), Subtract (Potong), Intersect (Irisan)")
-                        .clicked()
-                    {
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Boolean", TEXT_PRIMARY, icon_sz, "Operasi Boolean: Union (Gabung), Subtract (Potong), Intersect (Irisan)").clicked() {
                         action = Some(ContextAction::Boolean);
                     }
 
                     // Uji Tabrakan / Clash Detection
-                    let clash_btn = ui.add(
-                        Button::new(
-                            RichText::new(format!("{} {}", ICON_WARNING.codepoint, t!("context-check-clash")))
-                                .size(11.5)
-                                .color(ACCENT_ORANGE),
-                        ),
-                    );
-                    if clash_btn
-                        .on_hover_text(t!("assembly-clash-desc"))
-                        .clicked()
-                    {
+                    if context_action_btn(ui, ICON_WARNING.codepoint, &t!("context-check-clash"), ACCENT_ORANGE, icon_sz, &t!("assembly-clash-desc")).clicked() {
                         action = Some(ContextAction::CheckClash);
                     }
 
@@ -568,17 +342,7 @@ impl ContextActionBar {
                 }
 
                 // Pattern Solid (1 or more bodies)
-                let pattern_btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Pattern", ICON_GRID_VIEW.codepoint))
-                            .size(11.5)
-                            .color(TEXT_PRIMARY),
-                    ),
-                );
-                if pattern_btn
-                    .on_hover_text("Duplikasi solid 3D dalam kisi Linier / Sirkular (P)")
-                    .clicked()
-                {
+                if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi solid 3D dalam kisi Linier / Sirkular (P)").clicked() {
                     action = Some(ContextAction::Pattern);
                 }
 
@@ -587,14 +351,7 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Rename Body
-                let rename_btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Nama", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint))
-                            .size(11.5)
-                            .color(ACCENT_BLUE),
-                    ),
-                );
-                if rename_btn.on_hover_text("Beri nama / ganti nama body terpilih").clicked() {
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / ganti nama body terpilih").clicked() {
                     action = Some(ContextAction::Rename);
                 }
 
@@ -603,31 +360,57 @@ impl ContextActionBar {
                 ui.add_space(2.0);
 
                 // Delete Body
-                let del_btn = ui.add(
-                    Button::new(
-                        RichText::new(format!("{} Hapus Body", ICON_DELETE.codepoint))
-                            .size(11.5)
-                            .color(egui::Color32::from_rgb(255, 110, 110)),
-                    ),
-                );
-                if del_btn.on_hover_text("Hapus body terpilih (Delete)").clicked() {
+                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus Body", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus body terpilih (Delete)").clicked() {
                     action = Some(ContextAction::Delete);
                 }
 
                 // Deselect
-                let close_btn = ui.add(
-                    Button::new(
-                        RichText::new(ICON_CLOSE.codepoint)
-                            .size(12.0)
-                            .color(TEXT_SECONDARY),
-                    ),
-                );
-                if close_btn.on_hover_text("Batalkan Seleksi (Esc)").clicked() {
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
         });
 
         action
+    }
+}
+
+/// Helper untuk membuat tombol aksi kontekstual dengan ikon berukuran dinamis dan label teks proporsional.
+fn context_action_btn(
+    ui: &mut Ui,
+    icon: &str,
+    label: &str,
+    color: egui::Color32,
+    icon_size: f32,
+    tooltip: &str,
+) -> egui::Response {
+    let mut layout_job = egui::text::LayoutJob::default();
+    layout_job.append(
+        icon,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(icon_size),
+            color,
+            valign: egui::Align::Center,
+            ..Default::default()
+        },
+    );
+    if !label.is_empty() {
+        layout_job.append(
+            &format!(" {}", label),
+            0.0,
+            egui::TextFormat {
+                font_id: egui::FontId::proportional(11.5),
+                color,
+                valign: egui::Align::Center,
+                ..Default::default()
+            },
+        );
+    }
+    let resp = ui.add(Button::new(layout_job));
+    if !tooltip.is_empty() {
+        resp.on_hover_text(tooltip)
+    } else {
+        resp
     }
 }

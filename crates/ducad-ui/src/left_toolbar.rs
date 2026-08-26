@@ -68,6 +68,7 @@ pub enum ToolbarEvent {
 pub struct LeftToolbar {
     pub is_sketching: bool,
     pub point_menu_open: bool,
+    pub icon_size: f32,
 }
 
 impl Default for LeftToolbar {
@@ -75,6 +76,7 @@ impl Default for LeftToolbar {
         Self {
             is_sketching: true,
             point_menu_open: false,
+            icon_size: crate::theme::ICON_SIZE_DEFAULT,
         }
     }
 }
@@ -88,12 +90,14 @@ impl LeftToolbar {
     #[allow(clippy::type_complexity)]
     pub fn show(&mut self, ui: &mut Ui, current_tool: ToolbarTool) -> Option<ToolbarEvent> {
         let mut event = None;
+        let icon_sz = self.icon_size.clamp(12.0, 18.0);
+        let btn_width = (icon_sz + 14.0).max(30.0);
 
         glass_frame()
             .inner_margin(Margin::same(4))
             .corner_radius(CornerRadius::same(8))
             .show(ui, |ui| {
-                ui.set_width(30.0);
+                ui.set_width(btn_width);
                 ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.5);
 
                 // 1. Tool List: Selalu ada "Pilih"
@@ -103,6 +107,7 @@ impl LeftToolbar {
                 let sel_btn = square_btn(
                     ui,
                     ICON_ADS_CLICK.codepoint,
+                    icon_sz,
                     select_active,
                     &sel_title,
                     Some("Esc"),
@@ -236,7 +241,7 @@ impl LeftToolbar {
                 for (tool, icon, title, shortcut, subtitle) in sketch_tools {
                     let is_active = current_tool == *tool;
                     let btn =
-                        square_btn(ui, icon, is_active, title, *shortcut, *subtitle, None, None);
+                        square_btn(ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -295,7 +300,7 @@ impl LeftToolbar {
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {
                     let is_active = current_tool == *tool;
                     let btn =
-                        square_btn(ui, icon, is_active, title, *shortcut, *subtitle, None, None);
+                        square_btn(ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -312,6 +317,7 @@ impl LeftToolbar {
 fn square_btn(
     ui: &mut Ui,
     icon: &'static str,
+    icon_size: f32,
     is_active: bool,
     title: &str,
     shortcut: Option<&str>,
@@ -319,7 +325,8 @@ fn square_btn(
     custom_bg: Option<Color32>,
     custom_fg: Option<Color32>,
 ) -> egui::Response {
-    let size = Vec2::splat(30.0);
+    let btn_side = (icon_size + 14.0).max(30.0);
+    let size = Vec2::splat(btn_side);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -351,7 +358,7 @@ fn square_btn(
             StrokeKind::Inside,
         );
 
-        let font_id = egui::FontId::proportional(14.0);
+        let font_id = egui::FontId::proportional(icon_size);
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,

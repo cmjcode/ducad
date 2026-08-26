@@ -39,7 +39,7 @@ pub enum TopBarFileOp {
     OpenDrawingSheet,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TopBarEvent {
     HomeClicked,
     File(TopBarFileOp),
@@ -47,6 +47,7 @@ pub enum TopBarEvent {
     OpenCommandPalette,
     SetUnit(LengthUnit),
     SetLanguage(Language),
+    SetIconSize(f32),
     ToggleItemsDrawer,
     ToggleAssemblyDrawer,
     OpenSearch,
@@ -70,6 +71,7 @@ pub struct TopBarState {
     pub document_name: String,
     pub status_saved: bool,
     pub current_unit: LengthUnit,
+    pub icon_size: f32,
     /// True saat Sketch Mode aktif — mengontrol apakah tombol Sketch Plane
     /// (dan popup pemilih bidangnya) ditampilkan sama sekali.
     pub is_sketching: bool,
@@ -97,14 +99,15 @@ impl TopBar {
     /// Render modern top bar. Mengembalikan `Option<TopBarEvent>`.
     pub fn show(ui: &mut Ui, state: &mut TopBarState) -> Option<TopBarEvent> {
         let mut event = None;
+        let icon_sz = state.icon_size.clamp(12.0, 18.0);
 
         glass_frame().show(ui, |ui| {
-            ui.set_height(30.0);
+            ui.set_height((icon_sz + 14.0).max(30.0));
             ui.horizontal(|ui| {
                 // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
                 ui.menu_button(
                     RichText::new(ICON_MENU.codepoint)
-                        .size(15.0)
+                        .size(icon_sz)
                         .color(TEXT_PRIMARY),
                     |ui| {
                         if ui
@@ -202,7 +205,7 @@ impl TopBar {
                     };
                     ui.label(
                         RichText::new(ICON_CLOUD.codepoint)
-                            .size(14.0)
+                            .size(icon_sz)
                             .color(cloud_color),
                     )
                     .on_hover_text(cloud_tooltip);
@@ -237,6 +240,7 @@ impl TopBar {
                 let mode_btn = header_icon_btn(
                     ui,
                     mode_icon,
+                    icon_sz,
                     true,
                     &mode_title,
                     Some(mode_shortcut),
@@ -257,6 +261,7 @@ impl TopBar {
                 let search_btn = header_icon_btn(
                     ui,
                     ICON_SEARCH.codepoint,
+                    icon_sz,
                     false,
                     &search_title,
                     Some("⌘K"),
@@ -272,6 +277,7 @@ impl TopBar {
                     let plane_btn = header_icon_btn(
                         ui,
                         ICON_LAYERS_OFF.codepoint,
+                        icon_sz,
                         state.plane_menu_open,
                         &t!(
                             "topbar-sketch-plane",
@@ -387,6 +393,7 @@ impl TopBar {
                 let meas_btn = header_icon_btn(
                     ui,
                     ICON_STRAIGHTEN.codepoint,
+                    icon_sz,
                     state.is_measure_active,
                     &meas_title,
                     Some("I"),
@@ -403,6 +410,7 @@ impl TopBar {
                 let zebra_btn = header_icon_btn(
                     ui,
                     ICON_TEXTURE.codepoint,
+                    icon_sz,
                     state.zebra_view_active,
                     &zebra_title,
                     Some("Z"),
@@ -420,6 +428,7 @@ impl TopBar {
                 let ds_btn = header_icon_btn(
                     ui,
                     ICON_PICTURE_AS_PDF.codepoint,
+                    icon_sz,
                     false,
                     &ds_title,
                     None,
@@ -437,6 +446,7 @@ impl TopBar {
                 let assem_btn = header_icon_btn(
                     ui,
                     ICON_CATEGORY.codepoint,
+                    icon_sz,
                     state.assembly_drawer_open,
                     &assem_title,
                     None,
@@ -453,7 +463,7 @@ impl TopBar {
                     // Sisi paling kanan: Settings Icon Button
                     ui.menu_button(
                         RichText::new(ICON_SETTINGS.codepoint)
-                            .size(14.0)
+                            .size(icon_sz)
                             .color(TEXT_PRIMARY),
                         |ui| {
                             if ui
@@ -498,6 +508,29 @@ impl TopBar {
                                 },
                             );
                             ui.separator();
+                            // Icon size selector
+                            ui.menu_button(
+                                format!(
+                                    "🔘 {} ({:.0}px)",
+                                    t!("settings-icon-size"),
+                                    icon_sz
+                                ),
+                                |ui| {
+                                    for (label, size) in [
+                                        ("14 px (Kecil)", 14.0),
+                                        ("16 px (Sedang)", 16.0),
+                                        ("18 px (Standar)", 18.0),
+                                    ] {
+                                        let is_sel = (icon_sz - size).abs() < 0.1;
+                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        if ui.button(format!("{}{}", prefix, label)).clicked() {
+                                            event = Some(TopBarEvent::SetIconSize(size));
+                                            ui.close();
+                                        }
+                                    }
+                                },
+                            );
+                            ui.separator();
                             ui.menu_button(
                                 format!(
                                     "📏 {} ({})",
@@ -533,7 +566,7 @@ impl TopBar {
                     // Sebelah kiri Settings: Export / Share Icon Button
                     ui.menu_button(
                         RichText::new(ICON_SHARE.codepoint)
-                            .size(14.0)
+                            .size(icon_sz)
                             .color(ACCENT_BLUE),
                         |ui| {
                             if ui
@@ -656,6 +689,7 @@ impl TopBar {
 fn header_icon_btn(
     ui: &mut Ui,
     icon: &str,
+    icon_size: f32,
     active: bool,
     title: &str,
     shortcut: Option<&str>,
@@ -672,10 +706,10 @@ fn header_icon_btn(
         (Color32::TRANSPARENT, active_fg.unwrap_or(TEXT_PRIMARY))
     };
 
-    let btn = egui::Button::new(RichText::new(icon).size(14.0).color(icon_color))
+    let btn = egui::Button::new(RichText::new(icon).size(icon_size).color(icon_color))
         .fill(bg)
         .corner_radius(CornerRadius::same(5))
-        .min_size(Vec2::new(24.0, 22.0));
+        .min_size(Vec2::new(icon_size + 8.0, icon_size + 6.0));
     let response = ui.add(btn);
 
     response.on_hover_ui(|ui| {
