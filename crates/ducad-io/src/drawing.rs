@@ -133,6 +133,87 @@ impl Default for TextAnnotation {
     }
 }
 
+/// Satu baris dalam Tabel Daftar Komponen / Bill of Materials (BOM) standar ISO 7573 / ASME Y14.34.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BomItem {
+    /// Nomor item penunjuk (terhubung dengan nomor lingkaran Callout Balloon).
+    pub item_number: usize,
+    /// Nama part / komponen solid.
+    pub part_name: String,
+    /// Jumlah kuantitas pemakaian dalam perakitan / model.
+    pub quantity: u32,
+    /// Jenis bahan material komponen (mis. "Aluminium 6061-T6", "Steel 1045", "ABS Plastic").
+    pub material: String,
+    /// Catatan teknis / spesifikasi tambahan.
+    pub description: String,
+}
+
+impl Default for BomItem {
+    fn default() -> Self {
+        Self {
+            item_number: 1,
+            part_name: "Part-1".to_string(),
+            quantity: 1,
+            material: "Aluminium 6061-T6".to_string(),
+            description: String::new(),
+        }
+    }
+}
+
+/// Struktur data Tabel BOM (Bill of Materials) pada lembar kerja gambar teknik.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BomTable {
+    pub title: String,
+    pub items: Vec<BomItem>,
+    /// Posisi pojok kiri-bawah tabel dalam mm (jika None, dihitung otomatis di atas Kepala Gambar).
+    pub custom_pos_mm: Option<[f32; 2]>,
+}
+
+impl Default for BomTable {
+    fn default() -> Self {
+        Self {
+            title: "BILL OF MATERIALS (BOM)".to_string(),
+            items: Vec::new(),
+            custom_pos_mm: None,
+        }
+    }
+}
+
+/// Lingkaran nomor penunjuk part (*Part Callout Balloon*) standar ISO/ASME.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalloutBalloon {
+    pub id: u32,
+    /// Nomor item yang ditunjuk (terhubung dengan `BomItem::item_number`).
+    pub item_number: usize,
+    /// Titik sasaran/panah pada komponen objek 3D (mm dari pojok kiri-bawah kertas).
+    pub target_point: [f32; 2],
+    /// Posisi titik pusat lingkaran balon pada kertas (mm dari pojok kiri-bawah kertas).
+    pub balloon_pos: [f32; 2],
+    /// Radius lingkaran balon dalam mm (standar 4.5 s/d 5.0 mm).
+    pub radius_mm: f32,
+    /// Tampak proyeksi yang diasosiasikan (biasanya Isometric).
+    pub view_kind: ProjectedViewKind,
+}
+
+impl CalloutBalloon {
+    pub fn new(
+        id: u32,
+        item_number: usize,
+        target_point: [f32; 2],
+        balloon_pos: [f32; 2],
+        view_kind: ProjectedViewKind,
+    ) -> Self {
+        Self {
+            id,
+            item_number,
+            target_point,
+            balloon_pos,
+            radius_mm: 5.0,
+            view_kind,
+        }
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -154,6 +235,14 @@ pub struct DrawingSheet {
     pub show_detail_views: bool,
     #[serde(default = "default_true")]
     pub show_hatch: bool,
+    #[serde(default = "default_true")]
+    pub show_bom_table: bool,
+    #[serde(default = "default_true")]
+    pub show_balloons: bool,
+    #[serde(default)]
+    pub bom_table: BomTable,
+    #[serde(default)]
+    pub balloons: Vec<CalloutBalloon>,
     pub auto_dimensions: Vec<DimensionAnnotation>,
     #[serde(default)]
     pub manual_dimensions: Vec<DimensionAnnotation>,
@@ -176,6 +265,10 @@ impl DrawingSheet {
             show_section_view: true,
             show_detail_views: true,
             show_hatch: true,
+            show_bom_table: true,
+            show_balloons: true,
+            bom_table: BomTable::default(),
+            balloons: Vec::new(),
             auto_dimensions: Vec::new(),
             manual_dimensions: Vec::new(),
             custom_texts: Vec::new(),
@@ -593,6 +686,89 @@ impl DrawingSheet {
         }
     }
 
+    /// Lebar masing-masing kolom tabel BOM dalam mm: [ITEM, PART NAME, QTY, MATERIAL, DESCRIPTION].
+    pub fn bom_column_widths_mm(&self) -> [f32; 5] {
+        [14.0, 44.0, 14.0, 38.0, 30.0]
+    }
+
+    /// Total lebar tabel BOM dalam mm (140 mm sejajar dengan lebar Title Block).
+    pub fn bom_table_width_mm(&self) -> f32 {
+        self.bom_column_widths_mm().iter().sum()
+    }
+
+    /// Tinggi baris data tabel BOM dalam mm.
+    pub fn bom_row_height_mm(&self) -> f32 {
+        5.5
+    }
+
+    /// Tinggi header judul "BILL OF MATERIALS" dalam mm.
+    pub fn bom_title_height_mm(&self) -> f32 {
+        6.5
+    }
+
+    /// Tinggi header kolom dalam mm.
+    pub fn bom_header_height_mm(&self) -> f32 {
+        5.5
+    }
+
+    /// Koordinat kotak Tabel BOM [min_x, min_y, max_x, max_y] dalam mm.
+    pub fn bom_table_rect_mm(&self) -> [f32; 4] {
+        let w = self.bom_table_width_mm();
+        let num_rows = self.bom_table.items.len().max(1);
+        let total_h = self.bom_title_height_mm() + self.bom_header_height_mm() + (num_rows as f32 * self.bom_row_height_mm());
+
+        if let Some(pos) = self.bom_table.custom_pos_mm {
+            [pos[0], pos[1], pos[0] + w, pos[1] + total_h]
+        } else {
+            let (_, inner) = self.border_rects_mm();
+            let tb = self.title_block_rect_mm();
+            let x1 = inner[2] - w;
+            let y1 = tb[3] + 1.5;
+            [x1, y1, x1 + w, y1 + total_h]
+        }
+    }
+
+    /// Tambahkan satu part callout balloon baru.
+    pub fn add_balloon(
+        &mut self,
+        item_number: usize,
+        target_point: [f32; 2],
+        balloon_pos: [f32; 2],
+        view_kind: ProjectedViewKind,
+    ) -> u32 {
+        let max_id = self.balloons.iter().map(|b| b.id).max().unwrap_or(0);
+        let id = max_id + 1;
+        self.balloons.push(CalloutBalloon::new(id, item_number, target_point, balloon_pos, view_kind));
+        id
+    }
+
+    /// Hapus callout balloon berdasarkan ID.
+    pub fn remove_balloon(&mut self, id: u32) {
+        self.balloons.retain(|b| b.id != id);
+    }
+
+    /// Otomatis hitung posisi balon melingkar di sekeliling tampak isometrik.
+    pub fn auto_position_balloons_around_iso(&mut self) {
+        if self.balloons.is_empty() {
+            return;
+        }
+
+        let count = self.balloons.len();
+        for (i, balloon) in self.balloons.iter_mut().enumerate() {
+            if balloon.view_kind != ProjectedViewKind::Isometric {
+                continue;
+            }
+            // Sudut sebaran radial merata
+            let angle = (i as f32 / count as f32) * std::f32::consts::TAU + (std::f32::consts::PI * 0.25);
+            let dir = [angle.cos(), angle.sin()];
+            let dist = 22.0; // 22 mm offset dari target point
+            balloon.balloon_pos = [
+                balloon.target_point[0] + dir[0] * dist,
+                balloon.target_point[1] + dir[1] * dist,
+            ];
+        }
+    }
+
     /// Garis batas tepi luar dan bingkai gambar dalam (mm).
     pub fn border_rects_mm(&self) -> ([f32; 4], [f32; 4]) {
         let (pw, ph) = self.paper_size.dimensions_mm();
@@ -955,4 +1131,49 @@ mod tests {
         assert_eq!(sheet.manual_dimensions[1].text, "Ø 20.00 mm");
         assert_eq!(sheet.manual_dimensions[2].text, "45.0°");
     }
+
+    #[test]
+    fn test_bom_table_and_callout_balloons() {
+        let drawing = make_test_drawing(100.0, 50.0, 40.0);
+        let mut sheet = DrawingSheet::new(drawing, PaperSize::A4Landscape);
+
+        // Tambahkan baris BOM
+        sheet.bom_table.items.push(BomItem {
+            item_number: 1,
+            part_name: "Base Frame".to_string(),
+            quantity: 1,
+            material: "Aluminium 6061-T6".to_string(),
+            description: "Main chassis".to_string(),
+        });
+        sheet.bom_table.items.push(BomItem {
+            item_number: 2,
+            part_name: "Mounting Bracket".to_string(),
+            quantity: 4,
+            material: "Steel 1045".to_string(),
+            description: "Fastener support".to_string(),
+        });
+
+        assert_eq!(sheet.bom_table.items.len(), 2);
+        let rect = sheet.bom_table_rect_mm();
+        assert!(rect[2] > rect[0], "Lebar tabel BOM harus positif");
+        assert!(rect[3] > rect[1], "Tinggi tabel BOM harus positif");
+        assert!((sheet.bom_table_width_mm() - 140.0).abs() < 1e-3, "Lebar tabel BOM harus 140 mm");
+
+        // Tambahkan Callout Balloons
+        let b1 = sheet.add_balloon(1, [200.0, 150.0], [220.0, 165.0], ProjectedViewKind::Isometric);
+        let b2 = sheet.add_balloon(2, [180.0, 140.0], [160.0, 125.0], ProjectedViewKind::Isometric);
+        assert_eq!(sheet.balloons.len(), 2);
+        assert_eq!(b1, 1);
+        assert_eq!(b2, 2);
+
+        // Uji auto position balloons
+        sheet.auto_position_balloons_around_iso();
+        assert!((sheet.balloons[0].balloon_pos[0] - 200.0).abs() > 1.0);
+
+        // Hapus balon
+        sheet.remove_balloon(b1);
+        assert_eq!(sheet.balloons.len(), 1);
+        assert_eq!(sheet.balloons[0].id, b2);
+    }
 }
+

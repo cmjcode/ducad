@@ -597,6 +597,115 @@ impl DuCADApp {
         // Regenerasi dimensi lengkap agar semua fitur sketsa terhitung dan mengikuti skala
         sheet.generate_auto_dimensions();
 
+        // Ekstraksi Tabel BOM (Bill of Materials) & Part Callout Balloons
+        let mut bom_items: Vec<ducad_io::drawing::BomItem> = Vec::new();
+        let mut part_centers_3d: Vec<(usize, glam::Vec3)> = Vec::new();
+
+        if !self.assembly_tree.instances.is_empty() {
+            // Skenario A: Dari Assembly Tree (Part Instances)
+            let mut groups: std::collections::HashMap<String, (u32, String, glam::Vec3)> = std::collections::HashMap::new();
+            for (_, inst) in &self.assembly_tree.instances {
+                if !inst.visible {
+                    continue;
+                }
+                let mat_name = "Aluminium 6061-T6".to_string();
+                let pos = glam::Vec3::new(inst.translation.0 as f32, inst.translation.1 as f32, inst.translation.2 as f32);
+                let entry = groups.entry(inst.name.clone()).or_insert((0, mat_name, pos));
+                entry.0 += 1;
+            }
+
+            let mut sorted_groups: Vec<(String, u32, String, glam::Vec3)> = groups
+                .into_iter()
+                .map(|(name, (qty, mat, pos))| (name, qty, mat, pos))
+                .collect();
+            sorted_groups.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for (idx, (name, qty, mat, pos)) in sorted_groups.into_iter().enumerate() {
+                let item_no = idx + 1;
+                bom_items.push(ducad_io::drawing::BomItem {
+                    item_number: item_no,
+                    part_name: name,
+                    quantity: qty,
+                    material: mat,
+                    description: "Assembly Component".to_string(),
+                });
+                part_centers_3d.push((item_no, pos));
+            }
+        } else {
+            // Skenario B: Dari Solid Bodies dokumen aktif
+            let bodies_data = self.visible_bodies_with_material();
+            if !bodies_data.is_empty() {
+                let mut groups: std::collections::HashMap<String, (u32, String, glam::Vec3)> = std::collections::HashMap::new();
+                for (name, mat, mesh) in &bodies_data {
+                    let mat_name = match mat.preset {
+                        ducad_core::MaterialPreset::MattePlastic => "Matte Plastic (ABS)".to_string(),
+                        ducad_core::MaterialPreset::GlossyPlastic => "Glossy Plastic".to_string(),
+                        ducad_core::MaterialPreset::AnodizedAluminum => "Aluminium 6061-T6".to_string(),
+                        ducad_core::MaterialPreset::PolishedChrome => "Stainless Steel".to_string(),
+                        ducad_core::MaterialPreset::TranslucentGlass => "Acrylic / Glass".to_string(),
+                        ducad_core::MaterialPreset::Custom => "Custom Material".to_string(),
+                    };
+                    let center = if let Some((bmin, bmax)) = mesh.bounding_box() {
+                        glam::Vec3::new(
+                            (bmin[0] + bmax[0]) * 0.5,
+                            (bmin[1] + bmax[1]) * 0.5,
+                            (bmin[2] + bmax[2]) * 0.5,
+                        )
+                    } else {
+                        glam::Vec3::ZERO
+                    };
+                    let entry = groups.entry(name.to_string()).or_insert((0, mat_name, center));
+                    entry.0 += 1;
+                }
+
+                let mut sorted_groups: Vec<(String, u32, String, glam::Vec3)> = groups
+                    .into_iter()
+                    .map(|(name, (qty, mat, pos))| (name, qty, mat, pos))
+                    .collect();
+                sorted_groups.sort_by(|a, b| a.0.cmp(&b.0));
+
+                for (idx, (name, qty, mat, pos)) in sorted_groups.into_iter().enumerate() {
+                    let item_no = idx + 1;
+                    bom_items.push(ducad_io::drawing::BomItem {
+                        item_number: item_no,
+                        part_name: name,
+                        quantity: qty,
+                        material: mat,
+                        description: "Solid Body Component".to_string(),
+                    });
+                    part_centers_3d.push((item_no, pos));
+                }
+            }
+        }
+
+        if !bom_items.is_empty() {
+            sheet.bom_table.items = bom_items;
+            sheet.show_bom_table = true;
+
+            // Buat Callout Balloons untuk Isometric View
+            let (_, right_vec, up_vec) = ducad_kernel::ProjectedViewKind::Isometric.camera_vectors();
+            let right_g = glam::Vec3::new(right_vec.x, right_vec.y, right_vec.z);
+            let up_g = glam::Vec3::new(up_vec.x, up_vec.y, up_vec.z);
+
+            let iso_info = sheet
+                .view_placements
+                .iter()
+                .find(|p| p.kind == ducad_kernel::ProjectedViewKind::Isometric)
+                .map(|p| (p.center_mm, p.scale, sheet.drawing.isometric.center_2d()));
+
+            if let Some((iso_center, s, v_center)) = iso_info {
+                for (item_no, p3d) in part_centers_3d {
+                    let u = p3d.dot(right_g);
+                    let v = p3d.dot(up_g);
+                    let target_x = iso_center[0] + (u - v_center[0]) * s;
+                    let target_y = iso_center[1] + (v - v_center[1]) * s;
+                    let balloon_pos = [target_x + 18.0, target_y + 12.0];
+                    sheet.add_balloon(item_no, [target_x, target_y], balloon_pos, ducad_kernel::ProjectedViewKind::Isometric);
+                }
+                sheet.auto_position_balloons_around_iso();
+            }
+        }
+
         if let Some(path) = &self.current_file_path {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 sheet.title_block.project_title = stem.to_uppercase();

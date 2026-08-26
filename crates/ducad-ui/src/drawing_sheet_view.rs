@@ -5,7 +5,7 @@
 //! serta tombol ekspor langsung ke PDF Vektor dan DXF CAD.
 
 use ducad_io::drawing::{
-    format_scale_ratio, DrawingSheet, PaperSize, TextAnnotation, TitleBlockInfo,
+    format_scale_ratio, BomItem, DrawingSheet, PaperSize, TextAnnotation, TitleBlockInfo,
 };
 use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use egui::{
@@ -13,8 +13,9 @@ use egui::{
     Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_GRID_VIEW,
-    ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN, ICON_TEXTURE,
+    ICON_ADJUST, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN,
+    ICON_GRID_VIEW, ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
+    ICON_TEXTURE,
 };
 
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -146,11 +147,22 @@ impl TitleBlockFieldId {
     }
 }
 
+/// Field kolom pada baris data Tabel BOM yang dapat diedit secara in-place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BomCellField {
+    PartName,
+    Quantity,
+    Material,
+    Description,
+}
+
 /// Target elemen teks yang sedang aktif diedit secara live in-place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTextTarget {
     TitleBlock(TitleBlockFieldId),
     CustomText(usize),
+    BomTitle,
+    BomCell(usize, BomCellField),
 }
 
 /// Menghitung koordinat batas persegi (bounding box) field etiket dalam mm pada kertas.
@@ -242,6 +254,19 @@ pub struct DrawingSheetViewState {
     pub selected_detail_label: Option<char>,
     pub detail_scale_multiplier: f32,
     pub detail_radius_mm: f32,
+    pub balloon_tool_active: bool,
+    pub dragging_balloon_id: Option<u32>,
+    pub dragging_balloon_target_id: Option<u32>,
+    pub hovered_balloon_id: Option<u32>,
+    pub hovered_balloon_target_id: Option<u32>,
+    pub hovered_balloon_delete: Option<u32>,
+    pub selected_balloon_id: Option<u32>,
+    pub hovered_bom_row: Option<usize>,
+    pub hovered_bom_cell: Option<(usize, BomCellField)>,
+    pub hovered_bom_delete_row: Option<usize>,
+    pub hovered_bom_add_row: bool,
+    pub hovered_bom_title: bool,
+    pub dragging_bom_table: bool,
 }
 
 impl Default for DrawingSheetViewState {
@@ -274,6 +299,19 @@ impl Default for DrawingSheetViewState {
             selected_detail_label: None,
             detail_scale_multiplier: 2.0,
             detail_radius_mm: 15.0,
+            balloon_tool_active: false,
+            dragging_balloon_id: None,
+            dragging_balloon_target_id: None,
+            hovered_balloon_id: None,
+            hovered_balloon_target_id: None,
+            hovered_balloon_delete: None,
+            selected_balloon_id: None,
+            hovered_bom_row: None,
+            hovered_bom_cell: None,
+            hovered_bom_delete_row: None,
+            hovered_bom_add_row: false,
+            hovered_bom_title: false,
+            dragging_bom_table: false,
         }
     }
 }
@@ -419,6 +457,14 @@ impl DrawingSheetView {
         let mut hovered_text_delete = None;
         let mut hovered_detail_label = None;
         let mut hovered_detail_delete = None;
+        let mut hovered_balloon_id = None;
+        let mut hovered_balloon_target_id = None;
+        let mut hovered_balloon_delete = None;
+        let mut hovered_bom_row = None;
+        let mut hovered_bom_cell = None;
+        let mut hovered_bom_delete_row = None;
+        let mut hovered_bom_add_row = false;
+        let mut hovered_bom_title = false;
         let mut active_snap_pt_mm = None;
 
         let tb = sheet.title_block_rect_mm();
@@ -439,8 +485,71 @@ impl DrawingSheetView {
                     }
                 }
 
+                // A2. Tabel BOM (Bill of Materials) Hit Test
+                if sheet.show_bom_table && !sheet.bom_table.items.is_empty() && hovered_tb_field.is_none() {
+                    let bom_tb = sheet.bom_table_rect_mm();
+                    if cursor_mm[0] >= bom_tb[0] && cursor_mm[0] <= bom_tb[2] && cursor_mm[1] >= bom_tb[1] && cursor_mm[1] <= bom_tb[3] {
+                        let title_h = sheet.bom_title_height_mm();
+                        let header_h = sheet.bom_header_height_mm();
+                        let row_h = sheet.bom_row_height_mm();
+                        let y_top = bom_tb[3];
+
+                        if cursor_mm[1] >= y_top - title_h {
+                            hovered_bom_title = true;
+                            if cursor_mm[0] >= bom_tb[2] - 25.0 {
+                                hovered_bom_add_row = true;
+                            }
+                        } else if cursor_mm[1] < y_top - title_h - header_h {
+                            let r_idx = ((y_top - title_h - header_h - cursor_mm[1]) / row_h) as usize;
+                            if r_idx < sheet.bom_table.items.len() {
+                                hovered_bom_row = Some(r_idx);
+                                let col_w = sheet.bom_column_widths_mm();
+                                let mut cur_col_x = bom_tb[0];
+                                for (c_idx, &cw) in col_w.iter().enumerate() {
+                                    if cursor_mm[0] >= cur_col_x && cursor_mm[0] < cur_col_x + cw {
+                                        match c_idx {
+                                            1 => hovered_bom_cell = Some((r_idx, BomCellField::PartName)),
+                                            2 => hovered_bom_cell = Some((r_idx, BomCellField::Quantity)),
+                                            3 => hovered_bom_cell = Some((r_idx, BomCellField::Material)),
+                                            4 => hovered_bom_cell = Some((r_idx, BomCellField::Description)),
+                                            _ => {}
+                                        }
+                                        break;
+                                    }
+                                    cur_col_x += cw;
+                                }
+                                if cursor_mm[0] >= bom_tb[2] - 8.0 {
+                                    hovered_bom_delete_row = Some(r_idx);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // A3. Callout Balloons Hit Test
+                if sheet.show_balloons && hovered_tb_field.is_none() && hovered_bom_row.is_none() {
+                    for balloon in &sheet.balloons {
+                        let d_target = (cursor_mm[0] - balloon.target_point[0]).hypot(cursor_mm[1] - balloon.target_point[1]);
+                        if d_target <= 5.0 {
+                            hovered_balloon_target_id = Some(balloon.id);
+                            hovered_balloon_id = Some(balloon.id);
+                            break;
+                        }
+                        let d_center = (cursor_mm[0] - balloon.balloon_pos[0]).hypot(cursor_mm[1] - balloon.balloon_pos[1]);
+                        let d_del = (cursor_mm[0] - (balloon.balloon_pos[0] + balloon.radius_mm + 2.0)).hypot(cursor_mm[1] - (balloon.balloon_pos[1] + balloon.radius_mm + 2.0));
+                        if d_del <= 5.0 {
+                            hovered_balloon_delete = Some(balloon.id);
+                            hovered_balloon_id = Some(balloon.id);
+                            break;
+                        } else if d_center <= balloon.radius_mm + 2.5 {
+                            hovered_balloon_id = Some(balloon.id);
+                            break;
+                        }
+                    }
+                }
+
                 // B. Custom Text Annotations Hit Test (Teks Bebas / Catatan)
-                if hovered_tb_field.is_none() {
+                if hovered_tb_field.is_none() && hovered_bom_row.is_none() && hovered_balloon_id.is_none() {
                     for (idx, note) in sheet.custom_texts.iter().enumerate() {
                         let p_top_left = mm_to_screen(note.position[0], note.position[1]);
                         let font_sz = (note.font_size * zoom).clamp(7.0, 24.0);
@@ -461,7 +570,7 @@ impl DrawingSheetView {
                 }
 
                 // B2. Detail Callouts Hit Test pada Tampak Acuan
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() {
+                if hovered_tb_field.is_none() && hovered_bom_row.is_none() && hovered_balloon_id.is_none() && hovered_text_idx.is_none() {
                     for det in &sheet.drawing.detail_views {
                         if let Some(plc) = sheet.view_placements.iter().find(|p| p.kind == det.indicator.parent_view && p.visible) {
                             let view = sheet.drawing.view_by_kind(plc.kind);
@@ -504,7 +613,7 @@ impl DrawingSheetView {
                 }
 
                 // D. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu: Otomatis & Manual)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() {
+                if hovered_tb_field.is_none() && hovered_bom_row.is_none() && hovered_balloon_id.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() {
                     let mut dim_list: Vec<(DimensionTarget, &ducad_io::drawing::DimensionAnnotation)> = Vec::new();
                     if sheet.show_dimensions {
                         for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
@@ -565,7 +674,7 @@ impl DrawingSheetView {
                 }
 
                 // E. View hit test (jika tidak sedang hover teks, detail, atau dimensi)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && hovered_dim.is_none() {
+                if hovered_tb_field.is_none() && hovered_bom_row.is_none() && hovered_balloon_id.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && hovered_dim.is_none() {
                     for plc in &sheet.view_placements {
                         if !plc.visible {
                             continue;
@@ -597,6 +706,14 @@ impl DrawingSheetView {
         state.hovered_text_delete = hovered_text_delete;
         state.hovered_detail_label = hovered_detail_label;
         state.hovered_detail_delete = hovered_detail_delete;
+        state.hovered_balloon_id = hovered_balloon_id;
+        state.hovered_balloon_target_id = hovered_balloon_target_id;
+        state.hovered_balloon_delete = hovered_balloon_delete;
+        state.hovered_bom_row = hovered_bom_row;
+        state.hovered_bom_cell = hovered_bom_cell;
+        state.hovered_bom_delete_row = hovered_bom_delete_row;
+        state.hovered_bom_add_row = hovered_bom_add_row;
+        state.hovered_bom_title = hovered_bom_title;
 
         // Interaction Handler
         if !is_over_ui {
@@ -842,10 +959,60 @@ impl DrawingSheetView {
                         }
                     }
                 }
-            } else {
-                // Klik untuk pilih/hapus teks, detail view, atau dimensi, atau tambah teks baru
+            } else if state.balloon_tool_active {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if response.clicked() {
-                    if let Some(del_det) = state.hovered_detail_delete {
+                    if let Some(c_pos) = cursor_pos {
+                        let click_mm = screen_to_mm(c_pos);
+                        let next_item = if sheet.bom_table.items.is_empty() {
+                            sheet.balloons.len() + 1
+                        } else {
+                            (sheet.balloons.len() % sheet.bom_table.items.len()) + 1
+                        };
+                        let target_pt = click_mm;
+                        let balloon_pos = [click_mm[0] + 16.0, click_mm[1] + 12.0];
+                        sheet.add_balloon(next_item, target_pt, balloon_pos, ProjectedViewKind::Isometric);
+                        state.selected_balloon_id = sheet.balloons.last().map(|b| b.id);
+                        state.balloon_tool_active = false;
+                    }
+                }
+            } else {
+                // Klik untuk pilih/hapus teks, detail view, balon, BOM, atau dimensi, atau tambah teks baru
+                if response.clicked() {
+                    if let Some(del_b_id) = state.hovered_balloon_delete {
+                        sheet.remove_balloon(del_b_id);
+                        state.selected_balloon_id = None;
+                        state.hovered_balloon_id = None;
+                        state.hovered_balloon_delete = None;
+                    } else if let Some(del_r_idx) = state.hovered_bom_delete_row {
+                        if del_r_idx < sheet.bom_table.items.len() {
+                            sheet.bom_table.items.remove(del_r_idx);
+                            state.hovered_bom_delete_row = None;
+                            state.hovered_bom_row = None;
+                            state.active_text_edit = None;
+                        }
+                    } else if state.hovered_bom_add_row {
+                        let new_no = sheet.bom_table.items.len() + 1;
+                        sheet.bom_table.items.push(BomItem {
+                            item_number: new_no,
+                            part_name: format!("Part {}", new_no),
+                            quantity: 1,
+                            material: "Aluminium 6061-T6".to_string(),
+                            description: String::new(),
+                        });
+                        let new_idx = sheet.bom_table.items.len() - 1;
+                        state.active_text_edit = Some(ActiveTextTarget::BomCell(new_idx, BomCellField::PartName));
+                    } else if let Some((r_idx, field)) = state.hovered_bom_cell {
+                        state.active_text_edit = Some(ActiveTextTarget::BomCell(r_idx, field));
+                        state.hovered_bom_row = Some(r_idx);
+                    } else if state.hovered_bom_title {
+                        state.active_text_edit = Some(ActiveTextTarget::BomTitle);
+                    } else if let Some(b_id) = state.hovered_balloon_id {
+                        state.selected_balloon_id = Some(b_id);
+                        state.selected_text_idx = None;
+                        state.selected_dim = None;
+                        state.selected_detail_label = None;
+                    } else if let Some(del_det) = state.hovered_detail_delete {
                         sheet.remove_detail_view(del_det);
                         state.selected_detail_label = None;
                         state.hovered_detail_label = None;
@@ -914,14 +1081,23 @@ impl DrawingSheetView {
                         state.selected_dim = None;
                         state.selected_text_idx = None;
                         state.selected_detail_label = None;
+                        state.selected_balloon_id = None;
                         state.active_text_edit = None;
                     }
                 }
 
-                // Drag and drop geser teks, detail circle, ukuran, atau tampak
+                // Drag and drop geser teks, balon, BOM, detail circle, ukuran, atau tampak
                 if response.drag_started_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() && state.hovered_detail_delete.is_none() {
-                        if state.hovered_detail_label.is_some() {
+                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() && state.hovered_detail_delete.is_none() && state.hovered_balloon_delete.is_none() && state.hovered_bom_delete_row.is_none() {
+                        if state.hovered_balloon_target_id.is_some() {
+                            state.dragging_balloon_target_id = state.hovered_balloon_target_id;
+                            state.selected_balloon_id = state.hovered_balloon_id;
+                        } else if state.hovered_balloon_id.is_some() {
+                            state.dragging_balloon_id = state.hovered_balloon_id;
+                            state.selected_balloon_id = state.hovered_balloon_id;
+                        } else if (state.hovered_bom_row.is_some() || state.hovered_bom_title) && state.active_text_edit.is_none() {
+                            state.dragging_bom_table = true;
+                        } else if state.hovered_detail_label.is_some() {
                             state.dragging_detail_label = state.hovered_detail_label;
                             state.selected_detail_label = state.hovered_detail_label;
                         } else if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
@@ -937,7 +1113,29 @@ impl DrawingSheetView {
                 }
 
                 if response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if let Some(lbl) = state.dragging_detail_label {
+                    if let Some(b_id) = state.dragging_balloon_target_id {
+                        if let Some(b) = sheet.balloons.iter_mut().find(|b| b.id == b_id) {
+                            let delta_x = response.drag_delta().x / zoom;
+                            let delta_y = -response.drag_delta().y / zoom;
+                            b.target_point[0] += delta_x;
+                            b.target_point[1] += delta_y;
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if let Some(b_id) = state.dragging_balloon_id {
+                        if let Some(b) = sheet.balloons.iter_mut().find(|b| b.id == b_id) {
+                            let delta_x = response.drag_delta().x / zoom;
+                            let delta_y = -response.drag_delta().y / zoom;
+                            b.balloon_pos[0] += delta_x;
+                            b.balloon_pos[1] += delta_y;
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if state.dragging_bom_table {
+                        let cur_pos = sheet.bom_table.custom_pos_mm.unwrap_or([tb[0], tb[1] + 48.0]);
+                        let delta_x = response.drag_delta().x / zoom;
+                        let delta_y = -response.drag_delta().y / zoom;
+                        sheet.bom_table.custom_pos_mm = Some([cur_pos[0] + delta_x, cur_pos[1] + delta_y]);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if let Some(lbl) = state.dragging_detail_label {
                         if let Some(det) = sheet.drawing.detail_views.iter().find(|d| d.indicator.label == lbl).cloned() {
                             if let Some(plc) = sheet.view_placements.iter().find(|p| p.kind == det.indicator.parent_view) {
                                 let s = plc.scale;
@@ -1001,6 +1199,9 @@ impl DrawingSheetView {
                     state.dragging_text_idx = None;
                     state.dragging_dim = None;
                     state.dragging_view = None;
+                    state.dragging_balloon_id = None;
+                    state.dragging_balloon_target_id = None;
+                    state.dragging_bom_table = false;
                 }
 
                 // Pan canvas
@@ -1015,17 +1216,22 @@ impl DrawingSheetView {
                         && state.hovered_dim.is_none()
                         && state.dragging_text_idx.is_none()
                         && state.hovered_text_idx.is_none()
+                        && state.dragging_balloon_id.is_none()
+                        && state.hovered_balloon_id.is_none()
+                        && !state.dragging_bom_table
+                        && state.hovered_bom_row.is_none()
                         && state.hovered_tb_field.is_none())
                 {
                     state.pan_offset += response.drag_delta();
                 }
 
-                if state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() || state.hovered_detail_delete.is_some() {
+                if state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() || state.hovered_detail_delete.is_some() || state.hovered_balloon_delete.is_some() || state.hovered_bom_delete_row.is_some() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                } else if state.text_tool_active || state.hovered_tb_field.is_some() || state.hovered_text_idx.is_some() {
+                } else if state.text_tool_active || state.hovered_tb_field.is_some() || state.hovered_text_idx.is_some() || state.hovered_bom_cell.is_some() || state.hovered_bom_title {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
                 } else if (state.hovered_detail_label.is_some() && state.dragging_detail_label.is_none())
                     || (state.hovered_dim.is_some() && state.dragging_dim.is_none())
+                    || (state.hovered_balloon_id.is_some() && state.dragging_balloon_id.is_none())
                     || (state.hovered_view.is_some() && state.dragging_view.is_none())
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -1134,6 +1340,109 @@ impl DrawingSheetView {
                                             || i.key_pressed(egui::Key::Escape)
                                     })
                                 {
+                                    finish_text_edit = true;
+                                }
+                            });
+                    } else {
+                        finish_text_edit = true;
+                    }
+                }
+                ActiveTextTarget::BomTitle => {
+                    let bom_tb = sheet.bom_table_rect_mm();
+                    let title_h = sheet.bom_title_height_mm();
+                    let p_bl = mm_to_screen(bom_tb[0] + 2.0, bom_tb[3] - title_h + 1.0);
+                    let p_tr = mm_to_screen(bom_tb[2] - 30.0, bom_tb[3] - 1.0);
+                    let edit_rect = Rect::from_two_pos(p_bl, p_tr);
+                    let font_sz = (3.6 * zoom).clamp(8.0, 14.0);
+
+                    let val_mut = &mut sheet.bom_table.title;
+                    let mut edit_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(edit_rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+                    Frame::NONE
+                        .fill(Color32::WHITE)
+                        .stroke(Stroke::new(1.5, Color32::from_rgb(0, 130, 250)))
+                        .corner_radius(CornerRadius::same(2))
+                        .inner_margin(Margin::symmetric(3, 1))
+                        .show(&mut edit_ui, |ui| {
+                            let res = ui.add(
+                                egui::TextEdit::singleline(val_mut)
+                                    .font(FontId::proportional(font_sz))
+                                    .text_color(Color32::BLACK)
+                                    .frame(egui::Frame::NONE)
+                                    .hint_text("BILL OF MATERIALS")
+                                    .desired_width(edit_rect.width() - 6.0),
+                            );
+                            res.request_focus();
+                            if res.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
+                                finish_text_edit = true;
+                            }
+                        });
+                }
+                ActiveTextTarget::BomCell(row_idx, col_field) => {
+                    if row_idx < sheet.bom_table.items.len() {
+                        let bom_tb = sheet.bom_table_rect_mm();
+                        let title_h = sheet.bom_title_height_mm();
+                        let header_h = sheet.bom_header_height_mm();
+                        let row_h = sheet.bom_row_height_mm();
+                        let col_w = sheet.bom_column_widths_mm();
+
+                        let y_top = bom_tb[3];
+                        let y_row_top = y_top - title_h - header_h - (row_idx as f32 * row_h);
+                        let y_row_bot = y_row_top - row_h;
+
+                        let (c_start_x, c_w) = match col_field {
+                            BomCellField::PartName => (bom_tb[0] + col_w[0], col_w[1]),
+                            BomCellField::Quantity => (bom_tb[0] + col_w[0] + col_w[1], col_w[2]),
+                            BomCellField::Material => (bom_tb[0] + col_w[0] + col_w[1] + col_w[2], col_w[3]),
+                            BomCellField::Description => (bom_tb[0] + col_w[0] + col_w[1] + col_w[2] + col_w[3], col_w[4]),
+                        };
+
+                        let p_bl = mm_to_screen(c_start_x + 0.5, y_row_bot + 0.5);
+                        let p_tr = mm_to_screen(c_start_x + c_w - 0.5, y_row_top - 0.5);
+                        let edit_rect = Rect::from_two_pos(p_bl, p_tr);
+                        let font_sz = (2.6 * zoom).clamp(7.5, 12.0);
+
+                        let mut qty_str = format!("{}", sheet.bom_table.items[row_idx].quantity);
+                        let mut edit_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(edit_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+
+                        Frame::NONE
+                            .fill(Color32::WHITE)
+                            .stroke(Stroke::new(1.5, Color32::from_rgb(0, 130, 250)))
+                            .corner_radius(CornerRadius::same(2))
+                            .inner_margin(Margin::symmetric(3, 1))
+                            .show(&mut edit_ui, |ui| {
+                                let (res, changed_qty) = match col_field {
+                                    BomCellField::PartName => {
+                                        let val_mut = &mut sheet.bom_table.items[row_idx].part_name;
+                                        (ui.add(egui::TextEdit::singleline(val_mut).font(FontId::proportional(font_sz)).text_color(Color32::BLACK).frame(egui::Frame::NONE).desired_width(edit_rect.width() - 4.0)), false)
+                                    }
+                                    BomCellField::Quantity => {
+                                        let r = ui.add(egui::TextEdit::singleline(&mut qty_str).font(FontId::proportional(font_sz)).text_color(Color32::BLACK).frame(egui::Frame::NONE).desired_width(edit_rect.width() - 4.0));
+                                        (r, true)
+                                    }
+                                    BomCellField::Material => {
+                                        let val_mut = &mut sheet.bom_table.items[row_idx].material;
+                                        (ui.add(egui::TextEdit::singleline(val_mut).font(FontId::proportional(font_sz)).text_color(Color32::BLACK).frame(egui::Frame::NONE).desired_width(edit_rect.width() - 4.0)), false)
+                                    }
+                                    BomCellField::Description => {
+                                        let val_mut = &mut sheet.bom_table.items[row_idx].description;
+                                        (ui.add(egui::TextEdit::singleline(val_mut).font(FontId::proportional(font_sz)).text_color(Color32::BLACK).frame(egui::Frame::NONE).desired_width(edit_rect.width() - 4.0)), false)
+                                    }
+                                };
+                                if changed_qty {
+                                    if let Ok(num) = qty_str.trim().parse::<u32>() {
+                                        sheet.bom_table.items[row_idx].quantity = num;
+                                    }
+                                }
+                                res.request_focus();
+                                if res.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
                                     finish_text_edit = true;
                                 }
                             });
@@ -1426,7 +1735,45 @@ impl DrawingSheetView {
                     if state.text_tool_active {
                         state.measure_tool_active = false;
                         state.detail_tool_active = false;
+                        state.balloon_tool_active = false;
                     }
+                }
+
+                let bom_btn = header_icon_btn(
+                    ui,
+                    ICON_GRID_VIEW.codepoint,
+                    sheet.show_bom_table,
+                    "Tabel BOM (Bill of Materials)",
+                    Some("O"),
+                    Some("Tampilkan tabel daftar komponen/part dan material (ISO 7573)"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if bom_btn.clicked() {
+                    sheet.show_bom_table = !sheet.show_bom_table;
+                }
+
+                let balloon_btn = header_icon_btn(
+                    ui,
+                    ICON_ADJUST.codepoint,
+                    state.balloon_tool_active || sheet.show_balloons,
+                    "Part Callout Balloons (Nomor Penunjuk)",
+                    Some("U"),
+                    Some("Klik untuk aktifkan tool penunjuk nomor bagian pada gambar isometrik"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(Color32::from_rgb(255, 160, 40)),
+                );
+                if balloon_btn.clicked() {
+                    state.balloon_tool_active = !state.balloon_tool_active;
+                    if state.balloon_tool_active {
+                        sheet.show_balloons = true;
+                        state.text_tool_active = false;
+                        state.measure_tool_active = false;
+                        state.detail_tool_active = false;
+                    }
+                }
+                if state.balloon_tool_active {
+                    ui.label(RichText::new("(Klik gambar untuk menaruh balon)").size(10.0).color(Color32::from_rgb(255, 180, 50)));
                 }
 
                 if state.detail_tool_active || state.selected_detail_label.is_some() || !sheet.drawing.detail_views.is_empty() {
@@ -2222,7 +2569,13 @@ fn render_sheet_canvas(
         }
     }
 
-    // I. Indikator Snap Point & Pengukuran Live (Tambah Data Ukuran Manual)
+    // I. Tabel BOM (Bill of Materials ISO 7573)
+    render_bom_table_screen(&painter, sheet, state, zoom, mm_to_screen);
+
+    // J. Part Callout Balloons
+    render_callout_balloons_screen(&painter, sheet, state, zoom, mm_to_screen);
+
+    // K. Indikator Snap Point & Pengukuran Live (Tambah Data Ukuran Manual)
     if let Some(snap_mm) = active_snap_pt_mm {
         let p_snap = mm_to_screen(snap_mm[0], snap_mm[1]);
         painter.circle_stroke(p_snap, 5.0, Stroke::new(1.5, Color32::from_rgb(255, 140, 0)));
@@ -2673,6 +3026,278 @@ fn draw_dashed_circle(
             let pt1 = Pos2::new(center.x + radius * a1.cos(), center.y + radius * a1.sin());
             let pt2 = Pos2::new(center.x + radius * a2.cos(), center.y + radius * a2.sin());
             painter.line_segment([pt1, pt2], stroke);
+        }
+    }
+}
+
+/// Render Tabel BOM (Bill of Materials ISO 7573) di atas Etiket Lembar Kerja 2D.
+fn render_bom_table_screen<F>(
+    painter: &egui::Painter,
+    sheet: &DrawingSheet,
+    state: &DrawingSheetViewState,
+    zoom: f32,
+    mm_to_screen: F,
+) where
+    F: Fn(f32, f32) -> Pos2,
+{
+    if !sheet.show_bom_table || sheet.bom_table.items.is_empty() {
+        return;
+    }
+
+    let tb = sheet.bom_table_rect_mm();
+    let col_w = sheet.bom_column_widths_mm();
+    let title_h = sheet.bom_title_height_mm();
+    let header_h = sheet.bom_header_height_mm();
+    let row_h = sheet.bom_row_height_mm();
+
+    let p_bl = mm_to_screen(tb[0], tb[1]);
+    let p_tr = mm_to_screen(tb[2], tb[3]);
+    let bom_rect = Rect::from_two_pos(p_bl, p_tr);
+
+    let stroke_thick = Stroke::new((0.5 * zoom).clamp(1.0, 1.8), Color32::BLACK);
+    let stroke_thin = Stroke::new((0.25 * zoom).clamp(0.6, 1.0), Color32::from_rgb(40, 45, 55));
+    let stroke_highlight = Stroke::new(1.5, Color32::from_rgb(0, 140, 255));
+
+    // Latar belakang putih tabel
+    painter.rect_filled(bom_rect, CornerRadius::ZERO, Color32::WHITE);
+
+    // 1. Kotak Luar Tebal
+    painter.rect_stroke(bom_rect, CornerRadius::ZERO, stroke_thick, egui::StrokeKind::Inside);
+
+    // 2. Baris Judul (Title Bar)
+    let y_title_bot = tb[3] - title_h;
+    let p_t1 = mm_to_screen(tb[0], y_title_bot);
+    let p_t2 = mm_to_screen(tb[2], y_title_bot);
+    painter.line_segment([p_t1, p_t2], stroke_thick);
+
+    let title_rect = Rect::from_two_pos(mm_to_screen(tb[0], y_title_bot), mm_to_screen(tb[2], tb[3]));
+    painter.rect_filled(title_rect, CornerRadius::ZERO, Color32::from_rgb(238, 242, 248));
+
+    let title_text = if sheet.bom_table.title.is_empty() { "BILL OF MATERIALS" } else { &sheet.bom_table.title };
+    let font_title = FontId::proportional((3.5 * zoom).clamp(8.5, 14.0));
+    painter.text(
+        Pos2::new(title_rect.min.x + 8.0, title_rect.center().y),
+        Align2::LEFT_CENTER,
+        title_text,
+        font_title,
+        Color32::BLACK,
+    );
+
+    // Tombol [ + Baris ] di pojok kanan baris judul
+    let add_btn_rect = Rect::from_min_size(
+        Pos2::new(title_rect.max.x - 55.0 * zoom.clamp(0.8, 1.2), title_rect.min.y + 2.0),
+        vec2(50.0 * zoom.clamp(0.8, 1.2), title_rect.height() - 4.0),
+    );
+    let is_add_hover = state.hovered_bom_add_row;
+    painter.rect_filled(
+        add_btn_rect,
+        CornerRadius::same(2),
+        if is_add_hover { Color32::from_rgb(0, 150, 110) } else { Color32::from_rgba_premultiplied(40, 45, 55, 40) },
+    );
+    painter.text(
+        add_btn_rect.center(),
+        Align2::CENTER_CENTER,
+        "+ Baris",
+        FontId::proportional((2.6 * zoom).clamp(7.5, 11.0)),
+        if is_add_hover { Color32::WHITE } else { Color32::from_rgb(30, 35, 45) },
+    );
+
+    // 3. Baris Header Kolom
+    let y_header_bot = y_title_bot - header_h;
+    let p_h1 = mm_to_screen(tb[0], y_header_bot);
+    let p_h2 = mm_to_screen(tb[2], y_header_bot);
+    painter.line_segment([p_h1, p_h2], stroke_thick);
+
+    let header_rect = Rect::from_two_pos(mm_to_screen(tb[0], y_header_bot), mm_to_screen(tb[2], y_title_bot));
+    painter.rect_filled(header_rect, CornerRadius::ZERO, Color32::from_rgb(224, 230, 240));
+
+    let col_headers = ["ITEM", "PART NAME", "QTY", "MATERIAL", "DESCRIPTION"];
+    let font_header = FontId::proportional((2.7 * zoom).clamp(7.0, 11.5));
+
+    let mut cur_x = tb[0];
+    for (i, &col_name) in col_headers.iter().enumerate() {
+        let cw = col_w[i];
+        let p_c_bl = mm_to_screen(cur_x, y_header_bot);
+        let p_c_tr = mm_to_screen(cur_x + cw, y_title_bot);
+        let c_rect = Rect::from_two_pos(p_c_bl, p_c_tr);
+
+        if i == 0 || i == 2 {
+            painter.text(c_rect.center(), Align2::CENTER_CENTER, col_name, font_header.clone(), Color32::BLACK);
+        } else {
+            painter.text(
+                Pos2::new(c_rect.min.x + 3.0, c_rect.center().y),
+                Align2::LEFT_CENTER,
+                col_name,
+                font_header.clone(),
+                Color32::BLACK,
+            );
+        }
+
+        if i > 0 {
+            let p_vl_top = mm_to_screen(cur_x, y_title_bot);
+            let p_vl_bot = mm_to_screen(cur_x, tb[1]);
+            painter.line_segment([p_vl_top, p_vl_bot], stroke_thin);
+        }
+        cur_x += cw;
+    }
+
+    // 4. Data Rows
+    let font_row = FontId::proportional((2.6 * zoom).clamp(7.0, 11.5));
+    for (r_idx, item) in sheet.bom_table.items.iter().enumerate() {
+        let y_row_top = y_header_bot - (r_idx as f32 * row_h);
+        let y_row_bot = y_row_top - row_h;
+
+        let row_p1 = mm_to_screen(tb[0], y_row_bot);
+        let row_p2 = mm_to_screen(tb[2], y_row_bot);
+        painter.line_segment([row_p1, row_p2], stroke_thin);
+
+        let row_screen_rect = Rect::from_two_pos(row_p1, mm_to_screen(tb[2], y_row_top));
+
+        // Highlight saat baris di-hover atau balon terkait di-hover/dipilih
+        let is_row_hover = state.hovered_bom_row == Some(r_idx);
+        let is_balloon_matched = state.hovered_balloon_id.or(state.selected_balloon_id).map_or(false, |b_id| {
+            sheet.balloons.iter().find(|b| b.id == b_id).map_or(false, |b| b.item_number == item.item_number)
+        });
+
+        if is_row_hover || is_balloon_matched {
+            let bg_col = if is_balloon_matched {
+                Color32::from_rgba_premultiplied(255, 140, 0, 35)
+            } else {
+                Color32::from_rgba_premultiplied(0, 140, 255, 30)
+            };
+            painter.rect_filled(row_screen_rect, CornerRadius::ZERO, bg_col);
+            painter.rect_stroke(row_screen_rect, CornerRadius::ZERO, stroke_highlight, egui::StrokeKind::Inside);
+
+            // Tombol Hapus [ ✕ ] di tepi kanan baris
+            let del_btn_center = Pos2::new(row_screen_rect.max.x - 7.0, row_screen_rect.center().y);
+            let is_del_hover = state.hovered_bom_delete_row == Some(r_idx);
+            painter.circle_filled(
+                del_btn_center,
+                6.0,
+                if is_del_hover { Color32::from_rgb(230, 40, 40) } else { Color32::from_rgba_premultiplied(180, 40, 40, 200) },
+            );
+            painter.text(del_btn_center, Align2::CENTER_CENTER, "×", FontId::monospace(10.0), Color32::WHITE);
+        }
+
+        let vals = [
+            format!("{}", item.item_number),
+            item.part_name.clone(),
+            format!("{}", item.quantity),
+            item.material.clone(),
+            item.description.clone(),
+        ];
+
+        let mut cell_x = tb[0];
+        for (c_idx, val) in vals.iter().enumerate() {
+            let cw = col_w[c_idx];
+            let cell_bl = mm_to_screen(cell_x, y_row_bot);
+            let cell_tr = mm_to_screen(cell_x + cw, y_row_top);
+            let cell_rect = Rect::from_two_pos(cell_bl, cell_tr);
+
+            if c_idx == 0 {
+                // Item number: Tebal & Center
+                painter.text(
+                    cell_rect.center(),
+                    Align2::CENTER_CENTER,
+                    val,
+                    FontId::proportional((2.8 * zoom).clamp(7.5, 12.0)),
+                    if is_balloon_matched { Color32::from_rgb(220, 100, 0) } else { Color32::BLACK },
+                );
+            } else if c_idx == 2 {
+                // Qty: Center
+                painter.text(cell_rect.center(), Align2::CENTER_CENTER, val, font_row.clone(), Color32::BLACK);
+            } else {
+                // Teks: Left aligned
+                let txt_pos = Pos2::new(cell_rect.min.x + 3.0, cell_rect.center().y);
+                painter.text(txt_pos, Align2::LEFT_CENTER, val, font_row.clone(), Color32::BLACK);
+            }
+            cell_x += cw;
+        }
+    }
+}
+
+/// Render Part Callout Balloons yang terhubung ke bagian komponen pada tampak 2D/3D.
+fn render_callout_balloons_screen<F>(
+    painter: &egui::Painter,
+    sheet: &DrawingSheet,
+    state: &DrawingSheetViewState,
+    zoom: f32,
+    mm_to_screen: F,
+) where
+    F: Fn(f32, f32) -> Pos2,
+{
+    if !sheet.show_balloons || sheet.balloons.is_empty() {
+        return;
+    }
+
+    for balloon in &sheet.balloons {
+        let is_hovered = state.hovered_balloon_id == Some(balloon.id);
+        let is_selected = state.selected_balloon_id == Some(balloon.id);
+        let is_dragging = state.dragging_balloon_id == Some(balloon.id) || state.dragging_balloon_target_id == Some(balloon.id);
+
+        // Cek apakah baris BOM yang dihover sesuai dengan nomor item balon ini
+        let is_bom_row_matched = state.hovered_bom_row.map_or(false, |r_idx| {
+            sheet.bom_table.items.get(r_idx).map_or(false, |it| it.item_number == balloon.item_number)
+        });
+
+        let p_target = mm_to_screen(balloon.target_point[0], balloon.target_point[1]);
+        let p_center = mm_to_screen(balloon.balloon_pos[0], balloon.balloon_pos[1]);
+        let r_px = (balloon.radius_mm * zoom).clamp(8.0, 40.0);
+
+        let active_color = if is_hovered || is_selected || is_dragging || is_bom_row_matched {
+            Color32::from_rgb(255, 140, 0)
+        } else {
+            Color32::BLACK
+        };
+
+        // 1. Leader Line dari p_target ke lingkar balon p_center
+        let dir = p_target - p_center;
+        let len = dir.length().max(1.0);
+        let p_rim = p_center + (dir / len) * r_px;
+
+        let stroke_line = Stroke::new(
+            if is_hovered || is_selected || is_bom_row_matched { 1.5 } else { 1.0 },
+            active_color,
+        );
+        painter.line_segment([p_target, p_rim], stroke_line);
+
+        // 2. Target Arrowhead (panah penunjuk part)
+        let arrow_dir = (p_target - p_rim).normalized();
+        draw_arrowhead(painter, p_target, arrow_dir, (2.8 * zoom).clamp(5.0, 11.0), active_color);
+
+        // 3. Titik target handle saat dipilih/dihover
+        if is_hovered || is_selected {
+            painter.circle_filled(p_target, 3.5, Color32::from_rgb(255, 140, 0));
+        }
+
+        // 4. Glowing halo saat dihover atau dipilih
+        if is_hovered || is_selected || is_bom_row_matched {
+            painter.circle_stroke(
+                p_center,
+                r_px + 3.0,
+                Stroke::new(1.8, Color32::from_rgba_premultiplied(255, 140, 0, 150)),
+            );
+        }
+
+        // 5. Lingkaran Balon Putih Masking
+        painter.circle_filled(p_center, r_px, Color32::WHITE);
+        painter.circle_stroke(p_center, r_px, stroke_line);
+
+        // 6. Nomor Item di Tengah Balon
+        let num_str = format!("{}", balloon.item_number);
+        let font_num = FontId::proportional((balloon.radius_mm * 1.05 * zoom).clamp(9.0, 22.0));
+        painter.text(p_center, Align2::CENTER_CENTER, num_str, font_num, active_color);
+
+        // 7. Tombol Hapus [ ✕ ] saat dihover
+        if is_hovered || is_selected {
+            let del_center = Pos2::new(p_center.x + r_px * 0.7 + 6.0, p_center.y - r_px * 0.7 - 6.0);
+            let is_del_hover = state.hovered_balloon_delete == Some(balloon.id);
+            painter.circle_filled(
+                del_center,
+                6.5,
+                if is_del_hover { Color32::from_rgb(230, 40, 40) } else { Color32::from_rgba_premultiplied(180, 40, 40, 220) },
+            );
+            painter.text(del_center, Align2::CENTER_CENTER, "×", FontId::monospace(10.0), Color32::WHITE);
         }
     }
 }

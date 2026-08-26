@@ -19,7 +19,8 @@ pub mod step_io;
 pub mod svg;
 
 pub use drawing::{
-    DimensionAnnotation, DrawingSheet, PaperSize, SheetViewPlacement, TextAnnotation, TitleBlockInfo,
+    BomItem, BomTable, CalloutBalloon, DimensionAnnotation, DrawingSheet, PaperSize,
+    SheetViewPlacement, TextAnnotation, TitleBlockInfo,
 };
 pub use dxf::export_drawing_sheet;
 pub use glb::{export_glb_bytes, write_glb, write_glb_with_options, GlbExportOptions};

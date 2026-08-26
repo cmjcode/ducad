@@ -111,6 +111,16 @@ pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
     // Render Anotasi Teks Bebas
     render_custom_texts(&mut stream, sheet);
 
+    // Render Tabel BOM (Bill of Materials)
+    if sheet.show_bom_table {
+        render_bom_table(&mut stream, sheet);
+    }
+
+    // Render Part Callout Balloons
+    if sheet.show_balloons {
+        render_callout_balloons(&mut stream, sheet);
+    }
+
     // Objek 1: Font Helvetica Standar
     let font1_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
     // Objek 2: Font Helvetica-Bold Standar
@@ -702,6 +712,216 @@ fn render_custom_texts(s: &mut String, sheet: &DrawingSheet) {
     s.push_str("ET Q\n");
 }
 
+/// Render Tabel BOM (Bill of Materials) pada dokumen PDF sesuai standar ISO 7573.
+fn render_bom_table(s: &mut String, sheet: &DrawingSheet) {
+    if sheet.bom_table.items.is_empty() {
+        return;
+    }
+
+    let tb = sheet.bom_table_rect_mm();
+    let x1 = mm_to_pt(tb[0]);
+    let y1 = mm_to_pt(tb[1]);
+    let x2 = mm_to_pt(tb[2]);
+    let y2 = mm_to_pt(tb[3]);
+
+    let col_w_mm = sheet.bom_column_widths_mm();
+    let col_w_pt: Vec<f32> = col_w_mm.iter().map(|&w| mm_to_pt(w)).collect();
+
+    let title_h = mm_to_pt(sheet.bom_title_height_mm());
+    let header_h = mm_to_pt(sheet.bom_header_height_mm());
+    let row_h = mm_to_pt(sheet.bom_row_height_mm());
+
+    let stroke_thick = mm_to_pt(0.5);
+    let stroke_thin = mm_to_pt(0.25);
+
+    // 1. Latar Belakang Header & Judul
+    let y_title_bot = y2 - title_h;
+    let y_header_bot = y_title_bot - header_h;
+
+    // Header Judul: Abu-abu sangat muda
+    s.push_str(&format!(
+        "q 0.94 0.95 0.97 rg {x1:.2} {y_title_bot:.2} {:.2} {title_h:.2} re f Q\n",
+        x2 - x1
+    ));
+    // Header Kolom: Abu-abu muda
+    s.push_str(&format!(
+        "q 0.88 0.90 0.93 rg {x1:.2} {y_header_bot:.2} {:.2} {header_h:.2} re f Q\n",
+        x2 - x1
+    ));
+
+    // 2. Garis Luar Tebal (Outer Border)
+    s.push_str(&format!(
+        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y1:.2} {:.2} {:.2} re S Q\n",
+        x2 - x1,
+        y2 - y1
+    ));
+
+    // 3. Garis Horizontal Pembatas
+    s.push_str(&format!(
+        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y_title_bot:.2} m {x2:.2} {y_title_bot:.2} l S Q\n"
+    ));
+    s.push_str(&format!(
+        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y_header_bot:.2} m {x2:.2} {y_header_bot:.2} l S Q\n"
+    ));
+
+    // Garis baris data
+    for i in 1..sheet.bom_table.items.len() {
+        let y_row = y_header_bot - (i as f32 * row_h);
+        s.push_str(&format!(
+            "q {stroke_thin:.2} w 0 0 0 RG {x1:.2} {y_row:.2} m {x2:.2} {y_row:.2} l S Q\n"
+        ));
+    }
+
+    // 4. Garis Vertikal Pembagi Kolom (dari y_title_bot ke y1)
+    let mut cur_x = x1;
+    for &cw in &col_w_pt[..col_w_pt.len() - 1] {
+        cur_x += cw;
+        s.push_str(&format!(
+            "q {stroke_thin:.2} w 0 0 0 RG {cur_x:.2} {y1:.2} m {cur_x:.2} {y_title_bot:.2} l S Q\n"
+        ));
+    }
+
+    // 5. Render Teks (Judul, Header, Data)
+    s.push_str("q 0 0 0 rg BT\n");
+
+    // Judul BOM
+    let title_text = if sheet.bom_table.title.is_empty() {
+        "BILL OF MATERIALS"
+    } else {
+        &sheet.bom_table.title
+    };
+    let tx_title = x1 + mm_to_pt(4.0);
+    let ty_title = y_title_bot + mm_to_pt(1.8);
+    s.push_str(&format!(
+        "/F2 8.0 Tf 1 0 0 1 {tx_title:.2} {ty_title:.2} Tm ({}) Tj\n",
+        escape_pdf(title_text)
+    ));
+
+    // Header Kolom
+    let col_titles = ["ITEM", "PART NAME", "QTY", "MATERIAL", "DESCRIPTION"];
+    let mut h_x = x1;
+    let ty_hdr = y_header_bot + mm_to_pt(1.6);
+    for (idx, &hdr) in col_titles.iter().enumerate() {
+        let w = col_w_pt[idx];
+        let align_center = idx == 0 || idx == 2;
+        let pad_x = if align_center {
+            (w - (hdr.len() as f32 * 4.2)) * 0.5
+        } else {
+            mm_to_pt(2.0)
+        };
+        let px = h_x + pad_x.max(mm_to_pt(1.0));
+        s.push_str(&format!(
+            "/F2 6.5 Tf 1 0 0 1 {px:.2} {ty_hdr:.2} Tm ({}) Tj\n",
+            escape_pdf(hdr)
+        ));
+        h_x += w;
+    }
+
+    // Baris Data
+    for (row_idx, item) in sheet.bom_table.items.iter().enumerate() {
+        let y_row_bot = y_header_bot - ((row_idx + 1) as f32 * row_h);
+        let ty_val = y_row_bot + mm_to_pt(1.5);
+
+        let row_values = [
+            format!("{}", item.item_number),
+            item.part_name.clone(),
+            format!("{}", item.quantity),
+            item.material.clone(),
+            item.description.clone(),
+        ];
+
+        let mut r_x = x1;
+        for (col_idx, val) in row_values.iter().enumerate() {
+            let w = col_w_pt[col_idx];
+            let is_center = col_idx == 0 || col_idx == 2;
+            let pad_x = if is_center {
+                (w - (val.len() as f32 * 4.0)) * 0.5
+            } else {
+                mm_to_pt(2.0)
+            };
+            let px = r_x + pad_x.max(mm_to_pt(1.0));
+            let font = if col_idx == 0 || col_idx == 2 { "/F2 6.5 Tf" } else { "/F1 6.5 Tf" };
+            s.push_str(&format!(
+                "{font} 1 0 0 1 {px:.2} {ty_val:.2} Tm ({}) Tj\n",
+                escape_pdf(val)
+            ));
+            r_x += w;
+        }
+    }
+
+    s.push_str("ET Q\n");
+}
+
+/// Render lingkaran nomor penunjuk part (*Callout Balloons*) pada PDF.
+fn render_callout_balloons(s: &mut String, sheet: &DrawingSheet) {
+    if sheet.balloons.is_empty() {
+        return;
+    }
+
+    for balloon in &sheet.balloons {
+        let tx = mm_to_pt(balloon.target_point[0]);
+        let ty = mm_to_pt(balloon.target_point[1]);
+        let bx = mm_to_pt(balloon.balloon_pos[0]);
+        let by = mm_to_pt(balloon.balloon_pos[1]);
+        let r = mm_to_pt(balloon.radius_mm);
+
+        let dx = tx - bx;
+        let dy = ty - by;
+        let len = (dx * dx + dy * dy).sqrt().max(0.1);
+
+        // Titik potong lingkaran balon
+        let ex = bx + (dx / len) * r;
+        let ey = by + (dy / len) * r;
+
+        // 1. Garis Penunjuk (Leader line)
+        let stroke_w = mm_to_pt(0.35);
+        s.push_str(&format!(
+            "q {stroke_w:.2} w 0 0 0 RG {tx:.2} {ty:.2} m {ex:.2} {ey:.2} l S Q\n"
+        ));
+
+        // 2. Panah pada titik target geometri
+        render_arrow_pt(s, tx, ty, -dx / len, -dy / len);
+
+        // 3. Lingkaran Balon (latar putih + stroke hitam pekat)
+        render_circle_pdf(s, bx, by, r, true);
+
+        // 4. Nomor Item di Pusat Balon
+        let num_str = format!("{}", balloon.item_number);
+        let font_sz = 8.5;
+        let offset_x = (num_str.len() as f32) * 2.4;
+        let offset_y = 3.0;
+        let px = bx - offset_x;
+        let py = by - offset_y;
+
+        s.push_str("q 0 0 0 rg BT\n");
+        s.push_str(&format!(
+            "/F2 {font_sz:.2} Tf 1 0 0 1 {px:.2} {py:.2} Tm ({}) Tj\n",
+            escape_pdf(&num_str)
+        ));
+        s.push_str("ET Q\n");
+    }
+}
+
+/// Render lingkaran kurva Bezier PDF dengan opsi isi latar putih.
+fn render_circle_pdf(s: &mut String, cx: f32, cy: f32, r: f32, filled_white: bool) {
+    let k = r * 0.55228475;
+    if filled_white {
+        s.push_str("q 1 1 1 rg\n");
+        s.push_str(&format!("{:.2} {:.2} m ", cx, cy + r));
+        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + k, cy + r, cx + r, cy + k, cx + r, cy));
+        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + r, cy - k, cx + k, cy - r, cx, cy - r));
+        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx - k, cy - r, cx - r, cy - k, cx - r, cy));
+        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h f Q\n", cx - r, cy + k, cx - k, cy + r, cx, cy + r));
+    }
+    let stroke_w = mm_to_pt(0.35);
+    s.push_str(&format!("q {stroke_w:.2} w 0 0 0 RG\n"));
+    s.push_str(&format!("{:.2} {:.2} m ", cx, cy + r));
+    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + k, cy + r, cx + r, cy + k, cx + r, cy));
+    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + r, cy - k, cx + k, cy - r, cx, cy - r));
+    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx - k, cy - r, cx - r, cy - k, cx - r, cy));
+    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h S Q\n", cx - r, cy + k, cx - k, cy + r, cx, cy + r));
+}
+
 /// Menggambar panah dimensi lancip terisi (filled arrowhead).
 fn render_arrow_pt(s: &mut String, tip_x: f32, tip_y: f32, dir_x: f32, dir_y: f32) {
     let arrow_len = mm_to_pt(2.5);
@@ -828,4 +1048,39 @@ mod tests {
         assert!(temp_path.exists());
         let _ = std::fs::remove_file(&temp_path);
     }
+
+    #[test]
+    fn test_pdf_export_with_bom_and_balloons() {
+        let drawing = sample_drawing();
+        let mut sheet = DrawingSheet::new(drawing, PaperSize::A4Landscape);
+
+        sheet.bom_table.items.push(crate::drawing::BomItem {
+            item_number: 1,
+            part_name: "Gear Box Housing".to_string(),
+            quantity: 1,
+            material: "Cast Iron".to_string(),
+            description: "Main housing".to_string(),
+        });
+        sheet.bom_table.items.push(crate::drawing::BomItem {
+            item_number: 2,
+            part_name: "Drive Pinion".to_string(),
+            quantity: 2,
+            material: "Steel 4140".to_string(),
+            description: "Hardened gear".to_string(),
+        });
+
+        sheet.add_balloon(1, [150.0, 120.0], [170.0, 140.0], ProjectedViewKind::Isometric);
+        sheet.add_balloon(2, [130.0, 110.0], [110.0, 90.0], ProjectedViewKind::Isometric);
+
+        let pdf_bytes = generate_pdf_bytes(&sheet);
+        assert!(!pdf_bytes.is_empty());
+        let text = String::from_utf8_lossy(&pdf_bytes);
+
+        assert!(text.contains("BILL OF MATERIALS"));
+        assert!(text.contains("Gear Box Housing"));
+        assert!(text.contains("Drive Pinion"));
+        assert!(text.contains("Cast Iron"));
+        assert!(text.contains("Steel 4140"));
+    }
 }
+

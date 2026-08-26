@@ -617,6 +617,150 @@ pub fn export_drawing_sheet_svg_string(sheet: &DrawingSheet) -> Result<String> {
     }
 
     out.push_str("  </g>\n");
+
+    // 5. Tabel BOM (Bill of Materials)
+    if sheet.show_bom_table && !sheet.bom_table.items.is_empty() {
+        out.push_str(r##"  <!-- Tabel BOM (Bill of Materials ISO 7573) -->"##);
+        out.push('\n');
+        out.push_str(r##"  <g id="bom_table">"##);
+        out.push('\n');
+
+        let tb = sheet.bom_table_rect_mm();
+        let (bx, by, bw, bh) = (tb[0], tb[1], tb[2] - tb[0], tb[3] - tb[1]);
+        let col_w = sheet.bom_column_widths_mm();
+        let title_h = sheet.bom_title_height_mm();
+        let header_h = sheet.bom_header_height_mm();
+        let row_h = sheet.bom_row_height_mm();
+
+        // Background & Border Luar
+        out.push_str(&format!(
+            r##"    <rect x="{bx:.2}" y="{by:.2}" width="{bw:.2}" height="{bh:.2}" fill="#ffffff" stroke="#111827" stroke-width="0.5" />
+    <rect x="{bx:.2}" y="{by:.2}" width="{bw:.2}" height="{title_h:.2}" fill="#f3f4f6" stroke="#111827" stroke-width="0.35" />
+    <text x="{tx_title:.2}" y="{ty_title:.2}" font-size="3.0" font-weight="bold" fill="#111827">{title_str}</text>
+    <rect x="{bx:.2}" y="{by_hdr:.2}" width="{bw:.2}" height="{header_h:.2}" fill="#e5e7eb" stroke="#111827" stroke-width="0.35" />
+"##,
+            tx_title = bx + 4.0,
+            ty_title = by + title_h * 0.65,
+            title_str = escape_xml(if sheet.bom_table.title.is_empty() { "BILL OF MATERIALS" } else { &sheet.bom_table.title }),
+            by_hdr = by + title_h
+        ));
+
+        // Header Kolom
+        let col_names = ["ITEM", "PART NAME", "QTY", "MATERIAL", "DESCRIPTION"];
+        let mut cur_col_x = bx;
+        let ty_hdr_text = by + title_h + header_h * 0.65;
+        for (i, &name) in col_names.iter().enumerate() {
+            let cw = col_w[i];
+            let is_center = i == 0 || i == 2;
+            let tx = if is_center { cur_col_x + cw * 0.5 } else { cur_col_x + 2.0 };
+            let anchor = if is_center { "middle" } else { "start" };
+            out.push_str(&format!(
+                r##"    <text x="{tx:.2}" y="{ty_hdr_text:.2}" font-size="2.4" font-weight="bold" fill="#1f2937" text-anchor="{anchor}">{name}</text>
+"##
+            ));
+            if i > 0 {
+                out.push_str(&format!(
+                    r##"    <line x1="{cur_col_x:.2}" y1="{y_div_start:.2}" x2="{cur_col_x:.2}" y2="{y_div_end:.2}" stroke="#111827" stroke-width="0.25" />
+"##,
+                    y_div_start = by + title_h,
+                    y_div_end = by + bh
+                ));
+            }
+            cur_col_x += cw;
+        }
+
+        // Baris Item Data
+        for (row_idx, item) in sheet.bom_table.items.iter().enumerate() {
+            let y_row = by + title_h + header_h + (row_idx as f32 * row_h);
+            out.push_str(&format!(
+                r##"    <line x1="{bx:.2}" y1="{y_row:.2}" x2="{bx_end:.2}" y2="{y_row:.2}" stroke="#111827" stroke-width="0.2" />
+"##,
+                bx_end = bx + bw
+            ));
+
+            let ty_row_text = y_row + row_h * 0.68;
+            let mut cell_x = bx;
+            let vals = [
+                format!("{}", item.item_number),
+                item.part_name.clone(),
+                format!("{}", item.quantity),
+                item.material.clone(),
+                item.description.clone(),
+            ];
+
+            for (c_idx, val) in vals.iter().enumerate() {
+                let cw = col_w[c_idx];
+                let is_center = c_idx == 0 || c_idx == 2;
+                let tx = if is_center { cell_x + cw * 0.5 } else { cell_x + 2.0 };
+                let anchor = if is_center { "middle" } else { "start" };
+                let weight = if is_center { "font-weight=\"bold\" " } else { "" };
+                out.push_str(&format!(
+                    r##"    <text x="{tx:.2}" y="{ty_row_text:.2}" font-size="2.3" {weight}fill="#111827" text-anchor="{anchor}">{val_esc}</text>
+"##,
+                    val_esc = escape_xml(val)
+                ));
+                cell_x += cw;
+            }
+        }
+
+        out.push_str("  </g>\n");
+    }
+
+    // 6. Part Callout Balloons
+    if sheet.show_balloons && !sheet.balloons.is_empty() {
+        out.push_str(r##"  <!-- Lingkaran Nomor Penunjuk Part (Callout Balloons) -->"##);
+        out.push('\n');
+        out.push_str(r##"  <g id="callout_balloons">"##);
+        out.push('\n');
+
+        for balloon in &sheet.balloons {
+            let (tx, ty) = (balloon.target_point[0], balloon.target_point[1]);
+            let (bx, by) = (balloon.balloon_pos[0], balloon.balloon_pos[1]);
+            let r = balloon.radius_mm;
+
+            let dx = tx - bx;
+            let dy = ty - by;
+            let len = (dx * dx + dy * dy).sqrt().max(0.1);
+
+            let ex = bx + (dx / len) * r;
+            let ey = by + (dy / len) * r;
+
+            // Garis Leader
+            out.push_str(&format!(
+                r##"    <line x1="{tx:.2}" y1="{ty:.2}" x2="{ex:.2}" y2="{ey:.2}" stroke="#111827" stroke-width="0.35" marker-start="url(#dim_arrow_start)" />
+    <circle cx="{bx:.2}" cy="{by:.2}" r="{r:.2}" fill="#ffffff" stroke="#111827" stroke-width="0.4" />
+    <text x="{bx:.2}" y="{ty_num:.2}" font-size="3.2" font-weight="bold" fill="#111827" text-anchor="middle">{num}</text>
+"##,
+                ty_num = by + 1.1,
+                num = balloon.item_number
+            ));
+        }
+
+        out.push_str("  </g>\n");
+    }
+
+    // 7. Anotasi Teks Bebas
+    if !sheet.custom_texts.is_empty() {
+        out.push_str(r##"  <!-- Anotasi Teks Bebas & Catatan Teknis -->"##);
+        out.push('\n');
+        out.push_str(r##"  <g id="custom_texts">"##);
+        out.push('\n');
+        for note in &sheet.custom_texts {
+            if note.text.trim().is_empty() {
+                continue;
+            }
+            out.push_str(&format!(
+                r##"    <text x="{x:.2}" y="{y:.2}" font-size="{fs:.2}" font-weight="bold" fill="#111827">{txt}</text>
+"##,
+                x = note.position[0],
+                y = note.position[1],
+                fs = note.font_size,
+                txt = escape_xml(&note.text)
+            ));
+        }
+        out.push_str("  </g>\n");
+    }
+
     out.push_str("</svg>\n");
 
     Ok(out)
@@ -682,4 +826,26 @@ mod tests {
         assert!(svg.contains(r#"id="title_block""#));
         assert!(svg.contains(r#"id="sheet_border""#));
     }
+
+    #[test]
+    fn test_export_drawing_sheet_svg_bom_and_balloons() {
+        let drawing = HlrExtractor::extract_drawing(&[], &[]);
+        let mut sheet = DrawingSheet::new(drawing, crate::drawing::PaperSize::A4Landscape);
+
+        sheet.bom_table.items.push(crate::drawing::BomItem {
+            item_number: 1,
+            part_name: "Mounting Bracket".to_string(),
+            quantity: 2,
+            material: "Aluminium 6061-T6".to_string(),
+            description: "Front support".to_string(),
+        });
+        sheet.add_balloon(1, [150.0, 100.0], [170.0, 120.0], ducad_kernel::ProjectedViewKind::Isometric);
+
+        let svg = export_drawing_sheet_svg_string(&sheet).unwrap();
+        assert!(svg.contains(r#"id="bom_table""#));
+        assert!(svg.contains("Mounting Bracket"));
+        assert!(svg.contains("Aluminium 6061-T6"));
+        assert!(svg.contains(r#"id="callout_balloons""#));
+    }
 }
+

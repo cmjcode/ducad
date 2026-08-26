@@ -45,7 +45,7 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
     out.push_str("0\nENDTAB\n");
 
     // Layer Table
-    out.push_str("0\nTABLE\n2\nLAYER\n70\n8\n");
+    out.push_str("0\nTABLE\n2\nLAYER\n70\n10\n");
     out.push_str("0\nLAYER\n2\nBORDER\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nTITLEBLOCK\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nVISIBLE\n70\n0\n62\n7\n6\nCONTINUOUS\n");
@@ -54,6 +54,8 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
     out.push_str("0\nLAYER\n2\nDIMENSIONS\n70\n0\n62\n5\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nHATCH\n70\n0\n62\n4\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nSECTION\n70\n0\n62\n1\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nBOM_TABLE\n70\n0\n62\n7\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nCALLOUT_BALLOONS\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nENDTAB\n");
     out.push_str("0\nENDSEC\n");
 
@@ -233,6 +235,94 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
                 note.position[1],
                 note.font_size,
                 &note.text,
+            );
+        }
+    }
+
+    // F. Tabel BOM (Bill of Materials)
+    if sheet.show_bom_table && !sheet.bom_table.items.is_empty() {
+        let tb = sheet.bom_table_rect_mm();
+        let (bx, by, bw, bh) = (tb[0] as f64, tb[1] as f64, (tb[2] - tb[0]) as f64, (tb[3] - tb[1]) as f64);
+        let col_w = sheet.bom_column_widths_mm();
+        let title_h = sheet.bom_title_height_mm() as f64;
+        let header_h = sheet.bom_header_height_mm() as f64;
+        let row_h = sheet.bom_row_height_mm() as f64;
+
+        // Border luar tabel
+        push_rect_layer(&mut out, "BOM_TABLE", tb[0], tb[1], tb[2], tb[3]);
+
+        // Garis pemisah judul dan header
+        let y_title_bot = by + bh - title_h;
+        let y_header_bot = y_title_bot - header_h;
+        push_line_layer(&mut out, "BOM_TABLE", bx, y_title_bot, bx + bw, y_title_bot);
+        push_line_layer(&mut out, "BOM_TABLE", bx, y_header_bot, bx + bw, y_header_bot);
+
+        // Judul tabel BOM
+        let title_str = if sheet.bom_table.title.is_empty() { "BILL OF MATERIALS" } else { &sheet.bom_table.title };
+        push_text_layer(&mut out, "BOM_TABLE", (bx + 4.0) as f32, (y_title_bot + 2.0) as f32, 3.0, title_str);
+
+        // Header kolom dan garis vertikal
+        let col_names = ["ITEM", "PART NAME", "QTY", "MATERIAL", "DESCRIPTION"];
+        let mut cur_x = bx;
+        for (i, &name) in col_names.iter().enumerate() {
+            let cw = col_w[i] as f64;
+            push_text_layer(&mut out, "BOM_TABLE", (cur_x + 2.0) as f32, (y_header_bot + 1.8) as f32, 2.5, name);
+            if i > 0 {
+                push_line_layer(&mut out, "BOM_TABLE", cur_x, by, cur_x, y_title_bot);
+            }
+            cur_x += cw;
+        }
+
+        // Baris data item
+        for (row_idx, item) in sheet.bom_table.items.iter().enumerate() {
+            let y_row = y_header_bot - ((row_idx + 1) as f64 * row_h);
+            push_line_layer(&mut out, "BOM_TABLE", bx, y_row, bx + bw, y_row);
+
+            let vals = [
+                format!("{}", item.item_number),
+                item.part_name.clone(),
+                format!("{}", item.quantity),
+                item.material.clone(),
+                item.description.clone(),
+            ];
+
+            let mut cell_x = bx;
+            for (c_idx, val) in vals.iter().enumerate() {
+                let cw = col_w[c_idx] as f64;
+                push_text_layer(&mut out, "BOM_TABLE", (cell_x + 2.0) as f32, (y_row + 1.6) as f32, 2.3, val);
+                cell_x += cw;
+            }
+        }
+    }
+
+    // G. Part Callout Balloons
+    if sheet.show_balloons && !sheet.balloons.is_empty() {
+        for balloon in &sheet.balloons {
+            let (tx, ty) = (balloon.target_point[0] as f64, balloon.target_point[1] as f64);
+            let (bx, by) = (balloon.balloon_pos[0] as f64, balloon.balloon_pos[1] as f64);
+            let r = balloon.radius_mm as f64;
+
+            let dx = tx - bx;
+            let dy = ty - by;
+            let len = (dx * dx + dy * dy).sqrt().max(0.1);
+
+            let ex = bx + (dx / len) * r;
+            let ey = by + (dy / len) * r;
+
+            // Garis leader
+            push_line_layer(&mut out, "CALLOUT_BALLOONS", tx, ty, ex, ey);
+
+            // Lingkaran balon
+            push_circle_layer(&mut out, "CALLOUT_BALLOONS", bx, by, r);
+
+            // Nomor item
+            push_text_layer(
+                &mut out,
+                "CALLOUT_BALLOONS",
+                (bx - 1.5) as f32,
+                (by - 1.2) as f32,
+                3.0,
+                &format!("{}", balloon.item_number),
             );
         }
     }
@@ -578,6 +668,8 @@ mod tests {
         assert!(content.contains("LAYER\n2\nHIDDEN"));
         assert!(content.contains("LAYER\n2\nCENTERLINE"));
         assert!(content.contains("LAYER\n2\nDIMENSIONS"));
+        assert!(content.contains("LAYER\n2\nBOM_TABLE"));
+        assert!(content.contains("LAYER\n2\nCALLOUT_BALLOONS"));
         assert!(content.contains("EOF"));
     }
 }
