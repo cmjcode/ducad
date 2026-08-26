@@ -17,6 +17,7 @@ ducad-render = { workspace = true }
 ducad-io = { workspace = true }
 ducad-ui = { workspace = true }
 ducad-i18n = { workspace = true }
+ducad-cloud = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }

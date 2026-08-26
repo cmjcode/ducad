@@ -11,6 +11,7 @@
 //! - Command palette (`command_palette`)
 //! - Radial menu untuk sentuh/iPad (`radial_menu`)
 
+pub mod account_drawer;
 pub mod assembly_drawer;
 pub mod canvas_hud;
 pub mod cmf_drawer;
@@ -33,6 +34,7 @@ pub mod tool_popups;
 pub mod top_bar;
 pub mod viewcube;
 
+pub use account_drawer::{AccountDrawer, AccountDrawerEvent};
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DatumPlaneHudAction, DatumPlaneMode,

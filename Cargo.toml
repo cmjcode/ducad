@@ -16,7 +16,9 @@ ducad-render = { path = "crates/ducad-render" }
 ducad-io = { path = "crates/ducad-io" }
 ducad-ui = { path = "crates/ducad-ui" }
 ducad-i18n = { path = "crates/ducad-i18n" }
+ducad-cloud = { path = "crates/ducad-cloud" }
 
+dirs = "6.0"
 fluent-bundle = "0.16"
 fluent-syntax = "0.12"
 unic-langid = { version = "0.9", features = ["macros"] }

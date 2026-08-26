@@ -168,6 +168,14 @@ pub struct DuCADApp {
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
+
+    // CMJCode Cloud & Auth
+    pub account: Option<ducad_cloud::DucadAccount>,
+    pub auth_status: ducad_cloud::AuthStatus,
+    pub auth_rx: Option<std::sync::mpsc::Receiver<Result<ducad_cloud::TokenResponse, String>>>,
+    pub account_drawer_open: bool,
+    pub account_button_rect: egui::Rect,
+    pub server_url: String,
     pub left_toolbar_content_sig: Option<bool>,
     pub inspector_content_sig: Option<InspectorContentSig>,
     pub prop_input_p1_x: String,
@@ -363,6 +371,13 @@ impl DuCADApp {
         let mut history_db = crate::history_db::HistoryDb::new();
         history_db.clear(); // Selalu mulai dengan riwayat kosong saat aplikasi dibuka
         let activity_cache = history_db.load_activities();
+
+        let loaded_account = ducad_cloud::load_account();
+        let initial_auth_status = if loaded_account.is_some() {
+            ducad_cloud::AuthStatus::LoggedIn
+        } else {
+            ducad_cloud::AuthStatus::LoggedOut
+        };
 
         Self {
             camera: OrbitCamera::default(),
@@ -628,6 +643,13 @@ impl DuCADApp {
             text_popup_state: ducad_ui::TextPopupState::default(),
             custom_font_bytes: None,
             helix_popup_state: ducad_ui::HelixPopupState::default(),
+
+            account: loaded_account,
+            auth_status: initial_auth_status,
+            auth_rx: None,
+            account_drawer_open: false,
+            account_button_rect: egui::Rect::NOTHING,
+            server_url: ducad_cloud::detect_server_url(),
         }
     }
 
@@ -898,6 +920,13 @@ impl DuCADApp {
             text_popup_state: ducad_ui::TextPopupState::default(),
             custom_font_bytes: None,
             helix_popup_state: ducad_ui::HelixPopupState::default(),
+
+            account: None,
+            auth_status: ducad_cloud::AuthStatus::LoggedOut,
+            auth_rx: None,
+            account_drawer_open: false,
+            account_button_rect: egui::Rect::NOTHING,
+            server_url: ducad_cloud::detect_server_url(),
         }
     }
 
@@ -1227,6 +1256,29 @@ impl eframe::App for DuCADApp {
             ctx.request_repaint();
         }
 
+        // Poll OAuth callback receiver jika sedang dalam proses otentikasi browser
+        if let Some(ref rx) = self.auth_rx {
+            ctx.request_repaint();
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(token_resp) => {
+                        let acc = ducad_cloud::token_to_account(&token_resp);
+                        let _ = ducad_cloud::save_account(&acc);
+                        let user_title = acc.display_title();
+                        self.account = Some(acc);
+                        self.auth_status = ducad_cloud::AuthStatus::LoggedIn;
+                        self.model_status = Some(format!("✨ Login berhasil! Selamat datang, {}.", user_title));
+                        self.auth_rx = None;
+                    }
+                    Err(err_msg) => {
+                        self.auth_status = ducad_cloud::AuthStatus::Error(err_msg.clone());
+                        self.model_status = Some(format!("❌ Gagal login: {}", err_msg));
+                        self.auth_rx = None;
+                    }
+                }
+            }
+        }
+
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::K)) {
             self.palette.toggle();
         }
@@ -1346,6 +1398,10 @@ impl eframe::App for DuCADApp {
             plane_menu_open: self.plane_menu_open,
             items_button_rect: egui::Rect::NOTHING,
             icon_size: self.icon_size,
+            account: self.account.clone(),
+            is_authenticating: matches!(self.auth_status, ducad_cloud::AuthStatus::Authenticating { .. }),
+            account_drawer_open: self.account_drawer_open,
+            account_button_rect: self.account_button_rect,
         };
 
         if !self.drawing_sheet_state.is_open {
@@ -1408,6 +1464,9 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::OpenDrawingSheet => {
                                 self.open_drawing_sheet();
                             }
+                            TopBarEvent::ToggleAccountDrawer => {
+                                self.account_drawer_open = !self.account_drawer_open;
+                            }
                             TopBarEvent::EnterSketching => {
                                 self.is_sketching = true;
                                 self.left_toolbar.is_sketching = true;
@@ -1458,6 +1517,7 @@ impl eframe::App for DuCADApp {
                 });
 
             self.plane_menu_open = topbar_state.plane_menu_open;
+            self.account_button_rect = topbar_state.account_button_rect;
 
             self.left_toolbar.is_sketching = self.is_sketching;
             self.left_toolbar.icon_size = self.icon_size;
@@ -1811,6 +1871,38 @@ impl eframe::App for DuCADApp {
                 });
 
             folder_top_y = Some(area_resp.response.rect.min.y);
+        }
+
+        // Popup Akun CMJCode / Cloud Sync
+        if self.account_drawer_open {
+            if let Some(acct_ev) = ducad_ui::AccountDrawer::show(
+                &ctx,
+                self.account_button_rect,
+                self.account.as_ref(),
+                &self.auth_status,
+                &self.server_url,
+            ) {
+                match acct_ev {
+                    ducad_ui::AccountDrawerEvent::Login(provider) => {
+                        self.auth_status = ducad_cloud::AuthStatus::Authenticating { provider };
+                        let rx = ducad_cloud::start_oauth_flow(&self.server_url, provider);
+                        self.auth_rx = Some(rx);
+                    }
+                    ducad_ui::AccountDrawerEvent::Logout => {
+                        let _ = ducad_cloud::clear_account();
+                        self.account = None;
+                        self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
+                        self.model_status = Some("Berhasil keluar dari akun CMJCode.".to_string());
+                    }
+                    ducad_ui::AccountDrawerEvent::CancelLogin => {
+                        self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
+                        self.auth_rx = None;
+                    }
+                    ducad_ui::AccountDrawerEvent::Close => {
+                        self.account_drawer_open = false;
+                    }
+                }
+            }
         }
 
         // 2. Reference Planes Drawer (Pojok Kanan Bawah)

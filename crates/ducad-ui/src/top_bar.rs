@@ -8,13 +8,15 @@
 //! Measurements, dan Delete. Kontrol yang hanya relevan di satu mode
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
-use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
-use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
+use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
 use egui_icons::icons::{
     ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
-    ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
-    ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
+    ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PERSON,
+    ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN,
+    ICON_TEXTURE, ICON_UPLOAD,
 };
 
 use ducad_core::LengthUnit;
@@ -62,6 +64,7 @@ pub enum TopBarEvent {
     ToggleStudioLighting,
     OpenDrawingSheet,
     DeleteSelection,
+    ToggleAccountDrawer,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -91,6 +94,14 @@ pub struct TopBarState {
     /// Rect layar tombol Items setelah dirender frame ini — dipakai caller
     /// buat menempatkan popup Items Drawer tepat di bawah tombolnya.
     pub items_button_rect: egui::Rect,
+    /// Akun pengguna CMJCode / Ducad jika terotentikasi
+    pub account: Option<DucadAccount>,
+    /// Status apakah sedang dalam proses otentikasi browser
+    pub is_authenticating: bool,
+    /// Status apakah popup akun sedang terbuka
+    pub account_drawer_open: bool,
+    /// Rect layar tombol Account untuk anchor popup
+    pub account_button_rect: egui::Rect,
 }
 
 pub struct TopBar;
@@ -460,7 +471,64 @@ impl TopBar {
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Sisi paling kanan: Settings Icon Button
+                    // Sisi paling kanan: Tombol Akun CMJCode / Cloud
+                    let acct_btn_resp = if let Some(acc) = &state.account {
+                        let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
+                        if resp.hovered() {
+                            ui.painter().rect_filled(rect, CornerRadius::same(14), BG_HOVER_DARK);
+                        }
+                        ui.painter().circle_filled(rect.center(), (icon_sz + 4.0) / 2.0, Color32::from_rgb(30, 58, 138));
+                        ui.painter().circle_stroke(
+                            rect.center(),
+                            (icon_sz + 4.0) / 2.0,
+                            Stroke::new(1.0, Color32::from_rgb(56, 189, 248)),
+                        );
+                        ui.painter().text(
+                            rect.center(),
+                            Align2::CENTER_CENTER,
+                            acc.initials(),
+                            egui::FontId::proportional(icon_sz - 3.0),
+                            Color32::WHITE,
+                        );
+                        // Dot aktif
+                        ui.painter().circle_filled(
+                            rect.right_bottom() - vec2(2.0, 2.0),
+                            3.0,
+                            Color32::from_rgb(74, 222, 128),
+                        );
+                        resp.on_hover_text(format!("Akun CMJCode: {} ({})", acc.display_title(), acc.email))
+                    } else if state.is_authenticating {
+                        let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
+                        ui.painter().text(
+                            rect.center(),
+                            Align2::CENTER_CENTER,
+                            "⏳",
+                            egui::FontId::proportional(icon_sz),
+                            ACCENT_BLUE,
+                        );
+                        resp.on_hover_text("Menghubungkan ke browser...")
+                    } else {
+                        header_icon_btn(
+                            ui,
+                            ICON_PERSON.codepoint,
+                            icon_sz,
+                            state.account_drawer_open,
+                            "Akun CMJCode",
+                            None,
+                            Some("Masuk ke Cloud / SSO"),
+                            None,
+                            None,
+                        )
+                    };
+
+                    state.account_button_rect = acct_btn_resp.rect;
+                    if acct_btn_resp.clicked() {
+                        event = Some(TopBarEvent::ToggleAccountDrawer);
+                    }
+
+                    ui.add_space(4.0);
+
+                    // Sisi sebelah kiri Akun: Settings Icon Button
                     ui.menu_button(
                         RichText::new(ICON_SETTINGS.codepoint)
                             .size(icon_sz)
