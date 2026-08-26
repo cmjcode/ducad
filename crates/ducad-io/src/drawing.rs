@@ -151,6 +151,8 @@ pub struct DrawingSheet {
     #[serde(default = "default_true")]
     pub show_section_view: bool,
     #[serde(default = "default_true")]
+    pub show_detail_views: bool,
+    #[serde(default = "default_true")]
     pub show_hatch: bool,
     pub auto_dimensions: Vec<DimensionAnnotation>,
     #[serde(default)]
@@ -170,6 +172,7 @@ impl DrawingSheet {
             show_dimensions: true,
             show_centerlines: true,
             show_section_view: true,
+            show_detail_views: true,
             show_hatch: true,
             auto_dimensions: Vec::new(),
             custom_texts: Vec::new(),
@@ -368,10 +371,71 @@ impl DrawingSheet {
             });
         }
 
+        if self.show_detail_views && !self.drawing.detail_views.is_empty() {
+            let mut det_idx = 0;
+            for det in &self.drawing.detail_views {
+                let det_scale = s * det.scale_multiplier;
+                let det_r_sheet = det.indicator.radius_mm * det_scale;
+                let det_center_x = (right_center_x + (w_r + det_r_sheet * 2.0) * 0.5 + gap_x * 0.5 + (det_idx as f32 * (det_r_sheet * 2.0 + 15.0)))
+                    .min(paper_w - right_margin - det_r_sheet - 4.0);
+                let det_center_y = (top_center_y - (h_t * 0.15) + (det_idx as f32 * 10.0)).max(bottom_margin + title_block_h + det_r_sheet + 10.0);
+
+                placements.push(SheetViewPlacement {
+                    kind: ProjectedViewKind::Detail(det.indicator.label),
+                    center_mm: [det_center_x, det_center_y],
+                    scale: det_scale,
+                    visible: true,
+                });
+                det_idx += 1;
+            }
+        }
+
         self.view_placements = placements;
 
         // Buat dimensi otomatis untuk seluruh tampak
         self.generate_auto_dimensions();
+    }
+
+    /// Menambahkan atau memperbarui Detail View lingkaran pembesar pada tampak acuan.
+    pub fn add_or_update_detail_view(
+        &mut self,
+        parent_kind: ProjectedViewKind,
+        center_2d: [f32; 2],
+        radius_mm: f32,
+        scale_multiplier: f32,
+        label: char,
+    ) {
+        let parent_view = self.drawing.view_by_kind(parent_kind);
+        let indicator = ducad_kernel::DetailIndicator::new(label, parent_kind, center_2d, radius_mm);
+        let detail_data = ducad_kernel::DetailExtractor::extract_detail_view(parent_view, &indicator, scale_multiplier);
+
+        if let Some(existing) = self.drawing.detail_views.iter_mut().find(|d| d.indicator.label == label) {
+            *existing = detail_data;
+        } else {
+            self.drawing.detail_views.push(detail_data);
+        }
+
+        // Perbarui placement atau tambah baru
+        let det_scale = self.scale * scale_multiplier;
+        if let Some(plc) = self.view_placements.iter_mut().find(|p| p.kind == ProjectedViewKind::Detail(label)) {
+            plc.scale = det_scale;
+        } else {
+            let (paper_w, paper_h) = self.paper_size.dimensions_mm();
+            let def_x = (paper_w - 60.0).max(40.0);
+            let def_y = (paper_h - 60.0).max(40.0);
+            self.view_placements.push(SheetViewPlacement {
+                kind: ProjectedViewKind::Detail(label),
+                center_mm: [def_x, def_y],
+                scale: det_scale,
+                visible: true,
+            });
+        }
+    }
+
+    /// Menghapus Detail View berdasarkan huruf label ('B', 'C', dll).
+    pub fn remove_detail_view(&mut self, label: char) {
+        self.drawing.detail_views.retain(|d| d.indicator.label != label);
+        self.view_placements.retain(|p| p.kind != ProjectedViewKind::Detail(label));
     }
 
     /// Membuat anotasi dimensi pembatas (Overall Length, Width, Height) serta dimensi geometri lengkap (R, Ø, sudut, ellips).
@@ -773,9 +837,44 @@ mod tests {
             isometric: make_view(ProjectedViewKind::Isometric, w * 0.9, (h + d) * 0.8, Vec::new()),
             section_a: Some(make_view(ProjectedViewKind::SectionAA, w, h, Vec::new())),
             cutting_plane: None,
+            detail_views: Vec::new(),
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [w, d, h],
         }
+    }
+
+    #[test]
+    fn test_detail_view_creation_and_layout() {
+        let drawing = make_test_drawing(200.0, 100.0, 80.0);
+        let mut sheet = DrawingSheet::new(drawing, PaperSize::A4Landscape);
+
+        // Tambah Detail View 'B' pada Tampak Depan
+        sheet.add_or_update_detail_view(
+            ProjectedViewKind::Front,
+            [100.0, 50.0],
+            15.0,
+            2.0, // Skala 2:1
+            'B',
+        );
+
+        assert_eq!(sheet.drawing.detail_views.len(), 1);
+        let det = &sheet.drawing.detail_views[0];
+        assert_eq!(det.indicator.label, 'B');
+        assert_eq!(det.scale_multiplier, 2.0);
+
+        // Cek placement
+        let det_plc = sheet
+            .view_placements
+            .iter()
+            .find(|p| p.kind == ProjectedViewKind::Detail('B'));
+        assert!(det_plc.is_some());
+        let det_plc = det_plc.unwrap();
+        assert_eq!(det_plc.scale, sheet.scale * 2.0);
+
+        // Hapus detail view
+        sheet.remove_detail_view('B');
+        assert_eq!(sheet.drawing.detail_views.len(), 0);
+        assert!(!sheet.view_placements.iter().any(|p| p.kind == ProjectedViewKind::Detail('B')));
     }
 
     #[test]

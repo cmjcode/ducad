@@ -6,6 +6,7 @@
 //! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
 
 pub mod csg;
+pub mod detail;
 pub mod helix;
 pub mod hlr;
 pub mod hole;
@@ -58,6 +59,7 @@ pub use csg::{
     revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
 };
+pub use detail::{clip_segment_to_circle, DetailExtractor, DetailIndicator, DetailViewData};
 pub use helix::{
     create_helix_path_segments, create_helix_solid, create_helix_solid_with_custom_profile,
     create_helix_wire, generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,

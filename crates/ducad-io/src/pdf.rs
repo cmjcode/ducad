@@ -368,6 +368,7 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::SectionAA => ("SECTION A-A", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Detail(_) => ("DETAIL VIEW", format!("SKALA {}", crate::drawing::format_scale_ratio(scale))),
         };
 
         s.push_str(&format!(
@@ -380,6 +381,40 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             "q 0.4 0.4 0.4 rg BT /F1 6.5 Tf 1 0 0 1 {title_x:.2} {scale_y:.2} Tm ({}) Tj ET Q\n",
             escape_pdf(&scale_label)
         ));
+
+        // 1b. Render Bingkai Lingkaran untuk Tampak Detail (Detail View Circle Border)
+        if let ProjectedViewKind::Detail(_) = plc.kind {
+            let r_pt = mm_to_pt(view_sz[0] * 0.5 * scale);
+            let cx_pt = mm_to_pt(center_mm[0]);
+            let cy_pt = mm_to_pt(center_mm[1]);
+            let k = r_pt * 0.55228475;
+            s.push_str("q 0 0 0 RG 1.2 w [] 0 d\n");
+            s.push_str(&format!(
+                "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                cx_pt + r_pt, cy_pt,
+                cx_pt + r_pt, cy_pt + k,
+                cx_pt + k, cy_pt + r_pt,
+                cx_pt, cy_pt + r_pt
+            ));
+            s.push_str(&format!(
+                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                cx_pt - k, cy_pt + r_pt,
+                cx_pt - r_pt, cy_pt + k,
+                cx_pt - r_pt, cy_pt
+            ));
+            s.push_str(&format!(
+                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                cx_pt - r_pt, cy_pt - k,
+                cx_pt - k, cy_pt - r_pt,
+                cx_pt, cy_pt - r_pt
+            ));
+            s.push_str(&format!(
+                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c S Q\n",
+                cx_pt + k, cy_pt - r_pt,
+                cx_pt + r_pt, cy_pt - k,
+                cx_pt + r_pt, cy_pt
+            ));
+        }
 
         // 2. Render Garis Sumbu (Centerlines) jika aktif
         if sheet.show_centerlines {
@@ -493,6 +528,58 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
                 s.push_str(&format!(
                     "q 0 0 0 rg BT /F2 10 Tf 1 0 0 1 {lbl2_x:.2} {lbl2_y:.2} Tm ({}) Tj ET Q\n",
                     escape_pdf(&ind.label)
+                ));
+            }
+        }
+
+        // 7. Render Indikator Lingkaran Detail pada Tampak Acuan (Detail Callout Circle)
+        for det in &sheet.drawing.detail_views {
+            if det.indicator.parent_view == plc.kind {
+                let ind = &det.indicator;
+                let cx_pt = mm_to_pt(center_mm[0] + (ind.center_2d[0] - v_center[0]) * scale);
+                let cy_pt = mm_to_pt(center_mm[1] + (ind.center_2d[1] - v_center[1]) * scale);
+                let r_pt = mm_to_pt(ind.radius_mm * scale);
+                let k = r_pt * 0.55228475;
+
+                // Lingkaran putus-putus ISO
+                s.push_str("q 0.1 0.1 0.1 RG 0.8 w [4 2] 0 d\n");
+                s.push_str(&format!(
+                    "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                    cx_pt + r_pt, cy_pt,
+                    cx_pt + r_pt, cy_pt + k,
+                    cx_pt + k, cy_pt + r_pt,
+                    cx_pt, cy_pt + r_pt
+                ));
+                s.push_str(&format!(
+                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                    cx_pt - k, cy_pt + r_pt,
+                    cx_pt - r_pt, cy_pt + k,
+                    cx_pt - r_pt, cy_pt
+                ));
+                s.push_str(&format!(
+                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+                    cx_pt - r_pt, cy_pt - k,
+                    cx_pt - k, cy_pt - r_pt,
+                    cx_pt, cy_pt - r_pt
+                ));
+                s.push_str(&format!(
+                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c S Q\n",
+                    cx_pt + k, cy_pt - r_pt,
+                    cx_pt + r_pt, cy_pt - k,
+                    cx_pt + r_pt, cy_pt
+                ));
+
+                // Garis penunjuk (Leader line) & Huruf Label Detail
+                let lx_pt = mm_to_pt(center_mm[0] + (ind.label_pos[0] - v_center[0]) * scale);
+                let ly_pt = mm_to_pt(center_mm[1] + (ind.label_pos[1] - v_center[1]) * scale);
+                let rim_x = cx_pt + r_pt * 0.7071;
+                let rim_y = cy_pt + r_pt * 0.7071;
+
+                s.push_str("q 0.1 0.1 0.1 RG 0.8 w [] 0 d\n");
+                s.push_str(&format!("{rim_x:.2} {rim_y:.2} m {lx_pt:.2} {ly_pt:.2} l {:.2} {ly_pt:.2} l S Q\n", lx_pt + mm_to_pt(6.0)));
+                s.push_str(&format!(
+                    "q 0 0 0 rg BT /F2 8 Tf 1 0 0 1 {:.2} {:.2} Tm ({}) Tj ET Q\n",
+                    lx_pt + mm_to_pt(1.0), ly_pt + mm_to_pt(1.5), ind.label
                 ));
             }
         }
@@ -692,6 +779,7 @@ mod tests {
             isometric: dummy_view(ProjectedViewKind::Isometric),
             section_a: Some(dummy_view(ProjectedViewKind::SectionAA)),
             cutting_plane: None,
+            detail_views: Vec::new(),
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [50.0, 30.0, 20.0],
         }

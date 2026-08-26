@@ -73,7 +73,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
   - Ekstraksi irisan solid 3D pada bidang potong menggunakan `BRepAlgoAPI_Section`.
   - Generator pola arsiran (*Hatch pattern*) garis miring 45° standar ISO/ANSI pada area potongan solid.
   - Indikator garis potong panah `A ─── A` pada tampak acuan.
-- [ ] **11.2 Detail View (Lingkaran Pembesar Skala Detail)**:
+- [x] **11.2 Detail View (Lingkaran Pembesar Skala Detail)**:
   - Pembuatan viewport lingkaran dengan faktor skala pembesar independen (2:1, 5:1, 10:1) untuk area part dengan detail mikro.
 - [ ] **11.3 Manual Dimensioning Canvas**:
   - Penambahan interaksi klik 2 titik sembarang di kanvas `DrawingSheetView` untuk menambahkan garis dimensi linier, sudut, atau diameter secara kustom di luar dimensi otomatis.

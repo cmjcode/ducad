@@ -14,7 +14,7 @@ use egui::{
 };
 use egui_material_icons::icons::{
     ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_GRID_VIEW,
-    ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_STRAIGHTEN, ICON_TEXTURE,
+    ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
 
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -188,6 +188,13 @@ pub struct DrawingSheetViewState {
     pub hovered_dim_delete: Option<usize>,
     pub measure_tool_active: bool,
     pub measure_first_pt: Option<[f32; 2]>,
+    pub detail_tool_active: bool,
+    pub dragging_detail_label: Option<char>,
+    pub hovered_detail_label: Option<char>,
+    pub hovered_detail_delete: Option<char>,
+    pub selected_detail_label: Option<char>,
+    pub detail_scale_multiplier: f32,
+    pub detail_radius_mm: f32,
 }
 
 impl Default for DrawingSheetViewState {
@@ -211,6 +218,13 @@ impl Default for DrawingSheetViewState {
             hovered_dim_delete: None,
             measure_tool_active: false,
             measure_first_pt: None,
+            detail_tool_active: false,
+            dragging_detail_label: None,
+            hovered_detail_label: None,
+            hovered_detail_delete: None,
+            selected_detail_label: None,
+            detail_scale_multiplier: 2.0,
+            detail_radius_mm: 15.0,
         }
     }
 }
@@ -335,6 +349,8 @@ impl DrawingSheetView {
         let mut hovered_tb_field = None;
         let mut hovered_text_idx = None;
         let mut hovered_text_delete = None;
+        let mut hovered_detail_label = None;
+        let mut hovered_detail_delete = None;
         let mut active_snap_pt_mm = None;
 
         let tb = sheet.title_block_rect_mm();
@@ -376,6 +392,36 @@ impl DrawingSheetView {
                     }
                 }
 
+                // B2. Detail Callouts Hit Test pada Tampak Acuan
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() {
+                    for det in &sheet.drawing.detail_views {
+                        if let Some(plc) = sheet.view_placements.iter().find(|p| p.kind == det.indicator.parent_view && p.visible) {
+                            let view = sheet.drawing.view_by_kind(plc.kind);
+                            let v_center = view.center_2d();
+                            let s = plc.scale;
+                            let cx = plc.center_mm[0] + (det.indicator.center_2d[0] - v_center[0]) * s;
+                            let cy = plc.center_mm[1] + (det.indicator.center_2d[1] - v_center[1]) * s;
+                            let r = det.indicator.radius_mm * s;
+                            let dist_to_center = (cursor_mm[0] - cx).hypot(cursor_mm[1] - cy);
+
+                            let l_x_mm = plc.center_mm[0] + (det.indicator.label_pos[0] - v_center[0]) * s;
+                            let l_y_mm = plc.center_mm[1] + (det.indicator.label_pos[1] - v_center[1]) * s;
+                            let p_lbl = mm_to_screen(l_x_mm, l_y_mm);
+                            let p_shoulder = Pos2::new(p_lbl.x + 14.0 * zoom.clamp(0.8, 1.5), p_lbl.y);
+                            let del_rect = Rect::from_center_size(Pos2::new(p_shoulder.x + 8.0, p_shoulder.y), vec2(18.0, 18.0));
+
+                            if del_rect.contains(c_pos) {
+                                hovered_detail_delete = Some(det.indicator.label);
+                                hovered_detail_label = Some(det.indicator.label);
+                                break;
+                            } else if dist_to_center <= r + 4.0 || (c_pos.x - p_lbl.x).hypot(c_pos.y - p_lbl.y) <= 24.0 {
+                                hovered_detail_label = Some(det.indicator.label);
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 // C. Snap point detection (untuk tambah ukuran baru)
                 if state.measure_tool_active {
                     let snap_threshold_mm = 14.0 / zoom;
@@ -390,7 +436,7 @@ impl DrawingSheetView {
                 }
 
                 // D. Dimension hit test (untuk geser posisi ukuran dan hapus satu per satu)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && sheet.show_dimensions {
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && sheet.show_dimensions {
                     for (idx, dim) in sheet.auto_dimensions.iter().enumerate() {
                         let p1 = mm_to_screen(dim.start[0], dim.start[1]);
                         let p2 = mm_to_screen(dim.end[0], dim.end[1]);
@@ -440,8 +486,8 @@ impl DrawingSheetView {
                     }
                 }
 
-                // E. View hit test (jika tidak sedang hover teks atau dimensi)
-                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_dim_idx.is_none() {
+                // E. View hit test (jika tidak sedang hover teks, detail, atau dimensi)
+                if hovered_tb_field.is_none() && hovered_text_idx.is_none() && hovered_detail_label.is_none() && hovered_dim_idx.is_none() {
                     for plc in &sheet.view_placements {
                         if !plc.visible {
                             continue;
@@ -471,20 +517,37 @@ impl DrawingSheetView {
         state.hovered_tb_field = hovered_tb_field;
         state.hovered_text_idx = hovered_text_idx;
         state.hovered_text_delete = hovered_text_delete;
+        state.hovered_detail_label = hovered_detail_label;
+        state.hovered_detail_delete = hovered_detail_delete;
 
         // Interaction Handler
         if !is_over_ui {
-            // Pintasan keyboard T untuk mengaktifkan Tool Teks
-            if state.active_text_edit.is_none() && ui.input(|i| i.key_pressed(egui::Key::T)) {
-                state.text_tool_active = !state.text_tool_active;
-                if state.text_tool_active {
-                    state.measure_tool_active = false;
+            // Pintasan keyboard T untuk Tool Teks dan B untuk Detail View
+            if state.active_text_edit.is_none() {
+                if ui.input(|i| i.key_pressed(egui::Key::T)) {
+                    state.text_tool_active = !state.text_tool_active;
+                    if state.text_tool_active {
+                        state.measure_tool_active = false;
+                        state.detail_tool_active = false;
+                    }
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::B)) {
+                    state.detail_tool_active = !state.detail_tool_active;
+                    if state.detail_tool_active {
+                        state.text_tool_active = false;
+                        state.measure_tool_active = false;
+                    }
                 }
             }
 
-            // Hapus teks / dimensi yang sedang dipilih dengan tombol Delete / Backspace
+            // Hapus teks / dimensi / detail view yang sedang dipilih dengan tombol Delete / Backspace
             if state.active_text_edit.is_none() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
-                if let Some(t_idx) = state.selected_text_idx {
+                if let Some(lbl) = state.selected_detail_label {
+                    sheet.remove_detail_view(lbl);
+                    state.selected_detail_label = None;
+                    state.hovered_detail_label = None;
+                    state.hovered_detail_delete = None;
+                } else if let Some(t_idx) = state.selected_text_idx {
                     if t_idx < sheet.custom_texts.len() {
                         sheet.custom_texts.remove(t_idx);
                         state.selected_text_idx = None;
@@ -502,7 +565,51 @@ impl DrawingSheetView {
                 }
             }
 
-            if state.measure_tool_active {
+            if state.detail_tool_active {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                if response.clicked() {
+                    if let Some(c_pos) = cursor_pos {
+                        let click_mm = screen_to_mm(c_pos);
+                        for plc in &sheet.view_placements {
+                            if !plc.visible {
+                                continue;
+                            }
+                            let view = sheet.drawing.view_by_kind(plc.kind);
+                            let sz = view.size_2d();
+                            let s = plc.scale;
+                            let half_w = sz[0] * s * 0.5;
+                            let half_h = sz[1] * s * 0.5;
+                            let cx = plc.center_mm[0];
+                            let cy = plc.center_mm[1];
+                            if click_mm[0] >= cx - half_w
+                                && click_mm[0] <= cx + half_w
+                                && click_mm[1] >= cy - half_h
+                                && click_mm[1] <= cy + half_h
+                            {
+                                let v_center = view.center_2d();
+                                let u0 = (click_mm[0] - cx) / s + v_center[0];
+                                let v0 = (click_mm[1] - cy) / s + v_center[1];
+
+                                let mut next_letter = 'B';
+                                while sheet.drawing.detail_views.iter().any(|d| d.indicator.label == next_letter) {
+                                    next_letter = ((next_letter as u8) + 1) as char;
+                                }
+
+                                sheet.add_or_update_detail_view(
+                                    plc.kind,
+                                    [u0, v0],
+                                    state.detail_radius_mm,
+                                    state.detail_scale_multiplier,
+                                    next_letter,
+                                );
+                                state.selected_detail_label = Some(next_letter);
+                                state.detail_tool_active = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if state.measure_tool_active {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                 if response.clicked() {
                     let click_pt_mm = active_snap_pt_mm.or_else(|| cursor_pos.map(screen_to_mm));
@@ -529,9 +636,14 @@ impl DrawingSheetView {
                     }
                 }
             } else {
-                // Klik untuk pilih/hapus teks atau dimensi, atau tambah teks baru
+                // Klik untuk pilih/hapus teks, detail view, atau dimensi, atau tambah teks baru
                 if response.clicked() {
-                    if let Some(del_t) = state.hovered_text_delete {
+                    if let Some(del_det) = state.hovered_detail_delete {
+                        sheet.remove_detail_view(del_det);
+                        state.selected_detail_label = None;
+                        state.hovered_detail_label = None;
+                        state.hovered_detail_delete = None;
+                    } else if let Some(del_t) = state.hovered_text_delete {
                         if del_t < sheet.custom_texts.len() {
                             sheet.custom_texts.remove(del_t);
                             state.selected_text_idx = None;
@@ -547,17 +659,25 @@ impl DrawingSheetView {
                             state.hovered_dim_delete = None;
                             state.dragging_dim_idx = None;
                         }
+                    } else if let Some(lbl) = state.hovered_detail_label {
+                        state.selected_detail_label = Some(lbl);
+                        state.selected_text_idx = None;
+                        state.selected_dim_idx = None;
+                        state.active_text_edit = None;
                     } else if let Some(field) = state.hovered_tb_field {
                         state.active_text_edit = Some(ActiveTextTarget::TitleBlock(field));
                         state.selected_text_idx = None;
                         state.selected_dim_idx = None;
+                        state.selected_detail_label = None;
                     } else if let Some(t_idx) = state.hovered_text_idx {
                         state.active_text_edit = Some(ActiveTextTarget::CustomText(t_idx));
                         state.selected_text_idx = Some(t_idx);
                         state.selected_dim_idx = None;
+                        state.selected_detail_label = None;
                     } else if let Some(d_idx) = state.hovered_dim_idx {
                         state.selected_dim_idx = Some(d_idx);
                         state.selected_text_idx = None;
+                        state.selected_detail_label = None;
                         state.active_text_edit = None;
                     } else if state.text_tool_active {
                         // Tambah teks anotasi baru pada kertas di posisi klik
@@ -572,18 +692,23 @@ impl DrawingSheetView {
                             state.active_text_edit = Some(ActiveTextTarget::CustomText(new_idx));
                             state.selected_text_idx = Some(new_idx);
                             state.selected_dim_idx = None;
+                            state.selected_detail_label = None;
                         }
                     } else {
                         state.selected_dim_idx = None;
                         state.selected_text_idx = None;
+                        state.selected_detail_label = None;
                         state.active_text_edit = None;
                     }
                 }
 
-                // Drag and drop geser teks, ukuran, atau tampak
+                // Drag and drop geser teks, detail circle, ukuran, atau tampak
                 if response.drag_started_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() {
-                        if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
+                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() && state.hovered_detail_delete.is_none() {
+                        if state.hovered_detail_label.is_some() {
+                            state.dragging_detail_label = state.hovered_detail_label;
+                            state.selected_detail_label = state.hovered_detail_label;
+                        } else if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
                             state.dragging_text_idx = state.hovered_text_idx;
                             state.selected_text_idx = state.hovered_text_idx;
                         } else if state.hovered_dim_idx.is_some() {
@@ -596,7 +721,24 @@ impl DrawingSheetView {
                 }
 
                 if response.dragged_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if let Some(t_idx) = state.dragging_text_idx {
+                    if let Some(lbl) = state.dragging_detail_label {
+                        if let Some(det) = sheet.drawing.detail_views.iter().find(|d| d.indicator.label == lbl).cloned() {
+                            if let Some(plc) = sheet.view_placements.iter().find(|p| p.kind == det.indicator.parent_view) {
+                                let s = plc.scale;
+                                let delta_u = response.drag_delta().x / (zoom * s);
+                                let delta_v = -response.drag_delta().y / (zoom * s);
+                                let new_center = [det.indicator.center_2d[0] + delta_u, det.indicator.center_2d[1] + delta_v];
+                                sheet.add_or_update_detail_view(
+                                    det.indicator.parent_view,
+                                    new_center,
+                                    det.indicator.radius_mm,
+                                    det.scale_multiplier,
+                                    lbl,
+                                );
+                            }
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else if let Some(t_idx) = state.dragging_text_idx {
                         if let Some(note) = sheet.custom_texts.get_mut(t_idx) {
                             let delta_x = response.drag_delta().x / zoom;
                             let delta_y = -response.drag_delta().y / zoom;
@@ -635,6 +777,7 @@ impl DrawingSheetView {
                 }
 
                 if response.drag_stopped() {
+                    state.dragging_detail_label = None;
                     state.dragging_text_idx = None;
                     state.dragging_dim_idx = None;
                     state.dragging_view = None;
@@ -644,6 +787,8 @@ impl DrawingSheetView {
                 if response.dragged_by(egui::PointerButton::Middle)
                     || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
                     || (response.dragged_by(egui::PointerButton::Primary)
+                        && state.dragging_detail_label.is_none()
+                        && state.hovered_detail_label.is_none()
                         && state.dragging_view.is_none()
                         && state.hovered_view.is_none()
                         && state.dragging_dim_idx.is_none()
@@ -655,11 +800,12 @@ impl DrawingSheetView {
                     state.pan_offset += response.drag_delta();
                 }
 
-                if state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() {
+                if state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() || state.hovered_detail_delete.is_some() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 } else if state.text_tool_active || state.hovered_tb_field.is_some() || state.hovered_text_idx.is_some() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-                } else if (state.hovered_dim_idx.is_some() && state.dragging_dim_idx.is_none())
+                } else if (state.hovered_detail_label.is_some() && state.dragging_detail_label.is_none())
+                    || (state.hovered_dim_idx.is_some() && state.dragging_dim_idx.is_none())
                     || (state.hovered_view.is_some() && state.dragging_view.is_none())
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -966,6 +1112,24 @@ impl DrawingSheetView {
                     sheet.show_hatch = !sheet.show_hatch;
                 }
 
+                let detail_btn = header_icon_btn(
+                    ui,
+                    ICON_SEARCH.codepoint,
+                    state.detail_tool_active || !sheet.drawing.detail_views.is_empty(),
+                    "Detail View (Lingkaran Pembesar Skala Detail)",
+                    Some("B"),
+                    Some("Klik pada tampak gambar untuk membuat area pembesar independen mikro (2:1, 5:1, 10:1)"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(Color32::from_rgb(0, 210, 160)),
+                );
+                if detail_btn.clicked() {
+                    state.detail_tool_active = !state.detail_tool_active;
+                    if state.detail_tool_active {
+                        state.text_tool_active = false;
+                        state.measure_tool_active = false;
+                    }
+                }
+
                 let text_btn = header_icon_btn(
                     ui,
                     ICON_EDIT_NOTE.codepoint,
@@ -980,6 +1144,36 @@ impl DrawingSheetView {
                     state.text_tool_active = !state.text_tool_active;
                     if state.text_tool_active {
                         state.measure_tool_active = false;
+                        state.detail_tool_active = false;
+                    }
+                }
+
+                if state.detail_tool_active || state.selected_detail_label.is_some() || !sheet.drawing.detail_views.is_empty() {
+                    ui.add_space(2.0);
+                    ui.label(RichText::new("Detail:").size(10.5).color(Color32::from_rgb(0, 210, 160)));
+                    let scale_presets = [(2.0, "2:1"), (4.0, "4:1"), (5.0, "5:1"), (10.0, "10:1")];
+                    for (mult, lbl) in scale_presets {
+                        let is_sel = (state.detail_scale_multiplier - mult).abs() < 1e-3;
+                        let btn = ui.add(
+                            egui::Button::new(RichText::new(lbl).size(10.0).strong().color(if is_sel { Color32::WHITE } else { TEXT_SECONDARY }))
+                                .fill(if is_sel { Color32::from_rgb(0, 150, 110) } else { Color32::from_rgba_premultiplied(35, 40, 50, 180) })
+                                .corner_radius(CornerRadius::same(3))
+                                .min_size(Vec2::new(26.0, 18.0)),
+                        );
+                        if btn.clicked() {
+                            state.detail_scale_multiplier = mult;
+                            if let Some(target_lbl) = state.selected_detail_label {
+                                if let Some(det) = sheet.drawing.detail_views.iter().find(|d| d.indicator.label == target_lbl).cloned() {
+                                    sheet.add_or_update_detail_view(
+                                        det.indicator.parent_view,
+                                        det.indicator.center_2d,
+                                        det.indicator.radius_mm,
+                                        mult,
+                                        target_lbl,
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1358,6 +1552,17 @@ fn render_sheet_canvas(
             }
         }
 
+        // 4b. Bingkai Lingkaran Viewport untuk Tampak Detail (Detail View Circle Viewport)
+        if let ProjectedViewKind::Detail(_) = plc.kind {
+            let r_px = view_sz[0] * 0.5 * scale * zoom;
+            let p_center = mm_to_screen(center_mm[0], center_mm[1]);
+            painter.circle_stroke(
+                p_center,
+                r_px,
+                Stroke::new((0.8 * zoom).clamp(1.4, 2.8), Color32::from_rgb(20, 24, 35)),
+            );
+        }
+
         // 5. Indikator Garis Potong Panah A-A pada Tampak Acuan (Top View)
         if plc.kind == ProjectedViewKind::Top {
             if let Some(ind) = &sheet.drawing.cutting_plane {
@@ -1398,6 +1603,66 @@ fn render_sheet_canvas(
             }
         }
 
+        // 6. Indikator Lingkaran Detail pada Tampak Acuan (Detail Callout Circle)
+        for det in &sheet.drawing.detail_views {
+            if det.indicator.parent_view == plc.kind {
+                let ind = &det.indicator;
+                let c_x_mm = center_mm[0] + (ind.center_2d[0] - v_center[0]) * scale;
+                let c_y_mm = center_mm[1] + (ind.center_2d[1] - v_center[1]) * scale;
+                let p_center = mm_to_screen(c_x_mm, c_y_mm);
+                let r_px = ind.radius_mm * scale * zoom;
+
+                let is_det_hovered = state.hovered_detail_label == Some(ind.label);
+                let is_det_selected = state.selected_detail_label == Some(ind.label);
+
+                let callout_color = if is_det_selected {
+                    Color32::from_rgb(255, 140, 0)
+                } else if is_det_hovered {
+                    Color32::from_rgb(0, 150, 255)
+                } else {
+                    Color32::from_rgb(40, 45, 60)
+                };
+
+                let callout_stroke = Stroke::new((0.55 * zoom).clamp(1.0, 2.2), callout_color);
+                draw_dashed_circle(&painter, p_center, r_px, callout_stroke, 28);
+
+                // Titik silang pusat (Center crosshair)
+                let ch_sz = 3.5 * zoom;
+                painter.line_segment(
+                    [Pos2::new(p_center.x - ch_sz, p_center.y), Pos2::new(p_center.x + ch_sz, p_center.y)],
+                    Stroke::new(0.6 * zoom, callout_color),
+                );
+                painter.line_segment(
+                    [Pos2::new(p_center.x, p_center.y - ch_sz), Pos2::new(p_center.x, p_center.y + ch_sz)],
+                    Stroke::new(0.6 * zoom, callout_color),
+                );
+
+                // Garis penunjuk (Leader line) & Badge huruf label
+                let l_x_mm = center_mm[0] + (ind.label_pos[0] - v_center[0]) * scale;
+                let l_y_mm = center_mm[1] + (ind.label_pos[1] - v_center[1]) * scale;
+                let p_lbl = mm_to_screen(l_x_mm, l_y_mm);
+                let rim_pt = Pos2::new(p_center.x + r_px * 0.7071, p_center.y - r_px * 0.7071);
+
+                painter.line_segment([rim_pt, p_lbl], callout_stroke);
+                let p_shoulder = Pos2::new(p_lbl.x + 14.0 * zoom.clamp(0.8, 1.5), p_lbl.y);
+                painter.line_segment([p_lbl, p_shoulder], callout_stroke);
+
+                let font_badge = FontId::proportional((4.8 * zoom).clamp(9.0, 16.0));
+                let badge_text = format!("DETAIL {}", ind.label);
+                let badge_pos = Pos2::new(p_lbl.x + 2.0, p_lbl.y - 2.0);
+                painter.text(badge_pos, Align2::LEFT_BOTTOM, &badge_text, font_badge, callout_color);
+
+                // Tombol hapus jika di-hover / dipilih
+                if is_det_hovered || is_det_selected {
+                    let del_pos = Pos2::new(p_shoulder.x + 8.0, p_shoulder.y);
+                    let is_del_h = state.hovered_detail_delete == Some(ind.label);
+                    let del_bg = if is_del_h { Color32::from_rgb(220, 40, 40) } else { Color32::from_rgb(180, 50, 50) };
+                    painter.circle_filled(del_pos, 7.0 * zoom.clamp(0.8, 1.3), del_bg);
+                    painter.text(del_pos, Align2::CENTER_CENTER, "×", FontId::proportional(11.0 * zoom.clamp(0.8, 1.2)), Color32::WHITE);
+                }
+            }
+        }
+
         // Judul Tampak Profesional di bawah view (proporsional & elegan)
         let title_y_mm = center_mm[1] - (view_sz[1] * scale * 0.5) - 7.5;
         let title_pos = mm_to_screen(center_mm[0], title_y_mm);
@@ -1412,6 +1677,7 @@ fn render_sheet_canvas(
             ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::SectionAA => ("SECTION A-A", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::Detail(_) => ("DETAIL VIEW", format!("SKALA {}", format_scale_ratio(plc.scale))),
         };
 
         painter.text(
@@ -1975,5 +2241,36 @@ fn draw_dashed_line(
         let end = p1 + norm * (traveled + dash_len).min(total_len);
         painter.line_segment([start, end], stroke);
         traveled += dash_len + gap_len;
+    }
+}
+
+/// Gambar lingkaran putus-putus (dashed circle) di egui.
+fn draw_dashed_circle(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    stroke: Stroke,
+    num_dashes: usize,
+) {
+    if radius < 1.0 {
+        return;
+    }
+    let n = num_dashes.max(8);
+    let step = std::f32::consts::TAU / (n as f32);
+    let dash_fraction = 0.65;
+    let segments_per_dash = 4;
+
+    for i in 0..n {
+        let base_angle = (i as f32) * step;
+        let dash_angle = step * dash_fraction;
+        let sub_step = dash_angle / (segments_per_dash as f32);
+
+        for j in 0..segments_per_dash {
+            let a1 = base_angle + (j as f32) * sub_step;
+            let a2 = base_angle + ((j + 1) as f32) * sub_step;
+            let pt1 = Pos2::new(center.x + radius * a1.cos(), center.y + radius * a1.sin());
+            let pt2 = Pos2::new(center.x + radius * a2.cos(), center.y + radius * a2.sin());
+            painter.line_segment([pt1, pt2], stroke);
+        }
     }
 }

@@ -154,6 +154,28 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
                 push_text_layer(&mut out, "SECTION", lbl2_x, lbl2_y, 4.0, &ind.label);
             }
         }
+
+        // Bingkai Lingkaran Detail View
+        if let ProjectedViewKind::Detail(_) = plc.kind {
+            let r = (view.size_2d()[0] * 0.5 * scale) as f64;
+            push_circle_layer(&mut out, "VISIBLE", center[0] as f64, center[1] as f64, r);
+        }
+
+        // Indikator Lingkaran Detail pada Tampak Acuan
+        for det in &sheet.drawing.detail_views {
+            if det.indicator.parent_view == plc.kind {
+                let ind = &det.indicator;
+                let cx = center[0] + (ind.center_2d[0] - v_center[0]) * scale;
+                let cy = center[1] + (ind.center_2d[1] - v_center[1]) * scale;
+                let r = ind.radius_mm * scale;
+
+                push_circle_layer(&mut out, "SECTION", cx as f64, cy as f64, r as f64);
+
+                let lbl_x = center[0] + (ind.label_pos[0] - v_center[0]) * scale;
+                let lbl_y = center[1] + (ind.label_pos[1] - v_center[1]) * scale;
+                push_text_layer(&mut out, "SECTION", lbl_x, lbl_y, 4.0, &format!("DETAIL {}", ind.label));
+            }
+        }
     }
 
     // D. Dimensi Otomatis
@@ -228,6 +250,12 @@ fn push_rect_layer(out: &mut String, layer: &str, x0: f32, y0: f32, x1: f32, y1:
     push_line_layer(out, layer, x1 as f64, y0 as f64, x1 as f64, y1 as f64);
     push_line_layer(out, layer, x1 as f64, y1 as f64, x0 as f64, y1 as f64);
     push_line_layer(out, layer, x0 as f64, y1 as f64, x0 as f64, y0 as f64);
+}
+
+fn push_circle_layer(out: &mut String, layer: &str, cx: f64, cy: f64, radius: f64) {
+    out.push_str(&format!(
+        "0\nCIRCLE\n8\n{layer}\n10\n{cx}\n20\n{cy}\n30\n0.0\n40\n{radius}\n"
+    ));
 }
 
 fn push_text_layer(out: &mut String, layer: &str, x: f32, y: f32, height: f32, text: &str) {
@@ -526,6 +554,7 @@ mod tests {
             isometric: dummy_view(ProjectedViewKind::Isometric),
             section_a: Some(dummy_view(ProjectedViewKind::SectionAA)),
             cutting_plane: None,
+            detail_views: Vec::new(),
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [40.0, 40.0, 20.0],
         };

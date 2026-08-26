@@ -24,26 +24,30 @@ pub enum ProjectedViewKind {
     Isometric,
     /// Tampak Potongan Melintang A-A (Section View A-A).
     SectionAA,
+    /// Tampak Detail Pembesar (Detail View, mis. 'B', 'C').
+    Detail(char),
 }
 
 impl ProjectedViewKind {
-    pub fn title_id(self) -> &'static str {
+    pub fn title_id(self) -> String {
         match self {
-            ProjectedViewKind::Front => "TAMPAK DEPAN",
-            ProjectedViewKind::Top => "TAMPAK ATAS",
-            ProjectedViewKind::Right => "TAMPAK SAMPING KANAN",
-            ProjectedViewKind::Isometric => "TAMPAK ISOMETRIK 3D",
-            ProjectedViewKind::SectionAA => "TAMPAK POTONGAN A-A",
+            ProjectedViewKind::Front => "TAMPAK DEPAN".to_string(),
+            ProjectedViewKind::Top => "TAMPAK ATAS".to_string(),
+            ProjectedViewKind::Right => "TAMPAK SAMPING KANAN".to_string(),
+            ProjectedViewKind::Isometric => "TAMPAK ISOMETRIK 3D".to_string(),
+            ProjectedViewKind::SectionAA => "TAMPAK POTONGAN A-A".to_string(),
+            ProjectedViewKind::Detail(c) => format!("TAMPAK DETAIL {c}"),
         }
     }
 
-    pub fn title_en(self) -> &'static str {
+    pub fn title_en(self) -> String {
         match self {
-            ProjectedViewKind::Front => "FRONT VIEW",
-            ProjectedViewKind::Top => "TOP VIEW",
-            ProjectedViewKind::Right => "RIGHT SIDE VIEW",
-            ProjectedViewKind::Isometric => "ISOMETRIC 3D VIEW",
-            ProjectedViewKind::SectionAA => "SECTION A-A",
+            ProjectedViewKind::Front => "FRONT VIEW".to_string(),
+            ProjectedViewKind::Top => "TOP VIEW".to_string(),
+            ProjectedViewKind::Right => "RIGHT SIDE VIEW".to_string(),
+            ProjectedViewKind::Isometric => "ISOMETRIC 3D VIEW".to_string(),
+            ProjectedViewKind::SectionAA => "SECTION A-A".to_string(),
+            ProjectedViewKind::Detail(c) => format!("DETAIL VIEW {c}"),
         }
     }
 
@@ -56,7 +60,7 @@ impl ProjectedViewKind {
                 // Screen X: +X, Screen Y: +Y, View Dir: -Z (Kedalaman: +Z)
                 (vec3(0.0, 0.0, -1.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0))
             }
-            ProjectedViewKind::Front | ProjectedViewKind::SectionAA => {
+            ProjectedViewKind::Front | ProjectedViewKind::SectionAA | ProjectedViewKind::Detail(_) => {
                 // Kamera di -Y melihat ke +Y (bidang XZ)
                 // Screen X: +X, Screen Y: +Z, View Dir: +Y (Kedalaman: -Y)
                 (vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0))
@@ -186,6 +190,8 @@ pub struct HlrDrawing {
     pub section_a: Option<ProjectedView>,
     #[serde(default)]
     pub cutting_plane: Option<crate::section::CuttingLineIndicator>,
+    #[serde(default)]
+    pub detail_views: Vec<crate::detail::DetailViewData>,
     pub model_bbox_min: [f32; 3],
     pub model_bbox_max: [f32; 3],
 }
@@ -206,6 +212,13 @@ impl HlrDrawing {
             ProjectedViewKind::Right => &self.right,
             ProjectedViewKind::Isometric => &self.isometric,
             ProjectedViewKind::SectionAA => self.section_a.as_ref().unwrap_or(&self.front),
+            ProjectedViewKind::Detail(c) => {
+                if let Some(dv) = self.detail_views.iter().find(|d| d.indicator.label == c) {
+                    &dv.view
+                } else {
+                    &self.front
+                }
+            }
         }
     }
 }
@@ -270,6 +283,7 @@ impl HlrExtractor {
             isometric,
             section_a: Some(section_a),
             cutting_plane: Some(cutting_plane),
+            detail_views: Vec::new(),
             model_bbox_min: bbox_min,
             model_bbox_max: bbox_max,
         }
