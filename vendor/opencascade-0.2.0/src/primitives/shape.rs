@@ -747,5 +747,36 @@ impl Shape {
         let inner = ffi::TopoDS_Shape_to_owned(&res_shape);
         Ok(Self { inner })
     }
+
+    /// Mengiris shape/solid dengan bidang datar menggunakan `BRepAlgoAPI_Section` (Fase 11.1).
+    /// Mengembalikan `Vec<Shape>` yang berisi kumpulan edge/wire kurva irisan pada bidang potong.
+    pub fn section_with_plane(
+        &self,
+        plane_point: DVec3,
+        plane_normal: DVec3,
+    ) -> Result<Vec<Self>, crate::Error> {
+        let to_error = |e: cxx::Exception| crate::Error::SplitFailed(e.what().to_string());
+
+        let res_vec = ffi::section_shape_with_plane(
+            &self.inner,
+            plane_point.x,
+            plane_point.y,
+            plane_point.z,
+            plane_normal.x,
+            plane_normal.y,
+            plane_normal.z,
+        )
+        .map_err(to_error)?;
+
+        let mut shapes = Vec::new();
+        if let Some(vec) = res_vec.as_ref() {
+            for shape_ref in vec.iter() {
+                let inner = ffi::TopoDS_Shape_to_owned(shape_ref);
+                shapes.push(Shape { inner });
+            }
+        }
+
+        Ok(shapes)
+    }
 }
 

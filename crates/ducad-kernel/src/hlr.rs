@@ -22,6 +22,8 @@ pub enum ProjectedViewKind {
     Right,
     /// Tampak Isometrik 3D (Axonometric Isometric View).
     Isometric,
+    /// Tampak Potongan Melintang A-A (Section View A-A).
+    SectionAA,
 }
 
 impl ProjectedViewKind {
@@ -31,6 +33,7 @@ impl ProjectedViewKind {
             ProjectedViewKind::Top => "TAMPAK ATAS",
             ProjectedViewKind::Right => "TAMPAK SAMPING KANAN",
             ProjectedViewKind::Isometric => "TAMPAK ISOMETRIK 3D",
+            ProjectedViewKind::SectionAA => "TAMPAK POTONGAN A-A",
         }
     }
 
@@ -40,6 +43,7 @@ impl ProjectedViewKind {
             ProjectedViewKind::Top => "TOP VIEW",
             ProjectedViewKind::Right => "RIGHT SIDE VIEW",
             ProjectedViewKind::Isometric => "ISOMETRIC 3D VIEW",
+            ProjectedViewKind::SectionAA => "SECTION A-A",
         }
     }
 
@@ -52,7 +56,7 @@ impl ProjectedViewKind {
                 // Screen X: +X, Screen Y: +Y, View Dir: -Z (Kedalaman: +Z)
                 (vec3(0.0, 0.0, -1.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0))
             }
-            ProjectedViewKind::Front => {
+            ProjectedViewKind::Front | ProjectedViewKind::SectionAA => {
                 // Kamera di -Y melihat ke +Y (bidang XZ)
                 // Screen X: +X, Screen Y: +Z, View Dir: +Y (Kedalaman: -Y)
                 (vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0))
@@ -84,6 +88,10 @@ pub enum HlrLineKind {
     Centerline,
     /// Garis kontur siluet permukaan lengkung (Silhouette line).
     Silhouette,
+    /// Garis arsir potongan solid (45° diagonal ISO/ANSI hatch line — ISO 0.25mm / 0.35mm).
+    Hatch,
+    /// Garis bidang potong indikator (Cutting plane line A-A — ISO 0.7mm / 1.0mm).
+    CuttingPlane,
 }
 
 /// Segmen garis 2D hasil proyeksi dengan koordinat dalam mm.
@@ -174,6 +182,10 @@ pub struct HlrDrawing {
     pub top: ProjectedView,
     pub right: ProjectedView,
     pub isometric: ProjectedView,
+    #[serde(default)]
+    pub section_a: Option<ProjectedView>,
+    #[serde(default)]
+    pub cutting_plane: Option<crate::section::CuttingLineIndicator>,
     pub model_bbox_min: [f32; 3],
     pub model_bbox_max: [f32; 3],
 }
@@ -193,6 +205,7 @@ impl HlrDrawing {
             ProjectedViewKind::Top => &self.top,
             ProjectedViewKind::Right => &self.right,
             ProjectedViewKind::Isometric => &self.isometric,
+            ProjectedViewKind::SectionAA => self.section_a.as_ref().unwrap_or(&self.front),
         }
     }
 }
@@ -241,11 +254,22 @@ impl HlrExtractor {
         let right = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Right, (bbox_min, bbox_max));
         let isometric = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Isometric, (bbox_min, bbox_max));
 
+        // Ekstraksi Section View A-A menggunakan BRepAlgoAPI_Section dan 45° ISO/ANSI Hatch
+        let section_config = crate::section::SectionPlaneConfig::from_model_bbox_center_y(bbox_min, bbox_max);
+        let (section_a, cutting_plane) = crate::section::SectionExtractor::extract_section_view_internal(
+            shapes,
+            meshes,
+            &section_config,
+            (bbox_min, bbox_max),
+        );
+
         HlrDrawing {
             front,
             top,
             right,
             isometric,
+            section_a: Some(section_a),
+            cutting_plane: Some(cutting_plane),
             model_bbox_min: bbox_min,
             model_bbox_max: bbox_max,
         }

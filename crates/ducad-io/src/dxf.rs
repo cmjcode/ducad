@@ -14,7 +14,7 @@
 //! (`ImportResult::skipped`), bukan bikin seluruh import gagal.
 
 use anyhow::{Context, Result};
-use ducad_kernel::HlrLineKind;
+use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use ducad_sketch::{Entity, Sketch};
 use glam::DVec2;
 use std::path::Path;
@@ -45,13 +45,15 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
     out.push_str("0\nENDTAB\n");
 
     // Layer Table
-    out.push_str("0\nTABLE\n2\nLAYER\n70\n6\n");
+    out.push_str("0\nTABLE\n2\nLAYER\n70\n8\n");
     out.push_str("0\nLAYER\n2\nBORDER\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nTITLEBLOCK\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nVISIBLE\n70\n0\n62\n7\n6\nCONTINUOUS\n");
     out.push_str("0\nLAYER\n2\nHIDDEN\n70\n0\n62\n1\n6\nHIDDEN\n");
     out.push_str("0\nLAYER\n2\nCENTERLINE\n70\n0\n62\n3\n6\nCENTER\n");
     out.push_str("0\nLAYER\n2\nDIMENSIONS\n70\n0\n62\n5\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nHATCH\n70\n0\n62\n4\n6\nCONTINUOUS\n");
+    out.push_str("0\nLAYER\n2\nSECTION\n70\n0\n62\n1\n6\nCONTINUOUS\n");
     out.push_str("0\nENDTAB\n");
     out.push_str("0\nENDSEC\n");
 
@@ -75,7 +77,7 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
     push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 80.0, tb[1] + 12.0, 2.5, &format!("SKALA: {}", info.scale));
     push_text_layer(&mut out, "TITLEBLOCK", tb[0] + 80.0, tb[1] + 5.0, 2.5, &format!("SATUAN: {} | LBR: {}", info.units, info.sheet_number));
 
-    // C. Tampak-tampak Proyeksi (Visible, Hidden, Centerlines)
+    // C. Tampak-tampak Proyeksi (Visible, Hidden, Centerlines, Hatch, Section)
     for plc in &sheet.view_placements {
         if !plc.visible {
             continue;
@@ -87,10 +89,10 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
 
         // Judul Tampak
         let title_x = center[0] - (view.size_2d()[0] * scale * 0.5);
-        let title_y = center[1] - (view.size_2d()[1] * scale * 0.5) - 8.0;
+        let title_y = center[1] - (view.size_2d()[1] * scale * 0.5) - 7.0;
         push_text_layer(&mut out, "TITLEBLOCK", title_x, title_y, 3.0, &view.title);
 
-        // Garis Tampak & Tersembunyi
+        // Garis Tampak, Tersembunyi, Sumbu, dan Arsir
         for seg in &view.segments {
             let x1 = center[0] + (seg.start[0] - v_center[0]) * scale;
             let y1 = center[1] + (seg.start[1] - v_center[1]) * scale;
@@ -111,6 +113,14 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
                         push_line_layer(&mut out, "CENTERLINE", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
                     }
                 }
+                HlrLineKind::Hatch => {
+                    if sheet.show_hatch {
+                        push_line_layer(&mut out, "HATCH", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+                    }
+                }
+                HlrLineKind::CuttingPlane => {
+                    push_line_layer(&mut out, "SECTION", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+                }
             }
         }
 
@@ -122,6 +132,26 @@ pub fn export_drawing_sheet(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Res
                 let x2 = center[0] + (cl.end[0] - v_center[0]) * scale;
                 let y2 = center[1] + (cl.end[1] - v_center[1]) * scale;
                 push_line_layer(&mut out, "CENTERLINE", x1 as f64, y1 as f64, x2 as f64, y2 as f64);
+            }
+        }
+
+        // Indikator Garis Potong A-A pada Tampak Atas
+        if plc.kind == ProjectedViewKind::Top {
+            if let Some(ind) = &sheet.drawing.cutting_plane {
+                let p1_x = center[0] + (ind.start[0] - v_center[0]) * scale;
+                let p1_y = center[1] + (ind.start[1] - v_center[1]) * scale;
+                let p2_x = center[0] + (ind.end[0] - v_center[0]) * scale;
+                let p2_y = center[1] + (ind.end[1] - v_center[1]) * scale;
+
+                push_line_layer(&mut out, "SECTION", p1_x as f64, p1_y as f64, p2_x as f64, p2_y as f64);
+
+                let lbl1_x = center[0] + (ind.label1_pos[0] - v_center[0]) * scale;
+                let lbl1_y = center[1] + (ind.label1_pos[1] - v_center[1]) * scale;
+                let lbl2_x = center[0] + (ind.label2_pos[0] - v_center[0]) * scale;
+                let lbl2_y = center[1] + (ind.label2_pos[1] - v_center[1]) * scale;
+
+                push_text_layer(&mut out, "SECTION", lbl1_x, lbl1_y, 4.0, &ind.label);
+                push_text_layer(&mut out, "SECTION", lbl2_x, lbl2_y, 4.0, &ind.label);
             }
         }
     }
@@ -494,6 +524,8 @@ mod tests {
             top: dummy_view(ProjectedViewKind::Top),
             right: dummy_view(ProjectedViewKind::Right),
             isometric: dummy_view(ProjectedViewKind::Isometric),
+            section_a: Some(dummy_view(ProjectedViewKind::SectionAA)),
+            cutting_plane: None,
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [40.0, 40.0, 20.0],
         };

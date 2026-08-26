@@ -13,8 +13,8 @@ use egui::{
     Stroke, Ui, Vec2,
 };
 use egui_material_icons::icons::{
-    ICON_CLOSE, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_LAYERS,
-    ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_STRAIGHTEN, ICON_TEXTURE,
+    ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN, ICON_GRID_VIEW,
+    ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
 
 use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
@@ -449,8 +449,8 @@ impl DrawingSheetView {
                         let view = sheet.drawing.view_by_kind(plc.kind);
                         let sz = view.size_2d();
                         let s = plc.scale;
-                        let half_w = (sz[0] * s * 0.5 + 8.0).max(14.0);
-                        let half_h = (sz[1] * s * 0.5 + 16.0).max(14.0);
+                        let half_w = (sz[0] * s * 0.5 + 6.0).max(12.0);
+                        let half_h = (sz[1] * s * 0.5 + 11.5).max(12.0);
                         let cx = plc.center_mm[0];
                         let cy = plc.center_mm[1];
                         if cursor_mm[0] >= cx - half_w
@@ -937,6 +937,35 @@ impl DrawingSheetView {
                     sheet.show_centerlines = !sheet.show_centerlines;
                 }
 
+                let sec_btn = header_icon_btn(
+                    ui,
+                    ICON_CONTENT_CUT.codepoint,
+                    sheet.show_section_view,
+                    "Section View A-A (Tampak Potongan)",
+                    Some("P"),
+                    Some("Tampilkan tampak potongan melintang A-A lengkap dengan arsir 45° ISO/ANSI"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if sec_btn.clicked() {
+                    sheet.show_section_view = !sheet.show_section_view;
+                    sheet.auto_layout();
+                }
+
+                let hatch_btn = header_icon_btn(
+                    ui,
+                    ICON_GRID_VIEW.codepoint,
+                    sheet.show_hatch,
+                    "Arsir ISO 45° (Hatch Pattern)",
+                    Some("A"),
+                    Some("Tampilkan pola arsir miring 45° standar ISO pada penampang potongan solid"),
+                    Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
+                    Some(ACCENT_BLUE),
+                );
+                if hatch_btn.clicked() {
+                    sheet.show_hatch = !sheet.show_hatch;
+                }
+
                 let text_btn = header_icon_btn(
                     ui,
                     ICON_EDIT_NOTE.codepoint,
@@ -1237,8 +1266,8 @@ fn render_sheet_canvas(
         let is_hovered = state.hovered_view == Some(plc.kind);
         let is_dragging = state.dragging_view == Some(plc.kind);
         if is_hovered || is_dragging {
-            let half_w = (view_sz[0] * scale * 0.5 + 8.0) * zoom;
-            let half_h = (view_sz[1] * scale * 0.5 + 16.0) * zoom;
+            let half_w = (view_sz[0] * scale * 0.5 + 6.0) * zoom;
+            let half_h = (view_sz[1] * scale * 0.5 + 11.5) * zoom;
             let p_center = mm_to_screen(center_mm[0], center_mm[1]);
             let v_box = Rect::from_center_size(p_center, vec2(half_w * 2.0, half_h * 2.0));
 
@@ -1295,7 +1324,25 @@ fn render_sheet_canvas(
             }
         }
 
-        // 3. Visible Lines & Silhouettes (Garis Tampak Tebal Solid ISO 128)
+        // 3. Garis Arsir Potongan 45° ISO/ANSI (Hatch Pattern)
+        if sheet.show_hatch {
+            let hatch_stroke = Stroke::new((0.35 * zoom).clamp(0.6, 1.2), Color32::from_rgb(70, 95, 125));
+            for seg in &view.segments {
+                if seg.kind == HlrLineKind::Hatch {
+                    let p1 = mm_to_screen(
+                        center_mm[0] + (seg.start[0] - v_center[0]) * scale,
+                        center_mm[1] + (seg.start[1] - v_center[1]) * scale,
+                    );
+                    let p2 = mm_to_screen(
+                        center_mm[0] + (seg.end[0] - v_center[0]) * scale,
+                        center_mm[1] + (seg.end[1] - v_center[1]) * scale,
+                    );
+                    painter.line_segment([p1, p2], hatch_stroke);
+                }
+            }
+        }
+
+        // 4. Visible Lines & Silhouettes (Garis Tampak Tebal Solid ISO 128)
         let visible_stroke = Stroke::new((0.60 * zoom).clamp(1.2, 2.4), Color32::BLACK);
         for seg in &view.segments {
             if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
@@ -1311,10 +1358,50 @@ fn render_sheet_canvas(
             }
         }
 
-        // Judul Tampak Profesional di bawah view (bebas dari tabrakan garis dimensi)
-        let title_y_mm = center_mm[1] - (view_sz[1] * scale * 0.5) - 13.0;
+        // 5. Indikator Garis Potong Panah A-A pada Tampak Acuan (Top View)
+        if plc.kind == ProjectedViewKind::Top {
+            if let Some(ind) = &sheet.drawing.cutting_plane {
+                let p1 = mm_to_screen(
+                    center_mm[0] + (ind.start[0] - v_center[0]) * scale,
+                    center_mm[1] + (ind.start[1] - v_center[1]) * scale,
+                );
+                let p2 = mm_to_screen(
+                    center_mm[0] + (ind.end[0] - v_center[0]) * scale,
+                    center_mm[1] + (ind.end[1] - v_center[1]) * scale,
+                );
+
+                // Garis putus-putus tengah
+                let cut_dash_stroke = Stroke::new((0.4 * zoom).clamp(0.8, 1.4), Color32::from_rgb(50, 50, 60));
+                draw_dashed_line(&painter, p1, p2, cut_dash_stroke, 6.0 * zoom, 3.0 * zoom);
+
+                // Ujung garis tebal ISO
+                let thick_stroke = Stroke::new((1.5 * zoom).clamp(2.0, 3.5), Color32::from_rgb(20, 20, 30));
+                let end_len_px = (6.0 * scale * zoom).clamp(10.0, 30.0);
+                painter.line_segment([p1, Pos2::new(p1.x + end_len_px, p1.y)], thick_stroke);
+                painter.line_segment([p2, Pos2::new(p2.x - end_len_px, p2.y)], thick_stroke);
+
+                // Panah pandangan potong A-A
+                let arr_len_px = (6.0 * scale * zoom).clamp(12.0, 26.0);
+                let arr1_top = Pos2::new(p1.x, p1.y - arr_len_px);
+                let arr2_top = Pos2::new(p2.x, p2.y - arr_len_px);
+                painter.line_segment([p1, arr1_top], thick_stroke);
+                painter.line_segment([p2, arr2_top], thick_stroke);
+
+                let arr_sz = (2.6 * zoom).clamp(4.0, 8.5);
+                draw_arrowhead(&painter, arr1_top, Vec2::new(0.0, -1.0), arr_sz, Color32::from_rgb(20, 20, 30));
+                draw_arrowhead(&painter, arr2_top, Vec2::new(0.0, -1.0), arr_sz, Color32::from_rgb(20, 20, 30));
+
+                // Huruf teks label 'A'
+                let font_lbl = FontId::proportional((5.5 * zoom).clamp(9.0, 16.0));
+                painter.text(Pos2::new(p1.x - 10.0, arr1_top.y - 2.0), Align2::RIGHT_CENTER, &ind.label, font_lbl.clone(), Color32::from_rgb(20, 20, 30));
+                painter.text(Pos2::new(p2.x + 10.0, arr2_top.y - 2.0), Align2::LEFT_CENTER, &ind.label, font_lbl, Color32::from_rgb(20, 20, 30));
+            }
+        }
+
+        // Judul Tampak Profesional di bawah view (proporsional & elegan)
+        let title_y_mm = center_mm[1] - (view_sz[1] * scale * 0.5) - 7.5;
         let title_pos = mm_to_screen(center_mm[0], title_y_mm);
-        let title_sub_pos = mm_to_screen(center_mm[0], title_y_mm - 4.5);
+        let title_sub_pos = mm_to_screen(center_mm[0], title_y_mm - 3.8);
 
         let font_title = FontId::proportional((4.2 * zoom).clamp(5.5, 12.0));
         let font_sub = FontId::proportional((3.5 * zoom).clamp(4.5, 9.5));
@@ -1324,6 +1411,7 @@ fn render_sheet_canvas(
             ProjectedViewKind::Top => ("TOP VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::SectionAA => ("SECTION A-A", format!("SKALA {}", sheet.title_block.scale)),
         };
 
         painter.text(

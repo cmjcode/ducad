@@ -2077,3 +2077,74 @@ fn conical_tapered_helix_spring_produces_mesh() {
     assert!(mesh.triangle_count() > 50, "mesh conical spring solid harus valid");
 }
 
+#[test]
+fn test_section_view_brep_slice_and_hatch_generation() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let box_prof = rect_profile(60.0, 40.0);
+    let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
+    let mesh = box_shape.tessellate();
+
+    // Iris solid pada bidang Y = 20.0 (potongan tengah melintang)
+    let sec_cfg = crate::section::SectionPlaneConfig {
+        origin: [0.0, 20.0, 0.0],
+        normal: [0.0, 1.0, 0.0],
+        u_axis: [1.0, 0.0, 0.0],
+        v_axis: [0.0, 0.0, 1.0],
+        hatch_spacing: 3.0,
+        hatch_angle_deg: 45.0,
+    };
+
+    let (section_view, indicator) = crate::section::SectionExtractor::extract_section_view(
+        &[&box_shape],
+        &[&mesh],
+        &sec_cfg,
+        ([0.0, 0.0, 0.0], [60.0, 40.0, 30.0]),
+    );
+
+    assert_eq!(section_view.kind, ProjectedViewKind::SectionAA);
+    assert!(!section_view.segments.is_empty(), "Tampak potongan harus memiliki segmen");
+
+    // Periksa adanya garis batas irisan (Visible) dan garis arsir (Hatch)
+    let has_visible = section_view.segments.iter().any(|s| s.kind == HlrLineKind::Visible);
+    let has_hatch = section_view.segments.iter().any(|s| s.kind == HlrLineKind::Hatch);
+
+    assert!(has_visible, "Section view harus memiliki garis batas solid");
+    assert!(has_hatch, "Section view harus memiliki garis arsir miring 45° (Hatch)");
+
+    // Periksa indikator garis potong panah A-A
+    assert_eq!(indicator.label, "A");
+    assert!((indicator.start[1] - 20.0).abs() < 1e-3, "Garis potong berada di Y=20mm");
+    assert!(indicator.end[0] > indicator.start[0], "Rentang garis potong horizontal valid");
+}
+
+#[test]
+fn test_iso_hatch_pattern_45_degree_even_odd() {
+    use glam::vec2;
+
+    // Poligon persegi [0, 100] x [0, 50]
+    let segs = [
+        [vec2(0.0, 0.0), vec2(100.0, 0.0)],
+        [vec2(100.0, 0.0), vec2(100.0, 50.0)],
+        [vec2(100.0, 50.0), vec2(0.0, 50.0)],
+        [vec2(0.0, 50.0), vec2(0.0, 0.0)],
+    ];
+
+    let hatches = crate::section::generate_iso_hatch_pattern(
+        &segs,
+        vec2(0.0, 0.0),
+        vec2(100.0, 50.0),
+        5.0,
+        45.0,
+    );
+
+    assert!(!hatches.is_empty(), "Harus menghasilkan garis arsir");
+    for h in &hatches {
+        assert_eq!(h.kind, HlrLineKind::Hatch);
+        let dx = h.end[0] - h.start[0];
+        let dy = h.end[1] - h.start[1];
+        assert!(dx > 0.0 && dy > 0.0, "Garis arsir 45° harus miring ke kanan atas");
+        let angle_deg = (dy / dx).atan().to_degrees();
+        assert!((angle_deg - 45.0).abs() < 1.0, "Kemiringan sudut arsir ~45°, dapat {angle_deg}°");
+    }
+}
+

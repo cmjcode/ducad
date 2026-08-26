@@ -361,12 +361,13 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
 
         // 1. Render Judul Tampak (View Title) di bawah tampak
         let title_x = mm_to_pt(center_mm[0] - (view_sz[0] * scale * 0.5));
-        let title_y = mm_to_pt(center_mm[1] - (view_sz[1] * scale * 0.5) - 14.0);
+        let title_y = mm_to_pt(center_mm[1] - (view_sz[1] * scale * 0.5) - 7.5);
         let (sub_label, scale_label) = match plc.kind {
             ProjectedViewKind::Front => ("FRONT VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Top => ("TOP VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
             ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
+            ProjectedViewKind::SectionAA => ("SECTION A-A", format!("SKALA {}", sheet.title_block.scale)),
         };
 
         s.push_str(&format!(
@@ -374,7 +375,7 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             escape_pdf(&view.title),
             escape_pdf(sub_label)
         ));
-        let scale_y = title_y - mm_to_pt(3.5);
+        let scale_y = title_y - mm_to_pt(3.8);
         s.push_str(&format!(
             "q 0.4 0.4 0.4 rg BT /F1 6.5 Tf 1 0 0 1 {title_x:.2} {scale_y:.2} Tm ({}) Tj ET Q\n",
             escape_pdf(&scale_label)
@@ -408,7 +409,22 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             s.push_str("Q\n");
         }
 
-        // 4. Render Garis Tampak (Visible Lines & Silhouettes)
+        // 4. Render Garis Arsir (Hatch Pattern 45°) jika aktif
+        if sheet.show_hatch {
+            s.push_str("q 0.25 0.35 0.45 RG 0.4 w [] 0 d\n");
+            for seg in &view.segments {
+                if seg.kind == HlrLineKind::Hatch {
+                    let x1 = mm_to_pt(center_mm[0] + (seg.start[0] - v_center[0]) * scale);
+                    let y1 = mm_to_pt(center_mm[1] + (seg.start[1] - v_center[1]) * scale);
+                    let x2 = mm_to_pt(center_mm[0] + (seg.end[0] - v_center[0]) * scale);
+                    let y2 = mm_to_pt(center_mm[1] + (seg.end[1] - v_center[1]) * scale);
+                    s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n"));
+                }
+            }
+            s.push_str("Q\n");
+        }
+
+        // 5. Render Garis Tampak (Visible Lines & Silhouettes)
         s.push_str("q 0 0 0 RG 1.1 w [] 0 d 1 j 1 J\n");
         for seg in &view.segments {
             if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
@@ -420,6 +436,66 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             }
         }
         s.push_str("Q\n");
+
+        // 6. Render Indikator Garis Potong A-A pada Tampak Atas (Top View)
+        if plc.kind == ProjectedViewKind::Top {
+            if let Some(ind) = &sheet.drawing.cutting_plane {
+                let p1_x = mm_to_pt(center_mm[0] + (ind.start[0] - v_center[0]) * scale);
+                let p1_y = mm_to_pt(center_mm[1] + (ind.start[1] - v_center[1]) * scale);
+                let p2_x = mm_to_pt(center_mm[0] + (ind.end[0] - v_center[0]) * scale);
+                let p2_y = mm_to_pt(center_mm[1] + (ind.end[1] - v_center[1]) * scale);
+
+                // Garis potong tengah tipis putus-putus
+                s.push_str("q 0.1 0.1 0.1 RG 0.7 w [8 2 2 2] 0 d\n");
+                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {p2_x:.2} {p2_y:.2} l S\nQ\n"));
+
+                // Ujung tebal garis potong (Thick stroke ends ISO)
+                let end_len = mm_to_pt(6.0 * scale);
+                s.push_str("q 0 0 0 RG 1.8 w [] 0 d 1 J\n");
+                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {:.2} {p1_y:.2} l S\n", p1_x + end_len));
+                s.push_str(&format!("{p2_x:.2} {p2_y:.2} m {:.2} {p2_y:.2} l S\n", p2_x - end_len));
+                s.push_str("Q\n");
+
+                // Panah pandangan potong A-A
+                let arr_len = mm_to_pt(5.0 * scale);
+                let arr_dir_y = if ind.arrow_dir[1] >= 0.0 { arr_len } else { -arr_len };
+                s.push_str("q 0 0 0 RG 0 0 0 rg 1.2 w [] 0 d\n");
+                // Garis panah di p1
+                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {p1_x:.2} {:.2} l S\n", p1_y + arr_dir_y));
+                // Kepala panah di p1
+                let arr_head_w = mm_to_pt(1.2 * scale);
+                let arr_tip_y = p1_y + arr_dir_y;
+                let arr_base_y = arr_tip_y - (arr_dir_y * 0.4);
+                s.push_str(&format!(
+                    "{:.2} {:.2} m {p1_x:.2} {arr_tip_y:.2} l {:.2} {:.2} l b\n",
+                    p1_x - arr_head_w, arr_base_y, p1_x + arr_head_w, arr_base_y
+                ));
+
+                // Garis panah di p2
+                s.push_str(&format!("{p2_x:.2} {p2_y:.2} m {p2_x:.2} {:.2} l S\n", p2_y + arr_dir_y));
+                // Kepala panah di p2
+                s.push_str(&format!(
+                    "{:.2} {:.2} m {p2_x:.2} {arr_tip_y:.2} l {:.2} {:.2} l b\n",
+                    p2_x - arr_head_w, arr_base_y, p2_x + arr_head_w, arr_base_y
+                ));
+                s.push_str("Q\n");
+
+                // Huruf teks A tebal
+                let lbl1_x = mm_to_pt(center_mm[0] + (ind.label1_pos[0] - v_center[0]) * scale);
+                let lbl1_y = mm_to_pt(center_mm[1] + (ind.label1_pos[1] - v_center[1]) * scale);
+                let lbl2_x = mm_to_pt(center_mm[0] + (ind.label2_pos[0] - v_center[0]) * scale);
+                let lbl2_y = mm_to_pt(center_mm[1] + (ind.label2_pos[1] - v_center[1]) * scale);
+
+                s.push_str(&format!(
+                    "q 0 0 0 rg BT /F2 10 Tf 1 0 0 1 {lbl1_x:.2} {lbl1_y:.2} Tm ({}) Tj ET Q\n",
+                    escape_pdf(&ind.label)
+                ));
+                s.push_str(&format!(
+                    "q 0 0 0 rg BT /F2 10 Tf 1 0 0 1 {lbl2_x:.2} {lbl2_y:.2} Tm ({}) Tj ET Q\n",
+                    escape_pdf(&ind.label)
+                ));
+            }
+        }
     }
 }
 
@@ -614,6 +690,8 @@ mod tests {
             top: dummy_view(ProjectedViewKind::Top),
             right: dummy_view(ProjectedViewKind::Right),
             isometric: dummy_view(ProjectedViewKind::Isometric),
+            section_a: Some(dummy_view(ProjectedViewKind::SectionAA)),
+            cutting_plane: None,
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [50.0, 30.0, 20.0],
         }

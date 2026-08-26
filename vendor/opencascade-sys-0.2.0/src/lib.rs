@@ -1306,5 +1306,16 @@ pub mod ffi {
             ny: f64,
             nz: f64,
         ) -> Result<UniquePtr<TopoDS_Shape>>;
+
+        // BRepAlgoAPI_Section (DUCAD Fase 11.1 — Section View cross-section extraction).
+        pub fn section_shape_with_plane(
+            shape: &TopoDS_Shape,
+            px: f64,
+            py: f64,
+            pz: f64,
+            nx: f64,
+            ny: f64,
+            nz: f64,
+        ) -> Result<UniquePtr<CxxVector<TopoDS_Shape>>>;
     }
 }

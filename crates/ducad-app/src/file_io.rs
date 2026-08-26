@@ -462,6 +462,39 @@ impl DuCADApp {
             ducad_io::drawing::PaperSize::A4Landscape,
         );
 
+        if self.section_enabled {
+            let mut sec_cfg = ducad_kernel::SectionPlaneConfig::from_model_bbox_center_y(
+                sheet.drawing.model_bbox_min,
+                sheet.drawing.model_bbox_max,
+            );
+            match self.section_axis {
+                crate::types::SectionAxis::Y => {
+                    sec_cfg.origin[1] = self.section_offset;
+                }
+                crate::types::SectionAxis::X => {
+                    sec_cfg.origin = [self.section_offset, 0.0, 0.0];
+                    sec_cfg.normal = [1.0, 0.0, 0.0];
+                    sec_cfg.u_axis = [0.0, 1.0, 0.0];
+                    sec_cfg.v_axis = [0.0, 0.0, 1.0];
+                }
+                crate::types::SectionAxis::Z => {
+                    sec_cfg.origin = [0.0, 0.0, self.section_offset];
+                    sec_cfg.normal = [0.0, 0.0, 1.0];
+                    sec_cfg.u_axis = [1.0, 0.0, 0.0];
+                    sec_cfg.v_axis = [0.0, 1.0, 0.0];
+                }
+            }
+            let (sec_view, cut_ind) = ducad_kernel::SectionExtractor::extract_section_view(
+                &shapes,
+                &mesh_refs,
+                &sec_cfg,
+                (sheet.drawing.model_bbox_min, sheet.drawing.model_bbox_max),
+            );
+            sheet.drawing.section_a = Some(sec_view);
+            sheet.drawing.cutting_plane = Some(cut_ind);
+            sheet.auto_layout();
+        }
+
         // Tambahkan entitas sketsa profil (lingkaran, busur, ellips) secara permanen ke fitur geometris Tampak Atas
         for (_, entity) in &self.sketch().entities {
             match entity {

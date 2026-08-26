@@ -69,7 +69,7 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
 ### Fase 11: Gambar Kerja 2D Lanjutan & Web/AR Interoperability
 **Tujuan**: Menghasilkan gambar teknik potongan berstandar industri dan format presentasi 3D web/AR.
 
-- [ ] **11.1 Section View A-A (Tampak Potongan Melintang)**:
+- [x] **11.1 Section View A-A (Tampak Potongan Melintang)**:
   - Ekstraksi irisan solid 3D pada bidang potong menggunakan `BRepAlgoAPI_Section`.
   - Generator pola arsiran (*Hatch pattern*) garis miring 45° standar ISO/ANSI pada area potongan solid.
   - Indikator garis potong panah `A ─── A` pada tampak acuan.

@@ -133,6 +133,10 @@ impl Default for TextAnnotation {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Dokumen Lembar Kerja Teknik 2D lengkap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrawingSheet {
@@ -144,6 +148,10 @@ pub struct DrawingSheet {
     pub show_hidden_lines: bool,
     pub show_dimensions: bool,
     pub show_centerlines: bool,
+    #[serde(default = "default_true")]
+    pub show_section_view: bool,
+    #[serde(default = "default_true")]
+    pub show_hatch: bool,
     pub auto_dimensions: Vec<DimensionAnnotation>,
     #[serde(default)]
     pub custom_texts: Vec<TextAnnotation>,
@@ -161,6 +169,8 @@ impl DrawingSheet {
             show_hidden_lines: true,
             show_dimensions: true,
             show_centerlines: true,
+            show_section_view: true,
+            show_hatch: true,
             auto_dimensions: Vec::new(),
             custom_texts: Vec::new(),
         };
@@ -311,7 +321,7 @@ impl DrawingSheet {
         let max_iso_y = paper_h - top_margin - 8.0 - h_iso * 0.5;
         let iso_center_y = clamp_safe(top_center_y, min_iso_y, max_iso_y);
 
-        self.view_placements = vec![
+        let mut placements = vec![
             SheetViewPlacement {
                 kind: ProjectedViewKind::Front,
                 center_mm: [front_center_x, front_center_y],
@@ -337,6 +347,28 @@ impl DrawingSheet {
                 visible: true,
             },
         ];
+
+        if self.show_section_view && self.drawing.section_a.is_some() {
+            let sec_sz = self
+                .drawing
+                .section_a
+                .as_ref()
+                .map(|v| v.size_2d())
+                .unwrap_or(front_sz);
+            let w_sec = sec_sz[0] * s;
+            let sec_center_x = (right_center_x + (w_r + w_sec) * 0.5 + gap_x * 0.7)
+                .min(paper_w - right_margin - w_sec * 0.5 - 4.0);
+            let sec_center_y = front_center_y;
+
+            placements.push(SheetViewPlacement {
+                kind: ProjectedViewKind::SectionAA,
+                center_mm: [sec_center_x, sec_center_y],
+                scale: s,
+                visible: true,
+            });
+        }
+
+        self.view_placements = placements;
 
         // Buat dimensi otomatis untuk seluruh tampak
         self.generate_auto_dimensions();
@@ -739,6 +771,8 @@ mod tests {
             ),
             right: make_view(ProjectedViewKind::Right, d, h, Vec::new()),
             isometric: make_view(ProjectedViewKind::Isometric, w * 0.9, (h + d) * 0.8, Vec::new()),
+            section_a: Some(make_view(ProjectedViewKind::SectionAA, w, h, Vec::new())),
+            cutting_plane: None,
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [w, d, h],
         }
@@ -752,7 +786,7 @@ mod tests {
         // 1. A4 Landscape (297 x 210)
         let sheet_a4 = DrawingSheet::new(drawing.clone(), PaperSize::A4Landscape);
         assert!(sheet_a4.scale > 0.0, "Skala A4 harus bernilai positif");
-        assert_eq!(sheet_a4.view_placements.len(), 4, "Harus ada 4 tampak proyeksi");
+        assert_eq!(sheet_a4.view_placements.len(), 5, "Harus ada 5 tampak proyeksi (termasuk Section A-A)");
 
         let (a4_w, a4_h) = sheet_a4.paper_size.dimensions_mm();
         for plc in &sheet_a4.view_placements {

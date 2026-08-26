@@ -984,3 +984,40 @@ inline std::unique_ptr<TopoDS_Shape> split_faces_with_plane(
   }
 }
 
+// ============================================================================
+// BRepAlgoAPI_Section — Section View cross-section curve extraction (Fase 11.1)
+// ============================================================================
+
+inline std::unique_ptr<std::vector<TopoDS_Shape>> section_shape_with_plane(
+    const TopoDS_Shape &shape,
+    double px, double py, double pz,
+    double nx, double ny, double nz
+) {
+  try {
+    double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (len < 1e-7) {
+      throw std::runtime_error("Normal bidang potong tidak valid (panjang 0)");
+    }
+    gp_Dir dir(nx / len, ny / len, nz / len);
+    gp_Pnt p0(px, py, pz);
+    gp_Pln pln(p0, dir);
+
+    BRepAlgoAPI_Section section_op(shape, pln, Standard_True);
+    section_op.Build();
+    if (!section_op.IsDone()) {
+      throw std::runtime_error("BRepAlgoAPI_Section gagal menghitung irisan bidang potong");
+    }
+
+    TopoDS_Shape res = section_op.Shape();
+    std::unique_ptr<std::vector<TopoDS_Shape>> edges(new std::vector<TopoDS_Shape>());
+
+    for (TopExp_Explorer exp(res, TopAbs_EDGE); exp.More(); exp.Next()) {
+      edges->push_back(exp.Current());
+    }
+
+    return edges;
+  } catch (const Standard_Failure &failure) {
+    rethrow_standard_failure_as_runtime_error(failure, "BRepAlgoAPI_Section gagal (OCCT error)");
+  }
+}
+

@@ -13,6 +13,7 @@ pub mod mesh;
 pub mod modify;
 pub mod picking;
 pub mod profile;
+pub mod section;
 pub mod shape;
 pub mod step;
 
@@ -79,6 +80,9 @@ pub use picking::{
     shape_vertices, EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
 };
 pub use profile::{PathSegment, Profile, ProfileSegment};
+pub use section::{
+    generate_iso_hatch_pattern, CuttingLineIndicator, SectionExtractor, SectionPlaneConfig,
+};
 pub use shape::{
     clone_shape, rotate_shape, scale_shape, transform_shape, translate_shape, KernelShape,
 };
