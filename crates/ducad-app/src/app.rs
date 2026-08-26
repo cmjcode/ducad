@@ -1506,7 +1506,7 @@ impl eframe::App for DuCADApp {
                         };
                         (
                             label,
-                            egui_material_icons::icons::ICON_HORIZONTAL_RULE.codepoint,
+                            egui_icons::icons::ICON_HORIZONTAL_RULE.codepoint,
                         )
                     }
                     Entity::Circle { radius, .. } => {
@@ -1517,7 +1517,7 @@ impl eframe::App for DuCADApp {
                         };
                         (
                             label,
-                            egui_material_icons::icons::ICON_CIRCLE.codepoint,
+                            egui_icons::icons::ICON_CIRCLE.codepoint,
                         )
                     }
                     Entity::Arc { radius, .. } => {
@@ -1528,7 +1528,7 @@ impl eframe::App for DuCADApp {
                         };
                         (
                             label,
-                            egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
+                            egui_icons::icons::ICON_ARCHITECTURE.codepoint,
                         )
                     }
                     Entity::Ellipse {
@@ -1541,7 +1541,7 @@ impl eframe::App for DuCADApp {
                         };
                         (
                             label,
-                            egui_material_icons::icons::ICON_HOME_MINI.codepoint,
+                            egui_icons::icons::ICON_HOME_MINI.codepoint,
                         )
                     }
                     Entity::Spline { points, .. } => {
@@ -1552,7 +1552,7 @@ impl eframe::App for DuCADApp {
                         };
                         (
                             label,
-                            egui_material_icons::icons::ICON_TIMELINE.codepoint,
+                            egui_icons::icons::ICON_TIMELINE.codepoint,
                         )
                     }
                 };
@@ -2396,7 +2396,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Studio Lighting & SSAO
                         let lighting_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                            egui_icons::icons::ICON_LIGHTBULB_ON.codepoint,
                             self.lighting_drawer_open,
                             "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
                         );
@@ -2408,7 +2408,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Preset Industri & CMF Material
                         let cmf_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_PALETTE.codepoint,
+                            egui_icons::icons::ICON_PALETTE.codepoint,
                             self.cmf_drawer_open,
                             "Preset Material Industri & CMF (Warna & Finishing)",
                         );
@@ -2419,7 +2419,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Draft Analysis (Kiri dari History)
                         let draft_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_ARCHITECTURE.codepoint,
+                            egui_icons::icons::ICON_ARCHITECTURE.codepoint,
                             self.draft_config.enabled,
                             "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
                         );
@@ -2430,7 +2430,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Feature Tree & Riwayat Desain (Pohon Parametrik & Snapshot)
                         let feat_tree_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_TIMELINE.codepoint,
+                            egui_icons::icons::ICON_TIMELINE.codepoint,
                             self.feature_tree_drawer_open,
                             "Feature Tree & Riwayat Desain (Pohon Parametrik & Time-Travel)",
                         );
@@ -2441,7 +2441,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Reference Planes (Kiri dari Folder)
                         let planes_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_LAYERS_OFF.codepoint,
+                            egui_icons::icons::ICON_LAYERS_OFF.codepoint,
                             self.planes_drawer_open,
                             "Daftar Bidang Referensi 3D (Reference Planes)",
                         );
@@ -2452,7 +2452,7 @@ impl eframe::App for DuCADApp {
                         // Tombol Folder (Kanan)
                         let folder_resp = round_floating_icon_btn(
                             ui,
-                            egui_material_icons::icons::ICON_FOLDER.codepoint,
+                            egui_icons::icons::ICON_FOLDER.codepoint,
                             self.items_drawer_open,
                             "Properties Dokumen (Objek 2D & Solid Body 3D)",
                         );
@@ -2582,7 +2582,7 @@ impl eframe::App for DuCADApp {
                     &ctx,
                     "hole_wizard_popup",
                     &ducad_i18n::t!("tool-hole-wizard"),
-                    egui_material_icons::icons::ICON_ADJUST.codepoint,
+                    egui_icons::icons::ICON_ADJUST.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
                     screen_rect,
                     tool_popup_bottom_y,
@@ -2627,7 +2627,7 @@ impl eframe::App for DuCADApp {
                     &ctx,
                     "text_popup",
                     &popup_title,
-                    egui_material_icons::icons::ICON_TITLE.codepoint,
+                    egui_icons::icons::ICON_TITLE.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
                     screen_rect,
                     tool_popup_bottom_y,
@@ -2651,7 +2651,7 @@ impl eframe::App for DuCADApp {
                     &ctx,
                     "helix_popup",
                     &popup_title,
-                    egui_material_icons::icons::ICON_HEATING_COIL.codepoint,
+                    egui_icons::icons::ICON_HEATING_COIL.codepoint,
                     ducad_ui::theme::ACCENT_BLUE,
                     screen_rect,
                     tool_popup_bottom_y,

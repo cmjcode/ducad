@@ -1,6 +1,6 @@
 use ducad_i18n::t;
 use egui::{Color32, Context, Rect, RichText, Vec2};
-use egui_material_icons::icons::ICON_LAYERS;
+use egui_icons::icons::ICON_LAYERS;
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, ACCENT_GREEN, TEXT_SECONDARY};

@@ -12,7 +12,7 @@ use egui::{
     vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
     Stroke, Ui, Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_ADJUST, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN,
     ICON_GRID_VIEW, ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
     ICON_TEXTURE,

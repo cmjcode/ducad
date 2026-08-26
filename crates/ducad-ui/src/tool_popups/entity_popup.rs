@@ -1,7 +1,7 @@
 //! 2D Entity & Selection Parameters Tool Popup.
 
 use egui::{Color32, Context, Rect, RichText, Vec2};
-use egui_material_icons::icons::{ICON_DELETE, ICON_EDIT, ICON_LOCK};
+use egui_icons::icons::{ICON_DELETE, ICON_EDIT, ICON_LOCK};
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::feature_inspector::{

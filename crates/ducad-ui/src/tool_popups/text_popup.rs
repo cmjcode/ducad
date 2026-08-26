@@ -6,7 +6,7 @@ use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, DragValue, Layout, RichText, Ui, Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_CHECK, ICON_FOLDER_OPEN, ICON_FORMAT_ALIGN_CENTER, ICON_FORMAT_ALIGN_LEFT,
     ICON_FORMAT_ALIGN_RIGHT, ICON_TITLE,
 };

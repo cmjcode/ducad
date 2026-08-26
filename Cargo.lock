@@ -1127,7 +1127,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "egui_material_icons",
+ "egui_icons",
  "env_logger",
  "glam",
  "image",
@@ -1219,7 +1219,7 @@ dependencies = [
  "ducad-kernel",
  "ducad-sketch",
  "egui",
- "egui_material_icons",
+ "egui_icons",
  "glam",
 ]
 
@@ -1344,8 +1344,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_material_icons"
-version = "0.8.0"
+name = "egui_icons"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e081222cdb816f2996e937c21dad3e789670082a0ff3d3bb82d1507783534319"
 dependencies = [
  "egui",
 ]

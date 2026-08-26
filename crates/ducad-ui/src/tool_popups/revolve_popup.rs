@@ -1,7 +1,7 @@
 //! Revolve 3D Tool Popup.
 
 use egui::{Color32, Context, Rect, RichText, Vec2};
-use egui_material_icons::icons::ICON_REFRESH;
+use egui_icons::icons::ICON_REFRESH;
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY};

@@ -166,7 +166,7 @@ pub fn dimension_pill_frame() -> Frame {
 
 /// Terapkan tema + gaya target-sentuh ke context egui.
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
-    egui_material_icons::initialize(ctx);
+    egui_icons::initialize(ctx);
 
     let theme = match mode {
         ThemeMode::Dark => egui::Theme::Dark,
@@ -195,14 +195,14 @@ mod tests {
 
         let mut output = ctx.run_ui(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                ui.label(egui_material_icons::icons::ICON_HOME.rich_text());
-                ui.label(egui_material_icons::icons::ICON_SETTINGS.rich_text());
-                ui.label(egui_material_icons::icons::ICON_ADS_CLICK.rich_text());
-                ui.label(egui_material_icons::icons::ICON_HORIZONTAL_RULE.rich_text());
+                ui.label(egui_icons::icons::ICON_HOME.rich_text());
+                ui.label(egui_icons::icons::ICON_SETTINGS.rich_text());
+                ui.label(egui_icons::icons::ICON_ADS_CLICK.rich_text());
+                ui.label(egui_icons::icons::ICON_HORIZONTAL_RULE.rich_text());
                 // Test Pictogrammers MDI icons
-                ui.label(egui_material_icons::icons::ICON_CUBE.rich_text());
-                ui.label(egui_material_icons::icons::ICON_CUBE_OUTLINE.rich_text());
-                ui.label(egui_material_icons::icons::MDI_CUBE.rich_text());
+                ui.label(egui_icons::icons::ICON_CUBE.rich_text());
+                ui.label(egui_icons::icons::ICON_CUBE_OUTLINE.rich_text());
+                ui.label(egui_icons::icons::MDI_CUBE.rich_text());
             });
         });
         output.textures_delta.clear();

@@ -10,7 +10,7 @@ use crate::theme::{
 };
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
     ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
     ICON_TITLE,

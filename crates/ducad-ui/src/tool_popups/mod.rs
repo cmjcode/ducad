@@ -18,7 +18,7 @@ pub mod text_popup;
 
 use ducad_i18n::t;
 use egui::{Align2, Color32, Context, Id, Pos2, Rect, RichText, Ui, Vec2};
-use egui_material_icons::icons::ICON_CLOSE;
+use egui_icons::icons::ICON_CLOSE;
 
 use crate::theme::{glass_frame, TEXT_SECONDARY};
 

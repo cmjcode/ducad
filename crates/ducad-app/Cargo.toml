@@ -20,7 +20,7 @@ ducad-i18n = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }
-egui_material_icons = { workspace = true }
+egui_icons = { workspace = true }
 glam = { workspace = true }
 slotmap = { workspace = true }
 log = { workspace = true }

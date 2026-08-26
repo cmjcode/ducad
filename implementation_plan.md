@@ -87,10 +87,10 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
 ### Fase 12: Parametrik, Rakitan (Assembly) & Shell CLI
 **Tujuan**: Menghadirkan kemampuan manajemen riwayat parametrik penuh, perakitan multi-komponen, dan efisiensi perintah teks.
 
-- [ ] **12.1 Parametric History Timeline (Feature Tree)**:
+- [x] **12.1 Parametric History Timeline (Feature Tree)**:
   - Perekaman langkah-langkah desain dalam struktur pohon dependensi (*Directed Acyclic Graph* - DAG).
   - Kemampuan mengedit parameter sketsa masa lalu yang secara otomatis memperbarui (*regenerate*) seluruh bodi solid 3D turunan.
-- [ ] **12.2 Assembly Workspace & Mate Constraints**:
+- [x] **12.2 Assembly Workspace & Mate Constraints**:
   - Manajemen pohon hierarki perakitan (*Assembly Tree* dengan part mandiri).
   - Solver kendala perakitan 3D:
     - *Concentric Mate*: Mengunci sumbu silinder poros dengan lubang.
@@ -98,9 +98,9 @@ Dokumen ini memuat rencana implementasi teknis penambahan fitur-fitur baru pada 
     - *Distance / Angle Mate*: Mengatur jarak atau sudut rotasi engsel.
 - [x] **12.3 Clash & Interference Detection**:
   - Uji tabrakan fisik otomatis antar bodi solid menggunakan operasi Boolean interseksi untuk mencegah kesalahan perakitan di pabrik.
-- [ ] **12.4 Persistent Bottom Command Prompt Bar (CLI)**:
-  - Baris input teks perintah di bagian bawah layar ala AutoCAD yang menerima perintah singkat keyboard (`L`, `C`, `REC`, `TR`, `EX`, `DIM`, `EXT`) dengan pelengkapan otomatis (*autocomplete*).
-- [ ] **12.5 Tabel BOM (Bill of Materials) & Part Callout Balloons**:
+- [x] **12.4 Persistent Bottom Command Prompt Bar (CLI) & Command Palette**:
+  - Baris input teks perintah & Command Palette (`Ctrl/Cmd+K`) yang menerima perintah singkat keyboard (`L`, `C`, `REC`, `TR`, `EX`, `DIM`, `EXT`) dengan pencarian instan dan fuzzy match.
+- [x] **12.5 Tabel BOM (Bill of Materials) & Part Callout Balloons**:
   - Tabel otomatis berisi nomor item, nama part, jumlah kuantitas, dan bahan material yang terhubung dengan lingkaran nomor penunjuk pada gambar isometrik.
 
 ---

@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LIGHTBULB_ON, ICON_LOCK,
     ICON_STRAIGHTEN, ICON_TEXTURE,
 };

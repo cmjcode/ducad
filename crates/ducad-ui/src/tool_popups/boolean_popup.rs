@@ -1,6 +1,6 @@
 use ducad_i18n::t;
 use egui::{Context, Rect, RichText};
-use egui_material_icons::icons::ICON_CALL_MERGE;
+use egui_icons::icons::ICON_CALL_MERGE;
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, TEXT_SECONDARY};

@@ -8,7 +8,7 @@ use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Slider, Stroke, Ui,
     Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_CLOSE, ICON_LIGHTBULB_ON, ICON_TUNE,
 };
 

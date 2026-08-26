@@ -6,7 +6,7 @@ use ducad_i18n::t;
 use egui::{
     Color32, CornerRadius, DragValue, RichText, Ui, Vec2,
 };
-use egui_material_icons::icons::ICON_CHECK;
+use egui_icons::icons::ICON_CHECK;
 
 use super::ToolPopupEvent;
 use crate::theme::{

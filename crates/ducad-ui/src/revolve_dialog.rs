@@ -7,7 +7,7 @@
 
 use ducad_i18n::t;
 use egui::{Align2, Color32, RichText, Vec2, Window};
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_CHECK_CIRCLE, ICON_INFO, ICON_REFRESH, ICON_WARNING,
 };
 

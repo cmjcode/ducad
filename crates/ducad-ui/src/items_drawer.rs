@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_CUBE_OUTLINE, ICON_FOLDER,
     ICON_HORIZONTAL_RULE, ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH,
     ICON_VISIBILITY, ICON_VISIBILITY_OFF,

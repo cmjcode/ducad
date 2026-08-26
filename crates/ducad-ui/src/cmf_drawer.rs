@@ -8,7 +8,7 @@ use ducad_i18n::t;
 use egui::{
     Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Slider, Stroke, Ui, Vec2,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_AUTO_AWESOME, ICON_CLOSE, ICON_PALETTE, ICON_SHIELD, ICON_TEXTURE, ICON_WATER_DROP,
 };
 

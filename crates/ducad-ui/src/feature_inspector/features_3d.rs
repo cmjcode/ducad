@@ -1,6 +1,6 @@
 use ducad_i18n::t;
 use egui::{Color32, RichText, Slider, Ui, Vec2};
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_AUTO_AWESOME, ICON_CALL_MERGE, ICON_CATEGORY, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
     ICON_PALETTE, ICON_REDO, ICON_REFRESH, ICON_SHIELD, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UNDO,
     ICON_WATER_DROP,

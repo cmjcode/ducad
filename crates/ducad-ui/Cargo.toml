@@ -13,4 +13,4 @@ ducad-io = { workspace = true }
 ducad-i18n = { workspace = true }
 egui = { workspace = true }
 glam = { workspace = true }
-egui_material_icons = { workspace = true }
+egui_icons = { workspace = true }

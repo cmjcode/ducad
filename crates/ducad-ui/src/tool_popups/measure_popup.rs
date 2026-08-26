@@ -1,7 +1,7 @@
 //! Measurement & Inspect Tool Popup.
 
 use egui::{Context, Rect, RichText};
-use egui_material_icons::icons::{ICON_CLOSE, ICON_STRAIGHTEN};
+use egui_icons::icons::{ICON_CLOSE, ICON_STRAIGHTEN};
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_ORANGE, TEXT_SECONDARY};

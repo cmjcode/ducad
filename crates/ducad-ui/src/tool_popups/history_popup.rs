@@ -1,7 +1,7 @@
 //! Document History & Undo/Redo Tool Popup.
 
 use egui::{Color32, Context, Rect, RichText};
-use egui_material_icons::icons::{ICON_HISTORY, ICON_REDO, ICON_UNDO};
+use egui_icons::icons::{ICON_HISTORY, ICON_REDO, ICON_UNDO};
 
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, TEXT_MUTED, TEXT_SECONDARY};

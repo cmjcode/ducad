@@ -1,6 +1,6 @@
 use ducad_i18n::t;
 use egui::{RichText, Ui, Vec2};
-use egui_material_icons::icons::{ICON_EDIT, ICON_LOCK};
+use egui_icons::icons::{ICON_EDIT, ICON_LOCK};
 
 use crate::feature_inspector::types::{
     FeatureInspectorState, InspectorConstraintAction, InspectorEvent, InspectorRectAnchor,

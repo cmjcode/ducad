@@ -4,7 +4,7 @@
 //! untuk akses cepat pemasangan constraint geometris dan pengaturan snap.
 
 use egui::{RichText, Ui, Vec2};
-use egui_material_icons::icons::{ICON_LINK, ICON_LOCK};
+use egui_icons::icons::{ICON_LINK, ICON_LOCK};
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

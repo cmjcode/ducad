@@ -5,7 +5,7 @@ pub mod features_3d;
 pub mod types;
 
 use egui::{Color32, RichText, ScrollArea, Ui, Vec2};
-use egui_material_icons::icons::{ICON_CLOSE, ICON_PUSH_PIN, ICON_TUNE};
+use egui_icons::icons::{ICON_CLOSE, ICON_PUSH_PIN, ICON_TUNE};
 
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 

@@ -17,7 +17,7 @@ use ducad_i18n::t;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui,
 };
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_ADD, ICON_ADJUST, ICON_ARCHITECTURE, ICON_CALL_MERGE, ICON_CATEGORY, ICON_CHECK_CIRCLE,
     ICON_CLEAR, ICON_CLOSE, ICON_DELETE, ICON_EDIT, ICON_ERROR, ICON_FLIP, ICON_FOLDER,
     ICON_HORIZONTAL_RULE, ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_LOCK,

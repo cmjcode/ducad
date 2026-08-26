@@ -6,7 +6,7 @@
 
 use ducad_i18n::t;
 use egui::{Button, RichText, Ui, Vec2};
-use egui_material_icons::icons::{
+use egui_icons::icons::{
     ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CATEGORY,
     ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT,
     ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
@@ -164,7 +164,7 @@ impl ContextActionBar {
                 // 7. Helix / Coil
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{} Helix", egui_material_icons::icons::ICON_HEATING_COIL.codepoint))
+                        RichText::new(format!("{} Helix", egui_icons::icons::ICON_HEATING_COIL.codepoint))
                             .size(11.5)
                             .color(TEXT_PRIMARY),
                     ),
@@ -275,7 +275,7 @@ impl ContextActionBar {
                 // Helix / Coil Face
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{} Helix", egui_material_icons::icons::ICON_HEATING_COIL.codepoint))
+                        RichText::new(format!("{} Helix", egui_icons::icons::ICON_HEATING_COIL.codepoint))
                             .size(11.5)
                             .color(TEXT_PRIMARY),
                     ),
@@ -299,7 +299,7 @@ impl ContextActionBar {
                 // Rib / Tulang Penguat
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{}  Rib (Tulang)", egui_material_icons::icons::ICON_TIMELINE.codepoint))
+                        RichText::new(format!("{}  Rib (Tulang)", egui_icons::icons::ICON_TIMELINE.codepoint))
                             .size(11.5)
                             .color(TEXT_PRIMARY),
                     ),
@@ -347,7 +347,7 @@ impl ContextActionBar {
                 // New Datum Plane from Face
                 let btn = ui.add(
                     Button::new(
-                        RichText::new(format!("{}  + Offset Plane", egui_material_icons::icons::ICON_LAYERS_OFF.codepoint))
+                        RichText::new(format!("{}  + Offset Plane", egui_icons::icons::ICON_LAYERS_OFF.codepoint))
                             .size(11.5)
                             .color(crate::theme::ACCENT_ORANGE),
                     ),

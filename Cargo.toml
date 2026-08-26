@@ -50,7 +50,7 @@ eframe = { version = "0.36", default-features = false, features = [
 ] }
 egui = "0.36"
 egui_wgpu = { package = "egui-wgpu", version = "0.36" }
-egui_material_icons = "0.8"
+egui_icons = "0.0.1"
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -117,5 +117,4 @@ opt-level = 2
 [patch.crates-io]
 opencascade = { path = "vendor/opencascade-0.2.0" }
 opencascade-sys = { path = "vendor/opencascade-sys-0.2.0" }
-egui_material_icons = { path = "vendor/egui_material_icons" }
 
