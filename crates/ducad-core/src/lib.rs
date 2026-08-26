@@ -8,6 +8,11 @@ use slotmap::SlotMap;
 pub mod hole;
 pub use hole::{HoleKind, HoleSpec, IsoMetricThread};
 
+pub mod parametric;
+pub use parametric::{
+    FeatureId, FeatureNode, FeaturePayload, FeatureStatus, ParametricDag, SketchPlaneRef,
+};
+
 /// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum LengthUnit {

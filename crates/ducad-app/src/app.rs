@@ -12,7 +12,7 @@ use ducad_sketch::{
 use ducad_ui::{
     ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CmfDrawer,
     CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
-    Entity2dItemInfo, HistoryDrawer, HistoryDrawerEvent, HistoryPopup, HistoryPopupState,
+    Entity2dItemInfo, FeatureTreeDrawer, FeatureTreeEvent, HistoryDrawer, HistoryPopup, HistoryPopupState,
     InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
     LightingDrawer, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent, RadialMenu, RenamePopupEvent, ThemeMode,
     ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube,
@@ -141,12 +141,15 @@ pub struct DuCADApp {
     pub cmf_drawer: CmfDrawer,
     pub lighting_drawer: LightingDrawer,
     pub planes_drawer: PlanesDrawer,
+    pub feature_tree_drawer: FeatureTreeDrawer,
     pub viewcube: ViewCube,
     pub items_drawer_open: bool,
     pub history_drawer_open: bool,
     pub cmf_drawer_open: bool,
     pub lighting_drawer_open: bool,
     pub planes_drawer_open: bool,
+    pub feature_tree_drawer_open: bool,
+    pub parametric_dag: ducad_core::ParametricDag,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -448,14 +451,272 @@ impl DuCADApp {
             cmf_drawer: CmfDrawer::default(),
             lighting_drawer: LightingDrawer::default(),
             planes_drawer: PlanesDrawer::default(),
+            feature_tree_drawer: FeatureTreeDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
             history_drawer_open: false,
             cmf_drawer_open: false,
             lighting_drawer_open: false,
             planes_drawer_open: false,
+            feature_tree_drawer_open: false,
+            parametric_dag: ducad_core::ParametricDag::new(),
             history_db,
             activity_cache,
+            plane_menu_open: false,
+            left_toolbar_content_sig: None,
+            inspector_content_sig: None,
+            prop_input_p1_x: String::new(),
+            prop_input_p1_y: String::new(),
+            prop_input_p2_x: String::new(),
+            prop_input_p2_y: String::new(),
+            prop_input_val_1: String::new(),
+            prop_input_val_2: String::new(),
+            prop_input_val_3: String::new(),
+            prop_input_rect_p: String::new(),
+            prop_input_rect_l: String::new(),
+            rect_anchor: InspectorRectAnchor::Center,
+            last_inspected_entity_id: None,
+
+            editing_body_dim_axis: None,
+            editing_body_dim_input: String::new(),
+            editing_edge_dim: None,
+            editing_edge_dim_input: String::new(),
+
+            is_sketching: true,
+            active_plane: SketchPlane::top(),
+            unit: LengthUnit::Millimeters,
+
+            extruding_from_gizmo: false,
+            gizmo_distance: 20.0,
+            gizmo_dimension_editing: false,
+            gizmo_edit_input: "20".to_string(),
+            gizmo_is_cutting: false,
+            gizmo_target_body: None,
+
+            extruding_face_from_gizmo: false,
+            face_gizmo_distance: 15.0,
+            face_gizmo_dimension_editing: false,
+            face_gizmo_edit_input: "15".to_string(),
+
+            filleting_vertex_from_gizmo: false,
+            vertex_gizmo_radius: 3.0,
+            vertex_gizmo_dimension_editing: false,
+            vertex_gizmo_edit_input: "3".to_string(),
+
+            hovered_vertex_marker: None,
+            hovered_corner_2d: None,
+            active_edge: None,
+            filleting_edge_from_gizmo: false,
+            edge_gizmo_radius: 3.0,
+            edge_gizmo_dimension_editing: false,
+            edge_gizmo_edit_input: "3".to_string(),
+
+            round_history: std::collections::HashMap::new(),
+            editing_round: None,
+            hole_history: std::collections::HashMap::new(),
+            editing_hole_idx: None,
+
+            sketch_move_target: None,
+            sketch_move_dragging: false,
+            sketch_move_delta: DVec2::ZERO,
+            sketch_move_armed: false,
+            body_move_target: None,
+            body_move_dragging: false,
+            body_move_delta: Vec3::ZERO,
+            body_move_armed: false,
+            body_transform_part: None,
+            body_rotate_axis: Vec3::Z,
+            body_rotate_angle_deg: 0.0,
+            body_rotate_dragging: false,
+            body_rotate_editing: false,
+            body_rotate_edit_input: "0".to_string(),
+            body_copy_mode: false,
+            last_select_click: None,
+            last_body_select_click: None,
+
+            rename_popup_open: false,
+            rename_input: String::new(),
+            rename_target: RenameTarget::None,
+
+            draft_angle_input: "3.0".to_string(),
+            draft_pull_dir: ducad_ui::DraftPullDir::PosZ,
+
+            split_mode: ducad_ui::SplitMode::SplitBody,
+            split_plane: ducad_ui::SplitPlaneKind::XY,
+            split_offset_input: "0.0".to_string(),
+
+            datum_mode: ducad_ui::DatumPlaneMode::Offset,
+            datum_offset_input: "20.0".to_string(),
+            datum_angle_input: "45.0".to_string(),
+            datum_flip: false,
+            datum_base_plane_idx: 0,
+            datum_selected_points: Vec::new(),
+
+            polygon_sides: 6,
+            polygon_mode: ducad_sketch::PolygonMode::Inscribed,
+
+            slot_mode: ducad_sketch::SlotMode::CenterToCenter,
+            slot_width: 10.0,
+
+            pattern_kind: ducad_ui::PatternKind::Linear,
+            pattern_count_x: 3,
+            pattern_pitch_x: 20.0,
+            pattern_count_y: 2,
+            pattern_pitch_y: 20.0,
+            pattern_count_z: 1,
+            pattern_pitch_z: 20.0,
+            pattern_circ_count: 6,
+            pattern_circ_angle_deg: 360.0,
+            pattern_circ_radius: 30.0,
+            pattern_circ_axis: ducad_ui::PatternAxisPreset::Z,
+            pattern_custom_pivot_2d: None,
+            pattern_custom_pivot_3d: None,
+            pattern_dimension_editing_x: false,
+            pattern_dimension_editing_y: false,
+            pattern_dimension_editing_z: false,
+            pattern_dimension_editing_angle: false,
+            pattern_dimension_editing_radius: false,
+            pattern_dimension_edit_input: "20.0".to_string(),
+
+            rib_thickness_input: "2.0".to_string(),
+            rib_depth_input: "15.0".to_string(),
+            rib_draft_input: "0.0".to_string(),
+            rib_angle_input: "0.0".to_string(),
+            rib_start_pt: None,
+            rib_end_pt: None,
+            rib_normal_dir: glam::dvec3(0.0, 0.0, -1.0),
+
+            shell_variable_faces: Vec::new(),
+            shell_var_thickness_input: "4.0".to_string(),
+            shell_is_variable_mode: false,
+
+            drawing_sheet_state: ducad_ui::DrawingSheetViewState::default(),
+            drawing_sheet_doc: None,
+            hole_popup_state: ducad_ui::HolePopupState::default(),
+            editing_hole_ruler_idx: None,
+            editing_hole_ruler_input: String::new(),
+            text_popup_state: ducad_ui::TextPopupState::default(),
+            custom_font_bytes: None,
+            helix_popup_state: ducad_ui::HelixPopupState::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_for_test() -> Self {
+        let history_db = crate::history_db::HistoryDb::in_memory();
+        Self {
+            camera: OrbitCamera::default(),
+            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
+            undos: vec![
+                ducad_sketch::UndoStack::default(),
+                ducad_sketch::UndoStack::default(),
+                ducad_sketch::UndoStack::default(),
+            ],
+            datum_planes: Vec::new(),
+            datum_plane_counter: 0,
+            tool: ToolKind::Select,
+            pending_points: Vec::new(),
+            pending_point_refs: Vec::new(),
+            offset_source: None,
+            line_chain_start: None,
+            line_chain_segments: 0,
+            hovered: None,
+            selected: HashSet::new(),
+            last_snap: None,
+            dynamic_input: String::new(),
+            dynamic_focus_pending: false,
+            constraint_status: None,
+            construction_mode: false,
+
+            model: ModelDoc::default(),
+            model_undo: ducad_core::UndoStack::default(),
+            selected_bodies: HashSet::new(),
+            model_status: None,
+            extrude_distance_input: "10".to_string(),
+            fillet_radius_input: "2".to_string(),
+            fillet_radius_end_input: "5".to_string(),
+            fillet_variable_enabled: false,
+            chamfer_distance_input: "2".to_string(),
+            shell_thickness_input: "2".to_string(),
+            shell_direction: ducad_kernel::Direction::PosZ,
+            boolean_op: ducad_ui::BooleanOpKind::Union,
+            fillet_2d_radius: 5.0,
+            chamfer_2d_dist: 5.0,
+            fillet_chamfer_first_line: None,
+            active_sketch_corner: None,
+            active_sketch_fillet_arc: None,
+            sketch_corner_gizmo_radius: 5.0,
+            sketch_corner_gizmo_active: false,
+            sketch_corner_dimension_editing: false,
+            sketch_corner_edit_input: "5.0".to_string(),
+
+            pending_loft_bottom: None,
+            loft_height_input: "20.0".to_string(),
+            loft_alignment_dismissed: false,
+            loft_is_flipped: false,
+            loft_staged_body_id: None,
+            pending_sweep_profile: None,
+            pending_sweep_path: None,
+            sweep_path_plane_idx: None,
+            hovered_plane_idx: None,
+            selection_box: None,
+            picking_mode: PickMode::default(),
+            selected_edges: Vec::new(),
+            selected_faces: Vec::new(),
+            active_face: None,
+            face_extrude_distance_input: "15".to_string(),
+            active_vertex: None,
+
+            current_file_path: None,
+            file_status: None,
+
+            language: ducad_i18n::Language::default(),
+            theme: ThemeMode::default(),
+            palette: CommandPalette::default(),
+            radial_menu: RadialMenu::default(),
+            radial_press: None,
+            radial_suppress_click: false,
+            two_finger_tap_press: None,
+
+            measurements: Vec::new(),
+
+            alert_modal: ducad_ui::AlertModalState::default(),
+            revolve_dialog: ducad_ui::RevolveDialogState::default(),
+            revolve_angle_setting: 360.0,
+            revolve_reverse: false,
+            revolve_staged_axis: None,
+
+            section_enabled: false,
+            section_axis: SectionAxis::Z,
+            section_offset: 0.0,
+            section_invert: false,
+            studio_config: ducad_render::StudioConfig::default(),
+            zebra_config: ducad_render::ZebraConfig::default(),
+            draft_config: ducad_render::DraftConfig::default(),
+            show_all_dimensions: false,
+            editing_dimension_entity: None,
+            editing_dimension_input: String::new(),
+
+            import_worker: ImportWorker::spawn(),
+            pending_imports: 0,
+
+            left_toolbar: LeftToolbar::default(),
+            items_drawer: ItemsDrawer::default(),
+            history_drawer: HistoryDrawer::default(),
+            cmf_drawer: CmfDrawer::default(),
+            lighting_drawer: LightingDrawer::default(),
+            planes_drawer: PlanesDrawer::default(),
+            feature_tree_drawer: FeatureTreeDrawer::default(),
+            viewcube: ViewCube::default(),
+            items_drawer_open: false,
+            history_drawer_open: false,
+            cmf_drawer_open: false,
+            lighting_drawer_open: false,
+            planes_drawer_open: false,
+            feature_tree_drawer_open: false,
+            parametric_dag: ducad_core::ParametricDag::new(),
+            history_db,
+            activity_cache: Vec::new(),
             plane_menu_open: false,
             left_toolbar_content_sig: None,
             inspector_content_sig: None,
@@ -1490,60 +1751,10 @@ impl eframe::App for DuCADApp {
             folder_top_y = Some(area_resp.response.rect.min.y);
         }
 
-        // 2. History Drawer (Tersusun di atas tombol atau di atas Folder Drawer jika keduanya terbuka)
-        let mut hist_top_y = None;
-        if self.history_drawer_open {
-            let hist_bottom_y = if self.items_drawer_open {
-                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-            } else {
-                folder_bottom_y
-            };
-            let hist_pos = egui::pos2(screen_rect.max.x - 16.0, hist_bottom_y);
-
-            let hist_area_resp = egui::Area::new(egui::Id::new("ducad-history-drawer-area"))
-                .fixed_pos(hist_pos)
-                .pivot(egui::Align2::RIGHT_BOTTOM)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    if let Some(ev) = self.history_drawer.show(ui, &self.activity_cache, max_drawer_h, hist_bottom_y) {
-                        match ev {
-                            HistoryDrawerEvent::Close => {
-                                self.history_drawer_open = false;
-                            }
-                            HistoryDrawerEvent::ClearAll => {
-                                self.history_db.clear();
-                                self.activity_cache.clear();
-                            }
-                            HistoryDrawerEvent::JumpTo { id, timestamp, action } => {
-                                if let Some(snap_json) = self.history_db.get_snapshot(id) {
-                                    match self.restore_snapshot_from_json(&snap_json) {
-                                        Ok(()) => {
-                                            self.model_status = Some(format!(
-                                                "✓ Dokumen dipulihkan ke waktu {} ({})",
-                                                timestamp, action
-                                            ));
-                                        }
-                                        Err(e) => {
-                                            self.model_status = Some(format!("Gagal memulihkan snapshot: {e}"));
-                                        }
-                                    }
-                                } else {
-                                    self.model_status = Some("Snapshot untuk riwayat ini tidak tersedia".to_string());
-                                }
-                            }
-                        }
-                    }
-                });
-
-            hist_top_y = Some(hist_area_resp.response.rect.min.y);
-        }
-
-        // 3. Reference Planes Drawer (Pojok Kanan Bawah)
+        // 2. Reference Planes Drawer (Pojok Kanan Bawah)
         let mut planes_top_y = None;
         if self.planes_drawer_open {
-            let planes_bottom_y = if self.history_drawer_open {
-                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-            } else if self.items_drawer_open {
+            let planes_bottom_y = if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else {
                 folder_bottom_y
@@ -1616,13 +1827,132 @@ impl eframe::App for DuCADApp {
             planes_top_y = Some(planes_area_resp.response.rect.min.y);
         }
 
-        // 4. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/History/Planes drawer atau di atas floating buttons)
+        // 3. Unified Feature Tree & History Drawer (Pojok Kanan Bawah)
+        let mut feat_tree_top_y = None;
+        if self.feature_tree_drawer_open {
+            let feat_bottom_y = if self.planes_drawer_open {
+                planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let feat_pos = egui::pos2(screen_rect.max.x - 16.0, feat_bottom_y);
+
+            let feat_area_resp = egui::Area::new(egui::Id::new("ducad-feature-tree-drawer-area"))
+                .fixed_pos(feat_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    let needs_regen = self.parametric_dag.needs_regeneration();
+                    if let Some(ev) = self.feature_tree_drawer.show(
+                        ui,
+                        &self.parametric_dag.nodes,
+                        &self.activity_cache,
+                        needs_regen,
+                        max_drawer_h,
+                        feat_bottom_y,
+                    ) {
+                        match ev {
+                            FeatureTreeEvent::Regenerate => {
+                                match self.regenerate_parametric_model() {
+                                    Ok(()) => {
+                                        self.record_activity(
+                                            ActivityKindUi::Solid3D,
+                                            "Regenerasi Model Parametrik",
+                                            "Rekonstruksi bodi solid 3D dari pohon fitur",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.model_status = Some(format!("Regenerasi gagal: {e}"));
+                                    }
+                                }
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::SelectFeature(id) => {
+                                self.model_status = Some(format!("Fitur #{id} terpilih"));
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::ToggleSuppress(id) => {
+                                self.parametric_dag.toggle_suppress(id);
+                                let _ = self.regenerate_parametric_model();
+                                self.record_activity(
+                                    ActivityKindUi::Solid3D,
+                                    &format!("Toggle Suppress Fitur #{id}"),
+                                    "",
+                                );
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::DeleteFeature(id) => {
+                                self.parametric_dag.remove_feature(id);
+                                let _ = self.regenerate_parametric_model();
+                                self.record_activity(
+                                    ActivityKindUi::Solid3D,
+                                    &format!("Hapus Fitur #{id}"),
+                                    "",
+                                );
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::SaveFeatureParams { id, val1, val2 } => {
+                                match self.save_feature_params_and_regenerate(id, val1, val2) {
+                                    Ok(()) => {
+                                        let details = if let Some(v2) = val2 {
+                                            format!("Nilai baru: {:.1} × {:.1} mm", val1, v2)
+                                        } else {
+                                            format!("Nilai baru: {:.1} mm", val1)
+                                        };
+                                        self.record_activity(
+                                            ActivityKindUi::Solid3D,
+                                            &format!("Edit Parametrik: Fitur #{id}"),
+                                            &details,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        self.model_status = Some(format!("Gagal update parameter: {e}"));
+                                    }
+                                }
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::JumpToHistory { id, timestamp, action } => {
+                                if let Some(snap_json) = self.history_db.get_snapshot(id) {
+                                    match self.restore_snapshot_from_json(&snap_json) {
+                                        Ok(()) => {
+                                            self.model_status = Some(format!(
+                                                "✓ Dokumen dipulihkan ke waktu {} ({})",
+                                                timestamp, action
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            self.model_status = Some(format!("Gagal memulihkan snapshot: {e}"));
+                                        }
+                                    }
+                                } else {
+                                    self.model_status = Some("Snapshot untuk riwayat ini tidak tersedia".to_string());
+                                }
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::ClearHistory => {
+                                self.history_db.clear();
+                                self.activity_cache.clear();
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::Close => {
+                                self.feature_tree_drawer_open = false;
+                            }
+                        }
+                    }
+                });
+
+            feat_tree_top_y = Some(feat_area_resp.response.rect.min.y);
+        }
+
+        // 4. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/Planes/FeatureTree drawer atau di atas floating buttons)
         let mut draft_top_y = None;
         if self.draft_config.enabled {
-            let draft_bottom_y = if self.planes_drawer_open {
+            let draft_bottom_y = if self.feature_tree_drawer_open {
+                feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.planes_drawer_open {
                 planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-            } else if self.history_drawer_open {
-                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else {
@@ -1668,10 +1998,10 @@ impl eframe::App for DuCADApp {
         if self.cmf_drawer_open {
             let cmf_bottom_y = if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.feature_tree_drawer_open {
+                feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.planes_drawer_open {
                 planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-            } else if self.history_drawer_open {
-                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else {
@@ -1737,10 +2067,10 @@ impl eframe::App for DuCADApp {
                 cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.feature_tree_drawer_open {
+                feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.planes_drawer_open {
                 planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-            } else if self.history_drawer_open {
-                hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.items_drawer_open {
                 folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else {
@@ -1825,10 +2155,10 @@ impl eframe::App for DuCADApp {
             cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
         } else if self.draft_config.enabled {
             draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+        } else if self.feature_tree_drawer_open {
+            feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
         } else if self.planes_drawer_open {
             planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
-        } else if self.history_drawer_open {
-            hist_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
         } else if self.items_drawer_open {
             folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
         } else {
@@ -1880,7 +2210,18 @@ impl eframe::App for DuCADApp {
                             self.draft_config.enabled = !self.draft_config.enabled;
                         }
 
-                        // Tombol Reference Planes (Kiri dari History)
+                        // Tombol Feature Tree & Riwayat Desain (Pohon Parametrik & Snapshot)
+                        let feat_tree_resp = round_floating_icon_btn(
+                            ui,
+                            egui_material_icons::icons::ICON_TIMELINE.codepoint,
+                            self.feature_tree_drawer_open,
+                            "Feature Tree & Riwayat Desain (Pohon Parametrik & Time-Travel)",
+                        );
+                        if feat_tree_resp.clicked() {
+                            self.feature_tree_drawer_open = !self.feature_tree_drawer_open;
+                        }
+
+                        // Tombol Reference Planes (Kiri dari Folder)
                         let planes_resp = round_floating_icon_btn(
                             ui,
                             egui_material_icons::icons::ICON_LAYERS_OFF.codepoint,
@@ -1889,17 +2230,6 @@ impl eframe::App for DuCADApp {
                         );
                         if planes_resp.clicked() {
                             self.planes_drawer_open = !self.planes_drawer_open;
-                        }
-
-                        // Tombol History (Tengah)
-                        let hist_resp = round_floating_icon_btn(
-                            ui,
-                            egui_material_icons::icons::ICON_HISTORY.codepoint,
-                            self.history_drawer_open,
-                            "Riwayat Aktivitas & Perubahan (2D & 3D)",
-                        );
-                        if hist_resp.clicked() {
-                            self.history_drawer_open = !self.history_drawer_open;
                         }
 
                         // Tombol Folder (Kanan)

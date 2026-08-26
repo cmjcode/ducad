@@ -72,6 +72,7 @@ impl DuCADApp {
             "Buat Bidang Referensi (Datum Plane)",
             &format!("Membuat bidang referensi '{}'", name),
         );
+        self.record_datum_plane_feature(id, 0.0, 0.0, name);
         id
     }
 
@@ -237,6 +238,7 @@ impl DuCADApp {
             action_title,
             &detail_desc,
         );
+        self.record_sketch_feature(idx, action_title);
     }
 
     #[inline]
@@ -384,6 +386,7 @@ impl DuCADApp {
         self.current_file_path = None;
         self.history_db.clear();
         self.activity_cache.clear();
+        self.parametric_dag.clear();
         self.file_status = Some("Dokumen baru".to_string());
         self.measurements.clear();
         self.set_tool(ToolKind::Select);

@@ -18,6 +18,7 @@ pub mod constraint_strip;
 pub mod context_bar;
 pub mod drawing_sheet_view;
 pub mod feature_inspector;
+pub mod feature_tree_drawer;
 pub mod history_drawer;
 pub mod items_drawer;
 pub mod left_toolbar;
@@ -47,6 +48,7 @@ pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,
 };
+pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent};
 pub use history_drawer::{
     ActivityItemInfo, ActivityKindUi, HistoryDrawer, HistoryDrawerEvent,
 };

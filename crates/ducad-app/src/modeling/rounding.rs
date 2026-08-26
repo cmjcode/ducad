@@ -457,6 +457,16 @@ impl DuCADApp {
                     Box::new(ReplaceGeometryCommand::new(label, body_id, new_geo)),
                     &format!("{:.1} mm", magnitude),
                 );
+                if !sharp {
+                    match style {
+                        RoundStyle::Fillet => {
+                            self.record_fillet_feature(magnitude, None);
+                        }
+                        RoundStyle::Chamfer => {
+                            self.record_chamfer_feature(magnitude);
+                        }
+                    }
+                }
                 self.model_status = Some(if sharp {
                     "Rounding dihapus — sudut kembali menyiku".to_string()
                 } else {

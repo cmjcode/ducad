@@ -1011,3 +1011,32 @@ guide-helix-step-1 = 1. Atur pitch spiral, jumlah putaran, dan radius
 guide-helix-step-2 = 2. Pilih bentuk profil (pegas bulat, bilah auger, atau ulir)
 guide-helix-step-done = 3. Klik Buat Solid untuk menyapu kurva spiral 3D
 guide-helix-tip = 💡 Menghasilkan pegas solid 3D parametrik, bilah ulir sekrup konveyor, atau kurva spine sweep
+
+# Feature Tree & Riwayat Parametrik (Fase 12.1)
+feature-tree-title = Pohon Fitur & Garis Waktu
+feature-tree-empty = Belum ada fitur yang terekam
+feature-tree-empty-sub = Langkah-langkah parametrik akan muncul di sini saat Anda memodelkan
+feature-tree-regenerate = Regenerasi Model 3D
+feature-tree-needs-regen = Model telah diubah - klik untuk meregenerasi
+feature-tree-regen-success = Model parametrik berhasil diperbarui & diregenerasi
+feature-tree-regen-error = Kesalahan regenerasi: { $error }
+feature-tree-edit-params = Ubah Parameter
+feature-tree-suppress = Nonaktifkan Fitur (Suppress)
+feature-tree-unsuppress = Aktifkan Fitur (Unsuppress)
+feature-tree-delete = Hapus Fitur
+feature-tree-search = Cari fitur…
+feature-tree-close = Tutup Pohon Fitur
+feature-tree-status-valid = Terkini / Valid
+feature-tree-status-modified = Perlu Regenerasi
+feature-tree-status-suppressed = Dinonaktifkan (Suppressed)
+feature-tree-status-error = Terjadi Kesalahan
+feature-edit-title = Edit Parameter Fitur
+feature-edit-save = Terapkan & Regenerasi
+feature-edit-cancel = Batal
+feature-edit-distance = Jarak / Kedalaman:
+feature-edit-angle = Sudut:
+feature-edit-radius = Radius:
+feature-edit-dimension = Dimensi:
+feature-edit-thickness = Ketebalan:
+topbar-feature-tree-tooltip = Pohon Fitur & Riwayat Parametrik (DAG)
+

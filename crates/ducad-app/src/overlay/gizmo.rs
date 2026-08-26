@@ -139,23 +139,28 @@ impl DuCADApp {
                                     )),
                                     &format!("Memotong solid 3D sedalam {:.1} mm", self.gizmo_distance),
                                 );
+                                self.record_extrude_feature(self.gizmo_distance, true);
                                 self.round_history.remove(&target_id);
                             }
                         }
                     }
                 } else if solids.len() == 1 {
                     let (name, geo) = solids.into_iter().next().unwrap();
+                    let dist = self.gizmo_distance;
                     let cmd = AddSolidCommand::new("Extrude", geo);
                     self.execute_model_command(
                         Box::new(cmd),
-                        &format!("Membuat solid {name} setinggi {:.1} mm", self.gizmo_distance),
+                        &format!("Membuat solid {name} setinggi {:.1} mm", dist),
                     );
+                    self.record_extrude_feature(dist, false);
                 } else if !solids.is_empty() {
                     let count = solids.len();
+                    let dist = self.gizmo_distance;
                     self.execute_model_command(
                         Box::new(crate::model::AddMultipleSolidsCommand::new("Teks 3D", solids)),
-                        &format!("Membuat {} solid 3D setinggi {:.1} mm", count, self.gizmo_distance),
+                        &format!("Membuat {} solid 3D setinggi {:.1} mm", count, dist),
                     );
+                    self.record_extrude_feature(dist, false);
                 }
                 self.selected.clear();
             }

@@ -1011,3 +1011,32 @@ guide-helix-step-1 = 1. Set spiral pitch, revolutions, and radius
 guide-helix-step-2 = 2. Choose profile (round spring, auger blade, or V-thread)
 guide-helix-step-done = 3. Click Create Solid to sweep 3D coil
 guide-helix-tip = 💡 Generates parametric 3D springs, Archimedes screws, or sweep spine curves
+
+# Feature Tree & Parametric History (Phase 12.1)
+feature-tree-title = Feature Tree & Timeline
+feature-tree-empty = No features recorded yet
+feature-tree-empty-sub = Parametric steps will appear here as you model
+feature-tree-regenerate = Regenerate Model
+feature-tree-needs-regen = Model modified - click to regenerate
+feature-tree-regen-success = Parametric model successfully regenerated
+feature-tree-regen-error = Regeneration error: { $error }
+feature-tree-edit-params = Edit Parameters
+feature-tree-suppress = Suppress Feature
+feature-tree-unsuppress = Unsuppress Feature
+feature-tree-delete = Delete Feature
+feature-tree-search = Search features…
+feature-tree-close = Close Feature Tree
+feature-tree-status-valid = Up to date
+feature-tree-status-modified = Needs regeneration
+feature-tree-status-suppressed = Suppressed
+feature-tree-status-error = Error
+feature-edit-title = Edit Feature Parameters
+feature-edit-save = Apply & Regenerate
+feature-edit-cancel = Cancel
+feature-edit-distance = Distance / Depth:
+feature-edit-angle = Angle:
+feature-edit-radius = Radius:
+feature-edit-dimension = Dimension:
+feature-edit-thickness = Thickness:
+topbar-feature-tree-tooltip = Feature Tree & Parametric History (DAG)
+

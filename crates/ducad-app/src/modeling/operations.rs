@@ -60,6 +60,7 @@ impl DuCADApp {
                         Box::new(AddSolidCommand::new("Extrude", geo)),
                         &format!("Membuat solid Extrude setinggi {:.1} mm", distance),
                     );
+                    self.record_extrude_feature(distance, false);
                     self.model_status = None;
                     return;
                 }
@@ -80,12 +81,14 @@ impl DuCADApp {
                         Box::new(AddSolidCommand::new("Extrude", geo)),
                         &format!("Membuat solid {name} setinggi {:.1} mm", distance),
                     );
+                    self.record_extrude_feature(distance, false);
                 } else if !solids.is_empty() {
                     let count = solids.len();
                     self.execute_model_command(
                         Box::new(crate::model::AddMultipleSolidsCommand::new("Teks 3D", solids)),
                         &format!("Membuat {} solid 3D setinggi {:.1} mm", count, distance),
                     );
+                    self.record_extrude_feature(distance, false);
                 }
                 self.model_status = None;
             }
@@ -124,6 +127,7 @@ impl DuCADApp {
                     Box::new(AddSolidCommand::new("Revolve", geo)),
                     &format!("Sudut {:.0}°", angle_deg.unwrap_or(360.0)),
                 );
+                self.record_revolve_feature(angle_deg.unwrap_or(360.0), axis_origin, axis_dir);
                 self.model_status = Some(format!(
                     "Revolve {:.0}° berhasil dibuat",
                     angle_deg.unwrap_or(360.0)
