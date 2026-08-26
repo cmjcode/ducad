@@ -1,327 +1,205 @@
-# Panduan Pemakaian DUCAD
+# Panduan Pemakaian DuCAD
 
-Panduan ini menjelaskan CARA PAKAI semua yang sudah dibangun sampai Fase 8
-(viewport 3D, sketching 2D, constraint solver, modeling 3D — termasuk
-Revolve/Loft/Intersect/picking edge-wajah Fase 8, UX shell — command
-palette/radial menu/tema, dan file I/O — buka/simpan/import/export). Untuk
-status proyek/arsitektur/riwayat pengembangan, lihat `docs/PLAN.md` —
-dokumen ini murni tentang mengoperasikan aplikasinya.
+Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep OpenCASCADE, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
 
-## Menjalankan
+---
+
+## 🚀 Menjalankan Aplikasi
 
 ```bash
 cargo run -p ducad-app
 ```
 
-Build pertama kali akan mengompilasi OCCT dari source (~8 menit, sekali
-saja — di-cache di `target/` setelahnya). Kalau build gagal di langkah
-CMake, cek `.cargo/config.toml` di root workspace sudah ada (berisi
-`CMAKE_POLICY_VERSION_MINIMUM = "3.5"`, dibutuhkan di mesin dengan CMake
-≥ 4.0 — sudah ditangani otomatis kalau file itu ada, tidak perlu diketik
-manual).
+> **Catatan Kompilasi Pertama**: Build pertama kali akan mengompilasi pustaka OpenCASCADE (OCCT) dari *source* (~8-15 menit). Kompilasi selanjutnya di-cache di folder `target/` sehingga aplikasi akan langsung terbuka secara instan.
 
-## Navigasi kamera
+---
 
-Berlaku di tool apa pun (kecuali orbit klik-kiri, khusus tool Pilih):
+## 🧭 Navigasi Kamera & ViewCube
 
-| Aksi | Kontrol |
+| Aksi | Kontrol Mouse / Trackpad |
 |---|---|
-| Orbit | Drag klik-tengah, atau drag klik-kiri **saat tool Pilih aktif** |
-| Pan | Shift+drag, atau drag klik-kanan |
-| Zoom | Scroll, atau pinch trackpad/touch |
-| Orbit + zoom dua jari | Trackpad/iPad dua jari (jalan di tool apa pun, gaya Shapr3D: satu jari menggambar, dua jari mengarahkan kamera) |
+| **Orbit 3D** | Drag Klik-Tengah, atau Drag Klik-Kiri **saat tool Select aktif** |
+| **Pan (Geser)** | `Shift + Drag`, atau Drag Klik-Kanan |
+| **Zoom In / Out** | Scroll Wheel, atau Gerakan Pinch dua jari di trackpad |
+| **Orbit + Zoom Dua Jari** | Trackpad / Layar Sentuh dua jari (gaya Shapr3D: 1 jari menggambar, 2 jari mengarahkan sudut pandang) |
+| **ViewCube (Pojok Kanan Atas)** | Klik bidang **Top**, **Front**, **Right**, atau sudut kubus untuk orientasi tampak isometrik presisi instan |
 
-## Sketching 2D
+---
 
-Semua sketch digambar di bidang XY (Z=0). Toolbar di atas + shortcut
-keyboard:
+## 📐 Sketsa 2D Parametrik (2D Sketching)
 
-| Tool | Shortcut | Cara pakai |
+Sketsa dapat digambar pada bidang standar (XY, XZ, YZ) atau pada bidang kustom (*Datum Planes*).
+
+### Daftar Tool Sketsa & Shortcut
+
+| Tool | Shortcut | Cara Penggunaan |
 |---|---|---|
-| Pilih | — | Klik entitas untuk pilih, Shift+klik untuk multi-pilih, Delete/Backspace hapus seleksi |
-| Garis | `L` | Klik titik awal, klik titik akhir (atau ketik panjang + Enter) |
-| Persegi | `R` | Klik sudut pertama, klik sudut berlawanan (atau ketik sisi + Enter) |
-| Lingkaran | `C` | Klik pusat, klik untuk radius (atau ketik radius + Enter) |
-| Ellips | `E` | Klik pusat, klik sudut kotak pembatas |
-| Arc | `A` | Klik titik awal, klik titik akhir, klik titik di busur (menentukan sisi/arah) |
-| Offset | `O` | Klik entitas sumber, lalu klik untuk sisi + jarak hasil offset |
-| Mirror | `M` | **Pilih dulu entitas via tool Pilih**, tekan M, klik 2 titik sumbu cermin |
-| Trim | `T` | Hover menyorot merah sub-segmen yang akan hilang, klik untuk memotong |
+| **Pilih (Select)** | `Esc` | Klik entitas untuk memilih, `Shift + Klik` untuk multi-pilih, `Delete`/`Backspace` untuk menghapus |
+| **Garis (Line)** | `L` | Klik titik awal, klik titik akhir (atau ketik angka panjang + `Enter`) |
+| **Persegi (Rectangle)** | `R` | Klik sudut pertama, klik sudut berlawanan (atau ketik ukuran sisi + `Enter`) |
+| **Lingkaran (Circle)** | `C` | Klik titik pusat, klik untuk radius (atau ketik radius + `Enter`) |
+| **Ellips (Ellipse)** | `E` | Klik titik pusat, klik untuk sumbu mayor dan minor |
+| **Busur (Arc)** | `A` | Klik titik awal, klik titik akhir, lalu klik titik di busur untuk menentukan kelengkungan |
+| **Poligon (Regular Polygon)** | — | Tool segi-$N$ beraturan (Segi-3, 5, 6 heksagonal kepala baut, 8). Pilih mode *Inscribed* (dalam lingkaran) atau *Circumscribed* (luar lingkaran) |
+| **Slot (Lubang Baut Lonjong)**| — | Buat slot lonjong otomatis dari 2 titik pusat (*Center-to-Center*) atau panjang total (*Overall Slot*) dan lebar diameter |
+| **Teks 2D (Sketch Text)** | — | Masukkan teks string, pilih font (Sans, Serif, Mono), teks langsung dikonversi menjadi kurva vektor sketsa |
+| **Garis Konstruksi** | `X` | Mengubah garis aktif/terpilih menjadi garis putus-putus oranye referensi (tidak dihitung sebagai profil ekstrusi) |
+| **Extend (Perpanjang)** | — | Klik segmen garis untuk memperpanjang otomatis hingga menyentuh batas kurva terdekat |
+| **Offset (Sejajar)** | `O` | Klik entitas sumber (Line, Arc, Circle, Spline/Ellipse bi-arc), lalu klik arah sisi dan jarak offset |
+| **Mirror (Cermin)** | `M` | Pilih entitas yang ingin dicerminkan, tekan `M`, lalu klik 2 titik yang menjadi garis sumbu cermin |
+| **Trim (Potong)** | `T` | Arahkan mouse (hover) untuk melihat highlight merah sub-segmen yang akan dipotong, lalu klik untuk memotong |
 
-Catatan:
+### Fitur Snapping & Dynamic Input
+* **Snap Otomatis**: Endpoint > Midpoint > Center > Intersection > Grid dengan indikator visual *glyph*.
+* **Dynamic Input (Heads-Up Display)**: Langsung ketik angka saat menggambar lalu tekan `Enter` untuk nilai ukuran presisi.
 
-- **Snap otomatis** aktif di semua tool titik: endpoint > midpoint > center
-  > intersection > grid, ditandai glyph beda bentuk per jenis (lihat
-  indikator "snap: ..." di status bar bawah).
-- **Dynamic input** (ketik angka lalu Enter, gaya AutoCAD) baru tersedia
-  untuk Garis/Persegi/Lingkaran — belum ada untuk Ellips/Arc/Offset/Mirror.
-- **Esc** membatalkan titik yang sedang diklik (atau kembali ke tool Pilih
-  kalau tidak ada titik pending).
-- **Undo/Redo sketch**: `Ctrl/Cmd+Z` undo, `Ctrl/Cmd+Shift+Z` atau
-  `Ctrl+Y` redo — juga ada tombol ↶/↷ di toolbar atas.
-- Offset untuk Ellips, Trim vs Circle/Arc, dan spline belum didukung.
+---
 
-## Constraint (panel kanan "Constraint")
+## 🔗 Kendala Geometris (Geometric Constraints)
 
-Muncul otomatis saat **tool Pilih aktif** dan ada 1-2 entitas terpilih.
-Tombol yang tersedia bergantung kombinasi entitas:
+Panel **Constraint** muncul di sebelah kanan saat tool **Pilih** aktif dan ada entitas yang dipilih:
 
-| Seleksi | Constraint tersedia |
+| Kombinasi Entitas | Constraint yang Tersedia |
 |---|---|
-| 1 Line | Horizontal, Vertikal, Panjang (ketik nilai mm) |
-| 1 Circle/Arc | Radius (ketik nilai mm) |
-| 2 Line | Sejajar, Tegak Lurus, Sama Panjang, Sudut (ketik derajat) |
-| 2 Circle/Arc | Sama Radius, Tangent |
-| 1 Line + 1 Circle/Arc | Tangent |
+| **1 Garis** | Horizontal, Vertikal, Panjang Tetap (mm) |
+| **1 Lingkaran / Busur** | Radius Tetap (mm) |
+| **2 Garis** | Sejajar (*Parallel*), Tegak Lurus (*Perpendicular*), Sama Panjang (*Equal*), Sudut Derajat (*Angle*) |
+| **2 Lingkaran / Busur** | Sama Radius (*Equal Radius*), Bersinggungan (*Tangent*) |
+| **1 Garis + 1 Lingkaran/Busur**| Bersinggungan (*Tangent*) |
+| **2 Titik** | Berimpit (*Coincident*), Titik Kunci (*Fixed*), Simetris (*Symmetric*) |
 
-Constraint dicoba dulu (dry-run) — kalau gagal konvergen, sketch TIDAK
-berubah, cuma muncul pesan error dengan sisa residual di bawah panel.
+---
 
-Tiga tool titik tambahan ada di menu **"Titik ▾"** di toolbar utama (klik
-untuk buka, label menu berubah menampilkan tool titik yang sedang aktif):
+## 🌐 Datum Workplanes (Bidang Referensi 3D Bebas)
 
-| Tool | Cara pakai |
-|---|---|
-| Coincident (titik) | Klik 2 titik (endpoint/center via snap) → dibuat berimpit |
-| Fixed (titik) | Klik 1 titik → ditahan persis di posisi sekarang (tak perlu ketik target) |
-| Symmetric (titik) | **Pilih 1 Line dulu via tool Pilih** (jadi sumbu), lalu klik 2 titik yang dibuat saling cermin |
+Memungkinkan pembuatan sketsa dan geometri pada sudut atau posisi sembarang di ruang 3D:
 
-Belum didukung: constraint pada titik ujung Arc, point-on-entity,
-tangensial internal, Tangent Line-Line (memang tak masuk akal secara
-geometris), browser/manajer constraint (lihat/hapus selain lewat Undo).
+1. **Akses**: Buka drawer **Datum Planes** dari toolbar atau menu pop-up.
+2. **Metode Pembuatan Bidang Baru**:
+   - **Offset Plane**: Masukkan jarak offset $d$ mm dari face planar atau plane acuan.
+   - **Angled Plane**: Putar sebesar sudut $\theta^\circ$ terhadap edge acuan.
+   - **3-Point Plane**: Klik 3 titik vertex di ruang 3D untuk membentuk bidang datar.
+3. **Mengaktifkan Bidang**: Klik tombol *Set Active* pada daftar bidang untuk mulai menggambar sketsa pada bidang tersebut.
 
-## Model 3D (panel kiri "Model 3D") — Fase 3
+---
 
-Ini yang mengubah sketch 2D jadi solid 3D nyata (lewat kernel OCCT).
-Panel ini SELALU tampil (tidak bergantung tool sketch aktif), berdampingan
-dengan panel Constraint di kanan.
+## 🧊 Pemodelan Solid 3D (OpenCASCADE B-Rep)
 
-### Extrude — bikin body pertama
+### 1. Extrude (Ekstrusi)
+* Pilih profil tertutup di sketsa $\rightarrow$ Klik **Extrude** di panel atau Bottom Context Bar $\rightarrow$ Tentukan jarak (mm) dan arah (Satu arah, Simetris dua arah).
 
-1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil tertutup:
-   - **1 Lingkaran** sendirian → jadi silinder, ATAU
-   - **≥3 Line/Arc** yang ujung-ujungnya nyambung membentuk satu loop
-     tertutup (urutan klik/pilih bebas — DUCAD merangkainya sendiri).
-     Contoh paling gampang: 4 garis dari tool Persegi.
-2. Di panel Model 3D, isi **Jarak (mm)**, klik **Extrude**.
-3. Kalau gagal (profil tidak tertutup, atau tercampur dengan Ellips/
-   Lingkaran lain), pesan error muncul di bawah panel — sketch dan model
-   tidak berubah, coba lagi setelah perbaiki seleksi.
+### 2. Revolve (Putar Profil)
+* Pilih profil tertutup $\rightarrow$ Tekan `V` atau klik **Revolve** $\rightarrow$ Pilih sumbu putar (Sumbu X, Sumbu Y, garis tepi profil, atau 2 titik manual) $\rightarrow$ Tentukan sudut putar (90°, 180°, 360° penuh) $\rightarrow$ Eksekusi.
 
-### Daftar body
+### 3. Loft (Penyambung Antar Profil)
+* Pilih profil bawah $\rightarrow$ Klik **Set Profil Bawah** $\rightarrow$ Pilih profil atas pada ketinggian $Z$ $\rightarrow$ Klik **Loft**.
 
-Body yang sudah ada muncul di daftar tengah panel:
-- **Checkbox** kiri = tampil/sembunyikan di viewport (tidak menghapus).
-- **Klik nama** = pilih body itu (ganti seleksi).
-- **Ctrl/Cmd+klik atau Shift+klik** = tambah/kurangi dari seleksi
-  (multi-pilih, dibutuhkan Union/Subtract).
+### 4. Helix / Coil / Spring (Geometri Spiral 3D)
+* Buka **Helix Tool** $\rightarrow$ Masukkan Radius $R$, Pitch (jarak antar ulir), Ketinggian/Jumlah Putaran (*Turns*), dan Radius Kawat Profil $\rightarrow$ Hasilkan solid pegas kawat spiral, sudu auger, atau ulir botol secara otomatis.
 
-### Mode Sketsa vs Mode 3D, dan Push/Pull sisi (face) langsung
+### 5. Fastener Hole Wizard (Standar ISO Baut)
+* Klik face planar $\rightarrow$ Buka **Hole Wizard Dialog**:
+  * **Simple Hole**: Lubang bor silindris standar (Tembus / *Through All* atau Kedalaman *Blind*).
+  * **Counterbore**: Lubang bertingkat untuk kepala baut L (*Socket Head Cap Screw*).
+  * **Countersink**: Lubang tirus 90° untuk baut kepala rata (*Flat Head*).
+  * **Tapped**: Lubang ulir metrik standar (pilihan cepat M2, M2.5, M3, M4, M5, M6, M8, M10, M12).
+* Posisi lubang ditempatkan otomatis pada titik koordinat yang ditentukan.
 
-Tombol paling atas toolbar kiri (ikon berubah) beralih antara **Sketch
-Mode** (`⌘⇧3` dari Mode 3D) dan **3D Mode** (`⌘⇧2` dari Mode Sketsa) —
-klik tombolnya atau pakai shortcut, badge di toolbar menunjukkan mode
-aktif.
+### 6. Operasi Boolean Solid
+* Pilih 2 solid di daftar/viewport:
+  * **Union**: Menggabungkan dua bodi menjadi satu kesatuan.
+  * **Subtract (Cut)**: Memotong bodi utama dengan bodi pemotong.
+  * **Intersect**: Menyisakan hanya bagian volume yang saling tumpang tindih.
 
-Di **Mode 3D** dengan tool **Pilih**, klik langsung salah satu sisi
-(face) body yang sudah ada di viewport (kubus, silinder, bola, kerucut,
-hasil Revolve/Loft/Boolean — bebas bentuknya) — body itu otomatis terpilih
-dan panah gizmo biru muncul di tengah sisi tsb. **Tarik panah** (drag)
-untuk push/pull: tarik **keluar** menambah volume (union — nempel ke
-body), dorong **ke dalam** memotong volume (cut/pocket). Lepas mouse
-untuk commit. Panel kanan "Extrude Sisi (Face)" juga muncul untuk isi
-jarak presisi via keyboard alih-alih drag manual.
+### 7. Fillet, Variable Radius Fillet, & Chamfer
+* **Fillet Konstan**: Membulatkan seluruh tepi atau tepi terpilih dengan radius $R$.
+* **Variable Radius Fillet**: Membulatkan tepi dengan radius berbeda di awal dan akhir ($R_{\text{start}} \ne R_{\text{end}}$).
+* **Chamfer**: Membuat pingulan miring dengan jarak $d$ mm.
 
-**Sisi lengkung (silinder/kerucut/bola) — panah RADIAL, bukan lurus.** Di
-wajah datar panah gizmo tegak lurus permukaan seperti biasa; di selimut
-silinder/kerucut atau permukaan bola, panah mengarah **radial** (menjauh
-dari sumbu/pusat) — menarik keluar MEMBESARKAN radius, mendorong ke dalam
-MENGECILKAN radius, bukan menggeser bidang datar. HUD di atas panah
-menandainya dengan label **"ΔR"** (mis. `ΔR +2.0 mm`) alih-alih jarak
-polos, supaya jelas ini perubahan radius, bukan jarak linear.
+### 8. Shelling (Pengosongan Rongga) & Draft Angle
+* **Shell**: Pilih bodi, tentukan ketebalan dinding, dan pilih face yang ingin dibuang untuk membuat casing berongga.
+* **Draft Angle**: Menambahkan sudut kemiringan cetakan (*injection molding draft*) pada dinding bodi solid.
 
-⚠️ Klik di area yang masih berupa sketsa 2D BELUM di-extrude (mis. profil
-dasar yang belum jadi solid) tetap memilih region sketsa itu (gizmo
-extrude 2D biasa) — push/pull sisi 3D cuma aktif kalau klik benar-benar
-kena permukaan solid yang sudah ada.
+### 9. 3D Text Emboss & Deboss
+* Buat teks sketsa pada permukaan face $\rightarrow$ Pilih opsi **Emboss** (teks timbul keluar) atau **Deboss / Engrave** (ukiran teks tenggelam ke dalam solid).
 
-### Revolve — putar profil mengelilingi sumbu (Fase 8)
+---
 
-1. Di tool **Pilih**, pilih entitas sketch yang membentuk profil tertutup (1 Lingkaran, atau loop Line/Arc tertutup).
-2. Tekan **V** (atau klik ikon **Revolve** di toolbar kiri / Feature Inspector / context bar).
-3. Jendela **✨ Fitur Revolve** akan muncul secara interaktif:
-   - **Preset Sumbu 1-Klik**: Pilih **Sumbu Y (Vertikal)**, **Sumbu X (Horizontal)**, **Tepi Kiri Profil**, atau **Gambar Manual (2 Titik)**.
-   - **Pilihan Sudut**: Pilih **360° Penuh**, **180° Setengah**, **90° Siku**, atau masukkan nilai derajat bebas.
-   - Klik **🚀 Eksekusi Revolve**.
-4. Jika terjadi kesalahan (misal sumbu memotong interior profil atau profil belum tertutup), popup **⚠️ Peringatan Revolve** akan otomatis muncul memberikan penjelasan ramah beserta tips solusi praktis.
+## 📑 Lembar Gambar Kerja 2D (Drawing Sheet & Blueprint)
 
+Beralih ke mode **Drawing Sheet** dari top bar untuk membuat cetak biru teknik berstandar industri:
 
-### Loft — solid antara 2 profil beda bentuk (Fase 8)
+1. **Tampak Proyeksi Otomatis**:
+   - Menghasilkan tampak Atas (*Top*), Depan (*Front*), Samping (*Right*), dan Isometrik 3D lengkap dengan algoritma *Hidden Line Removal* (HLR).
+2. **Section View A-A (Tampak Potongan)**:
+   - Membuat irisan melintang pada bidang potong yang dilengkapi dengan pola arsir (*Hatch pattern*) garis miring 45° standar ISO/ANSI dan garis panah pemotong `A ─── A`.
+3. **Detail View (Lingkaran Pembesar)**:
+   - Menambahkan lingkaran viewport pembesar dengan skala khusus (2:1, 5:1, 10:1) untuk area detail mikro.
+4. **Dimensi Otomatis & Dimensi Manual**:
+   - Klik 2 titik pada kanvas untuk menambahkan dimensi linier kustom, dimensi diameter lingkaran, atau sudut derajat.
+5. **Tabel BOM (Bill of Materials) & Part Balloons**:
+   - Menampilkan tabel otomatis nomor item, nama part, jumlah kuantitas, dan bahan material yang terhubung langsung ke balon penunjuk pada gambar isometrik.
+6. **Kepala Gambar (ISO Title Block)**:
+   - Bingkai standar teknik lengkap dengan judul proyek, nama perancang, tanggal, unit, dan nomor revisi.
 
-Bukan loft lintas-bidang sungguhan (sketch DUCAD masih satu bidang XY) —
-profil ATAS diangkat lewat translasi Z murni, bukan digambar di bidang
-lain.
+---
 
-1. Di tool **Pilih**, pilih profil BAWAH (sama aturan Extrude), klik **Set
-   Profil Bawah dari Seleksi** di panel Model 3D — tersimpan sementara
-   ("✓ ter-set").
-2. Ganti seleksi ke profil ATAS (boleh bentuk beda, mis. persegi ke
-   lingkaran), isi **Tinggi (mm)**, klik **Loft**. Profil bawah tetap di
-   Z=0, profil atas ditempatkan di Z=tinggi, solid disambung di antaranya.
+## ⚙️ Perakitan (Assembly) & Uji Tabrakan (Clash Detection)
 
-### Union / Subtract / Intersect — gabung/potong/irisan 2 body
+Buka drawer **Assembly** di panel kiri:
 
-Pilih **persis 2 body** di daftar, lalu klik **Union** (gabung jadi satu),
-**Subtract (A-B)** (potong), atau **Intersect** (Fase 8 — cuma sisakan
-volume yang tumpang-tindih; kalau 2 body tidak bersinggungan sama sekali,
-gagal dengan pesan error). Hasilnya 1 body baru; 2 body asal lenyap (bisa
-di-undo). ⚠️ Urutan A/B untuk Subtract belum bisa dipilih manual di
-putaran pertama ini — kalau hasilnya kebalik, Undo lalu coba pilih body
-satu-satu ulang (urutan seleksi internal kadang berubah).
+1. **Pohon Perakitan (*Assembly Tree*)**: Mengelola hierarki part komponen dan instance mandiri.
+2. **Mate Constraints 3D**:
+   - **Concentric Mate**: Mengunci keselarasan sumbu silinder poros dengan lubang part pasangannya.
+   - **Coincident Mate**: Menempelkan dua permukaan datar saling berimpit.
+   - **Distance / Angle Mate**: Mengatur jarak offset atau sudut engsel mekanis.
+3. **Clash & Interference Detection**:
+   - Klik **Run Clash Test** untuk mendeteksi tabrakan fisik antar bodi solid di seluruh perakitan. Sistem akan menghitung volume interferensi dan menyorot bagian yang bertabrakan sebelum proses manufaktur.
 
-### Fillet / Chamfer — semua tepi, ATAU tepi tertentu (Fase 8)
+---
 
-Pilih **persis 1 body**, isi Radius (Fillet) atau Jarak (Chamfer), klik
-tombolnya — berlaku ke **semua tepi** body sekaligus (perilaku lama, tetap
-jalan apa adanya).
+## 🕒 Parametric History Timeline (Feature Tree)
 
-Untuk memilih tepi TERTENTU saja (Fase 8): klik **☐ Pilih Tepi Manual**
-(butuh persis 1 body terpilih dulu) — tombol berubah jadi **■ Pilih Tepi
-Manual (aktif)**, lalu klik langsung tepi-tepi yang mau kena di viewport
-3D (ter-highlight garis oranye, hitungan "N tepi dipilih" bertambah tiap
-klik). Klik lagi tombol untuk keluar mode, atau langsung klik **Fillet**/
-**Chamfer** — akan berlaku HANYA ke tepi yang dipilih. **Reset Pilihan**
-mengosongkan seleksi tanpa keluar mode. ⚠️ Belum bisa klik ulang tepi yang
-sama untuk membatalkannya (cuma bisa reset semua).
+1. Buka drawer **History / Feature Tree** untuk melihat urutan langkah perancangan berbasis graf dependensi (DAG).
+2. Anda dapat memilih langkah fitur masa lalu (misal *Extrude 1* atau *Sketch 2*), mengubah parameternya (seperti dimensi atau ketebalan), dan sistem akan secara otomatis meregenerasi seluruh bodi solid turunan.
 
-### Shell / Hollow — kosongkan jadi cangkang, 1 wajah ATAU beberapa (Fase 8)
+---
 
-Pilih **persis 1 body**, pilih arah di dropdown (mis. `PosZ` = buang face
-paling atas), isi Tebal (mm), klik **Shell** — perilaku lama, buang 1 face
-terjauh ke arah itu.
+## 🎨 Studio Lingkungan Pencahayaan & Material (CMF)
 
-Untuk membuang BEBERAPA wajah sekaligus (mis. tabung terbuka 2 sisi):
-klik **☐ Pilih Wajah Manual**, klik wajah-wajah yang mau dibuang di
-viewport 3D (hitungan "N wajah dipilih" bertambah — ⚠️ belum ada
-highlight visual 3D untuk wajah, baru angka di panel), lalu klik **Shell**
-— akan membuang HANYA wajah yang dipilih, mengabaikan dropdown arah.
+1. Buka drawer **Lighting & CMF Studio**:
+   - Pilih preset suasana pencahayaan: *Warm Studio*, *Cool Tech*, *High Contrast*, *Sunset Gold*, atau *Cyberpunk Neon*.
+   - Atur intensitas lampu, rotasi sumber cahaya, dan efek bayangan realistis **SSAO** (*Screen Space Ambient Occlusion*).
+   - Terapkan warna dan sifat material fisik PBR (*Metallic*, *Roughness*).
 
-### Hapus & Undo/Redo Model
+---
 
-- **Hapus Body Terpilih**: hapus semua body yang sedang terpilih.
-- **↶ Undo Model / ↷ Redo Model**: SENDIRI, terpisah dari undo sketch
-  (`Ctrl+Z` di keyboard cuma memengaruhi sketch, bukan model — pakai
-  tombol di panel untuk undo/redo operasi 3D).
+## 💾 Manajemen Berkas (File I/O)
 
-### Belum didukung di Model 3D
+Menu **📄 File** di pojok kiri atas atau via Command Palette (`Ctrl/Cmd+K`):
 
-Sweep sepanjang jalur (gap upstream binding OCCT, bukan DUCAD), Revolve
-sudut parsial (baru 360°), loft lintas-bidang sungguhan & sketch-on-face
-(sketch selalu di bidang XY), klik langsung di viewport 3D untuk GANTI
-seleksi BODY (pakai daftar di panel — picking viewport baru untuk
-edge/face pada body yang sudah terpilih), toggle-off klik ulang tepi/wajah
-terpilih, highlight 3D wajah terpilih.
+### Berkas Asli DuCAD
+* **Simpan (`Ctrl/Cmd+S`)** / **Buka (`Ctrl/Cmd+O`)**: Berkas `.ducad` menyimpan seluruh data sketsa 2D, B-Rep solid 3D, riwayat parametrik, dan perakitan.
 
-## UX shell — Fase 4
+### Format Impor & Ekspor
 
-### Command palette
-
-`Ctrl/Cmd+K` membuka kotak pencarian aksi mengambang di tengah atas layar
-(atau lewat menu **"⚙ Pengaturan"** di toolbar → **"⌘K Buka Command
-Palette"**). Ketik untuk menyaring (cocok substring, tak peduli besar/
-kecil huruf), panah atas/bawah pindah sorotan, **Enter** atau klik untuk
-eksekusi, **Esc** untuk tutup. Aksi yang tersedia: ganti tool apa pun
-(termasuk tool titik), Undo/Redo sketch, Undo/Redo Model, Ganti Tema, dan
-Hapus Seleksi (muncul cuma kalau ada entitas terpilih). Berguna untuk aksi
-yang jarang dipakai atau kalau lupa shortcut hurufnya.
-
-### Radial menu (khusus tool Pilih, cocok untuk sentuh/iPad)
-
-Tekan-tahan (jangan digerakkan) di viewport selama ±0.4 detik saat tool
-**Pilih** aktif → roda pilihan tool muncul persis di bawah titik tekan.
-Sambil tetap menekan, geser jari/mouse ke salah satu slice (Garis,
-Persegi, Lingkaran, Ellips, Arc, Offset, Mirror, Trim) lalu lepas untuk
-pindah ke tool itu. Lepas di lingkaran kosong di tengah (atau tekan Esc)
-untuk batal tanpa ganti tool. Ini jalur ganti-tool utama di layar sentuh
-(tidak perlu menjangkau toolbar di tepi atas) — di mouse/trackpad, toolbar
-dan shortcut huruf (L/R/C/E/A/O/M/T) tetap cara tercepat.
-
-### Menu "⚙ Pengaturan" (ujung kanan toolbar)
-
-Semua hal yang jarang disentuh lebih dari sekali per sesi dikumpulkan di
-sini, bukan jadi tombol lepas di toolbar utama:
-
-| Isi menu | Kegunaan |
-|---|---|
-| Tombol tema (mis. "☀ Terang" / "🌙 Gelap") | Label menampilkan tema TUJUAN — klik untuk pindah ke tema itu. Bisa juga lewat command palette ("Ganti Tema"). Default: gelap. |
-| "⌘K Buka Command Palette" | Sama seperti menekan `Ctrl/Cmd+K` langsung. |
-| "Pintasan Keyboard" (bisa dibuka/tutup) | Daftar referensi semua shortcut huruf tunggal & kombinasi Ctrl/Cmd — bukan pengaturan yang bisa diubah, cuma bantuan kalau lupa. |
-
-### Target sentuh
-
-Semua tombol/checkbox/combo box di seluruh aplikasi (toolbar, panel
-Constraint, panel Model 3D, command palette) punya tinggi minimum 44pt
-mengikuti rekomendasi Apple HIG untuk target sentuh — sengaja dibuat
-lantai global, bukan disetel manual per tombol.
-
-## File I/O — Fase 5
-
-Menu **"📄 File"** di ujung kiri toolbar (sebelah nama "DUCAD"). Semua
-aksi juga ada di command palette (`Ctrl/Cmd+K`, ketik nama aksinya).
-
-### Dokumen native `.ducad`
-
-| Aksi | Shortcut | Perilaku |
+| Format | Mode | Keterangan |
 |---|---|---|
-| Baru | — | Kosongkan sketch+model+kedua undo stack. Kamera & tema TIDAK ikut direset. |
-| Buka… | `Ctrl/Cmd+O` | Dialog pilih file `.ducad`, mengganti SELURUH dokumen (undo stack ikut direset — undo lintas-dokumen tidak masuk akal). |
-| Simpan | `Ctrl/Cmd+S` | Tulis ke file terakhir dibuka/disimpan; kalau dokumen belum pernah punya file (baru), jatuh ke Simpan Sebagai. |
-| Simpan Sebagai… | `Ctrl/Cmd+Shift+S` | SELALU tampilkan dialog, walau dokumen sudah punya file aktif. |
+| **STEP (`.step`, `.stp`)** | Import & Export | Standar pertukaran solid CAD B-Rep untuk CAM/CNC |
+| **GLTF / GLB (`.glb`)** | Export | Format 3D biner dengan PBR untuk penayangan Web & AR Quick Look di iOS/Android |
+| **SVG (`.svg`)** | Export | Format vektor 2D untuk mesin Laser Cutting dan CNC Router |
+| **PDF (`.pdf`)** | Export | Gambar teknik vektor resolusi tinggi lengkap dengan kop ISO, arsir potongan, dan tabel BOM |
+| **DXF (`.dxf`)** | Import & Export | Format sketsa 2D AutoCAD |
+| **STL (`.stl`)** | Export | Format biner mesh untuk 3D Printing / Slicer |
+| **OBJ / PLY / 3MF** | Export | Format model 3D poligon standar |
 
-File `.ducad` adalah JSON manusiawi-dibaca (bisa dibuka teks editor untuk
-diperiksa) — sketch (entitas+constraint) DAN semua body 3D (geometri
-B-rep lengkap, bukan cuma mesh) tersimpan utuh, termasuk body yang lagi
-disembunyikan (checkbox visible di panel Model 3D).
+---
 
-### Import
+## 💡 Alur Kerja Ergonomis Standar DuCAD
 
-| Sumber | Hasil |
-|---|---|
-| STEP (`.step`/`.stp`) | 1 body baru (undo-able) — kalau file berisi beberapa solid, semuanya masuk sebagai SATU body gabungan (belum bisa dipisah otomatis). |
-| DXF (`.dxf`, subset R12) | Entitas Line/Circle/Arc ditambahkan ke sketch aktif (undo-able, satu langkah). Jenis lain (TEXT/SPLINE/dst) dilewati — pesan status melaporkan berapa yang dilewati. |
-
-### Export
-
-| Format | Cakupan | Catatan |
-|---|---|---|
-| STEP | SEMUA body (arsip dokumen penuh) | >1 body digabung jadi satu file, masing-masing tetap solid terpisah (bukan di-union). |
-| STL (biner) | Body **visible** saja | Digabung jadi satu mesh — mewakili hasil cetak/tampilan fisik, sama seperti yang tampak di viewport. |
-| OBJ | Body **visible** saja | Satu blok objek per body (tetap terpisah di tool lain seperti Blender). |
-| DXF | Entitas sketch Line/Circle/Arc | Ellips DILEWATI (DXF R12 tidak punya entitas ELLIPSE) — jumlah yang dilewati dilaporkan di status bar. |
-
-Pesan hasil tiap aksi (sukses maupun gagal) muncul sebentar di status bar
-bawah, di sebelah hint tool aktif.
-
-### Belum didukung di File I/O
-
-Import STL/OBJ (sudah berupa segitiga, tidak ada jalan balik ke B-rep),
-Ellipse/spline/polyline di DXF, memisahkan file STEP multi-solid jadi
-body terpisah saat import, autosave, daftar file terakhir dibuka,
-indikator "belum disimpan" di title bar, drag-and-drop file ke jendela.
-
-## Contoh alur kerja singkat: kotak dengan tepi membulat
-
-1. Tool **Persegi** (`R`) → klik 2 sudut untuk bikin 4 garis persegi.
-2. Tool **Pilih** → klik satu sisi, lalu Shift+klik tiga sisi lainnya
-   (belum ada drag-select/marquee — pilih satu-satu).
-3. Panel **Model 3D** → isi Jarak (mis. `20`) → **Extrude**. Body pertama
-   muncul di daftar & di viewport.
-4. Klik nama body itu di daftar (pilih), isi Radius Fillet (mis. `2`) →
-   **Fillet**. Tepi body membulat.
-5. Kalau salah langkah, klik **↶ Undo Model**.
-
-## Status implementasi lengkap & keterbatasan
-
-Ringkasan di atas cukup untuk pemakaian sehari-hari. Untuk daftar lengkap
-apa yang sudah/belum dikerjakan per fase, keputusan arsitektur, dan bug
-yang pernah ditemukan+diperbaiki, lihat `docs/PLAN.md`.
+DuCAD menerapkan hierarki interaksi konsisten untuk kecepatan kerja maksimal:
+1. **Sidebar Kiri**: Menu untuk membuat objek baru yang belum ada (Sketsa 2D, Bodi 3D, Assembly, Datum Plane).
+2. **Bottom Context Bar**: Menu interaktif yang muncul otomatis di bagian bawah saat sebuah objek, face, atau edge dipilih dengan tool *Select*.
+3. **Canvas HUD (Header Atas)**: Kotak masukan angka/parameter ringkas saat menggambar.
+4. **Pop-up Window (Kanan Bawah)**: Kotak dialog konfigurasi mendalam untuk fitur kompleks (Hole Wizard, Helix, Draft, 3D Text).
+5. **Command Palette (`Ctrl/Cmd+K`)**: Pencarian instan seluruh perintah aplikasi dengan keyboard.
