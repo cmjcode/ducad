@@ -13,9 +13,9 @@ use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_CUBE_OUTLINE, ICON_FOLDER,
-    ICON_HORIZONTAL_RULE, ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH,
-    ICON_VISIBILITY, ICON_VISIBILITY_OFF,
+    ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_CUBE_OUTLINE, ICON_FOLDER, ICON_HORIZONTAL_RULE,
+    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH, ICON_VISIBILITY,
+    ICON_VISIBILITY_OFF,
 };
 
 pub struct BodyItemInfo {
@@ -122,10 +122,8 @@ fn render_item_card(
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     // Tombol eye visibility
-                    let (eye_rect, eye_resp) = ui.allocate_exact_size(
-                        Vec2::new(24.0, 20.0),
-                        egui::Sense::click(),
-                    );
+                    let (eye_rect, eye_resp) =
+                        ui.allocate_exact_size(Vec2::new(24.0, 20.0), egui::Sense::click());
                     let is_eye_hovered = eye_resp.hovered();
                     if is_eye_hovered {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -153,11 +151,8 @@ fn render_item_card(
                         TEXT_MUTED
                     };
 
-                    ui.painter().rect_filled(
-                        eye_rect,
-                        CornerRadius::same(4),
-                        eye_bg,
-                    );
+                    ui.painter()
+                        .rect_filled(eye_rect, CornerRadius::same(4), eye_bg);
                     ui.painter().text(
                         eye_rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -189,12 +184,7 @@ fn render_item_card(
                     } else {
                         TEXT_MUTED
                     };
-                    ui.label(
-                        RichText::new(name)
-                            .strong()
-                            .size(11.5)
-                            .color(name_color),
-                    );
+                    ui.label(RichText::new(name).strong().size(11.5).color(name_color));
 
                     if show_selected_badge && selected {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -223,11 +213,8 @@ fn render_item_card(
         });
 
         let row_response = card_output.inner;
-        let card_clicked = visible
-            && !eye_clicked
-            && row_response
-                .interact(egui::Sense::click())
-                .clicked();
+        let card_clicked =
+            visible && !eye_clicked && row_response.interact(egui::Sense::click()).clicked();
 
         (eye_clicked, card_clicked)
     })
@@ -326,7 +313,7 @@ impl ItemsDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH;
+                const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH - 4.0;
                 ui.set_min_width(DRAWER_W);
                 ui.set_max_width(DRAWER_W);
                 ui.set_width(DRAWER_W);
@@ -463,9 +450,7 @@ impl ItemsDrawer {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(obj_chevron)
-                                            .size(13.0)
-                                            .color(TEXT_SECONDARY),
+                                        RichText::new(obj_chevron).size(13.0).color(TEXT_SECONDARY),
                                     );
                                     ui.add_space(2.0);
                                     ui.label(
@@ -524,7 +509,8 @@ impl ItemsDrawer {
                                 });
                             } else {
                                 use std::collections::BTreeMap;
-                                let mut groups: BTreeMap<String, Vec<&Entity2dItemInfo>> = BTreeMap::new();
+                                let mut groups: BTreeMap<String, Vec<&Entity2dItemInfo>> =
+                                    BTreeMap::new();
                                 let mut ungrouped: Vec<&Entity2dItemInfo> = Vec::new();
 
                                 for e in &entities_matching {
@@ -581,12 +567,15 @@ impl ItemsDrawer {
                                             ui.set_width(ui.available_width());
                                             ui.horizontal(|ui| {
                                                 // Chevron clickable
-                                                let (chev_rect, chev_resp) = ui.allocate_exact_size(
-                                                    Vec2::new(16.0, 20.0),
-                                                    egui::Sense::click(),
-                                                );
+                                                let (chev_rect, chev_resp) = ui
+                                                    .allocate_exact_size(
+                                                        Vec2::new(16.0, 20.0),
+                                                        egui::Sense::click(),
+                                                    );
                                                 if chev_resp.hovered() {
-                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                    ui.ctx().set_cursor_icon(
+                                                        egui::CursorIcon::PointingHand,
+                                                    );
                                                 }
                                                 ui.painter().text(
                                                     chev_rect.center(),
@@ -607,7 +596,9 @@ impl ItemsDrawer {
                                                 );
                                                 let is_hovered = eye_resp.hovered();
                                                 if is_hovered {
-                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                    ui.ctx().set_cursor_icon(
+                                                        egui::CursorIcon::PointingHand,
+                                                    );
                                                 }
 
                                                 let eye_bg = if is_hovered {
@@ -675,228 +666,231 @@ impl ItemsDrawer {
                                                         }),
                                                 );
                                                 // Badge jumlah anggota (kanan)
-                                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                    let (badge_rect, _) = ui.allocate_exact_size(
-                                                        Vec2::splat(18.0),
-                                                        egui::Sense::hover(),
-                                                    );
-                                                    ui.painter().circle_filled(
-                                                        badge_rect.center(),
-                                                        9.0,
-                                                        Color32::from_rgb(46, 50, 62),
-                                                    );
-                                                    ui.painter().text(
-                                                        badge_rect.center(),
-                                                        egui::Align2::CENTER_CENTER,
-                                                        format!("{}", members.len()),
-                                                        egui::FontId::proportional(10.0),
-                                                        Color32::from_rgb(160, 166, 178),
-                                                    );
-                                                });
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        let (badge_rect, _) = ui
+                                                            .allocate_exact_size(
+                                                                Vec2::splat(18.0),
+                                                                egui::Sense::hover(),
+                                                            );
+                                                        ui.painter().circle_filled(
+                                                            badge_rect.center(),
+                                                            9.0,
+                                                            Color32::from_rgb(46, 50, 62),
+                                                        );
+                                                        ui.painter().text(
+                                                            badge_rect.center(),
+                                                            egui::Align2::CENTER_CENTER,
+                                                            format!("{}", members.len()),
+                                                            egui::FontId::proportional(10.0),
+                                                            Color32::from_rgb(160, 166, 178),
+                                                        );
+                                                    },
+                                                );
                                             });
                                         });
 
                                         let group_resp = header_output.response;
                                         let group_card_clicked = !group_eye_clicked
                                             && !group_chevron_clicked
-                                            && group_resp
-                                                .interact(egui::Sense::click())
-                                                .clicked();
+                                            && group_resp.interact(egui::Sense::click()).clicked();
 
-                                        (group_eye_clicked, group_chevron_clicked, group_card_clicked)
+                                        (
+                                            group_eye_clicked,
+                                            group_chevron_clicked,
+                                            group_card_clicked,
+                                        )
                                     });
 
-                                    let (group_eye_clicked, group_chevron_clicked, group_card_clicked) = group_push_resp.inner;
+                                    let (
+                                        group_eye_clicked,
+                                        group_chevron_clicked,
+                                        group_card_clicked,
+                                    ) = group_push_resp.inner;
 
                                     if group_eye_clicked {
                                         event = Some(ItemsDrawerEvent::ToggleGroupVisibility(
                                             group_name.clone(),
                                         ));
                                     } else if group_chevron_clicked {
-                                        event = Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
+                                        event =
+                                            Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
                                     } else if group_card_clicked {
-                                        let extend = ui.input(|i| {
-                                            i.modifiers.command || i.modifiers.shift
-                                        });
+                                        let extend =
+                                            ui.input(|i| i.modifiers.command || i.modifiers.shift);
                                         event = Some(ItemsDrawerEvent::SelectGroup {
                                             name: group_name.clone(),
                                             extend,
                                         });
                                     }
 
-                                if is_expanded {
-                                    // Render anggota grup dengan indentasi dan tombol mata
-                                    for e in members {
-                                        let (eye_clicked, card_clicked) = render_item_card(
-                                            ui,
-                                            e.id_raw,
-                                            e.icon,
-                                            &e.name,
-                                            e.visible,
-                                            e.selected,
-                                            16.0,
-                                            false,
-                                        );
-                                        if eye_clicked {
-                                            event = Some(
-                                                ItemsDrawerEvent::ToggleEntity2dVisibility(e.id_raw),
+                                    if is_expanded {
+                                        // Render anggota grup dengan indentasi dan tombol mata
+                                        for e in members {
+                                            let (eye_clicked, card_clicked) = render_item_card(
+                                                ui, e.id_raw, e.icon, &e.name, e.visible,
+                                                e.selected, 16.0, false,
                                             );
-                                        } else if card_clicked {
-                                            let extend = ui.input(|i| {
-                                                i.modifiers.command || i.modifiers.shift
-                                            });
-                                            event = Some(ItemsDrawerEvent::SelectEntity2d {
-                                                id_raw: e.id_raw,
-                                                extend,
-                                            });
+                                            if eye_clicked {
+                                                event = Some(
+                                                    ItemsDrawerEvent::ToggleEntity2dVisibility(
+                                                        e.id_raw,
+                                                    ),
+                                                );
+                                            } else if card_clicked {
+                                                let extend = ui.input(|i| {
+                                                    i.modifiers.command || i.modifiers.shift
+                                                });
+                                                event = Some(ItemsDrawerEvent::SelectEntity2d {
+                                                    id_raw: e.id_raw,
+                                                    extend,
+                                                });
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            // Render entitas flat (tanpa grup) dengan tombol mata
-                            for e in ungrouped {
-                                let (eye_clicked, card_clicked) = render_item_card(
-                                    ui,
-                                    e.id_raw,
-                                    e.icon,
-                                    &e.name,
-                                    e.visible,
-                                    e.selected,
-                                    0.0,
-                                    true,
-                                );
-                                if eye_clicked {
-                                    event =
-                                        Some(ItemsDrawerEvent::ToggleEntity2dVisibility(e.id_raw));
-                                } else if card_clicked {
-                                    let extend =
-                                        ui.input(|i| i.modifiers.command || i.modifiers.shift);
-                                    event = Some(ItemsDrawerEvent::SelectEntity2d {
-                                        id_raw: e.id_raw,
-                                        extend,
-                                    });
+                                // Render entitas flat (tanpa grup) dengan tombol mata
+                                for e in ungrouped {
+                                    let (eye_clicked, card_clicked) = render_item_card(
+                                        ui, e.id_raw, e.icon, &e.name, e.visible, e.selected, 0.0,
+                                        true,
+                                    );
+                                    if eye_clicked {
+                                        event = Some(ItemsDrawerEvent::ToggleEntity2dVisibility(
+                                            e.id_raw,
+                                        ));
+                                    } else if card_clicked {
+                                        let extend =
+                                            ui.input(|i| i.modifiers.command || i.modifiers.shift);
+                                        event = Some(ItemsDrawerEvent::SelectEntity2d {
+                                            id_raw: e.id_raw,
+                                            extend,
+                                        });
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    ui.add_space(4.0);
+                        ui.add_space(4.0);
 
-                    // -----------------------------------------------------------------
-                    // ACCORDION B: 3D SOLID BODIES
-                    // -----------------------------------------------------------------
-                    let bodies_chevron = if self.bodies_expanded {
-                        ICON_KEYBOARD_ARROW_DOWN.codepoint
-                    } else {
-                        ICON_KEYBOARD_ARROW_RIGHT.codepoint
-                    };
+                        // -----------------------------------------------------------------
+                        // ACCORDION B: 3D SOLID BODIES
+                        // -----------------------------------------------------------------
+                        let bodies_chevron = if self.bodies_expanded {
+                            ICON_KEYBOARD_ARROW_DOWN.codepoint
+                        } else {
+                            ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                        };
 
-                    let bodies_header_frame = Frame {
-                        inner_margin: Margin::symmetric(8, 6),
-                        outer_margin: Margin::ZERO,
-                        corner_radius: CornerRadius::same(6),
-                        shadow: egui::Shadow::NONE,
-                        fill: Color32::from_rgb(30, 33, 42),
-                        stroke: Stroke::new(0.5, BORDER_SUBTLE),
-                    };
+                        let bodies_header_frame = Frame {
+                            inner_margin: Margin::symmetric(8, 6),
+                            outer_margin: Margin::ZERO,
+                            corner_radius: CornerRadius::same(6),
+                            shadow: egui::Shadow::NONE,
+                            fill: Color32::from_rgb(30, 33, 42),
+                            stroke: Stroke::new(0.5, BORDER_SUBTLE),
+                        };
 
-                    let bodies_header_resp = bodies_header_frame
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(bodies_chevron)
-                                        .size(13.0)
-                                        .color(TEXT_SECONDARY),
-                                );
-                                ui.add_space(2.0);
-                                ui.label(
-                                    RichText::new("BODIES")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(TEXT_PRIMARY),
-                                );
-
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    // Badge lingkaran sempurna
-                                    let (badge_rect, _) = ui.allocate_exact_size(
-                                        Vec2::splat(18.0),
-                                        egui::Sense::hover(),
-                                    );
-                                    ui.painter().circle_filled(
-                                        badge_rect.center(),
-                                        9.0,
-                                        Color32::from_rgb(46, 50, 62),
-                                    );
-                                    ui.painter().text(
-                                        badge_rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        format!("{}", bodies.len()),
-                                        egui::FontId::proportional(10.0),
-                                        Color32::from_rgb(160, 166, 178),
-                                    );
-                                });
-                            });
-                        })
-                        .response;
-
-                    if bodies_header_resp.interact(egui::Sense::click()).clicked() {
-                        self.bodies_expanded = !self.bodies_expanded;
-                    }
-
-                    if self.bodies_expanded {
-                        ui.add_space(2.0);
-                        if bodies.is_empty() {
-                            card_frame().show(ui, |ui| {
+                        let bodies_header_resp = bodies_header_frame
+                            .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(6.0);
+                                ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(ICON_CUBE_OUTLINE.codepoint)
-                                            .size(22.0)
-                                            .color(TEXT_MUTED),
-                                    );
-                                    ui.label(
-                                        RichText::new(t!("drawer-empty-bodies"))
-                                            .size(11.5)
-                                            .strong()
+                                        RichText::new(bodies_chevron)
+                                            .size(13.0)
                                             .color(TEXT_SECONDARY),
                                     );
-                                    ui.add_space(6.0);
-                                });
-                            });
-                        } else {
-                            for b in bodies {
-                                if !query.is_empty() && !b.name.to_lowercase().contains(&query) {
-                                    continue;
-                                }
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        RichText::new("BODIES")
+                                            .size(11.0)
+                                            .strong()
+                                            .color(TEXT_PRIMARY),
+                                    );
 
-                                let (eye_clicked, card_clicked) = render_item_card(
-                                    ui,
-                                    b.id_raw,
-                                    ICON_CUBE_OUTLINE.codepoint,
-                                    &b.name,
-                                    b.visible,
-                                    b.selected,
-                                    0.0,
-                                    true,
-                                );
-
-                                if eye_clicked {
-                                    event = Some(ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw));
-                                } else if card_clicked {
-                                    let extend =
-                                        ui.input(|i| i.modifiers.command || i.modifiers.shift);
-                                    event = Some(ItemsDrawerEvent::SelectBody {
-                                        id_raw: b.id_raw,
-                                        extend,
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        // Badge lingkaran sempurna
+                                        let (badge_rect, _) = ui.allocate_exact_size(
+                                            Vec2::splat(18.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().circle_filled(
+                                            badge_rect.center(),
+                                            9.0,
+                                            Color32::from_rgb(46, 50, 62),
+                                        );
+                                        ui.painter().text(
+                                            badge_rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            format!("{}", bodies.len()),
+                                            egui::FontId::proportional(10.0),
+                                            Color32::from_rgb(160, 166, 178),
+                                        );
                                     });
+                                });
+                            })
+                            .response;
+
+                        if bodies_header_resp.interact(egui::Sense::click()).clicked() {
+                            self.bodies_expanded = !self.bodies_expanded;
+                        }
+
+                        if self.bodies_expanded {
+                            ui.add_space(2.0);
+                            if bodies.is_empty() {
+                                card_frame().show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            RichText::new(ICON_CUBE_OUTLINE.codepoint)
+                                                .size(22.0)
+                                                .color(TEXT_MUTED),
+                                        );
+                                        ui.label(
+                                            RichText::new(t!("drawer-empty-bodies"))
+                                                .size(11.5)
+                                                .strong()
+                                                .color(TEXT_SECONDARY),
+                                        );
+                                        ui.add_space(6.0);
+                                    });
+                                });
+                            } else {
+                                for b in bodies {
+                                    if !query.is_empty() && !b.name.to_lowercase().contains(&query)
+                                    {
+                                        continue;
+                                    }
+
+                                    let (eye_clicked, card_clicked) = render_item_card(
+                                        ui,
+                                        b.id_raw,
+                                        ICON_CUBE_OUTLINE.codepoint,
+                                        &b.name,
+                                        b.visible,
+                                        b.selected,
+                                        0.0,
+                                        true,
+                                    );
+
+                                    if eye_clicked {
+                                        event =
+                                            Some(ItemsDrawerEvent::ToggleBodyVisibility(b.id_raw));
+                                    } else if card_clicked {
+                                        let extend =
+                                            ui.input(|i| i.modifiers.command || i.modifiers.shift);
+                                        event = Some(ItemsDrawerEvent::SelectBody {
+                                            id_raw: b.id_raw,
+                                            extend,
+                                        });
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                    });
             });
         });
 

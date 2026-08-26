@@ -5,8 +5,7 @@
 
 use crate::history_drawer::{ActivityItemInfo, ActivityKindUi};
 use crate::theme::{
-    card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY,
+    card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 use ducad_core::parametric::{FeatureId, FeatureNode, FeaturePayload, FeatureStatus};
 use ducad_i18n::t;
@@ -85,7 +84,9 @@ impl FeatureTreeDrawer {
                 self.edit_input_val1 = format!("{:.1}", angle_deg);
                 self.edit_input_val2.clear();
             }
-            FeaturePayload::Fillet { radius, radius_end, .. } => {
+            FeaturePayload::Fillet {
+                radius, radius_end, ..
+            } => {
                 self.edit_input_val1 = format!("{:.2}", radius);
                 if let Some(r_end) = radius_end {
                     self.edit_input_val2 = format!("{:.2}", r_end);
@@ -138,7 +139,7 @@ impl FeatureTreeDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH;
+                const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH - 4.0;
                 ui.set_min_width(DRAWER_W);
                 ui.set_max_width(DRAWER_W);
                 ui.set_width(DRAWER_W);
@@ -430,80 +431,98 @@ impl FeatureTreeDrawer {
                                         let icon_str = match node.payload.icon_name() {
                                             "plane" => ICON_LAYERS.codepoint,
                                             "sketch" => ICON_GRID_4X4.codepoint,
-                                            "extrude" | "revolve" | "fillet" | "chamfer" | "shell" => {
-                                                ICON_CATEGORY.codepoint
-                                            }
+                                            "extrude" | "revolve" | "fillet" | "chamfer"
+                                            | "shell" => ICON_CATEGORY.codepoint,
                                             "cut_extrude" => ICON_CLEAR.codepoint,
                                             "hole" => ICON_AUTO_MODE.codepoint,
                                             "helix" => ICON_TIMELINE.codepoint,
                                             _ => ICON_CATEGORY.codepoint,
                                         };
 
-                                        let (status_color, status_icon, status_desc) = match &node.status {
-                                            FeatureStatus::Valid => (
-                                                Color32::from_rgb(48, 209, 88),
-                                                ICON_CHECK_CIRCLE.codepoint,
-                                                "Fitur valid & up-to-date".to_string(),
-                                            ),
-                                            FeatureStatus::NeedsRegeneration => (
-                                                Color32::from_rgb(255, 149, 0),
-                                                ICON_REFRESH.codepoint,
-                                                "Perlu regenerasi".to_string(),
-                                            ),
-                                            FeatureStatus::Error(err_msg) => (
-                                                Color32::from_rgb(255, 69, 58),
-                                                ICON_ERROR.codepoint,
-                                                format!("Error: {err_msg}"),
-                                            ),
-                                            FeatureStatus::Suppressed => (
-                                                Color32::from_rgb(142, 142, 147),
-                                                ICON_VISIBILITY_OFF.codepoint,
-                                                "Fitur dinonaktifkan (suppressed)".to_string(),
-                                            ),
-                                        };
+                                        let (status_color, status_icon, status_desc) =
+                                            match &node.status {
+                                                FeatureStatus::Valid => (
+                                                    Color32::from_rgb(48, 209, 88),
+                                                    ICON_CHECK_CIRCLE.codepoint,
+                                                    "Fitur valid & up-to-date".to_string(),
+                                                ),
+                                                FeatureStatus::NeedsRegeneration => (
+                                                    Color32::from_rgb(255, 149, 0),
+                                                    ICON_REFRESH.codepoint,
+                                                    "Perlu regenerasi".to_string(),
+                                                ),
+                                                FeatureStatus::Error(err_msg) => (
+                                                    Color32::from_rgb(255, 69, 58),
+                                                    ICON_ERROR.codepoint,
+                                                    format!("Error: {err_msg}"),
+                                                ),
+                                                FeatureStatus::Suppressed => (
+                                                    Color32::from_rgb(142, 142, 147),
+                                                    ICON_VISIBILITY_OFF.codepoint,
+                                                    "Fitur dinonaktifkan (suppressed)".to_string(),
+                                                ),
+                                            };
 
                                         // Baris atas: Icon + Nama Fitur + Type Badge + Status
-                                        let title_resp = ui.horizontal(|ui| {
-                                            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                                        let title_resp = ui
+                                            .horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
 
-                                            ui.label(
-                                                RichText::new(icon_str)
-                                                    .size(11.0)
-                                                    .color(if node.is_suppressed { TEXT_MUTED } else { ACCENT_BLUE }),
-                                            );
+                                                ui.label(RichText::new(icon_str).size(11.0).color(
+                                                    if node.is_suppressed {
+                                                        TEXT_MUTED
+                                                    } else {
+                                                        ACCENT_BLUE
+                                                    },
+                                                ));
 
-                                            ui.label(
-                                                RichText::new(&node.name)
-                                                    .strong()
-                                                    .size(10.5)
-                                                    .color(if node.is_suppressed { TEXT_MUTED } else { TEXT_PRIMARY }),
-                                            );
-
-                                            Frame {
-                                                inner_margin: Margin::symmetric(3, 0),
-                                                outer_margin: Margin::ZERO,
-                                                corner_radius: CornerRadius::same(3),
-                                                shadow: egui::Shadow::NONE,
-                                                fill: Color32::from_rgba_premultiplied(10, 132, 255, 20),
-                                                stroke: Stroke::new(0.5, Color32::from_rgba_premultiplied(10, 132, 255, 60)),
-                                            }
-                                            .show(ui, |ui| {
                                                 ui.label(
-                                                    RichText::new(node.payload.type_label())
-                                                        .size(7.5)
-                                                        .color(ACCENT_BLUE),
+                                                    RichText::new(&node.name)
+                                                        .strong()
+                                                        .size(10.5)
+                                                        .color(if node.is_suppressed {
+                                                            TEXT_MUTED
+                                                        } else {
+                                                            TEXT_PRIMARY
+                                                        }),
                                                 );
-                                            });
 
-                                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                                ui.label(
-                                                    RichText::new(status_icon)
-                                                        .size(10.0)
-                                                        .color(status_color),
-                                                )
-                                                .on_hover_text(status_desc);
-                                            });
-                                        }).response;
+                                                Frame {
+                                                    inner_margin: Margin::symmetric(3, 0),
+                                                    outer_margin: Margin::ZERO,
+                                                    corner_radius: CornerRadius::same(3),
+                                                    shadow: egui::Shadow::NONE,
+                                                    fill: Color32::from_rgba_premultiplied(
+                                                        10, 132, 255, 20,
+                                                    ),
+                                                    stroke: Stroke::new(
+                                                        0.5,
+                                                        Color32::from_rgba_premultiplied(
+                                                            10, 132, 255, 60,
+                                                        ),
+                                                    ),
+                                                }
+                                                .show(ui, |ui| {
+                                                    ui.label(
+                                                        RichText::new(node.payload.type_label())
+                                                            .size(7.5)
+                                                            .color(ACCENT_BLUE),
+                                                    );
+                                                });
+
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        ui.label(
+                                                            RichText::new(status_icon)
+                                                                .size(10.0)
+                                                                .color(status_color),
+                                                        )
+                                                        .on_hover_text(status_desc);
+                                                    },
+                                                );
+                                            })
+                                            .response;
 
                                         if title_resp.interact(egui::Sense::click()).clicked() {
                                             event = Some(FeatureTreeEvent::SelectFeature(node.id));
@@ -515,29 +534,40 @@ impl FeatureTreeDrawer {
 
                                             let summary = node.payload.summary_text();
                                             let buttons_w = 62.0;
-                                            let text_w = (ui.available_width() - buttons_w - 6.0).max(30.0);
+                                            let text_w =
+                                                (ui.available_width() - buttons_w - 6.0).max(30.0);
 
                                             ui.add_sized(
                                                 Vec2::new(text_w, 18.0),
                                                 egui::Label::new(
-                                                    RichText::new(&summary)
-                                                        .size(9.0)
-                                                        .color(if node.is_suppressed { TEXT_MUTED } else { TEXT_SECONDARY }),
+                                                    RichText::new(&summary).size(9.0).color(
+                                                        if node.is_suppressed {
+                                                            TEXT_MUTED
+                                                        } else {
+                                                            TEXT_SECONDARY
+                                                        },
+                                                    ),
                                                 )
                                                 .truncate(),
                                             )
                                             .on_hover_text(&summary);
 
                                             // 1. Tombol Edit Parameter
-                                            let (edit_rect, edit_resp) =
-                                                ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
+                                            let (edit_rect, edit_resp) = ui.allocate_exact_size(
+                                                Vec2::splat(18.0),
+                                                egui::Sense::click(),
+                                            );
                                             let is_edit_hov = edit_resp.hovered();
                                             if is_edit_hov {
-                                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                ui.ctx().set_cursor_icon(
+                                                    egui::CursorIcon::PointingHand,
+                                                );
                                                 ui.painter().rect_filled(
                                                     edit_rect,
                                                     CornerRadius::same(3),
-                                                    Color32::from_rgba_premultiplied(10, 132, 255, 60),
+                                                    Color32::from_rgba_premultiplied(
+                                                        10, 132, 255, 60,
+                                                    ),
                                                 );
                                             }
                                             ui.painter().text(
@@ -547,20 +577,29 @@ impl FeatureTreeDrawer {
                                                 egui::FontId::proportional(11.0),
                                                 if is_edit_hov { ACCENT_BLUE } else { TEXT_MUTED },
                                             );
-                                            if edit_resp.on_hover_text(t!("feature-tree-edit-params")).clicked() {
+                                            if edit_resp
+                                                .on_hover_text(t!("feature-tree-edit-params"))
+                                                .clicked()
+                                            {
                                                 edit_clicked = true;
                                             }
 
                                             // 2. Tombol Suppress / Unsuppress
-                                            let (sup_rect, sup_resp) =
-                                                ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
+                                            let (sup_rect, sup_resp) = ui.allocate_exact_size(
+                                                Vec2::splat(18.0),
+                                                egui::Sense::click(),
+                                            );
                                             let is_sup_hov = sup_resp.hovered();
                                             if is_sup_hov {
-                                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                ui.ctx().set_cursor_icon(
+                                                    egui::CursorIcon::PointingHand,
+                                                );
                                                 ui.painter().rect_filled(
                                                     sup_rect,
                                                     CornerRadius::same(3),
-                                                    Color32::from_rgba_premultiplied(142, 142, 147, 60),
+                                                    Color32::from_rgba_premultiplied(
+                                                        142, 142, 147, 60,
+                                                    ),
                                                 );
                                             }
                                             let sup_icon = if node.is_suppressed {
@@ -587,15 +626,21 @@ impl FeatureTreeDrawer {
                                             }
 
                                             // 3. Tombol Hapus Fitur
-                                            let (del_rect, del_resp) =
-                                                ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::click());
+                                            let (del_rect, del_resp) = ui.allocate_exact_size(
+                                                Vec2::splat(18.0),
+                                                egui::Sense::click(),
+                                            );
                                             let is_del_hov = del_resp.hovered();
                                             if is_del_hov {
-                                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                ui.ctx().set_cursor_icon(
+                                                    egui::CursorIcon::PointingHand,
+                                                );
                                                 ui.painter().rect_filled(
                                                     del_rect,
                                                     CornerRadius::same(3),
-                                                    Color32::from_rgba_premultiplied(255, 69, 58, 60),
+                                                    Color32::from_rgba_premultiplied(
+                                                        255, 69, 58, 60,
+                                                    ),
                                                 );
                                             }
                                             let del_color = if is_del_hov {
@@ -610,7 +655,10 @@ impl FeatureTreeDrawer {
                                                 egui::FontId::proportional(11.0),
                                                 del_color,
                                             );
-                                            if del_resp.on_hover_text(t!("feature-tree-delete")).clicked() {
+                                            if del_resp
+                                                .on_hover_text(t!("feature-tree-delete"))
+                                                .clicked()
+                                            {
                                                 delete_clicked = true;
                                             }
                                         });
@@ -638,48 +686,102 @@ impl FeatureTreeDrawer {
                                                         .color(ACCENT_BLUE),
                                                 );
 
-                                                let (lbl1, lbl2_opt): (&str, Option<String>) = match &node.payload {
-                                                    FeaturePayload::Extrude { .. } => ("Tinggi Extrude (mm):", None),
-                                                    FeaturePayload::Revolve { .. } => ("Sudut Putar (°):", None),
-                                                    FeaturePayload::Fillet { radius_end, .. } => {
-                                                        if radius_end.is_some() {
-                                                            ("Radius Fillet (mm):", Some("End Radius (mm):".to_string()))
-                                                        } else {
-                                                            ("Radius Fillet (mm):", None)
+                                                let (lbl1, lbl2_opt): (&str, Option<String>) =
+                                                    match &node.payload {
+                                                        FeaturePayload::Extrude { .. } => {
+                                                            ("Tinggi Extrude (mm):", None)
                                                         }
-                                                    }
-                                                    FeaturePayload::Chamfer { .. } => ("Jarak Chamfer (mm):", None),
-                                                    FeaturePayload::Shell { .. } => ("Tebal Dinding (mm):", None),
-                                                    FeaturePayload::Sketch { dim_h, shape_type, .. } => {
-                                                        if dim_h.is_some() {
-                                                            ("Panjang (X) [mm]:", Some("Lebar (Y) [mm]:".to_string()))
-                                                        } else if shape_type == "Lingkaran" || shape_type == "Busur" {
-                                                            ("Radius (mm):", None)
-                                                        } else if shape_type == "Elips" {
-                                                            ("Radius X (mm):", Some("Radius Y (mm):".to_string()))
-                                                        } else {
-                                                            ("Ukuran Dimensi (mm):", None)
+                                                        FeaturePayload::Revolve { .. } => {
+                                                            ("Sudut Putar (°):", None)
                                                         }
-                                                    }
-                                                    FeaturePayload::DatumPlane { .. } => ("Jarak Offset (mm):", Some("Sudut Putar (°):".to_string())),
-                                                    FeaturePayload::Helix { .. } => ("Radius Spiral (mm):", Some("Pitch Ulir (mm):".to_string())),
-                                                    _ => ("Parameter (mm):", None),
-                                                };
+                                                        FeaturePayload::Fillet {
+                                                            radius_end,
+                                                            ..
+                                                        } => {
+                                                            if radius_end.is_some() {
+                                                                (
+                                                                    "Radius Fillet (mm):",
+                                                                    Some(
+                                                                        "End Radius (mm):"
+                                                                            .to_string(),
+                                                                    ),
+                                                                )
+                                                            } else {
+                                                                ("Radius Fillet (mm):", None)
+                                                            }
+                                                        }
+                                                        FeaturePayload::Chamfer { .. } => {
+                                                            ("Jarak Chamfer (mm):", None)
+                                                        }
+                                                        FeaturePayload::Shell { .. } => {
+                                                            ("Tebal Dinding (mm):", None)
+                                                        }
+                                                        FeaturePayload::Sketch {
+                                                            dim_h,
+                                                            shape_type,
+                                                            ..
+                                                        } => {
+                                                            if dim_h.is_some() {
+                                                                (
+                                                                    "Panjang (X) [mm]:",
+                                                                    Some(
+                                                                        "Lebar (Y) [mm]:"
+                                                                            .to_string(),
+                                                                    ),
+                                                                )
+                                                            } else if shape_type == "Lingkaran"
+                                                                || shape_type == "Busur"
+                                                            {
+                                                                ("Radius (mm):", None)
+                                                            } else if shape_type == "Elips" {
+                                                                (
+                                                                    "Radius X (mm):",
+                                                                    Some(
+                                                                        "Radius Y (mm):"
+                                                                            .to_string(),
+                                                                    ),
+                                                                )
+                                                            } else {
+                                                                ("Ukuran Dimensi (mm):", None)
+                                                            }
+                                                        }
+                                                        FeaturePayload::DatumPlane { .. } => (
+                                                            "Jarak Offset (mm):",
+                                                            Some("Sudut Putar (°):".to_string()),
+                                                        ),
+                                                        FeaturePayload::Helix { .. } => (
+                                                            "Radius Spiral (mm):",
+                                                            Some("Pitch Ulir (mm):".to_string()),
+                                                        ),
+                                                        _ => ("Parameter (mm):", None),
+                                                    };
 
                                                 ui.horizontal(|ui| {
-                                                    ui.label(RichText::new(lbl1).size(9.0).color(TEXT_SECONDARY));
+                                                    ui.label(
+                                                        RichText::new(lbl1)
+                                                            .size(9.0)
+                                                            .color(TEXT_SECONDARY),
+                                                    );
                                                     ui.add(
-                                                        egui::TextEdit::singleline(&mut self.edit_input_val1)
-                                                            .desired_width(70.0),
+                                                        egui::TextEdit::singleline(
+                                                            &mut self.edit_input_val1,
+                                                        )
+                                                        .desired_width(70.0),
                                                     );
                                                 });
 
                                                 if let Some(lbl2) = lbl2_opt {
                                                     ui.horizontal(|ui| {
-                                                        ui.label(RichText::new(lbl2).size(9.0).color(TEXT_SECONDARY));
+                                                        ui.label(
+                                                            RichText::new(lbl2)
+                                                                .size(9.0)
+                                                                .color(TEXT_SECONDARY),
+                                                        );
                                                         ui.add(
-                                                            egui::TextEdit::singleline(&mut self.edit_input_val2)
-                                                                .desired_width(70.0),
+                                                            egui::TextEdit::singleline(
+                                                                &mut self.edit_input_val2,
+                                                            )
+                                                            .desired_width(70.0),
                                                         );
                                                     });
                                                 }
@@ -694,21 +796,33 @@ impl FeatureTreeDrawer {
                                                         )
                                                         .clicked()
                                                     {
-                                                        let v1 = self.edit_input_val1.trim().parse::<f64>().unwrap_or(10.0);
-                                                        let v2 = self.edit_input_val2.trim().parse::<f64>().ok();
-                                                        event = Some(FeatureTreeEvent::SaveFeatureParams {
-                                                            id: edit_id,
-                                                            val1: v1,
-                                                            val2: v2,
-                                                        });
+                                                        let v1 = self
+                                                            .edit_input_val1
+                                                            .trim()
+                                                            .parse::<f64>()
+                                                            .unwrap_or(10.0);
+                                                        let v2 = self
+                                                            .edit_input_val2
+                                                            .trim()
+                                                            .parse::<f64>()
+                                                            .ok();
+                                                        event = Some(
+                                                            FeatureTreeEvent::SaveFeatureParams {
+                                                                id: edit_id,
+                                                                val1: v1,
+                                                                val2: v2,
+                                                            },
+                                                        );
                                                         self.editing_feature_id = None;
                                                     }
 
                                                     if ui
                                                         .small_button(
-                                                            RichText::new(t!("feature-edit-cancel"))
-                                                                .size(9.5)
-                                                                .color(TEXT_MUTED),
+                                                            RichText::new(t!(
+                                                                "feature-edit-cancel"
+                                                            ))
+                                                            .size(9.5)
+                                                            .color(TEXT_MUTED),
                                                         )
                                                         .clicked()
                                                     {
