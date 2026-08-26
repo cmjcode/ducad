@@ -212,9 +212,12 @@ pub enum FileOp {
     ExportStep,
     ExportStl,
     ExportObj,
+    ExportGlb,
     ExportDxf,
+    ExportSvg,
     ExportPdf,
     ExportDrawingDxf,
+    ExportDrawingSvg,
     OpenDrawingSheet,
 }
 

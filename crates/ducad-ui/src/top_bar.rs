@@ -30,9 +30,12 @@ pub enum TopBarFileOp {
     ExportStep,
     ExportStl,
     ExportObj,
+    ExportGlb,
     ExportDxf,
+    ExportSvg,
     ExportPdf,
     ExportDrawingDxf,
+    ExportDrawingSvg,
     OpenDrawingSheet,
 }
 
@@ -536,6 +539,17 @@ impl TopBar {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportPdf));
                                 ui.close();
                             }
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_PICTURE_AS_PDF.codepoint,
+                                    t!("menu-export-drawing-svg")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::File(TopBarFileOp::ExportDrawingSvg));
+                                ui.close();
+                            }
                             ui.separator();
                             if ui
                                 .button(format!(
@@ -574,11 +588,33 @@ impl TopBar {
                                 .button(format!(
                                     "{} {}",
                                     ICON_UPLOAD.codepoint,
+                                    t!("menu-export-glb")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::File(TopBarFileOp::ExportGlb));
+                                ui.close();
+                            }
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
                                     t!("menu-export-dxf")
                                 ))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportDxf));
+                                ui.close();
+                            }
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_UPLOAD.codepoint,
+                                    t!("menu-export-svg")
+                                ))
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::File(TopBarFileOp::ExportSvg));
                                 ui.close();
                             }
                         },

@@ -445,6 +445,27 @@ impl DuCADApp {
             })
             .collect()
     }
+
+    pub fn visible_bodies_with_material(&self) -> Vec<(&str, ducad_core::Material, &KernelMesh)> {
+        self.model
+            .doc
+            .bodies
+            .iter()
+            .filter(|(_, meta)| meta.visible)
+            .map(|(id, meta)| {
+                (
+                    meta.name.as_str(),
+                    meta.material,
+                    &self
+                        .model
+                        .geometry
+                        .get(id)
+                        .expect("body hilang dari storage")
+                        .mesh,
+                )
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

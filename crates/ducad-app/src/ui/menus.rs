@@ -137,8 +137,16 @@ impl DuCADApp {
                     self.export_obj();
                     ui.close();
                 }
+                if ui.button(t!("menu-export-glb")).clicked() {
+                    self.export_glb();
+                    ui.close();
+                }
                 if ui.button(t!("menu-export-dxf")).clicked() {
                     self.export_dxf();
+                    ui.close();
+                }
+                if ui.button(t!("menu-export-svg")).clicked() {
+                    self.export_sketch_svg();
                     ui.close();
                 }
             });

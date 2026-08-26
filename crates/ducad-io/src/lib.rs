@@ -11,16 +11,23 @@
 
 pub mod drawing;
 pub mod dxf;
+pub mod glb;
 pub mod mesh_export;
 pub mod native;
 pub mod pdf;
 pub mod step_io;
+pub mod svg;
 
 pub use drawing::{
     DimensionAnnotation, DrawingSheet, PaperSize, SheetViewPlacement, TextAnnotation, TitleBlockInfo,
 };
 pub use dxf::export_drawing_sheet;
+pub use glb::{export_glb_bytes, write_glb, write_glb_with_options, GlbExportOptions};
 pub use pdf::export_pdf;
+pub use svg::{
+    export_drawing_sheet_svg, export_sketch_svg, export_sketch_svg_string,
+    export_sketch_svg_with_options, SvgSketchOptions,
+};
 
 /// Lock test SATU-SATUNYA untuk seluruh binary test crate ini — dipakai
 /// `native`/`step_io`, dua modul yang sama-sama menyentuh jalur transfer

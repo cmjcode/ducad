@@ -82,6 +82,7 @@ fn header_icon_btn(
 pub enum DrawingSheetEvent {
     ExportPdf,
     ExportDxf,
+    ExportSvg,
     Close,
 }
 
@@ -1548,6 +1549,21 @@ impl DrawingSheetView {
                     );
                     if dxf_btn.clicked() {
                         event = Some(DrawingSheetEvent::ExportDxf);
+                    }
+
+                    // Tombol Ekspor SVG Vektor 2D
+                    let svg_btn = header_icon_btn(
+                        ui,
+                        ICON_DOWNLOAD.codepoint,
+                        false,
+                        "Ekspor SVG Vektor 2D",
+                        None,
+                        Some("Ekspor gambar kerja ke format vektor SVG"),
+                        None,
+                        None,
+                    );
+                    if svg_btn.clicked() {
+                        event = Some(DrawingSheetEvent::ExportSvg);
                     }
                 });
             });

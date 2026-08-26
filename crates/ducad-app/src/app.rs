@@ -1062,9 +1062,12 @@ impl eframe::App for DuCADApp {
                                 TopBarFileOp::ExportStep => self.export_step(),
                                 TopBarFileOp::ExportStl => self.export_stl(),
                                 TopBarFileOp::ExportObj => self.export_obj(),
+                                TopBarFileOp::ExportGlb => self.export_glb(),
                                 TopBarFileOp::ExportDxf => self.export_dxf(),
+                                TopBarFileOp::ExportSvg => self.export_sketch_svg(),
                                 TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
                                 TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
+                                TopBarFileOp::ExportDrawingSvg => self.export_drawing_svg(),
                                 TopBarFileOp::OpenDrawingSheet => self.open_drawing_sheet(),
                             },
                             TopBarEvent::ToggleTheme => {
@@ -2725,6 +2728,9 @@ impl eframe::App for DuCADApp {
                 }
                 ducad_ui::DrawingSheetEvent::ExportDxf => {
                     self.export_drawing_dxf();
+                }
+                ducad_ui::DrawingSheetEvent::ExportSvg => {
+                    self.export_drawing_svg();
                 }
             }
         }

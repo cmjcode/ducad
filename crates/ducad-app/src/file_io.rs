@@ -300,6 +300,31 @@ impl DuCADApp {
         }
     }
 
+    pub fn export_glb(&mut self) {
+        let filter_name = ducad_i18n::t!("file-glb-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["glb"], "model.glb") else {
+            return;
+        };
+        let bodies = self.visible_bodies_with_material();
+        if bodies.is_empty() {
+            self.file_status = Some(ducad_i18n::t!("file-no-meshes-glb"));
+            return;
+        }
+        match ducad_io::write_glb(&bodies, &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("model.glb");
+                self.file_status = Some(ducad_i18n::t!("file-exported-glb", name = name));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-glb-failed", error = err_str.as_str()));
+            }
+        }
+    }
+
     pub fn export_dxf(&mut self) {
         if self.sketch().entities.is_empty() {
             self.file_status =
@@ -321,6 +346,30 @@ impl DuCADApp {
             Err(e) => {
                 let err_str = e.to_string();
                 self.file_status = Some(ducad_i18n::t!("file-export-dxf-failed", error = err_str.as_str()));
+            }
+        }
+    }
+
+    pub fn export_sketch_svg(&mut self) {
+        if self.sketch().entities.is_empty() {
+            self.file_status = Some(ducad_i18n::t!("file-sketch-empty-svg"));
+            return;
+        }
+        let filter_name = ducad_i18n::t!("file-svg-filter");
+        let Some(path) = self.pick_save_path(&filter_name, &["svg"], "sketch.svg") else {
+            return;
+        };
+        match ducad_io::export_sketch_svg(self.sketch(), &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("sketch.svg");
+                self.file_status = Some(ducad_i18n::t!("file-exported-svg", name = name));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!("file-export-svg-failed", error = err_str.as_str()));
             }
         }
     }
@@ -645,6 +694,44 @@ impl DuCADApp {
                 let err_str = e.to_string();
                 self.file_status =
                     Some(ducad_i18n::t!("file-export-drawing-dxf-failed", error = err_str.as_str()));
+            }
+        }
+    }
+
+    /// Ekspor lembar kerja gambar teknik ke file SVG Vektor 2D.
+    pub fn export_drawing_svg(&mut self) {
+        let sheet = self
+            .drawing_sheet_doc
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| self.build_current_drawing_sheet());
+
+        let filter_name = ducad_i18n::t!("file-drawing-svg-filter");
+        let default_name = format!(
+            "{}_drawing.svg",
+            sheet
+                .title_block
+                .project_title
+                .to_lowercase()
+                .replace(' ', "_")
+        );
+
+        let Some(path) = self.pick_save_path(&filter_name, &["svg"], &default_name) else {
+            return;
+        };
+
+        match ducad_io::export_drawing_sheet_svg(&sheet, &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("drawing.svg");
+                self.file_status = Some(ducad_i18n::t!("file-exported-drawing-svg", name = name));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status =
+                    Some(ducad_i18n::t!("file-export-drawing-svg-failed", error = err_str.as_str()));
             }
         }
     }

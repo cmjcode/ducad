@@ -54,9 +54,19 @@ impl DuCADApp {
                 PaletteAction::File(FileOp::ExportObj),
             ),
             (
+                "Export GLTF / GLB 3D Web & AR… (body visible)".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ExportGlb),
+            ),
+            (
                 "Export DXF… (sketch)".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::ExportDxf),
+            ),
+            (
+                "Export SVG Vektor 2D… (sketch laser/grafis)".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ExportSvg),
             ),
             (
                 "Gambar Kerja 2D (Drawing Sheet)…".to_string(),
@@ -72,6 +82,11 @@ impl DuCADApp {
                 "Ekspor DXF Gambar Kerja 2D…".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::ExportDrawingDxf),
+            ),
+            (
+                "Ekspor SVG Gambar Kerja 2D (Vektor)…".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ExportDrawingSvg),
             ),
             (
                 "Pilih".to_string(),
@@ -359,9 +374,12 @@ impl DuCADApp {
                 FileOp::ExportStep => self.export_step(),
                 FileOp::ExportStl => self.export_stl(),
                 FileOp::ExportObj => self.export_obj(),
+                FileOp::ExportGlb => self.export_glb(),
                 FileOp::ExportDxf => self.export_dxf(),
+                FileOp::ExportSvg => self.export_sketch_svg(),
                 FileOp::ExportPdf => self.export_drawing_pdf(),
                 FileOp::ExportDrawingDxf => self.export_drawing_dxf(),
+                FileOp::ExportDrawingSvg => self.export_drawing_svg(),
                 FileOp::OpenDrawingSheet => self.open_drawing_sheet(),
             },
         }
