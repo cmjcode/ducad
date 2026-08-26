@@ -196,3 +196,19 @@ pub fn transform_shape(
     }
     Ok(KernelShape(cloned))
 }
+
+/// Gabungkan beberapa `KernelShape` menjadi 1 B-Rep Shape tunggal (TopoDS_Compound).
+/// Menghasilkan 1 objek solid gabungan terpadu yang dapat di-tessellate, di-export, dan dimanipulasi utuh.
+pub fn make_compound(shapes: &[&KernelShape]) -> Result<KernelShape> {
+    if shapes.is_empty() {
+        anyhow::bail!("tidak ada shape untuk digabungkan menjadi compound");
+    }
+    if shapes.len() == 1 {
+        return clone_shape(shapes[0]);
+    }
+    let _guard = lock_kernel();
+    let refs: Vec<&Shape> = shapes.iter().map(|s| s.inner()).collect();
+    let compound = opencascade::primitives::Compound::from_shapes(refs);
+    let combined: Shape = compound.into();
+    Ok(KernelShape::from_inner(combined))
+}

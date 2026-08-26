@@ -1254,8 +1254,10 @@ impl CanvasHud {
             return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
         }
         let active = is_dragging || is_armed;
-        let handle_radius = if active { 9.0 } else { 7.0 };
-        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 20.0));
+        let arm = if active { 5.0 } else { 3.5 };
+        let dot_radius = if active { 1.5 } else { 1.0 };
+        let gap = dot_radius + 0.5;
+        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(arm * 2.0 + 8.0));
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let is_hovered = response.hovered();
 
@@ -1269,26 +1271,23 @@ impl CanvasHud {
         if is_hovered || is_dragging {
             painter.circle_filled(
                 pos_2d,
-                handle_radius + 6.0,
+                arm + 3.0,
                 blend_color.gamma_multiply(0.22),
             );
         } else if is_armed {
             painter.circle_stroke(
                 pos_2d,
-                handle_radius + 6.0,
-                Stroke::new(1.2, blend_color.gamma_multiply(0.8)),
+                arm + 3.0,
+                Stroke::new(1.0, blend_color.gamma_multiply(0.8)),
             );
         }
 
-        let dot_radius = if active { 3.0 } else { 2.0 };
         painter.circle_filled(pos_2d, dot_radius, blend_color);
         if active {
-            painter.circle_stroke(pos_2d, dot_radius, Stroke::new(1.0, Color32::WHITE));
+            painter.circle_stroke(pos_2d, dot_radius, Stroke::new(0.8, Color32::WHITE));
         }
 
-        let arm = handle_radius + (if active { 6.0 } else { 4.0 });
-        let gap = dot_radius + 1.5;
-        let stroke_w = if active { 2.0 } else { 1.4 };
+        let stroke_w = if active { 1.4 } else { 1.0 };
         let stroke = Stroke::new(stroke_w, blend_color);
         painter.line_segment(
             [pos_2d - Vec2::new(arm, 0.0), pos_2d - Vec2::new(gap, 0.0)],

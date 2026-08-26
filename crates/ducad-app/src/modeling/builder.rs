@@ -136,10 +136,23 @@ impl DuCADApp {
         if !self.selected.is_empty() {
             return vec![self.selected.clone()];
         }
-        find_closed_regions(self.sketch())
-            .into_iter()
-            .map(|r| r.entity_ids)
-            .collect()
+        let mut grouped: std::collections::HashMap<String, HashSet<EntityId>> =
+            std::collections::HashMap::new();
+        let mut standalone = Vec::new();
+        for r in find_closed_regions(self.sketch()) {
+            let g_opt = r
+                .entity_ids
+                .iter()
+                .find_map(|id| self.sketch().entity_names.get(id));
+            if let Some(g) = g_opt {
+                grouped.entry(g.clone()).or_default().extend(r.entity_ids);
+            } else {
+                standalone.push(r.entity_ids);
+            }
+        }
+        let mut result: Vec<HashSet<EntityId>> = grouped.into_values().collect();
+        result.extend(standalone);
+        result
     }
 
     /// Titik pusat satu grup `ids` dari `sketch_move_groups`.

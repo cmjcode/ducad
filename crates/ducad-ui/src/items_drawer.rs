@@ -43,6 +43,7 @@ pub enum ItemsDrawerEvent {
     ToggleGroupVisibility(String),
     SelectBody { id_raw: u64, extend: bool },
     SelectEntity2d { id_raw: u64, extend: bool },
+    SelectGroup { name: String, extend: bool },
     Close,
     Open,
     ToggleGroup(String),
@@ -575,16 +576,29 @@ impl ItemsDrawer {
 
                                     let group_push_resp = ui.push_id(group_name.as_str(), |ui| {
                                         let mut group_eye_clicked = false;
+                                        let mut group_chevron_clicked = false;
                                         let header_output = group_frame.show(ui, |ui| {
                                             ui.set_width(ui.available_width());
                                             ui.horizontal(|ui| {
-                                                // Chevron
-                                                ui.label(
-                                                    RichText::new(chevron)
-                                                        .size(13.0)
-                                                        .color(TEXT_SECONDARY),
+                                                // Chevron clickable
+                                                let (chev_rect, chev_resp) = ui.allocate_exact_size(
+                                                    Vec2::new(16.0, 20.0),
+                                                    egui::Sense::click(),
                                                 );
-                                                ui.add_space(4.0);
+                                                if chev_resp.hovered() {
+                                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                }
+                                                ui.painter().text(
+                                                    chev_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    chevron,
+                                                    egui::FontId::proportional(13.0),
+                                                    TEXT_SECONDARY,
+                                                );
+                                                if chev_resp.clicked() {
+                                                    group_chevron_clicked = true;
+                                                }
+                                                ui.add_space(2.0);
 
                                                 // Tombol eye visibility grup
                                                 let (eye_rect, eye_resp) = ui.allocate_exact_size(
@@ -684,21 +698,30 @@ impl ItemsDrawer {
 
                                         let group_resp = header_output.response;
                                         let group_card_clicked = !group_eye_clicked
+                                            && !group_chevron_clicked
                                             && group_resp
                                                 .interact(egui::Sense::click())
                                                 .clicked();
 
-                                        (group_eye_clicked, group_card_clicked)
+                                        (group_eye_clicked, group_chevron_clicked, group_card_clicked)
                                     });
 
-                                    let (group_eye_clicked, group_card_clicked) = group_push_resp.inner;
+                                    let (group_eye_clicked, group_chevron_clicked, group_card_clicked) = group_push_resp.inner;
 
                                     if group_eye_clicked {
                                         event = Some(ItemsDrawerEvent::ToggleGroupVisibility(
                                             group_name.clone(),
                                         ));
-                                    } else if group_card_clicked {
+                                    } else if group_chevron_clicked {
                                         event = Some(ItemsDrawerEvent::ToggleGroup(group_name.clone()));
+                                    } else if group_card_clicked {
+                                        let extend = ui.input(|i| {
+                                            i.modifiers.command || i.modifiers.shift
+                                        });
+                                        event = Some(ItemsDrawerEvent::SelectGroup {
+                                            name: group_name.clone(),
+                                            extend,
+                                        });
                                     }
 
                                 if is_expanded {

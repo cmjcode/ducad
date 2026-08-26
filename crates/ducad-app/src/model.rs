@@ -784,6 +784,56 @@ pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) ->
     Ok(Profile::Loop(ordered.into_iter().map(|s| s.seg).collect()))
 }
 
+/// Helper untuk mengubah `ClosedRegion` menjadi `Profile`.
+/// Untuk objek analitik mandiri (Circle, Ellipse), mengembalikan `Profile::Circle` / `Profile::Ellipse`.
+/// Untuk teks atau multi-loop poligon, mengembalikan loop poliline garis aman.
+fn convert_region_to_exact_profile(sketch: &Sketch, reg: &ducad_sketch::ClosedRegion) -> Profile {
+    if reg.entity_ids.len() == 1 {
+        let id = *reg.entity_ids.iter().next().unwrap();
+        if let Some(ent) = sketch.entities.get(id) {
+            match ent {
+                Entity::Circle { center, radius, .. } => {
+                    return Profile::Circle {
+                        center: (center.x, center.y),
+                        radius: *radius,
+                    };
+                }
+                Entity::Ellipse {
+                    center,
+                    radius_x,
+                    radius_y,
+                    ..
+                } => {
+                    return Profile::Ellipse {
+                        center: (center.x, center.y),
+                        radius_x: *radius_x,
+                        radius_y: *radius_y,
+                    };
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Ok(prof) = build_profile_from_selection(sketch, &reg.entity_ids) {
+        return prof;
+    }
+
+    let n = reg.boundary_points.len();
+    let mut segs = Vec::new();
+    for k in 0..n {
+        let p0 = reg.boundary_points[k];
+        let p1 = reg.boundary_points[(k + 1) % n];
+        if (p0 - p1).length() > 1e-4 {
+            segs.push(ProfileSegment::Line {
+                start: (p0.x, p0.y),
+                end: (p1.x, p1.y),
+            });
+        }
+    }
+    Profile::Loop(segs)
+}
+
 /// Bangun seluruh profil tertutup (misal huruf-huruf teks atau multi-loop) dari seleksi atau seluruh closed region sketch.
 pub fn build_all_profiles_from_selection_or_regions(
     sketch: &Sketch,
@@ -807,19 +857,7 @@ pub fn build_all_profiles_from_selection_or_regions(
 
     let mut profiles = Vec::new();
     for reg in target_regions {
-        if reg.boundary_points.len() >= 3 {
-            let mut segs = Vec::new();
-            let n = reg.boundary_points.len();
-            for i in 0..n {
-                let p0 = reg.boundary_points[i];
-                let p1 = reg.boundary_points[(i + 1) % n];
-                segs.push(ProfileSegment::Line {
-                    start: (p0.x, p0.y),
-                    end: (p1.x, p1.y),
-                });
-            }
-            profiles.push(Profile::Loop(segs));
-        }
+        profiles.push(convert_region_to_exact_profile(sketch, reg));
     }
 
     profiles
@@ -906,27 +944,11 @@ pub fn extrude_selection_with_holes_on_plane(
         outer_groups.push((i, holes));
     }
 
-    let region_to_profile = |reg: &ducad_sketch::ClosedRegion| -> Profile {
-        let n = reg.boundary_points.len();
-        let mut segs = Vec::new();
-        for k in 0..n {
-            let p0 = reg.boundary_points[k];
-            let p1 = reg.boundary_points[(k + 1) % n];
-            if (p0 - p1).length() > 1e-4 {
-                segs.push(ProfileSegment::Line {
-                    start: (p0.x, p0.y),
-                    end: (p1.x, p1.y),
-                });
-            }
-        }
-        Profile::Loop(segs)
-    };
-
     let mut letter_shapes = Vec::new();
 
     for (outer_idx, hole_indices) in outer_groups {
         let outer_reg = &sorted_regions[outer_idx];
-        let outer_prof = region_to_profile(outer_reg);
+        let outer_prof = convert_region_to_exact_profile(sketch, outer_reg);
         let mut outer_shape = match ducad_kernel::extrude_profile_on_plane(
             &outer_prof, origin, u_axis, v_axis, normal, distance,
         ) {
@@ -938,7 +960,7 @@ pub fn extrude_selection_with_holes_on_plane(
         // agar tidak terjadi kegagalan coplanar Boolean pada OpenCASCADE.
         for h_idx in hole_indices {
             let hole_reg = &sorted_regions[h_idx];
-            let hole_prof = region_to_profile(hole_reg);
+            let hole_prof = convert_region_to_exact_profile(sketch, hole_reg);
 
             let ext_offset = 1.0;
             let sign = if distance >= 0.0 { 1.0 } else { -1.0 };
@@ -965,14 +987,27 @@ pub fn extrude_selection_with_holes_on_plane(
         return Err("Tidak ada profil tertutup yang dapat diekstrusi".to_string());
     }
 
-    // Satukan seluruh huruf teks menjadi 1 BodyGeometry tunggal terpadu (Group All Object)
-    let meshes: Vec<_> = letter_shapes.iter().map(|s| s.tessellate()).collect();
-    let mesh_refs: Vec<_> = meshes.iter().collect();
-    let merged_mesh = ducad_kernel::mesh::KernelMesh::merge(&mesh_refs);
-    let primary_shape = letter_shapes.into_iter().next().unwrap();
-    let unified_geo = BodyGeometry::from_shape_with_mesh(primary_shape, merged_mesh);
+    let is_text = sorted_regions.iter().any(|r| {
+        r.entity_ids.iter().any(|id| {
+            matches!(sketch.entities.get(*id), Some(Entity::Spline { .. }))
+        })
+    }) || letter_shapes.len() > 1;
 
-    Ok(vec![("Teks 3D".to_string(), unified_geo)])
+    let solid_name = if is_text { "Teks 3D".to_string() } else { "Solid".to_string() };
+
+    if letter_shapes.len() == 1 {
+        let primary_shape = letter_shapes.into_iter().next().unwrap();
+        let geo = BodyGeometry::from_shape(primary_shape);
+        return Ok(vec![(solid_name, geo)]);
+    }
+
+    // Satukan seluruh huruf teks menjadi 1 B-Rep Compound terpadu (1 Object 3D Tunggal)
+    let shape_refs: Vec<&ducad_kernel::KernelShape> = letter_shapes.iter().collect();
+    let compound_shape = ducad_kernel::make_compound(&shape_refs)
+        .map_err(|e| format!("Gagal menggabungkan teks 3D: {e}"))?;
+    let unified_geo = BodyGeometry::from_shape(compound_shape);
+
+    Ok(vec![(solid_name, unified_geo)])
 }
 
 /// Bangun kurva jalur (spine path) untuk Sweep dari seleksi entitas sketch (Line, Arc, Spline, Circle)
@@ -1698,5 +1733,60 @@ mod tests {
             assert!(name.contains("Teks 3D") || name.contains("Solid"));
         }
     }
+
+    #[test]
+    fn test_extrude_circle_smooth_analytic_cylinder() {
+        let mut sketch = Sketch::default();
+        let c_id = sketch.entities.insert(Entity::circle(DVec2::new(0.0, 0.0), 25.0));
+        let mut sel = HashSet::new();
+        sel.insert(c_id);
+
+        let plane = ducad_render::SketchPlane::top();
+        let solids = extrude_selection_with_holes_on_plane(&sketch, &sel, &plane, 50.0)
+            .expect("Extrude circle harus berhasil");
+
+        assert_eq!(solids.len(), 1);
+        let (name, geo) = &solids[0];
+        assert_eq!(name, "Solid");
+        // OpenCASCADE true analytical cylinder has exact faces & non-empty mesh
+        assert!(geo.mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_extrude_ellipse_smooth_analytic_cylinder() {
+        let mut sketch = Sketch::default();
+        let e_id = sketch.entities.insert(Entity::ellipse(DVec2::new(0.0, 0.0), 30.0, 15.0));
+        let mut sel = HashSet::new();
+        sel.insert(e_id);
+
+        let plane = ducad_render::SketchPlane::top();
+        let solids = extrude_selection_with_holes_on_plane(&sketch, &sel, &plane, 40.0)
+            .expect("Extrude ellipse harus berhasil");
+
+        assert_eq!(solids.len(), 1);
+        let (name, geo) = &solids[0];
+        assert_eq!(name, "Solid");
+        assert!(geo.mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn test_extrude_concentric_circles_pipe_hole() {
+        let mut sketch = Sketch::default();
+        let outer_id = sketch.entities.insert(Entity::circle(DVec2::new(0.0, 0.0), 30.0));
+        let inner_id = sketch.entities.insert(Entity::circle(DVec2::new(0.0, 0.0), 15.0));
+        let mut sel = HashSet::new();
+        sel.insert(outer_id);
+        sel.insert(inner_id);
+
+        let plane = ducad_render::SketchPlane::top();
+        let solids = extrude_selection_with_holes_on_plane(&sketch, &sel, &plane, 20.0)
+            .expect("Extrude pipe dengan lubang tengah harus berhasil");
+
+        assert_eq!(solids.len(), 1);
+        let (name, geo) = &solids[0];
+        assert_eq!(name, "Solid");
+        assert!(geo.mesh.triangle_count() > 0);
+    }
 }
+
 

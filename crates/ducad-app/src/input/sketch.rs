@@ -1548,21 +1548,29 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.active_edge = None;
                         self.editing_round = None;
+
+                        // Periksa apakah region ini bagian dari grup teks atau grup entitas
+                        let target_ids: Vec<EntityId> = reg
+                            .entity_ids
+                            .iter()
+                            .flat_map(|id| self.sketch().related_group_entities(*id))
+                            .collect();
+
                         if shift || self.tool == ToolKind::Loft || self.tool == ToolKind::Sweep {
                             let already_selected =
-                                reg.entity_ids.iter().all(|id| self.selected.contains(id));
+                                target_ids.iter().all(|id| self.selected.contains(id));
                             if already_selected {
-                                for id in &reg.entity_ids {
+                                for id in &target_ids {
                                     self.selected.remove(id);
                                 }
                             } else {
-                                for id in &reg.entity_ids {
+                                for id in &target_ids {
                                     self.selected.insert(*id);
                                 }
                             }
                         } else {
                             self.selected.clear();
-                            for id in &reg.entity_ids {
+                            for id in &target_ids {
                                 self.selected.insert(*id);
                             }
                         }
@@ -1577,8 +1585,16 @@ impl DuCADApp {
 
                         match (cycled_hit.or(self.hovered), shift || self.tool == ToolKind::Loft || self.tool == ToolKind::Sweep) {
                             (Some(hit), true) => {
-                                if !self.selected.remove(&hit) {
-                                    self.selected.insert(hit);
+                                let group_ids: Vec<EntityId> = self.sketch().related_group_entities(hit);
+                                let any_present = group_ids.iter().any(|id| self.selected.contains(id));
+                                if any_present {
+                                    for id in &group_ids {
+                                        self.selected.remove(id);
+                                    }
+                                } else {
+                                    for id in &group_ids {
+                                        self.selected.insert(*id);
+                                    }
                                 }
                             }
                             (Some(hit), false) => {
@@ -1586,7 +1602,14 @@ impl DuCADApp {
                                 self.active_face = None;
                                 self.active_vertex = None;
                                 self.active_edge = None;
-                                if let Some(r) = find_region_containing_entity(self.sketch(), hit) {
+
+                                let group_ids: Vec<EntityId> = self.sketch().related_group_entities(hit);
+
+                                if group_ids.len() > 1 {
+                                    for id in group_ids {
+                                        self.selected.insert(id);
+                                    }
+                                } else if let Some(r) = find_region_containing_entity(self.sketch(), hit) {
                                     for id in &r.entity_ids {
                                         self.selected.insert(*id);
                                     }

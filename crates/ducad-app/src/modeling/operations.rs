@@ -40,6 +40,33 @@ impl DuCADApp {
             }
         };
 
+        // 1. Jalur Objek Geometris Parametrik Murni (Circle, Ellipse, Loop Line/Arc/Spline CAD):
+        let is_text_selection = self.selected.iter().any(|id| {
+            matches!(self.sketch().entities.get(*id), Some(ducad_sketch::Entity::Spline { points, .. }) if points.len() >= 8)
+        });
+
+        if !is_text_selection {
+            if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
+                let origin = [self.active_plane.origin.x as f64, self.active_plane.origin.y as f64, self.active_plane.origin.z as f64];
+                let u_axis = [self.active_plane.u_axis.x as f64, self.active_plane.u_axis.y as f64, self.active_plane.u_axis.z as f64];
+                let v_axis = [self.active_plane.v_axis.x as f64, self.active_plane.v_axis.y as f64, self.active_plane.v_axis.z as f64];
+                let normal = [self.active_plane.normal.x as f64, self.active_plane.normal.y as f64, self.active_plane.normal.z as f64];
+
+                if let Ok(shape) = ducad_kernel::extrude_profile_on_plane(
+                    &profile, origin, u_axis, v_axis, normal, distance,
+                ) {
+                    let geo = BodyGeometry::from_shape(shape);
+                    self.execute_model_command(
+                        Box::new(AddSolidCommand::new("Extrude", geo)),
+                        &format!("Membuat solid Extrude setinggi {:.1} mm", distance),
+                    );
+                    self.model_status = None;
+                    return;
+                }
+            }
+        }
+
+        // 2. Jalur Teks 3D & Multi-Region / Lubang Boolean:
         match crate::model::extrude_selection_with_holes_on_plane(
             self.sketch(),
             &self.selected,
@@ -1516,10 +1543,12 @@ impl DuCADApp {
                     return;
                 }
                 let count = entities.len();
+                let group_name = format!("Teks: {}", text.trim());
                 let prev_keys: std::collections::HashSet<_> = self.sketch().entities.keys().collect();
-                self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::new(
+                self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::with_group(
                     "Teks 2D",
                     entities,
+                    group_name,
                 )));
                 let new_ids: std::collections::HashSet<_> = self
                     .sketch()

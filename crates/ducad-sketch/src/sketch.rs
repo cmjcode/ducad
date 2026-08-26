@@ -64,6 +64,46 @@ impl Sketch {
             .map(|(id, _)| id)
     }
 
+    /// Mengambil seluruh ID entitas yang berada dalam satu grup logis dengan `id` (misal satu rangkaian teks).
+    pub fn related_group_entities(&self, id: EntityId) -> Vec<EntityId> {
+        if let Some(g_name) = self.entity_names.get(&id) {
+            return self
+                .entities
+                .keys()
+                .filter(|k| self.entity_names.get(k) == Some(g_name))
+                .collect();
+        }
+        // Fallback: Jika entitas adalah spline tertutup (huruf teks), gabungkan dengan seluruh spline tertutup di sketch
+        if let Some(Entity::Spline { points, .. }) = self.entities.get(id) {
+            if points.len() >= 3 {
+                let first = points[0];
+                let last = points.last().unwrap();
+                if (first - *last).length_squared() < 1e-4 {
+                    let all_closed_splines: Vec<EntityId> = self
+                        .entities
+                        .iter()
+                        .filter_map(|(eid, ent)| match ent {
+                            Entity::Spline { points: pts, .. } if pts.len() >= 3 => {
+                                let f = pts[0];
+                                let l = pts.last().unwrap();
+                                if (f - *l).length_squared() < 1e-4 {
+                                    Some(eid)
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    if all_closed_splines.len() > 1 && all_closed_splines.contains(&id) {
+                        return all_closed_splines;
+                    }
+                }
+            }
+        }
+        vec![id]
+    }
+
     /// Menghitung gabungan bounding box 2D (min, max) dari seluruh entitas yang terlihat di sketch.
     pub fn bounding_box(&self) -> Option<(DVec2, DVec2)> {
         let mut min_pt = DVec2::splat(f64::INFINITY);

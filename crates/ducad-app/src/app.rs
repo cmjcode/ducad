@@ -1239,13 +1239,25 @@ impl eframe::App for DuCADApp {
                         )
                     }
                 };
+                let group_name = self.sketch().entity_names.get(&id).cloned().or_else(|| {
+                    if let Entity::Spline { points, .. } = entity {
+                        if points.len() >= 3 {
+                            let first = points[0];
+                            let last = points.last().unwrap();
+                            if (first - *last).length_squared() < 1e-4 {
+                                return Some("Teks 2D".to_string());
+                            }
+                        }
+                    }
+                    None
+                });
                 Entity2dItemInfo {
                     id_raw: id.data().as_ffi(),
                     name,
                     icon: icon_str,
                     visible: self.sketch().is_visible(id),
                     selected: self.selected.contains(&id),
-                    group_name: self.sketch().entity_names.get(&id).cloned(),
+                    group_name,
                 }
             })
             .collect();
@@ -1404,10 +1416,55 @@ impl eframe::App for DuCADApp {
                             ItemsDrawerEvent::SelectEntity2d { id_raw, extend } => {
                                 if let Some(id) = self.sketch().entities.keys().find(|i| i.data().as_ffi() == id_raw) {
                                     if self.sketch().is_visible(id) {
+                                        let target_ids: Vec<_> = if let Some(g_name) = self.sketch().entity_names.get(&id) {
+                                            self.sketch()
+                                                .entities
+                                                .keys()
+                                                .filter(|k| self.sketch().entity_names.get(k) == Some(g_name))
+                                                .collect()
+                                        } else {
+                                            vec![id]
+                                        };
                                         if !extend {
                                             self.selected.clear();
+                                            for tid in target_ids {
+                                                self.selected.insert(tid);
+                                            }
+                                        } else {
+                                            let any_present = target_ids.iter().any(|tid| self.selected.contains(tid));
+                                            if any_present {
+                                                for tid in &target_ids {
+                                                    self.selected.remove(tid);
+                                                }
+                                            } else {
+                                                for tid in target_ids {
+                                                    self.selected.insert(tid);
+                                                }
+                                            }
                                         }
-                                        if !self.selected.remove(&id) {
+                                    }
+                                }
+                            }
+                            ItemsDrawerEvent::SelectGroup { name, extend } => {
+                                let matching_ids: Vec<_> = self
+                                    .sketch()
+                                    .entities
+                                    .keys()
+                                    .filter(|id| self.sketch().entity_names.get(id).map(|s| s.as_str()) == Some(&name))
+                                    .collect();
+                                if !extend {
+                                    self.selected.clear();
+                                    for id in matching_ids {
+                                        self.selected.insert(id);
+                                    }
+                                } else {
+                                    let any_present = matching_ids.iter().any(|id| self.selected.contains(id));
+                                    if any_present {
+                                        for id in &matching_ids {
+                                            self.selected.remove(id);
+                                        }
+                                    } else {
+                                        for id in matching_ids {
                                             self.selected.insert(id);
                                         }
                                     }

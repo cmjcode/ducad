@@ -518,7 +518,7 @@ pub fn vertex_dot_markers(
                 && (h[2] - p[2]).abs() < HOVER_EPS
         });
         let c = if is_hover { hover_color } else { color };
-        let s = if is_hover { 2.2 } else { 1.0 };
+        let s = if is_hover { 0.30 } else { 0.12 };
         let v = Vec3::from(*p);
         for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
             let a = v - axis * s;

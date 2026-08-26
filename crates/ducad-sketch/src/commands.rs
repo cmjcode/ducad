@@ -13,6 +13,7 @@ pub struct InsertEntities {
     entities: Vec<Entity>,
     inserted_ids: Vec<EntityId>,
     label: &'static str,
+    group_name: Option<String>,
 }
 
 impl InsertEntities {
@@ -21,6 +22,20 @@ impl InsertEntities {
             entities,
             inserted_ids: Vec::new(),
             label,
+            group_name: None,
+        }
+    }
+
+    pub fn with_group(
+        label: &'static str,
+        entities: Vec<Entity>,
+        group_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            entities,
+            inserted_ids: Vec::new(),
+            label,
+            group_name: Some(group_name.into()),
         }
     }
 }
@@ -34,12 +49,19 @@ impl Command<Sketch> for InsertEntities {
             .entities
             .iter()
             .cloned()
-            .map(|e| sketch.entities.insert(e))
+            .map(|e| {
+                let id = sketch.entities.insert(e);
+                if let Some(ref g) = self.group_name {
+                    sketch.entity_names.insert(id, g.clone());
+                }
+                id
+            })
             .collect();
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         for id in self.inserted_ids.drain(..) {
             sketch.entities.remove(id);
+            sketch.entity_names.remove(&id);
         }
     }
 }

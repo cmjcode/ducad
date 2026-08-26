@@ -242,7 +242,7 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
         let p1 = self.to_world(x1, y1);
         let p2 = self.to_world(x, y);
 
-        // Subdivisi adaptif kurva Bézier kuadratik
+        // Subdivisi adaptif poliline kurva Bézier kuadratik
         let chord_len = (p2 - p0).length();
         let num_segments = if chord_len < 0.25 {
             1
@@ -273,7 +273,7 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
         let p2 = self.to_world(x2, y2);
         let p3 = self.to_world(x, y);
 
-        // Subdivisi adaptif kurva Bézier kubik
+        // Subdivisi adaptif poliline kurva Bézier kubik
         let chord_len = (p3 - p0).length();
         let num_segments = if chord_len < 0.25 {
             1
