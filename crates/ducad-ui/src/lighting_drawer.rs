@@ -66,7 +66,7 @@ impl LightingDrawer {
 
         glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                const DRAWER_W: f32 = 246.0;
+                const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH;
                 ui.set_min_width(DRAWER_W);
                 ui.set_max_width(DRAWER_W);
                 ui.set_width(DRAWER_W);

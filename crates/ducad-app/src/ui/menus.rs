@@ -109,7 +109,7 @@ impl DuCADApp {
                 self.save_native();
                 ui.close();
             }
-            if ui.button(format!("{} (⌘⇧S)", t!("menu-save-as"))).clicked() {
+            if ui.button(format!("{} (⌘+Shift+S)", t!("menu-save-as"))).clicked() {
                 self.save_native_as();
                 ui.close();
             }

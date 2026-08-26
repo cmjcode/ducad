@@ -155,7 +155,7 @@ pub fn render_bottom_right_popup<R>(
         (screen_rect.height() - 140.0).max(300.0),
         &mut custom_h,
         320.0,
-        230.0,
+        crate::theme::BOTTOM_RIGHT_PANEL_WIDTH,
         true,
         content,
     )

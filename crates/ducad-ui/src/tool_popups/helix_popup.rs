@@ -152,7 +152,7 @@ impl HelixPopup {
         let mut event = None;
         let mut apply_clicked = false;
 
-        const DRAWER_W: f32 = 230.0;
+        const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH;
         ui.set_min_width(DRAWER_W);
         ui.set_max_width(DRAWER_W);
         ui.set_width(DRAWER_W);

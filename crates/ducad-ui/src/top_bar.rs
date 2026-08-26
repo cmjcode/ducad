@@ -134,7 +134,7 @@ impl TopBar {
                         }
                         if ui
                             .button(format!(
-                                "{} {} (⌘⇧S)",
+                                "{} {} (⌘+Shift+S)",
                                 ICON_SAVE.codepoint,
                                 t!("menu-save-as")
                             ))
@@ -223,14 +223,14 @@ impl TopBar {
                     (
                         ICON_EDIT.codepoint,
                         t!("topbar-sketch-mode"),
-                        "⌘⇧3",
+                        "⌘+Shift+3",
                         t!("topbar-switch-to-solid"),
                     )
                 } else {
                     (
                         ICON_CUBE_OUTLINE.codepoint,
                         t!("topbar-solid-mode"),
-                        "⌘⇧2",
+                        "⌘+Shift+2",
                         t!("topbar-switch-to-sketch"),
                     )
                 };

@@ -55,7 +55,7 @@ impl HistoryPopup {
                     }
 
                     let redo_btn = egui::Button::new(
-                        RichText::new(format!("{} Redo (⌘⇧Z)", ICON_REDO.codepoint)).size(11.0),
+                        RichText::new(format!("{} Redo (⌘+Shift+Z)", ICON_REDO.codepoint)).size(11.0),
                     );
                     if ui.add_enabled(state.can_redo_model, redo_btn).clicked() {
                         ev = Some(ToolPopupEvent::RedoModel);

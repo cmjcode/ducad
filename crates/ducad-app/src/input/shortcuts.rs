@@ -25,7 +25,7 @@ impl DuCADApp {
             ),
             (
                 "Simpan Sebagai…".to_string(),
-                "⌘⇧S".to_string(),
+                "⌘+Shift+S".to_string(),
                 PaletteAction::File(FileOp::SaveAs),
             ),
             (
@@ -150,7 +150,7 @@ impl DuCADApp {
             ),
             (
                 "Extend (Perpanjang Garis)".to_string(),
-                "⇧E".to_string(),
+                "Shift+E".to_string(),
                 PaletteAction::SetTool(ToolKind::Extend),
             ),
             (
@@ -230,7 +230,7 @@ impl DuCADApp {
             ),
             (
                 "Redo Sketch".to_string(),
-                "⌘⇧Z".to_string(),
+                "⌘+Shift+Z".to_string(),
                 PaletteAction::Redo,
             ),
             (
@@ -265,12 +265,12 @@ impl DuCADApp {
             ),
             (
                 "Mode Sketch (2D)".to_string(),
-                "⌘⇧2".to_string(),
+                "⌘+Shift+2".to_string(),
                 PaletteAction::EnterSketching,
             ),
             (
                 "Mode 3D".to_string(),
-                "⌘⇧3".to_string(),
+                "⌘+Shift+3".to_string(),
                 PaletteAction::ExitSketching,
             ),
             (

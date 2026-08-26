@@ -13,6 +13,10 @@ use egui::{Color32, CornerRadius, Frame, Margin, Stroke, Style, Vec2, Visuals};
 /// Tinggi minimum widget interaktif default (ramping untuk desktop CAD).
 pub const MIN_TOUCH_TARGET: f32 = 28.0;
 
+/// Lebar standar terpadu untuk semua panel drawer dan popup dialog di pojok kanan bawah.
+pub const BOTTOM_RIGHT_PANEL_WIDTH: f32 = 260.0;
+
+
 // Token Warna Shapr3D
 pub const ACCENT_BLUE: Color32 = Color32::from_rgb(10, 132, 255); // #0a84ff
 pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(255, 149, 0); // #ff9500 (Section View / Active highlight)

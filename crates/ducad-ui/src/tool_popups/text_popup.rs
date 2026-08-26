@@ -51,7 +51,7 @@ impl TextPopup {
         let mut apply_clicked = false;
         let mut pick_font_clicked = false;
 
-        const DRAWER_W: f32 = 260.0;
+        const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH;
         ui.set_min_width(DRAWER_W);
         ui.set_max_width(DRAWER_W);
         ui.set_width(DRAWER_W);

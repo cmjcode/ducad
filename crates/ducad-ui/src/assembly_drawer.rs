@@ -6,8 +6,8 @@
 //! - Daftar kendala mate 3D (Concentric, Coincident, Distance, Angle) dengan status dan parameter.
 
 use crate::theme::{
-    card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_MUTED, TEXT_PRIMARY,
-    TEXT_SECONDARY,
+    card_frame, glass_frame, ACCENT_BLUE, ACCENT_ORANGE, BOTTOM_RIGHT_PANEL_WIDTH, TEXT_MUTED,
+    TEXT_PRIMARY, TEXT_SECONDARY,
 };
 use ducad_core::assembly::{
     AssemblyInstanceId, AssemblyTree, ClashReport, MateConstraint, MateConstraintId, MateKind,
@@ -141,8 +141,10 @@ impl AssemblyDrawer {
         let mut events = Vec::new();
 
         glass_frame().show(ui, |ui| {
-            let width = 340.0;
+            let width = BOTTOM_RIGHT_PANEL_WIDTH;
             let height = self.custom_height.unwrap_or(520.0);
+            ui.set_min_width(width);
+            ui.set_max_width(width);
             ui.set_width(width);
             ui.set_height(height);
 

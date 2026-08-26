@@ -2589,7 +2589,7 @@ impl eframe::App for DuCADApp {
                     max_drawer_h,
                     &mut hole_custom_h,
                     340.0,
-                    280.0,
+                    ducad_ui::BOTTOM_RIGHT_PANEL_WIDTH,
                     false,
                     |ui| {
                         let ev = ducad_ui::HolePopup::show(ui, &mut self.hole_popup_state);
@@ -2634,7 +2634,7 @@ impl eframe::App for DuCADApp {
                     max_drawer_h,
                     &mut text_custom_h,
                     320.0,
-                    250.0,
+                    ducad_ui::BOTTOM_RIGHT_PANEL_WIDTH,
                     false,
                     |ui| {
                         let ev = ducad_ui::TextPopup::show(ui, &mut self.text_popup_state);
@@ -2658,7 +2658,7 @@ impl eframe::App for DuCADApp {
                     max_drawer_h,
                     &mut custom_h,
                     360.0,
-                    230.0,
+                    ducad_ui::BOTTOM_RIGHT_PANEL_WIDTH,
                     false,
                     |ui| {
                         let ev = ducad_ui::HelixPopup::show(ui, &mut self.helix_popup_state);
