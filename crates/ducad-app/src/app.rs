@@ -10,13 +10,13 @@ use ducad_sketch::{
     ResizeRectangle, Sketch, SnapHit, UpdateEntity,
 };
 use ducad_ui::{
-    ActivityItemInfo, ActivityKindUi, BodyItemInfo, CanvasHud, CanvasHudEvent, CmfDrawer,
-    CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar, DraftAnalysisPopup,
-    Entity2dItemInfo, FeatureTreeDrawer, FeatureTreeEvent, HistoryDrawer, HistoryPopup, HistoryPopupState,
-    InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer, ItemsDrawerEvent, LeftToolbar,
-    LightingDrawer, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent, RadialMenu, RenamePopupEvent, ThemeMode,
-    ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent, TopBarFileOp, TopBarState, ViewCube,
-    ViewCubeAction, ZebraHudAction,
+    ActivityItemInfo, ActivityKindUi, AssemblyDrawer, AssemblyDrawerEvent, BodyItemInfo, CanvasHud,
+    CanvasHudEvent, CmfDrawer, CmfDrawerEvent, CommandPalette, ContextAction, ContextActionBar,
+    DraftAnalysisPopup, Entity2dItemInfo, FeatureTreeDrawer, FeatureTreeEvent, HistoryDrawer,
+    HistoryPopup, HistoryPopupState, InspectorConstraintAction, InspectorRectAnchor, ItemsDrawer,
+    ItemsDrawerEvent, LeftToolbar, LightingDrawer, PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent,
+    RadialMenu, RenamePopupEvent, ThemeMode, ToolPopupEvent, ToolbarEvent, TopBar, TopBarEvent,
+    TopBarFileOp, TopBarState, ViewCube, ViewCubeAction, ZebraHudAction,
 };
 use eframe::egui;
 use eframe::egui_wgpu;
@@ -142,6 +142,7 @@ pub struct DuCADApp {
     pub lighting_drawer: LightingDrawer,
     pub planes_drawer: PlanesDrawer,
     pub feature_tree_drawer: FeatureTreeDrawer,
+    pub assembly_drawer: AssemblyDrawer,
     pub viewcube: ViewCube,
     pub items_drawer_open: bool,
     pub history_drawer_open: bool,
@@ -149,6 +150,16 @@ pub struct DuCADApp {
     pub lighting_drawer_open: bool,
     pub planes_drawer_open: bool,
     pub feature_tree_drawer_open: bool,
+    pub assembly_drawer_open: bool,
+    pub assembly_tree: ducad_core::AssemblyTree,
+    pub selected_assembly_instance: Option<ducad_core::AssemblyInstanceId>,
+    pub selected_assembly_mate: Option<ducad_core::MateConstraintId>,
+    pub staged_mate_kind: Option<ducad_core::MateKind>,
+    pub mate_offset_distance: f64,
+    pub mate_angle_deg: f64,
+    pub mate_flip_alignment: bool,
+    pub mate_lock_rotation: bool,
+    pub staged_mate_targets: Vec<(BodyId, PickRay, ducad_kernel::FaceHit)>,
     pub parametric_dag: ducad_core::ParametricDag,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
@@ -452,6 +463,7 @@ impl DuCADApp {
             lighting_drawer: LightingDrawer::default(),
             planes_drawer: PlanesDrawer::default(),
             feature_tree_drawer: FeatureTreeDrawer::default(),
+            assembly_drawer: AssemblyDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
             history_drawer_open: false,
@@ -459,6 +471,16 @@ impl DuCADApp {
             lighting_drawer_open: false,
             planes_drawer_open: false,
             feature_tree_drawer_open: false,
+            assembly_drawer_open: false,
+            assembly_tree: ducad_core::AssemblyTree::new(),
+            selected_assembly_instance: None,
+            selected_assembly_mate: None,
+            staged_mate_kind: None,
+            mate_offset_distance: 0.0,
+            mate_angle_deg: 0.0,
+            mate_flip_alignment: false,
+            mate_lock_rotation: false,
+            staged_mate_targets: Vec::new(),
             parametric_dag: ducad_core::ParametricDag::new(),
             history_db,
             activity_cache,
@@ -707,6 +729,7 @@ impl DuCADApp {
             lighting_drawer: LightingDrawer::default(),
             planes_drawer: PlanesDrawer::default(),
             feature_tree_drawer: FeatureTreeDrawer::default(),
+            assembly_drawer: AssemblyDrawer::default(),
             viewcube: ViewCube::default(),
             items_drawer_open: false,
             history_drawer_open: false,
@@ -714,6 +737,16 @@ impl DuCADApp {
             lighting_drawer_open: false,
             planes_drawer_open: false,
             feature_tree_drawer_open: false,
+            assembly_drawer_open: false,
+            assembly_tree: ducad_core::AssemblyTree::new(),
+            selected_assembly_instance: None,
+            selected_assembly_mate: None,
+            staged_mate_kind: None,
+            mate_offset_distance: 0.0,
+            mate_angle_deg: 0.0,
+            mate_flip_alignment: false,
+            mate_lock_rotation: false,
+            staged_mate_targets: Vec::new(),
             parametric_dag: ducad_core::ParametricDag::new(),
             history_db,
             activity_cache: Vec::new(),
@@ -1251,7 +1284,14 @@ impl eframe::App for DuCADApp {
             });
 
         let screen_rect = ctx.content_rect();
+
+        // Mate HUD harus di-render di luar CentralPanel agar tidak terblokir oleh
+        // Sense::click_and_drag yang dialokasikan oleh viewport(). Ini memastikan
+        // klik pada tombol Apply Mate, Toggle Lock, dan Flip selalu terdeteksi.
+        self.show_mate_hud_ctx(&ctx, screen_rect);
+
         let screen_center_x = screen_rect.center().x;
+
 
         let topbar_margin_right = 12.0;
         let topbar_x = 12.0;
@@ -1271,6 +1311,7 @@ impl eframe::App for DuCADApp {
             current_unit: self.model.doc.unit,
             is_sketching: self.is_sketching,
             items_drawer_open: self.items_drawer_open,
+            assembly_drawer_open: self.assembly_drawer_open,
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
@@ -1340,6 +1381,9 @@ impl eframe::App for DuCADApp {
                             }
                             TopBarEvent::ToggleItemsDrawer => {
                                 self.items_drawer_open = !self.items_drawer_open;
+                            }
+                            TopBarEvent::ToggleAssemblyDrawer => {
+                                self.assembly_drawer_open = !self.assembly_drawer_open;
                             }
                             TopBarEvent::OpenSearch => {
                                 self.palette.open();
@@ -1946,10 +1990,139 @@ impl eframe::App for DuCADApp {
             feat_tree_top_y = Some(feat_area_resp.response.rect.min.y);
         }
 
-        // 4. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/Planes/FeatureTree drawer atau di atas floating buttons)
+        // 3.5. Assembly Tree & Mate Constraints Drawer (Pojok Kanan Bawah)
+        let mut assem_top_y = None;
+        if self.assembly_drawer_open {
+            self.sync_assembly_instances();
+            let assem_bottom_y = if self.feature_tree_drawer_open {
+                feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.planes_drawer_open {
+                planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.items_drawer_open {
+                folder_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else {
+                folder_bottom_y
+            };
+            let assem_pos = egui::pos2(screen_rect.max.x - 16.0, assem_bottom_y);
+
+            let assem_area_resp = egui::Area::new(egui::Id::new("ducad-assembly-drawer-area"))
+                .fixed_pos(assem_pos)
+                .pivot(egui::Align2::RIGHT_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    let evs = self.assembly_drawer.show(
+                        ui,
+                        &self.assembly_tree,
+                        self.selected_assembly_instance,
+                        self.selected_assembly_mate,
+                    );
+                    for ev in evs {
+                        match ev {
+                            AssemblyDrawerEvent::SelectInstance(id) => {
+                                self.selected_assembly_instance = Some(id);
+                                if let Some(inst) = self.assembly_tree.instances.get(&id) {
+                                    self.selected_bodies.clear();
+                                    if let Some(bid) = self.model.doc.bodies.iter().find_map(|(b, _)| {
+                                        if b.data().as_ffi() == inst.body_id_raw {
+                                            Some(b)
+                                        } else {
+                                            None
+                                        }
+                                    }) {
+                                        self.selected_bodies.insert(bid);
+                                    }
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::ToggleGrounded(id) => {
+                                if let Some(inst) = self.assembly_tree.instances.get(&id) {
+                                    let new_grounded = !inst.is_grounded;
+                                    self.assembly_tree.set_grounded(id, new_grounded);
+                                    self.solve_and_apply_assembly();
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::ToggleInstanceVisibility(id) => {
+                                if let Some(inst) = self.assembly_tree.instances.get_mut(&id) {
+                                    inst.visible = !inst.visible;
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::DeleteInstance(id) => {
+                                self.assembly_tree.remove_instance(id);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::AddSubAssembly => {
+                                self.assembly_tree.add_sub_assembly("Sub-Assembly", None);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::DeleteSubAssembly(id) => {
+                                self.assembly_tree.remove_sub_assembly(id);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::SelectMate(id) => {
+                                self.selected_assembly_mate = Some(id);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::ToggleSuppressMate(id) => {
+                                self.assembly_tree.toggle_suppress_mate(id);
+                                self.solve_and_apply_assembly();
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::DeleteMate(id) => {
+                                self.assembly_tree.remove_mate(id);
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::UpdateMateParam { id, val, flip } => {
+                                if let Some(mate) = self.assembly_tree.mates.get_mut(&id) {
+                                    match &mut mate.kind {
+                                        ducad_core::MateKind::Distance {
+                                            offset,
+                                            opposite_normal,
+                                        } => {
+                                            *offset = val;
+                                            *opposite_normal = flip;
+                                        }
+                                        ducad_core::MateKind::Angle {
+                                            angle_deg,
+                                            opposite_normal,
+                                        } => {
+                                            *angle_deg = val;
+                                            *opposite_normal = flip;
+                                        }
+                                        ducad_core::MateKind::Concentric { aligned, .. } => {
+                                            *aligned = flip;
+                                        }
+                                        ducad_core::MateKind::Coincident { opposite_normal } => {
+                                            *opposite_normal = flip;
+                                        }
+                                    }
+                                    self.solve_and_apply_assembly();
+                                }
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::SolveAssembly => {
+                                self.solve_and_apply_assembly();
+                                self.model_status =
+                                    Some("Pohon perakitan berhasil dihitung ulang".to_string());
+                                ctx.request_repaint();
+                            }
+                            AssemblyDrawerEvent::Close => {
+                                self.assembly_drawer_open = false;
+                            }
+                        }
+                    }
+                });
+
+            assem_top_y = Some(assem_area_resp.response.rect.min.y);
+        }
+
+        // 4. Draft Analysis Inspector Window (Tersusun rapi di atas Folder/Planes/FeatureTree/Assembly drawer)
         let mut draft_top_y = None;
         if self.draft_config.enabled {
-            let draft_bottom_y = if self.feature_tree_drawer_open {
+            let draft_bottom_y = if self.assembly_drawer_open {
+                assem_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.feature_tree_drawer_open {
                 feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.planes_drawer_open {
                 planes_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
@@ -1998,6 +2171,8 @@ impl eframe::App for DuCADApp {
         if self.cmf_drawer_open {
             let cmf_bottom_y = if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.assembly_drawer_open {
+                assem_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.feature_tree_drawer_open {
                 feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.planes_drawer_open {
@@ -2067,6 +2242,8 @@ impl eframe::App for DuCADApp {
                 cmf_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.draft_config.enabled {
                 draft_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
+            } else if self.assembly_drawer_open {
+                assem_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.feature_tree_drawer_open {
                 feat_tree_top_y.unwrap_or(folder_bottom_y - 200.0) - 8.0
             } else if self.planes_drawer_open {
@@ -2763,8 +2940,10 @@ impl eframe::App for DuCADApp {
 
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
-        let has_face_sel = self.active_face.is_some();
-        let has_body_sel = !self.selected_bodies.is_empty();
+        let has_face_sel = self.active_face.is_some()
+            || !self.staged_mate_targets.is_empty()
+            || !self.selected_faces.is_empty();
+        let has_body_sel = !self.selected_bodies.is_empty() && !has_face_sel;
 
         if !self.drawing_sheet_state.is_open && (has_sketch_sel || has_face_sel || has_body_sel) {
             egui::Area::new(egui::Id::new("ducad-context-action-bar-area"))
@@ -2831,49 +3010,99 @@ impl eframe::App for DuCADApp {
                             }
                         }
                     } else if has_face_sel {
-                        let is_editing_hole = self.editing_hole_idx.is_some();
-                        if let Some(act) = ContextActionBar::show_face_selection(ui, is_editing_hole) {
-                            match act {
-                                ContextAction::Extrude => {
-                                    self.extruding_face_from_gizmo = true;
-                                    if self.face_gizmo_distance == 0.0 {
-                                        self.face_gizmo_distance = 15.0;
+                        if self.staged_mate_targets.len() >= 2 {
+                            if let Some(act) = ContextActionBar::show_multi_face_selection(
+                                ui,
+                                self.staged_mate_targets.len(),
+                            ) {
+                                match act {
+                                    ContextAction::MateConcentric => {
+                                        self.staged_mate_kind =
+                                            Some(ducad_core::MateKind::Concentric {
+                                                aligned: true,
+                                                lock_rotation: false,
+                                            });
                                     }
-                                    self.auto_enter_3d_mode_on_extrude_drag();
+                                    ContextAction::MateCoincident => {
+                                        self.staged_mate_kind =
+                                            Some(ducad_core::MateKind::Coincident {
+                                                opposite_normal: true,
+                                            });
+                                    }
+                                    ContextAction::MateDistance => {
+                                        self.staged_mate_kind =
+                                            Some(ducad_core::MateKind::Distance {
+                                                offset: 10.0,
+                                                opposite_normal: true,
+                                            });
+                                    }
+                                    ContextAction::MateAngle => {
+                                        self.staged_mate_kind =
+                                            Some(ducad_core::MateKind::Angle {
+                                                angle_deg: 45.0,
+                                                opposite_normal: true,
+                                            });
+                                    }
+                                    ContextAction::OpenAssemblyTree => {
+                                        self.assembly_drawer_open = true;
+                                    }
+                                    ContextAction::ClearSelection => {
+                                        self.staged_mate_targets.clear();
+                                        self.selected_faces.clear();
+                                        self.active_face = None;
+                                    }
+                                    _ => {}
                                 }
-                                ContextAction::SketchOnFace => {
-                                    self.sketch_on_active_face();
+                            }
+                        } else {
+                            let is_editing_hole = self.editing_hole_idx.is_some();
+                            if let Some(act) =
+                                ContextActionBar::show_face_selection(ui, is_editing_hole)
+                            {
+                                match act {
+                                    ContextAction::Extrude => {
+                                        self.extruding_face_from_gizmo = true;
+                                        if self.face_gizmo_distance == 0.0 {
+                                            self.face_gizmo_distance = 15.0;
+                                        }
+                                        self.auto_enter_3d_mode_on_extrude_drag();
+                                    }
+                                    ContextAction::SketchOnFace => {
+                                        self.sketch_on_active_face();
+                                    }
+                                    ContextAction::Revolve => {
+                                        self.open_revolve_dialog();
+                                    }
+                                    ContextAction::Helix => {
+                                        self.set_tool(ToolKind::Helix);
+                                    }
+                                    ContextAction::Shell => {
+                                        self.set_tool(ToolKind::Shell);
+                                    }
+                                    ContextAction::Rib => {
+                                        self.set_tool(ToolKind::Rib);
+                                    }
+                                    ContextAction::DraftAngle => {
+                                        self.set_tool(ToolKind::DraftAngle);
+                                    }
+                                    ContextAction::SplitFace => {
+                                        self.split_mode = ducad_ui::SplitMode::SplitFace;
+                                        self.set_tool(ToolKind::SplitBody);
+                                    }
+                                    ContextAction::HoleWizard => {
+                                        self.set_tool(ToolKind::HoleWizard);
+                                    }
+                                    ContextAction::OffsetPlane => {
+                                        self.datum_mode = ducad_ui::DatumPlaneMode::Offset;
+                                        self.set_tool(ToolKind::DatumPlane);
+                                    }
+                                    ContextAction::ClearSelection => {
+                                        self.active_face = None;
+                                        self.staged_mate_targets.clear();
+                                        self.selected_faces.clear();
+                                    }
+                                    _ => {}
                                 }
-                                ContextAction::Revolve => {
-                                    self.open_revolve_dialog();
-                                }
-                                ContextAction::Helix => {
-                                    self.set_tool(ToolKind::Helix);
-                                }
-                                ContextAction::Shell => {
-                                    self.set_tool(ToolKind::Shell);
-                                }
-                                ContextAction::Rib => {
-                                    self.set_tool(ToolKind::Rib);
-                                }
-                                ContextAction::DraftAngle => {
-                                    self.set_tool(ToolKind::DraftAngle);
-                                }
-                                ContextAction::SplitFace => {
-                                    self.split_mode = ducad_ui::SplitMode::SplitFace;
-                                    self.set_tool(ToolKind::SplitBody);
-                                }
-                                ContextAction::HoleWizard => {
-                                    self.set_tool(ToolKind::HoleWizard);
-                                }
-                                ContextAction::OffsetPlane => {
-                                    self.datum_mode = ducad_ui::DatumPlaneMode::Offset;
-                                    self.set_tool(ToolKind::DatumPlane);
-                                }
-                                ContextAction::ClearSelection => {
-                                    self.active_face = None;
-                                }
-                                _ => {}
                             }
                         }
                     } else if has_body_sel {
@@ -2995,7 +3224,8 @@ impl eframe::App for DuCADApp {
                 | ToolKind::Pattern
                 | ToolKind::Polygon
                 | ToolKind::Slot
-        );
+                | ToolKind::Revolve
+        ) || self.staged_mate_kind.is_some();
 
         if !has_top_bar_hud && !self.drawing_sheet_state.is_open {
             if let Some(ev) = CanvasHud::show_status_pill(

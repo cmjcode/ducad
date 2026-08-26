@@ -7,9 +7,9 @@
 use ducad_i18n::t;
 use egui::{Button, RichText, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE,
-    ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT, ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL,
-    ICON_REFRESH, ICON_ROUTE,
+    ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CATEGORY,
+    ICON_CLOSE, ICON_CONTENT_CUT, ICON_DELETE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_EDIT,
+    ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
 };
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
 
@@ -37,6 +37,11 @@ pub enum ContextAction {
     Delete,
     ClearSelection,
     Rename,
+    MateConcentric,
+    MateCoincident,
+    MateDistance,
+    MateAngle,
+    OpenAssemblyTree,
 }
 
 #[derive(Default)]
@@ -347,6 +352,121 @@ impl ContextActionBar {
                 );
                 if btn.on_hover_text("Buat bidang kerja referensi 3D (Datum Plane) dari permukaan ini").clicked() {
                     action = Some(ContextAction::OffsetPlane);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // Deselect
+                let close_btn = ui.add(
+                    Button::new(
+                        RichText::new(ICON_CLOSE.codepoint)
+                            .size(12.0)
+                            .color(TEXT_SECONDARY),
+                    ),
+                );
+                if close_btn.on_hover_text("Batalkan Seleksi (Esc)").clicked() {
+                    action = Some(ContextAction::ClearSelection);
+                }
+            });
+        });
+
+        action
+    }
+
+    /// Render contextual action bar untuk seleksi multi-face 3D (Mate Constraints Perakitan).
+    pub fn show_multi_face_selection(ui: &mut Ui, count: usize) -> Option<ContextAction> {
+        let mut action = None;
+
+        pill_frame().show(ui, |ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{} Face Terpilih (Mate)", count))
+                        .size(11.0)
+                        .strong()
+                        .color(ACCENT_BLUE),
+                );
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // 1. Concentric Mate (◎)
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Concentric", ICON_ADJUST.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn
+                    .on_hover_text(t!("assembly-mate-concentric-desc"))
+                    .clicked()
+                {
+                    action = Some(ContextAction::MateConcentric);
+                }
+
+                // 2. Coincident Mate (⫦)
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Coincident", ICON_CALL_MERGE.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn
+                    .on_hover_text(t!("assembly-mate-coincident-desc"))
+                    .clicked()
+                {
+                    action = Some(ContextAction::MateCoincident);
+                }
+
+                // 3. Distance Mate (↔)
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Distance", ICON_STRAIGHTEN.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn
+                    .on_hover_text(t!("assembly-mate-distance-desc"))
+                    .clicked()
+                {
+                    action = Some(ContextAction::MateDistance);
+                }
+
+                // 4. Angle Mate (∡)
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Angle", ICON_ARCHITECTURE.codepoint))
+                            .size(11.5)
+                            .color(TEXT_PRIMARY),
+                    ),
+                );
+                if btn
+                    .on_hover_text(t!("assembly-mate-angle-desc"))
+                    .clicked()
+                {
+                    action = Some(ContextAction::MateAngle);
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // Open Assembly Drawer
+                let btn = ui.add(
+                    Button::new(
+                        RichText::new(format!("{} Assembly", ICON_CATEGORY.codepoint))
+                            .size(11.5)
+                            .color(ACCENT_BLUE),
+                    ),
+                );
+                if btn.on_hover_text(t!("topbar-assembly-tooltip")).clicked() {
+                    action = Some(ContextAction::OpenAssemblyTree);
                 }
 
                 ui.add_space(2.0);

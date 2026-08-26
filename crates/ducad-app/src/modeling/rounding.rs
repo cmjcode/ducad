@@ -233,7 +233,10 @@ impl DuCADApp {
     /// vertex/edge terpilih ikut masuk `selected_bodies` (dipakai jg utk
     /// highlight cyan, bukan pertanda "seluruh body" terpilih).
     pub fn feature_pick_active(&self) -> bool {
-        self.active_face.is_some() || self.active_vertex.is_some() || self.active_edge.is_some()
+        self.active_face.is_some()
+            || self.active_vertex.is_some()
+            || self.active_edge.is_some()
+            || self.staged_mate_targets.len() >= 2
     }
 
     pub fn selected_single_body_center(&self) -> Option<(BodyId, Vec3)> {

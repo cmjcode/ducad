@@ -11,6 +11,7 @@
 //! - Command palette (`command_palette`)
 //! - Radial menu untuk sentuh/iPad (`radial_menu`)
 
+pub mod assembly_drawer;
 pub mod canvas_hud;
 pub mod cmf_drawer;
 pub mod command_palette;
@@ -32,12 +33,13 @@ pub mod tool_popups;
 pub mod top_bar;
 pub mod viewcube;
 
+pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DatumPlaneHudAction, DatumPlaneMode,
-    DraftHudAction, DraftInspectionHudAction, DraftPullDir, LoftHudAction, PatternAxisPreset,
-    PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent, RevolveHudAction, RibHudAction,
-    ShellHudAction, SlotHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
-    StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
+    DraftHudAction, DraftInspectionHudAction, DraftPullDir, LoftHudAction, MateHudAction,
+    PatternAxisPreset, PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent,
+    RevolveHudAction, RibHudAction, ShellHudAction, SlotHudAction, SplitHudAction, SplitMode,
+    SplitPlaneKind, StudioHudAction, StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
 };
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::CommandPalette;

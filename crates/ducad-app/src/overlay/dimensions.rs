@@ -7,7 +7,8 @@ use ducad_sketch::{
     EntityId, RectAnchor, ResizeRectangle, UpdateEntity,
 };
 
-use ducad_ui::{CanvasHud, ToolGuides};
+use ducad_i18n::t;
+use ducad_ui::{CanvasHud, MateHudAction, ToolGuides};
 use eframe::egui;
 use glam::{DVec2, Vec3};
 use slotmap::Key;
@@ -517,6 +518,134 @@ impl DuCADApp {
         }
     }
 
+    /// Render panel konfigurasi Mate di luar CentralPanel menggunakan `egui::Context` langsung.
+    /// Harus dipanggil setelah CentralPanel selesai di-render agar tidak terblokir oleh
+    /// `Sense::click_and_drag` pada area canvas viewport.
+    pub fn show_mate_hud_ctx(&mut self, ctx: &egui::Context, screen_rect: egui::Rect) {
+        if self.drawing_sheet_state.is_open {
+            return;
+        }
+        let Some(mate_kind) = self.staged_mate_kind.clone() else {
+            return;
+        };
+
+        let (name, is_dist, is_ang, is_conc) = match &mate_kind {
+            ducad_core::MateKind::Concentric { .. } => (
+                t!("assembly-mate-concentric"),
+                false,
+                false,
+                true,
+            ),
+            ducad_core::MateKind::Coincident { .. } => (
+                t!("assembly-mate-coincident"),
+                false,
+                false,
+                false,
+            ),
+            ducad_core::MateKind::Distance { .. } => (
+                t!("assembly-mate-distance"),
+                true,
+                false,
+                false,
+            ),
+            ducad_core::MateKind::Angle { .. } => (
+                t!("assembly-mate-angle"),
+                false,
+                true,
+                false,
+            ),
+        };
+
+        // Panggil langsung dengan ctx — tidak perlu wrapper Area tambahan.
+        // render_header_hud_container_ctx sudah membuat Area-nya sendiri di Order::Foreground.
+        if let Some(action) = CanvasHud::show_mate_config_panel_ctx(
+            ctx,
+            screen_rect,
+            &name,
+            &mut self.mate_offset_distance,
+            &mut self.mate_angle_deg,
+            &mut self.mate_flip_alignment,
+            &mut self.mate_lock_rotation,
+            is_dist,
+            is_ang,
+            is_conc,
+        ) {
+            match action {
+                MateHudAction::SetOffset(d) => self.mate_offset_distance = d,
+                MateHudAction::SetAngle(a) => self.mate_angle_deg = a,
+                MateHudAction::ToggleFlip => {}
+                MateHudAction::ToggleLockRotation => {}
+                MateHudAction::Commit => {
+                    match &mate_kind {
+                        ducad_core::MateKind::Concentric { .. } => {
+                            self.staged_mate_kind = Some(ducad_core::MateKind::Concentric {
+                                aligned: !self.mate_flip_alignment,
+                                lock_rotation: self.mate_lock_rotation,
+                            });
+                        }
+                        ducad_core::MateKind::Coincident { .. } => {
+                            self.staged_mate_kind =
+                                Some(ducad_core::MateKind::Coincident {
+                                    opposite_normal: !self.mate_flip_alignment,
+                                });
+                        }
+                        ducad_core::MateKind::Distance { .. } => {
+                            self.staged_mate_kind = Some(ducad_core::MateKind::Distance {
+                                offset: self.mate_offset_distance,
+                                opposite_normal: !self.mate_flip_alignment,
+                            });
+                        }
+                        ducad_core::MateKind::Angle { .. } => {
+                            self.staged_mate_kind = Some(ducad_core::MateKind::Angle {
+                                angle_deg: self.mate_angle_deg,
+                                opposite_normal: !self.mate_flip_alignment,
+                            });
+                        }
+                    }
+                    self.apply_staged_mate();
+                }
+                MateHudAction::Cancel => {
+                    self.staged_mate_kind = None;
+                    self.staged_mate_targets.clear();
+                }
+            }
+        }
+
+
+        // Keyboard shortcuts: Enter untuk commit, Escape untuk cancel
+        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            match &mate_kind {
+                ducad_core::MateKind::Concentric { .. } => {
+                    self.staged_mate_kind = Some(ducad_core::MateKind::Concentric {
+                        aligned: !self.mate_flip_alignment,
+                        lock_rotation: self.mate_lock_rotation,
+                    });
+                }
+                ducad_core::MateKind::Coincident { .. } => {
+                    self.staged_mate_kind = Some(ducad_core::MateKind::Coincident {
+                        opposite_normal: !self.mate_flip_alignment,
+                    });
+                }
+                ducad_core::MateKind::Distance { .. } => {
+                    self.staged_mate_kind = Some(ducad_core::MateKind::Distance {
+                        offset: self.mate_offset_distance,
+                        opposite_normal: !self.mate_flip_alignment,
+                    });
+                }
+                ducad_core::MateKind::Angle { .. } => {
+                    self.staged_mate_kind = Some(ducad_core::MateKind::Angle {
+                        angle_deg: self.mate_angle_deg,
+                        opposite_normal: !self.mate_flip_alignment,
+                    });
+                }
+            }
+            self.apply_staged_mate();
+        } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.staged_mate_kind = None;
+            self.staged_mate_targets.clear();
+        }
+    }
+
     pub fn dynamic_input_ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -547,6 +676,9 @@ impl DuCADApp {
         if self.show_all_dimensions {
             self.render_all_element_dimensions(ui, rect);
         }
+
+        // Mate HUD sekarang di-render oleh show_mate_hud_ctx() di luar CentralPanel
+        // agar klik tombol Apply tidak terblokir oleh Sense::click_and_drag canvas.
 
         if self.tool == ToolKind::Revolve {
             let is_staged = self.revolve_staged_axis.is_some();

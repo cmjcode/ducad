@@ -13,6 +13,12 @@ pub use parametric::{
     FeatureId, FeatureNode, FeaturePayload, FeatureStatus, ParametricDag, SketchPlaneRef,
 };
 
+pub mod assembly;
+pub use assembly::{
+    AssemblyInstance, AssemblyInstanceId, AssemblyTree, DegreesOfFreedom, MateConstraint,
+    MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind, SubAssembly, SubAssemblyId,
+};
+
 /// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum LengthUnit {

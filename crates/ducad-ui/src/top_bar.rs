@@ -12,8 +12,8 @@ use crate::theme::{glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_S
 use ducad_i18n::{current_language, t, Language};
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, Ui, Vec2};
 use egui_material_icons::icons::{
-    ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_LANGUAGE,
-    ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
+    ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
+    ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PICTURE_AS_PDF,
     ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_TEXTURE, ICON_UPLOAD,
 };
 
@@ -48,6 +48,7 @@ pub enum TopBarEvent {
     SetUnit(LengthUnit),
     SetLanguage(Language),
     ToggleItemsDrawer,
+    ToggleAssemblyDrawer,
     OpenSearch,
     EnterSketching,
     ExitSketching,
@@ -73,6 +74,7 @@ pub struct TopBarState {
     /// (dan popup pemilih bidangnya) ditampilkan sama sekali.
     pub is_sketching: bool,
     pub items_drawer_open: bool,
+    pub assembly_drawer_open: bool,
     pub section_view_active: bool,
     pub is_measure_active: bool,
     pub zebra_view_active: bool,
@@ -427,6 +429,23 @@ impl TopBar {
                 );
                 if ds_btn.clicked() {
                     event = Some(TopBarEvent::OpenDrawingSheet);
+                }
+
+                // Assembly Tree & Mates Button (Fase 12.2)
+                let assem_title = t!("assembly-tree-title");
+                let assem_sub = t!("topbar-assembly-tooltip");
+                let assem_btn = header_icon_btn(
+                    ui,
+                    ICON_CATEGORY.codepoint,
+                    state.assembly_drawer_open,
+                    &assem_title,
+                    None,
+                    Some(&assem_sub),
+                    None,
+                    None,
+                );
+                if assem_btn.clicked() {
+                    event = Some(TopBarEvent::ToggleAssemblyDrawer);
                 }
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)

@@ -1465,7 +1465,10 @@ impl DuCADApp {
 
             let mut transformed_positions = mesh_to_render.positions.clone();
             let mut transformed_normals = mesh_to_render.normals.clone();
-            let is_selected_body = self.selected_bodies.contains(&id) && self.active_face.is_none();
+            let is_selected_body = self.selected_bodies.contains(&id)
+                && self.active_face.is_none()
+                && self.staged_mate_targets.is_empty()
+                && self.selected_faces.is_empty();
 
             if is_selected_body {
                 if self.body_move_dragging && self.body_move_delta.length_squared() > 1e-6 {
@@ -1507,24 +1510,26 @@ impl DuCADApp {
                 (base_color, mat_params)
             };
 
-            let face_info = if let Some((active_id, _, hit)) = &self.active_face {
+            let mut face_hits_for_body: Vec<&ducad_kernel::FaceHit> = Vec::new();
+            if let Some((active_id, _, hit)) = &self.active_face {
                 if *active_id == id {
-                    Some((
-                        Vec3::new(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32),
-                        Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32),
-                        Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32),
-                        hit.surface_kind,
-                        &hit.boundary_points,
-                    ))
-                } else {
-                    None
+                    face_hits_for_body.push(hit);
                 }
-            } else {
-                None
-            };
+            }
+            for (b_id, _, hit) in &self.staged_mate_targets {
+                if *b_id == id && !face_hits_for_body.iter().any(|h| h.hit_point == hit.hit_point) {
+                    face_hits_for_body.push(hit);
+                }
+            }
 
             let mut face_vertex_indices = std::collections::HashSet::new();
-            if let Some((fpt, fcentroid, fnorm, skind, boundary_pts)) = face_info {
+            for hit in face_hits_for_body {
+                let fpt = Vec3::new(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32);
+                let fcentroid = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
+                let fnorm = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
+                let skind = hit.surface_kind;
+                let boundary_pts = &hit.boundary_points;
+
                 let u_axis = if boundary_pts.len() >= 3 {
                     (Vec3::new(boundary_pts[0].0 as f32, boundary_pts[0].1 as f32, boundary_pts[0].2 as f32) - fcentroid).normalize_or_zero()
                 } else {

@@ -309,6 +309,16 @@ pub enum SlotHudAction {
     SetWidth(f64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MateHudAction {
+    SetOffset(f64),
+    SetAngle(f64),
+    ToggleFlip,
+    ToggleLockRotation,
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasHudEvent {
     OrientNormalToSketch,
@@ -455,6 +465,18 @@ impl CanvasHud {
         id_str: &str,
         content: impl FnOnce(&mut Ui) -> R,
     ) -> R {
+        Self::render_header_hud_container_ctx(ui.ctx(), canvas_rect, width, id_str, content)
+    }
+
+    /// Versi `render_header_hud_container` yang menggunakan `&egui::Context` langsung.
+    /// Digunakan saat HUD perlu di-render di luar `CentralPanel` (tanpa parent `Ui`).
+    pub fn render_header_hud_container_ctx<R>(
+        ctx: &egui::Context,
+        canvas_rect: Rect,
+        width: f32,
+        id_str: &str,
+        content: impl FnOnce(&mut Ui) -> R,
+    ) -> R {
         let center_x = canvas_rect.center().x;
         let center_y = 30.0; // Persis di garis tengah vertikal Top Header Bar (bounds y=10.0 s/d y=50.0)
         let actual_w = width;
@@ -467,8 +489,8 @@ impl CanvasHud {
 
         egui::Area::new(egui::Id::new(id_str))
             .fixed_pos(banner_rect.min)
-            .order(egui::Order::Tooltip)
-            .show(ui.ctx(), |ui| {
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
                 ui.set_width(actual_w);
                 ui.set_height(Self::HEADER_HUD_HEIGHT);
 
@@ -777,6 +799,131 @@ impl CanvasHud {
 
                 action
             },
+        )
+    }
+
+    /// Render floating HUD Header untuk konfigurasi Mate Constraints — versi Context.
+    /// Digunakan di luar CentralPanel agar tidak terblokir oleh Sense::click_and_drag.
+    pub fn show_mate_config_panel_ctx(
+        ctx: &egui::Context,
+        canvas_rect: Rect,
+        mate_type_name: &str,
+        offset_distance: &mut f64,
+        angle_deg: &mut f64,
+        flip_alignment: &mut bool,
+        lock_rotation: &mut bool,
+        is_distance: bool,
+        is_angle: bool,
+        is_concentric: bool,
+    ) -> Option<MateHudAction> {
+        let banner_w = 560.0;
+        Self::render_header_hud_container_ctx(
+            ctx,
+            canvas_rect,
+            banner_w,
+            "ducad-hud-mate-config-panel",
+            |ui| {
+                let mut action = None;
+                Self::hud_title(ui, &format!("🔗 {}", mate_type_name), true);
+
+                ui.separator();
+
+                if is_distance {
+                    ui.label(
+                        RichText::new(t!("assembly-mate-distance-label"))
+                            .size(10.5)
+                            .color(TEXT_SECONDARY),
+                    );
+                    let mut dist_val = *offset_distance;
+                    let drag = ui.add(
+                        egui::DragValue::new(&mut dist_val)
+                            .speed(0.5)
+                            .suffix(" mm"),
+                    );
+                    if drag.changed() {
+                        *offset_distance = dist_val;
+                        action = Some(MateHudAction::SetOffset(dist_val));
+                    }
+                    ui.separator();
+                }
+
+                if is_angle {
+                    ui.label(
+                        RichText::new(t!("assembly-mate-angle-label"))
+                            .size(10.5)
+                            .color(TEXT_SECONDARY),
+                    );
+                    let mut ang_val = *angle_deg;
+                    let drag = ui.add(
+                        egui::DragValue::new(&mut ang_val)
+                            .speed(1.0)
+                            .suffix("°"),
+                    );
+                    if drag.changed() {
+                        *angle_deg = ang_val;
+                        action = Some(MateHudAction::SetAngle(ang_val));
+                    }
+                    ui.separator();
+                }
+
+                if is_concentric {
+                    if Self::hud_toggle_btn(ui, t!("assembly-lock-rotation"), *lock_rotation)
+                        .clicked()
+                    {
+                        *lock_rotation = !*lock_rotation;
+                        action = Some(MateHudAction::ToggleLockRotation);
+                    }
+                    ui.separator();
+                }
+
+                // Flip Alignment Toggle
+                if Self::hud_toggle_btn(ui, t!("assembly-flip-alignment"), *flip_alignment)
+                    .clicked()
+                {
+                    *flip_alignment = !*flip_alignment;
+                    action = Some(MateHudAction::ToggleFlip);
+                }
+
+                ui.separator();
+
+                // Apply & Cancel Buttons
+                if Self::hud_commit_btn(ui, t!("assembly-apply-mate")).clicked() {
+                    action = Some(MateHudAction::Commit);
+                }
+
+                if Self::hud_cancel_btn(ui, t!("assembly-cancel-mate")).clicked() {
+                    action = Some(MateHudAction::Cancel);
+                }
+
+                action
+            },
+        )
+    }
+
+    /// Render floating HUD Header untuk konfigurasi Mate Constraints (Concentric, Coincident, Distance, Angle).
+    pub fn show_mate_config_panel(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        mate_type_name: &str,
+        offset_distance: &mut f64,
+        angle_deg: &mut f64,
+        flip_alignment: &mut bool,
+        lock_rotation: &mut bool,
+        is_distance: bool,
+        is_angle: bool,
+        is_concentric: bool,
+    ) -> Option<MateHudAction> {
+        Self::show_mate_config_panel_ctx(
+            ui.ctx(),
+            canvas_rect,
+            mate_type_name,
+            offset_distance,
+            angle_deg,
+            flip_alignment,
+            lock_rotation,
+            is_distance,
+            is_angle,
+            is_concentric,
         )
     }
 

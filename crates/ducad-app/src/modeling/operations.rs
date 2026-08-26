@@ -3,6 +3,7 @@ use ducad_kernel::PickRay;
 use ducad_render::SketchPlane;
 use ducad_sketch::constraint::{self, AddConstraint, Constraint};
 use glam::{DVec2, Vec3};
+use slotmap::Key;
 
 use crate::app::DuCADApp;
 use crate::model::{
@@ -1660,6 +1661,148 @@ impl DuCADApp {
                     ],
                 );
                 self.model_status = Some(format!("{op_name} gagal: {e}"));
+            }
+        }
+    }
+
+    /// Sinkronisasi solid bodies di ModelDoc ke dalam AssemblyTree sebagai part instances mandiri.
+    pub fn sync_assembly_instances(&mut self) {
+        for (body_id, body) in &self.model.doc.bodies {
+            let body_id_raw = body_id.data().as_ffi();
+            let exists = self
+                .assembly_tree
+                .instances
+                .values()
+                .any(|i| i.body_id_raw == body_id_raw);
+            if !exists {
+                self.assembly_tree.add_instance(&body.name, body_id_raw);
+            }
+        }
+    }
+
+    /// Terapkan mate yang sedang dikonfigurasi pada dua face terpilih.
+    pub fn apply_staged_mate(&mut self) {
+        if self.staged_mate_targets.len() < 2 {
+            self.model_status = Some("Pilih minimal 2 permukaan untuk menerapkan mate".to_string());
+            self.staged_mate_kind = None;
+            return;
+        }
+
+        let kind = match self.staged_mate_kind.take() {
+            Some(k) => k,
+            None => return,
+        };
+
+        self.sync_assembly_instances();
+
+        let (body_a, _ray_a, hit_a) = &self.staged_mate_targets[0];
+        let (body_b, _ray_b, hit_b) = &self.staged_mate_targets[1];
+
+        if body_a == body_b {
+            self.model_status = Some("Pilih dua permukaan dari dua objek bodi yang BERBEDA untuk perakitan".to_string());
+            self.staged_mate_kind = None;
+            return;
+        }
+
+        let raw_a = body_a.data().as_ffi();
+        let raw_b = body_b.data().as_ffi();
+
+        let inst_a = self
+            .assembly_tree
+            .instances
+            .values()
+            .find(|i| i.body_id_raw == raw_a)
+            .map(|i| i.id);
+        let inst_b = self
+            .assembly_tree
+            .instances
+            .values()
+            .find(|i| i.body_id_raw == raw_b)
+            .map(|i| i.id);
+
+        let (id_a, id_b) = match (inst_a, inst_b) {
+            (Some(a), Some(b)) => (a, b),
+            _ => {
+                self.model_status =
+                    Some("Gagal memetakan body ke instance perakitan".to_string());
+                return;
+            }
+        };
+
+        // Buat MateTargetKind untuk A dan B
+        let target_kind_a = if hit_a.surface_kind == ducad_kernel::SurfaceKind::Cylinder {
+            ducad_core::MateTargetKind::CylinderAxis {
+                origin: hit_a.centroid,
+                direction: hit_a.pull_dir,
+                radius: 5.0,
+            }
+        } else {
+            ducad_core::MateTargetKind::PlanarFace {
+                origin: hit_a.centroid,
+                normal: hit_a.normal,
+            }
+        };
+
+        let target_kind_b = if hit_b.surface_kind == ducad_kernel::SurfaceKind::Cylinder {
+            ducad_core::MateTargetKind::CylinderAxis {
+                origin: hit_b.centroid,
+                direction: hit_b.pull_dir,
+                radius: 5.0,
+            }
+        } else {
+            ducad_core::MateTargetKind::PlanarFace {
+                origin: hit_b.centroid,
+                normal: hit_b.normal,
+            }
+        };
+
+        let target_a = ducad_core::MateTarget {
+            instance_id: id_a,
+            kind: target_kind_a,
+        };
+        let target_b = ducad_core::MateTarget {
+            instance_id: id_b,
+            kind: target_kind_b,
+        };
+
+        let mate_name = format!("{} Mate", kind.type_name());
+        self.assembly_tree
+            .add_mate(&mate_name, kind, target_a, target_b);
+
+        self.solve_and_apply_assembly();
+        self.staged_mate_targets.clear();
+        self.active_face = None;
+        self.selected_faces.clear();
+        self.model_status = Some(format!("{} berhasil diterapkan", mate_name));
+    }
+
+    /// Selesaikan seluruh relasi mate perakitan dan terapkan transformasi ke geometri 3D bodi solid.
+    pub fn solve_and_apply_assembly(&mut self) {
+        self.sync_assembly_instances();
+        let solved = ducad_kernel::solve_assembly(&mut self.assembly_tree);
+
+        for (inst_id, tf) in solved {
+            if let Some(inst) = self.assembly_tree.instances.get(&inst_id) {
+                // Cari body_id yang cocok dengan inst.body_id_raw
+                let target_body = self.model.doc.bodies.iter().find_map(|(b_id, _)| {
+                    if b_id.data().as_ffi() == inst.body_id_raw {
+                        Some(b_id)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(body_id) = target_body {
+                    if let Some(geo) = self.model.geometry.get(body_id) {
+                        if let Ok(new_shape) =
+                            ducad_kernel::apply_mate_transform_to_shape(&geo.shape, &tf)
+                        {
+                            let new_geo = BodyGeometry::from_shape(new_shape);
+                            self.model.geometry.insert(body_id, new_geo);
+                            self.model.doc.dirty = true;
+                        }
+                    }
+                }
             }
         }
     }

@@ -7,7 +7,6 @@ use ducad_core::parametric::{FeatureId, FeaturePayload, SketchPlaneRef};
 use ducad_core::BodyId;
 use ducad_kernel::KernelShape;
 use ducad_sketch::Entity;
-use glam::DVec2;
 use std::collections::HashMap;
 
 use crate::app::DuCADApp;
@@ -644,6 +643,7 @@ impl DuCADApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::DVec2;
 
     #[test]
     fn test_parametric_dag_recording_and_regeneration() {

@@ -5,6 +5,7 @@
 //! ditambal/diganti tanpa merombak app. `Shape` OCCT sengaja tidak pernah
 //! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
 
+pub mod assembly_solver;
 pub mod csg;
 pub mod detail;
 pub mod helix;
@@ -54,6 +55,10 @@ pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
 }
 
 // Re-exports for public API compatibility
+pub use assembly_solver::{
+    apply_mate_transform_to_shape, solve_angle, solve_assembly, solve_coincident, solve_concentric,
+    solve_single_mate, MateTransformResult,
+};
 pub use csg::{
     emboss_profiles_on_plane, extrude_profile, extrude_profile_on_plane, intersect, loft_profiles,
     revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,

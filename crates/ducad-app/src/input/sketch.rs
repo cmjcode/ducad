@@ -1260,39 +1260,37 @@ impl DuCADApp {
                     };
 
                     if is_multi && !self.is_sketching {
-                        if self.tool == ToolKind::DraftAngle || self.tool == ToolKind::Shell || self.tool == ToolKind::Rib {
-                            if let Some((b_id, ray, _hit)) = face_pick_3d {
-                                self.selected.clear();
-                                self.selected_bodies.clear();
-                                self.selected_bodies.insert(b_id);
-                                if let Some((active_id, active_ray, _)) = self.active_face.take() {
-                                    if active_id == b_id && !self.selected_faces.contains(&active_ray) {
-                                        self.selected_faces.push(active_ray);
-                                    }
-                                }
-                                if !self.selected_faces.contains(&ray) {
-                                    self.selected_faces.push(ray);
-                                } else {
-                                    self.selected_faces.retain(|r| *r != ray);
-                                }
-                                let count = self.selected_faces.len();
-                                self.model_status = Some(format!("{} face terpilih", count));
-                                return;
-                            }
-                        } else if let Some((b_id, ..)) = face_pick_3d {
+                        if let Some((b_id, ray, hit)) = face_pick_3d {
                             self.selected.clear();
-                            if let Some((prev_id, ..)) = self.active_face.take() {
-                                self.selected_bodies.insert(prev_id);
-                            }
+                            self.selected_bodies.clear();
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
                             self.body_move_target = None;
-                            if !self.selected_bodies.remove(&b_id) {
-                                self.selected_bodies.insert(b_id);
+                            self.last_body_select_click = None;
+
+                            if let Some((active_id, active_ray, active_hit)) = self.active_face.take() {
+                                if !self.staged_mate_targets.iter().any(|(id, r, _)| *id == active_id && *r == active_ray) {
+                                    self.staged_mate_targets.push((active_id, active_ray, active_hit));
+                                }
+                                if !self.selected_faces.contains(&active_ray) {
+                                    self.selected_faces.push(active_ray);
+                                }
                             }
-                            let count = self.selected_bodies.len();
-                            self.model_status = Some(format!("{} body terpilih", count));
+
+                            // Toggle jika sudah ada, atau tambahkan jika belum ada
+                            if let Some(pos) = self.staged_mate_targets.iter().position(|(id, r, _)| *id == b_id && *r == ray) {
+                                self.staged_mate_targets.remove(pos);
+                                self.selected_faces.retain(|r| *r != ray);
+                            } else {
+                                self.staged_mate_targets.push((b_id, ray, hit.clone()));
+                                if !self.selected_faces.contains(&ray) {
+                                    self.selected_faces.push(ray);
+                                }
+                            }
+
+                            let count = self.staged_mate_targets.len();
+                            self.model_status = Some(format!("{} face terpilih untuk perakitan (Mate)", count));
                             return;
                         }
                     }
@@ -1412,6 +1410,8 @@ impl DuCADApp {
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
+                            self.staged_mate_targets.clear();
+                            self.selected_faces.clear();
                             self.body_move_target = Some(b_id);
                             self.body_move_delta = Vec3::ZERO;
                             self.body_rotate_angle_deg = 0.0;
@@ -1473,7 +1473,8 @@ impl DuCADApp {
                                 }
                             }
 
-                            self.active_face = Some((b_id, ray, hit));
+                            self.active_face = Some((b_id, ray, hit.clone()));
+                            self.staged_mate_targets = vec![(b_id, ray, hit)];
                             self.active_vertex = None;
                             self.active_edge = None;
                             self.editing_round = None;
@@ -1636,6 +1637,8 @@ impl DuCADApp {
                                             self.active_face = None;
                                             self.active_vertex = None;
                                             self.active_edge = None;
+                                            self.staged_mate_targets.clear();
+                                            self.selected_faces.clear();
                                             self.body_move_target = Some(b_id);
                                             self.last_body_select_click = None;
                                             self.model_status = Some("Objek (solid body) terpilih — gunakan 3D Gizmo untuk geser atau putar".to_string());
@@ -1714,6 +1717,8 @@ impl DuCADApp {
                                         self.active_face = None;
                                         self.active_vertex = None;
                                         self.active_edge = None;
+                                        self.staged_mate_targets.clear();
+                                        self.selected_faces.clear();
                                         self.body_move_target = None;
                                         self.last_body_select_click = None;
                                     }
