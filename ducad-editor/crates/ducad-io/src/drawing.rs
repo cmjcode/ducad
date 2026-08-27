@@ -468,8 +468,7 @@ impl DrawingSheet {
         }
 
         if self.show_detail_views && !self.drawing.detail_views.is_empty() {
-            let mut det_idx = 0;
-            for det in &self.drawing.detail_views {
+            for (det_idx, det) in self.drawing.detail_views.iter().enumerate() {
                 let det_scale = s * det.scale_multiplier;
                 let det_r_sheet = det.indicator.radius_mm * det_scale;
                 let det_center_x = (right_center_x + (w_r + det_r_sheet * 2.0) * 0.5 + gap_x * 0.5 + (det_idx as f32 * (det_r_sheet * 2.0 + 15.0)))
@@ -482,7 +481,6 @@ impl DrawingSheet {
                     scale: det_scale,
                     visible: true,
                 });
-                det_idx += 1;
             }
         }
 
@@ -1008,7 +1006,7 @@ mod tests {
                 w,
                 d,
                 vec![
-                    HlrGeometricFeature::Arc { center: [w * 0.5, d * 0.5], radius: 15.0, start_angle: 0.0, end_angle: 3.14159 },
+                    HlrGeometricFeature::Arc { center: [w * 0.5, d * 0.5], radius: 15.0, start_angle: 0.0, end_angle: std::f32::consts::PI },
                     HlrGeometricFeature::Ellipse { center: [w * 0.25, d * 0.5], radius_x: 30.0, radius_y: 12.0, rotation: 0.0 },
                 ],
             ),

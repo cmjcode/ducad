@@ -250,6 +250,7 @@ pub enum BooleanKind {
 /// Sebelum di-apply: hasil sudah dihitung (dry-run), siap dipasang.
 /// Setelah di-apply: body A & B sudah lenyap dari `ModelDoc`, datanya
 /// (untuk revert) disimpan di sini.
+#[allow(clippy::large_enum_variant)]
 enum BooleanState {
     Pending(BodyGeometry),
     Applied {
@@ -487,7 +488,7 @@ impl Command<ModelDoc> for SplitBodyCommand {
         };
 
         let mut pending = Vec::with_capacity(result_ids.len());
-        for (id, name) in result_ids.into_iter().zip(result_names.into_iter()) {
+        for (id, name) in result_ids.into_iter().zip(result_names) {
             model.doc.bodies.remove(id);
             if let Some(geo) = model.geometry.remove(id) {
                 pending.push((name, geo));

@@ -354,7 +354,7 @@ pub fn export_glb_bytes(
 }
 
 fn pad_buffer_4bytes(buf: &mut Vec<u8>) {
-    while buf.len() % 4 != 0 {
+    while !buf.len().is_multiple_of(4) {
         buf.push(0x00);
     }
 }

@@ -22,19 +22,10 @@ pub enum CmfDrawerEvent {
     Close,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CmfDrawer {
     pub custom_height: Option<f32>,
     pub fine_tune_expanded: bool,
-}
-
-impl Default for CmfDrawer {
-    fn default() -> Self {
-        Self {
-            custom_height: None,
-            fine_tune_expanded: false,
-        }
-    }
 }
 
 impl CmfDrawer {

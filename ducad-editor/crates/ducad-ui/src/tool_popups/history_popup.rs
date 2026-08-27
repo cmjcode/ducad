@@ -6,25 +6,13 @@ use egui_icons::icons::{ICON_HISTORY, ICON_REDO, ICON_UNDO};
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, TEXT_MUTED, TEXT_SECONDARY};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HistoryPopupState {
     pub can_undo_model: bool,
     pub can_redo_model: bool,
     pub total_entities_count: usize,
     pub total_bodies_count: usize,
     pub status_message: Option<String>,
-}
-
-impl Default for HistoryPopupState {
-    fn default() -> Self {
-        Self {
-            can_undo_model: false,
-            can_redo_model: false,
-            total_entities_count: 0,
-            total_bodies_count: 0,
-            status_message: None,
-        }
-    }
 }
 
 pub struct HistoryPopup;

@@ -33,18 +33,10 @@ pub enum PlanesDrawerEvent {
     Close,
 }
 
+#[derive(Default)]
 pub struct PlanesDrawer {
     pub search_query: String,
     pub custom_height: Option<f32>,
-}
-
-impl Default for PlanesDrawer {
-    fn default() -> Self {
-        Self {
-            search_query: String::new(),
-            custom_height: None,
-        }
-    }
 }
 
 impl PlanesDrawer {

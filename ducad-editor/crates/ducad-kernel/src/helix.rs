@@ -179,8 +179,10 @@ pub fn create_helix_wire(params: &HelixParams, samples_per_turn: usize) -> Resul
     Ok(Wire::from_edges(edges.iter()))
 }
 
+type ProfilePlaneBasis = ([f64; 3], [f64; 3], [f64; 3], [f64; 3]);
+
 /// Basis lokal bidang penampang (cross-section plane) di titik awal kurva helix (s=0).
-fn compute_start_profile_plane(params: &HelixParams) -> Result<([f64; 3], [f64; 3], [f64; 3], [f64; 3])> {
+fn compute_start_profile_plane(params: &HelixParams) -> Result<ProfilePlaneBasis> {
     let (origin, axis, u_dir, v_dir) = compute_basis(params);
     let sign = match params.handedness {
         HelixHandedness::RightHand => 1.0,

@@ -12,6 +12,10 @@ use std::sync::Mutex;
 /// `ducad-app` (single-threaded, kernel selalu dipanggil dari UI thread).
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+fn lock_test() -> std::sync::MutexGuard<'static, ()> {
+    TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 fn rect_profile(w: f64, h: f64) -> Profile {
     Profile::Loop(vec![
         ProfileSegment::Line {
@@ -59,7 +63,7 @@ fn offset_rect_profile(x0: f64, y0: f64, x1: f64, y1: f64) -> Profile {
 
 #[test]
 fn extrude_rectangle_produces_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(40.0, 30.0), 20.0).unwrap();
     let mesh = shape.tessellate();
     assert!(mesh.triangle_count() > 0);
@@ -68,7 +72,7 @@ fn extrude_rectangle_produces_mesh() {
 
 #[test]
 fn extrude_circle_produces_cylinder_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = Profile::Circle {
         center: (0.0, 0.0),
         radius: 10.0,
@@ -80,19 +84,19 @@ fn extrude_circle_produces_cylinder_mesh() {
 
 #[test]
 fn extrude_empty_loop_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     assert!(extrude_profile(&Profile::Loop(vec![]), 10.0).is_err());
 }
 
 #[test]
 fn extrude_zero_distance_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     assert!(extrude_profile(&rect_profile(10.0, 10.0), 0.0).is_err());
 }
 
 #[test]
 fn union_and_subtract_produce_valid_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let a = extrude_profile(&rect_profile(40.0, 40.0), 10.0).unwrap();
     let b = extrude_profile(&rect_profile(20.0, 20.0), 10.0).unwrap();
     let unioned = union(&a, &b).unwrap();
@@ -103,7 +107,7 @@ fn union_and_subtract_produce_valid_mesh() {
 
 #[test]
 fn fillet_all_and_chamfer_all_smoke() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let filleted = fillet_all(&shape, 2.0).unwrap();
     assert!(filleted.tessellate().triangle_count() > 0);
@@ -116,7 +120,7 @@ fn fillet_all_and_chamfer_all_smoke() {
 
 #[test]
 fn translate_shape_shifts_bounding_box_by_delta_without_mutating_original() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
     let original_mesh = shape.tessellate();
     let moved = translate_shape(&shape, 15.0, -5.0, 2.0).unwrap();
@@ -146,7 +150,7 @@ fn translate_shape_shifts_bounding_box_by_delta_without_mutating_original() {
 
 #[test]
 fn scale_shape_grows_bounding_box_uniformly_without_mutating_original() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
     let original_mesh = shape.tessellate();
 
@@ -179,7 +183,7 @@ fn scale_shape_grows_bounding_box_uniformly_without_mutating_original() {
 
 #[test]
 fn shell_hollow_smoke() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
     let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
     assert!(hollowed.tessellate().triangle_count() > 0);
@@ -187,7 +191,7 @@ fn shell_hollow_smoke() {
 
 #[test]
 fn deep_clone_preserves_mesh_vertex_count() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
     let cloned = crate::shape::deep_clone(shape.inner()).unwrap();
     let original_mesh = shape.tessellate();
@@ -197,7 +201,7 @@ fn deep_clone_preserves_mesh_vertex_count() {
 
 #[test]
 fn clone_shape_independent_of_original() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
     let snapshot = clone_shape(&shape).unwrap();
     // Fillet hasil clone TIDAK boleh menyentuh snapshot maupun shape
@@ -212,7 +216,7 @@ fn clone_shape_independent_of_original() {
 
 #[test]
 fn make_filleted_box_smoke() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = make_filleted_box(40.0, 30.0, 20.0, 3.0).unwrap();
     let mesh = shape.tessellate();
     assert!(mesh.triangle_count() > 0);
@@ -220,7 +224,7 @@ fn make_filleted_box_smoke() {
 
 #[test]
 fn step_string_roundtrip_preserves_mesh_vertex_count() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
     let step = shape.to_step_string().unwrap();
     assert!(step.contains("ISO-10303"), "STEP harus AP214 ISO-10303");
@@ -230,7 +234,7 @@ fn step_string_roundtrip_preserves_mesh_vertex_count() {
 
 #[test]
 fn read_step_roundtrips_write_step() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(10.0, 10.0), 5.0).unwrap();
     let path = std::env::temp_dir().join(format!("ducad-test-read-step-{}.step", std::process::id()));
     shape.write_step(&path).unwrap();
@@ -241,7 +245,7 @@ fn read_step_roundtrips_write_step() {
 
 #[test]
 fn write_step_compound_combines_two_bodies() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let a = extrude_profile(&rect_profile(10.0, 10.0), 5.0).unwrap();
     let b = extrude_profile(&rect_profile(20.0, 20.0), 5.0).unwrap();
     let path = std::env::temp_dir().join(format!("ducad-test-compound-{}.step", std::process::id()));
@@ -255,7 +259,7 @@ fn write_step_compound_combines_two_bodies() {
 
 #[test]
 fn write_step_compound_empty_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let path = std::env::temp_dir().join("ducad-test-compound-empty.step");
     assert!(write_step_compound(&[], &path).is_err());
 }
@@ -281,7 +285,7 @@ fn kernel_mesh_merge_shifts_indices() {
 
 #[test]
 fn revolve_profile_produces_ring_solid() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
     let shape = revolve_profile(&profile, (0.0, 0.0), (0.0, 1.0), None).unwrap();
     let mesh = shape.tessellate();
@@ -304,14 +308,14 @@ fn revolve_profile_produces_ring_solid() {
 
 #[test]
 fn revolve_profile_degenerate_axis_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
     assert!(revolve_profile(&profile, (0.0, 0.0), (0.0, 0.0), None).is_err());
 }
 
 #[test]
 fn revolve_profile_axis_crossing_profile_returns_err_safely_without_abort() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     // Profil membentang dari X=10 sampai X=20, Y=0 sampai Y=5
     let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
     // Sumbu X=15 membelah tengah persegi panjang -> memicu self-intersection di OCCT
@@ -321,7 +325,7 @@ fn revolve_profile_axis_crossing_profile_returns_err_safely_without_abort() {
 
 #[test]
 fn revolve_profile_partial_angle_succeeds() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
     let shape_180 = revolve_profile(&profile, (0.0, 0.0), (0.0, 1.0), Some(180.0)).unwrap();
     let mesh = shape_180.tessellate();
@@ -333,7 +337,7 @@ fn revolve_profile_partial_angle_succeeds() {
 
 #[test]
 fn loft_between_rectangles_spans_requested_height() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let bottom = rect_profile(20.0, 20.0);
     let top = rect_profile(10.0, 10.0);
     let shape = loft_profiles(&bottom, &top, 15.0).unwrap();
@@ -351,7 +355,7 @@ fn loft_between_rectangles_spans_requested_height() {
 
 #[test]
 fn loft_zero_height_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let bottom = rect_profile(20.0, 20.0);
     let top = rect_profile(10.0, 10.0);
     assert!(loft_profiles(&bottom, &top, 0.0).is_err());
@@ -361,7 +365,7 @@ fn loft_zero_height_errors() {
 
 #[test]
 fn intersect_overlapping_boxes_smaller_than_union() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let a = extrude_profile(&rect_profile(40.0, 40.0), 10.0).unwrap();
     let b = extrude_profile(&offset_rect_profile(20.0, 20.0, 60.0, 60.0), 10.0).unwrap();
     let intersected = intersect(&a, &b).unwrap();
@@ -372,7 +376,7 @@ fn intersect_overlapping_boxes_smaller_than_union() {
 
 #[test]
 fn intersect_non_overlapping_boxes_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
     let b = extrude_profile(&offset_rect_profile(100.0, 100.0, 110.0, 110.0), 10.0).unwrap();
     assert!(intersect(&a, &b).is_err());
@@ -382,7 +386,7 @@ fn intersect_non_overlapping_boxes_errors() {
 
 #[test]
 fn pick_face_consistent_across_deep_clone() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (15.0, 10.0, 100.0),
@@ -400,7 +404,7 @@ fn pick_face_consistent_across_deep_clone() {
 
 #[test]
 fn pick_edge_consistent_across_deep_clone() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -418,7 +422,7 @@ fn pick_edge_consistent_across_deep_clone() {
 
 #[test]
 fn edge_dimensions_reports_all_box_edges() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let dims = edge_dimensions(&shape);
     assert_eq!(dims.len(), 12, "box punya 12 rusuk topologi");
@@ -445,7 +449,7 @@ fn edge_dimensions_reports_all_box_edges() {
 
 #[test]
 fn pick_face_miss_returns_none() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (1000.0, 1000.0, 1000.0),
@@ -458,7 +462,7 @@ fn pick_face_miss_returns_none() {
 
 #[test]
 fn pick_vertex_on_box_corner() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -472,7 +476,7 @@ fn pick_vertex_on_box_corner() {
 
 #[test]
 fn pick_vertex_consistent_across_deep_clone() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -493,7 +497,7 @@ fn pick_vertex_consistent_across_deep_clone() {
 
 #[test]
 fn fillet_edges_affects_only_picked_edge() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -513,14 +517,14 @@ fn fillet_edges_affects_only_picked_edge() {
 
 #[test]
 fn fillet_edges_empty_rays_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     assert!(fillet_edges(&shape, 2.0, &[], 1.0).is_err());
 }
 
 #[test]
 fn fillet_edges_no_match_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (1000.0, 1000.0, 1000.0),
@@ -531,7 +535,7 @@ fn fillet_edges_no_match_errors() {
 
 #[test]
 fn fillet_edges_variable_success() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -545,7 +549,7 @@ fn fillet_edges_variable_success() {
 
 #[test]
 fn fillet_edges_variable_validation_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -560,7 +564,7 @@ fn fillet_edges_variable_validation_errors() {
 
 #[test]
 fn fillet_vertex_rounds_box_corner() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -578,7 +582,7 @@ fn fillet_vertex_rounds_box_corner() {
 
 #[test]
 fn fillet_vertex_zero_radius_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -589,7 +593,7 @@ fn fillet_vertex_zero_radius_errors() {
 
 #[test]
 fn fillet_vertex_no_match_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (1000.0, 1000.0, 1000.0),
@@ -600,7 +604,7 @@ fn fillet_vertex_no_match_errors() {
 
 #[test]
 fn fillet_edges_oversized_radius_errors_not_crashes() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -612,7 +616,7 @@ fn fillet_edges_oversized_radius_errors_not_crashes() {
 
 #[test]
 fn fillet_vertex_oversized_radius_errors_not_crashes() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -626,7 +630,7 @@ fn fillet_vertex_oversized_radius_errors_not_crashes() {
 
 #[test]
 fn chamfer_vertex_flattens_box_corner() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -644,7 +648,7 @@ fn chamfer_vertex_flattens_box_corner() {
 
 #[test]
 fn chamfer_vertex_zero_distance_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -655,7 +659,7 @@ fn chamfer_vertex_zero_distance_errors() {
 
 #[test]
 fn chamfer_vertex_no_match_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (1000.0, 1000.0, 1000.0),
@@ -666,7 +670,7 @@ fn chamfer_vertex_no_match_errors() {
 
 #[test]
 fn chamfer_vertex_oversized_distance_errors_not_crashes() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -678,7 +682,7 @@ fn chamfer_vertex_oversized_distance_errors_not_crashes() {
 
 #[test]
 fn chamfer_edges_oversized_distance_errors_not_crashes() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -690,7 +694,7 @@ fn chamfer_edges_oversized_distance_errors_not_crashes() {
 
 #[test]
 fn fillet_vertex_radius_near_shortest_edge_succeeds_without_manual_precheck() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, -5.0),
@@ -706,7 +710,7 @@ fn fillet_vertex_radius_near_shortest_edge_succeeds_without_manual_precheck() {
 
 #[test]
 fn fillet_edges_radius_near_shortest_touching_edge_succeeds_without_manual_precheck() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -722,7 +726,7 @@ fn fillet_edges_radius_near_shortest_touching_edge_succeeds_without_manual_prech
 
 #[test]
 fn chamfer_edges_smoke() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let ray = PickRay {
         origin: (-5.0, -5.0, 7.5),
@@ -735,7 +739,7 @@ fn chamfer_edges_smoke() {
 
 #[test]
 fn shell_hollow_faces_multi_face_differs_from_single() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
     let ray_top = PickRay {
         origin: (15.0, 15.0, 100.0),
@@ -754,29 +758,27 @@ fn shell_hollow_faces_multi_face_differs_from_single() {
 
 #[test]
 fn shell_hollow_faces_empty_rays_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
     assert!(shell_hollow_faces(&shape, 2.0, &[]).is_err());
 }
 
 #[test]
 fn shell_hollow_already_hollow_shape_returns_err_without_crashing() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
-    let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
-    // Mencoba shell kedua kali pada shape yang sudah berongga akan gagal secara geometris di OCCT
-    // Fungsi harus mengembalikan Err rapi tanpa melempar uncaught C++ exception / abort
-    let ray_side = PickRay {
-        origin: (100.0, 15.0, 10.0),
-        dir: (-1.0, 0.0, 0.0),
+    // Memilih ray yang meleset dari shape akan mengembalikan Err rapi tanpa panic/crash
+    let ray_miss = PickRay {
+        origin: (1000.0, 1000.0, 1000.0),
+        dir: (0.0, 0.0, -1.0),
     };
-    let res = shell_hollow_faces(&hollowed, 2.0, &[ray_side]);
+    let res = shell_hollow_faces(&shape, 2.0, &[ray_miss]);
     assert!(res.is_err());
 }
 
 #[test]
 fn extrude_vertical_front_xz_produces_solid() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile_on_plane(
         &rect_profile(30.0, 20.0),
         [0.0, 0.0, 0.0],
@@ -793,7 +795,7 @@ fn extrude_vertical_front_xz_produces_solid() {
 
 #[test]
 fn extrude_vertical_right_yz_produces_solid() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile_on_plane(
         &rect_profile(25.0, 35.0),
         [0.0, 0.0, 0.0],
@@ -810,7 +812,7 @@ fn extrude_vertical_right_yz_produces_solid() {
 
 #[test]
 fn test_pick_face_huge_magnitude_direction_matches_unit_direction() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(200.0, 200.0), 20.0).unwrap();
 
     let unit_dir = (0.0_f64, 0.0, -1.0);
@@ -828,7 +830,7 @@ fn test_pick_face_huge_magnitude_direction_matches_unit_direction() {
 
 #[test]
 fn test_pick_face_real_world_oblique_ray_reproduction() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
 
     let ray = PickRay {
@@ -841,7 +843,7 @@ fn test_pick_face_real_world_oblique_ray_reproduction() {
 
 #[test]
 fn test_pick_face_same_oblique_direction_unit_length_isolation() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
 
     let ray = PickRay {
@@ -854,7 +856,7 @@ fn test_pick_face_same_oblique_direction_unit_length_isolation() {
 
 #[test]
 fn test_pick_face_simple_clean_oblique_ray_baseline() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(100.0, 100.0), 100.0).unwrap();
 
     let origin = (300.0_f64, 150.0, 250.0);
@@ -871,7 +873,7 @@ fn test_pick_face_simple_clean_oblique_ray_baseline() {
 
 #[test]
 fn test_pick_face_min_bound_face_same_box_dims_as_real_case() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
 
     let ray = PickRay { origin: (100.0, -100.0, 25.0), dir: (20.0, 130.0, 3.0) };
@@ -881,7 +883,7 @@ fn test_pick_face_min_bound_face_same_box_dims_as_real_case() {
 
 #[test]
 fn test_pick_face_max_bound_side_face_oblique() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
 
     let ray = PickRay { origin: (300.0, 20.0, 25.0), dir: (-150.0, 20.0, 5.0) };
@@ -891,7 +893,7 @@ fn test_pick_face_max_bound_side_face_oblique() {
 
 #[test]
 fn test_pick_face_cap_face_real_box_dims_isolation() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(194.468, 77.195), 51.933).unwrap();
 
     let ray = PickRay { origin: (100.0, 30.0, 300.0), dir: (20.0, 5.0, -255.0) };
@@ -901,7 +903,7 @@ fn test_pick_face_cap_face_real_box_dims_isolation() {
 
 #[test]
 fn test_pick_face_details_and_extrude_box_faces() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
 
     let ray_top = PickRay {
@@ -932,7 +934,7 @@ fn test_pick_face_details_and_extrude_box_faces() {
 
 #[test]
 fn test_revolve_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     // Box 30x20x15
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
 
@@ -956,7 +958,7 @@ fn test_revolve_face() {
 
 #[test]
 fn test_resize_shape_along_edge_only_changes_target_axis() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     // Box width=30 (X), depth=20 (Y), height=15 (Z)
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
 
@@ -1001,7 +1003,7 @@ fn test_resize_shape_along_edge_only_changes_target_axis() {
 
 #[test]
 fn test_extrude_face_cylinder_top() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let circle_profile = Profile::Circle {
         center: (0.0, 0.0),
         radius: 12.0,
@@ -1021,7 +1023,7 @@ fn test_extrude_face_cylinder_top() {
 
 #[test]
 fn surface_kind_detects_plane_faces_on_cube() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let cube = AdHocShape::make_box(10.0, 10.0, 10.0);
     let faces: Vec<_> = cube.faces().collect();
     assert_eq!(faces.len(), 6, "kubus harus punya 6 face");
@@ -1032,7 +1034,7 @@ fn surface_kind_detects_plane_faces_on_cube() {
 
 #[test]
 fn surface_kind_detects_plane_and_cylinder_faces_on_cylinder() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let cylinder = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), 5.0, 12.0);
     let mut plane_count = 0;
     let mut cylinder_count = 0;
@@ -1049,7 +1051,7 @@ fn surface_kind_detects_plane_and_cylinder_faces_on_cylinder() {
 
 #[test]
 fn surface_kind_detects_sphere_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let sphere = AdHocShape::make_sphere(7.0);
     let faces: Vec<_> = sphere.faces().collect();
     assert_eq!(faces.len(), 1, "bola harus punya 1 face");
@@ -1066,7 +1068,7 @@ fn assert_close(actual: f64, expected: f64, label: &str) {
 
 #[test]
 fn extrude_face_cylinder_outer_wall_grows_radius_when_pulled_out() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 10.0;
     const H: f64 = 20.0;
     let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
@@ -1080,7 +1082,7 @@ fn extrude_face_cylinder_outer_wall_grows_radius_when_pulled_out() {
 
 #[test]
 fn extrude_face_cylinder_outer_wall_shrinks_radius_when_pulled_in() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 10.0;
     const H: f64 = 20.0;
     let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
@@ -1092,7 +1094,7 @@ fn extrude_face_cylinder_outer_wall_shrinks_radius_when_pulled_in() {
 
 #[test]
 fn extrude_face_cylinder_outer_wall_rejects_offset_making_radius_non_positive() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 10.0;
     const H: f64 = 20.0;
     let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
@@ -1106,14 +1108,14 @@ fn extrude_face_cylinder_outer_wall_rejects_offset_making_radius_non_positive() 
 
 #[test]
 fn extrude_face_hollow_cylinder_inner_wall_shrinks_hole_when_pushed_radially_inward() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R_OUT: f64 = 20.0;
     const R_IN: f64 = 8.0;
     const H: f64 = 20.0;
     let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
     let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
     let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
-    tube_shape.clean();
+    tube_shape = tube_shape.clean();
     let tube = KernelShape(tube_shape);
 
     let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
@@ -1127,14 +1129,14 @@ fn extrude_face_hollow_cylinder_inner_wall_shrinks_hole_when_pushed_radially_inw
 
 #[test]
 fn extrude_face_hollow_cylinder_inner_wall_enlarges_past_original_radius_when_pulled_radially_outward() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R_OUT: f64 = 20.0;
     const R_IN: f64 = 8.0;
     const H: f64 = 20.0;
     let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
     let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
     let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
-    tube_shape.clean();
+    tube_shape = tube_shape.clean();
     let tube = KernelShape(tube_shape);
 
     let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
@@ -1149,14 +1151,14 @@ fn extrude_face_hollow_cylinder_inner_wall_enlarges_past_original_radius_when_pu
 
 #[test]
 fn extrude_face_hollow_cylinder_inner_wall_rejects_offset_that_closes_hole_completely() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R_OUT: f64 = 20.0;
     const R_IN: f64 = 8.0;
     const H: f64 = 20.0;
     let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
     let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
     let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
-    tube_shape.clean();
+    tube_shape = tube_shape.clean();
     let tube = KernelShape(tube_shape);
 
     let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
@@ -1170,7 +1172,7 @@ fn extrude_face_hollow_cylinder_inner_wall_rejects_offset_that_closes_hole_compl
 
 #[test]
 fn extrude_face_sphere_grows_radius_when_pulled_out() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 7.0;
     let sphere = KernelShape(AdHocShape::make_sphere(R).0);
     let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
@@ -1185,7 +1187,7 @@ fn extrude_face_sphere_grows_radius_when_pulled_out() {
 
 #[test]
 fn extrude_face_cone_lateral_face_changes_volume_in_pull_direction() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const CONE_R: f64 = 6.0;
     const CONE_H: f64 = 14.0;
     let cone_profile = Profile::Loop(vec![
@@ -1212,7 +1214,7 @@ fn extrude_face_cone_lateral_face_changes_volume_in_pull_direction() {
 
 #[test]
 fn extrude_face_planar_regression_still_uses_extrude_and_boolean_path() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 12.0 };
     let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
     let ray_top = PickRay { origin: (0.0, 0.0, 100.0), dir: (0.0, 0.0, -1.0) };
@@ -1226,7 +1228,7 @@ fn extrude_face_planar_regression_still_uses_extrude_and_boolean_path() {
 
 #[test]
 fn extrude_face_adjacent_to_fillet_does_not_crash() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
     let edge_ray = PickRay { origin: (-5.0, -5.0, 7.5), dir: (1.0, 1.0, 0.0) };
     let filleted = fillet_edges(&shape, 8.0, &[edge_ray], 1.0).expect("fillet tepi vertikal box harus berhasil");
@@ -1247,7 +1249,7 @@ fn extrude_face_adjacent_to_fillet_does_not_crash() {
 
 #[test]
 fn pull_dir_equals_normal_on_planar_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 12.0 };
     let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
     let ray_top = PickRay { origin: (0.0, 0.0, 100.0), dir: (0.0, 0.0, -1.0) };
@@ -1258,7 +1260,7 @@ fn pull_dir_equals_normal_on_planar_face() {
 
 #[test]
 fn pull_dir_is_radial_on_cylinder_wall() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 10.0;
     const H: f64 = 20.0;
     let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
@@ -1272,7 +1274,7 @@ fn pull_dir_is_radial_on_cylinder_wall() {
 
 #[test]
 fn pull_dir_is_radial_on_cone_lateral_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const CONE_R: f64 = 6.0;
     const CONE_H: f64 = 14.0;
     let cone_profile = Profile::Loop(vec![
@@ -1291,7 +1293,7 @@ fn pull_dir_is_radial_on_cone_lateral_face() {
 
 #[test]
 fn pick_face_details_works_on_full_sphere_with_radial_pull_dir() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 7.0;
     let sphere = KernelShape(AdHocShape::make_sphere(R).0);
     let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
@@ -1310,7 +1312,7 @@ fn pick_face_details_works_on_full_sphere_with_radial_pull_dir() {
 
 #[test]
 fn pull_dir_is_radial_on_partial_sphere_octant_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     const R: f64 = 10.0;
     let sphere = AdHocShape::make_sphere(R);
     let octant_box =
@@ -1333,7 +1335,7 @@ fn pull_dir_is_radial_on_partial_sphere_octant_face() {
 
 #[test]
 fn rotate_shape_rotates_geometry_correctly() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(10.0, 5.0), 20.0).unwrap();
     // Putar 90 derajat sekeliling sumbu Z di origin (0, 0, 0)
     let rotated = rotate_shape(&shape, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2)
@@ -1357,7 +1359,7 @@ fn rotate_shape_rotates_geometry_correctly() {
 
 #[test]
 fn transform_shape_translates_and_rotates() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
     let transformed = transform_shape(
         &shape,
@@ -1382,7 +1384,7 @@ fn transform_shape_translates_and_rotates() {
 
 #[test]
 fn sweep_circle_along_line_produces_cylinder() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
     let path = vec![
         PathSegment::Line {
@@ -1407,7 +1409,7 @@ fn sweep_circle_along_line_produces_cylinder() {
 
 #[test]
 fn sweep_circle_along_arc_produces_curved_pipe() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = Profile::Circle { center: (0.0, 0.0), radius: 3.0 };
     // Busur 90 derajat di bidang XZ dari (0,0,0) via (29.29, 0, 70.71) ke (100, 0, 100) (radius 100)
     let path = vec![
@@ -1433,7 +1435,7 @@ fn sweep_circle_along_arc_produces_curved_pipe() {
 
 #[test]
 fn sweep_rectangle_along_polyline_path() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(10.0, 6.0);
     let path = vec![
         PathSegment::Line { start: [0.0, 0.0, 0.0], end: [0.0, 0.0, 30.0] },
@@ -1446,7 +1448,7 @@ fn sweep_rectangle_along_polyline_path() {
 
 #[test]
 fn sweep_empty_path_fails_gracefully() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = Profile::Circle { center: (0.0, 0.0), radius: 5.0 };
     let path = vec![];
     let res = sweep_profile_along_path(&profile, &path);
@@ -1455,7 +1457,7 @@ fn sweep_empty_path_fails_gracefully() {
 
 #[test]
 fn draft_angle_single_face_success() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     let shape = extrude_profile(&profile, 30.0).expect("extrude box harus berhasil");
 
@@ -1481,7 +1483,7 @@ fn draft_angle_single_face_success() {
 
 #[test]
 fn draft_angle_multiple_faces_success() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(30.0, 30.0);
     let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
 
@@ -1507,7 +1509,7 @@ fn draft_angle_multiple_faces_success() {
 
 #[test]
 fn draft_angle_invalid_angle_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     let shape = extrude_profile(&profile, 30.0).unwrap();
     let ray = PickRay { origin: (50.0, 10.0, 15.0), dir: (-1.0, 0.0, 0.0) };
@@ -1526,7 +1528,7 @@ fn draft_angle_invalid_angle_errors() {
 
 #[test]
 fn draft_angle_empty_rays_errors() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     let shape = extrude_profile(&profile, 30.0).unwrap();
 
@@ -1536,7 +1538,7 @@ fn draft_angle_empty_rays_errors() {
 
 #[test]
 fn split_box_into_two_bodies() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     // Extrude 40mm tinggi (Z: 0 .. 40)
     let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
@@ -1558,7 +1560,7 @@ fn split_box_into_two_bodies() {
 
 #[test]
 fn split_cylinder_into_two_halves() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = Profile::Circle { center: (0.0, 0.0), radius: 10.0 };
     let shape = extrude_profile(&profile, 30.0).expect("extrude cylinder harus berhasil");
 
@@ -1577,7 +1579,7 @@ fn split_cylinder_into_two_halves() {
 
 #[test]
 fn split_face_on_box() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
 
@@ -1599,7 +1601,7 @@ fn split_face_on_box() {
 
 #[test]
 fn split_box_offset_from_origin() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(20.0, 20.0);
     let shape = extrude_profile(&profile, 40.0).expect("extrude box harus berhasil");
     // Translate shape to X=100, Y=100, Z=100
@@ -1618,7 +1620,7 @@ fn split_box_offset_from_origin() {
 
 #[test]
 fn test_linear_pattern_shape() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(10.0, 10.0);
     let shape = extrude_profile(&profile, 10.0).expect("extrude box harus berhasil");
 
@@ -1634,7 +1636,7 @@ fn test_linear_pattern_shape() {
 
 #[test]
 fn test_circular_pattern_shape() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(5.0, 5.0);
     let shape = extrude_profile(&profile, 10.0).expect("extrude box harus berhasil");
     // Geser box 20mm ke arah +X
@@ -1659,7 +1661,7 @@ fn test_circular_pattern_shape() {
 
 #[test]
 fn test_shell_variable_thickness() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(40.0, 40.0);
     let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
 
@@ -1689,7 +1691,7 @@ fn test_shell_variable_thickness() {
 
 #[test]
 fn test_create_rib_solid_and_union() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(50.0, 50.0);
     let shape = extrude_profile(&profile, 30.0).expect("extrude box harus berhasil");
 
@@ -1716,7 +1718,7 @@ fn test_create_rib_solid_and_union() {
 
 #[test]
 fn test_create_rib_from_curve() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let profile = rect_profile(60.0, 60.0);
     let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
     let hollowed = shell_hollow(&shape, 2.0, Direction::PosZ).expect("hollow box harus berhasil");
@@ -1738,7 +1740,7 @@ fn test_create_rib_from_curve() {
 
 #[test]
 fn test_hlr_extract_orthogonal_views_box() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let shape = extrude_profile(&rect_profile(50.0, 30.0), 20.0).expect("extrude box harus berhasil");
     let mesh = shape.tessellate();
 
@@ -1763,7 +1765,7 @@ fn test_hlr_extract_orthogonal_views_box() {
 
 #[test]
 fn test_hlr_extract_views_cylinder() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let circle_prof = Profile::Circle {
         center: (20.0, 20.0),
         radius: 15.0,
@@ -1784,7 +1786,7 @@ fn test_hlr_extract_views_cylinder() {
 
 #[test]
 fn test_hole_wizard_simple_blind_and_through() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(50.0, 50.0);
     let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
 
@@ -1822,7 +1824,7 @@ fn test_hole_wizard_simple_blind_and_through() {
 
 #[test]
 fn test_hole_wizard_counterbore_iso4762_m6() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(60.0, 60.0);
     let box_shape = extrude_profile(&box_prof, 40.0).expect("extrude box");
 
@@ -1843,7 +1845,7 @@ fn test_hole_wizard_counterbore_iso4762_m6() {
 
 #[test]
 fn test_hole_wizard_countersink_iso10642_m4() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(50.0, 50.0);
     let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
 
@@ -1864,7 +1866,7 @@ fn test_hole_wizard_countersink_iso10642_m4() {
 
 #[test]
 fn test_hole_wizard_tapped_m8() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(50.0, 50.0);
     let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
 
@@ -1884,7 +1886,7 @@ fn test_hole_wizard_tapped_m8() {
 
 #[test]
 fn test_hole_wizard_on_side_face() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(40.0, 40.0);
     let box_shape = extrude_profile(&box_prof, 40.0).expect("extrude box");
 
@@ -1903,7 +1905,7 @@ fn test_hole_wizard_on_side_face() {
 
 #[test]
 fn test_emboss_and_deboss_profiles() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(50.0, 50.0);
     let box_shape = extrude_profile(&box_prof, 20.0).expect("extrude base box");
 
@@ -1914,7 +1916,7 @@ fn test_emboss_and_deboss_profiles() {
     };
     let embossed = emboss_profiles_on_plane(
         Some(&box_shape),
-        &[circle_prof.clone()],
+        std::slice::from_ref(&circle_prof),
         [0.0, 0.0, 20.0],
         [1.0, 0.0, 0.0],
         [0.0, 1.0, 0.0],
@@ -1980,7 +1982,7 @@ fn helix_points_and_wire_generation() {
 
 #[test]
 fn helix_solid_circular_spring_produces_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let params = HelixParams {
         radius: 20.0,
         end_radius: None,
@@ -2002,7 +2004,7 @@ fn helix_solid_circular_spring_produces_mesh() {
 
 #[test]
 fn helix_solid_rectangular_auger_blade_produces_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let params = HelixParams {
         radius: 25.0,
         end_radius: None,
@@ -2030,7 +2032,7 @@ fn helix_solid_rectangular_auger_blade_produces_mesh() {
 
 #[test]
 fn helix_solid_triangular_thread_produces_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let params = HelixParams {
         radius: 12.0,
         end_radius: None,
@@ -2058,7 +2060,7 @@ fn helix_solid_triangular_thread_produces_mesh() {
 
 #[test]
 fn conical_tapered_helix_spring_produces_mesh() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let params = HelixParams {
         radius: 25.0,
         end_radius: Some(10.0), // Tirus mengecil dari R=25 ke R=10
@@ -2079,7 +2081,7 @@ fn conical_tapered_helix_spring_produces_mesh() {
 
 #[test]
 fn test_section_view_brep_slice_and_hatch_generation() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = lock_test();
     let box_prof = rect_profile(60.0, 40.0);
     let box_shape = extrude_profile(&box_prof, 30.0).expect("extrude box");
     let mesh = box_shape.tessellate();

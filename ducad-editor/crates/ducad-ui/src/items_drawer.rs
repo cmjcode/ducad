@@ -71,6 +71,7 @@ impl Default for ItemsDrawer {
 }
 
 /// Helper untuk merender kartu item dengan tombol eye visibility di sisi kiri
+#[allow(clippy::too_many_arguments)]
 fn render_item_card(
     ui: &mut Ui,
     id_raw: u64,
@@ -377,8 +378,8 @@ impl ItemsDrawer {
                             .desired_width(text_width),
                     );
 
-                    if has_query {
-                        if ui
+                    if has_query
+                        && ui
                             .small_button(
                                 RichText::new(ICON_CLEAR.codepoint)
                                     .size(11.0)
@@ -386,9 +387,8 @@ impl ItemsDrawer {
                             )
                             .on_hover_text(t!("history-clear-search"))
                             .clicked()
-                        {
-                            self.search_query.clear();
-                        }
+                    {
+                        self.search_query.clear();
                     }
 
                     let close_btn = ui

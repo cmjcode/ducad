@@ -868,7 +868,7 @@ fn extract_geometric_features(
             let angle_deg = angle_rad.to_degrees();
 
             // Hanya ambil sudut non-ortogonal (bukan 90° atau 180° atau 0°) misal 15°..75° atau 105°..165°
-            if (angle_deg >= 15.0 && angle_deg <= 75.0) || (angle_deg >= 105.0 && angle_deg <= 165.0) {
+            if (15.0..=75.0).contains(&angle_deg) || (105.0..=165.0).contains(&angle_deg) {
                 let is_dup = features.iter().any(|f| match f {
                     HlrGeometricFeature::Angle { vertex: v, angle_deg: a, .. } => {
                         (v[0] - vertex.x).hypot(v[1] - vertex.y) < 1.0 && (a - angle_deg).abs() < 1.0

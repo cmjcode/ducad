@@ -67,7 +67,13 @@ impl KernelMesh {
 }
 
 pub(crate) fn tessellate_shape(shape: &Shape) -> KernelMesh {
-    let mesh = shape.mesh();
+    let Ok(mesh) = shape.mesh() else {
+        return KernelMesh {
+            positions: Vec::new(),
+            normals: Vec::new(),
+            indices: Vec::new(),
+        };
+    };
     let positions = mesh
         .vertices
         .iter()

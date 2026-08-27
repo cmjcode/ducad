@@ -948,9 +948,9 @@ impl ToolGuides {
 
         // Render titik-titik jangkar
         let all_pts = [p0, p1, p2, p3];
-        for i in 0..pts_count {
-            painter.circle_filled(all_pts[i], 3.0, ACCENT_BLUE);
-            painter.circle_stroke(all_pts[i], 3.0, Stroke::new(1.0, Color32::WHITE));
+        for pt in all_pts.iter().take(pts_count) {
+            painter.circle_filled(*pt, 3.0, ACCENT_BLUE);
+            painter.circle_stroke(*pt, 3.0, Stroke::new(1.0, Color32::WHITE));
         }
 
         // Gambar kurva spline bertahap
@@ -1251,7 +1251,7 @@ impl ToolGuides {
             (orig_end, phase < 0.70)
         };
 
-        if phase >= 0.45 && phase < 0.70 {
+        if (0.45..0.70).contains(&phase) {
             // Preview garis perpanjangan cyan putus-putus
             painter.line_segment(
                 [orig_end, Pos2::new(inter_x, inter_y)],

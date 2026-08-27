@@ -2720,7 +2720,7 @@ impl eframe::App for DuCADApp {
                                 self.editing_hole_idx = Some((*body_id, new_idx));
                                 if let Some(hist) = self.hole_history.get(body_id) {
                                     if let Some(feat) = hist.features.get(new_idx) {
-                                        self.hole_popup_state.spec = feat.spec.clone();
+                                        self.hole_popup_state.spec = feat.spec;
                                         self.hole_popup_state.offset_u = feat.offset_u;
                                         self.hole_popup_state.offset_v = feat.offset_v;
                                         self.hole_popup_state.current_pos_3d = Some(feat.pos);
@@ -2939,7 +2939,7 @@ impl eframe::App for DuCADApp {
                     end_y,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
                         let new_entity = Entity::line(
                             DVec2::new(start_x, start_y),
                             DVec2::new(end_x, end_y),
@@ -2956,7 +2956,7 @@ impl eframe::App for DuCADApp {
                     radius,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
                         let new_entity = Entity::circle(
                             DVec2::new(center_x, center_y),
                             radius,
@@ -2975,7 +2975,7 @@ impl eframe::App for DuCADApp {
                     end_angle_deg,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
                         let new_entity = Entity::arc(
                             DVec2::new(center_x, center_y),
                             radius,
@@ -2995,7 +2995,7 @@ impl eframe::App for DuCADApp {
                     radius_y,
                 } => {
                     if let Some(&id) = self.selected.iter().find(|i| i.data().as_ffi() == id_raw) {
-                        let is_const = self.sketch().entities.get(id).map_or(false, |e| e.is_construction());
+                        let is_const = self.sketch().entities.get(id).is_some_and(|e| e.is_construction());
                         let new_entity = Entity::ellipse(
                             DVec2::new(center_x, center_y),
                             radius_x,

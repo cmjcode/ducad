@@ -645,6 +645,7 @@ fn push_planar_tile(
 }
 
 /// Helper: gambar busur rotasi melengkung dengan panah dua arah di kedua ujungnya.
+#[allow(clippy::too_many_arguments)]
 fn push_curved_rotation_arc(
     verts: &mut Vec<LineVertex>,
     center: Vec3,

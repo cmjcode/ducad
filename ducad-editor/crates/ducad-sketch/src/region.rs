@@ -315,17 +315,15 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                     });
                 }
             }
-            Entity::Spline { points, .. } => {
-                if points.len() >= 2 {
-                    let sampled = crate::entity::sample_catmull_rom(points, 16);
-                    if let (Some(&s), Some(&e)) = (sampled.first(), sampled.last()) {
-                        segments.push(SegmentInfo {
-                            id,
-                            start: s,
-                            end: e,
-                            sampled_pts: sampled,
-                        });
-                    }
+            Entity::Spline { points, .. } if points.len() >= 2 => {
+                let sampled = crate::entity::sample_catmull_rom(points, 16);
+                if let (Some(&s), Some(&e)) = (sampled.first(), sampled.last()) {
+                    segments.push(SegmentInfo {
+                        id,
+                        start: s,
+                        end: e,
+                        sampled_pts: sampled,
+                    });
                 }
             }
             _ => {}
@@ -358,16 +356,12 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                         continue;
                     }
                     let d_start = (seg.start - current_tail).length();
-                    if d_start < CHAIN_EPS {
-                        if best_next.as_ref().is_none_or(|(_, _, best_d)| d_start < *best_d) {
-                            best_next = Some((next_idx, false, d_start));
-                        }
+                    if d_start < CHAIN_EPS && best_next.as_ref().is_none_or(|(_, _, best_d)| d_start < *best_d) {
+                        best_next = Some((next_idx, false, d_start));
                     }
                     let d_end = (seg.end - current_tail).length();
-                    if d_end < CHAIN_EPS {
-                        if best_next.as_ref().is_none_or(|(_, _, best_d)| d_end < *best_d) {
-                            best_next = Some((next_idx, true, d_end));
-                        }
+                    if d_end < CHAIN_EPS && best_next.as_ref().is_none_or(|(_, _, best_d)| d_end < *best_d) {
+                        best_next = Some((next_idx, true, d_end));
                     }
                 }
 

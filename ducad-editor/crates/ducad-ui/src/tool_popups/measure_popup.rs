@@ -6,19 +6,10 @@ use egui_icons::icons::{ICON_CLOSE, ICON_STRAIGHTEN};
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_ORANGE, TEXT_SECONDARY};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MeasurePopupState {
     pub show_all_dimensions: bool,
     pub measurements: Vec<String>,
-}
-
-impl Default for MeasurePopupState {
-    fn default() -> Self {
-        Self {
-            show_all_dimensions: false,
-            measurements: Vec::new(),
-        }
-    }
 }
 
 pub struct MeasurePopup;

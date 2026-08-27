@@ -732,7 +732,7 @@ impl AssemblyDrawer {
                             ))
                             .size(11.0)
                             .strong()
-                            .color(if clash_report.map_or(false, |r| r.has_clashes()) {
+                            .color(if clash_report.is_some_and(|r| r.has_clashes()) {
                                 ACCENT_ORANGE
                             } else {
                                 TEXT_SECONDARY

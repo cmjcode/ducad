@@ -434,7 +434,7 @@ pub fn compute_fillet_2d(
 
     let dot = u1.dot(u2).clamp(-1.0, 1.0);
     // Tolak sudut yang terlalu kolinear (0 atau 180 derajat)
-    if dot > 0.9999 || dot < -0.9999 {
+    if !(-0.9999..=0.9999).contains(&dot) {
         return None;
     }
 
@@ -537,7 +537,7 @@ pub fn compute_chamfer_2d(
     let u2 = (p2 - v) / len2;
 
     let dot = u1.dot(u2).clamp(-1.0, 1.0);
-    if dot > 0.9999 || dot < -0.9999 {
+    if !(-0.9999..=0.9999).contains(&dot) {
         return None;
     }
 

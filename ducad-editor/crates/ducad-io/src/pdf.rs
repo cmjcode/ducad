@@ -19,6 +19,12 @@ pub struct PdfWriter {
     offsets: Vec<usize>,
 }
 
+impl Default for PdfWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PdfWriter {
     pub fn new() -> Self {
         Self {
@@ -397,7 +403,7 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
             let r_pt = mm_to_pt(view_sz[0] * 0.5 * scale);
             let cx_pt = mm_to_pt(center_mm[0]);
             let cy_pt = mm_to_pt(center_mm[1]);
-            let k = r_pt * 0.55228475;
+            let k = r_pt * 0.552_284_8;
             s.push_str("q 0 0 0 RG 1.2 w [] 0 d\n");
             s.push_str(&format!(
                 "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
@@ -549,7 +555,7 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
                 let cx_pt = mm_to_pt(center_mm[0] + (ind.center_2d[0] - v_center[0]) * scale);
                 let cy_pt = mm_to_pt(center_mm[1] + (ind.center_2d[1] - v_center[1]) * scale);
                 let r_pt = mm_to_pt(ind.radius_mm * scale);
-                let k = r_pt * 0.55228475;
+                let k = r_pt * 0.552_284_8;
 
                 // Lingkaran putus-putus ISO
                 s.push_str("q 0.1 0.1 0.1 RG 0.8 w [4 2] 0 d\n");
@@ -582,8 +588,8 @@ fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
                 // Garis penunjuk (Leader line) & Huruf Label Detail
                 let lx_pt = mm_to_pt(center_mm[0] + (ind.label_pos[0] - v_center[0]) * scale);
                 let ly_pt = mm_to_pt(center_mm[1] + (ind.label_pos[1] - v_center[1]) * scale);
-                let rim_x = cx_pt + r_pt * 0.7071;
-                let rim_y = cy_pt + r_pt * 0.7071;
+                let rim_x = cx_pt + r_pt * std::f32::consts::FRAC_1_SQRT_2;
+                let rim_y = cy_pt + r_pt * std::f32::consts::FRAC_1_SQRT_2;
 
                 s.push_str("q 0.1 0.1 0.1 RG 0.8 w [] 0 d\n");
                 s.push_str(&format!("{rim_x:.2} {rim_y:.2} m {lx_pt:.2} {ly_pt:.2} l {:.2} {ly_pt:.2} l S Q\n", lx_pt + mm_to_pt(6.0)));
@@ -904,7 +910,7 @@ fn render_callout_balloons(s: &mut String, sheet: &DrawingSheet) {
 
 /// Render lingkaran kurva Bezier PDF dengan opsi isi latar putih.
 fn render_circle_pdf(s: &mut String, cx: f32, cy: f32, r: f32, filled_white: bool) {
-    let k = r * 0.55228475;
+    let k = r * 0.552_284_8;
     if filled_white {
         s.push_str("q 1 1 1 rg\n");
         s.push_str(&format!("{:.2} {:.2} m ", cx, cy + r));

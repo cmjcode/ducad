@@ -42,18 +42,10 @@ pub enum HistoryDrawerEvent {
     },
 }
 
+#[derive(Default)]
 pub struct HistoryDrawer {
     pub search_query: String,
     pub custom_height: Option<f32>,
-}
-
-impl Default for HistoryDrawer {
-    fn default() -> Self {
-        Self {
-            search_query: String::new(),
-            custom_height: None,
-        }
-    }
 }
 
 impl HistoryDrawer {
@@ -153,8 +145,8 @@ impl HistoryDrawer {
                             .desired_width(text_width),
                     );
 
-                    if has_query {
-                        if ui
+                    if has_query
+                        && ui
                             .small_button(
                                 RichText::new(ICON_CLEAR.codepoint)
                                     .size(11.0)
@@ -162,9 +154,8 @@ impl HistoryDrawer {
                             )
                             .on_hover_text(t!("history-clear-search"))
                             .clicked()
-                        {
-                            self.search_query.clear();
-                        }
+                    {
+                        self.search_query.clear();
                     }
 
                     let close_btn = ui

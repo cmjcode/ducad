@@ -12,16 +12,11 @@ use serde::{Deserialize, Serialize};
 use unic_langid::{langid, LanguageIdentifier};
 
 /// Pilihan bahasa yang didukung oleh DUCAD.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Language {
+    #[default]
     En,
     Id,
-}
-
-impl Default for Language {
-    fn default() -> Self {
-        Language::En
-    }
 }
 
 impl Language {

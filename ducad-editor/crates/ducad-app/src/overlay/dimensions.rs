@@ -1368,7 +1368,7 @@ impl DuCADApp {
                     for &bid in &self.selected_bodies {
                         if let Some(geo) = self.model.geometry.get(bid) {
                             let c = geo.mesh.center();
-                            sum_c += Vec3::new(c[0] as f32, c[1] as f32, c[2] as f32);
+                            sum_c += Vec3::new(c[0], c[1], c[2]);
                             count += 1;
                         }
                     }
@@ -1393,7 +1393,7 @@ impl DuCADApp {
                             let resp_x = CanvasHud::render_draggable_double_arrow_handle(ui, handle_x_2d, false, arrow_vec_opt);
                             if resp_x.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_x, resp_x.drag_delta());
-                                self.pattern_pitch_x = (self.pattern_pitch_x + delta_mm as f64).max(1.0);
+                                self.pattern_pitch_x = (self.pattern_pitch_x + delta_mm).max(1.0);
                                 self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_x));
                             }
 
@@ -1451,7 +1451,7 @@ impl DuCADApp {
                             let resp_y = CanvasHud::render_draggable_double_arrow_handle(ui, handle_y_2d, false, arrow_vec_opt);
                             if resp_y.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_y, resp_y.drag_delta());
-                                self.pattern_pitch_y = (self.pattern_pitch_y + delta_mm as f64).max(1.0);
+                                self.pattern_pitch_y = (self.pattern_pitch_y + delta_mm).max(1.0);
                                 self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_y));
                             }
 
@@ -1510,7 +1510,7 @@ impl DuCADApp {
                                 let resp_z = CanvasHud::render_draggable_double_arrow_handle(ui, handle_z_2d, false, arrow_vec_opt);
                                 if resp_z.dragged() {
                                     let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_z, resp_z.drag_delta());
-                                    self.pattern_pitch_z = (self.pattern_pitch_z + delta_mm as f64).max(1.0);
+                                    self.pattern_pitch_z = (self.pattern_pitch_z + delta_mm).max(1.0);
                                     self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_pitch_z));
                                 }
 
@@ -1682,7 +1682,7 @@ impl DuCADApp {
                             let resp_rad = CanvasHud::render_draggable_double_arrow_handle(ui, rad_handle_2d, false, arrow_vec_opt);
                             if resp_rad.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, pivot_3d, rad_dir, resp_rad.drag_delta());
-                                self.pattern_circ_radius = (self.pattern_circ_radius + delta_mm as f64).max(0.5);
+                                self.pattern_circ_radius = (self.pattern_circ_radius + delta_mm).max(0.5);
                                 self.pattern_dimension_edit_input = format!("{:.1}", self.unit.to_display_val(self.pattern_circ_radius));
                             }
 

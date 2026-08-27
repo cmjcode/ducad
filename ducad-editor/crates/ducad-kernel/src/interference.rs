@@ -43,7 +43,7 @@ pub struct BodyClash {
 ///
 /// $$V = \frac{1}{6} \left| \sum_{i=0}^{N-1} \mathbf{v}_{i,0} \cdot (\mathbf{v}_{i,1} \times \mathbf{v}_{i,2}) \right|$$
 pub fn compute_mesh_volume(mesh: &KernelMesh) -> f64 {
-    if mesh.indices.len() < 3 || mesh.indices.len() % 3 != 0 {
+    if mesh.indices.len() < 3 || !mesh.indices.len().is_multiple_of(3) {
         return 0.0;
     }
 
@@ -82,7 +82,7 @@ pub fn compute_mesh_volume(mesh: &KernelMesh) -> f64 {
 
 /// Hitung titik pusat gravitasi / centroid volume dari mesh segitiga tertutup.
 pub fn compute_mesh_centroid(mesh: &KernelMesh) -> [f64; 3] {
-    if mesh.indices.len() < 3 || mesh.indices.len() % 3 != 0 {
+    if mesh.indices.len() < 3 || !mesh.indices.len().is_multiple_of(3) {
         return [0.0, 0.0, 0.0];
     }
 
@@ -179,8 +179,10 @@ pub fn detect_interference(
     let mut clashes = Vec::new();
     let mut next_clash_id = 1u32;
 
+    type CachedBodyInfo<'a> = (u64, &'a String, &'a KernelShape, Option<([f32; 3], [f32; 3])>);
+
     // Cache mesh & bounding box untuk broad-phase
-    let cached_info: Vec<(u64, &String, &KernelShape, Option<([f32; 3], [f32; 3])>)> = bodies
+    let cached_info: Vec<CachedBodyInfo> = bodies
         .iter()
         .map(|(id, name, shape)| {
             let mesh = shape.tessellate();

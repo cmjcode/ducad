@@ -95,9 +95,10 @@ impl MateKind {
 }
 
 /// Status evaluasi kendala mate perakitan.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MateStatus {
     /// Mate terpenuhi dengan sempurna oleh posisi geometri saat ini.
+    #[default]
     Satisfied,
     /// Komponen masih memiliki derajat kebebasan gerak (Under-constrained).
     UnderConstrained,
@@ -105,12 +106,6 @@ pub enum MateStatus {
     Conflicted(String),
     /// Mate dinonaktifkan sementara oleh pengguna.
     Suppressed,
-}
-
-impl Default for MateStatus {
-    fn default() -> Self {
-        Self::Satisfied
-    }
 }
 
 /// Satu relasi kendala perakitan 3D (Mate Constraint) antar dua entitas part.

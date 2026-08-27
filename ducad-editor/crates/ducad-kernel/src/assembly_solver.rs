@@ -253,8 +253,8 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> Vec<(AssemblyInstanceId, MateT
         let id_b = mate.target_b.instance_id;
 
         // Cari instance target yang bisa digerakkan (non-grounded)
-        let is_a_grounded = tree.instances.get(&id_a).map_or(false, |i| i.is_grounded);
-        let is_b_grounded = tree.instances.get(&id_b).map_or(false, |i| i.is_grounded);
+        let is_a_grounded = tree.instances.get(&id_a).is_some_and(|i| i.is_grounded);
+        let is_b_grounded = tree.instances.get(&id_b).is_some_and(|i| i.is_grounded);
 
         if is_a_grounded && is_b_grounded {
             // Kedua part terkunci mati, cek apakah sudah terpenuhi

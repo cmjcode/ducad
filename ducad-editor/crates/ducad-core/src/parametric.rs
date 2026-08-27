@@ -13,9 +13,10 @@ use crate::HoleSpec;
 pub type FeatureId = u32;
 
 /// Status evaluasi fitur dalam Feature Tree DAG.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FeatureStatus {
     /// Fitur valid dan geometrinya mutakhir.
+    #[default]
     Valid,
     /// Parameter fitur (atau parent-nya) baru diubah dan perlu diregenerasi.
     NeedsRegeneration,
@@ -23,12 +24,6 @@ pub enum FeatureStatus {
     Error(String),
     /// Fitur dinonaktifkan sementara oleh pengguna (Suppressed).
     Suppressed,
-}
-
-impl Default for FeatureStatus {
-    fn default() -> Self {
-        Self::Valid
-    }
 }
 
 /// Jenis bidang acuan sketsa.

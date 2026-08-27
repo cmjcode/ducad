@@ -325,14 +325,14 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
             .union(&swept_shape)
             .context("gagal menggabungkan hasil extrude ke shape (mis. wajah bersinggungan dengan rounding di sebelahnya)")?
             .shape;
-        merged.clean();
+        merged = merged.clean();
         Ok(KernelShape::from_inner(merged))
     } else {
         let mut result = cloned
             .subtract(&swept_shape)
             .context("gagal mengurangi hasil extrude dari shape (mis. wajah bersinggungan dengan rounding di sebelahnya)")?
             .shape;
-        result.clean();
+        result = result.clean();
         Ok(KernelShape::from_inner(result))
     }
 }
@@ -366,7 +366,7 @@ pub fn revolve_face(
     match cloned.union(&swept_shape) {
         Ok(merged) => {
             let mut s = merged.shape;
-            s.clean();
+            s = s.clean();
             Ok(KernelShape::from_inner(s))
         }
         Err(_) => Ok(KernelShape::from_inner(swept_shape)),
@@ -798,7 +798,7 @@ pub fn create_rib_solid(
         }
     }
 
-    rib_shape.clean();
+    rib_shape = rib_shape.clean();
     Ok(KernelShape::from_inner(rib_shape))
 }
 
@@ -820,7 +820,7 @@ pub fn create_rib(
     match cloned.union(rib_shape.inner()) {
         Ok(merged) => {
             let mut s = merged.shape;
-            s.clean();
+            s = s.clean();
             Ok(KernelShape::from_inner(s))
         }
         Err(_) => {

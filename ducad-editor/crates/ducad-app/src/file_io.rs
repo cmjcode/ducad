@@ -604,7 +604,7 @@ impl DuCADApp {
         if !self.assembly_tree.instances.is_empty() {
             // Skenario A: Dari Assembly Tree (Part Instances)
             let mut groups: std::collections::HashMap<String, (u32, String, glam::Vec3)> = std::collections::HashMap::new();
-            for (_, inst) in &self.assembly_tree.instances {
+            for inst in self.assembly_tree.instances.values() {
                 if !inst.visible {
                     continue;
                 }

@@ -29,19 +29,10 @@ pub enum LightingDrawerEvent {
     Close,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LightingDrawer {
     pub custom_height: Option<f32>,
     pub fine_tune_expanded: bool,
-}
-
-impl Default for LightingDrawer {
-    fn default() -> Self {
-        Self {
-            custom_height: None,
-            fine_tune_expanded: false,
-        }
-    }
 }
 
 impl LightingDrawer {
@@ -50,6 +41,7 @@ impl LightingDrawer {
     }
 
     /// Render panel Studio Lighting di pojok kanan bawah kanvas.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut Ui,

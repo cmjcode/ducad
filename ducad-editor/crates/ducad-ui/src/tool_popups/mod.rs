@@ -162,6 +162,7 @@ pub fn render_bottom_right_popup<R>(
 }
 
 /// Helper pembungkus panel mengambang di pojok kanan bawah dengan ukuran, posisi stacking & resize interaktif.
+#[allow(clippy::too_many_arguments)]
 pub fn render_bottom_right_panel_custom<R>(
     ctx: &Context,
     id_str: &str,

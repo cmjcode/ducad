@@ -498,7 +498,7 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
                     None
                 }
             };
-        } else if let Some(parsed) = value.parse::<f64>().ok() {
+        } else if let Ok(parsed) = value.parse::<f64>() {
             match (current.unwrap_or(""), code) {
                 (_, "10") => fields.x0 = parsed,
                 (_, "20") => fields.y0 = parsed,

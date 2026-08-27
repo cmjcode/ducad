@@ -536,9 +536,9 @@ impl CanvasHud {
             "ducad-hud-section-banner",
             |ui| {
                 let mut event = None;
-                Self::hud_title(ui, &format!("✂ {}", t!("hud-section-banner")), true);
+                Self::hud_title(ui, format!("✂ {}", t!("hud-section-banner")), true);
                 ui.separator();
-                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     event = Some(CanvasHudEvent::TurnOffSectionView);
                 }
                 event
@@ -564,7 +564,7 @@ impl CanvasHud {
             "ducad-hud-studio-lighting-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, &format!("{} {}", ICON_LIGHTBULB_ON.codepoint, t!("hud-studio-title")), true);
+                Self::hud_title(ui, format!("{} {}", ICON_LIGHTBULB_ON.codepoint, t!("hud-studio-title")), true);
 
                 ui.separator();
 
@@ -602,7 +602,7 @@ impl CanvasHud {
 
                 // 3. Floor Soft Contact Shadow Toggle & Slider
                 let is_floor_active = *floor_shadow_enabled;
-                if Self::hud_toggle_btn(ui, &format!("⏥ {}", t!("hud-studio-floor-shadow")), is_floor_active).clicked() {
+                if Self::hud_toggle_btn(ui, format!("⏥ {}", t!("hud-studio-floor-shadow")), is_floor_active).clicked() {
                     *floor_shadow_enabled = !*floor_shadow_enabled;
                     action = Some(StudioHudAction::ToggleFloorShadow);
                 }
@@ -619,7 +619,7 @@ impl CanvasHud {
                 ui.separator();
 
                 // 4. Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(StudioHudAction::TurnOff);
                 }
 
@@ -645,7 +645,7 @@ impl CanvasHud {
             "ducad-hud-zebra-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, &format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")), true);
+                Self::hud_title(ui, format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")), true);
 
                 ui.separator();
 
@@ -653,37 +653,35 @@ impl CanvasHud {
                 ui.label(RichText::new(format!("{}:", t!("zebra-angle"))).size(10.0).color(TEXT_SECONDARY));
                 let is_horiz = angle.abs() < 1e-2;
                 let is_vert = (*angle - std::f32::consts::FRAC_PI_2).abs() < 1e-2;
-                let is_diag = (*angle - std::f32::consts::FRAC_PI_4).abs() < 1e-2;
+                let is_45 = (*angle - std::f32::consts::FRAC_PI_4).abs() < 1e-2;
 
-                if Self::hud_toggle_btn(ui, t!("zebra-horizontal"), is_horiz).clicked() {
+                if Self::hud_toggle_btn(ui, t!("zebra-horiz"), is_horiz).clicked() {
                     *angle = 0.0;
                     action = Some(ZebraHudAction::SetAngle(0.0));
                 }
 
-                if Self::hud_toggle_btn(ui, t!("zebra-vertical"), is_vert).clicked() {
+                if Self::hud_toggle_btn(ui, t!("zebra-vert"), is_vert).clicked() {
                     *angle = std::f32::consts::FRAC_PI_2;
                     action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_2));
                 }
 
-                if Self::hud_toggle_btn(ui, "45°", is_diag).clicked() {
+                if Self::hud_toggle_btn(ui, "45°", is_45).clicked() {
                     *angle = std::f32::consts::FRAC_PI_4;
                     action = Some(ZebraHudAction::SetAngle(std::f32::consts::FRAC_PI_4));
                 }
 
                 ui.separator();
 
-                // Slider Frekuensi
-                ui.label(RichText::new(format!("{}:", t!("zebra-frequency"))).size(10.0).color(TEXT_SECONDARY));
-                let mut freq_val = *frequency;
-                let freq_drag = ui.add(egui::DragValue::new(&mut freq_val).range(5.0..=60.0).speed(0.5));
+                // Slider Kerapatan (Frequency)
+                ui.label(RichText::new(format!("{}:", t!("zebra-density"))).size(10.0).color(TEXT_SECONDARY));
+                let freq_drag = ui.add(egui::DragValue::new(frequency).range(5.0..=80.0).speed(0.5));
                 if freq_drag.changed() {
-                    *frequency = freq_val;
-                    action = Some(ZebraHudAction::SetFrequency(freq_val));
+                    action = Some(ZebraHudAction::SetFrequency(*frequency));
                 }
 
                 ui.separator();
 
-                // Slider Blend
+                // Slider Opacity / Blend
                 ui.label(RichText::new(format!("{}:", t!("zebra-blend"))).size(10.0).color(TEXT_SECONDARY));
                 let mut blend_pct = (*blend * 100.0).round();
                 let blend_drag = ui.add(egui::DragValue::new(&mut blend_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
@@ -694,7 +692,7 @@ impl CanvasHud {
 
                 ui.separator();
                 // Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(ZebraHudAction::TurnOff);
                 }
 
@@ -720,7 +718,7 @@ impl CanvasHud {
             "ducad-hud-draft-heatmap-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, &format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-draft-analysis")), true);
+                Self::hud_title(ui, format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-draft-analysis")), true);
 
                 ui.separator();
 
@@ -793,7 +791,7 @@ impl CanvasHud {
 
                 ui.separator();
                 // Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, &format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(DraftInspectionHudAction::TurnOff);
                 }
 
@@ -804,6 +802,7 @@ impl CanvasHud {
 
     /// Render floating HUD Header untuk konfigurasi Mate Constraints — versi Context.
     /// Digunakan di luar CentralPanel agar tidak terblokir oleh Sense::click_and_drag.
+    #[allow(clippy::too_many_arguments)]
     pub fn show_mate_config_panel_ctx(
         ctx: &egui::Context,
         canvas_rect: Rect,
@@ -824,7 +823,7 @@ impl CanvasHud {
             "ducad-hud-mate-config-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, &format!("🔗 {}", mate_type_name), true);
+                Self::hud_title(ui, format!("🔗 {}", mate_type_name), true);
 
                 ui.separator();
 
@@ -901,6 +900,7 @@ impl CanvasHud {
     }
 
     /// Render floating HUD Header untuk konfigurasi Mate Constraints (Concentric, Coincident, Distance, Angle).
+    #[allow(clippy::too_many_arguments)]
     pub fn show_mate_config_panel(
         ui: &mut Ui,
         canvas_rect: Rect,
@@ -958,7 +958,7 @@ impl CanvasHud {
                     ui.label(RichText::new("|").color(TEXT_SECONDARY));
                     if Self::hud_toggle_btn(
                         ui,
-                        &format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
+                        format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
                         false,
                     )
                     .clicked()
@@ -1237,9 +1237,7 @@ impl CanvasHud {
         } else {
             Color32::from_rgb(20, 20, 25)
         };
-        let border_color = if is_copy_active {
-            ACCENT_BLUE
-        } else if is_hovered {
+        let border_color = if is_copy_active || is_hovered {
             ACCENT_BLUE
         } else {
             Color32::from_gray(180)
@@ -1573,7 +1571,7 @@ impl CanvasHud {
         painter.text(
             p_top,
             Align2::LEFT_TOP,
-            &t!("tool-revolve-name"),
+            t!("tool-revolve-name"),
             egui::FontId::proportional(10.0),
             TEXT_SECONDARY,
         );
@@ -1635,9 +1633,9 @@ impl CanvasHud {
 
         let p_tip = Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0);
         painter.text(
-p_tip,
+            p_tip,
             Align2::LEFT_BOTTOM,
-            &t!("hud-revolve-prompt-ready"),
+            t!("hud-revolve-prompt-ready"),
             egui::FontId::proportional(9.0),
             TEXT_MUTED,
         );
@@ -1990,7 +1988,7 @@ p_tip,
                     t!("popup-draft-no-face")
                 };
 
-                Self::hud_title(ui, &format!("📐 {}", &step_text), has_face_selection);
+                Self::hud_title(ui, format!("📐 {}", &step_text), has_face_selection);
 
                 if has_face_selection {
                     ui.separator();
@@ -2051,7 +2049,7 @@ p_tip,
 
                     ui.separator();
                     // Tombol Eksekusi Draft Angle (Commit)
-                    if Self::hud_commit_btn(ui, &format!("✓ {}", t!("popup-draft-apply"))).clicked() {
+                    if Self::hud_commit_btn(ui, format!("✓ {}", t!("popup-draft-apply"))).clicked() {
                         hud_action = Some(DraftHudAction::Commit);
                     }
                 }
@@ -2208,7 +2206,7 @@ p_tip,
             |ui| {
                 let mut hud_action = None;
 
-                Self::hud_title(ui, &format!("📐 {}", t!("hud-datum-plane-title")), is_ready);
+                Self::hud_title(ui, format!("📐 {}", t!("hud-datum-plane-title")), is_ready);
 
                 ui.separator();
 
@@ -2347,10 +2345,8 @@ p_tip,
                             ACCENT_ORANGE
                         }));
 
-                        if points_count > 0 {
-                            if Self::hud_toggle_btn(ui, "Clear", false).clicked() {
-                                hud_action = Some(DatumPlaneHudAction::ClearPoints);
-                            }
+                        if points_count > 0 && Self::hud_toggle_btn(ui, "Clear", false).clicked() {
+                            hud_action = Some(DatumPlaneHudAction::ClearPoints);
                         }
                     }
                 }
@@ -2734,7 +2730,7 @@ p_tip,
 
                 ui.separator();
                 // Tombol Eksekusi Pattern
-                if Self::hud_commit_btn(ui, &format!("✓ {}", t!("popup-pattern-apply"))).clicked() {
+                if Self::hud_commit_btn(ui, format!("✓ {}", t!("popup-pattern-apply"))).clicked() {
                     hud_action = Some(PatternHudAction::Commit);
                 }
 

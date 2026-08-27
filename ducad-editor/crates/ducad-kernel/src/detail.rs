@@ -28,8 +28,8 @@ impl DetailIndicator {
         radius_mm: f32,
     ) -> Self {
         let label_pos = [
-            center_2d[0] + radius_mm * 0.7071 + 6.0,
-            center_2d[1] + radius_mm * 0.7071 + 4.0,
+            center_2d[0] + radius_mm * std::f32::consts::FRAC_1_SQRT_2 + 6.0,
+            center_2d[1] + radius_mm * std::f32::consts::FRAC_1_SQRT_2 + 4.0,
         ];
         Self {
             label,

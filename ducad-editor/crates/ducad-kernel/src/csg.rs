@@ -157,7 +157,7 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
         .union(b.inner())
         .context("gagal menggabungkan (union) dua shape")?
         .shape;
-    merged.clean();
+    merged = merged.clean();
     Ok(KernelShape::from_inner(merged))
 }
 
@@ -169,7 +169,7 @@ pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
         .subtract(b.inner())
         .context("gagal mengurangi (subtract) dua shape")?
         .shape;
-    result.clean();
+    result = result.clean();
     Ok(KernelShape::from_inner(result))
 }
 
@@ -203,6 +203,7 @@ pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
 /// - `origin`, `u_axis`, `v_axis`, `normal`: Posisi & orientasi bidang sketsa.
 /// - `depth`: Tinggi timbul (emboss) atau kedalaman ukiran (deboss) dalam mm (harus > 0).
 /// - `is_deboss`: `false` untuk Emboss (timbul / union), `true` untuk Deboss (ukiran tenggelam / subtract).
+#[allow(clippy::too_many_arguments)]
 pub fn emboss_profiles_on_plane(
     base_shape: Option<&KernelShape>,
     profiles: &[Profile],

@@ -592,13 +592,15 @@ impl DuCADApp {
 
         // Jika dokumen sudah memiliki bodi 3D namun di DAG belum tercatat Extrude/Revolve,
         // rekonstruksi bodi 3D yang ada langsung dari sketsa bidang aktif:
-        let has_solid_features = self.parametric_dag.nodes.iter().any(|n| match n.payload {
-            FeaturePayload::Extrude { .. }
-            | FeaturePayload::Revolve { .. }
-            | FeaturePayload::Fillet { .. }
-            | FeaturePayload::Chamfer { .. }
-            | FeaturePayload::Shell { .. } => true,
-            _ => false,
+        let has_solid_features = self.parametric_dag.nodes.iter().any(|n| {
+            matches!(
+                n.payload,
+                FeaturePayload::Extrude { .. }
+                    | FeaturePayload::Revolve { .. }
+                    | FeaturePayload::Fillet { .. }
+                    | FeaturePayload::Chamfer { .. }
+                    | FeaturePayload::Shell { .. }
+            )
         });
 
         if !has_solid_features && !existing_bodies.is_empty() {

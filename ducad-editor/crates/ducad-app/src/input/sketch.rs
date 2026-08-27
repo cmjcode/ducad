@@ -610,7 +610,7 @@ impl DuCADApp {
         if !self.selected.is_empty() {
             let ids: Vec<EntityId> = self.selected.iter().copied().collect();
             let all_construction = ids.iter().all(|id| {
-                self.sketch().entities.get(*id).map_or(false, |e| e.is_construction())
+                self.sketch().entities.get(*id).is_some_and(|e| e.is_construction())
             });
             let target_construction = !all_construction;
             self.execute_sketch_command(Box::new(ToggleConstruction::new(ids, target_construction)));
@@ -620,7 +620,7 @@ impl DuCADApp {
                 "Entitas diubah menjadi Garis Standar".to_string()
             });
         } else if let Some(hovered_id) = self.hovered {
-            let curr = self.sketch().entities.get(hovered_id).map_or(false, |e| e.is_construction());
+            let curr = self.sketch().entities.get(hovered_id).is_some_and(|e| e.is_construction());
             let target = !curr;
             self.execute_sketch_command(Box::new(ToggleConstruction::new(vec![hovered_id], target)));
             self.model_status = Some(if target {
@@ -708,7 +708,7 @@ impl DuCADApp {
         let Some(target_geo) = self.model.geometry.get(target_id) else {
             return;
         };
-        let angle_rad = (angle_deg as f64).to_radians();
+        let angle_rad = angle_deg.to_radians();
         let pivot = (center.x as f64, center.y as f64, center.z as f64);
         let axis_tup = (axis.x as f64, axis.y as f64, axis.z as f64);
         match ducad_kernel::rotate_shape(&target_geo.shape, pivot, axis_tup, angle_rad) {
@@ -1450,7 +1450,7 @@ impl DuCADApp {
                                         || (center_p - feat_p).length() <= max_r
                                     {
                                         self.editing_hole_idx = Some((b_id, feat_idx));
-                                        self.hole_popup_state.spec = feat.spec.clone();
+                                        self.hole_popup_state.spec = feat.spec;
                                         self.hole_popup_state.offset_u = feat.offset_u;
                                         self.hole_popup_state.offset_v = feat.offset_v;
                                         self.hole_popup_state.current_pos_3d = Some(feat.pos);
@@ -1498,7 +1498,7 @@ impl DuCADApp {
                         self.active_edge = None;
                         self.editing_round = None;
                         let multi_hit = click_pos.and_then(|pos| self.hit_test_click_multi_plane(rect, pos, tol));
-                        let target = multi_hit.or_else(|| self.hovered.and_then(|h| self.hovered_plane_idx.map(|p| (p, h))));
+                        let target = multi_hit.or_else(|| self.hovered_plane_idx.zip(self.hovered));
                         if let Some((plane_idx, ent_id)) = target {
                             let plane = self.plane_for_index(plane_idx);
                             if self.pending_sweep_profile.is_none() {
@@ -1672,7 +1672,7 @@ impl DuCADApp {
                                                         || (center_p - feat_p).length() <= max_r
                                                     {
                                                         self.editing_hole_idx = Some((b_id, feat_idx));
-                                                        self.hole_popup_state.spec = feat.spec.clone();
+                                                        self.hole_popup_state.spec = feat.spec;
                                                         self.hole_popup_state.offset_u = feat.offset_u;
                                                         self.hole_popup_state.offset_v = feat.offset_v;
                                                         self.hole_popup_state.current_pos_3d = Some(feat.pos);
@@ -2198,15 +2198,15 @@ pub fn hit_test_multi_plane(
     let (p_near, dir) = crate::viewport::screen_to_ray(camera, rect, pos);
     let mut best: Option<(usize, EntityId, f32)> = None;
 
-    for idx in 0..sketches.len().min(3) {
+    for (idx, sketch) in sketches.iter().enumerate().take(3) {
         let plane = DuCADApp::static_plane_for_index(idx);
         let Some(uv) = plane.ray_intersection(p_near, dir) else {
             continue;
         };
-        if let Some(id) = hit_test_cycled(&sketches[idx], uv, tolerance, cycle) {
+        if let Some(id) = hit_test_cycled(sketch, uv, tolerance, cycle) {
             let hit_3d = plane.to_world(uv, 0.0);
             let dist = (hit_3d - p_near).length();
-            if best.as_ref().map_or(true, |(_, _, d)| dist < *d) {
+            if best.as_ref().is_none_or(|(_, _, d)| dist < *d) {
                 best = Some((idx, id, dist));
             }
         }

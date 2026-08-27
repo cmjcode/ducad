@@ -5,17 +5,9 @@ use egui_icons::icons::ICON_CALL_MERGE;
 use super::{render_bottom_right_popup, ToolPopupEvent};
 use crate::theme::{ACCENT_BLUE, TEXT_SECONDARY};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BooleanPopupState {
     pub selected_bodies_count: usize,
-}
-
-impl Default for BooleanPopupState {
-    fn default() -> Self {
-        Self {
-            selected_bodies_count: 0,
-        }
-    }
 }
 
 pub struct BooleanPopup;

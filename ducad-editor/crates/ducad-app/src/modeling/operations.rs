@@ -109,7 +109,7 @@ impl DuCADApp {
             Err(msg) => {
                 self.alert_modal.show_error(
                     "Revolve Gagal: Profil Tidak Valid",
-                    format!("{msg}"),
+                    msg.to_string(),
                     vec![
                         "Pastikan sketsa membentuk garis atau kurva tertutup sempurna (misal: kotak atau lingkaran).",
                         "Gunakan Tool Pilih (S) lalu drag untuk menyeleksi seluruh entitas yang membentuk profil tertutup.",
@@ -1399,7 +1399,7 @@ impl DuCADApp {
         let normal = hit.normal;
 
         let new_feature = crate::types::HoleFeature {
-            spec: spec.clone(),
+            spec,
             pos,
             normal,
             face_hit: hit.clone(),
@@ -1468,15 +1468,12 @@ impl DuCADApp {
             // Lubang baru pada solid body (New Hole)
             match ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal) {
                 Ok(sh) => {
-                    if !self.hole_history.contains_key(&body_id) {
+                    if let std::collections::hash_map::Entry::Vacant(e) = self.hole_history.entry(body_id) {
                         if let Ok(base_sh) = ducad_kernel::clone_shape(&geo.shape) {
-                            self.hole_history.insert(
-                                body_id,
-                                crate::types::HoleHistory {
+                            e.insert(crate::types::HoleHistory {
                                     base: base_sh,
                                     features: Vec::new(),
-                                },
-                            );
+                                });
                         }
                     }
                     if let Some(hist) = self.hole_history.get_mut(&body_id) {
@@ -1569,7 +1566,7 @@ impl DuCADApp {
             Err(e) => {
                 self.alert_modal.show_error(
                     "Vektorisasi Teks Gagal",
-                    format!("{e}"),
+                    e.to_string(),
                     vec![
                         "Pastikan berkas font yang dipilih berformat TrueType (.ttf) atau OpenType (.otf) yang valid.",
                         "Periksa apakah teks memuat karakter yang didukung oleh font.",

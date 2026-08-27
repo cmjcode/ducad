@@ -333,7 +333,7 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
     let _guard = lock_kernel();
     let (face, hit) = resolve_face_along_ray(shape.inner(), ray)?;
     let surface_kind = SurfaceKind::from(face.surface_kind().as_str());
-    let (normal, centroid) =
+    let (normal, centroid) = if surface_kind == SurfaceKind::Plane {
         compute_face_normal_and_centroid(&face, ray.dir_vec()).unwrap_or_else(|| {
             let centroid = face.center_of_mass();
             let mut normal = face.normal_at(hit);
@@ -341,7 +341,43 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
                 normal = -normal;
             }
             (normal, centroid)
-        });
+        })
+    } else if surface_kind == SurfaceKind::Sphere {
+        let pts = chain_face_boundary_points(&face);
+        let mut min = pts.first().copied().unwrap_or(DVec3::ZERO);
+        let mut max = min;
+        for p in &pts {
+            min = min.min(*p);
+            max = max.max(*p);
+        }
+        let span = max - min;
+        let is_full_sphere = pts.len() < 3 || span.x < 1e-4 || span.y < 1e-4 || span.z < 1e-4;
+
+        if is_full_sphere {
+            let centroid = face.sphere_center().unwrap_or_else(|| face.center_of_mass());
+            let mut normal = face.normal_at(hit);
+            if normal.dot(ray.dir_vec()) > 0.0 {
+                normal = -normal;
+            }
+            (normal, centroid)
+        } else {
+            compute_face_normal_and_centroid(&face, ray.dir_vec()).unwrap_or_else(|| {
+                let centroid = face.sphere_center().unwrap_or_else(|| face.center_of_mass());
+                let mut normal = face.normal_at(hit);
+                if normal.dot(ray.dir_vec()) > 0.0 {
+                    normal = -normal;
+                }
+                (normal, centroid)
+            })
+        }
+    } else {
+        let centroid = face.center_of_mass();
+        let mut normal = face.normal_at(hit);
+        if normal.dot(ray.dir_vec()) > 0.0 {
+            normal = -normal;
+        }
+        (normal, centroid)
+    };
     let boundary_points = chain_face_boundary_points(&face)
         .into_iter()
         .map(|p| (p.x, p.y, p.z))

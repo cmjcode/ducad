@@ -47,24 +47,13 @@ pub enum FeatureTreeEvent {
     Close,
 }
 
+#[derive(Default)]
 pub struct FeatureTreeDrawer {
     pub search_query: String,
     pub custom_height: Option<f32>,
     pub editing_feature_id: Option<FeatureId>,
     pub edit_input_val1: String,
     pub edit_input_val2: String,
-}
-
-impl Default for FeatureTreeDrawer {
-    fn default() -> Self {
-        Self {
-            search_query: String::new(),
-            custom_height: None,
-            editing_feature_id: None,
-            edit_input_val1: String::new(),
-            edit_input_val2: String::new(),
-        }
-    }
 }
 
 impl FeatureTreeDrawer {
@@ -235,17 +224,16 @@ impl FeatureTreeDrawer {
                             .desired_width(text_width),
                     );
 
-                    if has_query {
-                        if ui
+                    if has_query
+                        && ui
                             .small_button(
                                 RichText::new(ICON_CLEAR.codepoint)
                                     .size(11.0)
                                     .color(TEXT_SECONDARY),
                             )
                             .clicked()
-                        {
-                            self.search_query.clear();
-                        }
+                    {
+                        self.search_query.clear();
                     }
 
                     let close_btn = ui

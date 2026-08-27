@@ -131,7 +131,7 @@ impl TitleBlockFieldId {
         }
     }
 
-    pub fn get_mut_str<'a>(self, info: &'a mut TitleBlockInfo) -> &'a mut String {
+    pub fn get_mut_str(self, info: &mut TitleBlockInfo) -> &mut String {
         match self {
             TitleBlockFieldId::CompanyName => &mut info.company_name,
             TitleBlockFieldId::ProjectTitle => &mut info.project_title,
@@ -447,7 +447,7 @@ impl DrawingSheetView {
         }
 
         let cursor_pos = ui.input(|i| i.pointer.hover_pos());
-        let is_over_ui = cursor_pos.map_or(false, |p| topbar_rect.contains(p) || zoom_controls_rect.contains(p));
+        let is_over_ui = cursor_pos.is_some_and(|p| topbar_rect.contains(p) || zoom_controls_rect.contains(p));
 
         let mut hovered_view_kind = None;
         let mut hovered_dim = None;
@@ -1087,28 +1087,33 @@ impl DrawingSheetView {
                 }
 
                 // Drag and drop geser teks, balon, BOM, detail circle, ukuran, atau tampak
-                if response.drag_started_by(egui::PointerButton::Primary) && !ui.input(|i| i.modifiers.alt) {
-                    if state.hovered_dim_delete.is_none() && state.hovered_text_delete.is_none() && state.hovered_detail_delete.is_none() && state.hovered_balloon_delete.is_none() && state.hovered_bom_delete_row.is_none() {
-                        if state.hovered_balloon_target_id.is_some() {
-                            state.dragging_balloon_target_id = state.hovered_balloon_target_id;
-                            state.selected_balloon_id = state.hovered_balloon_id;
-                        } else if state.hovered_balloon_id.is_some() {
-                            state.dragging_balloon_id = state.hovered_balloon_id;
-                            state.selected_balloon_id = state.hovered_balloon_id;
-                        } else if (state.hovered_bom_row.is_some() || state.hovered_bom_title) && state.active_text_edit.is_none() {
-                            state.dragging_bom_table = true;
-                        } else if state.hovered_detail_label.is_some() {
-                            state.dragging_detail_label = state.hovered_detail_label;
-                            state.selected_detail_label = state.hovered_detail_label;
-                        } else if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
-                            state.dragging_text_idx = state.hovered_text_idx;
-                            state.selected_text_idx = state.hovered_text_idx;
-                        } else if state.hovered_dim.is_some() {
-                            state.dragging_dim = state.hovered_dim;
-                            state.selected_dim = state.hovered_dim;
-                        } else if state.hovered_tb_field.is_none() {
-                            state.dragging_view = state.hovered_view;
-                        }
+                if response.drag_started_by(egui::PointerButton::Primary)
+                    && !ui.input(|i| i.modifiers.alt)
+                    && state.hovered_dim_delete.is_none()
+                    && state.hovered_text_delete.is_none()
+                    && state.hovered_detail_delete.is_none()
+                    && state.hovered_balloon_delete.is_none()
+                    && state.hovered_bom_delete_row.is_none()
+                {
+                    if state.hovered_balloon_target_id.is_some() {
+                        state.dragging_balloon_target_id = state.hovered_balloon_target_id;
+                        state.selected_balloon_id = state.hovered_balloon_id;
+                    } else if state.hovered_balloon_id.is_some() {
+                        state.dragging_balloon_id = state.hovered_balloon_id;
+                        state.selected_balloon_id = state.hovered_balloon_id;
+                    } else if (state.hovered_bom_row.is_some() || state.hovered_bom_title) && state.active_text_edit.is_none() {
+                        state.dragging_bom_table = true;
+                    } else if state.hovered_detail_label.is_some() {
+                        state.dragging_detail_label = state.hovered_detail_label;
+                        state.selected_detail_label = state.hovered_detail_label;
+                    } else if state.hovered_text_idx.is_some() && state.active_text_edit.is_none() {
+                        state.dragging_text_idx = state.hovered_text_idx;
+                        state.selected_text_idx = state.hovered_text_idx;
+                    } else if state.hovered_dim.is_some() {
+                        state.dragging_dim = state.hovered_dim;
+                        state.selected_dim = state.hovered_dim;
+                    } else if state.hovered_tb_field.is_none() {
+                        state.dragging_view = state.hovered_view;
                     }
                 }
 
@@ -2291,7 +2296,10 @@ fn render_sheet_canvas(
                 let l_x_mm = center_mm[0] + (ind.label_pos[0] - v_center[0]) * scale;
                 let l_y_mm = center_mm[1] + (ind.label_pos[1] - v_center[1]) * scale;
                 let p_lbl = mm_to_screen(l_x_mm, l_y_mm);
-                let rim_pt = Pos2::new(p_center.x + r_px * 0.7071, p_center.y - r_px * 0.7071);
+                let rim_pt = Pos2::new(
+                    p_center.x + r_px * std::f32::consts::FRAC_1_SQRT_2,
+                    p_center.y - r_px * std::f32::consts::FRAC_1_SQRT_2,
+                );
 
                 painter.line_segment([rim_pt, p_lbl], callout_stroke);
                 let p_shoulder = Pos2::new(p_lbl.x + 14.0 * zoom.clamp(0.8, 1.5), p_lbl.y);
@@ -2333,7 +2341,7 @@ fn render_sheet_canvas(
         painter.text(
             title_pos,
             Align2::CENTER_TOP,
-            &format!("{} | {}", view.title, sub_label),
+            format!("{} | {}", view.title, sub_label),
             font_title,
             Color32::from_rgb(20, 24, 35),
         );
@@ -2888,7 +2896,7 @@ fn render_title_block_screen<F>(
         painter.text(
             mm_to_screen(tb[0] + 93.0, tb[1] + 2.8),
             Align2::LEFT_CENTER,
-            &format!("ISO 2768-m | {}", unit_str),
+            format!("ISO 2768-m | {}", unit_str),
             font_val_sm,
             col_val,
         );
@@ -3155,8 +3163,8 @@ fn render_bom_table_screen<F>(
 
         // Highlight saat baris di-hover atau balon terkait di-hover/dipilih
         let is_row_hover = state.hovered_bom_row == Some(r_idx);
-        let is_balloon_matched = state.hovered_balloon_id.or(state.selected_balloon_id).map_or(false, |b_id| {
-            sheet.balloons.iter().find(|b| b.id == b_id).map_or(false, |b| b.item_number == item.item_number)
+        let is_balloon_matched = state.hovered_balloon_id.or(state.selected_balloon_id).is_some_and(|b_id| {
+            sheet.balloons.iter().find(|b| b.id == b_id).is_some_and(|b| b.item_number == item.item_number)
         });
 
         if is_row_hover || is_balloon_matched {
@@ -3236,8 +3244,8 @@ fn render_callout_balloons_screen<F>(
         let is_dragging = state.dragging_balloon_id == Some(balloon.id) || state.dragging_balloon_target_id == Some(balloon.id);
 
         // Cek apakah baris BOM yang dihover sesuai dengan nomor item balon ini
-        let is_bom_row_matched = state.hovered_bom_row.map_or(false, |r_idx| {
-            sheet.bom_table.items.get(r_idx).map_or(false, |it| it.item_number == balloon.item_number)
+        let is_bom_row_matched = state.hovered_bom_row.is_some_and(|r_idx| {
+            sheet.bom_table.items.get(r_idx).is_some_and(|it| it.item_number == balloon.item_number)
         });
 
         let p_target = mm_to_screen(balloon.target_point[0], balloon.target_point[1]);

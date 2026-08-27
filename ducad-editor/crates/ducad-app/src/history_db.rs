@@ -12,6 +12,12 @@ pub struct HistoryDb {
     db_path: PathBuf,
 }
 
+impl Default for HistoryDb {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HistoryDb {
     pub fn new() -> Self {
         let path = Self::resolve_db_path();
