@@ -1,6 +1,11 @@
-/target
+target/
+**/target/
 **/*.rs.bk
 .DS_Store
 *.stl
 .agent
 .claude
+dist/
+**/dist/
+node_modules/
+**/node_modules/
