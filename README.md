@@ -6,7 +6,7 @@
 [![UI](https://img.shields.io/badge/UI-egui%20/%20eframe-purple.svg)](https://github.com/emilk/egui)
 [![License](https://img.shields.io/badge/license-MIT%20/%20Apache--2.0-blue.svg)](LICENSE)
 
-**DuCAD** adalah software Computer-Aided Design (CAD) 2D/3D modern, parametrik, dan berkinerja tinggi yang ditulis murni dalam **Rust**. DuCAD menggabungkan presisi penyusunan draf teknik 2D ala **AutoCAD** dengan kemudahan pemodelan langsung (*direct modeling*) intuitif ala **Shapr3D**, didukung oleh kekuatan *solid modeling kernel* kelas industri **OpenCASCADE (OCCT)** dan akselerasi grafis modern **WebGPU (wgpu)**.
+**DuCAD** adalah software Computer-Aided Design (CAD) 2D/3D modern, parametrik, dan berkinerja tinggi yang ditulis murni dalam **Rust**. DuCAD menggabungkan presisi penyusunan draf teknik 2D ala **AutoCAD** dengan kemudahan pemodelan langsung (*direct modeling*) intuitif ala **Shapr3D**, didukung oleh kekuatan *solid modeling kernel* kelas industri **OpenCASCADE (OCCT)** using https://github.com/bschwind/opencascade-rs dan akselerasi grafis modern **WebGPU (wgpu)**.
 
 ---
 
