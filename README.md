@@ -4,129 +4,128 @@
 [![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-OpenCASCADE%20(OCCT)-blue.svg)](https://dev.opencascade.org)
 [![Graphics](https://img.shields.io/badge/Renderer-wgpu%20/%20WebGPU-green.svg)](https://wgpu.rs)
 [![UI](https://img.shields.io/badge/UI-egui%20/%20eframe-purple.svg)](https://github.com/emilk/egui)
-[![License](https://img.shields.io/badge/license-MIT%20/%20Apache--2.0-blue.svg)](LICENSE)
 
-**DuCAD** adalah software Computer-Aided Design (CAD) 2D/3D modern, parametrik, dan berkinerja tinggi yang ditulis murni dalam **Rust**. DuCAD menggabungkan presisi penyusunan draf teknik 2D ala **AutoCAD** dengan kemudahan pemodelan langsung (*direct modeling*) intuitif ala **Shapr3D**, didukung oleh kekuatan *solid modeling kernel* kelas industri **OpenCASCADE (OCCT)** using https://github.com/bschwind/opencascade-rs dan akselerasi grafis modern **WebGPU (wgpu)**.
+**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by the industry-grade solid modeling kernel **OpenCASCADE (OCCT)** via https://github.com/bschwind/opencascade-rs and modern **WebGPU (wgpu)** graphics acceleration.
 
 ---
 
-## 🌟 Fitur Utama
+## 🌟 Key Features
 
-### 1. 📐 Sketsa 2D Parametrik & Geometri Presisi
-* **Entitas Lengkap**: Line, Rectangle, Circle, Center-Radius Arc, 3-Point Arc, Ellipse, Regular Polygon ($N$-sisi Inscribed/Circumscribed), dan Slot (Center-to-Center & Overall).
-* **Garis Konstruksi (*Construction Line*)**: Beralih mode referensi (`X`) dengan rendering garis putus-putus oranye tanpa mengganggu deteksi profil solid tertutup (*closed region*).
-* **Teks Sketsa 2D (*2D Text*)**: Vektorisasi tipografi font TrueType/OpenType ke kurva sketsa untuk ekstrusi teks.
-* **Sistem Snapping Cerdas**: Prioritas bertingkat (*Endpoint* > *Midpoint* > *Center* > *Intersection* > *Grid*) dengan visual glyph interaktif.
-* **Geometric & Dimensional Constraint Solver**: Coincident, Fixed, Horizontal, Vertical, Parallel, Perpendicular, Equal Length/Radius, Distance, Radius, Tangent, Angle, dan Symmetric.
-* **Modifikasi Kurva Sketsa**: Trim interaktif dengan highlight merah, Extend kurva ke batas terdekat, Offset paralel (bi-arc multi-tangent), dan Mirror refleksi simetris.
+### 1. 📐 Parametric 2D Sketching & Precision Geometry
+* **Complete Entities**: Line, Rectangle, Circle, Center-Radius Arc, 3-Point Arc, Ellipse, Regular Polygon ($N$-sided Inscribed/Circumscribed), and Slot (Center-to-Center & Overall).
+* **Construction Line**: Toggle reference mode (`X`) with dashed orange line rendering without interfering with closed solid profile (*closed region*) detection.
+* **2D Sketch Text**: TrueType/OpenType font typography vectorized into sketch curves for text extrusion.
+* **Smart Snapping System**: Tiered priority (*Endpoint* > *Midpoint* > *Center* > *Intersection* > *Grid*) with interactive visual glyphs.
+* **Geometric & Dimensional Constraint Solver**: Coincident, Fixed, Horizontal, Vertical, Parallel, Perpendicular, Equal Length/Radius, Distance, Radius, Tangent, Angle, and Symmetric.
+* **Sketch Curve Modification**: Interactive Trim with red highlighting, Extend curve to nearest boundary, parallel Offset (multi-tangent bi-arc), and symmetric Mirror reflection.
 
-### 2. 🧊 Pemodelan Solid B-Rep 3D Kelas Industri (OpenCASCADE)
-* **Operasi Ekstrusi & Putar**: Extrude (Blind, Symmetric, Up to Face), Revolve dengan sumbu kustom 3D, Loft multi-profil, dan Sweep sepanjang kurva pemandu.
-* **Geometri Spiral (*Helix / Spring / Coil*)**: Generator parametrik kurva 3D untuk pembuatan pegas, ulir baut, dan sudu *auger*.
-* **Operasi Boolean Solid**: Boolean Union (Gabung), Cut (Potong/Kurang), dan Intersect (Irisan).
-* **Fitur Tepi & Dinding**: Fillet konstan, **Variable Radius Fillet** ($R_{\text{start}} \ne R_{\text{end}}$), Chamfer tepi, Thin-Wall Shelling (pengosongan rongga dalam), dan Draft angle.
-* **Teks 3D Emboss & Deboss**: Menempelkan teks timbul (*emboss*) atau ukiran tenggelam (*deboss/engrave*) pada permukaan planar part.
-* **Fastener Hole Wizard (Standar ISO)**:
-  * *Simple Hole*: Lubang silinder lurus (tembus atau berkedalaman tertentu).
-  * *Counterbore Hole*: Lubang bertingkat untuk baut kepala L (*Socket Head Cap Screw*).
-  * *Countersink Hole*: Lubang tirus 90° untuk baut kepala rata (*Flat Head Screw*).
-  * *Tapped Hole*: Lubang ulir metrik standar (M2, M2.5, M3, M4, M5, M6, M8, M10, M12).
+### 2. 🧊 Industry-Grade 3D B-Rep Solid Modeling (OpenCASCADE)
+* **Extrude & Revolve Operations**: Extrude (Blind, Symmetric, Up to Face), Revolve with custom 3D axis, multi-profile Loft, and Sweep along a guide curve.
+* **Spiral Geometry (*Helix / Spring / Coil*)**: Parametric 3D curve generator for creating springs, bolt threads, and auger blades.
+* **Solid Boolean Operations**: Boolean Union, Cut, and Intersect.
+* **Edge & Wall Features**: Constant Fillet, **Variable Radius Fillet** ($R_{\text{start}} \ne R_{\text{end}}$), edge Chamfer, Thin-Wall Shelling, and Draft angle.
+* **3D Emboss & Deboss Text**: Attaching raised (*emboss*) or engraved sunken (*deboss/engrave*) text to a part's planar surface.
+* **Fastener Hole Wizard (ISO Standard)**:
+  * *Simple Hole*: Straight cylindrical hole (through or to a specific depth).
+  * *Counterbore Hole*: Stepped hole for socket head cap screws.
+  * *Countersink Hole*: 90° tapered hole for flat head screws.
+  * *Tapped Hole*: Standard metric threaded hole (M2, M2.5, M3, M4, M5, M6, M8, M10, M12).
 
-### 3. 🌐 Datum Workplanes (Bidang Referensi 3D Bebas)
-* Buat bidang sketsa dan pemodelan pada koordinat ruang 3D mana pun:
-  * **Offset Plane**: Berjarak offset $d$ mm dari face/plane acuan.
-  * **Angled Plane**: Diputar sudut $\theta^\circ$ terhadap tepi/garis linear acuan.
-  * **3-Point Plane**: Dibentuk dari 3 titik vertex sembarang di ruang 3D.
-* Visualisasi bidang transparan di viewport dan manajemen daftar bidang (*Planes Drawer*).
+### 3. 🌐 Datum Workplanes (Free 3D Reference Planes)
+* Create sketch and modeling planes at any point in 3D space:
+  * **Offset Plane**: Offset by distance $d$ mm from a reference face/plane.
+  * **Angled Plane**: Rotated by angle $\theta^\circ$ relative to a reference linear edge/line.
+  * **3-Point Plane**: Defined by 3 arbitrary vertex points in 3D space.
+* Transparent plane visualization in the viewport and plane list management (*Planes Drawer*).
 
-### 4. 📑 Gambar Kerja 2D (Engineering Drawing Sheet & ISO Blueprint)
-* **Tampak Proyeksi Multi-View**: Tampak Atas (*Top*), Tampak Depan (*Front*), Tampak Samping (*Right*), dan Tampak Isometrik (*Isometric 3D*).
-* **Hidden Line Removal (HLR)**: Ekstraksi garis tampak tajam dan garis tersembunyi berarsir/putus-putus.
-* **Section View A-A (Tampak Potongan Melintang)**: Irisan solid 3D dengan pola arsir (*Hatch pattern*) 45° standar ISO/ANSI dan garis potong berpanah.
-* **Detail View (Lingkaran Pembesar Skala)**: Viewport pembesar detail mikro independen (skala 2:1, 5:1, 10:1).
-* **Dimensi Otomatis & Manual**: Garis dimensi linier, diameter lubang, radius busur, sudut derajat, dan teks anotasi bebas pada kanvas.
-* **Tabel BOM (Bill of Materials) & Part Callout Balloons**: Tabel otomatis nomor komponen, kuantitas, material, terhubung dengan balon lingkaran penunjuk nomor part.
-* **Kepala Gambar (ISO Title Block)**: Bingkai standar gambar teknik lengkap dengan informasi proyek, skala, perancang, dan tanggal.
+### 4. 📑 2D Engineering Drawings (Engineering Drawing Sheet & ISO Blueprint)
+* **Multi-View Projections**: Top View, Front View, Right View, and Isometric View (3D).
+* **Hidden Line Removal (HLR)**: Extraction of sharp visible lines and hidden dashed/hatched lines.
+* **Section View A-A (Cross-Section View)**: 3D solid section with standard ISO/ANSI 45° hatch pattern and arrowed cutting lines.
+* **Detail View (Magnified Circle Scale)**: Independent micro-detail magnifying viewport (2:1, 5:1, 10:1 scale).
+* **Automatic & Manual Dimensioning**: Linear dimension lines, hole diameter, arc radius, angle degrees, and free annotation text on the canvas.
+* **BOM (Bill of Materials) Table & Part Callout Balloons**: Automatic component number and quantity table, material, linked to part number balloon callouts.
+* **Drawing Header (ISO Title Block)**: Complete standard technical drawing frame with project information, scale, designer, and date.
 
-### 5. ⚙️ Perakitan (Assembly) & Uji Tabrakan (Clash Detection)
-* **Hierarki Pohon Perakitan (*Assembly Tree*)**: Manajemen multi-part dan multi-instance mandiri.
-* **3D Mate Constraints**: Concentric Mate (sumbu silinder), Coincident Mate (permukaan rata berimpit), Distance & Angle Mate.
-* **Clash & Interference Detection**: Uji tabrakan fisik otomatis antar bodi solid menggunakan operasi Boolean interseksi untuk mendeteksi interferensi part sebelum fabrikasi.
+### 5. ⚙️ Assembly & Clash Detection
+* **Assembly Tree Hierarchy**: Independent multi-part and multi-instance management.
+* **3D Mate Constraints**: Concentric Mate (cylinder axis), Coincident Mate (flush flat surfaces), Distance & Angle Mate.
+* **Clash & Interference Detection**: Automatic physical collision testing between solid bodies using Boolean intersection operations to detect part interference before fabrication.
 
 ### 6. 🕒 Parametric History Timeline (Feature Tree)
-* Perekaman langkah-langkah desain dalam struktur graf dependensi (*Directed Acyclic Graph* - DAG).
-* Modifikasi parameter fitur masa lalu dengan kemampuan regenerasi otomatis seluruh geometri solid turunan.
+* Recording of design steps in a dependency graph structure (*Directed Acyclic Graph* - DAG).
+* Modifying past feature parameters with automatic regeneration of all derived solid geometry.
 
-### 7. 🔄 Interoperabilitas Format Berkas Luas
+### 7. 🔄 Broad File Format Interoperability
 * **Import**:
-  * `STEP` (`.step`, `.stp`) — Impor model CAD standar internasional B-Rep.
-  * `DXF` (`.dxf`) — Impor sketsa vektor 2D AutoCAD R12/2000+.
-  * Native `.ducad` — Format berkas dokumen berbasis JSON yang menyimpan geometri B-Rep, sketsa, dan riwayat.
+  * `STEP` (`.step`, `.stp`) — Import international standard B-Rep CAD models.
+  * `DXF` (`.dxf`) — Import AutoCAD R12/2000+ 2D vector sketches.
+  * Native `.ducad` — JSON-based document format storing B-Rep geometry, sketches, and history.
 * **Export**:
-  * `STEP` (`.step`, `.stp`) — Ekspor solid B-Rep penuh untuk manufaktur CNC/CAM.
-  * `GLTF / GLB` (`.glb`) — Format biner 3D Web & Augmented Reality (AR Quick Look di iOS/Android) dengan material PBR.
-  * `SVG` (`.svg`) — Format vektor 2D untuk mesin Laser Cutting, CNC Router, dan software grafis.
-  * `PDF` (`.pdf`) — Format gambar kerja teknik vektor ISO 1.4 resolusi tinggi dengan pola arsir potongan.
-  * `STL` (`.stl` Binary), `OBJ`, `PLY`, `3MF` — Format mesh untuk 3D Printing / Slicer.
+  * `STEP` (`.step`, `.stp`) — Export full B-Rep solids for CNC/CAM manufacturing.
+  * `GLTF / GLB` (`.glb`) — Binary 3D format for Web & Augmented Reality (AR Quick Look on iOS/Android) with PBR materials.
+  * `SVG` (`.svg`) — 2D vector format for Laser Cutting machines, CNC Router, and graphics software.
+  * `PDF` (`.pdf`) — ISO 1.4 high-resolution vector technical drawing format with section hatch patterns.
+  * `STL` (`.stl` Binary), `OBJ`, `PLY`, `3MF` — Mesh formats for 3D Printing / Slicer.
 
-### 8. 🎨 UI/UX Alur Kerja Modern & Studio Rendering
-* **Standar Alur Kerja Ergonomis DuCAD**:
-  * *Sidebar Kiri*: Menu pembuatan objek baru (2D Sketch / 3D Solid / Assembly).
-  * *Bottom Context Bar*: Menu pengeditan kontekstual untuk objek/face yang sedang dipilih dengan tool Select.
-  * *Header Canvas HUD*: Input parameter cepat dan ringkas yang tidak mengganggu alur visual.
-  * *Pop-up Dialog Kanan Bawah*: Konfigurasi mendalam untuk fitur kompleks (Hole Wizard, Helix, Draft, Text, Booleans).
-* **Command Palette (`Ctrl/Cmd+K`)**: Akses instan ke seluruh tool dan perintah via pencarian teks cepat.
-* **Radial Menu (`Space`)**: Menu melingkar di bawah kursor mouse untuk akses cepat tool esensial.
-* **ViewCube 3D**: Kontrol orientasi kamera kubus interaktif (Top, Front, Right, Isometric, Orbit).
-* **Studio Lighting & Material (SSAO & PBR)**: Pengaturan lingkungan pencahayaan (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) dengan Screen Space Ambient Occlusion.
-* **Dukungan Multi-Bahasa (i18n)**: 18+ bahasa dengan antarmuka default Bahasa Inggris dan catatan ramah pengembang.
+### 8. 🎨 Modern UI/UX Workflow & Rendering Studio
+* **DuCAD Ergonomic Workflow Standard**:
+  * *Left Sidebar*: Menu for creating new objects (2D Sketch / 3D Solid / Assembly).
+  * *Bottom Context Bar*: Contextual editing menu for the currently selected object/face with the Select tool.
+  * *Header Canvas HUD*: Quick and concise parameter input that doesn't disrupt the visual flow.
+  * *Bottom-Right Pop-up Dialog*: In-depth configuration for complex features (Hole Wizard, Helix, Draft, Text, Booleans).
+* **Command Palette (`Ctrl/Cmd+K`)**: Instant access to all tools and commands via quick text search.
+* **Radial Menu (`Space`)**: Circular menu under the mouse cursor for quick access to essential tools.
+* **3D ViewCube**: Interactive cube camera orientation control (Top, Front, Right, Isometric, Orbit).
+* **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
+* **Multi-Language Support (i18n)**: 18+ languages with English as the default interface and developer-friendly notes.
 
 ---
 
-## 🏗️ Struktur Arsitektur Workspace
+## 🏗️ Workspace Architecture Structure
 
-DuCAD dibangun dengan arsitektur modular *multi-crate*:
+DuCAD is built with a modular *multi-crate* architecture:
 
 ```
 DUCAD/
 ├── crates/
-│   ├── ducad-core/      # Model data dokumen, riwayat undo/redo, pohon perakitan, mate, unit
-│   ├── ducad-sketch/    # Mesin sketsa 2D, entitas geometri, constraint solver, snapping, region solver
-│   ├── ducad-kernel/    # Pembungkus B-Rep OpenCASCADE (OCCT): boolean, fillet, hole, helix, section, mesh
-│   ├── ducad-render/    # Engine rendering wgpu: kamera 3D, shader PBR, SSAO, grid, sketch overlay
-│   ├── ducad-io/        # Modul import/export STEP, GLB/GLTF, SVG, PDF (drawing sheet), DXF, STL, OBJ
-│   ├── ducad-ui/        # Komponen UI egui: toolbar, context bar, HUD, drawing sheet canvas, drawers, popups
-│   ├── ducad-i18n/      # Sistem lokalisasi dan kamus terjemahan 18+ bahasa
-│   └── ducad-app/       # Aplikasi utama, loop event winit/eframe, manajemen window, integrasi state
-├── docs/                # Dokumentasi panduan operasional, perbandingan CAD, dan cetak biru arsitektur
+│   ├── ducad-core/      # Document data model, undo/redo history, assembly tree, mates, units
+│   ├── ducad-sketch/    # 2D sketch engine, geometry entities, constraint solver, snapping, region solver
+│   ├── ducad-kernel/    # OpenCASCADE (OCCT) B-Rep wrapper: boolean, fillet, hole, helix, section, mesh
+│   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
+│   ├── ducad-io/        # STEP, GLB/GLTF, SVG, PDF (drawing sheet), DXF, STL, OBJ import/export modules
+│   ├── ducad-ui/        # egui UI components: toolbar, context bar, HUD, drawing sheet canvas, drawers, popups
+│   ├── ducad-i18n/      # Localization system and 18+ language translation dictionaries
+│   └── ducad-app/       # Main application, winit/eframe event loop, window management, state integration
+├── docs/                # Operational guide documentation, CAD comparisons, and architecture blueprints
 └── Cargo.toml           # Workspace root manifest
 ```
 
 ---
 
-## 🚀 Memulai (Getting Started)
+## 🚀 Getting Started
 
-### Prasyarat Sistem
-* **Rust Toolchain**: Rust versi terbaru (1.75+ stabil disarankan) melalui `rustup`.
-* **C/C++ Compiler & CMake**: CMake ≥ 3.16 dan C++17 compiler (Clang/GCC/MSVC) untuk mengompilasi kernel OpenCASCADE (OCCT).
-* **Sistem Operasi**: macOS (Apple Silicon & Intel), Linux (X11 / Wayland), Windows 10/11.
+### System Prerequisites
+* **Rust Toolchain**: Latest Rust version (1.75+ stable recommended) via `rustup`.
+* **C/C++ Compiler & CMake**: CMake ≥ 3.16 and a C++17 compiler (Clang/GCC/MSVC) to compile the OpenCASCADE (OCCT) kernel.
+* **Operating System**: macOS (Apple Silicon & Intel), Linux (X11 / Wayland), Windows 10/11.
 
-### Menjalankan DuCAD
+### Running DuCAD
 
-Kloning repositori dan jalankan melalui Cargo:
+Clone the repository and run it via Cargo:
 
 ```bash
-# Clone repositori
+# Clone the repository
 git clone https://github.com/cmjcode/ducad.git
 cd DUCAD
 
-# Jalankan aplikasi (proses kompilasi pertama akan membangun kernel OCCT ~8-15 menit)
+# Run the application (the first compilation will build the OCCT kernel, ~8-15 minutes)
 cargo run -p ducad-app
 ```
 
-> **Tips Kompilasi Pertama Kali**: Kompilasi awal dari *source* `occt-sys` memerlukan waktu beberapa menit untuk membangun seluruh pustaka OpenCASCADE C++. Hasil build akan di-cache secara permanen di direktori `target/` sehingga kompilasi berikutnya berjalan instan.
+> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is permanently cached in the `target/` directory so subsequent compilations run instantly.
 
-### Menjalankan Unit & Integrasi Test
+### Running Unit & Integration Tests
 
 ```bash
 cargo test --workspace
@@ -134,41 +133,35 @@ cargo test --workspace
 
 ---
 
-## ⌨️ Pintasan Keyboard Utama (Keyboard Shortcuts)
+## ⌨️ Main Keyboard Shortcuts
 
-| Kategori | Pintasan | Fungsi |
+| Category | Shortcut | Function |
 |---|---|---|
-| **Navigasi 3D** | `Klik Tengah Drag` / `Klik Kiri Drag` (Tool Select) | Orbit Kamera 3D |
-| | `Shift + Drag` / `Klik Kanan Drag` | Pan (Geser) Kamera |
-| | `Scroll Wheel` / `Pinch Trackpad` | Zoom In / Out |
-| **Tool Sketsa** | `Esc` | Batal / Kembali ke Tool Select |
-| | `L` | Tool Garis (*Line*) |
-| | `R` | Tool Persegi (*Rectangle*) |
-| | `C` | Tool Lingkaran (*Circle*) |
-| | `A` | Tool Busur (*Arc*) |
-| | `E` | Tool Ellips (*Ellipse*) |
-| | `T` | Tool Potong (*Trim*) |
-| | `O` | Tool Garis Sejajar (*Offset*) |
-| | `M` | Tool Cermin (*Mirror*) |
-| | `X` | Ubah Garis Konstruksi (*Toggle Construction*) |
-| **Aplikasi** | `Ctrl/Cmd + K` | Buka Command Palette (Pencarian Perintah) |
-| | `Space` | Buka Radial Menu di Kursor |
-| | `Ctrl/Cmd + Z` | Undo Aksi |
-| | `Ctrl/Cmd + Shift + Z` / `Ctrl + Y` | Redo Aksi |
-| | `Ctrl/Cmd + S` | Simpan Dokumen (`.ducad`) |
-| | `Ctrl/Cmd + O` | Buka Berkas Dokumen |
-| | `Delete` / `Backspace` | Hapus Entitas / Objek Terpilih |
+| **3D Navigation** | `Middle-Click Drag` / `Left-Click Drag` (Select Tool) | Orbit 3D Camera |
+| | `Shift + Drag` / `Right-Click Drag` | Pan Camera |
+| | `Scroll Wheel` / `Trackpad Pinch` | Zoom In / Out |
+| **Sketch Tools** | `Esc` | Cancel / Return to Select Tool |
+| | `L` | Line Tool |
+| | `R` | Rectangle Tool |
+| | `C` | Circle Tool |
+| | `A` | Arc Tool |
+| | `E` | Ellipse Tool |
+| | `T` | Trim Tool |
+| | `O` | Offset Tool |
+| | `M` | Mirror Tool |
+| | `X` | Toggle Construction Line |
+| **Application** | `Ctrl/Cmd + K` | Open Command Palette (Command Search) |
+| | `Space` | Open Radial Menu at Cursor |
+| | `Ctrl/Cmd + Z` | Undo Action |
+| | `Ctrl/Cmd + Shift + Z` / `Ctrl + Y` | Redo Action |
+| | `Ctrl/Cmd + S` | Save Document (`.ducad`) |
+| | `Ctrl/Cmd + O` | Open Document File |
+| | `Delete` / `Backspace` | Delete Selected Entity / Object |
 
 ---
 
-## 📚 Dokumentasi Terkait
+## 📚 Related Documentation
 
-* [Panduan Pemakaian Lengkap (User Manual)](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/PANDUAN.md) — Panduan mendalam cara penggunaan setiap tool dan fitur dari pemodelan hingga gambar kerja.
-* [Analisis Komparatif CAD](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/ANALISIS_KOMPARATIF_CAD.md) — Studi perbandingan fitur teknis DuCAD terhadap AutoCAD, SolidWorks, Onshape, dan Shapr3D.
-* [Peta Jalan & Pelacakan Fase](file:///Users/jayuda/Documents/PROJECT/DUCAD/implementation_plan.md) — Detail status implementasi teknis setiap fase dan modul.
-
----
-
-## 📄 Lisensi
-
-Proyek ini dilisensikan di bawah lisensi ganda [MIT License](LICENSE) atau [Apache License 2.0](LICENSE-APACHE).
+* [Complete User Manual](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/PANDUAN.md) — In-depth guide on how to use every tool and feature, from modeling to engineering drawings.
+* [Comparative CAD Analysis](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/ANALISIS_KOMPARATIF_CAD.md) — Comparative study of DuCAD's technical features against AutoCAD, SolidWorks, Onshape, and Shapr3D.
+* [Roadmap & Phase Tracking](file:///Users/jayuda/Documents/PROJECT/DUCAD/implementation_plan.md) — Details on the technical implementation status of each phase and module.
