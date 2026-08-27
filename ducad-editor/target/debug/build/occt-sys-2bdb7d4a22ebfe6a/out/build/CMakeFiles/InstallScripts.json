@@ -1,0 +1,29 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKernel/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKMath/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKG2d/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKG3d/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKGeomBase/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKBRep/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKGeomAlgo/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKTopAlgo/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKPrim/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKBO/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKShHealing/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKBool/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKFillet/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKOffset/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKFeat/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKMesh/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKXSBase/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKSTEPBase/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKSTEPAttr/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKSTEP209/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKSTEP/cmake_install.cmake",
+		"/Users/jayuda/Documents/PROJECT/DUCAD/target/debug/build/occt-sys-2bdb7d4a22ebfe6a/out/build/src/TKSTL/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
