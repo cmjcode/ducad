@@ -10,3 +10,6 @@ dist/
 node_modules/
 **/node_modules/
 vendor/
+.env
+build_apple.sh
+ducad-editor/notarize.sh

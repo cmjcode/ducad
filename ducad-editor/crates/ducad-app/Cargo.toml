@@ -63,7 +63,7 @@ objc2-ui-kit = { workspace = true }
 # GUI yang tidak tersedia di sandbox agent).
 [package.metadata.bundle]
 name = "DUCAD"
-identifier = "id.jayuda.ducad"
+identifier = "id.ducad.studio"
 icon = ["assets/icon.png"]
 version = "0.1.0"
 copyright = "Copyright (c) 2026 Yulius Jayuda"
