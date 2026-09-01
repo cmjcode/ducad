@@ -1381,8 +1381,8 @@ impl DuCADApp {
                         self.active_edge = None;
                         self.editing_round = None;
                         self.last_body_select_click = None;
-                        self.vertex_gizmo_radius = 3.0;
-                        self.vertex_gizmo_edit_input = "3".to_string();
+                        self.vertex_gizmo_radius = 0.0;
+                        self.vertex_gizmo_edit_input = "0".to_string();
                         self.model_status = Some(
                             "Sudut (vertex) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
@@ -1395,8 +1395,8 @@ impl DuCADApp {
                         self.active_vertex = None;
                         self.editing_round = None;
                         self.last_body_select_click = None;
-                        self.edge_gizmo_radius = 3.0;
-                        self.edge_gizmo_edit_input = "3".to_string();
+                        self.edge_gizmo_radius = 0.0;
+                        self.edge_gizmo_edit_input = "0".to_string();
                         self.model_status = Some(
                             "Rusuk (edge) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
@@ -1479,8 +1479,8 @@ impl DuCADApp {
                             self.active_edge = None;
                             self.editing_round = None;
                             self.body_move_target = None;
-                            self.face_gizmo_distance = 15.0;
-                            self.face_gizmo_edit_input = "15".to_string();
+                            self.face_gizmo_distance = 0.0;
+                            self.face_gizmo_edit_input = "0".to_string();
                             self.last_body_select_click = Some((b_id, now));
                             self.model_status = Some(
                                 if detected_hole {
@@ -1699,8 +1699,10 @@ impl DuCADApp {
                                             self.active_vertex = None;
                                             self.active_edge = None;
                                             self.body_move_target = None;
-                                            self.face_gizmo_distance = 15.0;
-                                            self.face_gizmo_edit_input = "15".to_string();
+                                            self.face_gizmo_distance = 0.0;
+                                            self.face_gizmo_edit_input = "0".to_string();
+                                            self.vertex_gizmo_radius = 0.0;
+                                            self.edge_gizmo_radius = 0.0;
                                             self.last_body_select_click = Some((b_id, now));
                                             self.model_status = Some(
                                                 if detected_hole {

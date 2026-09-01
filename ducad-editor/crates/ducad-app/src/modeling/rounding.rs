@@ -335,13 +335,13 @@ impl DuCADApp {
         match kind {
             RoundKind::Vertex => {
                 self.active_vertex = None;
-                self.vertex_gizmo_radius = 3.0;
-                self.vertex_gizmo_edit_input = "3".to_string();
+                self.vertex_gizmo_radius = 0.0;
+                self.vertex_gizmo_edit_input = "0".to_string();
             }
             RoundKind::Edge => {
                 self.active_edge = None;
-                self.edge_gizmo_radius = 3.0;
-                self.edge_gizmo_edit_input = "3".to_string();
+                self.edge_gizmo_radius = 0.0;
+                self.edge_gizmo_edit_input = "0".to_string();
             }
         }
     }

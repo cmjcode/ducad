@@ -539,22 +539,22 @@ impl DuCADApp {
             gizmo_target_body: None,
 
             extruding_face_from_gizmo: false,
-            face_gizmo_distance: 15.0,
+            face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
-            face_gizmo_edit_input: "15".to_string(),
+            face_gizmo_edit_input: "0".to_string(),
 
             filleting_vertex_from_gizmo: false,
-            vertex_gizmo_radius: 3.0,
+            vertex_gizmo_radius: 0.0,
             vertex_gizmo_dimension_editing: false,
-            vertex_gizmo_edit_input: "3".to_string(),
+            vertex_gizmo_edit_input: "0".to_string(),
 
             hovered_vertex_marker: None,
             hovered_corner_2d: None,
             active_edge: None,
             filleting_edge_from_gizmo: false,
-            edge_gizmo_radius: 3.0,
+            edge_gizmo_radius: 0.0,
             edge_gizmo_dimension_editing: false,
-            edge_gizmo_edit_input: "3".to_string(),
+            edge_gizmo_edit_input: "0".to_string(),
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
@@ -816,22 +816,22 @@ impl DuCADApp {
             gizmo_target_body: None,
 
             extruding_face_from_gizmo: false,
-            face_gizmo_distance: 15.0,
+            face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
-            face_gizmo_edit_input: "15".to_string(),
+            face_gizmo_edit_input: "0".to_string(),
 
             filleting_vertex_from_gizmo: false,
-            vertex_gizmo_radius: 3.0,
+            vertex_gizmo_radius: 0.0,
             vertex_gizmo_dimension_editing: false,
-            vertex_gizmo_edit_input: "3".to_string(),
+            vertex_gizmo_edit_input: "0".to_string(),
 
             hovered_vertex_marker: None,
             hovered_corner_2d: None,
             active_edge: None,
             filleting_edge_from_gizmo: false,
-            edge_gizmo_radius: 3.0,
+            edge_gizmo_radius: 0.0,
             edge_gizmo_dimension_editing: false,
-            edge_gizmo_edit_input: "3".to_string(),
+            edge_gizmo_edit_input: "0".to_string(),
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
@@ -1053,9 +1053,7 @@ impl DuCADApp {
 
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
                 self.extruding_face_from_gizmo = true;
-                if self.face_gizmo_distance == 0.0 {
-                    self.face_gizmo_distance = 15.0;
-                }
+                self.face_gizmo_distance = 0.0;
                 self.auto_enter_3d_mode_on_extrude_drag();
             }
 
@@ -1080,8 +1078,8 @@ impl DuCADApp {
                     self.extrude_active_face(self.face_gizmo_distance);
                 }
                 self.extruding_face_from_gizmo = false;
-                self.face_gizmo_distance = 15.0;
-                self.face_gizmo_edit_input = "15".to_string();
+                self.face_gizmo_distance = 0.0;
+                self.face_gizmo_edit_input = "0".to_string();
             }
         }
 
@@ -3215,9 +3213,9 @@ impl eframe::App for DuCADApp {
                                 match act {
                                     ContextAction::Extrude => {
                                         self.extruding_face_from_gizmo = true;
-                                        if self.face_gizmo_distance == 0.0 {
-                                            self.face_gizmo_distance = 15.0;
-                                        }
+                                        self.face_gizmo_distance = 0.0;
+                                        self.face_gizmo_dimension_editing = true;
+                                        self.face_gizmo_edit_input = "".to_string();
                                         self.auto_enter_3d_mode_on_extrude_drag();
                                     }
                                     ContextAction::SketchOnFace => {

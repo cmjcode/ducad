@@ -2159,9 +2159,7 @@ impl DuCADApp {
 
                 if handle_resp.drag_started() {
                     self.extruding_face_from_gizmo = true;
-                    if self.face_gizmo_distance == 0.0 {
-                        self.face_gizmo_distance = 15.0;
-                    }
+                    self.face_gizmo_distance = 0.0;
                     self.auto_enter_3d_mode_on_extrude_drag();
                 }
 
@@ -2186,8 +2184,8 @@ impl DuCADApp {
                         self.extrude_active_face(self.face_gizmo_distance);
                     }
                     self.extruding_face_from_gizmo = false;
-                    self.face_gizmo_distance = 15.0;
-                    self.face_gizmo_edit_input = "15".to_string();
+                    self.face_gizmo_distance = 0.0;
+                    self.face_gizmo_edit_input = "0".to_string();
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
@@ -2203,10 +2201,14 @@ impl DuCADApp {
                 );
                 if pill_resp.clicked() {
                     self.face_gizmo_dimension_editing = !self.face_gizmo_dimension_editing;
-                    self.face_gizmo_edit_input = format!(
-                        "{:.0}",
-                        self.unit.to_display_val(self.face_gizmo_distance)
-                    );
+                    self.face_gizmo_edit_input = if self.face_gizmo_distance.abs() < 1e-4 {
+                        "".to_string()
+                    } else {
+                        format!(
+                            "{:.0}",
+                            self.unit.to_display_val(self.face_gizmo_distance)
+                        )
+                    };
                 }
 
                 if self.face_gizmo_dimension_editing {
@@ -2267,9 +2269,6 @@ impl DuCADApp {
 
                 if handle_resp.drag_started() {
                     self.filleting_vertex_from_gizmo = true;
-                    if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                        self.vertex_gizmo_radius = 3.0;
-                    }
                 }
 
                 if handle_resp.dragged() {
@@ -2298,13 +2297,17 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.commit_vertex_fillet();
+                    if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                        self.commit_vertex_fillet();
+                    }
                     self.filleting_vertex_from_gizmo = false;
                 }
 
                 if self.filleting_vertex_from_gizmo && !self.vertex_gizmo_dimension_editing {
                     if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.commit_vertex_fillet();
+                        if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_vertex_fillet();
+                        }
                         self.filleting_vertex_from_gizmo = false;
                     } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.clear_round_gizmo(RoundKind::Vertex);
@@ -2331,10 +2334,14 @@ impl DuCADApp {
                 if pill_resp.clicked() {
                     self.vertex_gizmo_dimension_editing =
                         !self.vertex_gizmo_dimension_editing;
-                    self.vertex_gizmo_edit_input = format!(
-                        "{:.1}",
-                        self.unit.to_display_val(self.vertex_gizmo_radius.abs())
-                    );
+                    self.vertex_gizmo_edit_input = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                        "".to_string()
+                    } else {
+                        format!(
+                            "{:.1}",
+                            self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                        )
+                    };
                 }
 
                 if self.vertex_gizmo_dimension_editing {
@@ -2396,9 +2403,6 @@ impl DuCADApp {
 
                 if handle_resp.drag_started() {
                     self.filleting_edge_from_gizmo = true;
-                    if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                        self.edge_gizmo_radius = 3.0;
-                    }
                 }
 
                 if handle_resp.dragged() {
@@ -2426,13 +2430,17 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    self.commit_edge_fillet_single();
+                    if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                        self.commit_edge_fillet_single();
+                    }
                     self.filleting_edge_from_gizmo = false;
                 }
 
                 if self.filleting_edge_from_gizmo && !self.edge_gizmo_dimension_editing {
                     if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        self.commit_edge_fillet_single();
+                        if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_edge_fillet_single();
+                        }
                         self.filleting_edge_from_gizmo = false;
                     } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.clear_round_gizmo(RoundKind::Edge);
@@ -2458,10 +2466,14 @@ impl DuCADApp {
                 );
                 if pill_resp.clicked() {
                     self.edge_gizmo_dimension_editing = !self.edge_gizmo_dimension_editing;
-                    self.edge_gizmo_edit_input = format!(
-                        "{:.1}",
-                        self.unit.to_display_val(self.edge_gizmo_radius.abs())
-                    );
+                    self.edge_gizmo_edit_input = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                        "".to_string()
+                    } else {
+                        format!(
+                            "{:.1}",
+                            self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                        )
+                    };
                 }
 
                 if self.edge_gizmo_dimension_editing {
