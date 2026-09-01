@@ -309,6 +309,21 @@ pub enum SlotHudAction {
     SetWidth(f64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoundingHudStyle {
+    Fillet,
+    Chamfer,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RoundingHudAction {
+    SetStyle(RoundingHudStyle),
+    SetRadius(f64),
+    AdjustRadius(f64),
+    Commit,
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MateHudAction {
     SetOffset(f64),
@@ -1322,8 +1337,8 @@ impl CanvasHud {
         if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
             return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
         }
-        let handle_radius = if is_dragging { 18.0 } else { 16.0 };
-        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(handle_radius * 2.0 + 8.0));
+        // Area interaktif diperbesar agar sangat mudah disentuh & di-drag
+        let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(52.0));
         let response = ui.allocate_rect(rect, egui::Sense::drag());
         let is_hovered = response.hovered();
 
@@ -1348,34 +1363,47 @@ impl CanvasHud {
         // --- VISUAL ---
         let painter = ui.painter();
         let accent = if is_dragging {
-            Color32::from_rgb(0, 210, 180)
+            Color32::from_rgb(0, 230, 200)
         } else if is_hovered {
-            Color32::from_rgb(80, 200, 255)
+            Color32::from_rgb(80, 215, 255)
         } else {
             Color32::from_rgb(0, 180, 255)
         };
-        let bg = Color32::from_rgba_premultiplied(10, 20, 35, 220);
+        let bg = Color32::from_rgba_premultiplied(10, 20, 35, 230);
+
+        // Hover / Drag glowing halo ring
+        if is_hovered || is_dragging {
+            painter.circle_filled(
+                pos_2d,
+                15.0,
+                Color32::from_rgba_premultiplied(0, 180, 255, 40),
+            );
+        }
 
         // Diamond background
-        let r = if is_dragging { 9.0 } else { 7.0 };
+        let r = if is_dragging { 9.0 } else { 7.5 };
         let diamond = vec![
             pos_2d + Vec2::new(0.0, -r),
             pos_2d + Vec2::new(r, 0.0),
             pos_2d + Vec2::new(0.0, r),
             pos_2d + Vec2::new(-r, 0.0),
         ];
-        painter.add(egui::Shape::convex_polygon(diamond.clone(), bg, Stroke::new(1.5, accent)));
+        painter.add(egui::Shape::convex_polygon(
+            diamond.clone(),
+            bg,
+            Stroke::new(1.8, accent),
+        ));
 
         // Double arrow along dir_u
-        let arrow_len = if is_dragging { 13.0 } else { 11.0 };
+        let arrow_len = if is_dragging { 14.0 } else { 12.0 };
         let perp = Vec2::new(-dir_u.y, dir_u.x) * 2.5;
 
         for sign in [-1.0f32, 1.0f32] {
             let tip = pos_2d + dir_u * (r + arrow_len) * sign;
             let base = pos_2d + dir_u * r * sign;
-            painter.line_segment([base, tip], Stroke::new(1.5, accent));
+            painter.line_segment([base, tip], Stroke::new(1.8, accent));
             // Arrowhead
-            let head_size = 5.0;
+            let head_size = 5.5;
             let side1 = tip - dir_u * head_size * sign + perp;
             let side2 = tip - dir_u * head_size * sign - perp;
             painter.add(egui::Shape::convex_polygon(
@@ -2915,5 +2943,133 @@ impl CanvasHud {
         }
 
         response
+    }
+
+    /// Render Top Bar HUD mengambang standar DUCAD untuk mode Pembulatan Sudut (Fillet) & Tirus (Chamfer) 3D
+    pub fn render_rounding_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        is_vertex: bool,
+        current_style: RoundingHudStyle,
+        current_radius: f64,
+        edit_input: &mut String,
+        unit_suffix: &str,
+    ) -> Option<RoundingHudAction> {
+        let banner_w = 660.0;
+        let is_ready = true;
+
+        Self::render_header_hud_container(
+            ui,
+            canvas_rect,
+            banner_w,
+            is_ready,
+            "ducad-hud-rounding-banner",
+            |ui| {
+                let mut hud_action = None;
+
+                let title = if is_vertex {
+                    "Sudut (Vertex) 3D"
+                } else {
+                    "Rusuk (Edge) 3D"
+                };
+                Self::hud_title(ui, title, true);
+
+                ui.separator();
+
+                // Mode Toggle (Fillet vs Chamfer)
+                let is_fillet = current_style == RoundingHudStyle::Fillet;
+                if Self::hud_toggle_btn(ui, "Fillet (Bulat)", is_fillet).clicked() {
+                    hud_action = Some(RoundingHudAction::SetStyle(RoundingHudStyle::Fillet));
+                }
+
+                let is_chamfer = current_style == RoundingHudStyle::Chamfer;
+                if Self::hud_toggle_btn(ui, "Chamfer (Tirus)", is_chamfer).clicked() {
+                    hud_action = Some(RoundingHudAction::SetStyle(RoundingHudStyle::Chamfer));
+                }
+
+                ui.separator();
+
+                // Quick Preset Buttons [0 Siku, 1, 2, 3, 5, 10]
+                ui.label(RichText::new("Preset:").size(10.0).color(TEXT_SECONDARY));
+
+                let is_zero = current_radius < 0.2;
+                let zero_label = "0 Siku";
+                if Self::hud_circle_btn(ui, zero_label, is_zero)
+                    .on_hover_text("Kembali menyiku (radius 0)")
+                    .clicked()
+                {
+                    *edit_input = "0".to_string();
+                    hud_action = Some(RoundingHudAction::SetRadius(0.0));
+                }
+
+                for &r in &[1.0, 2.0, 3.0, 5.0, 10.0] {
+                    let is_active = (current_radius - r).abs() < 0.08;
+                    let label = format!("{:.0}", r);
+                    if Self::hud_circle_btn(ui, &label, is_active)
+                        .on_hover_text(format!("Preset {:.0} mm", r))
+                        .clicked()
+                    {
+                        *edit_input = format!("{:.1}", r);
+                        hud_action = Some(RoundingHudAction::SetRadius(r));
+                    }
+                }
+
+                ui.separator();
+
+                // Stepper [-] [ Input TextBox ] [+]
+                let minus_btn = egui::Button::new(
+                    RichText::new("−")
+                        .size(12.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
+                .min_size(Vec2::new(20.0, 20.0));
+                if ui
+                    .add(minus_btn)
+                    .on_hover_text("Kurangi radius (-0.5)")
+                    .clicked()
+                {
+                    hud_action = Some(RoundingHudAction::AdjustRadius(-0.5));
+                }
+
+                let text_edit = egui::TextEdit::singleline(edit_input)
+                    .desired_width(48.0)
+                    .font(egui::FontId::monospace(10.5))
+                    .horizontal_align(egui::Align::Center);
+                let resp = ui.add(text_edit);
+                if resp.changed() {
+                    if let Ok(v) = edit_input.trim().parse::<f64>() {
+                        hud_action = Some(RoundingHudAction::SetRadius(v.max(0.0)));
+                    }
+                }
+                ui.label(RichText::new(unit_suffix).size(10.0).color(TEXT_SECONDARY));
+
+                let plus_btn = egui::Button::new(
+                    RichText::new("+")
+                        .size(12.0)
+                        .strong()
+                        .color(Color32::WHITE),
+                )
+                .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
+                .min_size(Vec2::new(20.0, 20.0));
+                if ui
+                    .add(plus_btn)
+                    .on_hover_text("Tambah radius (+0.5)")
+                    .clicked()
+                {
+                    hud_action = Some(RoundingHudAction::AdjustRadius(0.5));
+                }
+
+                ui.separator();
+
+                // Apply button with standard i18n
+                if Self::hud_commit_btn(ui, t!("hud-apply-enter")).clicked() {
+                    hud_action = Some(RoundingHudAction::Commit);
+                }
+
+                hud_action
+            },
+        )
     }
 }

@@ -415,7 +415,7 @@ pub fn solid_directional_arrow_mesh(
     (positions, normals, colors, indices)
 }
 
-/// Marker gizmo vertex fillet 3D.
+/// Marker gizmo vertex/edge fillet 3D modern & bersih (tanpa kotak wireframe dan tanpa kurva liar).
 pub fn vertex_fillet_marker_lines(
     vertex: [f32; 3],
     out_dir: Vec3,
@@ -426,40 +426,17 @@ pub fn vertex_fillet_marker_lines(
     let v = Vec3::from(vertex);
     let n = out_dir.normalize_or_zero();
 
-    const S: f32 = 1.2;
-    let corners = [
-        Vec3::new(-S, -S, -S),
-        Vec3::new(S, -S, -S),
-        Vec3::new(S, S, -S),
-        Vec3::new(-S, S, -S),
-        Vec3::new(-S, -S, S),
-        Vec3::new(S, -S, S),
-        Vec3::new(S, S, S),
-        Vec3::new(-S, S, S),
-    ];
-    const EDGES: [(usize, usize); 12] = [
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
-    ];
-    for (a, b) in EDGES {
-        let pa = v + corners[a];
-        let pb = v + corners[b];
+    // Penanda anchor titik sudut yang halus & presisi (crosshair 3D mini)
+    const S: f32 = 0.45;
+    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+        let p0 = v - axis * S;
+        let p1 = v + axis * S;
         verts.push(LineVertex {
-            position: [pa.x, pa.y, pa.z],
+            position: [p0.x, p0.y, p0.z],
             color,
         });
         verts.push(LineVertex {
-            position: [pb.x, pb.y, pb.z],
+            position: [p1.x, p1.y, p1.z],
             color,
         });
     }
@@ -468,36 +445,10 @@ pub fn vertex_fillet_marker_lines(
         return verts;
     }
 
+    // Garis putus-putus halus dari titik anchor ke handle gizmo
     let handle = v + n * handle_dist;
     let handle_arr = [handle.x, handle.y, handle.z];
-    verts.extend(dashed_line_3d(vertex, handle_arr, 2.0, color));
-
-    let (t1, t2) = if n.z.abs() < 0.95 {
-        let t1 = n.cross(Vec3::Z).normalize();
-        let t2 = n.cross(t1).normalize();
-        (t1, t2)
-    } else {
-        let t1 = n.cross(Vec3::Y).normalize();
-        let t2 = n.cross(t1).normalize();
-        (t1, t2)
-    };
-    const ARC_R: f32 = 2.5;
-    let arc_center = handle - n * (ARC_R * 0.5);
-    let segs = 8;
-    let mut prev = arc_center + t1 * ARC_R;
-    for i in 1..=segs {
-        let angle = std::f32::consts::FRAC_PI_2 * (i as f32 / segs as f32);
-        let p = arc_center + t1 * (ARC_R * angle.cos()) + t2 * (ARC_R * angle.sin());
-        verts.push(LineVertex {
-            position: [prev.x, prev.y, prev.z],
-            color,
-        });
-        verts.push(LineVertex {
-            position: [p.x, p.y, p.z],
-            color,
-        });
-        prev = p;
-    }
+    verts.extend(dashed_line_3d(vertex, handle_arr, 1.5, color));
 
     verts
 }

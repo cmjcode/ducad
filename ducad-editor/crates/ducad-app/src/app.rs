@@ -1136,6 +1136,8 @@ impl DuCADApp {
             if self.filleting_vertex_from_gizmo && response.drag_stopped() {
                 if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                     self.commit_vertex_fillet();
+                } else {
+                    self.clear_round_gizmo(crate::types::RoundKind::Vertex);
                 }
                 self.filleting_vertex_from_gizmo = false;
             }
@@ -1173,6 +1175,8 @@ impl DuCADApp {
             if self.filleting_edge_from_gizmo && response.drag_stopped() {
                 if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                     self.commit_edge_fillet_single();
+                } else {
+                    self.clear_round_gizmo(crate::types::RoundKind::Edge);
                 }
                 self.filleting_edge_from_gizmo = false;
             }

@@ -40,8 +40,9 @@ pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DatumPlaneHudAction, DatumPlaneMode,
     DraftHudAction, DraftInspectionHudAction, DraftPullDir, LoftHudAction, MateHudAction,
     PatternAxisPreset, PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent,
-    RevolveHudAction, RibHudAction, ShellHudAction, SlotHudAction, SplitHudAction, SplitMode,
-    SplitPlaneKind, StudioHudAction, StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
+    RevolveHudAction, RibHudAction, RoundingHudAction, RoundingHudStyle, ShellHudAction,
+    SlotHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
+    StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
 };
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::CommandPalette;

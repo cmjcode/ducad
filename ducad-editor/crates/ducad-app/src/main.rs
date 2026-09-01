@@ -1,12 +1,14 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::fs;
 
 use eframe::egui::IconData;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
+pub mod app;
 #[cfg(target_vendor = "apple")]
 pub mod apple;
-pub mod app;
 pub mod document;
 pub mod file_io;
 pub mod history_db;
@@ -35,9 +37,17 @@ fn load_icon() -> IconData {
             if let Some(mut pixmap) = Pixmap::new(width, height) {
                 let scale_x = width as f32 / intrinsic.width();
                 let scale_y = height as f32 / intrinsic.height();
-                resvg::render(&tree, Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
+                resvg::render(
+                    &tree,
+                    Transform::from_scale(scale_x, scale_y),
+                    &mut pixmap.as_mut(),
+                );
                 let rgba = pixmap.data().to_vec();
-                return IconData { rgba, width, height };
+                return IconData {
+                    rgba,
+                    width,
+                    height,
+                };
             }
         }
     }

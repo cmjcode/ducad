@@ -549,9 +549,9 @@ impl DuCADApp {
         }
 
         if let Some((vertex, out_dir)) = self.active_vertex_gizmo_dir() {
-            const VERTEX_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+            const VERTEX_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
             let handle_dist = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.max(0.1) as f32
+                self.vertex_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
             };
@@ -564,9 +564,9 @@ impl DuCADApp {
         }
 
         if let Some((point, out_dir)) = self.active_edge_gizmo_dir() {
-            const EDGE_ROUND_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
+            const EDGE_ROUND_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
             let handle_dist = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.max(0.1) as f32
+                self.edge_gizmo_radius.abs().max(0.1) as f32
             } else {
                 12.0
             };
@@ -576,6 +576,25 @@ impl DuCADApp {
                 handle_dist,
                 EDGE_ROUND_GIZMO_COLOR,
             ));
+
+            if let Some((body_id, ray, _)) = self.active_edge {
+                if let Some(geo) = self.model.geometry.get(body_id) {
+                    if let Some((_, polyline)) =
+                        ducad_kernel::pick_edge(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM)
+                    {
+                        for pair in polyline.windows(2) {
+                            verts.push(ducad_render::LineVertex {
+                                position: [pair[0].0 as f32, pair[0].1 as f32, pair[0].2 as f32],
+                                color: [0.0, 0.9, 1.0, 0.95],
+                            });
+                            verts.push(ducad_render::LineVertex {
+                                position: [pair[1].0 as f32, pair[1].1 as f32, pair[1].2 as f32],
+                                color: [0.0, 0.9, 1.0, 0.95],
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         if !self.is_sketching {
@@ -1273,11 +1292,6 @@ impl DuCADApp {
 
         const GIZMO_ARROW_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
         const FACE_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-        // Pink = fillet (ditarik, membulat), kuning = chamfer (didorong,
-        // potong lurus) — warna beda supaya arah tarik/dorong kelihatan
-        // langsung dari ikonnya, bukan cuma dari bentuk sudut yang berubah.
-        const FILLET_GIZMO_COLOR: [f32; 4] = [1.0, 0.35, 0.85, 1.0];
-        const CHAMFER_GIZMO_COLOR: [f32; 4] = [1.0, 0.75, 0.1, 1.0];
 
         if let Some(centroid) = self.selected_closed_region_centroid() {
             let z = if self.extruding_from_gizmo {
@@ -1332,52 +1346,6 @@ impl DuCADApp {
                     pull_dir,
                 );
             }
-        }
-
-        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
-            let dist = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
-            let color = if self.vertex_gizmo_radius < 0.0 {
-                CHAMFER_GIZMO_COLOR
-            } else {
-                FILLET_GIZMO_COLOR
-            };
-            let p = c_base + pull_dir * dist;
-            push_mesh(
-                &mut positions,
-                &mut normals,
-                &mut colors,
-                &mut indices,
-                [p.x, p.y, p.z],
-                color,
-                pull_dir,
-            );
-        }
-
-        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
-            let dist = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
-            let color = if self.edge_gizmo_radius < 0.0 {
-                CHAMFER_GIZMO_COLOR
-            } else {
-                FILLET_GIZMO_COLOR
-            };
-            let p = c_base + pull_dir * dist;
-            push_mesh(
-                &mut positions,
-                &mut normals,
-                &mut colors,
-                &mut indices,
-                [p.x, p.y, p.z],
-                color,
-                pull_dir,
-            );
         }
 
         if let Some((_, center)) = self.selected_single_body_center() {

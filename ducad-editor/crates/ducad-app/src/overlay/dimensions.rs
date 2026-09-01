@@ -8,7 +8,7 @@ use ducad_sketch::{
 };
 
 use ducad_i18n::t;
-use ducad_ui::{CanvasHud, MateHudAction, ToolGuides};
+use ducad_ui::{CanvasHud, MateHudAction, RoundingHudAction, RoundingHudStyle, ToolGuides};
 use eframe::egui;
 use glam::{DVec2, Vec3};
 use slotmap::Key;
@@ -2245,11 +2245,7 @@ impl DuCADApp {
         }
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
-            let z_pos = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
+            let z_pos = (14.0 + self.vertex_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
             let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
@@ -2279,9 +2275,6 @@ impl DuCADApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    // Tarik (delta_mm > 0, menjauhi sudut) => fillet membesar.
-                    // Dorong sampai lewat nol (delta_mm < 0) => jadi chamfer
-                    // (potong lurus) yang membesar, bukan diklem di 0.
                     let candidate_radius = self.vertex_gizmo_radius + delta_mm;
                     if candidate_radius.abs() < Self::ROUND_SHARP_MM
                         || self
@@ -2299,91 +2292,143 @@ impl DuCADApp {
                 if handle_resp.drag_stopped() {
                     if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                         self.commit_vertex_fillet();
+                    } else {
+                        self.clear_round_gizmo(RoundKind::Vertex);
                     }
                     self.filleting_vertex_from_gizmo = false;
                 }
 
-                if self.filleting_vertex_from_gizmo && !self.vertex_gizmo_dimension_editing {
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                            self.commit_vertex_fillet();
-                        }
-                        self.filleting_vertex_from_gizmo = false;
-                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        self.clear_round_gizmo(RoundKind::Vertex);
-                        self.filleting_vertex_from_gizmo = false;
-                        self.vertex_gizmo_dimension_editing = false;
-                        self.model_status = Some("Fillet Vertex dibatalkan".to_string());
-                    }
-                }
-
-                let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                    "0 (siku)".to_string()
+                // In-situ dimension pill right near the handle
+                let pill_pos = handle_2d + egui::vec2(0.0, -26.0);
+                let pill_text = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                    "0 (Siku)".to_string()
                 } else if self.vertex_gizmo_radius > 0.0 {
                     format!("R {}", self.unit.format(self.vertex_gizmo_radius))
                 } else {
                     format!("C {}", self.unit.format(-self.vertex_gizmo_radius))
                 };
-                let pill_resp = CanvasHud::render_interactive_dimension_pill(
-                    ui,
-                    pill_pos,
-                    &text,
-                    self.vertex_gizmo_dimension_editing,
-                );
-                if pill_resp.clicked() {
-                    self.vertex_gizmo_dimension_editing =
-                        !self.vertex_gizmo_dimension_editing;
-                    self.vertex_gizmo_edit_input = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                        "".to_string()
+                CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
+
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                        self.commit_vertex_fillet();
                     } else {
-                        format!(
-                            "{:.1}",
-                            self.unit.to_display_val(self.vertex_gizmo_radius.abs())
-                        )
-                    };
+                        self.clear_round_gizmo(RoundKind::Vertex);
+                    }
+                    self.filleting_vertex_from_gizmo = false;
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.clear_round_gizmo(RoundKind::Vertex);
+                    self.filleting_vertex_from_gizmo = false;
+                    self.model_status = Some("Fillet Vertex dibatalkan".to_string());
                 }
 
-                if self.vertex_gizmo_dimension_editing {
-                    let popup_rect = egui::Rect::from_center_size(
-                        pill_pos + egui::vec2(0.0, 28.0),
-                        egui::vec2(100.0, 32.0),
-                    );
-                    egui::Area::new(egui::Id::new("ducad-vertex-gizmo-edit-popup"))
-                        .fixed_pos(popup_rect.min)
-                        .order(egui::Order::Foreground)
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                let resp =
-                                    ui.text_edit_singleline(&mut self.vertex_gizmo_edit_input);
-                                resp.request_focus();
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    self.vertex_gizmo_dimension_editing = false;
-                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                    if let Ok(val) =
-                                        self.vertex_gizmo_edit_input.trim().parse::<f64>()
-                                    {
-                                        self.vertex_gizmo_radius =
-                                            self.unit.to_internal_mm(val).max(0.0);
-                                        self.commit_vertex_fillet();
-                                        self.filleting_vertex_from_gizmo = false;
-                                    }
-                                    self.vertex_gizmo_dimension_editing = false;
-                                } else if resp.lost_focus() {
-                                    self.vertex_gizmo_dimension_editing = false;
-                                }
-                            });
-                        });
+                let current_style = if self.vertex_gizmo_radius < 0.0 {
+                    RoundingHudStyle::Chamfer
+                } else {
+                    RoundingHudStyle::Fillet
+                };
+
+                let hud_action = CanvasHud::render_rounding_top_bar_hud(
+                    ui,
+                    rect,
+                    true,
+                    current_style,
+                    self.vertex_gizmo_radius.abs(),
+                    &mut self.vertex_gizmo_edit_input,
+                    self.unit.suffix(),
+                );
+
+                if let Some(act) = hud_action {
+                    match act {
+                        RoundingHudAction::SetStyle(RoundingHudStyle::Fillet) => {
+                            let mag = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                                2.0
+                            } else {
+                                self.vertex_gizmo_radius.abs()
+                            };
+                            if self.round_gizmo_preview_shape(RoundKind::Vertex, mag).is_some() {
+                                self.vertex_gizmo_radius = mag;
+                            }
+                            self.vertex_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::SetStyle(RoundingHudStyle::Chamfer) => {
+                            let mag = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                                2.0
+                            } else {
+                                self.vertex_gizmo_radius.abs()
+                            };
+                            let signed_r = -mag;
+                            if self
+                                .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
+                                .is_some()
+                            {
+                                self.vertex_gizmo_radius = signed_r;
+                            }
+                            self.vertex_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::SetRadius(val) => {
+                            let signed_r = if current_style == RoundingHudStyle::Chamfer {
+                                -val
+                            } else {
+                                val
+                            };
+                            if signed_r.abs() < Self::ROUND_SHARP_MM
+                                || self
+                                    .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
+                                    .is_some()
+                            {
+                                self.vertex_gizmo_radius = signed_r;
+                            }
+                            self.vertex_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::AdjustRadius(delta) => {
+                            let new_mag = (self.vertex_gizmo_radius.abs() + delta).max(0.0);
+                            let signed_r = if current_style == RoundingHudStyle::Chamfer {
+                                -new_mag
+                            } else {
+                                new_mag
+                            };
+                            if signed_r.abs() < Self::ROUND_SHARP_MM
+                                || self
+                                    .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
+                                    .is_some()
+                            {
+                                self.vertex_gizmo_radius = signed_r;
+                            }
+                            self.vertex_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::Commit => {
+                            if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                                self.commit_vertex_fillet();
+                            } else {
+                                self.clear_round_gizmo(RoundKind::Vertex);
+                            }
+                            self.filleting_vertex_from_gizmo = false;
+                        }
+                        RoundingHudAction::Cancel => {
+                            self.clear_round_gizmo(RoundKind::Vertex);
+                            self.filleting_vertex_from_gizmo = false;
+                            self.model_status = Some("Fillet Vertex dibatalkan".to_string());
+                        }
+                    }
                 }
             }
         }
 
         if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
-            let z_pos = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
+            let z_pos = (14.0 + self.edge_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
             let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
@@ -2413,8 +2458,6 @@ impl DuCADApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    // Tarik => fillet membesar. Dorong lewat nol => chamfer
-                    // (potong lurus) yang membesar, tidak diklem di 0.
                     let candidate_radius = self.edge_gizmo_radius + delta_mm;
                     if candidate_radius.abs() < Self::ROUND_SHARP_MM
                         || self
@@ -2432,80 +2475,137 @@ impl DuCADApp {
                 if handle_resp.drag_stopped() {
                     if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                         self.commit_edge_fillet_single();
+                    } else {
+                        self.clear_round_gizmo(RoundKind::Edge);
                     }
                     self.filleting_edge_from_gizmo = false;
                 }
 
-                if self.filleting_edge_from_gizmo && !self.edge_gizmo_dimension_editing {
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                            self.commit_edge_fillet_single();
-                        }
-                        self.filleting_edge_from_gizmo = false;
-                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        self.clear_round_gizmo(RoundKind::Edge);
-                        self.filleting_edge_from_gizmo = false;
-                        self.edge_gizmo_dimension_editing = false;
-                        self.model_status = Some("Fillet Edge dibatalkan".to_string());
-                    }
-                }
-
-                let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                    "0 (siku)".to_string()
+                // In-situ dimension pill right near the handle
+                let pill_pos = handle_2d + egui::vec2(0.0, -26.0);
+                let pill_text = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                    "0 (Siku)".to_string()
                 } else if self.edge_gizmo_radius > 0.0 {
                     format!("R {}", self.unit.format(self.edge_gizmo_radius))
                 } else {
                     format!("C {}", self.unit.format(-self.edge_gizmo_radius))
                 };
-                let pill_resp = CanvasHud::render_interactive_dimension_pill(
-                    ui,
-                    pill_pos,
-                    &text,
-                    self.edge_gizmo_dimension_editing,
-                );
-                if pill_resp.clicked() {
-                    self.edge_gizmo_dimension_editing = !self.edge_gizmo_dimension_editing;
-                    self.edge_gizmo_edit_input = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
-                        "".to_string()
+                CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
+
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                        self.commit_edge_fillet_single();
                     } else {
-                        format!(
-                            "{:.1}",
-                            self.unit.to_display_val(self.edge_gizmo_radius.abs())
-                        )
-                    };
+                        self.clear_round_gizmo(RoundKind::Edge);
+                    }
+                    self.filleting_edge_from_gizmo = false;
+                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.clear_round_gizmo(RoundKind::Edge);
+                    self.filleting_edge_from_gizmo = false;
+                    self.model_status = Some("Fillet Edge dibatalkan".to_string());
                 }
 
-                if self.edge_gizmo_dimension_editing {
-                    let popup_rect = egui::Rect::from_center_size(
-                        pill_pos + egui::vec2(0.0, 28.0),
-                        egui::vec2(100.0, 32.0),
-                    );
-                    egui::Area::new(egui::Id::new("ducad-edge-gizmo-edit-popup"))
-                        .fixed_pos(popup_rect.min)
-                        .order(egui::Order::Foreground)
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                let resp =
-                                    ui.text_edit_singleline(&mut self.edge_gizmo_edit_input);
-                                resp.request_focus();
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    self.edge_gizmo_dimension_editing = false;
-                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                    if let Ok(val) =
-                                        self.edge_gizmo_edit_input.trim().parse::<f64>()
-                                    {
-                                        self.edge_gizmo_radius =
-                                            self.unit.to_internal_mm(val).max(0.0);
-                                        self.commit_edge_fillet_single();
-                                        self.filleting_edge_from_gizmo = false;
-                                    }
-                                    self.edge_gizmo_dimension_editing = false;
-                                } else if resp.lost_focus() {
-                                    self.edge_gizmo_dimension_editing = false;
-                                }
-                            });
-                        });
+                let current_style = if self.edge_gizmo_radius < 0.0 {
+                    RoundingHudStyle::Chamfer
+                } else {
+                    RoundingHudStyle::Fillet
+                };
+
+                let hud_action = CanvasHud::render_rounding_top_bar_hud(
+                    ui,
+                    rect,
+                    false,
+                    current_style,
+                    self.edge_gizmo_radius.abs(),
+                    &mut self.edge_gizmo_edit_input,
+                    self.unit.suffix(),
+                );
+
+                if let Some(act) = hud_action {
+                    match act {
+                        RoundingHudAction::SetStyle(RoundingHudStyle::Fillet) => {
+                            let mag = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                                2.0
+                            } else {
+                                self.edge_gizmo_radius.abs()
+                            };
+                            if self.round_gizmo_preview_shape(RoundKind::Edge, mag).is_some() {
+                                self.edge_gizmo_radius = mag;
+                            }
+                            self.edge_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::SetStyle(RoundingHudStyle::Chamfer) => {
+                            let mag = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
+                                2.0
+                            } else {
+                                self.edge_gizmo_radius.abs()
+                            };
+                            let signed_r = -mag;
+                            if self
+                                .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
+                                .is_some()
+                            {
+                                self.edge_gizmo_radius = signed_r;
+                            }
+                            self.edge_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::SetRadius(val) => {
+                            let signed_r = if current_style == RoundingHudStyle::Chamfer {
+                                -val
+                            } else {
+                                val
+                            };
+                            if signed_r.abs() < Self::ROUND_SHARP_MM
+                                || self
+                                    .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
+                                    .is_some()
+                            {
+                                self.edge_gizmo_radius = signed_r;
+                            }
+                            self.edge_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::AdjustRadius(delta) => {
+                            let new_mag = (self.edge_gizmo_radius.abs() + delta).max(0.0);
+                            let signed_r = if current_style == RoundingHudStyle::Chamfer {
+                                -new_mag
+                            } else {
+                                new_mag
+                            };
+                            if signed_r.abs() < Self::ROUND_SHARP_MM
+                                || self
+                                    .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
+                                    .is_some()
+                            {
+                                self.edge_gizmo_radius = signed_r;
+                            }
+                            self.edge_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                            );
+                        }
+                        RoundingHudAction::Commit => {
+                            if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                                self.commit_edge_fillet_single();
+                            } else {
+                                self.clear_round_gizmo(RoundKind::Edge);
+                            }
+                            self.filleting_edge_from_gizmo = false;
+                        }
+                        RoundingHudAction::Cancel => {
+                            self.clear_round_gizmo(RoundKind::Edge);
+                            self.filleting_edge_from_gizmo = false;
+                            self.model_status = Some("Fillet Edge dibatalkan".to_string());
+                        }
+                    }
                 }
             }
         }
