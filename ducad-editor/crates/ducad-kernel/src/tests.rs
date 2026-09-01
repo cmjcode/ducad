@@ -1592,7 +1592,6 @@ fn split_face_on_box() {
 
     let orig_faces = shape.inner().faces().count();
     let new_faces = split.inner().faces().count();
-    println!("ORIG FACES: {}, NEW FACES: {}", orig_faces, new_faces);
 
     let mesh = split.tessellate();
     assert!(mesh.triangle_count() > 0);

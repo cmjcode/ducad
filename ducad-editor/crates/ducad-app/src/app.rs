@@ -1736,14 +1736,9 @@ impl eframe::App for DuCADApp {
                     if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h, folder_bottom_y) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
-                                println!("[DUCAD APP] Event ToggleBodyVisibility diterima untuk raw_id: {}", raw_id);
-                                let mut found = false;
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
                                     if id.data().as_ffi() == raw_id {
-                                        found = true;
-                                        let old_vis = b.visible;
                                         b.visible = !b.visible;
-                                        println!("[DUCAD APP] Visibilitas body '{}' diubah: {} -> {}", b.name, old_vis, b.visible);
                                         self.model_status = Some(format!(
                                             "Body '{}' {}",
                                             b.name,
@@ -1771,12 +1766,8 @@ impl eframe::App for DuCADApp {
                                         break;
                                     }
                                 }
-                                if !found {
-                                    println!("[DUCAD APP] Body dengan raw_id: {} tidak ditemukan di doc.bodies! (Total bodies: {})", raw_id, self.model.doc.bodies.len());
-                                }
                             }
                             ItemsDrawerEvent::ToggleEntity2dVisibility(raw_id) => {
-                                let mut found = false;
                                 for sketch in self.sketches.iter_mut() {
                                     if let Some(id) = sketch.entities.keys().find(|i| i.data().as_ffi() == raw_id) {
                                         let is_now_visible = sketch.toggle_visibility(id);
@@ -1792,13 +1783,9 @@ impl eframe::App for DuCADApp {
                                             name,
                                             if is_now_visible { "ditampilkan" } else { "disembunyikan" }
                                         ));
-                                        found = true;
                                         ctx.request_repaint();
                                         break;
                                     }
-                                }
-                                if !found {
-                                    println!("[DUCAD APP] Entity 2D dengan raw_id: {} tidak ditemukan!", raw_id);
                                 }
                             }
                             ItemsDrawerEvent::ToggleGroupVisibility(group_name) => {

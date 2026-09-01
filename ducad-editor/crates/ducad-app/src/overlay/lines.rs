@@ -1441,15 +1441,8 @@ impl DuCADApp {
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
 
-            let mesh_to_render = if let Some((_ck, cr, override_id, cached_mesh, _)) = &self.round_preview_cache {
+            let mesh_to_render = if let Some((_ck, _cr, override_id, cached_mesh, _)) = &self.round_preview_cache {
                 if *override_id == id {
-                    eprintln!(
-                        "[3D_RENDER_MESH] Body {:?}: RENDERING PREVIEW MESH (radius={:+.2}mm, {} verts, {} tris)",
-                        id,
-                        cr,
-                        cached_mesh.positions.len(),
-                        cached_mesh.indices.len() / 3
-                    );
                     std::borrow::Cow::Borrowed(cached_mesh)
                 } else {
                     std::borrow::Cow::Borrowed(&geo.mesh)
@@ -1940,14 +1933,8 @@ impl DuCADApp {
                 None
             };
 
-            let edge_lines_to_render = if let Some((_ck, cr, override_id, _, cached_edge_lines)) = &self.round_preview_cache {
+            let edge_lines_to_render = if let Some((_ck, _cr, override_id, _, cached_edge_lines)) = &self.round_preview_cache {
                 if *override_id == id {
-                    eprintln!(
-                        "[3D_RENDER_EDGES] Body {:?}: RENDERING PREVIEW EDGES (radius={:+.2}mm, {} edges)",
-                        id,
-                        cr,
-                        cached_edge_lines.len()
-                    );
                     cached_edge_lines.as_slice()
                 } else {
                     geo.edge_lines.as_slice()

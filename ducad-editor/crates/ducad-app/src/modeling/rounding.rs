@@ -359,21 +359,6 @@ impl DuCADApp {
                     }
                 }
 
-                let t0 = std::time::Instant::now();
-                let style_name = match f.style {
-                    RoundStyle::Fillet => "Fillet (Bulat)",
-                    RoundStyle::Chamfer => "Chamfer (Tirus)",
-                };
-                eprintln!(
-                    "[ROUND_KERNEL] [Batch {}..{}/{}] kind=Edge style={} radius={:.3} mm ({} edges)",
-                    i + 1,
-                    j,
-                    features.len(),
-                    style_name,
-                    f.radius,
-                    batch_rays.len(),
-                );
-
                 let res = match f.style {
                     RoundStyle::Fillet => ducad_kernel::fillet_edges(
                         &shape,
@@ -391,20 +376,10 @@ impl DuCADApp {
 
                 match res {
                     Ok(new_s) => {
-                        eprintln!(
-                            "[ROUND_KERNEL]   -> OK ({:.2} ms)",
-                            t0.elapsed().as_secs_f64() * 1000.0
-                        );
                         shape = new_s;
                     }
                     Err(e) => {
-                        let err_str = e.to_string();
-                        eprintln!(
-                            "[ROUND_KERNEL]   -> GAGAL ({:.2} ms): {}",
-                            t0.elapsed().as_secs_f64() * 1000.0,
-                            err_str
-                        );
-                        return Err(err_str);
+                        return Err(e.to_string());
                     }
                 }
 
@@ -412,22 +387,7 @@ impl DuCADApp {
                 continue;
             }
 
-            let t0 = std::time::Instant::now();
-            let style_name = match f.style {
-                RoundStyle::Fillet => "Fillet (Bulat)",
-                RoundStyle::Chamfer => "Chamfer (Tirus)",
-            };
-            eprintln!(
-                "[ROUND_KERNEL] [{}/{}] kind={:?} style={} radius={:.3} mm | ray_dir=({:.2},{:.2},{:.2})",
-                i + 1,
-                features.len(),
-                f.kind,
-                style_name,
-                f.radius,
-                f.ray.dir.0,
-                f.ray.dir.1,
-                f.ray.dir.2,
-            );
+
             let res = match (f.kind, f.style) {
                 (RoundKind::Vertex, RoundStyle::Fillet) => ducad_kernel::fillet_vertex(
                     &shape,
@@ -477,20 +437,10 @@ impl DuCADApp {
             };
             match res {
                 Ok(new_s) => {
-                    eprintln!(
-                        "[ROUND_KERNEL]   -> OK ({:.2} ms)",
-                        t0.elapsed().as_secs_f64() * 1000.0
-                    );
                     shape = new_s;
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    eprintln!(
-                        "[ROUND_KERNEL]   -> GAGAL ({:.2} ms): {}",
-                        t0.elapsed().as_secs_f64() * 1000.0,
-                        err_str
-                    );
-                    return Err(err_str);
+                    return Err(e.to_string());
                 }
             }
             i += 1;
@@ -677,51 +627,25 @@ impl DuCADApp {
             return true;
         }
 
-        let style_label = if radius > Self::ROUND_SHARP_MM {
-            format!("Fillet (+{:.3} mm)", radius)
-        } else if radius < -Self::ROUND_SHARP_MM {
-            format!("Chamfer ({:.3} mm)", radius)
-        } else {
-            "Siku (0.0 mm)".to_string()
-        };
-
         // Skip expensive recomputation if nothing changed
         if let Some((ck, cr, cid, ..)) = &self.round_preview_cache {
             if *ck == kind && (*cr - radius).abs() < 1e-9 && *cid == body_id {
-                eprintln!("[ROUND_CACHE]   -> HIT (radius={:+.3} mm) [skip build]", radius);
                 return true;
             }
         }
 
-        eprintln!("[ROUND_CACHE] update: kind={:?} | target={} | building...", kind, style_label);
-        let t_build = std::time::Instant::now();
         let result = self.round_gizmo_preview_shape(kind, radius);
-        let build_ms = t_build.elapsed().as_secs_f64() * 1000.0;
         if let Some((id, shape)) = result {
-            let t_tess = std::time::Instant::now();
             let tess = shape.tessellate();
-            let tess_ms = t_tess.elapsed().as_secs_f64() * 1000.0;
             let mesh = ducad_kernel::KernelMesh {
                 positions: tess.positions.clone(),
                 normals: tess.normals.clone(),
                 indices: tess.indices.clone(),
             };
             let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
-            eprintln!(
-                "[ROUND_CACHE]   -> OK: build={:.1}ms, tess={:.1}ms ({} verts, {} tris, {} edges)",
-                build_ms,
-                tess_ms,
-                mesh.positions.len(),
-                mesh.indices.len() / 3,
-                edge_lines.len()
-            );
             self.round_preview_cache = Some((kind, radius, id, mesh, edge_lines));
             true
         } else {
-            eprintln!(
-                "[ROUND_CACHE]   -> BUILD GAGAL ({:.1}ms) — batas geometri terlampaui",
-                build_ms
-            );
             false
         }
     }
@@ -856,8 +780,7 @@ mod tests {
                 radius_end: None,
                 polyline: vec![],
             };
-            let res = DuCADApp::build_rounded_shape(&base, &[f]);
-            println!("Chamfer dist={dist} -> success={}", res.is_ok());
+            let _ = DuCADApp::build_rounded_shape(&base, &[f]);
         }
 
         let fillet_feature = RoundFeature {
