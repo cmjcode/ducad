@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use ducad_kernel::KernelShape;
-
 use crate::app::DuCADApp;
 use crate::model::{BodyGeometry, ModelDoc};
 use crate::types::ToolKind;
@@ -213,35 +211,60 @@ impl DuCADApp {
         self.pending_imports += 1;
     }
 
+    pub fn import_stl(&mut self) {
+        let filter_name = ducad_i18n::t!("file-stl-filter");
+        let Some(path) = self.pick_open_path(&filter_name, &["stl"]) else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        self.import_worker.submit(crate::import_worker::ImportJob {
+            name: name.clone(),
+            path: path.clone(),
+        });
+        self.file_status = Some(ducad_i18n::t!("file-importing-stl", name = name.as_str()));
+        self.pending_imports += 1;
+    }
+
     pub fn poll_import_worker(&mut self) {
         for res in self.import_worker.poll() {
             if self.pending_imports > 0 {
                 self.pending_imports -= 1;
             }
+            let is_stl = res.name.to_lowercase().ends_with(".stl");
             match res.outcome {
-                Ok((step_str, mesh)) => {
-                    match KernelShape::from_step_string(&step_str) {
-                        Ok(shape) => {
-                            let geo = BodyGeometry::from_shape_with_mesh(shape, mesh);
-                            let act_import = ducad_i18n::t!("file-act-import-step", name = res.name.as_str());
-                            let cmd = crate::model::AddSolidCommand::new(res.name.clone(), geo);
-                            self.execute_model_command(
-                                Box::new(cmd),
-                                &act_import,
-                            );
-                            self.file_status =
-                                Some(ducad_i18n::t!("file-imported-step", name = res.name.as_str()));
-                        }
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            self.file_status =
-                                Some(ducad_i18n::t!("file-import-step-build-failed", error = err_str.as_str()));
-                        }
-                    }
+                Ok((shape, mesh)) => {
+                    let geo = if is_stl {
+                        BodyGeometry::from_mesh_direct(shape, mesh)
+                    } else {
+                        BodyGeometry::from_shape_with_mesh(shape, mesh)
+                    };
+                    let act_import = if is_stl {
+                        ducad_i18n::t!("file-act-import-stl", name = res.name.as_str())
+                    } else {
+                        ducad_i18n::t!("file-act-import-step", name = res.name.as_str())
+                    };
+                    let cmd = crate::model::AddSolidCommand::new(res.name.clone(), geo);
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &act_import,
+                    );
+                    self.file_status = if is_stl {
+                        Some(ducad_i18n::t!("file-imported-stl", name = res.name.as_str()))
+                    } else {
+                        Some(ducad_i18n::t!("file-imported-step", name = res.name.as_str()))
+                    };
                 }
                 Err(e) => {
                     let err_str = e.to_string();
-                    self.file_status = Some(ducad_i18n::t!("file-import-step-failed", error = err_str.as_str()));
+                    self.file_status = if is_stl {
+                        Some(ducad_i18n::t!("file-import-stl-failed", error = err_str.as_str()))
+                    } else {
+                        Some(ducad_i18n::t!("file-import-step-failed", error = err_str.as_str()))
+                    };
                 }
             }
         }

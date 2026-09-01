@@ -1437,6 +1437,7 @@ impl eframe::App for DuCADApp {
                                 TopBarFileOp::Save => self.save_native(),
                                 TopBarFileOp::SaveAs => self.save_native_as(),
                                 TopBarFileOp::ImportStep => self.import_step(),
+                                TopBarFileOp::ImportStl => self.import_stl(),
                                 TopBarFileOp::ImportDxf => self.import_dxf(),
                                 TopBarFileOp::ExportStep => self.export_step(),
                                 TopBarFileOp::ExportStl => self.export_stl(),

@@ -51,6 +51,15 @@ impl BodyGeometry {
         let edge_dims = ducad_kernel::edge_dimensions(&shape);
         Self { shape, mesh, edge_dims }
     }
+
+    /// Buat BodyGeometry langsung dari mesh (misal import STL) tanpa eksplorasi dimensi rusuk B-Rep.
+    pub fn from_mesh_direct(shape: KernelShape, mesh: KernelMesh) -> Self {
+        Self {
+            shape,
+            mesh,
+            edge_dims: Vec::new(),
+        }
+    }
 }
 
 /// Dokumen 3D lengkap: metadata body (`ducad-core::Document`) + geometri

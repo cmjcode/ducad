@@ -12,6 +12,8 @@ use crate::mesh::{tessellate_shape, KernelMesh};
 /// langsung.
 pub struct KernelShape(pub(crate) Shape);
 
+unsafe impl Send for KernelShape {}
+
 impl KernelShape {
     pub(crate) fn from_inner(shape: Shape) -> Self {
         KernelShape(shape)
@@ -19,6 +21,14 @@ impl KernelShape {
 
     pub(crate) fn inner(&self) -> &Shape {
         &self.0
+    }
+
+    /// Buat shape kosong (TopoDS_Compound kosong) — dipakai untuk mesh body murni (seperti impor STL).
+    pub fn empty() -> Self {
+        let _guard = lock_kernel();
+        let empty_vec: Vec<&Shape> = Vec::new();
+        let compound = opencascade::primitives::Compound::from_shapes(empty_vec);
+        KernelShape(compound.into())
     }
 
     pub fn tessellate(&self) -> KernelMesh {
@@ -45,6 +55,14 @@ impl KernelShape {
         let _guard = lock_kernel();
         Ok(KernelShape(
             Shape::read_step(path).context("read_step: gagal membaca STEP")?,
+        ))
+    }
+
+    /// Baca shape dari file STL (biner/ASCII).
+    pub fn read_stl(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let _guard = lock_kernel();
+        Ok(KernelShape(
+            Shape::read_stl(path).context("read_stl: gagal membaca STL")?,
         ))
     }
 
@@ -98,24 +116,10 @@ pub(crate) fn temp_step_path(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-/// `opencascade-rs` (0.2.0) tidak menyediakan `Clone` untuk `Shape` — objek
-/// C++ di baliknya cuma dibungkus `UniquePtr` tanpa binding copy-constructor.
-/// Satu-satunya cara publik untuk menyalin B-rep persis (bukan cuma
-/// referensi) adalah roundtrip lewat file STEP (format yang menyimpan
-/// topologi+geometri B-rep tepat, bukan mesh tessellation). Dipakai HANYA
-/// oleh operasi yang secara internal memutasi shape di tempat (fillet/
-/// chamfer) atau mengonsumsi kepemilikan (`hollow`), supaya shape ASLI
-/// milik pemanggil tetap utuh untuk keperluan undo — bukan technical debt,
-/// keputusan sadar mengingat batasan binding versi ini.
+/// Kloning in-memory cepat untuk `Shape` menggunakan binding `Clone` (TopoDS_Shape_to_owned)
+/// tanpa pernah menyentuh file sementara di disk.
 pub(crate) fn deep_clone(shape: &Shape) -> Result<Shape> {
-    let path = temp_step_path("deep-clone");
-    shape
-        .write_step(&path)
-        .context("deep_clone: gagal menulis STEP sementara")?;
-    let result =
-        Shape::read_step(&path).context("deep_clone: gagal membaca balik STEP sementara");
-    let _ = std::fs::remove_file(&path);
-    result
+    Ok(shape.clone())
 }
 
 /// Deep-clone publik sebuah shape — dipakai app untuk menyimpan snapshot
@@ -124,7 +128,7 @@ pub(crate) fn deep_clone(shape: &Shape) -> Result<Shape> {
 /// membuka akses ke `deep_clone` internal maupun detail locking kernel.
 pub fn clone_shape(shape: &KernelShape) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    Ok(KernelShape(deep_clone(&shape.0)?))
+    Ok(KernelShape(shape.0.clone()))
 }
 
 /// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — dipakai

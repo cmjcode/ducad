@@ -331,8 +331,27 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
     }
 
     if segments.len() >= 2 {
-        // Cari simple cycles
+        // Cari simple cycles menggunakan spatial grid O(1) per lookup
         let mut used_in_region = HashSet::new();
+
+        let cell_coord = |p: DVec2| -> (i64, i64) {
+            (
+                (p.x / CHAIN_EPS).floor() as i64,
+                (p.y / CHAIN_EPS).floor() as i64,
+            )
+        };
+
+        let mut start_grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+        let mut end_grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+
+        for (idx, seg) in segments.iter().enumerate() {
+            let sc = cell_coord(seg.start);
+            start_grid.entry(sc).or_default().push(idx);
+            let ec = cell_coord(seg.end);
+            end_grid.entry(ec).or_default().push(idx);
+        }
 
         for start_idx in 0..segments.len() {
             if used_in_region.contains(&segments[start_idx].id) {
@@ -349,26 +368,54 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
             let mut success = false;
 
             for _ in 0..segments.len() {
-                // Cari sambungan berikutnya yang paling dekat
+                // Cari sambungan berikutnya yang paling dekat dari sel tetangga (3x3 grid)
                 let mut best_next: Option<(usize, bool, f64)> = None;
-                for (next_idx, seg) in segments.iter().enumerate() {
-                    if visited.contains(&next_idx) {
-                        continue;
-                    }
-                    let d_start = (seg.start - current_tail).length();
-                    if d_start < CHAIN_EPS && best_next.as_ref().is_none_or(|(_, _, best_d)| d_start < *best_d) {
-                        best_next = Some((next_idx, false, d_start));
-                    }
-                    let d_end = (seg.end - current_tail).length();
-                    if d_end < CHAIN_EPS && best_next.as_ref().is_none_or(|(_, _, best_d)| d_end < *best_d) {
-                        best_next = Some((next_idx, true, d_end));
+                let c = cell_coord(current_tail);
+
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        let neighbor = (c.0 + dx, c.1 + dy);
+                        if let Some(list) = start_grid.get(&neighbor) {
+                            for &next_idx in list {
+                                if visited.contains(&next_idx) {
+                                    continue;
+                                }
+                                let d = (segments[next_idx].start - current_tail).length();
+                                if d < CHAIN_EPS
+                                    && best_next
+                                        .as_ref()
+                                        .is_none_or(|(_, _, best_d)| d < *best_d)
+                                {
+                                    best_next = Some((next_idx, false, d));
+                                }
+                            }
+                        }
+                        if let Some(list) = end_grid.get(&neighbor) {
+                            for &next_idx in list {
+                                if visited.contains(&next_idx) {
+                                    continue;
+                                }
+                                let d = (segments[next_idx].end - current_tail).length();
+                                if d < CHAIN_EPS
+                                    && best_next
+                                        .as_ref()
+                                        .is_none_or(|(_, _, best_d)| d < *best_d)
+                                {
+                                    best_next = Some((next_idx, true, d));
+                                }
+                            }
+                        }
                     }
                 }
 
                 if let Some((next_idx, rev, _)) = best_next {
                     chain.push((next_idx, rev));
                     visited.insert(next_idx);
-                    current_tail = if !rev { segments[next_idx].end } else { segments[next_idx].start };
+                    current_tail = if !rev {
+                        segments[next_idx].end
+                    } else {
+                        segments[next_idx].start
+                    };
 
                     if (current_tail - target_head).length() < CHAIN_EPS && chain.len() >= 3 {
                         success = true;

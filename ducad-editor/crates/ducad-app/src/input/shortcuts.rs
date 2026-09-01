@@ -34,6 +34,11 @@ impl DuCADApp {
                 PaletteAction::File(FileOp::ImportStep),
             ),
             (
+                "Import STL…".to_string(),
+                String::new(),
+                PaletteAction::File(FileOp::ImportStl),
+            ),
+            (
                 "Import DXF…".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::ImportDxf),
@@ -370,6 +375,7 @@ impl DuCADApp {
                 FileOp::Save => self.save_native(),
                 FileOp::SaveAs => self.save_native_as(),
                 FileOp::ImportStep => self.import_step(),
+                FileOp::ImportStl => self.import_stl(),
                 FileOp::ImportDxf => self.import_dxf(),
                 FileOp::ExportStep => self.export_step(),
                 FileOp::ExportStl => self.export_stl(),

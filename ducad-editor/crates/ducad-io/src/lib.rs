@@ -24,6 +24,7 @@ pub use drawing::{
 };
 pub use dxf::export_drawing_sheet;
 pub use glb::{export_glb_bytes, write_glb, write_glb_with_options, GlbExportOptions};
+pub use mesh_export::{read_stl, read_stl_ascii_str, read_stl_binary_bytes, write_obj, write_stl_binary};
 pub use pdf::export_pdf;
 pub use svg::{
     export_drawing_sheet_svg, export_sketch_svg, export_sketch_svg_string,

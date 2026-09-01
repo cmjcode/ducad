@@ -17,6 +17,7 @@ menu-save = Simpan
 menu-save-as = Simpan Sebagai…
 menu-import = Impor
 menu-import-step = STEP…
+menu-import-stl = STL…
 menu-import-dxf = DXF…
 menu-export = Ekspor
 menu-export-step = STEP… (semua body)
@@ -526,8 +527,12 @@ file-export-svg-failed = Gagal ekspor SVG: { $error }
 file-dxf-no-entities = File DXF terbaca tapi tidak memuat entitas 2D yang didukung
 file-imported-dxf = Diimpor dari { $name }: { $count } entitas
 file-import-dxf-failed = Gagal impor DXF: { $error }
+file-importing-stl = Mengimpor STL di latar belakang: { $name }…
+file-imported-stl = Sukses mengimpor STL: { $name }
+file-import-stl-failed = Gagal mengimpor STL: { $error }
 file-act-import-dxf = Impor DXF
 file-act-import-step = Impor { $name }
+file-act-import-stl = Impor STL { $name }
 
 # Interactive Status Bar Tool Prompts
 status-prompt-select = Pilih: klik entitas, Shift+klik multi-pilih, Delete hapus

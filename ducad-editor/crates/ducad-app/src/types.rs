@@ -209,6 +209,7 @@ pub enum FileOp {
     Save,
     SaveAs,
     ImportStep,
+    ImportStl,
     ImportDxf,
     ExportStep,
     ExportStl,

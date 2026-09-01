@@ -69,21 +69,36 @@ pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<Ed
 /// tiap rusuk 3D tanpa perlu ray picking satu-satu.
 pub fn edge_dimensions(shape: &KernelShape) -> Vec<EdgeDimension> {
     let _guard = lock_kernel();
-    const DEDUP_EPS: f64 = 1e-6;
-    let mut seen_endpoints: Vec<(DVec3, DVec3)> = Vec::new();
+    let mut seen_pairs = std::collections::HashSet::new();
     let mut out = Vec::new();
 
-    for edge in shape.inner().edges() {
+    let quantize = |p: DVec3| -> (i64, i64, i64) {
+        (
+            (p.x * 1000.0).round() as i64,
+            (p.y * 1000.0).round() as i64,
+            (p.z * 1000.0).round() as i64,
+        )
+    };
+
+    const MAX_EDGES_TO_EVALUATE: usize = 2000;
+
+    for (idx, edge) in shape.inner().edges().enumerate() {
+        if idx >= MAX_EDGES_TO_EVALUATE {
+            break;
+        }
         let start = edge.start_point();
         let end = edge.end_point();
-        let is_duplicate = seen_endpoints.iter().any(|(a, b)| {
-            ((start - *a).length() < DEDUP_EPS && (end - *b).length() < DEDUP_EPS)
-                || ((start - *b).length() < DEDUP_EPS && (end - *a).length() < DEDUP_EPS)
-        });
-        if is_duplicate {
+        let q_start = quantize(start);
+        let q_end = quantize(end);
+        let key = if q_start <= q_end {
+            (q_start, q_end)
+        } else {
+            (q_end, q_start)
+        };
+
+        if !seen_pairs.insert(key) {
             continue;
         }
-        seen_endpoints.push((start, end));
 
         let polyline: Vec<DVec3> = edge.approximation_segments().collect();
         if polyline.len() < 2 {

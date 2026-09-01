@@ -153,6 +153,42 @@ struct GpuMesh {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: u32,
+    data_hash: u64,
+}
+
+fn compute_mesh_fingerprint(
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    colors: Option<&[[f32; 4]]>,
+    material_params: Option<&[[f32; 4]]>,
+    indices: &[u32],
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    positions.len().hash(&mut hasher);
+    indices.len().hash(&mut hasher);
+    if let Some(p) = positions.first() {
+        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(p)).hash(&mut hasher);
+    }
+    if let Some(p) = positions.last() {
+        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(p)).hash(&mut hasher);
+    }
+    if let Some(n) = normals.first() {
+        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(n)).hash(&mut hasher);
+    }
+    if let Some(c) = colors.and_then(|c| c.first()) {
+        bytemuck::cast_slice::<[f32; 4], u8>(std::slice::from_ref(c)).hash(&mut hasher);
+    }
+    if let Some(m) = material_params.and_then(|m| m.first()) {
+        bytemuck::cast_slice::<[f32; 4], u8>(std::slice::from_ref(m)).hash(&mut hasher);
+    }
+    if let Some(i) = indices.first() {
+        i.hash(&mut hasher);
+    }
+    if let Some(i) = indices.last() {
+        i.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Renderer scene 3D yang hidup di dalam `CallbackResources` egui_wgpu.
@@ -174,6 +210,7 @@ pub struct SceneRenderer {
     gizmo_mesh: Option<GpuMesh>,
     overlay_vbuf: Option<wgpu::Buffer>,
     overlay_vertex_count: u32,
+    overlay_hash: u64,
     clip_plane: [f32; 4],
     studio_config: StudioConfig,
     zebra_config: ZebraConfig,
@@ -447,6 +484,7 @@ impl SceneRenderer {
             gizmo_mesh: None,
             overlay_vbuf: None,
             overlay_vertex_count: 0,
+            overlay_hash: 0,
             clip_plane: CLIP_PLANE_DISABLED,
             studio_config: StudioConfig::default(),
             zebra_config: ZebraConfig::default(),
@@ -500,12 +538,29 @@ impl SceneRenderer {
 
     /// Upload garis overlay 2D (sketch) untuk frame ini.
     pub fn set_overlay_lines(&mut self, device: &wgpu::Device, verts: &[grid::LineVertex]) {
+        use std::hash::{Hash, Hasher};
         use wgpu::util::DeviceExt;
         if verts.is_empty() {
             self.overlay_vbuf = None;
             self.overlay_vertex_count = 0;
+            self.overlay_hash = 0;
             return;
         }
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        verts.len().hash(&mut hasher);
+        if let Some(v) = verts.first() {
+            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
+        }
+        if let Some(v) = verts.last() {
+            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+
+        if self.overlay_hash == hash && self.overlay_vertex_count == verts.len() as u32 {
+            return;
+        }
+
         let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("overlay"),
             contents: bytemuck::cast_slice(verts),
@@ -513,6 +568,7 @@ impl SceneRenderer {
         });
         self.overlay_vbuf = Some(buf);
         self.overlay_vertex_count = verts.len() as u32;
+        self.overlay_hash = hash;
     }
 
     /// Perbarui buffer grid untuk bidang sketsa tertentu dengan extent & step dinamis.
@@ -548,7 +604,7 @@ impl SceneRenderer {
         self.set_grid_plane_with_extent(device, plane, 500.0, 10.0);
     }
 
-    /// Upload mesh body (dari ducad-kernel) untuk ditampilkan.
+    /// Upload mesh body (dari ducad-kernel) untuk ditampilkan dengan caching fingerprint.
     pub fn set_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -563,6 +619,13 @@ impl SceneRenderer {
             self.mesh = None;
             return;
         }
+        let hash = compute_mesh_fingerprint(positions, normals, colors, material_params, indices);
+        if let Some(existing) = &self.mesh {
+            if existing.data_hash == hash && existing.index_count == indices.len() as u32 {
+                return; // Re-use GPU buffers without allocation
+            }
+        }
+
         const DEFAULT_CAD_GREY: [f32; 4] = [0.62, 0.68, 0.76, 1.0];
         const DEFAULT_MAT_PARAMS: [f32; 4] = [0.65, 0.0, 0.0, 0.0];
         let verts: Vec<MeshVertex> = positions
@@ -585,21 +648,22 @@ impl SceneRenderer {
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh-vb"),
             contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh-ib"),
             contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
         self.mesh = Some(GpuMesh {
             vertex_buf,
             index_buf,
             index_count: indices.len() as u32,
+            data_hash: hash,
         });
     }
 
-    /// Upload mesh solid gizmo (push/pull & rounding, Fase 9).
+    /// Upload mesh solid gizmo (push/pull & rounding, Fase 9) dengan caching.
     pub fn set_gizmo_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -612,6 +676,12 @@ impl SceneRenderer {
         if indices.is_empty() {
             self.gizmo_mesh = None;
             return;
+        }
+        let hash = compute_mesh_fingerprint(positions, normals, Some(colors), None, indices);
+        if let Some(existing) = &self.gizmo_mesh {
+            if existing.data_hash == hash && existing.index_count == indices.len() as u32 {
+                return;
+            }
         }
         const DEFAULT_GIZMO_COLOR: [f32; 4] = [0.0, 0.78, 1.0, 1.0];
         const DEFAULT_GIZMO_MAT_PARAMS: [f32; 4] = [0.25, 0.0, 0.60, 0.0];
@@ -628,17 +698,18 @@ impl SceneRenderer {
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("gizmo-mesh-vb"),
             contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("gizmo-mesh-ib"),
             contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         });
         self.gizmo_mesh = Some(GpuMesh {
             vertex_buf,
             index_buf,
             index_count: indices.len() as u32,
+            data_hash: hash,
         });
     }
 

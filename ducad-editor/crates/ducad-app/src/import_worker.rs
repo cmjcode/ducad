@@ -20,7 +20,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use ducad_kernel::KernelMesh;
+use ducad_kernel::{KernelMesh, KernelShape};
 
 /// Satu permintaan import — `name` sudah diturunkan dari nama file di sisi
 /// pemanggil (`pick_open_path` sebelumnya), supaya worker tidak perlu tahu
@@ -30,12 +30,11 @@ pub struct ImportJob {
     pub path: PathBuf,
 }
 
-/// Hasil satu `ImportJob` — `outcome` berisi teks STEP (bukan `KernelShape`,
-/// lihat komentar modul) + mesh siap render, atau pesan error apa adanya
-/// (sama gaya dengan `import_step` synchronous sebelumnya).
+/// Hasil satu `ImportJob` — `outcome` berisi `KernelShape` dan `KernelMesh`
+/// yang di-tessellate di background thread, atau pesan error.
 pub struct ImportResult {
     pub name: String,
-    pub outcome: Result<(String, KernelMesh), String>,
+    pub outcome: Result<(KernelShape, KernelMesh), String>,
 }
 
 /// Handle sisi UI thread: `submit` mengirim job (non-blocking, fire-and-
@@ -47,10 +46,8 @@ pub struct ImportWorker {
 }
 
 impl ImportWorker {
-    /// Spawn SATU thread worker berumur-panjang (bukan satu thread per
-    /// job) — job diproses satu-satu dari channel, urutan submit = urutan
-    /// selesai (cukup untuk pola pakai "import lalu tunggu", tidak perlu
-    /// paralelisme sungguhan karena `KERNEL_LOCK` menyerialkannya juga).
+    /// Spawn thread worker berumur panjang — import STEP dan tessellation
+    /// berjalan asinkron di thread ini sehingga UI thread tidak pernah lag/freeze.
     pub fn spawn() -> Self {
         let (job_tx, job_rx) = mpsc::channel::<ImportJob>();
         let (result_tx, result_rx) = mpsc::channel::<ImportResult>();
@@ -59,9 +56,6 @@ impl ImportWorker {
             .spawn(move || {
                 for job in job_rx {
                     let outcome = import_one(&job.path);
-                    // Penerima (UI thread) sudah drop → aplikasi lagi
-                    // menutup; abaikan error kirim, jangan panic thread
-                    // worker cuma karena UI sudah tidak dengar lagi.
                     let _ = result_tx.send(ImportResult { name: job.name, outcome });
                 }
             })
@@ -70,23 +64,29 @@ impl ImportWorker {
     }
 
     pub fn submit(&self, job: ImportJob) {
-        // Sender cuma gagal kalau thread worker sudah mati (panic) — tidak
-        // ada yang bisa dilakukan UI selain mengabaikannya; `import_step`
-        // pemanggil tidak menjanjikan hasil sinkron lagi pula.
         let _ = self.sender.send(job);
     }
 
-    /// Ambil SEMUA hasil yang sudah siap sejak `poll` terakhir — biasanya
-    /// 0 atau 1 per frame, tapi tidak mengasumsikan itu (user bisa submit
-    /// beberapa import beruntun sebelum yang pertama selesai).
+    /// Ambil SEMUA hasil yang sudah siap sejak `poll` terakhir.
     pub fn poll(&self) -> Vec<ImportResult> {
         self.receiver.try_iter().collect()
     }
 }
 
-fn import_one(path: &std::path::Path) -> Result<(String, KernelMesh), String> {
-    let shape = ducad_kernel::KernelShape::read_step(path).map_err(|e| e.to_string())?;
-    let mesh = shape.tessellate();
-    let step = shape.to_step_string().map_err(|e| e.to_string())?;
-    Ok((step, mesh))
+fn import_one(path: &std::path::Path) -> Result<(KernelShape, KernelMesh), String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext == "stl" {
+        let mesh = ducad_io::read_stl(path).map_err(|e| e.to_string())?;
+        let shape = ducad_kernel::KernelShape::empty();
+        Ok((shape, mesh))
+    } else {
+        let shape = ducad_kernel::KernelShape::read_step(path).map_err(|e| e.to_string())?;
+        let mesh = shape.tessellate();
+        Ok((shape, mesh))
+    }
 }

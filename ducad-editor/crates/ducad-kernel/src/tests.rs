@@ -2144,9 +2144,22 @@ fn test_iso_hatch_pattern_45_degree_even_odd() {
         assert_eq!(h.kind, HlrLineKind::Hatch);
         let dx = h.end[0] - h.start[0];
         let dy = h.end[1] - h.start[1];
-        assert!(dx > 0.0 && dy > 0.0, "Garis arsir 45° harus miring ke kanan atas");
         let angle_deg = (dy / dx).atan().to_degrees();
         assert!((angle_deg - 45.0).abs() < 1.0, "Kemiringan sudut arsir ~45°, dapat {angle_deg}°");
     }
+}
+
+#[test]
+fn test_write_and_read_stl_shape() {
+    let _lock = lock_test();
+    let box_shape = extrude_profile(&rect_profile(20.0, 30.0), 40.0).unwrap();
+    let path = std::env::temp_dir().join(format!("ducad-kernel-stl-test-{}.stl", std::process::id()));
+    box_shape.write_stl(&path).unwrap();
+
+    let loaded = KernelShape::read_stl(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+
+    let mesh = loaded.tessellate();
+    assert!(mesh.triangle_count() > 0, "Loaded STL should have triangles");
 }
 

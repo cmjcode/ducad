@@ -17,6 +17,7 @@ menu-save = Save
 menu-save-as = Save As…
 menu-import = Import
 menu-import-step = STEP…
+menu-import-stl = STL…
 menu-import-dxf = DXF…
 menu-export = Export
 menu-export-step = STEP… (all bodies)
@@ -526,8 +527,12 @@ file-export-svg-failed = Failed to export SVG: { $error }
 file-dxf-no-entities = DXF file read successfully but contains no supported 2D entities
 file-imported-dxf = Imported from { $name }: { $count } entities
 file-import-dxf-failed = Failed to import DXF: { $error }
+file-importing-stl = Importing STL in background: { $name }…
+file-imported-stl = Successfully imported STL: { $name }
+file-import-stl-failed = Failed to import STL: { $error }
 file-act-import-dxf = Import DXF
 file-act-import-step = Import { $name }
+file-act-import-stl = Import STL { $name }
 
 # Interactive Status Bar Tool Prompts
 status-prompt-select = Select: click entity, Shift+click multi-select, Delete to remove

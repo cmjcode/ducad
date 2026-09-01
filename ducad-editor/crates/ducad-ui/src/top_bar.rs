@@ -28,6 +28,7 @@ pub enum TopBarFileOp {
     Save,
     SaveAs,
     ImportStep,
+    ImportStl,
     ImportDxf,
     ExportStep,
     ExportStl,
@@ -168,6 +169,18 @@ impl TopBar {
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!(
+                                "{} {} {}",
+                                ICON_DOWNLOAD.codepoint,
+                                t!("menu-import"),
+                                t!("menu-import-stl")
+                            ))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::ImportStl));
                             ui.close();
                         }
                         if ui
