@@ -56,13 +56,20 @@ pub(crate) fn resolve_edge_along_ray(
             let is_better = match &best {
                 None => true,
                 Some((best_t, best_dist, ..)) => {
-                    const DEPTH_EPS: f64 = 2.0;
-                    if t < best_t - DEPTH_EPS {
-                        true // Lebih dekat ke kamera (foreground prioritas)
-                    } else if t > best_t + DEPTH_EPS {
-                        false // Di belakang edge foreground
+                    // Jika kandidat jauh lebih presisi (mis. tepat di ray) dibanding foreground yang glancing
+                    if dist < *best_dist * 0.4 && *best_dist > 1.0 {
+                        true
+                    } else if *best_dist < dist * 0.4 && dist > 1.0 {
+                        false
                     } else {
-                        dist < *best_dist // Kedalaman sama, pilih yang paling presisi ke ray
+                        const DEPTH_EPS: f64 = 2.0;
+                        if t < best_t - DEPTH_EPS {
+                            true // Lebih dekat ke kamera (foreground prioritas)
+                        } else if t > best_t + DEPTH_EPS {
+                            false // Di belakang edge foreground
+                        } else {
+                            dist < *best_dist // Kedalaman sama, pilih yang paling presisi ke ray
+                        }
                     }
                 }
             };
@@ -86,6 +93,55 @@ pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<Ed
             polyline.into_iter().map(|p| (p.x, p.y, p.z)).collect(),
         )
     })
+}
+
+/// Hitung vektor normal keluar (outward radial normal) dari rusuk pada shape.
+/// Mengambil rata-rata normal keluar dari face-face yang bertemu di rusuk ini,
+/// lalu memproyeksikannya tegak lurus terhadap garis singgung rusuk (edge tangent).
+/// Bekerja konsisten untuk sudut luar (convex) maupun sudut dalam (concave).
+pub fn edge_outward_normal(
+    shape: &KernelShape,
+    ray: PickRay,
+    tolerance: f64,
+) -> Option<((f64, f64, f64), (f64, f64, f64))> {
+    let _guard = lock_kernel();
+    let (edge, point, _) = resolve_edge_along_ray(shape.inner(), ray, tolerance)?;
+    let edge_start = edge.start_point();
+    let edge_end = edge.end_point();
+    let edge_tan = (edge_end - edge_start).normalize_or_zero();
+
+    let mut normal_sum = DVec3::ZERO;
+    const TOUCH_EPS: f64 = 1e-3;
+
+    for face in shape.inner().faces() {
+        let touches = face.edges().any(|e| {
+            let s = e.start_point();
+            let end = e.end_point();
+            ((s - edge_start).length() < TOUCH_EPS && (end - edge_end).length() < TOUCH_EPS)
+                || ((s - edge_end).length() < TOUCH_EPS && (end - edge_start).length() < TOUCH_EPS)
+        });
+        if touches {
+            let n = face.normal_at(point);
+            if n.length_squared() > 1e-6 {
+                normal_sum += n.normalize_or_zero();
+            }
+        }
+    }
+
+    let radial = if edge_tan != DVec3::ZERO && normal_sum != DVec3::ZERO {
+        let r = normal_sum - edge_tan * normal_sum.dot(edge_tan);
+        r.normalize_or_zero()
+    } else {
+        normal_sum.normalize_or_zero()
+    };
+
+    let dir = if radial != DVec3::ZERO {
+        radial
+    } else {
+        DVec3::Z
+    };
+
+    Some(((point.x, point.y, point.z), (dir.x, dir.y, dir.z)))
 }
 
 /// Panjang + titik tengah SEMUA edge shape, dipakai fitur "Tampilkan

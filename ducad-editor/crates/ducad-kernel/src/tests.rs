@@ -737,6 +737,82 @@ fn chamfer_edges_smoke() {
     assert!(shape.tessellate().triangle_count() > 0);
 }
 
+fn l_shape_solid() -> KernelShape {
+    let profile = Profile::Loop(vec![
+        ProfileSegment::Line { start: (0.0, 0.0), end: (30.0, 0.0) },
+        ProfileSegment::Line { start: (30.0, 0.0), end: (30.0, 10.0) },
+        ProfileSegment::Line { start: (30.0, 10.0), end: (10.0, 10.0) },
+        ProfileSegment::Line { start: (10.0, 10.0), end: (10.0, 30.0) },
+        ProfileSegment::Line { start: (10.0, 30.0), end: (0.0, 30.0) },
+        ProfileSegment::Line { start: (0.0, 30.0), end: (0.0, 0.0) },
+    ]);
+    extrude_profile(&profile, 20.0).unwrap()
+}
+
+#[test]
+fn fillet_concave_inner_edge_adds_material_and_succeeds() {
+    let _guard = lock_test();
+    let shape = l_shape_solid();
+    let base_volume = shape.inner().volume();
+
+    // Ray diarahkan ke rusuk dalam (x=10, y=10, z=0..20)
+    let ray = PickRay {
+        origin: (25.0, 25.0, 10.0),
+        dir: (-1.0, -1.0, 0.0),
+    };
+    let filleted = fillet_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+    assert!(
+        filleted.inner().volume() > base_volume,
+        "Fillet pada sudut/rusuk dalam harus menambahkan material (volume membesar)"
+    );
+    assert!(filleted.tessellate().triangle_count() > 0);
+}
+
+#[test]
+fn chamfer_concave_inner_edge_adds_material_and_succeeds() {
+    let _guard = lock_test();
+    let shape = l_shape_solid();
+    let base_volume = shape.inner().volume();
+
+    let ray = PickRay {
+        origin: (25.0, 25.0, 10.0),
+        dir: (-1.0, -1.0, 0.0),
+    };
+    let chamfered = chamfer_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+    assert!(
+        chamfered.inner().volume() > base_volume,
+        "Chamfer pada sudut/rusuk dalam harus menambahkan material bevel (volume membesar)"
+    );
+    assert!(chamfered.tessellate().triangle_count() > 0);
+}
+
+#[test]
+fn fillet_concave_inner_vertex_succeeds() {
+    let _guard = lock_test();
+    let shape = l_shape_solid();
+
+    // Vertex dalam di (10, 10, 0)
+    let ray = PickRay {
+        origin: (25.0, 25.0, -10.0),
+        dir: (-1.0, -1.0, 0.67),
+    };
+    let filleted = fillet_vertex(&shape, 2.0, ray, 1.0).unwrap();
+    assert!(filleted.tessellate().triangle_count() > 0);
+}
+
+#[test]
+fn chamfer_concave_inner_vertex_succeeds() {
+    let _guard = lock_test();
+    let shape = l_shape_solid();
+
+    let ray = PickRay {
+        origin: (25.0, 25.0, -10.0),
+        dir: (-1.0, -1.0, 0.67),
+    };
+    let chamfered = chamfer_vertex(&shape, 2.0, ray, 1.0).unwrap();
+    assert!(chamfered.tessellate().triangle_count() > 0);
+}
+
 #[test]
 fn shell_hollow_faces_multi_face_differs_from_single() {
     let _guard = lock_test();

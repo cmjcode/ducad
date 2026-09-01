@@ -29,13 +29,19 @@ pub(crate) fn resolve_vertex_along_ray(
             let is_better = match &best {
                 None => true,
                 Some((best_t, best_dist, _)) => {
-                    const DEPTH_EPS: f64 = 2.0;
-                    if t < best_t - DEPTH_EPS {
-                        true // Lebih dekat ke kamera (foreground prioritas)
-                    } else if t > best_t + DEPTH_EPS {
-                        false // Di belakang vertex foreground
+                    if dist < *best_dist * 0.4 && *best_dist > 1.0 {
+                        true
+                    } else if *best_dist < dist * 0.4 && dist > 1.0 {
+                        false
                     } else {
-                        dist < *best_dist
+                        const DEPTH_EPS: f64 = 2.0;
+                        if t < best_t - DEPTH_EPS {
+                            true // Lebih dekat ke kamera (foreground prioritas)
+                        } else if t > best_t + DEPTH_EPS {
+                            false // Di belakang vertex foreground
+                        } else {
+                            dist < *best_dist
+                        }
                     }
                 }
             };
@@ -77,4 +83,37 @@ pub fn shape_vertices(shape: &KernelShape) -> Vec<(f64, f64, f64)> {
         .into_iter()
         .map(|v| (v.x, v.y, v.z))
         .collect()
+}
+
+/// Hitung vektor normal keluar (outward normal bisector) dari sudut (vertex) pada shape.
+/// Mengambil rata-rata normal keluar dari seluruh face yang bertemu di vertex ini.
+/// Bekerja konsisten untuk sudut luar (convex) maupun sudut dalam (concave).
+pub fn vertex_outward_normal(
+    shape: &KernelShape,
+    vertex_pos: (f64, f64, f64),
+) -> (f64, f64, f64) {
+    let _guard = lock_kernel();
+    let v_pt = DVec3::new(vertex_pos.0, vertex_pos.1, vertex_pos.2);
+    let mut normal_sum = DVec3::ZERO;
+    const TOUCH_EPS: f64 = 1e-3;
+
+    for face in shape.inner().faces() {
+        let touches = face.edges().any(|e| {
+            (e.start_point() - v_pt).length() < TOUCH_EPS
+                || (e.end_point() - v_pt).length() < TOUCH_EPS
+        });
+        if touches {
+            let n = face.normal_at(v_pt);
+            if n.length_squared() > 1e-6 {
+                normal_sum += n.normalize_or_zero();
+            }
+        }
+    }
+
+    let dir = normal_sum.normalize_or_zero();
+    if dir != DVec3::ZERO {
+        (dir.x, dir.y, dir.z)
+    } else {
+        (0.0, 0.0, 1.0)
+    }
 }

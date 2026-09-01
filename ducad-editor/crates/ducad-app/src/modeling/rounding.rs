@@ -216,20 +216,27 @@ impl DuCADApp {
         }
         let vertex = Vec3::new(vhit.0 as f32, vhit.1 as f32, vhit.2 as f32);
         let geo = self.model.geometry.get(body_id)?;
-        let mut min = [f32::INFINITY; 3];
-        let mut max = [f32::NEG_INFINITY; 3];
-        for p in &geo.mesh.positions {
-            for k in 0..3 {
-                min[k] = min[k].min(p[k]);
-                max[k] = max[k].max(p[k]);
+
+        let k_dir = ducad_kernel::vertex_outward_normal(&geo.shape, (vhit.0, vhit.1, vhit.2));
+        let mut dir = Vec3::new(k_dir.0 as f32, k_dir.1 as f32, k_dir.2 as f32).normalize_or_zero();
+
+        if dir == Vec3::ZERO {
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            for p in &geo.mesh.positions {
+                for k in 0..3 {
+                    min[k] = min[k].min(p[k]);
+                    max[k] = max[k].max(p[k]);
+                }
             }
+            let center = Vec3::new(
+                (min[0] + max[0]) * 0.5,
+                (min[1] + max[1]) * 0.5,
+                (min[2] + max[2]) * 0.5,
+            );
+            dir = (vertex - center).normalize_or_zero();
         }
-        let center = Vec3::new(
-            (min[0] + max[0]) * 0.5,
-            (min[1] + max[1]) * 0.5,
-            (min[2] + max[2]) * 0.5,
-        );
-        let mut dir = (vertex - center).normalize_or_zero();
+
         if dir == Vec3::ZERO {
             dir = Vec3::Z;
         }
@@ -241,8 +248,17 @@ impl DuCADApp {
         if !self.model.doc.bodies.get(body_id).is_some_and(|b| b.visible) {
             return None;
         }
-        let anchor = Vec3::new(point.0 as f32, point.1 as f32, point.2 as f32);
+        let fallback_anchor = Vec3::new(point.0 as f32, point.1 as f32, point.2 as f32);
         let geo = self.model.geometry.get(body_id)?;
+
+        if let Some((anchor_tup, dir_tup)) = ducad_kernel::edge_outward_normal(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM) {
+            let anchor = Vec3::new(anchor_tup.0 as f32, anchor_tup.1 as f32, anchor_tup.2 as f32);
+            let dir = Vec3::new(dir_tup.0 as f32, dir_tup.1 as f32, dir_tup.2 as f32).normalize_or_zero();
+            if dir != Vec3::ZERO {
+                return Some((anchor, dir));
+            }
+        }
+
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
         for p in &geo.mesh.positions {
@@ -257,31 +273,11 @@ impl DuCADApp {
             (min[2] + max[2]) * 0.5,
         );
 
-        let mut dir = if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM) {
-            if polyline.len() >= 2 {
-                let p1 = polyline.first().unwrap();
-                let p2 = polyline.last().unwrap();
-                let edge_tan = Vec3::new((p2.0 - p1.0) as f32, (p2.1 - p1.1) as f32, (p2.2 - p1.2) as f32).normalize_or_zero();
-                if edge_tan != Vec3::ZERO {
-                    let radial = (anchor - center) - edge_tan * (anchor - center).dot(edge_tan);
-                    radial.normalize_or_zero()
-                } else {
-                    Vec3::ZERO
-                }
-            } else {
-                Vec3::ZERO
-            }
-        } else {
-            Vec3::ZERO
-        };
-
-        if dir == Vec3::ZERO {
-            dir = (anchor - center).normalize_or_zero();
-        }
+        let mut dir = (fallback_anchor - center).normalize_or_zero();
         if dir == Vec3::ZERO {
             dir = Vec3::Z;
         }
-        Some((anchor, dir))
+        Some((fallback_anchor, dir))
     }
 
     /// True kalau ada pick sudut/rusuk/wajah 3D yang aktif (mode edit fitur
@@ -896,5 +892,90 @@ mod tests {
         assert_eq!(*kind, RoundKind::Vertex);
         assert_eq!(*cached_r, 2.5);
         assert!(mesh.triangle_count() > 0);
+    }
+
+    fn make_test_l_bracket() -> (ducad_kernel::KernelShape, ducad_kernel::KernelShape) {
+        let profile1 = Profile::Loop(vec![
+            ProfileSegment::Line { start: (0.0, 0.0), end: (30.0, 0.0) },
+            ProfileSegment::Line { start: (30.0, 0.0), end: (30.0, 10.0) },
+            ProfileSegment::Line { start: (30.0, 10.0), end: (10.0, 10.0) },
+            ProfileSegment::Line { start: (10.0, 10.0), end: (10.0, 30.0) },
+            ProfileSegment::Line { start: (10.0, 30.0), end: (0.0, 30.0) },
+            ProfileSegment::Line { start: (0.0, 30.0), end: (0.0, 0.0) },
+        ]);
+        let profile2 = Profile::Loop(vec![
+            ProfileSegment::Line { start: (0.0, 0.0), end: (30.0, 0.0) },
+            ProfileSegment::Line { start: (30.0, 0.0), end: (30.0, 10.0) },
+            ProfileSegment::Line { start: (30.0, 10.0), end: (10.0, 10.0) },
+            ProfileSegment::Line { start: (10.0, 10.0), end: (10.0, 30.0) },
+            ProfileSegment::Line { start: (10.0, 30.0), end: (0.0, 30.0) },
+            ProfileSegment::Line { start: (0.0, 30.0), end: (0.0, 0.0) },
+        ]);
+        (
+            extrude_profile(&profile1, 20.0).unwrap(),
+            extrude_profile(&profile2, 20.0).unwrap(),
+        )
+    }
+
+    #[test]
+    fn test_concave_inner_edge_and_vertex_gizmo_dir_points_outward_to_pocket() {
+        let mut app = DuCADApp::new_for_test();
+        let (shape1, _) = make_test_l_bracket();
+        let id = app.model.doc.add_body_with_material("LBracket", ducad_core::Material::default());
+        app.model.geometry.insert(id, BodyGeometry::from_shape(shape1));
+
+        // Rusuk dalam di (10, 10, z=0..20)
+        let ray = PickRay {
+            origin: (25.0, 25.0, 10.0),
+            dir: (-1.0, -1.0, 0.0),
+        };
+        app.active_edge = Some((id, ray, (10.0, 10.0, 10.0)));
+
+        let (anchor, dir) = app.active_edge_gizmo_dir().expect("active_edge_gizmo_dir must return Some");
+        assert!((anchor.x - 10.0).abs() < 1e-3);
+        assert!((anchor.y - 10.0).abs() < 1e-3);
+        // Pada sudut/rusuk dalam L-bracket, gizmo HARUS mengarah ke luar material (+X dan +Y, menuju pocket terbuka)
+        assert!(dir.x > 0.1, "dir.x harus positif (menuju ruang terbuka), bukan masuk ke dalam solid: {:?}", dir);
+        assert!(dir.y > 0.1, "dir.y harus positif (menuju ruang terbuka), bukan masuk ke dalam solid: {:?}", dir);
+
+        // Vertex dalam di (10, 10, 0)
+        let v_ray = PickRay {
+            origin: (25.0, 25.0, -10.0),
+            dir: (-1.0, -1.0, 0.67),
+        };
+        app.active_vertex = Some((id, v_ray, (10.0, 10.0, 0.0)));
+        let (v_anchor, v_dir) = app.active_vertex_gizmo_dir().expect("active_vertex_gizmo_dir must return Some");
+        assert!((v_anchor.x - 10.0).abs() < 1e-3);
+        assert!((v_anchor.y - 10.0).abs() < 1e-3);
+        assert!(v_dir.x > 0.1, "v_dir.x harus positif: {:?}", v_dir);
+        assert!(v_dir.y > 0.1, "v_dir.y harus positif: {:?}", v_dir);
+    }
+
+    #[test]
+    fn test_concave_inner_edge_fillet_and_chamfer_preview_and_commit() {
+        let mut app = DuCADApp::new_for_test();
+        let (shape1, _) = make_test_l_bracket();
+        let id = app.model.doc.add_body_with_material("LBracket", ducad_core::Material::default());
+        app.model.geometry.insert(id, BodyGeometry::from_shape(shape1));
+
+        let ray = PickRay {
+            origin: (25.0, 25.0, 10.0),
+            dir: (-1.0, -1.0, 0.0),
+        };
+        app.active_edge = Some((id, ray, (10.0, 10.0, 10.0)));
+
+        // Test inner edge Fillet
+        app.round_gizmo_style = RoundStyle::Fillet;
+        app.edge_gizmo_radius = 2.0;
+        let ok_fillet = app.update_round_preview_cache(RoundKind::Edge, 2.0);
+        assert!(ok_fillet, "Inner edge fillet preview cache update must succeed");
+        assert!(app.round_preview_cache.is_some());
+
+        // Test inner edge Chamfer
+        app.round_gizmo_style = RoundStyle::Chamfer;
+        app.edge_gizmo_radius = -2.0;
+        let ok_chamfer = app.update_round_preview_cache(RoundKind::Edge, -2.0);
+        assert!(ok_chamfer, "Inner edge chamfer preview cache update must succeed");
+        assert!(app.round_preview_cache.is_some());
     }
 }

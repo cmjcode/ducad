@@ -88,8 +88,9 @@ pub use modify::{
     shell_variable_thickness, split_body, split_body_with_tool, split_face, Direction,
 };
 pub use picking::{
-    edge_dimensions, pick_edge, pick_face, pick_face_details, pick_vertex, point_in_polygon_2d,
-    shape_vertices, EdgeDimension, EdgePickHit, FaceHit, PickRay, SurfaceKind,
+    edge_dimensions, edge_outward_normal, pick_edge, pick_face, pick_face_details, pick_vertex,
+    point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgePickHit,
+    FaceHit, PickRay, SurfaceKind,
 };
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{
