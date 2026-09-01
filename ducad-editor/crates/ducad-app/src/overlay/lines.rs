@@ -7,7 +7,7 @@ use glam::{DVec2, Vec3};
 
 use crate::app::DuCADApp;
 use crate::input::{chamfer_2d_preview, fillet_2d_preview, trim_removal_preview};
-use crate::types::{RoundKind, ToolKind};
+use crate::types::{ToolKind};
 
 impl DuCADApp {
     pub fn build_overlay_lines(
@@ -550,11 +550,7 @@ impl DuCADApp {
 
         if let Some((vertex, out_dir)) = self.active_vertex_gizmo_dir() {
             const VERTEX_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-            let handle_dist = if self.filleting_vertex_from_gizmo {
-                self.vertex_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
+            let handle_dist = (14.0 + self.vertex_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
             verts.extend(sketch_render::vertex_fillet_marker_lines(
                 [vertex.x, vertex.y, vertex.z],
                 out_dir,
@@ -565,11 +561,7 @@ impl DuCADApp {
 
         if let Some((point, out_dir)) = self.active_edge_gizmo_dir() {
             const EDGE_ROUND_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-            let handle_dist = if self.filleting_edge_from_gizmo {
-                self.edge_gizmo_radius.abs().max(0.1) as f32
-            } else {
-                12.0
-            };
+            let handle_dist = (14.0 + self.edge_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
             verts.extend(sketch_render::vertex_fillet_marker_lines(
                 [point.x, point.y, point.z],
                 out_dir,
@@ -1442,17 +1434,6 @@ impl DuCADApp {
         const CUT_RED: [f32; 4] = [1.0, 0.25, 0.25, 0.90];
         const FACE_SELECT_CYAN: [f32; 4] = [0.0, 0.90, 1.0, 1.0];
 
-        let vertex_round_preview = if self.filleting_vertex_from_gizmo {
-            self.round_gizmo_preview_shape(RoundKind::Vertex, self.vertex_gizmo_radius)
-        } else {
-            None
-        };
-        let edge_round_preview = if self.filleting_edge_from_gizmo {
-            self.round_gizmo_preview_shape(RoundKind::Edge, self.edge_gizmo_radius)
-        } else {
-            None
-        };
-        let round_override = vertex_round_preview.or(edge_round_preview);
 
         for (id, geo) in self.model.geometry.iter() {
             let Some(body) = self.model.doc.bodies.get(id) else {
@@ -1464,15 +1445,9 @@ impl DuCADApp {
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
 
-            let mesh_to_render = if let Some((override_id, override_shape)) = &round_override {
+            let mesh_to_render = if let Some((_ck, _cr, override_id, cached_mesh)) = &self.round_preview_cache {
                 if *override_id == id {
-                    let tess = override_shape.tessellate();
-                    let km = ducad_kernel::KernelMesh {
-                        positions: tess.positions.clone(),
-                        normals: tess.normals.clone(),
-                        indices: tess.indices.clone(),
-                    };
-                    std::borrow::Cow::Owned(km)
+                    std::borrow::Cow::Borrowed(cached_mesh)
                 } else {
                     std::borrow::Cow::Borrowed(&geo.mesh)
                 }

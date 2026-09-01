@@ -1127,8 +1127,20 @@ impl DuCADApp {
                 } else {
                     None
                 };
+                let click_hits_gizmo = response
+                    .hover_pos()
+                    .or_else(|| ui.input(|i| i.pointer.latest_pos()))
+                    .is_some_and(|p| self.check_near_gizmo(rect, Some(p)));
 
-                if response.clicked() && !suppress_click_from_radial && !click_hits_body_dim_pill {
+                if response.clicked()
+                    && !suppress_click_from_radial
+                    && !click_hits_body_dim_pill
+                    && !click_hits_gizmo
+                    && !self.filleting_vertex_from_gizmo
+                    && !self.filleting_edge_from_gizmo
+                    && !self.extruding_from_gizmo
+                    && !self.extruding_face_from_gizmo
+                {
                     self.sketch_move_armed = false;
                     self.sketch_move_target = None;
                     self.body_move_armed = false;
@@ -1355,6 +1367,7 @@ impl DuCADApp {
                             RoundStyle::Fillet => feature.radius,
                             RoundStyle::Chamfer => -feature.radius,
                         };
+                        self.round_gizmo_style = feature.style;
                         match feature.kind {
                             RoundKind::Vertex => {
                                 self.active_vertex =
@@ -1363,6 +1376,7 @@ impl DuCADApp {
                                 self.vertex_gizmo_radius = signed_radius;
                                 self.vertex_gizmo_edit_input =
                                     format!("{:.1}", self.unit.to_display_val(feature.radius));
+                                self.update_round_preview_cache(RoundKind::Vertex, signed_radius);
                             }
                             RoundKind::Edge => {
                                 self.active_edge =
@@ -1371,6 +1385,7 @@ impl DuCADApp {
                                 self.edge_gizmo_radius = signed_radius;
                                 self.edge_gizmo_edit_input =
                                     format!("{:.1}", self.unit.to_display_val(feature.radius));
+                                self.update_round_preview_cache(RoundKind::Edge, signed_radius);
                             }
                         }
                         self.model_status = Some(
@@ -1387,6 +1402,7 @@ impl DuCADApp {
                         self.last_body_select_click = None;
                         self.vertex_gizmo_radius = 0.0;
                         self.vertex_gizmo_edit_input = "0".to_string();
+                        self.round_gizmo_style = RoundStyle::Fillet;
                         self.model_status = Some(
                             "Sudut (vertex) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
@@ -1401,6 +1417,7 @@ impl DuCADApp {
                         self.last_body_select_click = None;
                         self.edge_gizmo_radius = 0.0;
                         self.edge_gizmo_edit_input = "0".to_string();
+                        self.round_gizmo_style = RoundStyle::Fillet;
                         self.model_status = Some(
                             "Rusuk (edge) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );

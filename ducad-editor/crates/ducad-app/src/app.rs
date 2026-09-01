@@ -231,6 +231,9 @@ pub struct DuCADApp {
 
     pub round_history: std::collections::HashMap<BodyId, RoundHistory>,
     pub editing_round: Option<(BodyId, usize)>,
+    pub round_gizmo_style: crate::types::RoundStyle,
+    /// Cached preview mesh: (kind, radius, body_id, mesh). Recomputed only when radius changes.
+    pub round_preview_cache: Option<(crate::types::RoundKind, f64, BodyId, ducad_kernel::KernelMesh)>,
     pub hole_history: std::collections::HashMap<BodyId, crate::types::HoleHistory>,
     pub editing_hole_idx: Option<(BodyId, usize)>,
 
@@ -558,6 +561,8 @@ impl DuCADApp {
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
+            round_gizmo_style: crate::types::RoundStyle::Fillet,
+            round_preview_cache: None,
             hole_history: std::collections::HashMap::new(),
             editing_hole_idx: None,
 
@@ -835,6 +840,8 @@ impl DuCADApp {
 
             round_history: std::collections::HashMap::new(),
             editing_round: None,
+            round_gizmo_style: crate::types::RoundStyle::Fillet,
+            round_preview_cache: None,
             hole_history: std::collections::HashMap::new(),
             editing_hole_idx: None,
 
@@ -1104,83 +1111,9 @@ impl DuCADApp {
             }
         }
 
-        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
-            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
-                self.filleting_vertex_from_gizmo = true;
-            }
-
-            if self.filleting_vertex_from_gizmo
-                && response.dragged_by(egui::PointerButton::Primary)
-            {
-                let (delta_mm, _) = self.project_screen_drag_to_world_axis(
-                    rect,
-                    c_base,
-                    pull_dir,
-                    response.drag_delta(),
-                );
-                let candidate_radius = self.vertex_gizmo_radius + delta_mm;
-                if candidate_radius.abs() < Self::ROUND_SHARP_MM
-                    || self
-                        .round_gizmo_preview_shape(crate::types::RoundKind::Vertex, candidate_radius)
-                        .is_some()
-                {
-                    self.vertex_gizmo_radius = candidate_radius;
-                }
-                self.vertex_gizmo_edit_input = format!(
-                    "{:.1}",
-                    self.unit.to_display_val(self.vertex_gizmo_radius.abs())
-                );
-                ui.ctx().request_repaint();
-            }
-
-            if self.filleting_vertex_from_gizmo && response.drag_stopped() {
-                if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                    self.commit_vertex_fillet();
-                } else {
-                    self.clear_round_gizmo(crate::types::RoundKind::Vertex);
-                }
-                self.filleting_vertex_from_gizmo = false;
-            }
-        }
-
-        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
-            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
-                self.filleting_edge_from_gizmo = true;
-            }
-
-            if self.filleting_edge_from_gizmo
-                && response.dragged_by(egui::PointerButton::Primary)
-            {
-                let (delta_mm, _) = self.project_screen_drag_to_world_axis(
-                    rect,
-                    c_base,
-                    pull_dir,
-                    response.drag_delta(),
-                );
-                let candidate_radius = self.edge_gizmo_radius + delta_mm;
-                if candidate_radius.abs() < Self::ROUND_SHARP_MM
-                    || self
-                        .round_gizmo_preview_shape(crate::types::RoundKind::Edge, candidate_radius)
-                        .is_some()
-                {
-                    self.edge_gizmo_radius = candidate_radius;
-                }
-                self.edge_gizmo_edit_input = format!(
-                    "{:.1}",
-                    self.unit.to_display_val(self.edge_gizmo_radius.abs())
-                );
-                ui.ctx().request_repaint();
-            }
-
-            if self.filleting_edge_from_gizmo && response.drag_stopped() {
-                if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                    self.commit_edge_fillet_single();
-                } else {
-                    self.clear_round_gizmo(crate::types::RoundKind::Edge);
-                }
-                self.filleting_edge_from_gizmo = false;
-            }
-        }
+        // NOTE: Vertex and Edge rounding drag is handled entirely by the overlay
+        // widget in dimensions.rs (handle_resp.dragged). Do NOT also handle it here
+        // from the canvas response — that causes double-delta application every frame.
 
         if let Some(c) = self.selected_closed_region_centroid() {
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {

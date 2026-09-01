@@ -2275,13 +2275,22 @@ impl DuCADApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    let candidate_radius = self.vertex_gizmo_radius + delta_mm;
-                    if candidate_radius.abs() < Self::ROUND_SHARP_MM
-                        || self
-                            .round_gizmo_preview_shape(RoundKind::Vertex, candidate_radius)
-                            .is_some()
-                    {
-                        self.vertex_gizmo_radius = candidate_radius;
+                    let current_mag = self.vertex_gizmo_radius.abs();
+                    let new_mag = (current_mag + delta_mm).max(0.0);
+                    let candidate_radius = if new_mag < Self::ROUND_SHARP_MM {
+                        0.0
+                    } else {
+                        match self.round_gizmo_style {
+                            crate::types::RoundStyle::Fillet => new_mag,
+                            crate::types::RoundStyle::Chamfer => -new_mag,
+                        }
+                    };
+
+                    self.vertex_gizmo_radius = candidate_radius;
+                    if candidate_radius.abs() < Self::ROUND_SHARP_MM {
+                        self.round_preview_cache = None;
+                    } else {
+                        self.update_round_preview_cache(RoundKind::Vertex, candidate_radius);
                     }
                     self.vertex_gizmo_edit_input = format!(
                         "{:.1}",
@@ -2290,11 +2299,6 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                        self.commit_vertex_fillet();
-                    } else {
-                        self.clear_round_gizmo(RoundKind::Vertex);
-                    }
                     self.filleting_vertex_from_gizmo = false;
                 }
 
@@ -2322,10 +2326,9 @@ impl DuCADApp {
                     self.model_status = Some("Fillet Vertex dibatalkan".to_string());
                 }
 
-                let current_style = if self.vertex_gizmo_radius < 0.0 {
-                    RoundingHudStyle::Chamfer
-                } else {
-                    RoundingHudStyle::Fillet
+                let current_style = match self.round_gizmo_style {
+                    crate::types::RoundStyle::Fillet => RoundingHudStyle::Fillet,
+                    crate::types::RoundStyle::Chamfer => RoundingHudStyle::Chamfer,
                 };
 
                 let hud_action = CanvasHud::render_rounding_top_bar_hud(
@@ -2341,32 +2344,29 @@ impl DuCADApp {
                 if let Some(act) = hud_action {
                     match act {
                         RoundingHudAction::SetStyle(RoundingHudStyle::Fillet) => {
+                            self.round_gizmo_style = crate::types::RoundStyle::Fillet;
                             let mag = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                                 2.0
                             } else {
                                 self.vertex_gizmo_radius.abs()
                             };
-                            if self.round_gizmo_preview_shape(RoundKind::Vertex, mag).is_some() {
-                                self.vertex_gizmo_radius = mag;
-                            }
+                            self.vertex_gizmo_radius = mag;
+                            self.update_round_preview_cache(RoundKind::Vertex, mag);
                             self.vertex_gizmo_edit_input = format!(
                                 "{:.1}",
                                 self.unit.to_display_val(self.vertex_gizmo_radius.abs())
                             );
                         }
                         RoundingHudAction::SetStyle(RoundingHudStyle::Chamfer) => {
+                            self.round_gizmo_style = crate::types::RoundStyle::Chamfer;
                             let mag = if self.vertex_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                                 2.0
                             } else {
                                 self.vertex_gizmo_radius.abs()
                             };
                             let signed_r = -mag;
-                            if self
-                                .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
-                                .is_some()
-                            {
-                                self.vertex_gizmo_radius = signed_r;
-                            }
+                            self.vertex_gizmo_radius = signed_r;
+                            self.update_round_preview_cache(RoundKind::Vertex, signed_r);
                             self.vertex_gizmo_edit_input = format!(
                                 "{:.1}",
                                 self.unit.to_display_val(self.vertex_gizmo_radius.abs())
@@ -2378,12 +2378,11 @@ impl DuCADApp {
                             } else {
                                 val
                             };
-                            if signed_r.abs() < Self::ROUND_SHARP_MM
-                                || self
-                                    .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
-                                    .is_some()
-                            {
-                                self.vertex_gizmo_radius = signed_r;
+                            self.vertex_gizmo_radius = signed_r;
+                            if signed_r.abs() < Self::ROUND_SHARP_MM {
+                                self.round_preview_cache = None;
+                            } else {
+                                self.update_round_preview_cache(RoundKind::Vertex, signed_r);
                             }
                             self.vertex_gizmo_edit_input = format!(
                                 "{:.1}",
@@ -2397,12 +2396,11 @@ impl DuCADApp {
                             } else {
                                 new_mag
                             };
-                            if signed_r.abs() < Self::ROUND_SHARP_MM
-                                || self
-                                    .round_gizmo_preview_shape(RoundKind::Vertex, signed_r)
-                                    .is_some()
-                            {
-                                self.vertex_gizmo_radius = signed_r;
+                            self.vertex_gizmo_radius = signed_r;
+                            if signed_r.abs() < Self::ROUND_SHARP_MM {
+                                self.round_preview_cache = None;
+                            } else {
+                                self.update_round_preview_cache(RoundKind::Vertex, signed_r);
                             }
                             self.vertex_gizmo_edit_input = format!(
                                 "{:.1}",
@@ -2458,13 +2456,22 @@ impl DuCADApp {
                         pull_dir,
                         handle_resp.drag_delta(),
                     );
-                    let candidate_radius = self.edge_gizmo_radius + delta_mm;
-                    if candidate_radius.abs() < Self::ROUND_SHARP_MM
-                        || self
-                            .round_gizmo_preview_shape(RoundKind::Edge, candidate_radius)
-                            .is_some()
-                    {
-                        self.edge_gizmo_radius = candidate_radius;
+                    let current_mag = self.edge_gizmo_radius.abs();
+                    let new_mag = (current_mag + delta_mm).max(0.0);
+                    let candidate_radius = if new_mag < Self::ROUND_SHARP_MM {
+                        0.0
+                    } else {
+                        match self.round_gizmo_style {
+                            crate::types::RoundStyle::Fillet => new_mag,
+                            crate::types::RoundStyle::Chamfer => -new_mag,
+                        }
+                    };
+
+                    self.edge_gizmo_radius = candidate_radius;
+                    if candidate_radius.abs() < Self::ROUND_SHARP_MM {
+                        self.round_preview_cache = None;
+                    } else {
+                        self.update_round_preview_cache(RoundKind::Edge, candidate_radius);
                     }
                     self.edge_gizmo_edit_input = format!(
                         "{:.1}",
@@ -2473,11 +2480,6 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
-                    if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
-                        self.commit_edge_fillet_single();
-                    } else {
-                        self.clear_round_gizmo(RoundKind::Edge);
-                    }
                     self.filleting_edge_from_gizmo = false;
                 }
 
@@ -2505,10 +2507,9 @@ impl DuCADApp {
                     self.model_status = Some("Fillet Edge dibatalkan".to_string());
                 }
 
-                let current_style = if self.edge_gizmo_radius < 0.0 {
-                    RoundingHudStyle::Chamfer
-                } else {
-                    RoundingHudStyle::Fillet
+                let current_style = match self.round_gizmo_style {
+                    crate::types::RoundStyle::Fillet => RoundingHudStyle::Fillet,
+                    crate::types::RoundStyle::Chamfer => RoundingHudStyle::Chamfer,
                 };
 
                 let hud_action = CanvasHud::render_rounding_top_bar_hud(
@@ -2524,32 +2525,29 @@ impl DuCADApp {
                 if let Some(act) = hud_action {
                     match act {
                         RoundingHudAction::SetStyle(RoundingHudStyle::Fillet) => {
+                            self.round_gizmo_style = crate::types::RoundStyle::Fillet;
                             let mag = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                                 2.0
                             } else {
                                 self.edge_gizmo_radius.abs()
                             };
-                            if self.round_gizmo_preview_shape(RoundKind::Edge, mag).is_some() {
-                                self.edge_gizmo_radius = mag;
-                            }
+                            self.edge_gizmo_radius = mag;
+                            self.update_round_preview_cache(RoundKind::Edge, mag);
                             self.edge_gizmo_edit_input = format!(
                                 "{:.1}",
                                 self.unit.to_display_val(self.edge_gizmo_radius.abs())
                             );
                         }
                         RoundingHudAction::SetStyle(RoundingHudStyle::Chamfer) => {
+                            self.round_gizmo_style = crate::types::RoundStyle::Chamfer;
                             let mag = if self.edge_gizmo_radius.abs() < Self::ROUND_SHARP_MM {
                                 2.0
                             } else {
                                 self.edge_gizmo_radius.abs()
                             };
                             let signed_r = -mag;
-                            if self
-                                .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
-                                .is_some()
-                            {
-                                self.edge_gizmo_radius = signed_r;
-                            }
+                            self.edge_gizmo_radius = signed_r;
+                            self.update_round_preview_cache(RoundKind::Edge, signed_r);
                             self.edge_gizmo_edit_input = format!(
                                 "{:.1}",
                                 self.unit.to_display_val(self.edge_gizmo_radius.abs())
@@ -2561,12 +2559,11 @@ impl DuCADApp {
                             } else {
                                 val
                             };
-                            if signed_r.abs() < Self::ROUND_SHARP_MM
-                                || self
-                                    .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
-                                    .is_some()
-                            {
-                                self.edge_gizmo_radius = signed_r;
+                            self.edge_gizmo_radius = signed_r;
+                            if signed_r.abs() < Self::ROUND_SHARP_MM {
+                                self.round_preview_cache = None;
+                            } else {
+                                self.update_round_preview_cache(RoundKind::Edge, signed_r);
                             }
                             self.edge_gizmo_edit_input = format!(
                                 "{:.1}",
@@ -2580,12 +2577,11 @@ impl DuCADApp {
                             } else {
                                 new_mag
                             };
-                            if signed_r.abs() < Self::ROUND_SHARP_MM
-                                || self
-                                    .round_gizmo_preview_shape(RoundKind::Edge, signed_r)
-                                    .is_some()
-                            {
-                                self.edge_gizmo_radius = signed_r;
+                            self.edge_gizmo_radius = signed_r;
+                            if signed_r.abs() < Self::ROUND_SHARP_MM {
+                                self.round_preview_cache = None;
+                            } else {
+                                self.update_round_preview_cache(RoundKind::Edge, signed_r);
                             }
                             self.edge_gizmo_edit_input = format!(
                                 "{:.1}",
