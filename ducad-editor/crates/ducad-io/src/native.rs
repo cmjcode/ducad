@@ -29,10 +29,44 @@ use std::path::Path;
 /// baru dari yang dikenal crate ini (lebih aman daripada mencoba baca &
 /// diam-diam salah); versi LAMA dari yang dikenal saat ini masih diterima
 /// (belum ada migrasi ditulis karena baru versi 1 yang pernah ada).
+/// Versi format berkas — dinaikkan tiap kali skema `DuCADFile` berubah
+/// dengan cara yang tak-kompatibel-mundur.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Satu body 3D dalam file native — nama, visibilitas, material PBR, dan geometri B-rep
-/// lengkap sebagai teks STEP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeRoundKind {
+    Vertex,
+    Edge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeRoundStyle {
+    Fillet,
+    Chamfer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeRoundFeature {
+    pub kind: NativeRoundKind,
+    pub style: NativeRoundStyle,
+    pub ray_origin: (f64, f64, f64),
+    pub ray_dir: (f64, f64, f64),
+    pub anchor: (f64, f64, f64),
+    pub radius: f64,
+    #[serde(default)]
+    pub radius_end: Option<f64>,
+    #[serde(default)]
+    pub polyline: Vec<(f64, f64, f64)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeRoundHistory {
+    pub base_step: String,
+    pub features: Vec<NativeRoundFeature>,
+}
+
+/// Satu body 3D dalam file native — nama, visibilitas, material PBR, geometri B-rep,
+/// dan riwayat fitur rounding (fillet/chamfer).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBody {
     pub name: String,
@@ -41,6 +75,17 @@ pub struct NativeBody {
     pub material: ducad_core::Material,
     /// Teks STEP AP214 lengkap (bukan mesh) — lihat catatan modul.
     pub step: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_history: Option<NativeRoundHistory>,
+}
+
+/// Struktur data referensi untuk ekspor body lengkap dengan riwayat fitur.
+pub struct ExportBody<'a> {
+    pub name: &'a str,
+    pub visible: bool,
+    pub material: ducad_core::Material,
+    pub shape: &'a KernelShape,
+    pub round_history: Option<(&'a KernelShape, Vec<NativeRoundFeature>)>,
 }
 
 /// Isi lengkap satu dokumen DUCAD, siap ditulis/dibaca sebagai JSON.
@@ -63,6 +108,7 @@ pub struct LoadedBody {
     pub visible: bool,
     pub material: ducad_core::Material,
     pub shape: KernelShape,
+    pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>)>,
 }
 
 /// Hasil `load`: sketch lengkap dari ketiga bidang (Top, Front, Right) + semua body dengan geometri kernel hidup.
@@ -80,21 +126,32 @@ impl LoadedDocument {
     }
 }
 
-/// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
-pub fn serialize_to_json(
+/// Serialize dokumen multi-bidang langsung ke String JSON dengan fitur lengkap.
+pub fn serialize_detailed_to_json(
     sketches: &[Sketch],
-    bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
+    bodies: &[ExportBody],
 ) -> Result<String> {
     let bodies = bodies
         .iter()
-        .map(|(name, visible, mat, shape)| {
+        .map(|b| {
+            let round_history = if let Some((base, feats)) = &b.round_history {
+                Some(NativeRoundHistory {
+                    base_step: base
+                        .to_step_string()
+                        .with_context(|| format!("gagal serialize base shape body '{}'", b.name))?,
+                    features: feats.clone(),
+                })
+            } else {
+                None
+            };
             Ok(NativeBody {
-                name: name.to_string(),
-                visible: *visible,
-                material: *mat,
-                step: shape
+                name: b.name.to_string(),
+                visible: b.visible,
+                material: b.material,
+                step: b.shape
                     .to_step_string()
-                    .with_context(|| format!("gagal serialize body '{name}' ke STEP"))?,
+                    .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
+                round_history,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -107,6 +164,24 @@ pub fn serialize_to_json(
         bodies,
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
+}
+
+/// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
+pub fn serialize_to_json(
+    sketches: &[Sketch],
+    bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
+) -> Result<String> {
+    let export_bodies: Vec<ExportBody> = bodies
+        .iter()
+        .map(|(name, vis, mat, shape)| ExportBody {
+            name,
+            visible: *vis,
+            material: *mat,
+            shape,
+            round_history: None,
+        })
+        .collect();
+    serialize_detailed_to_json(sketches, &export_bodies)
 }
 
 /// Deserialize dokumen dari String JSON (untuk restore snapshot database).
@@ -126,11 +201,23 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         .map(|b| {
             let shape = KernelShape::from_step_string(&b.step)
                 .with_context(|| format!("gagal baca geometri body '{}' dari STEP snapshot", b.name))?;
+            let round_history = if let Some(rh) = b.round_history {
+                match KernelShape::from_step_string(&rh.base_step) {
+                    Ok(base_shape) => Some((base_shape, rh.features)),
+                    Err(e) => {
+                        eprintln!("gagal baca base shape round history body '{}': {e}", b.name);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             Ok(LoadedBody {
                 name: b.name,
                 visible: b.visible,
                 material: b.material,
                 shape,
+                round_history,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -146,15 +233,34 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
     })
 }
 
+/// Simpan dokumen multi-bidang (Top, Front, Right) lengkap dengan riwayat fitur ke `path` sebagai JSON.
+pub fn save_multi_plane_detailed(
+    path: impl AsRef<Path>,
+    sketches: &[Sketch],
+    bodies: &[ExportBody],
+) -> Result<()> {
+    let json = serialize_detailed_to_json(sketches, bodies)?;
+    std::fs::write(path, json).context("gagal menulis file .ducad")?;
+    Ok(())
+}
+
 /// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
 pub fn save_multi_plane(
     path: impl AsRef<Path>,
     sketches: &[Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<()> {
-    let json = serialize_to_json(sketches, bodies)?;
-    std::fs::write(path, json).context("gagal menulis file .ducad")?;
-    Ok(())
+    let export_bodies: Vec<ExportBody> = bodies
+        .iter()
+        .map(|(name, vis, mat, shape)| ExportBody {
+            name,
+            visible: *vis,
+            material: *mat,
+            shape,
+            round_history: None,
+        })
+        .collect();
+    save_multi_plane_detailed(path, sketches, &export_bodies)
 }
 
 /// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
@@ -166,8 +272,7 @@ pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, duca
     )
 }
 
-/// Muat dokumen dari `path`. Menolak `format_version` yang lebih baru dari
-/// `FORMAT_VERSION` yang dikenal build ini (lihat catatan konstanta).
+/// Muat dokumen dari `path`.
 pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
     let json = std::fs::read_to_string(&path).context("gagal membaca file .ducad")?;
     deserialize_from_json(&json)
@@ -307,5 +412,45 @@ mod tests {
         assert_eq!(array[0].entities.len(), 1);
         assert_eq!(array[1].entities.len(), 1);
         assert_eq!(array[2].entities.len(), 1);
+    }
+
+    #[test]
+    fn save_load_roundtrip_preserves_round_history() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let sketch = Sketch::default();
+        let base_shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
+        let filleted_shape = extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap();
+        let path = temp_path("round_hist");
+
+        let feature = NativeRoundFeature {
+            kind: NativeRoundKind::Vertex,
+            style: NativeRoundStyle::Fillet,
+            ray_origin: (0.0, 0.0, 10.0),
+            ray_dir: (0.0, 0.0, -1.0),
+            anchor: (20.0, 10.0, 5.0),
+            radius: 10.0,
+            radius_end: None,
+            polyline: vec![],
+        };
+
+        let export_body = ExportBody {
+            name: "Filleted Box",
+            visible: true,
+            material: ducad_core::Material::default(),
+            shape: &filleted_shape,
+            round_history: Some((&base_shape, vec![feature])),
+        };
+
+        save_multi_plane_detailed(&path, &[sketch], &[export_body]).unwrap();
+        let loaded = load(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(loaded.bodies.len(), 1);
+        let rh = loaded.bodies[0].round_history.as_ref().expect("round history must exist");
+        assert_eq!(rh.1.len(), 1);
+        assert_eq!(rh.1[0].kind, NativeRoundKind::Vertex);
+        assert_eq!(rh.1[0].style, NativeRoundStyle::Fillet);
+        assert_eq!(rh.1[0].radius, 10.0);
+        assert_eq!(rh.1[0].anchor, (20.0, 10.0, 5.0));
     }
 }

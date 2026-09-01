@@ -381,20 +381,20 @@ pub struct PickedEdge {
     pub polyline: Vec<(f64, f64, f64)>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RoundKind {
     Vertex,
     Edge,
 }
 
 /// Gaya rounding: `Fillet` atau `Chamfer`.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RoundStyle {
     Fillet,
     Chamfer,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RoundFeature {
     pub kind: RoundKind,
     pub style: RoundStyle,
@@ -403,6 +403,50 @@ pub struct RoundFeature {
     pub radius: f64,
     pub radius_end: Option<f64>,
     pub polyline: Vec<(f64, f64, f64)>,
+}
+
+impl From<&RoundFeature> for ducad_io::native::NativeRoundFeature {
+    fn from(f: &RoundFeature) -> Self {
+        ducad_io::native::NativeRoundFeature {
+            kind: match f.kind {
+                RoundKind::Vertex => ducad_io::native::NativeRoundKind::Vertex,
+                RoundKind::Edge => ducad_io::native::NativeRoundKind::Edge,
+            },
+            style: match f.style {
+                RoundStyle::Fillet => ducad_io::native::NativeRoundStyle::Fillet,
+                RoundStyle::Chamfer => ducad_io::native::NativeRoundStyle::Chamfer,
+            },
+            ray_origin: f.ray.origin,
+            ray_dir: f.ray.dir,
+            anchor: f.anchor,
+            radius: f.radius,
+            radius_end: f.radius_end,
+            polyline: f.polyline.clone(),
+        }
+    }
+}
+
+impl From<ducad_io::native::NativeRoundFeature> for RoundFeature {
+    fn from(f: ducad_io::native::NativeRoundFeature) -> Self {
+        RoundFeature {
+            kind: match f.kind {
+                ducad_io::native::NativeRoundKind::Vertex => RoundKind::Vertex,
+                ducad_io::native::NativeRoundKind::Edge => RoundKind::Edge,
+            },
+            style: match f.style {
+                ducad_io::native::NativeRoundStyle::Fillet => RoundStyle::Fillet,
+                ducad_io::native::NativeRoundStyle::Chamfer => RoundStyle::Chamfer,
+            },
+            ray: ducad_kernel::PickRay {
+                origin: f.ray_origin,
+                dir: f.ray_dir,
+            },
+            anchor: f.anchor,
+            radius: f.radius,
+            radius_end: f.radius_end,
+            polyline: f.polyline,
+        }
+    }
 }
 
 pub struct RoundHistory {

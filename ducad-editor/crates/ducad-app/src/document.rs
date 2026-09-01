@@ -413,6 +413,34 @@ impl DuCADApp {
             .collect()
     }
 
+    pub fn native_export_bodies(&self) -> Vec<ducad_io::native::ExportBody<'_>> {
+        self.model
+            .doc
+            .bodies
+            .iter()
+            .map(|(id, meta)| {
+                let shape = &self
+                    .model
+                    .geometry
+                    .get(id)
+                    .expect("body hilang dari storage")
+                    .shape;
+                let round_history = self.round_history.get(&id).map(|h| {
+                    let feats: Vec<ducad_io::native::NativeRoundFeature> =
+                        h.features.iter().map(ducad_io::native::NativeRoundFeature::from).collect();
+                    (&h.base, feats)
+                });
+                ducad_io::native::ExportBody {
+                    name: meta.name.as_str(),
+                    visible: meta.visible,
+                    material: meta.material,
+                    shape,
+                    round_history,
+                }
+            })
+            .collect()
+    }
+
     pub fn all_body_shapes(&self) -> Vec<&KernelShape> {
         self.model
             .doc
@@ -530,6 +558,52 @@ mod tests {
         assert_eq!(datum_planes.len(), 1);
         assert_eq!(datum_planes[0].id, 2);
         assert_eq!(sketches.len(), 4);
+    }
+
+    #[test]
+    fn test_native_export_bodies_with_round_history() {
+        let mut app = DuCADApp::new_for_test();
+        let shape1 = ducad_kernel::extrude_profile(
+            &ducad_kernel::Profile::Loop(vec![
+                ducad_kernel::ProfileSegment::Line { start: (0.0, 0.0), end: (10.0, 0.0) },
+                ducad_kernel::ProfileSegment::Line { start: (10.0, 0.0), end: (10.0, 10.0) },
+                ducad_kernel::ProfileSegment::Line { start: (10.0, 10.0), end: (0.0, 10.0) },
+                ducad_kernel::ProfileSegment::Line { start: (0.0, 10.0), end: (0.0, 0.0) },
+            ]),
+            10.0,
+        ).unwrap();
+        let shape2 = ducad_kernel::extrude_profile(
+            &ducad_kernel::Profile::Loop(vec![
+                ducad_kernel::ProfileSegment::Line { start: (0.0, 0.0), end: (10.0, 0.0) },
+                ducad_kernel::ProfileSegment::Line { start: (10.0, 0.0), end: (10.0, 10.0) },
+                ducad_kernel::ProfileSegment::Line { start: (10.0, 10.0), end: (0.0, 10.0) },
+                ducad_kernel::ProfileSegment::Line { start: (0.0, 10.0), end: (0.0, 0.0) },
+            ]),
+            10.0,
+        ).unwrap();
+        let id = app.model.doc.add_body_with_material("Cube", ducad_core::Material::default());
+        app.model.geometry.insert(id, crate::model::BodyGeometry::from_shape(shape1));
+
+        let feature = crate::types::RoundFeature {
+            kind: crate::types::RoundKind::Vertex,
+            style: crate::types::RoundStyle::Fillet,
+            ray: ducad_kernel::PickRay { origin: (0.0, 0.0, 10.0), dir: (0.0, 0.0, -1.0) },
+            anchor: (10.0, 10.0, 10.0),
+            radius: 10.0,
+            radius_end: None,
+            polyline: vec![],
+        };
+        app.round_history.insert(id, crate::types::RoundHistory {
+            base: shape2,
+            features: vec![feature],
+        });
+
+        let export_bodies = app.native_export_bodies();
+        assert_eq!(export_bodies.len(), 1);
+        assert_eq!(export_bodies[0].name, "Cube");
+        let rh = export_bodies[0].round_history.as_ref().expect("round history must exist");
+        assert_eq!(rh.1.len(), 1);
+        assert_eq!(rh.1[0].radius, 10.0);
     }
 }
 

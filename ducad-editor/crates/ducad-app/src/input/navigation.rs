@@ -13,16 +13,19 @@ impl DuCADApp {
         let delta = response.drag_delta();
         let modifiers = ui.input(|i| i.modifiers);
 
+        let is_gizmo_dragging = self.extruding_from_gizmo
+            || self.extruding_face_from_gizmo
+            || self.filleting_vertex_from_gizmo
+            || self.filleting_edge_from_gizmo;
+
         let orbiting = (allow_primary_orbit
             && response.dragged_by(egui::PointerButton::Primary)
             && !modifiers.shift
-            && !self.extruding_from_gizmo
-            && !self.extruding_face_from_gizmo)
+            && !is_gizmo_dragging)
             || (response.dragged_by(egui::PointerButton::Middle) && !modifiers.shift);
         let panning = response.dragged_by(egui::PointerButton::Secondary)
             || (modifiers.shift
-                && !self.extruding_from_gizmo
-                && !self.extruding_face_from_gizmo
+                && !is_gizmo_dragging
                 && (response.dragged_by(egui::PointerButton::Primary)
                     || response.dragged_by(egui::PointerButton::Middle)));
 

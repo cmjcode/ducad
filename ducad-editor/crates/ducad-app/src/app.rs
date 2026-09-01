@@ -1002,7 +1002,12 @@ impl DuCADApp {
         self.handle_radial_menu(ui, &response);
 
         let is_near_gizmo = self.check_near_gizmo(rect, response.hover_pos());
-        if is_near_gizmo || self.extruding_from_gizmo || self.extruding_face_from_gizmo {
+        if is_near_gizmo
+            || self.extruding_from_gizmo
+            || self.extruding_face_from_gizmo
+            || self.filleting_vertex_from_gizmo
+            || self.filleting_edge_from_gizmo
+        {
             let arrow_opt = if let Some(c) = self.selected_closed_region_centroid() {
                 let (_, arrow) =
                     self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
@@ -1015,6 +1020,22 @@ impl DuCADApp {
                     hit.pull_dir.1 as f32,
                     hit.pull_dir.2 as f32,
                 );
+                let (_, arrow) = self.project_screen_drag_to_world_axis(
+                    rect,
+                    c_base,
+                    pull_dir,
+                    egui::Vec2::ZERO,
+                );
+                arrow
+            } else if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
+                let (_, arrow) = self.project_screen_drag_to_world_axis(
+                    rect,
+                    c_base,
+                    pull_dir,
+                    egui::Vec2::ZERO,
+                );
+                arrow
+            } else if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
                 let (_, arrow) = self.project_screen_drag_to_world_axis(
                     rect,
                     c_base,
@@ -1083,6 +1104,80 @@ impl DuCADApp {
             }
         }
 
+        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
+            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
+                self.filleting_vertex_from_gizmo = true;
+            }
+
+            if self.filleting_vertex_from_gizmo
+                && response.dragged_by(egui::PointerButton::Primary)
+            {
+                let (delta_mm, _) = self.project_screen_drag_to_world_axis(
+                    rect,
+                    c_base,
+                    pull_dir,
+                    response.drag_delta(),
+                );
+                let candidate_radius = self.vertex_gizmo_radius + delta_mm;
+                if candidate_radius.abs() < Self::ROUND_SHARP_MM
+                    || self
+                        .round_gizmo_preview_shape(crate::types::RoundKind::Vertex, candidate_radius)
+                        .is_some()
+                {
+                    self.vertex_gizmo_radius = candidate_radius;
+                }
+                self.vertex_gizmo_edit_input = format!(
+                    "{:.1}",
+                    self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                );
+                ui.ctx().request_repaint();
+            }
+
+            if self.filleting_vertex_from_gizmo && response.drag_stopped() {
+                if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                    self.commit_vertex_fillet();
+                }
+                self.filleting_vertex_from_gizmo = false;
+            }
+        }
+
+        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
+            if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
+                self.filleting_edge_from_gizmo = true;
+            }
+
+            if self.filleting_edge_from_gizmo
+                && response.dragged_by(egui::PointerButton::Primary)
+            {
+                let (delta_mm, _) = self.project_screen_drag_to_world_axis(
+                    rect,
+                    c_base,
+                    pull_dir,
+                    response.drag_delta(),
+                );
+                let candidate_radius = self.edge_gizmo_radius + delta_mm;
+                if candidate_radius.abs() < Self::ROUND_SHARP_MM
+                    || self
+                        .round_gizmo_preview_shape(crate::types::RoundKind::Edge, candidate_radius)
+                        .is_some()
+                {
+                    self.edge_gizmo_radius = candidate_radius;
+                }
+                self.edge_gizmo_edit_input = format!(
+                    "{:.1}",
+                    self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                );
+                ui.ctx().request_repaint();
+            }
+
+            if self.filleting_edge_from_gizmo && response.drag_stopped() {
+                if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                    self.commit_edge_fillet_single();
+                }
+                self.filleting_edge_from_gizmo = false;
+            }
+        }
+
         if let Some(c) = self.selected_closed_region_centroid() {
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
                 self.extruding_from_gizmo = true;
@@ -1123,7 +1218,9 @@ impl DuCADApp {
         ) && !radial_active
             && !is_near_gizmo
             && !self.extruding_from_gizmo
-            && !self.extruding_face_from_gizmo;
+            && !self.extruding_face_from_gizmo
+            && !self.filleting_vertex_from_gizmo
+            && !self.filleting_edge_from_gizmo;
         self.handle_navigation(ui, &response, rect, allow_primary_orbit);
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 

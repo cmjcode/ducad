@@ -224,6 +224,38 @@ impl DuCADApp {
             }
         }
 
+        if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
+            let dist = if self.filleting_vertex_from_gizmo {
+                self.vertex_gizmo_radius.abs().max(0.1) as f32
+            } else {
+                12.0
+            };
+            let top_3d = c_base + pull_dir * dist;
+            let near_top = world_to_screen_pos(&self.camera, rect, top_3d)
+                .is_some_and(|s| s.distance(pos) < 38.0);
+            let near_base = world_to_screen_pos(&self.camera, rect, c_base)
+                .is_some_and(|s| s.distance(pos) < 38.0);
+            if near_top || near_base {
+                return true;
+            }
+        }
+
+        if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
+            let dist = if self.filleting_edge_from_gizmo {
+                self.edge_gizmo_radius.abs().max(0.1) as f32
+            } else {
+                12.0
+            };
+            let top_3d = c_base + pull_dir * dist;
+            let near_top = world_to_screen_pos(&self.camera, rect, top_3d)
+                .is_some_and(|s| s.distance(pos) < 38.0);
+            let near_base = world_to_screen_pos(&self.camera, rect, c_base)
+                .is_some_and(|s| s.distance(pos) < 38.0);
+            if near_top || near_base {
+                return true;
+            }
+        }
+
         if !self.feature_pick_active() {
             if let Some((_, center)) = self.selected_single_body_center() {
                 if let Some(s_center) = world_to_screen_pos(&self.camera, rect, center) {

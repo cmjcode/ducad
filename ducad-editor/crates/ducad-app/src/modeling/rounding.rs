@@ -12,6 +12,33 @@ impl DuCADApp {
     pub const EDGE_REAPPLY_TOLERANCE_MM: f64 = 5.0;
     pub const ROUND_SHARP_MM: f64 = 0.2;
 
+    pub fn find_round_feature_at_cursor(
+        &self,
+        rect: egui::Rect,
+        pos: egui::Pos2,
+    ) -> Option<(BodyId, usize)> {
+        let mut best: Option<(BodyId, usize, f32)> = None;
+        for (body_id, hist) in &self.round_history {
+            if let Some(body) = self.model.doc.bodies.get(*body_id) {
+                if !body.visible {
+                    continue;
+                }
+            }
+            for (idx, f) in hist.features.iter().enumerate() {
+                let v3 = Vec3::new(f.anchor.0 as f32, f.anchor.1 as f32, f.anchor.2 as f32);
+                if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
+                    let s_dist = (sp - pos).length();
+                    if s_dist <= 38.0 {
+                        if best.as_ref().is_none_or(|(_, _, bd)| s_dist < *bd) {
+                            best = Some((*body_id, idx, s_dist));
+                        }
+                    }
+                }
+            }
+        }
+        best.map(|(bid, idx, _)| (bid, idx))
+    }
+
     pub fn find_round_feature_near(
         &self,
         body_id: BodyId,
@@ -88,7 +115,17 @@ impl DuCADApp {
             dir: (dir.x as f64, dir.y as f64, dir.z as f64),
         };
 
-        // 1. Prioritas utama: Deteksi kedekatan layar 2D (screen-space, toleransi 28px)
+        // 0. Prioritas puncak: Jika ada marker vertex yang sedang di-hover
+        if let Some((hid, hpos)) = self.hovered_vertex_marker {
+            let v3 = Vec3::new(hpos.0 as f32, hpos.1 as f32, hpos.2 as f32);
+            if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
+                if (sp - pos).length() <= 38.0 {
+                    return Some((hid, ray, hpos));
+                }
+            }
+        }
+
+        // 1. Prioritas utama: Deteksi kedekatan layar 2D (screen-space, toleransi 38px)
         let mut best_screen: Option<(BodyId, (f64, f64, f64), f32, f64)> = None;
         for (id, geo) in self.model.geometry.iter() {
             let Some(body) = self.model.doc.bodies.get(id) else {
@@ -101,7 +138,7 @@ impl DuCADApp {
                 let v3 = Vec3::new(x as f32, y as f32, z as f32);
                 if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
                     let s_dist = (sp - pos).length();
-                    if s_dist <= 28.0 {
+                    if s_dist <= 38.0 {
                         let cam_dist = (v3 - self.camera.eye()).length_squared() as f64;
                         if best_screen.as_ref().is_none_or(|(_, _, best_s, best_d)| {
                             s_dist < *best_s || (s_dist == *best_s && cam_dist < *best_d)

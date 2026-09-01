@@ -1295,15 +1295,19 @@ impl DuCADApp {
                         }
                     }
 
-                    let round_edit = face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
-                        self.find_round_feature_near(
-                            *b_id,
-                            hit.hit_point,
-                            hit.surface_kind,
-                            rect,
-                        )
-                        .map(|idx| (*b_id, idx))
-                    });
+                    let round_edit = click_pos
+                        .and_then(|pos| self.find_round_feature_at_cursor(rect, pos))
+                        .or_else(|| {
+                            face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
+                                self.find_round_feature_near(
+                                    *b_id,
+                                    hit.hit_point,
+                                    hit.surface_kind,
+                                    rect,
+                                )
+                                .map(|idx| (*b_id, idx))
+                            })
+                        });
 
                     let vertex_pick_3d = if round_edit.is_none() && !self.is_sketching && !shift
                     {

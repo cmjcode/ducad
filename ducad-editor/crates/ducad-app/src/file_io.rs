@@ -75,8 +75,8 @@ impl DuCADApp {
     }
 
     pub fn save_native_to(&mut self, path: PathBuf) {
-        let body_refs = self.native_body_refs();
-        match ducad_io::native::save_multi_plane(&path, &self.sketches, &body_refs) {
+        let body_exports = self.native_export_bodies();
+        match ducad_io::native::save_multi_plane_detailed(&path, &self.sketches, &body_exports) {
             Ok(_) => {
                 let name = path
                     .file_name()
@@ -129,6 +129,11 @@ impl DuCADApp {
                 self.offset_source = None;
                 self.line_chain_start = None;
                 self.line_chain_segments = 0;
+                self.round_history.clear();
+                self.editing_round = None;
+                self.active_vertex = None;
+                self.active_edge = None;
+                self.active_face = None;
 
                 let mut new_model = ModelDoc::default();
                 for nb in loaded.bodies {
@@ -137,6 +142,10 @@ impl DuCADApp {
                     new_model.geometry.insert(id, geo);
                     if let Some(meta) = new_model.doc.bodies.get_mut(id) {
                         meta.visible = nb.visible;
+                    }
+                    if let Some((base, native_feats)) = nb.round_history {
+                        let features = native_feats.into_iter().map(crate::types::RoundFeature::from).collect();
+                        self.round_history.insert(id, crate::types::RoundHistory { base, features });
                     }
                 }
                 self.model = new_model;
