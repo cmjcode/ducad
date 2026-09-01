@@ -63,6 +63,30 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
     return vec4<f32>(in.color.rgb, in.color.a * fade);
 }
 
+// ---------- Garis Tepi Objek Solid 3D (CAD Feature Edges) ----------
+
+@vertex
+fn vs_body_edge(in: LineIn) -> LineOut {
+    var out: LineOut;
+    var clip = globals.view_proj * vec4<f32>(in.position, 1.0);
+    // Terapkan sedikit depth bias di clip space agar garis duduk rapi di atas permukaan solid tanpa Z-fighting
+    clip.z = clip.z - 0.00015 * clip.w;
+    out.clip = clip;
+    out.color = in.color;
+    out.world = in.position;
+    return out;
+}
+
+@fragment
+fn fs_body_edge(in: LineOut) -> @location(0) vec4<f32> {
+    // Hormati Section View bidang potong jika aktif
+    let clip_side = dot(globals.clip_plane.xyz, in.world) - globals.clip_plane.w;
+    if (clip_side > 0.0) {
+        discard;
+    }
+    return in.color;
+}
+
 // ---------- Floor Contact Soft Shadow (Fase 4.2) ----------
 
 struct FloorIn {

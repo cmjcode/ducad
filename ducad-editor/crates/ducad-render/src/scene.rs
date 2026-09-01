@@ -204,10 +204,14 @@ pub struct SceneRenderer {
     floor_ibuf: wgpu::Buffer,
     floor_index_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
+    body_edge_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     gizmo_pipeline: wgpu::RenderPipeline,
     mesh: Option<GpuMesh>,
     gizmo_mesh: Option<GpuMesh>,
+    body_edge_vbuf: Option<wgpu::Buffer>,
+    body_edge_vertex_count: u32,
+    body_edge_hash: u64,
     overlay_vbuf: Option<wgpu::Buffer>,
     overlay_vertex_count: u32,
     overlay_hash: u64,
@@ -273,6 +277,14 @@ impl SceneRenderer {
             format,
             depth_write_enabled: Some(true),
             depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: Default::default(),
+            bias: Default::default(),
+        });
+
+        let body_edge_depth_stencil = depth_format.map(|format| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: Default::default(),
             bias: Default::default(),
         });
@@ -409,6 +421,35 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let body_edge_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("body-edges"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_body_edge"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<grid::LineVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_body_edge"),
+                compilation_options: Default::default(),
+                targets: &color_target,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: body_edge_depth_stencil,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         let gizmo_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gizmo-mesh"),
             layout: Some(&pipeline_layout),
@@ -478,10 +519,14 @@ impl SceneRenderer {
             floor_ibuf,
             floor_index_count: 6,
             mesh_pipeline,
+            body_edge_pipeline,
             overlay_pipeline,
             gizmo_pipeline,
             mesh: None,
             gizmo_mesh: None,
+            body_edge_vbuf: None,
+            body_edge_vertex_count: 0,
+            body_edge_hash: 0,
             overlay_vbuf: None,
             overlay_vertex_count: 0,
             overlay_hash: 0,
@@ -569,6 +614,41 @@ impl SceneRenderer {
         self.overlay_vbuf = Some(buf);
         self.overlay_vertex_count = verts.len() as u32;
         self.overlay_hash = hash;
+    }
+
+    /// Upload garis tepi solid 3D (CAD feature edges) untuk frame ini dengan caching fingerprint.
+    pub fn set_body_edges(&mut self, device: &wgpu::Device, verts: &[grid::LineVertex]) {
+        use std::hash::{Hash, Hasher};
+        use wgpu::util::DeviceExt;
+        if verts.is_empty() {
+            self.body_edge_vbuf = None;
+            self.body_edge_vertex_count = 0;
+            self.body_edge_hash = 0;
+            return;
+        }
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        verts.len().hash(&mut hasher);
+        if let Some(v) = verts.first() {
+            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
+        }
+        if let Some(v) = verts.last() {
+            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+
+        if self.body_edge_hash == hash && self.body_edge_vertex_count == verts.len() as u32 {
+            return;
+        }
+
+        let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("body-edges-vbuf"),
+            contents: bytemuck::cast_slice(verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.body_edge_vbuf = Some(buf);
+        self.body_edge_vertex_count = verts.len() as u32;
+        self.body_edge_hash = hash;
     }
 
     /// Perbarui buffer grid untuk bidang sketsa tertentu dengan extent & step dinamis.
@@ -849,6 +929,13 @@ impl SceneRenderer {
             rpass.set_vertex_buffer(0, mesh.vertex_buf.slice(..));
             rpass.set_index_buffer(mesh.index_buf.slice(..), wgpu::IndexFormat::Uint32);
             rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+
+        // 2b. Gambar Garis Tepi Solid 3D (CAD Feature Edges)
+        if let Some(buf) = &self.body_edge_vbuf {
+            rpass.set_pipeline(&self.body_edge_pipeline);
+            rpass.set_vertex_buffer(0, buf.slice(..));
+            rpass.draw(0..self.body_edge_vertex_count, 0..1);
         }
 
         // 3. Gambar Grid CAD

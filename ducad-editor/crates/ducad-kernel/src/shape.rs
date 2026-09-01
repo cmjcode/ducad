@@ -216,3 +216,80 @@ pub fn make_compound(shapes: &[&KernelShape]) -> Result<KernelShape> {
     let combined: Shape = compound.into();
     Ok(KernelShape::from_inner(combined))
 }
+
+/// Ekstraksi segmen garis tepi 3D (B-Rep model curves / mesh feature edges) dari `KernelShape`.
+/// Digunakan untuk rendering garis tepi solid CAD ("Shaded with Visible Edges") di viewport 3D.
+pub fn extract_shape_edges(
+    shape: &KernelShape,
+    mesh: Option<&KernelMesh>,
+) -> Vec<([f32; 3], [f32; 3])> {
+    let _guard = lock_kernel();
+    let mut raw_segments = Vec::new();
+    let occ_shape = shape.inner();
+
+    let mut seen_pairs = std::collections::HashSet::new();
+    let quantize = |p: [f32; 3]| -> (i64, i64, i64) {
+        (
+            (p[0] * 100.0).round() as i64,
+            (p[1] * 100.0).round() as i64,
+            (p[2] * 100.0).round() as i64,
+        )
+    };
+
+    const MAX_EDGES: usize = 5000;
+    for (idx, edge) in occ_shape.edges().enumerate() {
+        if idx >= MAX_EDGES {
+            break;
+        }
+        let approx = edge.approximation_segments();
+        let points: Vec<[f32; 3]> = approx
+            .map(|p| [p.x as f32, p.y as f32, p.z as f32])
+            .collect();
+
+        if points.len() >= 2 {
+            for w in points.windows(2) {
+                let p1 = w[0];
+                let p2 = w[1];
+                let dx = p1[0] - p2[0];
+                let dy = p1[1] - p2[1];
+                let dz = p1[2] - p2[2];
+                if dx * dx + dy * dy + dz * dz > 1e-6 {
+                    let q1 = quantize(p1);
+                    let q2 = quantize(p2);
+                    let key = if q1 <= q2 { (q1, q2) } else { (q2, q1) };
+                    if seen_pairs.insert(key) {
+                        raw_segments.push((p1, p2));
+                    }
+                }
+            }
+        } else {
+            let p1 = edge.start_point();
+            let p2 = edge.end_point();
+            let v1 = [p1.x as f32, p1.y as f32, p1.z as f32];
+            let v2 = [p2.x as f32, p2.y as f32, p2.z as f32];
+            let dx = v1[0] - v2[0];
+            let dy = v1[1] - v2[1];
+            let dz = v1[2] - v2[2];
+            if dx * dx + dy * dy + dz * dz > 1e-6 {
+                let q1 = quantize(v1);
+                let q2 = quantize(v2);
+                let key = if q1 <= q2 { (q1, q2) } else { (q2, q1) };
+                if seen_pairs.insert(key) {
+                    raw_segments.push((v1, v2));
+                }
+            }
+        }
+    }
+
+    // Jika tidak ada tepi B-Rep (misal pure mesh STL), fallback ke feature crease edges
+    if raw_segments.is_empty() {
+        if let Some(m) = mesh {
+            let feat = crate::hlr::extract_mesh_feature_edges(m);
+            for (p1, p2) in feat {
+                raw_segments.push(([p1.x, p1.y, p1.z], [p2.x, p2.y, p2.z]));
+            }
+        }
+    }
+
+    raw_segments
+}

@@ -33,6 +33,7 @@ pub struct BodyGeometry {
     pub shape: KernelShape,
     pub mesh: KernelMesh,
     pub edge_dims: Vec<ducad_kernel::EdgeDimension>,
+    pub edge_lines: Vec<([f32; 3], [f32; 3])>,
 }
 
 impl BodyGeometry {
@@ -44,20 +45,28 @@ impl BodyGeometry {
     /// Sama seperti `from_shape`, tapi `mesh` SUDAH dihitung sebelumnya
     /// (dipakai `import_worker` di ducad-app: mesh dihitung di thread
     /// latar belakang supaya UI tidak beku, lalu shape dibangun ulang di
-    /// UI thread dari teks STEP — lihat pemanggilnya). `edge_dims` tetap
-    /// dihitung di sini karena hanya `shape` yang dikirim balik dari
-    /// worker, bukan dimensi rusuknya.
+    /// UI thread dari teks STEP — lihat pemanggilnya). `edge_dims` dan
+    /// `edge_lines` tetap dihitung di sini karena hanya `shape` yang
+    /// dikirim balik dari worker, bukan dimensi/garis tepinya.
     pub fn from_shape_with_mesh(shape: KernelShape, mesh: KernelMesh) -> Self {
         let edge_dims = ducad_kernel::edge_dimensions(&shape);
-        Self { shape, mesh, edge_dims }
+        let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+        Self {
+            shape,
+            mesh,
+            edge_dims,
+            edge_lines,
+        }
     }
 
     /// Buat BodyGeometry langsung dari mesh (misal import STL) tanpa eksplorasi dimensi rusuk B-Rep.
     pub fn from_mesh_direct(shape: KernelShape, mesh: KernelMesh) -> Self {
+        let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
         Self {
             shape,
             mesh,
             edge_dims: Vec::new(),
+            edge_lines,
         }
     }
 }

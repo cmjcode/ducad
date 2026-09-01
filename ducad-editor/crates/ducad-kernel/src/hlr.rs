@@ -576,8 +576,7 @@ fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bo
     false
 }
 
-/// Ekstraksi tepi fitur tajam (crease edges) dari mesh jika tidak ada kurva B-Rep.
-fn extract_mesh_feature_edges(mesh: &KernelMesh) -> Vec<(Vec3, Vec3)> {
+pub(crate) fn extract_mesh_feature_edges(mesh: &KernelMesh) -> Vec<(Vec3, Vec3)> {
     let mut feature_edges = Vec::new();
     let tri_count = mesh.triangle_count();
     if tri_count == 0 {

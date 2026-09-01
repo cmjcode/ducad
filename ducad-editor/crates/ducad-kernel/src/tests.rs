@@ -2163,3 +2163,13 @@ fn test_write_and_read_stl_shape() {
     assert!(mesh.triangle_count() > 0, "Loaded STL should have triangles");
 }
 
+#[test]
+fn test_extract_shape_edges_for_box() {
+    let _lock = lock_test();
+    let box_shape = extrude_profile(&rect_profile(20.0, 30.0), 40.0).unwrap();
+    let edges = extract_shape_edges(&box_shape, None);
+    // Kotak memiliki 12 rusuk tepi
+    assert_eq!(edges.len(), 12, "Kotak harus menghasilkan tepat 12 garis tepi, dapat {}", edges.len());
+}
+
+

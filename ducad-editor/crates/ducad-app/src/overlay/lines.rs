@@ -1915,4 +1915,76 @@ impl DuCADApp {
         edge_hits.truncate(4);
         edge_hits
     }
+
+    /// Membangun garis-garis tepi 3D (CAD feature edges) untuk seluruh solid body yang visible.
+    /// Memberikan kontur yang jelas dari sudut pandang kamera mana pun (standar CAD "Shaded with Visible Edges").
+    pub fn build_body_edge_lines(&self) -> Vec<LineVertex> {
+        let mut lines = Vec::new();
+
+        // Warna garis tepi standar CAD: Charcoal/Slate gelap kontras tinggi yang halus
+        const DEFAULT_EDGE_COLOR: [f32; 4] = [0.15, 0.17, 0.22, 0.90];
+        // Warna garis tepi saat body terpilih: Cyan highlight tajam
+        const SELECTED_EDGE_COLOR: [f32; 4] = [0.00, 0.85, 1.00, 1.00];
+        // Warna garis tepi saat cutting target
+        const CUT_EDGE_COLOR: [f32; 4] = [1.00, 0.20, 0.20, 1.00];
+
+        for (id, geo) in self.model.geometry.iter() {
+            let Some(body) = self.model.doc.bodies.get(id) else {
+                continue;
+            };
+            if !body.visible {
+                continue;
+            }
+
+            let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
+            let is_selected_body = self.selected_bodies.contains(&id)
+                && self.active_face.is_none()
+                && self.staged_mate_targets.is_empty()
+                && self.selected_faces.is_empty();
+
+            let edge_color = if is_cutting_target {
+                CUT_EDGE_COLOR
+            } else if is_selected_body && !self.cmf_drawer_open {
+                SELECTED_EDGE_COLOR
+            } else {
+                DEFAULT_EDGE_COLOR
+            };
+
+            let is_dragging_move = is_selected_body && self.body_move_dragging && self.body_move_delta.length_squared() > 1e-6;
+            let is_dragging_rotate = is_selected_body && self.body_rotate_dragging && self.body_rotate_angle_deg.abs() > 0.01;
+            let rotate_transform = if is_dragging_rotate {
+                self.selected_single_body_center().map(|(_, center)| {
+                    let rad = (self.body_rotate_angle_deg as f32).to_radians();
+                    let rot_mat = glam::Mat4::from_axis_angle(self.body_rotate_axis, rad);
+                    (center, rot_mat)
+                })
+            } else {
+                None
+            };
+
+            for &(p1_raw, p2_raw) in &geo.edge_lines {
+                let mut p1 = Vec3::from_array(p1_raw);
+                let mut p2 = Vec3::from_array(p2_raw);
+
+                if is_dragging_move {
+                    p1 += self.body_move_delta;
+                    p2 += self.body_move_delta;
+                } else if let Some((center, rot_mat)) = rotate_transform {
+                    p1 = center + rot_mat.transform_vector3(p1 - center);
+                    p2 = center + rot_mat.transform_vector3(p2 - center);
+                }
+
+                lines.push(LineVertex {
+                    position: [p1.x, p1.y, p1.z],
+                    color: edge_color,
+                });
+                lines.push(LineVertex {
+                    position: [p2.x, p2.y, p2.z],
+                    color: edge_color,
+                });
+            }
+        }
+
+        lines
+    }
 }

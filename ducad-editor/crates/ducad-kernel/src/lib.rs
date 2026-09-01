@@ -96,7 +96,7 @@ pub use section::{
     generate_iso_hatch_pattern, CuttingLineIndicator, SectionExtractor, SectionPlaneConfig,
 };
 pub use shape::{
-    clone_shape, make_compound, rotate_shape, scale_shape, transform_shape, translate_shape,
-    KernelShape,
+    clone_shape, extract_shape_edges, make_compound, rotate_shape, scale_shape, transform_shape,
+    translate_shape, KernelShape,
 };
 pub use step::write_step_compound;

@@ -1231,6 +1231,7 @@ impl DuCADApp {
         let aspect = rect.width() / rect.height().max(1.0);
         let world_scale = pixel_tolerance_to_world(&self.camera, rect);
         let overlay = self.build_overlay_lines(raw_cursor, world_scale);
+        let body_edge_lines = self.build_body_edge_lines();
         let (body_positions, body_normals, body_colors, body_materials, body_indices) =
             self.build_combined_body_mesh();
 
@@ -1266,6 +1267,7 @@ impl DuCADApp {
                 sketch_plane: self.active_plane,
                 grid_extent,
                 overlay_lines: overlay,
+                body_edge_lines,
                 body_positions,
                 body_normals,
                 body_colors,
