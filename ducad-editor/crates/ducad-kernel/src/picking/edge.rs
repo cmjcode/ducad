@@ -27,27 +27,51 @@ pub(crate) fn resolve_edge_along_ray(
 ) -> Option<(Edge, DVec3, Vec<DVec3>)> {
     let origin = ray.origin_vec();
     let dir = ray.dir_vec();
-    let mut best: Option<(f64, Edge, DVec3, Vec<DVec3>)> = None;
+    let dir_len_sq = dir.length_squared();
+    if dir_len_sq < 1e-18 {
+        return None;
+    }
+
+    let mut best: Option<(f64, f64, Edge, DVec3, Vec<DVec3>)> = None; // (t, dist, edge, point, polyline)
     for edge in shape.edges() {
         let polyline: Vec<DVec3> = edge.approximation_segments().collect();
         if polyline.len() < 2 {
             continue;
         }
-        let mut edge_best: Option<(f64, DVec3)> = None;
+        let mut edge_best: Option<(f64, f64, DVec3)> = None; // (t, dist, point)
         for pair in polyline.windows(2) {
             let (dist, point) = closest_point_ray_segment(origin, dir, pair[0], pair[1]);
-            if edge_best.is_none_or(|(d, _)| dist < d) {
-                edge_best = Some((dist, point));
+            let t = dir.dot(point - origin) / dir_len_sq;
+            if t < 0.0 {
+                continue;
+            }
+            if edge_best.as_ref().is_none_or(|(_, d, _)| dist < *d) {
+                edge_best = Some((t, dist, point));
             }
         }
-        let Some((dist, point)) = edge_best else {
+        let Some((t, dist, point)) = edge_best else {
             continue;
         };
-        if dist <= tolerance && best.as_ref().is_none_or(|(d, ..)| dist < *d) {
-            best = Some((dist, edge, point, polyline));
+        if dist <= tolerance {
+            let is_better = match &best {
+                None => true,
+                Some((best_t, best_dist, ..)) => {
+                    const DEPTH_EPS: f64 = 2.0;
+                    if t < best_t - DEPTH_EPS {
+                        true // Lebih dekat ke kamera (foreground prioritas)
+                    } else if t > best_t + DEPTH_EPS {
+                        false // Di belakang edge foreground
+                    } else {
+                        dist < *best_dist // Kedalaman sama, pilih yang paling presisi ke ray
+                    }
+                }
+            };
+            if is_better {
+                best = Some((t, dist, edge, point, polyline));
+            }
         }
     }
-    best.map(|(_, edge, point, polyline)| (edge, point, polyline))
+    best.map(|(_, _, edge, point, polyline)| (edge, point, polyline))
 }
 
 /// Cast `ray` ke `shape`, kembalikan (titik hit terdekat di edge, polyline

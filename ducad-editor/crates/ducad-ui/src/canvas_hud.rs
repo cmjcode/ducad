@@ -3033,15 +3033,16 @@ impl CanvasHud {
                     hud_action = Some(RoundingHudAction::AdjustRadius(-0.5));
                 }
 
-                let text_edit = egui::TextEdit::singleline(edit_input)
-                    .desired_width(48.0)
-                    .font(egui::FontId::monospace(10.5))
-                    .horizontal_align(egui::Align::Center);
-                let resp = ui.add(text_edit);
-                if resp.changed() {
-                    if let Ok(v) = edit_input.trim().parse::<f64>() {
-                        hud_action = Some(RoundingHudAction::SetRadius(v.max(0.0)));
-                    }
+                let mut current_val = current_radius;
+                let drag_val = ui.add(
+                    egui::DragValue::new(&mut current_val)
+                        .range(0.0..=1000.0)
+                        .speed(0.1)
+                        .max_decimals(1),
+                );
+                if drag_val.changed() {
+                    *edit_input = format!("{:.1}", current_val);
+                    hud_action = Some(RoundingHudAction::SetRadius(current_val.max(0.0)));
                 }
                 ui.label(RichText::new(unit_suffix).size(10.0).color(TEXT_SECONDARY));
 

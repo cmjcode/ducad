@@ -550,7 +550,7 @@ impl DuCADApp {
 
         if let Some((vertex, out_dir)) = self.active_vertex_gizmo_dir() {
             const VERTEX_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-            let handle_dist = (14.0 + self.vertex_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
+            let handle_dist = 18.0;
             verts.extend(sketch_render::vertex_fillet_marker_lines(
                 [vertex.x, vertex.y, vertex.z],
                 out_dir,
@@ -561,7 +561,7 @@ impl DuCADApp {
 
         if let Some((point, out_dir)) = self.active_edge_gizmo_dir() {
             const EDGE_ROUND_GIZMO_COLOR: [f32; 4] = [0.0, 0.85, 1.0, 1.0];
-            let handle_dist = (14.0 + self.edge_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
+            let handle_dist = 18.0;
             verts.extend(sketch_render::vertex_fillet_marker_lines(
                 [point.x, point.y, point.z],
                 out_dir,
@@ -597,15 +597,11 @@ impl DuCADApp {
                 if !visible {
                     continue;
                 }
-                let vertices: Vec<[f32; 3]> = ducad_kernel::shape_vertices(&geo.shape)
-                    .into_iter()
-                    .map(|(x, y, z)| [x as f32, y as f32, z as f32])
-                    .collect();
                 let hover_point = self
                     .hovered_vertex_marker
                     .and_then(|(hid, hv)| (hid == id).then_some([hv.0 as f32, hv.1 as f32, hv.2 as f32]));
                 verts.extend(sketch_render::vertex_dot_markers(
-                    &vertices,
+                    &geo.vertices,
                     hover_point,
                     VERTEX_MARKER_COLOR,
                     VERTEX_MARKER_HOVER_COLOR,
@@ -1445,8 +1441,15 @@ impl DuCADApp {
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
 
-            let mesh_to_render = if let Some((_ck, _cr, override_id, cached_mesh)) = &self.round_preview_cache {
+            let mesh_to_render = if let Some((_ck, cr, override_id, cached_mesh, _)) = &self.round_preview_cache {
                 if *override_id == id {
+                    eprintln!(
+                        "[3D_RENDER_MESH] Body {:?}: RENDERING PREVIEW MESH (radius={:+.2}mm, {} verts, {} tris)",
+                        id,
+                        cr,
+                        cached_mesh.positions.len(),
+                        cached_mesh.indices.len() / 3
+                    );
                     std::borrow::Cow::Borrowed(cached_mesh)
                 } else {
                     std::borrow::Cow::Borrowed(&geo.mesh)
@@ -1937,7 +1940,23 @@ impl DuCADApp {
                 None
             };
 
-            for &(p1_raw, p2_raw) in &geo.edge_lines {
+            let edge_lines_to_render = if let Some((_ck, cr, override_id, _, cached_edge_lines)) = &self.round_preview_cache {
+                if *override_id == id {
+                    eprintln!(
+                        "[3D_RENDER_EDGES] Body {:?}: RENDERING PREVIEW EDGES (radius={:+.2}mm, {} edges)",
+                        id,
+                        cr,
+                        cached_edge_lines.len()
+                    );
+                    cached_edge_lines.as_slice()
+                } else {
+                    geo.edge_lines.as_slice()
+                }
+            } else {
+                geo.edge_lines.as_slice()
+            };
+
+            for &(p1_raw, p2_raw) in edge_lines_to_render {
                 let mut p1 = Vec3::from_array(p1_raw);
                 let mut p2 = Vec3::from_array(p2_raw);
 

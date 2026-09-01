@@ -1307,33 +1307,36 @@ impl DuCADApp {
                         }
                     }
 
-                    let round_edit = click_pos
-                        .and_then(|pos| self.find_round_feature_at_cursor(rect, pos))
-                        .or_else(|| {
-                            face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
-                                self.find_round_feature_near(
-                                    *b_id,
-                                    hit.hit_point,
-                                    hit.surface_kind,
-                                    rect,
-                                )
-                                .map(|idx| (*b_id, idx))
-                            })
-                        });
-
-                    let vertex_pick_3d = if round_edit.is_none() && !self.is_sketching && !shift
-                    {
+                    let vertex_pick_3d = if !self.is_sketching && !shift {
                         click_pos.and_then(|pos| self.pick_body_vertex_at_cursor(rect, pos))
                     } else {
                         None
                     };
 
-                    let edge_pick_3d = if round_edit.is_none()
-                        && vertex_pick_3d.is_none()
+                    let edge_pick_3d = if vertex_pick_3d.is_none() && !self.is_sketching && !shift {
+                        click_pos.and_then(|pos| self.pick_body_edge_at_cursor(rect, pos))
+                    } else {
+                        None
+                    };
+
+                    let round_edit = if vertex_pick_3d.is_none()
+                        && edge_pick_3d.is_none()
                         && !self.is_sketching
                         && !shift
                     {
-                        click_pos.and_then(|pos| self.pick_body_edge_at_cursor(rect, pos))
+                        click_pos
+                            .and_then(|pos| self.find_round_feature_at_cursor(rect, pos))
+                            .or_else(|| {
+                                face_pick_3d.as_ref().and_then(|(b_id, _, hit)| {
+                                    self.find_round_feature_near(
+                                        *b_id,
+                                        hit.hit_point,
+                                        hit.surface_kind,
+                                        rect,
+                                    )
+                                    .map(|idx| (*b_id, idx))
+                                })
+                            })
                     } else {
                         None
                     };
@@ -1392,6 +1395,11 @@ impl DuCADApp {
                             "Rounding terpilih — tarik = fillet bulat, dorong = chamfer lurus, dorong sampai 0 utk kembali menyiku".to_string(),
                         );
                     } else if let Some((b_id, ray, vhit)) = vertex_pick_3d {
+                        if self.active_edge.is_some() && self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_edge_fillet_single();
+                        } else if self.active_vertex.is_some() && self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_vertex_fillet();
+                        }
                         self.selected.clear();
                         self.selected_bodies.clear();
                         self.selected_bodies.insert(b_id);
@@ -1399,6 +1407,7 @@ impl DuCADApp {
                         self.active_face = None;
                         self.active_edge = None;
                         self.editing_round = None;
+                        self.round_preview_cache = None;
                         self.last_body_select_click = None;
                         self.vertex_gizmo_radius = 0.0;
                         self.vertex_gizmo_edit_input = "0".to_string();
@@ -1407,6 +1416,11 @@ impl DuCADApp {
                             "Sudut (vertex) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
                     } else if let Some((b_id, ray, point)) = edge_pick_3d {
+                        if self.active_edge.is_some() && self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_edge_fillet_single();
+                        } else if self.active_vertex.is_some() && self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
+                            self.commit_vertex_fillet();
+                        }
                         self.selected.clear();
                         self.selected_bodies.clear();
                         self.selected_bodies.insert(b_id);
@@ -1414,6 +1428,7 @@ impl DuCADApp {
                         self.active_face = None;
                         self.active_vertex = None;
                         self.editing_round = None;
+                        self.round_preview_cache = None;
                         self.last_body_select_click = None;
                         self.edge_gizmo_radius = 0.0;
                         self.edge_gizmo_edit_input = "0".to_string();

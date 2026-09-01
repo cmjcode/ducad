@@ -2245,7 +2245,7 @@ impl DuCADApp {
         }
 
         if let Some((c_base, pull_dir)) = self.active_vertex_gizmo_dir() {
-            let z_pos = (14.0 + self.vertex_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
+            let z_pos = 18.0;
             let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
@@ -2268,34 +2268,57 @@ impl DuCADApp {
                 }
 
                 if handle_resp.dragged() {
-                    self.filleting_vertex_from_gizmo = true;
-                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(
-                        rect,
-                        c_base,
-                        pull_dir,
-                        handle_resp.drag_delta(),
-                    );
-                    let current_mag = self.vertex_gizmo_radius.abs();
-                    let new_mag = (current_mag + delta_mm).max(0.0);
-                    let candidate_radius = if new_mag < Self::ROUND_SHARP_MM {
-                        0.0
-                    } else {
-                        match self.round_gizmo_style {
-                            crate::types::RoundStyle::Fillet => new_mag,
-                            crate::types::RoundStyle::Chamfer => -new_mag,
-                        }
-                    };
+                    let drag_delta = handle_resp.drag_delta();
+                    if drag_delta.length_sq() > 0.01 {
+                        self.filleting_vertex_from_gizmo = true;
+                        let (raw_delta, _) = self.project_screen_drag_to_world_axis(
+                            rect,
+                            c_base,
+                            pull_dir,
+                            drag_delta,
+                        );
+                        let delta_mm = raw_delta * 0.15;
+                        if delta_mm.abs() > 0.0005 {
+                            let max_safe = self.active_vertex.and_then(|(b_id, _, _)| {
+                                self.model.geometry.get(b_id).map(|geo| {
+                                    let mut min = [f32::INFINITY; 3];
+                                    let mut max = [f32::NEG_INFINITY; 3];
+                                    for p in &geo.mesh.positions {
+                                        for k in 0..3 {
+                                            min[k] = min[k].min(p[k]);
+                                            max[k] = max[k].max(p[k]);
+                                        }
+                                    }
+                                    let d = (max[0] - min[0]).min(max[1] - min[1]).min(max[2] - min[2]);
+                                    (d as f64 * 0.85).max(1.0)
+                                })
+                            }).unwrap_or(50.0);
 
-                    self.vertex_gizmo_radius = candidate_radius;
-                    if candidate_radius.abs() < Self::ROUND_SHARP_MM {
-                        self.round_preview_cache = None;
-                    } else {
-                        self.update_round_preview_cache(RoundKind::Vertex, candidate_radius);
+                            let raw_r = (self.vertex_gizmo_radius + delta_mm).clamp(-max_safe, max_safe);
+                            let new_r = (raw_r * 100.0).round() / 100.0;
+                            let candidate_radius = if new_r > Self::ROUND_SHARP_MM {
+                                self.round_gizmo_style = crate::types::RoundStyle::Fillet;
+                                new_r
+                            } else if new_r < -Self::ROUND_SHARP_MM {
+                                self.round_gizmo_style = crate::types::RoundStyle::Chamfer;
+                                new_r
+                            } else {
+                                0.0
+                            };
+
+                            if candidate_radius.abs() < Self::ROUND_SHARP_MM {
+                                self.vertex_gizmo_radius = 0.0;
+                                self.round_preview_cache = None;
+                            } else if self.update_round_preview_cache(RoundKind::Vertex, candidate_radius) {
+                                self.vertex_gizmo_radius = candidate_radius;
+                            }
+                            self.vertex_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.vertex_gizmo_radius.abs())
+                            );
+                            ui.ctx().request_repaint();
+                        }
                     }
-                    self.vertex_gizmo_edit_input = format!(
-                        "{:.1}",
-                        self.unit.to_display_val(self.vertex_gizmo_radius.abs())
-                    );
                 }
 
                 if handle_resp.drag_stopped() {
@@ -2426,7 +2449,7 @@ impl DuCADApp {
         }
 
         if let Some((c_base, pull_dir)) = self.active_edge_gizmo_dir() {
-            let z_pos = (14.0 + self.edge_gizmo_radius.abs() as f32 * 0.35).clamp(14.0, 70.0);
+            let z_pos = 18.0;
             let handle_3d = c_base + pull_dir * z_pos;
 
             if let Some(handle_2d) = world_to_screen_pos(&self.camera, rect, handle_3d) {
@@ -2449,34 +2472,57 @@ impl DuCADApp {
                 }
 
                 if handle_resp.dragged() {
-                    self.filleting_edge_from_gizmo = true;
-                    let (delta_mm, _) = self.project_screen_drag_to_world_axis(
-                        rect,
-                        c_base,
-                        pull_dir,
-                        handle_resp.drag_delta(),
-                    );
-                    let current_mag = self.edge_gizmo_radius.abs();
-                    let new_mag = (current_mag + delta_mm).max(0.0);
-                    let candidate_radius = if new_mag < Self::ROUND_SHARP_MM {
-                        0.0
-                    } else {
-                        match self.round_gizmo_style {
-                            crate::types::RoundStyle::Fillet => new_mag,
-                            crate::types::RoundStyle::Chamfer => -new_mag,
-                        }
-                    };
+                    let drag_delta = handle_resp.drag_delta();
+                    if drag_delta.length_sq() > 0.01 {
+                        self.filleting_edge_from_gizmo = true;
+                        let (raw_delta, _) = self.project_screen_drag_to_world_axis(
+                            rect,
+                            c_base,
+                            pull_dir,
+                            drag_delta,
+                        );
+                        let delta_mm = raw_delta * 0.15;
+                        if delta_mm.abs() > 0.0005 {
+                            let max_safe = self.active_edge.and_then(|(b_id, _, _)| {
+                                self.model.geometry.get(b_id).map(|geo| {
+                                    let mut min = [f32::INFINITY; 3];
+                                    let mut max = [f32::NEG_INFINITY; 3];
+                                    for p in &geo.mesh.positions {
+                                        for k in 0..3 {
+                                            min[k] = min[k].min(p[k]);
+                                            max[k] = max[k].max(p[k]);
+                                        }
+                                    }
+                                    let d = (max[0] - min[0]).min(max[1] - min[1]).min(max[2] - min[2]);
+                                    (d as f64 * 0.85).max(1.0)
+                                })
+                            }).unwrap_or(50.0);
 
-                    self.edge_gizmo_radius = candidate_radius;
-                    if candidate_radius.abs() < Self::ROUND_SHARP_MM {
-                        self.round_preview_cache = None;
-                    } else {
-                        self.update_round_preview_cache(RoundKind::Edge, candidate_radius);
+                            let raw_r = (self.edge_gizmo_radius + delta_mm).clamp(-max_safe, max_safe);
+                            let new_r = (raw_r * 100.0).round() / 100.0;
+                            let candidate_radius = if new_r > Self::ROUND_SHARP_MM {
+                                self.round_gizmo_style = crate::types::RoundStyle::Fillet;
+                                new_r
+                            } else if new_r < -Self::ROUND_SHARP_MM {
+                                self.round_gizmo_style = crate::types::RoundStyle::Chamfer;
+                                new_r
+                            } else {
+                                0.0
+                            };
+
+                            if candidate_radius.abs() < Self::ROUND_SHARP_MM {
+                                self.edge_gizmo_radius = 0.0;
+                                self.round_preview_cache = None;
+                            } else if self.update_round_preview_cache(RoundKind::Edge, candidate_radius) {
+                                self.edge_gizmo_radius = candidate_radius;
+                            }
+                            self.edge_gizmo_edit_input = format!(
+                                "{:.1}",
+                                self.unit.to_display_val(self.edge_gizmo_radius.abs())
+                            );
+                            ui.ctx().request_repaint();
+                        }
                     }
-                    self.edge_gizmo_edit_input = format!(
-                        "{:.1}",
-                        self.unit.to_display_val(self.edge_gizmo_radius.abs())
-                    );
                 }
 
                 if handle_resp.drag_stopped() {

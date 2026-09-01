@@ -22,18 +22,40 @@ impl DuCADApp {
         let s_base = world_to_screen_pos(&self.camera, rect, p_base);
         let s_ref = world_to_screen_pos(&self.camera, rect, p_ref);
 
+        let world_scale = pixel_tolerance_to_world(&self.camera, rect) as f32;
+
         if let (Some(sb), Some(sr)) = (s_base, s_ref) {
-            let arrow_vec = sr - sb;
-            let len_sq = arrow_vec.length_sq();
-            if len_sq > 1e-4 {
-                let dot = drag_delta.x * arrow_vec.x + drag_delta.y * arrow_vec.y;
-                let delta_mm = (dot / len_sq) * 10.0;
-                return (delta_mm as f64, Some(arrow_vec));
+            let mut arrow_vec = sr - sb;
+            let mut len = arrow_vec.length();
+
+            // Jika normal_3d sejajar/hampir sejajar garis pandang kamera (depth foreshortening),
+            // panjang proyeksi di layar akan mendekati 0 sehingga arah menjadi ambigu.
+            // Gunakan proyeksi kamera orthogonal agar drag tetap responsif di semua sudut pandang.
+            if len < 8.0 {
+                let forward = (self.camera.target - self.camera.eye()).normalize_or_zero();
+                let cam_right = forward.cross(Vec3::Z).normalize_or_zero();
+                let cam_up = cam_right.cross(forward).normalize_or_zero();
+                let right_proj = normal.dot(cam_right);
+                let up_proj = normal.dot(cam_up);
+                let screen_dir = egui::vec2(right_proj, -up_proj);
+                if screen_dir.length_sq() > 0.01 {
+                    arrow_vec = screen_dir.normalized() * 15.0;
+                    len = 15.0;
+                } else {
+                    arrow_vec = egui::vec2(10.0, -10.0);
+                    len = arrow_vec.length();
+                }
             }
+
+            let arrow_dir = arrow_vec / len;
+            let dot = drag_delta.x * arrow_dir.x + drag_delta.y * arrow_dir.y;
+            let mm_per_pixel = (10.0 / len).clamp(world_scale * 0.4, world_scale * 1.8);
+            let delta_mm = dot * mm_per_pixel;
+            return (delta_mm as f64, Some(arrow_vec));
         }
 
-        let world_scale = pixel_tolerance_to_world(&self.camera, rect);
-        ((-drag_delta.y as f64) * world_scale * 1.6, None)
+        let default_scale = (world_scale as f64) * 1.0;
+        ((-drag_delta.y as f64) * default_scale, None)
     }
 
     /// Hitung delta pergeseran diproyeksikan ke sumbu normal bidang sketsa aktif.

@@ -13,18 +13,38 @@ pub(crate) fn resolve_vertex_along_ray(
 ) -> Option<DVec3> {
     let origin = ray.origin_vec();
     let dir = ray.dir_vec();
-    if dir.length_squared() < 1e-18 {
+    let dir_len_sq = dir.length_squared();
+    if dir_len_sq < 1e-18 {
         return None;
     }
 
-    let mut best: Option<(f64, DVec3)> = None;
+    let mut best: Option<(f64, f64, DVec3)> = None; // (t, dist, vertex)
     for v in collect_vertices(shape) {
+        let t = dir.dot(v - origin) / dir_len_sq;
+        if t < 0.0 {
+            continue;
+        }
         let dist = point_to_ray_distance(origin, dir, v);
-        if dist <= tolerance && best.as_ref().is_none_or(|(d, _)| dist < *d) {
-            best = Some((dist, v));
+        if dist <= tolerance {
+            let is_better = match &best {
+                None => true,
+                Some((best_t, best_dist, _)) => {
+                    const DEPTH_EPS: f64 = 2.0;
+                    if t < best_t - DEPTH_EPS {
+                        true // Lebih dekat ke kamera (foreground prioritas)
+                    } else if t > best_t + DEPTH_EPS {
+                        false // Di belakang vertex foreground
+                    } else {
+                        dist < *best_dist
+                    }
+                }
+            };
+            if is_better {
+                best = Some((t, dist, v));
+            }
         }
     }
-    best.map(|(_, v)| v)
+    best.map(|(_, _, v)| v)
 }
 
 /// Semua vertex (sudut) unik pada `shape` — endpoint SEMUA edge, di-dedup

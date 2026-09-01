@@ -34,6 +34,7 @@ pub struct BodyGeometry {
     pub mesh: KernelMesh,
     pub edge_dims: Vec<ducad_kernel::EdgeDimension>,
     pub edge_lines: Vec<([f32; 3], [f32; 3])>,
+    pub vertices: Vec<[f32; 3]>,
 }
 
 impl BodyGeometry {
@@ -51,22 +52,32 @@ impl BodyGeometry {
     pub fn from_shape_with_mesh(shape: KernelShape, mesh: KernelMesh) -> Self {
         let edge_dims = ducad_kernel::edge_dimensions(&shape);
         let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+        let vertices = ducad_kernel::shape_vertices(&shape)
+            .into_iter()
+            .map(|(x, y, z)| [x as f32, y as f32, z as f32])
+            .collect();
         Self {
             shape,
             mesh,
             edge_dims,
             edge_lines,
+            vertices,
         }
     }
 
     /// Buat BodyGeometry langsung dari mesh (misal import STL) tanpa eksplorasi dimensi rusuk B-Rep.
     pub fn from_mesh_direct(shape: KernelShape, mesh: KernelMesh) -> Self {
         let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+        let vertices = ducad_kernel::shape_vertices(&shape)
+            .into_iter()
+            .map(|(x, y, z)| [x as f32, y as f32, z as f32])
+            .collect();
         Self {
             shape,
             mesh,
             edge_dims: Vec::new(),
             edge_lines,
+            vertices,
         }
     }
 }

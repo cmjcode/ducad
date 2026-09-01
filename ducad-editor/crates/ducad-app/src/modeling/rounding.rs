@@ -10,7 +10,7 @@ use crate::viewport::{pixel_tolerance_to_world, screen_to_ray, world_to_screen_p
 
 impl DuCADApp {
     pub const EDGE_REAPPLY_TOLERANCE_MM: f64 = 5.0;
-    pub const ROUND_SHARP_MM: f64 = 0.2;
+    pub const ROUND_SHARP_MM: f64 = 0.05;
 
     pub fn find_round_feature_at_cursor(
         &self,
@@ -28,7 +28,7 @@ impl DuCADApp {
                 let v3 = Vec3::new(f.anchor.0 as f32, f.anchor.1 as f32, f.anchor.2 as f32);
                 if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
                     let s_dist = (sp - pos).length();
-                    if s_dist <= 38.0 {
+                    if s_dist <= 12.0 {
                         if best.as_ref().is_none_or(|(_, _, bd)| s_dist < *bd) {
                             best = Some((*body_id, idx, s_dist));
                         }
@@ -237,7 +237,7 @@ impl DuCADApp {
     }
 
     pub fn active_edge_gizmo_dir(&self) -> Option<(Vec3, Vec3)> {
-        let (body_id, _, point) = self.active_edge?;
+        let (body_id, ray, point) = self.active_edge?;
         if !self.model.doc.bodies.get(body_id).is_some_and(|b| b.visible) {
             return None;
         }
@@ -256,7 +256,28 @@ impl DuCADApp {
             (min[1] + max[1]) * 0.5,
             (min[2] + max[2]) * 0.5,
         );
-        let mut dir = (anchor - center).normalize_or_zero();
+
+        let mut dir = if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, Self::EDGE_REAPPLY_TOLERANCE_MM) {
+            if polyline.len() >= 2 {
+                let p1 = polyline.first().unwrap();
+                let p2 = polyline.last().unwrap();
+                let edge_tan = Vec3::new((p2.0 - p1.0) as f32, (p2.1 - p1.1) as f32, (p2.2 - p1.2) as f32).normalize_or_zero();
+                if edge_tan != Vec3::ZERO {
+                    let radial = (anchor - center) - edge_tan * (anchor - center).dot(edge_tan);
+                    radial.normalize_or_zero()
+                } else {
+                    Vec3::ZERO
+                }
+            } else {
+                Vec3::ZERO
+            }
+        } else {
+            Vec3::ZERO
+        };
+
+        if dir == Vec3::ZERO {
+            dir = (anchor - center).normalize_or_zero();
+        }
         if dir == Vec3::ZERO {
             dir = Vec3::Z;
         }
@@ -314,8 +335,100 @@ impl DuCADApp {
         features: &[RoundFeature],
     ) -> Result<KernelShape, String> {
         let mut shape = ducad_kernel::clone_shape(base).map_err(|e| e.to_string())?;
-        for f in features {
-            shape = match (f.kind, f.style) {
+
+        let mut i = 0;
+        while i < features.len() {
+            let f = &features[i];
+
+            // Batch operasi rusuk yang memiliki style dan radius sama agar OpenCASCADE
+            // menghitung transisi sudut bersama (corner blend) dalam satu langkah BRep API.
+            if f.kind == RoundKind::Edge && f.radius_end.is_none() {
+                let mut batch_rays = vec![f.ray];
+                let mut j = i + 1;
+                while j < features.len() {
+                    let next = &features[j];
+                    if next.kind == RoundKind::Edge
+                        && next.style == f.style
+                        && (next.radius - f.radius).abs() < 1e-4
+                        && next.radius_end.is_none()
+                    {
+                        batch_rays.push(next.ray);
+                        j += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                let t0 = std::time::Instant::now();
+                let style_name = match f.style {
+                    RoundStyle::Fillet => "Fillet (Bulat)",
+                    RoundStyle::Chamfer => "Chamfer (Tirus)",
+                };
+                eprintln!(
+                    "[ROUND_KERNEL] [Batch {}..{}/{}] kind=Edge style={} radius={:.3} mm ({} edges)",
+                    i + 1,
+                    j,
+                    features.len(),
+                    style_name,
+                    f.radius,
+                    batch_rays.len(),
+                );
+
+                let res = match f.style {
+                    RoundStyle::Fillet => ducad_kernel::fillet_edges(
+                        &shape,
+                        f.radius,
+                        &batch_rays,
+                        Self::EDGE_REAPPLY_TOLERANCE_MM,
+                    ),
+                    RoundStyle::Chamfer => ducad_kernel::chamfer_edges(
+                        &shape,
+                        f.radius,
+                        &batch_rays,
+                        Self::EDGE_REAPPLY_TOLERANCE_MM,
+                    ),
+                };
+
+                match res {
+                    Ok(new_s) => {
+                        eprintln!(
+                            "[ROUND_KERNEL]   -> OK ({:.2} ms)",
+                            t0.elapsed().as_secs_f64() * 1000.0
+                        );
+                        shape = new_s;
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        eprintln!(
+                            "[ROUND_KERNEL]   -> GAGAL ({:.2} ms): {}",
+                            t0.elapsed().as_secs_f64() * 1000.0,
+                            err_str
+                        );
+                        return Err(err_str);
+                    }
+                }
+
+                i = j;
+                continue;
+            }
+
+            let t0 = std::time::Instant::now();
+            let style_name = match f.style {
+                RoundStyle::Fillet => "Fillet (Bulat)",
+                RoundStyle::Chamfer => "Chamfer (Tirus)",
+            };
+            eprintln!(
+                "[ROUND_KERNEL] [{}/{}] kind={:?} style={} radius={:.3} mm | ray_dir=({:.2},{:.2},{:.2})",
+                i + 1,
+                features.len(),
+                f.kind,
+                style_name,
+                f.radius,
+                f.ray.dir.0,
+                f.ray.dir.1,
+                f.ray.dir.2,
+            );
+            let res = match (f.kind, f.style) {
                 (RoundKind::Vertex, RoundStyle::Fillet) => ducad_kernel::fillet_vertex(
                     &shape,
                     f.radius,
@@ -361,8 +474,26 @@ impl DuCADApp {
                     &[f.ray],
                     Self::EDGE_REAPPLY_TOLERANCE_MM,
                 ),
+            };
+            match res {
+                Ok(new_s) => {
+                    eprintln!(
+                        "[ROUND_KERNEL]   -> OK ({:.2} ms)",
+                        t0.elapsed().as_secs_f64() * 1000.0
+                    );
+                    shape = new_s;
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    eprintln!(
+                        "[ROUND_KERNEL]   -> GAGAL ({:.2} ms): {}",
+                        t0.elapsed().as_secs_f64() * 1000.0,
+                        err_str
+                    );
+                    return Err(err_str);
+                }
             }
-            .map_err(|e| e.to_string())?;
+            i += 1;
         }
         Ok(shape)
     }
@@ -524,9 +655,9 @@ impl DuCADApp {
 
     /// Update the internal preview cache when the radius (or active target) changes.
     /// Call this whenever `vertex_gizmo_radius` / `edge_gizmo_radius` is updated during drag.
-    pub fn update_round_preview_cache(&mut self, kind: crate::types::RoundKind, radius: f64) {
+    /// Returns `true` if the preview shape is valid or unchanged, `false` if build failed.
+    pub fn update_round_preview_cache(&mut self, kind: crate::types::RoundKind, radius: f64) -> bool {
         use crate::types::RoundKind;
-        let kind_str = match kind { RoundKind::Vertex => "Vertex", RoundKind::Edge => "Edge" };
 
         // Determine the active body id for this kind
         let body_id_for_kind = match kind {
@@ -536,59 +667,62 @@ impl DuCADApp {
         let body_id = match body_id_for_kind {
             Some(id) => id,
             None => {
-                eprintln!("[ROUND] update_cache({kind_str}) — no active body, cache cleared");
                 self.round_preview_cache = None;
-                return;
+                return false;
             }
         };
 
-        let style_tag = if radius < -Self::ROUND_SHARP_MM {
-            format!("Chamfer C={:.3}", -radius)
-        } else if radius > Self::ROUND_SHARP_MM {
-            format!("Fillet  R={:.3}", radius)
-        } else {
-            "Sharp (0 mm)".to_string()
-        };
-        let editing_tag = self.editing_round
-            .map(|(b, i)| format!("editing_round=({b:?},{i})"))
-            .unwrap_or_else(|| "editing_round=None".to_string());
+        if radius.abs() < Self::ROUND_SHARP_MM {
+            self.round_preview_cache = None;
+            return true;
+        }
 
-        eprintln!("[ROUND] radius → {style_tag}  | {kind_str} | {editing_tag}");
+        let style_label = if radius > Self::ROUND_SHARP_MM {
+            format!("Fillet (+{:.3} mm)", radius)
+        } else if radius < -Self::ROUND_SHARP_MM {
+            format!("Chamfer ({:.3} mm)", radius)
+        } else {
+            "Siku (0.0 mm)".to_string()
+        };
 
         // Skip expensive recomputation if nothing changed
-        if let Some((ck, cr, cid, _)) = &self.round_preview_cache {
+        if let Some((ck, cr, cid, ..)) = &self.round_preview_cache {
             if *ck == kind && (*cr - radius).abs() < 1e-9 && *cid == body_id {
-                eprintln!("[ROUND]   → cache HIT (skip recompute)");
-                return;
+                eprintln!("[ROUND_CACHE]   -> HIT (radius={:+.3} mm) [skip build]", radius);
+                return true;
             }
         }
 
-        eprintln!("[ROUND]   → cache MISS — running OpenCASCADE build...");
-        let t0 = std::time::Instant::now();
-
-        // Run the heavy computation and tessellate once
+        eprintln!("[ROUND_CACHE] update: kind={:?} | target={} | building...", kind, style_label);
+        let t_build = std::time::Instant::now();
         let result = self.round_gizmo_preview_shape(kind, radius);
-        let elapsed = t0.elapsed();
-
-        match &result {
-            Some(_) => eprintln!("[ROUND]   → build OK  ({:.1} ms) → tessellating...", elapsed.as_secs_f64() * 1000.0),
-            None    => eprintln!("[ROUND]   → build NONE ({:.1} ms) — sharp / failed", elapsed.as_secs_f64() * 1000.0),
-        }
-
-        self.round_preview_cache = result.map(|(id, shape)| {
+        let build_ms = t_build.elapsed().as_secs_f64() * 1000.0;
+        if let Some((id, shape)) = result {
+            let t_tess = std::time::Instant::now();
             let tess = shape.tessellate();
-            eprintln!("[ROUND]   → tessellate done: {} verts, {} triangles",
-                tess.positions.len(),
-                tess.indices.len() / 3);
+            let tess_ms = t_tess.elapsed().as_secs_f64() * 1000.0;
             let mesh = ducad_kernel::KernelMesh {
                 positions: tess.positions.clone(),
                 normals: tess.normals.clone(),
                 indices: tess.indices.clone(),
             };
-            (kind, radius, id, mesh)
-        });
-        if self.round_preview_cache.is_none() {
-            eprintln!("[ROUND]   → preview cache = None (will render base mesh)");
+            let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+            eprintln!(
+                "[ROUND_CACHE]   -> OK: build={:.1}ms, tess={:.1}ms ({} verts, {} tris, {} edges)",
+                build_ms,
+                tess_ms,
+                mesh.positions.len(),
+                mesh.indices.len() / 3,
+                edge_lines.len()
+            );
+            self.round_preview_cache = Some((kind, radius, id, mesh, edge_lines));
+            true
+        } else {
+            eprintln!(
+                "[ROUND_CACHE]   -> BUILD GAGAL ({:.1}ms) — batas geometri terlampaui",
+                build_ms
+            );
+            false
         }
     }
 
@@ -625,17 +759,6 @@ impl DuCADApp {
                 if sharp {
                     return None;
                 }
-                let polyline = if kind == RoundKind::Edge {
-                    ducad_kernel::pick_edge(
-                        &geo.shape,
-                        ray,
-                        Self::EDGE_REAPPLY_TOLERANCE_MM,
-                    )
-                    .map(|(_, pl)| pl)
-                    .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
                 features.push(RoundFeature {
                     kind,
                     style,
@@ -643,7 +766,7 @@ impl DuCADApp {
                     anchor,
                     radius: magnitude,
                     radius_end: None,
-                    polyline,
+                    polyline: Vec::new(),
                 });
             }
         }
@@ -694,9 +817,9 @@ mod tests {
 
     #[test]
     fn test_round_style_and_magnitude() {
-        let (style_pos, mag_pos) = DuCADApp::round_style_and_magnitude(5.5);
+        let (style_pos, mag_pos) = DuCADApp::round_style_and_magnitude(3.5);
         assert_eq!(style_pos, RoundStyle::Fillet);
-        assert!((mag_pos - 5.5).abs() < 1e-6);
+        assert!((mag_pos - 3.5).abs() < 1e-6);
 
         let (style_neg, mag_neg) = DuCADApp::round_style_and_magnitude(-8.2);
         assert_eq!(style_neg, RoundStyle::Chamfer);
@@ -721,6 +844,21 @@ mod tests {
         };
         let result = DuCADApp::build_rounded_shape(&base, &[chamfer_feature]);
         assert!(result.is_ok(), "Chamfer edge build must succeed: {:?}", result.err());
+
+        // Test various chamfer distances on the 20x20x20 box
+        for dist in [0.5, 1.0, 2.0, 5.0, 9.9, 10.0, 15.0, 18.0] {
+            let f = RoundFeature {
+                kind: RoundKind::Edge,
+                style: RoundStyle::Chamfer,
+                ray,
+                anchor: (0.0, 0.0, 10.0),
+                radius: dist,
+                radius_end: None,
+                polyline: vec![],
+            };
+            let res = DuCADApp::build_rounded_shape(&base, &[f]);
+            println!("Chamfer dist={dist} -> success={}", res.is_ok());
+        }
 
         let fillet_feature = RoundFeature {
             kind: RoundKind::Edge,
@@ -769,5 +907,71 @@ mod tests {
         assert!(preview.is_some(), "Preview shape when dragging existing feature to siku must be Some(base)");
         let (target_id, _) = preview.unwrap();
         assert_eq!(target_id, id);
+    }
+
+    #[test]
+    fn test_chamfer_drag_preview_cache_live_updates() {
+        let mut app = DuCADApp::new_for_test();
+        let (shape1, _) = make_test_box();
+        let id = app.model.doc.add_body_with_material("Box", ducad_core::Material::default());
+        app.model.geometry.insert(id, BodyGeometry::from_shape(shape1));
+
+        let ray = PickRay {
+            origin: (-5.0, -5.0, 10.0),
+            dir: (1.0, 1.0, 0.0),
+        };
+        app.active_edge = Some((id, ray, (0.0, 0.0, 10.0)));
+        app.round_gizmo_style = RoundStyle::Chamfer;
+
+        // User drags / changes chamfer radius
+        for r in [1.0, 2.5, 4.0, 6.0, 8.5] {
+            let signed_r = -r;
+            app.edge_gizmo_radius = signed_r;
+            app.update_round_preview_cache(RoundKind::Edge, signed_r);
+            assert!(
+                app.round_preview_cache.is_some(),
+                "Preview cache must be Some for chamfer radius {signed_r}"
+            );
+            let (kind, cached_r, cached_id, mesh, _) = app.round_preview_cache.as_ref().unwrap();
+            assert_eq!(*kind, RoundKind::Edge);
+            assert_eq!(*cached_r, signed_r);
+            assert_eq!(*cached_id, id);
+            assert!(mesh.positions.len() > 0);
+            assert!(mesh.indices.len() > 0);
+        }
+    }
+
+    #[test]
+    fn test_vertex_chamfer_and_fillet_preview_cache_live_updates() {
+        let mut app = DuCADApp::new_for_test();
+        let (shape1, _) = make_test_box();
+        let id = app.model.doc.add_body_with_material("Box", ducad_core::Material::default());
+        app.model.geometry.insert(id, BodyGeometry::from_shape(shape1));
+
+        let ray = PickRay {
+            origin: (-5.0, -5.0, -5.0),
+            dir: (1.0, 1.0, 1.0),
+        };
+        app.active_vertex = Some((id, ray, (0.0, 0.0, 0.0)));
+
+        // Test vertex chamfer
+        app.round_gizmo_style = RoundStyle::Chamfer;
+        app.vertex_gizmo_radius = -2.5;
+        app.update_round_preview_cache(RoundKind::Vertex, -2.5);
+        assert!(app.round_preview_cache.is_some());
+        let (kind, cached_r, _, mesh, _) = app.round_preview_cache.as_ref().unwrap();
+        assert_eq!(*kind, RoundKind::Vertex);
+        assert_eq!(*cached_r, -2.5);
+        assert!(mesh.triangle_count() > 0);
+
+        // Test vertex fillet
+        app.round_gizmo_style = RoundStyle::Fillet;
+        app.vertex_gizmo_radius = 2.5;
+        app.update_round_preview_cache(RoundKind::Vertex, 2.5);
+        assert!(app.round_preview_cache.is_some());
+        let (kind, cached_r, _, mesh, _) = app.round_preview_cache.as_ref().unwrap();
+        assert_eq!(*kind, RoundKind::Vertex);
+        assert_eq!(*cached_r, 2.5);
+        assert!(mesh.triangle_count() > 0);
     }
 }

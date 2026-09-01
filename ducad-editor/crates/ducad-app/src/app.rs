@@ -232,8 +232,14 @@ pub struct DuCADApp {
     pub round_history: std::collections::HashMap<BodyId, RoundHistory>,
     pub editing_round: Option<(BodyId, usize)>,
     pub round_gizmo_style: crate::types::RoundStyle,
-    /// Cached preview mesh: (kind, radius, body_id, mesh). Recomputed only when radius changes.
-    pub round_preview_cache: Option<(crate::types::RoundKind, f64, BodyId, ducad_kernel::KernelMesh)>,
+    /// Cached preview mesh: (kind, radius, body_id, mesh, edge_lines). Recomputed only when radius changes.
+    pub round_preview_cache: Option<(
+        crate::types::RoundKind,
+        f64,
+        BodyId,
+        ducad_kernel::KernelMesh,
+        Vec<([f32; 3], [f32; 3])>,
+    )>,
     pub hole_history: std::collections::HashMap<BodyId, crate::types::HoleHistory>,
     pub editing_hole_idx: Option<(BodyId, usize)>,
 
