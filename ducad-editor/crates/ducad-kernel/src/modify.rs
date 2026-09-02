@@ -85,6 +85,11 @@ pub fn fillet_edges(
     if rays.is_empty() {
         bail!("pilih minimal 1 tepi (atau pakai fillet_all untuk semua tepi sekaligus)");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_edges] \
+        radius={:.2}mm, rays_count={}, tolerance={:.2}mm",
+        radius, rays.len(), tolerance
+    );
     let _guard = lock_kernel();
     let mut cloned = deep_clone(shape.inner())?;
     let mut edges = Vec::with_capacity(rays.len());
@@ -97,6 +102,10 @@ pub fn fillet_edges(
     cloned
         .fillet_edges(radius, &edges)
         .context("radius fillet terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_edges] SUCCESS on {} edges",
+        edges.len()
+    );
     Ok(KernelShape::from_inner(cloned))
 }
 
@@ -115,6 +124,11 @@ pub fn fillet_edges_variable(
     if rays.is_empty() {
         bail!("pilih minimal 1 tepi untuk fillet variabel");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_edges_variable] \
+        radius_start={:.2}mm, radius_end={:.2}mm, rays_count={}, tolerance={:.2}mm",
+        radius_start, radius_end, rays.len(), tolerance
+    );
     let _guard = lock_kernel();
     let mut cloned = deep_clone(shape.inner())?;
     let mut edges = Vec::with_capacity(rays.len());
@@ -127,6 +141,10 @@ pub fn fillet_edges_variable(
     cloned
         .fillet_edges_variable(radius_start, radius_end, &edges)
         .context("radius fillet variabel terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_edges_variable] SUCCESS on {} edges",
+        edges.len()
+    );
     Ok(KernelShape::from_inner(cloned))
 }
 
@@ -143,6 +161,11 @@ pub fn fillet_vertex(
     if radius <= 0.0 {
         bail!("radius fillet harus > 0");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_vertex] \
+        radius={:.2}mm, ray_origin=({:.2}, {:.2}, {:.2}), tolerance={:.2}mm",
+        radius, ray.origin.0, ray.origin.1, ray.origin.2, tolerance
+    );
     let _guard = lock_kernel();
     let mut cloned = deep_clone(shape.inner())?;
     let Some(vertex) = resolve_vertex_along_ray(&cloned, ray, tolerance) else {
@@ -160,10 +183,19 @@ pub fn fillet_vertex(
     if edges.is_empty() {
         bail!("tidak ada tepi yang bertemu di sudut terpilih");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_vertex] \
+        Resolved vertex=({:.2}, {:.2}, {:.2}) with {} meeting edges",
+        vertex.x, vertex.y, vertex.z, edges.len()
+    );
 
     cloned
         .fillet_edges(radius, &edges)
         .context("radius fillet terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)")?;
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::fillet_vertex] SUCCESS with radius={:.2}mm",
+        radius
+    );
     Ok(KernelShape::from_inner(cloned))
 }
 
@@ -179,6 +211,11 @@ pub fn chamfer_vertex(
     if distance <= 0.0 {
         bail!("jarak chamfer harus > 0");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::chamfer_vertex] \
+        distance={:.2}mm, ray_origin=({:.2}, {:.2}, {:.2}), tolerance={:.2}mm",
+        distance, ray.origin.0, ray.origin.1, ray.origin.2, tolerance
+    );
     let _guard = lock_kernel();
     let mut cloned = deep_clone(shape.inner())?;
     let Some(vertex) = resolve_vertex_along_ray(&cloned, ray, tolerance) else {
@@ -196,10 +233,19 @@ pub fn chamfer_vertex(
     if edges.is_empty() {
         bail!("tidak ada tepi yang bertemu di sudut terpilih");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::chamfer_vertex] \
+        Resolved vertex=({:.2}, {:.2}, {:.2}) with {} meeting edges",
+        vertex.x, vertex.y, vertex.z, edges.len()
+    );
 
     cloned
         .chamfer_edges(distance, &edges)
         .context("jarak chamfer terlalu besar untuk sudut terpilih (mis. melebihi batas ujung objek)")?;
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::chamfer_vertex] SUCCESS with distance={:.2}mm",
+        distance
+    );
     Ok(KernelShape::from_inner(cloned))
 }
 
@@ -216,6 +262,11 @@ pub fn chamfer_edges(
     if rays.is_empty() {
         bail!("pilih minimal 1 tepi (atau pakai chamfer_all untuk semua tepi sekaligus)");
     }
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::chamfer_edges] \
+        distance={:.2}mm, rays_count={}, tolerance={:.2}mm",
+        distance, rays.len(), tolerance
+    );
     let _guard = lock_kernel();
     let mut cloned = deep_clone(shape.inner())?;
     let mut edges = Vec::with_capacity(rays.len());
@@ -228,6 +279,10 @@ pub fn chamfer_edges(
     cloned
         .chamfer_edges(distance, &edges)
         .context("jarak chamfer terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    eprintln!(
+        "[FILLET-CHAMFER][KERNEL] >>> [FUNCTION: ducad_kernel::chamfer_edges] SUCCESS on {} edges",
+        edges.len()
+    );
     Ok(KernelShape::from_inner(cloned))
 }
 

@@ -2264,6 +2264,11 @@ impl DuCADApp {
                 );
 
                 if handle_resp.drag_started() {
+                    eprintln!(
+                        "[FILLET-CHAMFER][DRAG_START] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Start dragging vertex gizmo | current_radius={:.2}mm, style={:?}",
+                        self.vertex_gizmo_radius, self.round_gizmo_style
+                    );
                     self.filleting_vertex_from_gizmo = true;
                 }
 
@@ -2306,6 +2311,12 @@ impl DuCADApp {
                                 0.0
                             };
 
+                            eprintln!(
+                                "[FILLET-CHAMFER][DRAGGING] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                                Vertex Drag | mouse_delta=({:.1}, {:.1})px, raw_delta={:.4}, delta_mm={:.4}mm | prev_r={:.2}mm -> candidate_r={:.2}mm, style={:?}",
+                                drag_delta.x, drag_delta.y, raw_delta, delta_mm, self.vertex_gizmo_radius, candidate_radius, self.round_gizmo_style
+                            );
+
                             if candidate_radius.abs() < Self::ROUND_SHARP_MM {
                                 self.vertex_gizmo_radius = 0.0;
                                 self.round_preview_cache = None;
@@ -2322,6 +2333,11 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
+                    eprintln!(
+                        "[FILLET-CHAMFER][DRAG_STOP] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Vertex drag stopped | final_radius={:.2}mm, style={:?}",
+                        self.vertex_gizmo_radius, self.round_gizmo_style
+                    );
                     self.filleting_vertex_from_gizmo = false;
                 }
 
@@ -2337,6 +2353,11 @@ impl DuCADApp {
                 CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
 
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    eprintln!(
+                        "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Key::Enter pressed for vertex rounding (radius={:.2}mm)",
+                        self.vertex_gizmo_radius
+                    );
                     if self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                         self.commit_vertex_fillet();
                     } else {
@@ -2344,6 +2365,10 @@ impl DuCADApp {
                     }
                     self.filleting_vertex_from_gizmo = false;
                 } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    eprintln!(
+                        "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Key::Escape pressed -> Cancel vertex rounding"
+                    );
                     self.clear_round_gizmo(RoundKind::Vertex);
                     self.filleting_vertex_from_gizmo = false;
                     self.model_status = Some("Fillet Vertex dibatalkan".to_string());
@@ -2468,6 +2493,11 @@ impl DuCADApp {
                 );
 
                 if handle_resp.drag_started() {
+                    eprintln!(
+                        "[FILLET-CHAMFER][DRAG_START] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Start dragging edge gizmo | current_radius={:.2}mm, style={:?}",
+                        self.edge_gizmo_radius, self.round_gizmo_style
+                    );
                     self.filleting_edge_from_gizmo = true;
                 }
 
@@ -2510,6 +2540,12 @@ impl DuCADApp {
                                 0.0
                             };
 
+                            eprintln!(
+                                "[FILLET-CHAMFER][DRAGGING] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                                Edge Drag | mouse_delta=({:.1}, {:.1})px, raw_delta={:.4}, delta_mm={:.4}mm | prev_r={:.2}mm -> candidate_r={:.2}mm, style={:?}",
+                                drag_delta.x, drag_delta.y, raw_delta, delta_mm, self.edge_gizmo_radius, candidate_radius, self.round_gizmo_style
+                            );
+
                             if candidate_radius.abs() < Self::ROUND_SHARP_MM {
                                 self.edge_gizmo_radius = 0.0;
                                 self.round_preview_cache = None;
@@ -2526,6 +2562,11 @@ impl DuCADApp {
                 }
 
                 if handle_resp.drag_stopped() {
+                    eprintln!(
+                        "[FILLET-CHAMFER][DRAG_STOP] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Edge drag stopped | final_radius={:.2}mm, style={:?}",
+                        self.edge_gizmo_radius, self.round_gizmo_style
+                    );
                     self.filleting_edge_from_gizmo = false;
                 }
 
@@ -2541,6 +2582,11 @@ impl DuCADApp {
                 CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
 
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    eprintln!(
+                        "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Key::Enter pressed for edge rounding (radius={:.2}mm)",
+                        self.edge_gizmo_radius
+                    );
                     if self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                         self.commit_edge_fillet_single();
                     } else {
@@ -2548,6 +2594,10 @@ impl DuCADApp {
                     }
                     self.filleting_edge_from_gizmo = false;
                 } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    eprintln!(
+                        "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
+                        Key::Escape pressed -> Cancel edge rounding"
+                    );
                     self.clear_round_gizmo(RoundKind::Edge);
                     self.filleting_edge_from_gizmo = false;
                     self.model_status = Some("Fillet Edge dibatalkan".to_string());

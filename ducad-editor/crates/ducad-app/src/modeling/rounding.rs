@@ -330,6 +330,11 @@ impl DuCADApp {
         base: &KernelShape,
         features: &[RoundFeature],
     ) -> Result<KernelShape, String> {
+        eprintln!(
+            "[FILLET-CHAMFER][KERNEL_BUILD] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+            Building rounded shape with {} features",
+            features.len()
+        );
         let mut shape = ducad_kernel::clone_shape(base).map_err(|e| e.to_string())?;
 
         let mut i = 0;
@@ -355,6 +360,12 @@ impl DuCADApp {
                     }
                 }
 
+                eprintln!(
+                    "[FILLET-CHAMFER][KERNEL_BUILD] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+                    Batch applying {} edge features with style={:?}, radius={:.2}mm",
+                    batch_rays.len(), f.style, f.radius
+                );
+
                 let res = match f.style {
                     RoundStyle::Fillet => ducad_kernel::fillet_edges(
                         &shape,
@@ -375,6 +386,10 @@ impl DuCADApp {
                         shape = new_s;
                     }
                     Err(e) => {
+                        eprintln!(
+                            "[FILLET-CHAMFER][KERNEL_BUILD_ERROR] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+                            Batch edge rounding failed: {}", e
+                        );
                         return Err(e.to_string());
                     }
                 }
@@ -383,6 +398,11 @@ impl DuCADApp {
                 continue;
             }
 
+            eprintln!(
+                "[FILLET-CHAMFER][KERNEL_BUILD] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+                Applying feature [{}/{}]: kind={:?}, style={:?}, radius={:.2}mm, anchor=({:.2}, {:.2}, {:.2})",
+                i + 1, features.len(), f.kind, f.style, f.radius, f.anchor.0, f.anchor.1, f.anchor.2
+            );
 
             let res = match (f.kind, f.style) {
                 (RoundKind::Vertex, RoundStyle::Fillet) => ducad_kernel::fillet_vertex(
@@ -436,15 +456,29 @@ impl DuCADApp {
                     shape = new_s;
                 }
                 Err(e) => {
+                    eprintln!(
+                        "[FILLET-CHAMFER][KERNEL_BUILD_ERROR] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+                        Single rounding feature failed: {}", e
+                    );
                     return Err(e.to_string());
                 }
             }
             i += 1;
         }
+        eprintln!(
+            "[FILLET-CHAMFER][KERNEL_BUILD] >>> [FUNCTION: DuCADApp::build_rounded_shape] \
+            All {} features successfully built into new 3D shape",
+            features.len()
+        );
         Ok(shape)
     }
 
     pub fn clear_round_gizmo(&mut self, kind: RoundKind) {
+        eprintln!(
+            "[FILLET-CHAMFER][CLEAR_GIZMO] >>> [FUNCTION: DuCADApp::clear_round_gizmo] \
+            Clearing round gizmo state for kind={:?}",
+            kind
+        );
         self.editing_round = None;
         self.round_preview_cache = None;
         match kind {
@@ -489,6 +523,11 @@ impl DuCADApp {
         };
         let sharp = radius.abs() < Self::ROUND_SHARP_MM;
         let (style, magnitude) = Self::round_style_and_magnitude(radius);
+        eprintln!(
+            "[FILLET-CHAMFER][COMMIT_OBJECT] >>> [FUNCTION: DuCADApp::commit_round] \
+            COMMIT rounding feature permanently | body_id={:?}, kind={:?}, style={:?}, magnitude={:.2}mm, is_sharp={}",
+            body_id, kind, style, magnitude, sharp
+        );
         let Some(geo) = self.model.geometry.get(body_id) else {
             self.model_status = Some("Body terpilih tidak ditemukan".to_string());
             return;
@@ -571,6 +610,11 @@ impl DuCADApp {
                     RoundStyle::Fillet => "Fillet",
                     RoundStyle::Chamfer => "Chamfer",
                 };
+                eprintln!(
+                    "[FILLET-CHAMFER][3D_OBJECT_PERMANENT] >>> [FUNCTION: DuCADApp::commit_round] \
+                    Replacing body geometry in model with {} vertices and {} edge lines",
+                    new_geo.mesh.positions.len(), new_geo.edge_lines.len()
+                );
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new(label, body_id, new_geo)),
                     &format!("{:.1} mm", magnitude),
@@ -619,6 +663,11 @@ impl DuCADApp {
         };
 
         if radius.abs() < Self::ROUND_SHARP_MM {
+            eprintln!(
+                "[FILLET-CHAMFER][PREVIEW_CACHE] >>> [FUNCTION: DuCADApp::update_round_preview_cache] \
+                Radius near 0 ({:.3}mm) -> Reset preview cache to Siku (base shape)",
+                radius
+            );
             self.round_preview_cache = None;
             return true;
         }
@@ -639,9 +688,33 @@ impl DuCADApp {
                 indices: tess.indices.clone(),
             };
             let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            for p in &mesh.positions {
+                for k in 0..3 {
+                    min[k] = min[k].min(p[k]);
+                    max[k] = max[k].max(p[k]);
+                }
+            }
+
+            eprintln!(
+                "[FILLET-CHAMFER][3D_GEOMETRY_CHANGED] >>> [FUNCTION: DuCADApp::update_round_preview_cache] \
+                3D PREVIEW OBJECT UPDATED | body_id={:?}, kind={:?}, radius={:.2}mm, style={} | \
+                Mesh: {} vertices, {} triangles, {} edge lines | BoundingBox: [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
+                id, kind, radius, if radius > 0.0 { "Fillet" } else { "Chamfer" },
+                mesh.positions.len(), mesh.indices.len() / 3, edge_lines.len(),
+                min[0], min[1], min[2], max[0], max[1], max[2]
+            );
+
             self.round_preview_cache = Some((kind, radius, id, mesh, edge_lines));
             true
         } else {
+            eprintln!(
+                "[FILLET-CHAMFER][3D_GEOMETRY_FAILED] >>> [FUNCTION: DuCADApp::update_round_preview_cache] \
+                FAILED to generate 3D preview shape | body_id={:?}, kind={:?}, radius={:.2}mm",
+                body_id, kind, radius
+            );
             false
         }
     }

@@ -1356,6 +1356,11 @@ impl DuCADApp {
 
                     if let Some((b_id, idx)) = round_edit {
                         let feature = self.round_history[&b_id].features[idx].clone();
+                        eprintln!(
+                            "[FILLET-CHAMFER][CLICK_REEDIT] >>> [FUNCTION: DuCADApp::handle_3d_viewport_input] \
+                            Re-editing existing round feature [{}] on body_id={:?} | kind={:?}, style={:?}, radius={:.2}mm, anchor=({:.2}, {:.2}, {:.2})",
+                            idx, b_id, feature.kind, feature.style, feature.radius, feature.anchor.0, feature.anchor.1, feature.anchor.2
+                        );
                         self.selected.clear();
                         self.selected_bodies.clear();
                         self.selected_bodies.insert(b_id);
@@ -1395,6 +1400,11 @@ impl DuCADApp {
                             "Rounding terpilih — tarik = fillet bulat, dorong = chamfer lurus, dorong sampai 0 utk kembali menyiku".to_string(),
                         );
                     } else if let Some((b_id, ray, vhit)) = vertex_pick_3d {
+                        eprintln!(
+                            "[FILLET-CHAMFER][CLICK_CORNER] >>> [FUNCTION: DuCADApp::handle_3d_viewport_input] \
+                            Corner (vertex) clicked on body_id={:?} | vertex_coord=({:.2}, {:.2}, {:.2}), ray_origin=({:.2}, {:.2}, {:.2}), ray_dir=({:.2}, {:.2}, {:.2})",
+                            b_id, vhit.0, vhit.1, vhit.2, ray.origin.0, ray.origin.1, ray.origin.2, ray.dir.0, ray.dir.1, ray.dir.2
+                        );
                         if self.active_edge.is_some() && self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                             self.commit_edge_fillet_single();
                         } else if self.active_vertex.is_some() && self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
@@ -1416,6 +1426,11 @@ impl DuCADApp {
                             "Sudut (vertex) 3D terpilih — tarik gizmo = fillet bulat, dorong = chamfer lurus".to_string(),
                         );
                     } else if let Some((b_id, ray, point)) = edge_pick_3d {
+                        eprintln!(
+                            "[FILLET-CHAMFER][CLICK_EDGE] >>> [FUNCTION: DuCADApp::handle_3d_viewport_input] \
+                            Edge clicked on body_id={:?} | edge_hit=({:.2}, {:.2}, {:.2}), ray_origin=({:.2}, {:.2}, {:.2}), ray_dir=({:.2}, {:.2}, {:.2})",
+                            b_id, point.0, point.1, point.2, ray.origin.0, ray.origin.1, ray.origin.2, ray.dir.0, ray.dir.1, ray.dir.2
+                        );
                         if self.active_edge.is_some() && self.edge_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {
                             self.commit_edge_fillet_single();
                         } else if self.active_vertex.is_some() && self.vertex_gizmo_radius.abs() >= Self::ROUND_SHARP_MM {

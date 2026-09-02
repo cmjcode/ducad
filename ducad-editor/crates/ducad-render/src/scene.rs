@@ -167,27 +167,15 @@ fn compute_mesh_fingerprint(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     positions.len().hash(&mut hasher);
     indices.len().hash(&mut hasher);
-    if let Some(p) = positions.first() {
-        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(p)).hash(&mut hasher);
+    hasher.write(bytemuck::cast_slice(positions));
+    hasher.write(bytemuck::cast_slice(normals));
+    if let Some(c) = colors {
+        hasher.write(bytemuck::cast_slice(c));
     }
-    if let Some(p) = positions.last() {
-        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(p)).hash(&mut hasher);
+    if let Some(m) = material_params {
+        hasher.write(bytemuck::cast_slice(m));
     }
-    if let Some(n) = normals.first() {
-        bytemuck::cast_slice::<[f32; 3], u8>(std::slice::from_ref(n)).hash(&mut hasher);
-    }
-    if let Some(c) = colors.and_then(|c| c.first()) {
-        bytemuck::cast_slice::<[f32; 4], u8>(std::slice::from_ref(c)).hash(&mut hasher);
-    }
-    if let Some(m) = material_params.and_then(|m| m.first()) {
-        bytemuck::cast_slice::<[f32; 4], u8>(std::slice::from_ref(m)).hash(&mut hasher);
-    }
-    if let Some(i) = indices.first() {
-        i.hash(&mut hasher);
-    }
-    if let Some(i) = indices.last() {
-        i.hash(&mut hasher);
-    }
+    hasher.write(bytemuck::cast_slice(indices));
     hasher.finish()
 }
 
@@ -594,12 +582,7 @@ impl SceneRenderer {
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         verts.len().hash(&mut hasher);
-        if let Some(v) = verts.first() {
-            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
-        }
-        if let Some(v) = verts.last() {
-            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
-        }
+        hasher.write(bytemuck::cast_slice(verts));
         let hash = hasher.finish();
 
         if self.overlay_hash == hash && self.overlay_vertex_count == verts.len() as u32 {
@@ -629,12 +612,7 @@ impl SceneRenderer {
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         verts.len().hash(&mut hasher);
-        if let Some(v) = verts.first() {
-            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
-        }
-        if let Some(v) = verts.last() {
-            bytemuck::cast_slice::<grid::LineVertex, u8>(std::slice::from_ref(v)).hash(&mut hasher);
-        }
+        hasher.write(bytemuck::cast_slice(verts));
         let hash = hasher.finish();
 
         if self.body_edge_hash == hash && self.body_edge_vertex_count == verts.len() as u32 {
@@ -1029,6 +1007,29 @@ mod tests {
         let shader_str = include_str!("shader.wgsl");
         let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
         assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
+    }
+
+    #[test]
+    fn test_compute_mesh_fingerprint_detects_internal_vertex_movement() {
+        let mut positions1 = vec![
+            [0.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+            [20.0, 0.0, 0.0],
+            [30.0, 0.0, 0.0],
+        ];
+        let normals = vec![[0.0, 0.0, 1.0]; 4];
+        let indices = vec![0, 1, 2, 1, 2, 3];
+
+        let hash1 = compute_mesh_fingerprint(&positions1, &normals, None, None, &indices);
+
+        // Move only an internal vertex (vertex index 1), keeping start [0] and end [3] identical
+        positions1[1] = [10.0, 5.0, 0.0];
+        let hash2 = compute_mesh_fingerprint(&positions1, &normals, None, None, &indices);
+
+        assert_ne!(
+            hash1, hash2,
+            "Fingerprint hash must change when internal vertices move (e.g. during chamfer/fillet drag)"
+        );
     }
 }
 
