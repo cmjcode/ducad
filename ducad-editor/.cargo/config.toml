@@ -2,3 +2,9 @@
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
 CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+
+[target.aarch64-apple-ios]
+rustflags = [
+    "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.ios.a",
+]
+

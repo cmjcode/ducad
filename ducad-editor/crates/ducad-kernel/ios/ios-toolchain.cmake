@@ -46,3 +46,12 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
 # modern) supaya CMake tidak mencoba embed bitcode yang bisa gagal di Xcode
 # terbaru.
 set(CMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE NO)
+
+# Cegah pemotongan argumen objek pada library besar (>1000 file seperti TKDESTEP)
+set(CMAKE_C_USE_RESPONSE_FILE_FOR_ARCHIVES 1)
+set(CMAKE_CXX_USE_RESPONSE_FILE_FOR_ARCHIVES 1)
+
+# Cegah emit stack-check probe (___chkstk_darwin) yang memerlukan toolchain runtime eksternal
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-stack-check")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-stack-check")
+

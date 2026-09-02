@@ -63,19 +63,19 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" >&2
 }
 
 print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
 }
 
 print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" >&2
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
 # --- 3. Configuration & Metadata ---
@@ -224,7 +224,48 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- 5. Environment & Toolchain Setup ---
+ensure_occt_built() {
+    local target="${1:-$IOS_ARM_TARGET}"
+    local occt_target_dir="$EDITOR_DIR/target/$target/OCCT"
+    local occt_lib_step="$occt_target_dir/lib/libTKDESTEP.a"
+    local occt_src_dir="$HOME/.cargo/registry/src"
+    local occt_sys_dir
+    occt_sys_dir=$(find "$occt_src_dir" -name "OCCT" -type d 2>/dev/null | grep "occt-sys" | head -n1 || true)
+    
+    if [ ! -f "$occt_lib_step" ] && [ -n "$occt_sys_dir" ] && [ -d "$occt_sys_dir" ]; then
+        print_status "Pre-building OCCT for target $target (serial install to avoid CMake APFS race condition)..."
+        local build_dir="$occt_target_dir/build"
+        mkdir -p "$build_dir"
+        local toolchain_flag=""
+        if [ -f "$TOOLCHAIN_FILE" ]; then
+            toolchain_flag="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE"
+        fi
+        local patch_dir
+        patch_dir="$(dirname "$occt_sys_dir")/patch"
+        cmake "$occt_sys_dir" -B "$build_dir" \
+            -DBUILD_PATCH="$patch_dir" \
+            -DBUILD_LIBRARY_TYPE=Static \
+            -DBUILD_MODULE_ApplicationFramework=FALSE \
+            -DBUILD_MODULE_Draw=FALSE \
+            -DUSE_D3D=FALSE -DUSE_DRACO=FALSE -DUSE_EIGEN=FALSE -DUSE_FFMPEG=FALSE \
+            -DUSE_FREEIMAGE=FALSE -DUSE_FREETYPE=FALSE -DUSE_GLES2=FALSE -DUSE_OPENGL=FALSE \
+            -DUSE_OPENVR=FALSE -DUSE_RAPIDJSON=FALSE -DUSE_TBB=FALSE -DUSE_TCL=FALSE \
+            -DUSE_TK=FALSE -DUSE_VTK=FALSE -DUSE_XLIB=FALSE \
+            -DINSTALL_DIR_LIB=lib -DINSTALL_DIR_INCLUDE=include \
+            $toolchain_flag \
+            -DCMAKE_INSTALL_PREFIX="$occt_target_dir" \
+            -DCMAKE_BUILD_TYPE=Release
+        
+        local ncpus
+        ncpus=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        cmake --build "$build_dir" --config Release --parallel "$ncpus"
+        cmake --install "$build_dir"
+        print_success "OCCT pre-build complete for $target!"
+    fi
+}
+
 setup_toolchain() {
+    local target="${1:-$IOS_ARM_TARGET}"
     print_status "Configuring iOS CMake & Cargo toolchain..."
     
     export CMAKE_POLICY_VERSION_MINIMUM="3.5"
@@ -239,6 +280,8 @@ setup_toolchain() {
         export SDK_IPHONEOS=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
         export SDK_SIMULATOR=$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || true)
     fi
+
+    ensure_occt_built "$target"
 }
 
 install_dependencies() {
@@ -341,19 +384,32 @@ codesign_bundle() {
     
     print_status "Code signing $bundle_path..."
     
-    local entitlements_flag=""
-    if [ -f "$ENTITLEMENTS_FILE" ] && [ "$is_sim" != "true" ]; then
-        entitlements_flag="--entitlements $ENTITLEMENTS_FILE"
+    local sign_id="$CUSTOM_IDENTITY"
+    if [ -z "$sign_id" ] || [[ "$sign_id" == *"Developer ID"* ]]; then
+        # Cari sertifikat Apple Development / Distribution jika Developer ID (macOS) terdeteksi di .env
+        sign_id=$(security find-identity -v -p codesigning 2>/dev/null | grep -E "Apple Distribution|Apple Development" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "-")
     fi
     
-    if [ -n "$CUSTOM_IDENTITY" ]; then
-        print_status "Signing with identity: $CUSTOM_IDENTITY"
-        codesign --force --sign "$CUSTOM_IDENTITY" --timestamp=none $entitlements_flag "$bundle_path" || {
-            print_warning "Signing with $CUSTOM_IDENTITY failed. Falling back to Ad-Hoc (-)..."
+    local entitlements_flag=""
+    if [ -f "$ENTITLEMENTS_FILE" ] && [ "$is_sim" != "true" ]; then
+        entitlements_flag="--entitlements $ENTITLEMENTS_FILE --generate-entitlement-der"
+    fi
+    
+    # Tandatangani binary utama di dalam bundle terlebih dahulu
+    if [ -f "$bundle_path/$BIN_NAME" ]; then
+        codesign --force --sign "${sign_id:--}" --timestamp=none "$bundle_path/$BIN_NAME" 2>/dev/null || true
+    fi
+    
+    if [ -n "$sign_id" ] && [ "$sign_id" != "-" ]; then
+        print_status "Signing with identity: $sign_id"
+        codesign --force --sign "$sign_id" --timestamp=none $entitlements_flag "$bundle_path" 2>/dev/null || {
+            print_warning "Signing with $sign_id failed. Falling back to Ad-Hoc (-)..."
+            codesign --force --sign "-" --timestamp=none "$bundle_path/$BIN_NAME" 2>/dev/null || true
             codesign --force --sign "-" --timestamp=none "$bundle_path"
         }
     else
         print_status "Signing with Ad-Hoc signature (-)..."
+        codesign --force --sign "-" --timestamp=none "$bundle_path/$BIN_NAME" 2>/dev/null || true
         codesign --force --sign "-" --timestamp=none "$bundle_path"
     fi
     
@@ -388,7 +444,7 @@ build_app_bundle() {
     local app_bundle="$DIST_IOS_DIR/$app_dir_name"
     
     print_status "Building $PKG_NAME for target $target ($BUILD_MODE)..."
-    setup_toolchain
+    setup_toolchain "$target"
     
     cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target"
     
@@ -421,7 +477,6 @@ build_app_bundle() {
     codesign_bundle "$app_bundle" "$is_sim"
     
     print_success "App bundle created successfully at: $app_bundle"
-    echo "$app_bundle"
 }
 
 do_run_sim() {
@@ -432,8 +487,8 @@ do_run_sim() {
         exit 1
     fi
     
-    local app_bundle
-    app_bundle=$(build_app_bundle "$IOS_SIM_TARGET" "true")
+    build_app_bundle "$IOS_SIM_TARGET" "true"
+    local app_bundle="$DIST_IOS_DIR/$APP_NAME-Simulator.app"
     
     # Find iPad simulator
     local sim_id=""
@@ -479,8 +534,8 @@ do_run_sim() {
 }
 
 do_archive() {
-    local app_bundle
-    app_bundle=$(build_app_bundle "$IOS_ARM_TARGET" "false")
+    build_app_bundle "$IOS_ARM_TARGET" "false"
+    local app_bundle="$DIST_IOS_DIR/$APP_NAME.app"
     
     local archive_dir="$DIST_IOS_DIR/$APP_NAME.xcarchive"
     print_status "Creating .xcarchive bundle at $archive_dir..."
@@ -529,8 +584,8 @@ EOF
 }
 
 do_ipa() {
-    local app_bundle
-    app_bundle=$(build_app_bundle "$IOS_ARM_TARGET" "false")
+    build_app_bundle "$IOS_ARM_TARGET" "false"
+    local app_bundle="$DIST_IOS_DIR/$APP_NAME.app"
     
     local payload_dir="$DIST_IOS_DIR/Payload"
     local ipa_output="$DIST_IOS_DIR/$APP_NAME-$VERSION.ipa"

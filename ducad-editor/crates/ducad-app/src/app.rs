@@ -2852,6 +2852,7 @@ impl eframe::App for DuCADApp {
                     self.pending_points.clear();
                 }
                 ToolPopupEvent::PickCustomFont => {
+                    #[cfg(not(target_os = "ios"))]
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Font Files (*.ttf, *.otf)", &["ttf", "otf"])
                         .pick_file()
@@ -2866,6 +2867,10 @@ impl eframe::App for DuCADApp {
                             self.text_popup_state.custom_font_name = Some(file_name);
                             self.model_status = Some("Font kustom berhasil dimuat".to_string());
                         }
+                    }
+                    #[cfg(target_os = "ios")]
+                    {
+                        self.model_status = Some("Font kustom didukung via Documents di iOS".to_string());
                     }
                 }
                 ToolPopupEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {

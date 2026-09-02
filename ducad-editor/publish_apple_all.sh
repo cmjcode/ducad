@@ -67,16 +67,31 @@ print_error() {
 APP_NAME="DUCAD"
 VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
 
-echo -e "${CYAN}${BOLD}🍎 DUCAD Universal Publish (iPadOS + macOS)${NC}"
-echo "=========================================================="
-echo "Version: $VERSION"
-echo "Bundle ID: ${APPLE_BUNDLE_ID}"
-echo "Team ID: ${APPLE_TEAM_ID}"
-echo "Apple ID: ${APPLE_ID}"
-echo ""
+show_help() {
+    echo "Usage: ./publish_apple_all.sh [OPTIONS]"
+    echo ""
+    echo "Otomatis melakukan build & upload kedua platform Apple sekaligus ke"
+    echo "App Store Connect / TestFlight (Universal Purchase):"
+    echo "  1. iPadOS: Build aarch64-apple-ios -> DUCAD.ipa -> Upload"
+    echo "  2. macOS:  Build App Sandbox -> DUCAD.pkg -> Upload"
+    echo ""
+    echo "Options:"
+    echo "  --help, -h       - Tampilkan pesan bantuan ini"
+    echo ""
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+    esac
+done
 
 if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ]; then
     print_error "Kredensial Apple (APPLE_ID / APPLE_PASSWORD) belum terisi di file .env."
+    echo "Silakan atur variabel APPLE_ID dan APPLE_PASSWORD di file .env untuk mengaktifkan otomatisasi upload."
     exit 1
 fi
 

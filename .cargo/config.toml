@@ -17,3 +17,7 @@ CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 # path selalu benar tak peduli dari direktori mana `cargo` dipanggil.
 CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "ducad-editor/crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
 
+[target.aarch64-apple-ios]
+rustflags = [
+    "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.ios.a",
+]
