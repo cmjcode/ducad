@@ -15,4 +15,5 @@ CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 # `getenv_target_os` — lihat komentar penuh di
 # crates/ducad-kernel/ios/ios-toolchain.cmake. `relative = true` supaya
 # path selalu benar tak peduli dari direktori mana `cargo` dipanggil.
-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "ducad-editor/crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+

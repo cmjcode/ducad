@@ -7,7 +7,7 @@
 .PHONY: all help install-deps clean create-dirs \
         build-macos build-linux build-windows \
         bundle-macos bundle-linux bundle-windows pkg-macos-store \
-        build-ipad archive-ipad ipa-ipad publish-ipad \
+        build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
         release build run dev test check fmt info notarize notarize-check
 
 all: help
@@ -232,23 +232,19 @@ bundle-windows: build-windows
 	@echo "✅ Windows packaging done."
 
 build-ipad: create-dirs
-	@echo "📱 Building iPadOS target..."
-	cargo build --release -p $(PKG_NAME) --target $(IOS_ARM_TARGET)
-	@mkdir -p $(IOS_DIR)
-	@if [ -f $(BUILD_DIR)/$(IOS_ARM_TARGET)/release/$(BIN_NAME) ]; then \
-		cp $(BUILD_DIR)/$(IOS_ARM_TARGET)/release/$(BIN_NAME) $(IOS_DIR)/$(BIN_NAME)-ios-arm64; \
-	fi
-	@echo "✅ iPadOS binary build completed."
+	@./build_ipad.sh device
 
-archive-ipad: build-ipad
-	@echo "📦 Archiving DUCAD for iPadOS..."
-	@echo "ℹ️  Template Info.plist available at crates/ducad-app/ios/Info.plist.template"
+archive-ipad:
+	@./build_ipad.sh archive
 
-ipa-ipad: archive-ipad
-	@echo "📦 Exporting signed .ipa for iPad..."
+ipa-ipad:
+	@./build_ipad.sh ipa
 
-publish-ipad: ipa-ipad
-	@echo "🚀 Publishing DUCAD iPad app to App Store Connect / TestFlight..."
+publish-ipad:
+	@./build_ipad.sh publish
+
+publish-all publish-apple-all:
+	@./publish_apple_all.sh
 
 release: clean install-deps bundle-macos
 	@echo "🎉 Release completed"
