@@ -326,3 +326,34 @@ notarize-check:
 		echo "💿 DMG Gatekeeper status:"; \
 		spctl -a -t open --context context:primary-signature -v "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg" 2>&1 && echo "✅ DMG accepted" || echo "❌ DMG rejected"; \
 	fi
+
+# --- Xcode Integration Targets ---
+.PHONY: xcode-project xcode-assets xcode-archive-ios xcode-archive-macos xcode-publish-ios xcode-publish-macos xcode-publish-all
+
+xcode-assets:
+	@chmod +x apple/scripts/generate_assets.sh
+	@./apple/scripts/generate_assets.sh
+
+xcode-project: xcode-assets
+	@python3 apple/scripts/generate_project.py
+
+xcode-archive-ios: xcode-project
+	@chmod +x apple/scripts/publish_xcode.sh
+	@./apple/scripts/publish_xcode.sh ios archive
+
+xcode-archive-macos: xcode-project
+	@chmod +x apple/scripts/publish_xcode.sh
+	@./apple/scripts/publish_xcode.sh macos archive
+
+xcode-publish-ios: xcode-project
+	@chmod +x apple/scripts/publish_xcode.sh
+	@./apple/scripts/publish_xcode.sh ios upload
+
+xcode-publish-macos: xcode-project
+	@chmod +x apple/scripts/publish_xcode.sh
+	@./apple/scripts/publish_xcode.sh macos upload
+
+xcode-publish-all: xcode-project
+	@chmod +x apple/scripts/publish_xcode.sh
+	@./apple/scripts/publish_xcode.sh all
+
