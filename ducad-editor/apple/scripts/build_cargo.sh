@@ -145,14 +145,25 @@ if [ -n "$BUILT_PRODUCTS_DIR" ] && [ -n "$EXECUTABLE_PATH" ]; then
         dsymutil "$SOURCE_BIN" -o "$DWARF_DSYM_FOLDER_PATH/$DWARF_DSYM_FILE_NAME" 2>/dev/null || true
     fi
 
-    # 7. Copy application assets if present
-    APP_DIR="$(dirname "$DEST_BIN")"
+    # 7. App bundle sanitization & asset hygiene
+    APP_BUNDLE_PATH="$(dirname "$DEST_BIN")"
     if [[ "$PLATFORM_NAME" == "macosx" ]]; then
-        APP_DIR="$(dirname "$APP_DIR")/Resources"
+        APP_BUNDLE_PATH="$(dirname "$APP_BUNDLE_PATH")" # Contents -> DUCAD.app
     fi
-    mkdir -p "$APP_DIR"
+
+    # Clean quarantine / extended attributes from source assets if present
     if [ -d "$EDITOR_DIR/assets" ]; then
-        cp -r "$EDITOR_DIR/assets" "$APP_DIR/assets" 2>/dev/null || true
+        xattr -cr "$EDITOR_DIR/assets" 2>/dev/null || true
+        find "$EDITOR_DIR/assets" -name ".DS_Store" -delete 2>/dev/null || true
+    fi
+
+    # Ensure app bundle is clean of com.apple.quarantine, provenance, and .DS_Store
+    if [ -d "$APP_BUNDLE_PATH" ]; then
+        echo "🧹 Sanitizing app bundle at $APP_BUNDLE_PATH (removing quarantine, extended attributes & .DS_Store)..."
+        rm -rf "$APP_BUNDLE_PATH/Contents/Resources/assets" 2>/dev/null || true
+        rm -rf "$APP_BUNDLE_PATH/assets" 2>/dev/null || true
+        xattr -cr "$APP_BUNDLE_PATH" 2>/dev/null || true
+        find "$APP_BUNDLE_PATH" -name ".DS_Store" -delete 2>/dev/null || true
     fi
 fi
 

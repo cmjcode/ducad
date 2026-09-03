@@ -495,6 +495,10 @@ build_app_bundle() {
         cp "$PROVISIONING_PROFILE" "$app_bundle/embedded.mobileprovision"
     fi
     
+    # Strip com.apple.quarantine and extended attributes from bundle
+    xattr -cr "$app_bundle" 2>/dev/null || true
+    find "$app_bundle" -name ".DS_Store" -delete 2>/dev/null || true
+    
     codesign_bundle "$app_bundle" "$is_sim"
     
     print_success "App bundle created successfully at: $app_bundle"

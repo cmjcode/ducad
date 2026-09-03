@@ -9,3 +9,6 @@ cd ducad-editor && make xcode-assets && cd ..
 
 sips -g all ducad-editor/apple/Assets.xcassets/AppIcon.appiconset/icon-1024.png | grep -E "hasAlpha|samplesPerPixel"
 
+# Hapus extended attributes (termasuk com.apple.quarantine) dan .DS_Store
+xattr -cr ducad-editor/assets ducad-editor/crates/ducad-app/assets ducad-editor/apple/Assets.xcassets 2>/dev/null || true
+find ducad-editor/apple/Assets.xcassets ducad-editor/assets -name ".DS_Store" -delete 2>/dev/null || true
