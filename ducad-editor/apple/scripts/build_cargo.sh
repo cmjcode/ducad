@@ -63,12 +63,16 @@ echo "🎯 Selected Rust Target: $RUST_TARGET"
 
 # 3. Configure iOS toolchain & OCCT if compiling for iOS/iPadOS
 TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
+if [[ "$RUST_TARGET" == *"apple-ios-sim"* ]] || [ "${PLATFORM_NAME:-}" = "iphonesimulator" ]; then
+    TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
+fi
+
 if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
     export CMAKE_POLICY_VERSION_MINIMUM="3.5"
     if [ -f "$TOOLCHAIN_FILE" ]; then
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$TOOLCHAIN_FILE"
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$TOOLCHAIN_FILE"
-        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$TOOLCHAIN_FILE"
+        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
+        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
+        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
     fi
 
     # Pre-build OCCT if needed (same serial install safety as build_ipad.sh)
