@@ -322,6 +322,24 @@ generate_info_plist() {
     <string>$VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>MinimumOSVersion</key>
+    <string>15.0</string>
+    <key>CFBundleSupportedPlatforms</key>
+    <array>
+        <string>iPhoneOS</string>
+    </array>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>2</integer>
+    </array>
+    <key>DTPlatformName</key>
+    <string>iphoneos</string>
+    <key>DTPlatformVersion</key>
+    <string>15.0</string>
+    <key>DTSDKName</key>
+    <string>iphoneos</string>
+    <key>DTCompiler</key>
+    <string>com.apple.compilers.llvm.clang.1_0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UIRequiredDeviceCapabilities</key>
@@ -386,8 +404,11 @@ codesign_bundle() {
     
     local sign_id="$CUSTOM_IDENTITY"
     if [ -z "$sign_id" ] || [[ "$sign_id" == *"Developer ID"* ]]; then
-        # Cari sertifikat Apple Development / Distribution jika Developer ID (macOS) terdeteksi di .env
-        sign_id=$(security find-identity -v -p codesigning 2>/dev/null | grep -E "Apple Distribution|Apple Development" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "-")
+        # Cari sertifikat Apple Distribution terlebih dahulu, lalu Apple Development
+        sign_id=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Distribution" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+        if [ -z "$sign_id" ]; then
+            sign_id=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "-")
+        fi
     fi
     
     local entitlements_flag=""
@@ -621,12 +642,18 @@ do_publish() {
         exit 1
     fi
     
+    local team_arg=()
+    if [ -n "$APPLE_TEAM_ID" ]; then
+        team_arg=(--team-id "$APPLE_TEAM_ID")
+    fi
+    
     print_status "Validating IPA with App Store Connect..."
     xcrun altool --validate-app \
         -f "$ipa_file" \
         -t ios \
         -u "$APPLE_ID" \
-        -p "$APPLE_PASSWORD" || {
+        -p "$APPLE_PASSWORD" \
+        "${team_arg[@]}" || {
             print_warning "Validation returned warnings/errors. Proceeding with upload if possible..."
         }
         
@@ -635,7 +662,8 @@ do_publish() {
         -f "$ipa_file" \
         -t ios \
         -u "$APPLE_ID" \
-        -p "$APPLE_PASSWORD"
+        -p "$APPLE_PASSWORD" \
+        "${team_arg[@]}"
         
     print_success "🚀 IPA uploaded successfully to TestFlight / App Store Connect!"
 }

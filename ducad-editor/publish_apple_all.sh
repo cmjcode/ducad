@@ -120,12 +120,17 @@ echo ""
 # --- Upload macOS PKG jika belum terunggah ---
 MACOS_PKG="dist/macos/$APP_NAME-$VERSION.pkg"
 if [ -f "$MACOS_PKG" ] && command -v xcrun &>/dev/null; then
+    local team_arg=()
+    if [ -n "$APPLE_TEAM_ID" ]; then
+        team_arg=(--team-id "$APPLE_TEAM_ID")
+    fi
     print_status "Mengunggah macOS .pkg ke App Store Connect..."
     xcrun altool --upload-app \
         -f "$MACOS_PKG" \
         -t osx \
         -u "$APPLE_ID" \
-        -p "$APPLE_PASSWORD" || {
+        -p "$APPLE_PASSWORD" \
+        "${team_arg[@]}" || {
             print_warning "Upload macOS altool selesai dengan peringatan. Jika perlu, file pkg juga siap di Transporter.app."
         }
 fi
