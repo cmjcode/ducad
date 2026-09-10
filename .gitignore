@@ -13,3 +13,4 @@ vendor/
 .env
 build_apple.sh
 ducad-editor/notarize.sh
+.env
