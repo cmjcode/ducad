@@ -9,6 +9,7 @@
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
 use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::touch::{TouchDesignConfig, TouchDesignMode};
 use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
 use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
@@ -66,6 +67,9 @@ pub enum TopBarEvent {
     OpenDrawingSheet,
     DeleteSelection,
     ToggleAccountDrawer,
+    SetTouchDesignMode(TouchDesignMode),
+    TogglePalmRejection,
+    CycleTouchDesignMode,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -103,6 +107,10 @@ pub struct TopBarState {
     pub account_drawer_open: bool,
     /// Rect layar tombol Account untuk anchor popup
     pub account_button_rect: egui::Rect,
+    /// Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
+    pub touch_config: TouchDesignConfig,
+    /// Mode tampilan iPad / tablet layar sentuh
+    pub is_ipad: bool,
 }
 
 pub struct TopBar;
@@ -112,9 +120,14 @@ impl TopBar {
     pub fn show(ui: &mut Ui, state: &mut TopBarState) -> Option<TopBarEvent> {
         let mut event = None;
         let icon_sz = state.icon_size.clamp(12.0, 18.0);
+        let avail_w = ui.available_width();
+        let is_compact = avail_w < 920.0 || state.is_ipad;
+        let is_tight = avail_w < 780.0;
+        let item_gap = if is_tight { 2.0 } else { 4.0 };
 
         glass_frame().show(ui, |ui| {
-            ui.set_height((icon_sz + 14.0).max(30.0));
+            let bar_h = (state.touch_config.touch_target_size).max((icon_sz + 14.0).max(30.0));
+            ui.set_height(bar_h);
             ui.horizontal(|ui| {
                 // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
                 ui.menu_button(
@@ -214,11 +227,19 @@ impl TopBar {
 
                 ui.add_space(2.0);
 
-                // 2. Document Title & Cloud/File Status
+                // 2. Document Title & Cloud/File Status (Responsif iPad)
                 let cloud_color = if state.status_saved {
                     ACCENT_BLUE
                 } else {
                     Color32::from_rgb(255, 180, 50)
+                };
+
+                let display_doc_name = if is_tight && state.document_name.len() > 14 {
+                    format!("{}...", &state.document_name[..11])
+                } else if is_compact && state.document_name.len() > 20 {
+                    format!("{}...", &state.document_name[..17])
+                } else {
+                    state.document_name.clone()
                 };
 
                 ui.horizontal(|ui| {
@@ -234,16 +255,17 @@ impl TopBar {
                     )
                     .on_hover_text(cloud_tooltip);
                     ui.label(
-                        RichText::new(&state.document_name)
+                        RichText::new(display_doc_name)
                             .strong()
                             .size(12.0)
                             .color(TEXT_PRIMARY),
-                    );
+                    )
+                    .on_hover_text(&state.document_name);
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(item_gap);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(item_gap);
 
                 // 3. Mode Switcher + Items + Search + Sketch Plane (Tetap di sebelah File Name)
                 let (mode_icon, mode_title, mode_shortcut, mode_sub) = if state.is_sketching {
@@ -407,79 +429,113 @@ impl TopBar {
                     }
                 }
 
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
+                if !is_compact {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
 
-                // 4. Utilities (Measurements & Zebra Inspection) — Tetap di sebelah File Name & Mode
-                let meas_title = t!("hud-show-dimensions");
-                let meas_sub = t!("hud-click-to-edit");
-                let meas_btn = header_icon_btn(
-                    ui,
-                    ICON_STRAIGHTEN.codepoint,
-                    icon_sz,
-                    state.is_measure_active,
-                    &meas_title,
-                    Some("I"),
-                    Some(&meas_sub),
-                    None,
-                    None,
-                );
-                if meas_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleMeasurements);
-                }
+                    // 4. Toggle Show All Dimensions (Ruler / Measure)
+                    let meas_title = t!("hud-show-dimensions");
+                    let meas_sub = t!("hud-click-to-edit");
+                    let meas_btn = header_icon_btn(
+                        ui,
+                        ICON_STRAIGHTEN.codepoint,
+                        icon_sz,
+                        state.is_measure_active,
+                        &meas_title,
+                        Some("M"),
+                        Some(&meas_sub),
+                        None,
+                        None,
+                    );
+                    if meas_btn.clicked() {
+                        event = Some(TopBarEvent::ToggleMeasurements);
+                    }
 
-                let zebra_title = t!("tool-zebra-stripes");
-                let zebra_sub = t!("topbar-zebra-tooltip");
-                let zebra_btn = header_icon_btn(
-                    ui,
-                    ICON_TEXTURE.codepoint,
-                    icon_sz,
-                    state.zebra_view_active,
-                    &zebra_title,
-                    Some("Z"),
-                    Some(&zebra_sub),
-                    None,
-                    None,
-                );
-                if zebra_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleZebraView);
-                }
+                    // 5. Toggle Zebra Reflection Stripes (Material / Texture)
+                    let zebra_title = t!("tool-zebra-stripes");
+                    let zebra_sub = t!("topbar-zebra-tooltip");
+                    let zebra_btn = header_icon_btn(
+                        ui,
+                        ICON_TEXTURE.codepoint,
+                        icon_sz,
+                        state.zebra_view_active,
+                        &zebra_title,
+                        Some("Z"),
+                        Some(&zebra_sub),
+                        None,
+                        None,
+                    );
+                    if zebra_btn.clicked() {
+                        event = Some(TopBarEvent::ToggleZebraView);
+                    }
 
-                // Drawing Sheet Button (Fase 5)
-                let ds_title = t!("topbar-drawing-sheet");
-                let ds_sub = t!("topbar-drawing-sheet-tooltip");
-                let ds_btn = header_icon_btn(
-                    ui,
-                    ICON_PICTURE_AS_PDF.codepoint,
-                    icon_sz,
-                    false,
-                    &ds_title,
-                    None,
-                    Some(&ds_sub),
-                    None,
-                    None,
-                );
-                if ds_btn.clicked() {
-                    event = Some(TopBarEvent::OpenDrawingSheet);
-                }
+                    // 6. Tombol Masuk ke Lembar Kerja Gambar Teknik 2D (Drawing Sheet)
+                    let ds_title = t!("topbar-drawing-sheet");
+                    let ds_sub = t!("topbar-drawing-sheet-tooltip");
+                    let ds_btn = header_icon_btn(
+                        ui,
+                        ICON_PICTURE_AS_PDF.codepoint,
+                        icon_sz,
+                        false,
+                        &ds_title,
+                        Some("D"),
+                        Some(&ds_sub),
+                        None,
+                        None,
+                    );
+                    if ds_btn.clicked() {
+                        event = Some(TopBarEvent::OpenDrawingSheet);
+                    }
 
-                // Assembly Tree & Mates Button (Fase 12.2)
-                let assem_title = t!("assembly-tree-title");
-                let assem_sub = t!("topbar-assembly-tooltip");
-                let assem_btn = header_icon_btn(
-                    ui,
-                    ICON_CATEGORY.codepoint,
-                    icon_sz,
-                    state.assembly_drawer_open,
-                    &assem_title,
-                    None,
-                    Some(&assem_sub),
-                    None,
-                    None,
-                );
-                if assem_btn.clicked() {
-                    event = Some(TopBarEvent::ToggleAssemblyDrawer);
+                    // 7. Tombol Assembly Mating & Joint Drawer (Pohon Rakitan)
+                    let assem_title = t!("assembly-tree-title");
+                    let assem_sub = t!("topbar-assembly-tooltip");
+                    let assem_btn = header_icon_btn(
+                        ui,
+                        ICON_CATEGORY.codepoint,
+                        icon_sz,
+                        state.assembly_drawer_open,
+                        &assem_title,
+                        None,
+                        Some(&assem_sub),
+                        None,
+                        None,
+                    );
+                    if assem_btn.clicked() {
+                        event = Some(TopBarEvent::ToggleAssemblyDrawer);
+                    }
+                } else {
+                    ui.add_space(2.0);
+                    ui.menu_button(
+                        RichText::new(ICON_CATEGORY.codepoint).size(icon_sz).color(TEXT_PRIMARY),
+                        |ui| {
+                            ui.set_min_width(170.0);
+                            let m_title = t!("hud-show-dimensions");
+                            let m_chk = if state.is_measure_active { "✓ " } else { "  " };
+                            if ui.button(format!("{}{} {}", m_chk, ICON_STRAIGHTEN.codepoint, m_title)).clicked() {
+                                event = Some(TopBarEvent::ToggleMeasurements);
+                                ui.close();
+                            }
+                            let z_title = t!("tool-zebra-stripes");
+                            let z_chk = if state.zebra_view_active { "✓ " } else { "  " };
+                            if ui.button(format!("{}{} {}", z_chk, ICON_TEXTURE.codepoint, z_title)).clicked() {
+                                event = Some(TopBarEvent::ToggleZebraView);
+                                ui.close();
+                            }
+                            let ds_title = t!("topbar-drawing-sheet");
+                            if ui.button(format!("  {} {}", ICON_PICTURE_AS_PDF.codepoint, ds_title)).clicked() {
+                                event = Some(TopBarEvent::OpenDrawingSheet);
+                                ui.close();
+                            }
+                            let assem_title = t!("assembly-tree-title");
+                            let a_chk = if state.assembly_drawer_open { "✓ " } else { "  " };
+                            if ui.button(format!("{}{} {}", a_chk, ICON_CATEGORY.codepoint, assem_title)).clicked() {
+                                event = Some(TopBarEvent::ToggleAssemblyDrawer);
+                                ui.close();
+                            }
+                        },
+                    ).response.on_hover_text("Menu Alat Tambahan (Ukuran, Zebra, Gambar 2D, Assembly)");
                 }
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
@@ -637,12 +693,85 @@ impl TopBar {
                                     }
                                 },
                             );
+                            ui.separator();
+                            // Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
+                            ui.menu_button(
+                                format!(
+                                    "{} Mode Sentuh / Pencil ({})",
+                                    state.touch_config.mode.icon(),
+                                    state.touch_config.mode.label()
+                                ),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new("Interaksi Layar Sentuh & Stylus:")
+                                            .strong()
+                                            .size(10.5)
+                                            .color(TEXT_SECONDARY),
+                                    );
+                                    for m in [
+                                        TouchDesignMode::PencilAndFinger,
+                                        TouchDesignMode::PencilOnly,
+                                        TouchDesignMode::FingerDesign,
+                                    ] {
+                                        let is_sel = state.touch_config.mode == m;
+                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        if ui
+                                            .button(format!("{}{}", prefix, m.label()))
+                                            .on_hover_text(m.description())
+                                            .clicked()
+                                        {
+                                            event = Some(TopBarEvent::SetTouchDesignMode(m));
+                                            ui.close();
+                                        }
+                                    }
+                                    ui.separator();
+                                    let mut pr = state.touch_config.palm_rejection;
+                                    if ui
+                                        .checkbox(&mut pr, "🛡️ Tolak Telapak Tangan (Palm Rejection)")
+                                        .on_hover_text("Mengabaikan sentuhan telapak tangan saat menggambar dengan Apple Pencil")
+                                        .clicked()
+                                    {
+                                        event = Some(TopBarEvent::TogglePalmRejection);
+                                        ui.close();
+                                    }
+                                },
+                            );
                         },
                     )
                     .response
                     .on_hover_text(t!("menu-settings"));
 
-                    ui.add_space(4.0);
+                    ui.add_space(item_gap);
+
+                    // Tombol Quick Toggle Touch Design Mode (Apple Pencil vs Sentuhan Jari)
+                    let touch_bg = if state.touch_config.mode == TouchDesignMode::PencilOnly {
+                        Some(Color32::from_rgba_premultiplied(18, 42, 85, 120))
+                    } else if state.touch_config.mode == TouchDesignMode::FingerDesign {
+                        Some(Color32::from_rgba_premultiplied(28, 50, 28, 120))
+                    } else {
+                        None
+                    };
+                    let touch_stroke = if state.touch_config.mode == TouchDesignMode::PencilOnly {
+                        Some(ACCENT_BLUE)
+                    } else {
+                        None
+                    };
+                    let touch_btn = header_icon_btn(
+                        ui,
+                        state.touch_config.mode.icon(),
+                        icon_sz,
+                        state.touch_config.mode != TouchDesignMode::PencilAndFinger,
+                        &format!("Mode Sentuh: {}", state.touch_config.mode.label()),
+                        None,
+                        Some(state.touch_config.mode.description()),
+                        touch_bg,
+                        touch_stroke,
+                    );
+                    if touch_btn.clicked() {
+                        event = Some(TopBarEvent::CycleTouchDesignMode);
+                    }
+
+                    ui.add_space(item_gap);
 
                     // Sebelah kiri Settings: Export / Share Icon Button
                     ui.menu_button(

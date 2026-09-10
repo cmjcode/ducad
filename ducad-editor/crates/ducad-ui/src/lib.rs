@@ -31,6 +31,7 @@ pub mod revolve_dialog;
 pub mod theme;
 pub mod tool_guides;
 pub mod tool_popups;
+pub mod touch;
 pub mod top_bar;
 pub mod viewcube;
 
@@ -67,10 +68,11 @@ pub use revolve_dialog::{
     RevolveDialogState,
 };
 pub use theme::{
-    apply as apply_theme, card_frame, dimension_pill_frame, glass_frame, pill_frame, ThemeMode,
-    ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS, BG_CARD_DARK,
-    BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, BOTTOM_RIGHT_PANEL_WIDTH, ICON_SIZE_DEFAULT,
-    MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    apply as apply_theme, apply_with_touch, card_frame, dimension_pill_frame, glass_frame,
+    pill_frame, ThemeMode, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS,
+    BG_CARD_DARK, BG_HOVER_DARK, BG_PANEL_DARK, BORDER_SUBTLE, BOTTOM_RIGHT_PANEL_WIDTH,
+    ICON_SIZE_DEFAULT, MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    TOUCH_TARGET_IPAD,
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{
@@ -82,5 +84,6 @@ pub use tool_popups::{
     ShellPopupState, TextPopup, TextPopupState, ToolPopupEvent,
 };
 pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
+pub use touch::{TouchDesignConfig, TouchDesignMode};
 pub use viewcube::{ViewCube, ViewCubeAction};
 pub use ducad_i18n::{current_language, set_language, t, Language};

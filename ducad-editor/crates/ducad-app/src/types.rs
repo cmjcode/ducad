@@ -243,6 +243,8 @@ pub enum PaletteAction {
     ExitSketching,
     File(FileOp),
     ClearMeasurements,
+    SetTouchDesignMode(ducad_ui::TouchDesignMode),
+    TogglePalmRejection,
 }
 
 pub fn required_points(tool: ToolKind) -> usize {

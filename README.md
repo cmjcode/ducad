@@ -77,6 +77,11 @@
 * **Command Palette (`Ctrl/Cmd+K`)**: Instant access to all tools and commands via quick text search.
 * **Radial Menu (`Space`)**: Circular menu under the mouse cursor for quick access to essential tools.
 * **3D ViewCube**: Interactive cube camera orientation control (Top, Front, Right, Isometric, Orbit).
+* **Apple iPad & Touch Design Support**:
+  * *Apple Pencil Only (`PencilOnly`)*: Pure drafting mode with hardware Palm Rejection. Apple Pencil executes drawing, snapping, and entity selection with pressure sensitivity; finger gestures exclusively orbit, pan, and zoom without accidental marks.
+  * *Finger Touch Design (`FingerDesign`)*: Direct touch sketching with expanded 14px hit tolerances and 44pt touch targets adhering to Apple Human Interface Guidelines (HIG).
+  * *Hybrid Mode (`PencilAndFinger`)*: Seamlessly draw and design using both Apple Pencil and finger touch.
+  * *Collision-Free iPad Layout*: Dynamic coordinate spacing eliminates overlap between TopBar and the 3D ViewCube; compact screen detection bundles secondary tools into an overflow menu ("⋯").
 * **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
 * **Multi-Language Support (i18n)**: 18+ languages with English as the default interface and developer-friendly notes.
 
@@ -127,8 +132,23 @@ cargo run -p ducad-app
 
 ### Running Unit & Integration Tests
 
+Run workspace tests directly or via container:
+
 ```bash
+# Run all workspace unit and integration tests
 cargo test --workspace
+
+# Or run via Docker builder container (if cargo is not installed locally)
+docker run --rm --label visva_task_id=UI_iPAD_berantakan \
+  -v "$(pwd)":/workspace -w /workspace/ducad-editor ducad-builder:latest cargo test --workspace
+```
+
+### Running Backend & Cloud Sync API Tests
+
+Execute the automated cURL test suite for DuCAD Cloud and touch configuration endpoints:
+
+```bash
+./test_api.sh
 ```
 
 ---

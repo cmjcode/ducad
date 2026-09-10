@@ -126,6 +126,8 @@ pub struct DuCADApp {
     pub zebra_config: ducad_render::ZebraConfig,
     /// Draft angle heatmap inspection (Fase 3.2).
     pub draft_config: ducad_render::DraftConfig,
+    /// Konfigurasi Touch Design (Apple Pencil & Jari untuk iPad)
+    pub touch_config: ducad_ui::TouchDesignConfig,
 
     pub show_all_dimensions: bool,
     /// Entity yg pill dimensinya sedang dibuka utk diedit di kanvas (Fase 3 —
@@ -478,6 +480,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -757,6 +760,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -1146,7 +1150,7 @@ impl DuCADApp {
         }
 
         let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
-        let allow_primary_orbit = matches!(
+        let allow_primary_orbit = (matches!(
             self.tool,
             ToolKind::Select
                 | ToolKind::SplitBody
@@ -1158,7 +1162,8 @@ impl DuCADApp {
                 | ToolKind::History
                 | ToolKind::Shell
                 | ToolKind::Rib
-        ) && !radial_active
+        ) || self.touch_config.single_finger_navigates())
+            && !radial_active
             && !is_near_gizmo
             && !self.extruding_from_gizmo
             && !self.extruding_face_from_gizmo
@@ -1413,6 +1418,10 @@ impl eframe::App for DuCADApp {
             .to_string();
         let is_saved = self.current_file_path.is_some();
 
+        let is_ipad = cfg!(target_os = "ios")
+            || screen_rect.width() < 1050.0
+            || self.touch_config.mode != ducad_ui::TouchDesignMode::PencilAndFinger;
+
         let mut topbar_state = TopBarState {
             document_name: doc_name,
             status_saved: is_saved,
@@ -1446,10 +1455,13 @@ impl eframe::App for DuCADApp {
             is_authenticating: matches!(self.auth_status, ducad_cloud::AuthStatus::Authenticating { .. }),
             account_drawer_open: self.account_drawer_open,
             account_button_rect: self.account_button_rect,
+            touch_config: self.touch_config,
+            is_ipad,
         };
 
+        let mut topbar_rect: Option<egui::Rect> = None;
         if !self.drawing_sheet_state.is_open {
-            egui::Area::new(egui::Id::new("ducad-topbar-area"))
+            let topbar_resp = egui::Area::new(egui::Id::new("ducad-topbar-area"))
                 .fixed_pos(egui::pos2(topbar_x, 10.0))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
@@ -1557,9 +1569,27 @@ impl eframe::App for DuCADApp {
                                     self.delete_selected_bodies();
                                 }
                             }
+                            TopBarEvent::SetTouchDesignMode(m) => {
+                                self.touch_config.set_mode(m);
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
+                            }
+                            TopBarEvent::CycleTouchDesignMode => {
+                                let next = self.touch_config.mode.next();
+                                self.touch_config.set_mode(next);
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", next.label()));
+                            }
+                            TopBarEvent::TogglePalmRejection => {
+                                self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
+                                let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
+                                self.model_status = Some(format!("Palm Rejection: {}", st));
+                            }
                         }
                     }
                 });
+            topbar_rect = Some(topbar_resp.response.rect);
+
 
             self.plane_menu_open = topbar_state.plane_menu_open;
             self.account_button_rect = topbar_state.account_button_rect;
@@ -2601,7 +2631,9 @@ impl eframe::App for DuCADApp {
                     });
                 });
 
-            let viewcube_y = 102.0;
+            let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0);
+            let viewcube_margin_top = 16.0;
+            let viewcube_y = (topbar_bottom_y + viewcube_margin_top + 42.0).max(102.0);
             let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
             let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
             egui::Area::new(egui::Id::new("ducad-viewcube-area"))
@@ -3740,6 +3772,65 @@ mod tests {
         );
         // Camera distance 5000 * 0.75 = 3750 + 100 = 3850 -> ceil to 3900
         assert!(extent >= 3900.0, "Extent was {extent}, expected >= 3900.0");
+    }
+
+    #[test]
+    fn test_viewcube_placement_below_topbar() {
+        let topbar_margin_right = 12.0;
+        let screen_w = 1024.0;
+        let viewcube_margin_top = 16.0;
+
+        // Case 1: TopBar standard height (max.y = 56.0)
+        let topbar_rect_1 = Some(egui::Rect::from_min_max(
+            egui::pos2(12.0, 10.0),
+            egui::pos2(screen_w - topbar_margin_right, 56.0),
+        ));
+        let topbar_bottom_y_1 = topbar_rect_1.map(|r| r.max.y).unwrap_or(10.0);
+        let viewcube_y_1 = (topbar_bottom_y_1 + viewcube_margin_top + 42.0).max(102.0);
+        let viewcube_top_y_1 = viewcube_y_1 - 42.0;
+        assert!(
+            viewcube_top_y_1 >= topbar_bottom_y_1 + viewcube_margin_top,
+            "ViewCube top ({viewcube_top_y_1}) must be at least 16px below TopBar bottom ({topbar_bottom_y_1})"
+        );
+
+        // Case 2: TopBar on iPad with 44pt touch targets or wrapped (max.y = 80.0)
+        let topbar_rect_2 = Some(egui::Rect::from_min_max(
+            egui::pos2(12.0, 10.0),
+            egui::pos2(screen_w - topbar_margin_right, 80.0),
+        ));
+        let topbar_bottom_y_2 = topbar_rect_2.map(|r| r.max.y).unwrap_or(10.0);
+        let viewcube_y_2 = (topbar_bottom_y_2 + viewcube_margin_top + 42.0).max(102.0);
+        let viewcube_top_y_2 = viewcube_y_2 - 42.0;
+        assert!(
+            viewcube_top_y_2 >= topbar_bottom_y_2 + viewcube_margin_top,
+            "ViewCube top ({viewcube_top_y_2}) must be at least 16px below TopBar bottom ({topbar_bottom_y_2})"
+        );
+        assert_eq!(viewcube_y_2, 80.0 + 16.0 + 42.0);
+    }
+
+    #[test]
+    fn test_touch_mode_navigation_and_design_flags() {
+        use ducad_ui::{TouchDesignConfig, TouchDesignMode};
+
+        let mut cfg = TouchDesignConfig::default();
+        // Hybrid default: both can design, single finger does not navigate
+        assert!(cfg.allows_finger_design());
+        assert!(!cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 18.0);
+
+        // PencilOnly: finger navigates canvas, cannot design
+        cfg.set_mode(TouchDesignMode::PencilOnly);
+        assert!(!cfg.allows_finger_design());
+        assert!(cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 12.0);
+        assert_eq!(cfg.touch_target_size, 36.0);
+
+        // FingerDesign: optimized for touch, 44pt HIG, large snap distance
+        cfg.set_mode(TouchDesignMode::FingerDesign);
+        assert!(cfg.allows_finger_design());
+        assert!(!cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 24.0);
+        assert_eq!(cfg.touch_target_size, 44.0);
     }
 }
 

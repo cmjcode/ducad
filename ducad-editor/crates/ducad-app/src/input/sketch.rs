@@ -1057,8 +1057,24 @@ impl DuCADApp {
             self.last_snap = None;
             return;
         };
-        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        let tol = pixel_tolerance_to_world(&self.camera, rect) * self.touch_config.effective_pixel_tolerance();
         let grid_step = 10.0;
+
+        // Dalam mode PencilOnly, sentuhan 1 jari difungsikan untuk navigasi kanvas (orbit/pan)
+        // dan diabaikan untuk menggambar/membuat sketsa (Palm Rejection)
+        let has_pencil_pressure = ui.input(|i| {
+            i.events.iter().any(|e| match e {
+                egui::Event::Touch { force: Some(f), .. } => *f > 0.0,
+                _ => false,
+            })
+        });
+        let is_touch_input = ui.input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }))
+                || i.multi_touch().is_some()
+        });
+        let is_finger_navigating = self.touch_config.single_finger_navigates()
+            && is_touch_input
+            && !has_pencil_pressure;
 
         match self.tool {
             ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
@@ -1133,6 +1149,7 @@ impl DuCADApp {
                     .is_some_and(|p| self.check_near_gizmo(rect, Some(p)));
 
                 if response.clicked()
+                    && !is_finger_navigating
                     && !suppress_click_from_radial
                     && !click_hits_body_dim_pill
                     && !click_hits_gizmo
@@ -1221,7 +1238,7 @@ impl DuCADApp {
                                         origin: (origin.x as f64, origin.y as f64, origin.z as f64),
                                         dir: (dir.x as f64, dir.y as f64, dir.z as f64),
                                     };
-                                    let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                                    let tol = pixel_tolerance_to_world(&self.camera, rect) * self.touch_config.effective_pixel_tolerance();
                                     for (_id, geo) in self.model.geometry.iter() {
                                         if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, tol) {
                                             self.selected_edges = vec![crate::types::PickedEdge { ray, polyline }];
@@ -1868,7 +1885,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.handle_line_chain_click(effective, tol);
                 }
@@ -1879,7 +1896,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.handle_spline_click(effective, tol);
                 }
@@ -1898,7 +1915,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.on_click_point(effective);
                 }
@@ -1912,11 +1929,11 @@ impl DuCADApp {
                         .hovered()
                         .then(|| self.find_current_snap(raw, tol, grid_step, None))
                         .flatten();
-                    if response.clicked() {
+                    if response.clicked() && !is_finger_navigating {
                         let effective = self.snapped_or(raw);
                         self.on_click_point(effective);
                     }
-                } else if response.clicked() {
+                } else if response.clicked() && !is_finger_navigating {
                     self.open_revolve_dialog();
                 }
             }

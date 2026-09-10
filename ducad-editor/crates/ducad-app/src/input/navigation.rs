@@ -18,10 +18,13 @@ impl DuCADApp {
             || self.filleting_vertex_from_gizmo
             || self.filleting_edge_from_gizmo;
 
-        let orbiting = (allow_primary_orbit
+        // Pada mode PencilOnly, sentuhan 1 jari khusus untuk memutar/navigasi kanvas
+        let allow_orbit = (allow_primary_orbit || self.touch_config.single_finger_navigates())
+            && !is_gizmo_dragging;
+
+        let orbiting = (allow_orbit
             && response.dragged_by(egui::PointerButton::Primary)
-            && !modifiers.shift
-            && !is_gizmo_dragging)
+            && !modifiers.shift)
             || (response.dragged_by(egui::PointerButton::Middle) && !modifiers.shift);
         let panning = response.dragged_by(egui::PointerButton::Secondary)
             || (modifiers.shift

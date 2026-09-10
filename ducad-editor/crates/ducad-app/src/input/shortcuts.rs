@@ -293,6 +293,26 @@ impl DuCADApp {
                 String::new(),
                 PaletteAction::ToggleTheme,
             ),
+            (
+                "Mode Sentuh: Pencil & Jari (Hibrida)".to_string(),
+                "Touch".to_string(),
+                PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::PencilAndFinger),
+            ),
+            (
+                "Mode Sentuh: Hanya Apple Pencil (Jari Navigasi Kanvas)".to_string(),
+                "Pencil".to_string(),
+                PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::PencilOnly),
+            ),
+            (
+                "Mode Sentuh: Sentuh Jari (Target 44pt Apple HIG)".to_string(),
+                "Finger".to_string(),
+                PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::FingerDesign),
+            ),
+            (
+                "Toggle Palm Rejection (Tolak Telapak Tangan)".to_string(),
+                String::new(),
+                PaletteAction::TogglePalmRejection,
+            ),
         ];
         if !self.selected.is_empty() {
             actions.push((
@@ -368,6 +388,16 @@ impl DuCADApp {
             }
             PaletteAction::ClearMeasurements => {
                 self.measurements.clear();
+            }
+            PaletteAction::SetTouchDesignMode(m) => {
+                self.touch_config.set_mode(m);
+                ducad_ui::apply_with_touch(ctx, self.theme, self.touch_config.touch_target_size);
+                self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
+            }
+            PaletteAction::TogglePalmRejection => {
+                self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
+                let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
+                self.model_status = Some(format!("Palm Rejection: {}", st));
             }
             PaletteAction::File(op) => match op {
                 FileOp::New => self.new_document(),
