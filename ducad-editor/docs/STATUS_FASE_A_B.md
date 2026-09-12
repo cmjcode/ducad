@@ -1,0 +1,64 @@
+# Status Fase A (P0) & Fase B (P1)
+
+Diperbarui: 2026-09-12. Sumber rencana: `.claude/plans/ducad-pro-cad-roadmap.plan.md`.
+
+Estimasi awal untuk Fase A + B adalah **6–8 bulan kerja penuh satu engineer
+senior**. Dokumen ini mencatat apa yang sudah benar-benar mendarat dan
+terverifikasi, versus apa yang belum — bukan rencananya.
+
+Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
+-- -D warnings` exit 0 DAN `cargo test --workspace` hijau.
+
+---
+
+## Fase A — P0 Fondasi
+
+| Item | Status | Catatan |
+|---|---|---|
+| **P0.6** CI & quality gate | ✅ **selesai** | `.gitmodules` (repo sebelumnya tak bisa di-clone), workflow 4 lane, clippy `-D warnings` memblokir, profil rilis. `fmt`/`deny` sengaja belum memblokir — lihat ADR 0001. |
+| **P0.2** Undo lintas domain | 🟡 **sebagian** | `Transaction`, coalescing drag, batas kedalaman, `begin`/`commit`/`rollback` — selesai & teruji di `ducad-core`. **Belum**: transaksi yang benar-benar melintasi domain, karena `Sketch` dan `ModelDoc` masih dua target `Command<T>` terpisah (menunggu P0.1). |
+| **P0.1** Model dokumen tunggal | 🟡 **sebagian** | `SketchSet` berkunci `SketchId` + `PlaneRef` menggantikan tiga larik paralel; N sketsa per bidang kini mungkin. **Belum**: `Document` tunggal (fitur, datum, parameter, assembly, drawing), pemisahan `EditorState`, crate `ducad-editor-core` headless. |
+| **P0.3** Format native v2 | 🟡 **sebagian** | `KernelShape::to_brep_bytes`/`from_brep_bytes` — 3,6× lebih kecil dari teks STEP, roundtrip terverifikasi. **Belum**: container ZIP, penyimpanan DAG/datum/assembly/drawing, migrasi v1→v2, autosave/recovery. |
+| **P0.4** Topological naming | ❌ **belum** | Butuh binding cxx baru: `BRepTools_History`, `BRepBuilderAPI_MakeShape::Generated/Modified/IsDeleted`. **Memblokir P0.5.** |
+| **P0.5** Regenerasi parametrik sungguhan | ❌ **belum** | Bergantung P0.4. `regenerate_parametric_model` masih meng-extrude semua entitas di bidang, memakai `fillet_all`, memetakan fitur→body lewat urutan indeks, dan melewati Boolean/Hole/Helix/Sweep/Loft. |
+
+### Hutang teknis yang diketahui dan sengaja dibiarkan
+
+- `parametric_engine` masih menyimpan `plane_index: usize` di payload fitur.
+  Indeks itu bergeser saat datum plane dihapus — persis cacat yang
+  `PlaneRef` hilangkan. Konversinya sudah dipusatkan di
+  `document.rs::plane_ref_for_index`; memindahkan payload ke `PlaneRef`
+  adalah bagian P0.5.
+- `DuCADApp` masih ~96 field.
+
+---
+
+## Fase B — P1 Sketch & Drafting 2D
+
+| Item | Status | Catatan |
+|---|---|---|
+| **P1.4** Nested region → profil berlubang | ✅ **selesai** | `find_region_hierarchy` (aturan ganjil-genap), `Profile::WithHoles`, `build_face_on_plane`. Plus `KernelShape::volume()` (B-rep eksak) yang dibutuhkan untuk membuktikannya. |
+| **P1.2** Solver | 🟡 **sebagian** | `analyze_dof` (rank, DOF, redundansi **per indeks kendala**), dekomposisi gugus union-find, 4 constraint baru (`PointOnCurve`, `Midpoint`, `Concentric`, `Collinear`). **Belum**: Jacobian analitik, sparse solver, drag-with-solver, auto-constraint inference, pewarnaan DOF di kanvas. |
+| **P1.7** DXF | 🟡 **sebagian** | Impor LWPOLYLINE (terbuka/tertutup), POLYLINE gaya lama, segmen bulge→busur, ELLIPSE sejajar sumbu. **Belum**: SPLINE, TEXT/MTEXT, INSERT/BLOCK, HATCH, DIMENSION, tabel LAYER/LTYPE, DXF biner, ekspor entitas baru, DWG. |
+| **P1.1** Entitas 2D baru | ❌ **belum** | `Point`, `Polyline` (bulge), NURBS `BSpline`, `Ellipse` berotasi, `Text` sebagai entitas, `Hatch`. Menyentuh hit-test, snap, offset, trim, render, dan kernel. **Ellips berotasi memblokir impor DXF-nya** (saat ini dilewati, bukan diimpor salah). |
+| **P1.6** Command line ala AutoCAD | ❌ **belum** | Alias perintah, `@10<45`, Ortho/Polar/Otrack, Move/Copy/Rotate/Scale/Stretch/Array/Join/Explode/Break. |
+| **P1.3** Driving dimensions + parameter | ⛔ **terblokir** | Butuh `ParamTable` di `Document` — menunggu P0.1. |
+| **P1.5** Layers, blocks, linetypes | ⛔ **terblokir** | Butuh `Document` — menunggu P0.1. |
+
+---
+
+## Urutan yang disarankan berikutnya
+
+1. **P0.1 lanjutan** — `Document` tunggal + `EditorState`. Membuka P1.3 dan
+   P1.5 sekaligus, dan merupakan prasyarat container v2 (P0.3).
+2. **P0.4** binding `BRepTools_History` — memblokir P0.5, dan tanpanya
+   fillet/hole/mate tidak akan pernah asosiatif.
+3. **P1.1** entitas 2D — juga membuka sisa impor DXF.
+
+## Tindakan yang perlu pemilik repo
+
+- **Push submodule**: `git -C ducad-editor/vendors/opencascade-rs push
+  origin ducad-patches`. Tanpa ini gitlink menunjuk commit yang tidak ada
+  di remote dan CI gagal meng-clone.
+- **Keputusan reformat rustfmt massal** (~1.628 selisih). Prosedurnya ada
+  di `.github/workflows/ci.yml`.
