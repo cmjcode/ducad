@@ -1,4 +1,4 @@
-# Status Fase A (P0), B (P1), C (P2) & D (P4)
+# Status Fase A (P0), B (P1), C (P2), D (P4) & E (P3)
 
 Diperbarui: 2026-09-12. Sumber rencana: `.claude/plans/ducad-pro-cad-roadmap.plan.md`.
 
@@ -70,6 +70,17 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 | **P4.2** Model sheet & view | ❌ **belum** | Multi-sheet, `DrawingView` (Projected/Auxiliary/Section/Detail/Broken/Crop), penyelarasan tampak, template title block kustom. `hlr.rs` berbasis mesh masih dipakai di sini. |
 | **P4.3** Anotasi standar | ⛔ **terblokir** | Dimensi asosiatif butuh `TopoRef` dari **P0.4**. GD&T, toleransi ISO 286, surface finish, weld belum. |
 | **P4.4** Ekspor gambar | ❌ **belum** | DXF dengan entitas DIMENSION asli, PDF/A multi-halaman dengan font tertanam. Kini MUNGKIN menulis CIRCLE/ARC sungguhan berkat P4.1, tapi butuh P4.2 dulu. |
+
+---
+
+## Fase E — P3 Perakitan (Assembly)
+
+| Item | Status | Catatan |
+|---|---|---|
+| **P3.2** Mate solver | 🟡 **sebagian** | Solver sekuensial diganti relaksasi SIMULTAN gaya Jacobi. Memperbaiki tiga cacat nyata: mate belakangan merusak mate sebelumnya, status yang berbohong, dan hasil non-deterministik karena urutan `HashMap`. Geometri target kini ditafsirkan di kerangka LOKAL part lalu ditransformasi ke dunia. **Belum**: joints (revolute/slider/ball), limit mates, drag dengan solver, DOF per instance, exploded view. |
+| **P3.1** Model referensi part | ❌ **belum** | `PartRef::External`, komposisi transform sub-assembly (saat ini `parent_sub_assembly` hanya label pengelompokan, bukan kerangka transform), instancing di renderer. |
+| **P3.3** Interference skala besar | ❌ **belum** | Broad-phase AABB sederhana sudah ada; BVH `parry3d`, mid-phase tri-tri, clearance check, dan collision saat drag belum. |
+| **P3.4** BOM & properti | ❌ **belum** | Custom properties per part, BOM hierarkis/indented, ekspor CSV/XLSX. |
 
 ---
 
