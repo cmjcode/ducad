@@ -1,4 +1,4 @@
-# Status Fase A (P0), Fase B (P1) & Fase C (P2)
+# Status Fase A (P0), B (P1), C (P2) & D (P4)
 
 Diperbarui: 2026-09-12. Sumber rencana: `.claude/plans/ducad-pro-cad-roadmap.plan.md`.
 
@@ -59,6 +59,17 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 | **P2.4** Surface modeling | ❌ **belum** | Thicken, knit, trim, extend, replace/delete face. |
 | **P2.5** Direct modeling | ❌ **belum** | Move/rotate/offset/delete/replace face, combine multi-body, scale. |
 | **P2.8** Kernel paralel & tessellation inkremental | ❌ **belum** | `KERNEL_LOCK` masih menyerialkan SEMUA operasi OCCT, bukan hanya transfer STEP/IGES. |
+
+---
+
+## Fase D — P4 Gambar Kerja Teknik
+
+| Item | Status | Catatan |
+|---|---|---|
+| **P4.1** HLR eksak | 🟡 **sebagian** | `hlr_exact.rs` di atas binding cxx baru `HLRBRep_Algo`. Kurva mempertahankan jenis analitiknya — lingkaran tetap `EdgeType::Circle`, dan hasilnya tidak bergantung kerapatan tesselasi. **Belum**: menggantikan pemakaian `hlr.rs` lama di `drawing_sheet_view`/ekspor (itu P4.2), auxiliary view, dan proyeksi 6 tampak. |
+| **P4.2** Model sheet & view | ❌ **belum** | Multi-sheet, `DrawingView` (Projected/Auxiliary/Section/Detail/Broken/Crop), penyelarasan tampak, template title block kustom. `hlr.rs` berbasis mesh masih dipakai di sini. |
+| **P4.3** Anotasi standar | ⛔ **terblokir** | Dimensi asosiatif butuh `TopoRef` dari **P0.4**. GD&T, toleransi ISO 286, surface finish, weld belum. |
+| **P4.4** Ekspor gambar | ❌ **belum** | DXF dengan entitas DIMENSION asli, PDF/A multi-halaman dengan font tertanam. Kini MUNGKIN menulis CIRCLE/ARC sungguhan berkat P4.1, tapi butuh P4.2 dulu. |
 
 ---
 
