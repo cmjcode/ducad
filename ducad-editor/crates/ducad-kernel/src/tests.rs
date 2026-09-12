@@ -2253,3 +2253,61 @@ fn test_extract_shape_edges_for_box() {
 }
 
 
+
+/// BREP biner adalah jalur penyimpanan internal yang diusulkan menggantikan
+/// teks STEP di file native `.ducad`. Test ini membuktikan dua hal yang
+/// harus benar sebelum penggantian itu layak: roundtrip-nya menjaga
+/// geometri, dan ukurannya memang jauh lebih kecil.
+#[test]
+fn brep_bytes_roundtrip_preserves_geometry() {
+    let _guard = lock_test();
+    let profile = rect_profile(40.0, 30.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+    let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+
+    let bytes = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+    assert!(!bytes.is_empty(), "BREP tidak boleh kosong");
+
+    let restored =
+        KernelShape::from_brep_bytes(&bytes).expect("from_brep_bytes harus berhasil");
+
+    let before = rounded.tessellate();
+    let after = restored.tessellate();
+    assert_eq!(
+        before.positions.len(),
+        after.positions.len(),
+        "jumlah vertex harus identik setelah roundtrip"
+    );
+    assert_eq!(
+        before.triangle_count(),
+        after.triangle_count(),
+        "jumlah segitiga harus identik setelah roundtrip"
+    );
+    assert_eq!(
+        rounded.inner().faces().count(),
+        restored.inner().faces().count(),
+        "jumlah face harus identik setelah roundtrip"
+    );
+}
+
+#[test]
+fn brep_bytes_are_much_smaller_than_step_text() {
+    let _guard = lock_test();
+    let profile = rect_profile(40.0, 30.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+    let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+
+    let brep = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+    let step = rounded.to_step_string().expect("to_step_string harus berhasil");
+
+    // Angka persisnya tidak dikunci (bisa bergeser antar versi OCCT); yang
+    // dikunci adalah KLAIM yang mendasari keputusan format file: BREP biner
+    // secara substansial lebih kecil daripada teks STEP AP214.
+    println!("BREP {} byte vs STEP {} byte", brep.len(), step.len());
+    assert!(
+        brep.len() * 2 < step.len(),
+        "BREP ({} byte) seharusnya < separuh STEP ({} byte)",
+        brep.len(),
+        step.len()
+    );
+}

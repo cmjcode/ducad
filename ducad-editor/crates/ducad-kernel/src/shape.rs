@@ -87,6 +87,47 @@ impl KernelShape {
         result
     }
 
+    /// Serialize B-rep ini jadi BREP biner OCCT (`BinTools`).
+    ///
+    /// Alternatif `to_step_string` untuk penyimpanan INTERNAL (file native
+    /// `.ducad`, snapshot undo, cache). Bukan pengganti STEP untuk
+    /// PERTUKARAN data: BREP adalah format internal OCCT, tidak dibaca CAD
+    /// lain, dan tidak menjanjikan kompatibilitas lintas versi OCCT mayor.
+    /// Justru karena itu ia jauh lebih murah — tidak ada lapisan pemetaan
+    /// skema AP214, tidak ada teks yang harus di-parse.
+    ///
+    /// Roundtrip lewat berkas sementara, pola yang sama dengan
+    /// `to_step_string`: binding ini belum meng-expose `BinTools::Write`
+    /// ke `std::ostream` in-memory. Menambah binding itu adalah
+    /// optimisasi lanjutan yang jelas, tapi bukan prasyarat — biaya
+    /// dominannya ada di serialisasi OCCT sendiri, bukan di I/O berkas.
+    pub fn to_brep_bytes(&self) -> Result<Vec<u8>> {
+        let _guard = lock_kernel();
+        let path = temp_step_path("to-brep-bytes");
+        let result = (|| -> Result<Vec<u8>> {
+            self.0
+                .write_brep_bin(&path)
+                .context("to_brep_bytes: gagal menulis BREP sementara")?;
+            std::fs::read(&path).context("to_brep_bytes: gagal membaca balik BREP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    }
+
+    /// Kebalikan [`KernelShape::to_brep_bytes`].
+    pub fn from_brep_bytes(bytes: &[u8]) -> Result<Self> {
+        let _guard = lock_kernel();
+        let path = temp_step_path("from-brep-bytes");
+        let result = (|| -> Result<Shape> {
+            std::fs::write(&path, bytes)
+                .context("from_brep_bytes: gagal menulis BREP sementara")?;
+            Shape::read_brep_bin(&path)
+                .context("from_brep_bytes: gagal membaca balik BREP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result.map(KernelShape)
+    }
+
     /// Kebalikan `to_step_string`.
     pub fn from_step_string(step: &str) -> Result<Self> {
         let _guard = lock_kernel();
