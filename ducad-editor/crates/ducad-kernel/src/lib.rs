@@ -10,6 +10,7 @@ pub mod csg;
 pub mod detail;
 pub mod helix;
 pub mod hlr;
+pub mod hlr_exact;
 pub mod hole;
 pub mod interference;
 pub mod mesh;
@@ -75,6 +76,7 @@ pub use hlr::{
     HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
     ProjectedViewKind,
 };
+pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
 pub use hole::{apply_hole, create_hole_cutter};
 pub use interference::{
     compute_mesh_centroid, compute_mesh_volume, compute_pair_interference, detect_interference,

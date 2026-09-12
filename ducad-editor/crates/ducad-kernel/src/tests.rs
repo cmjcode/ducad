@@ -2583,3 +2583,110 @@ fn extents_are_built_as_one_prism_without_internal_seam() {
         "extrude simetris tidak boleh menyisakan face sambungan"
     );
 }
+
+// ---------------------------------------------------------------------
+// P4.1 — HLR eksak.
+// ---------------------------------------------------------------------
+
+#[test]
+fn exact_hlr_keeps_a_circle_as_a_circle() {
+    // INTI P4.1. HLR berbasis mesh mengembalikan lingkaran sebagai poligon
+    // puluhan sisi — bergerigi saat dicetak dan tidak bisa diberi dimensi
+    // diameter yang benar. HLR eksak bekerja pada topologi B-rep, jadi
+    // lingkarannya tetap kurva analitik.
+    let _guard = lock_test();
+    let cyl = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 10.0,
+        },
+        30.0,
+    )
+    .unwrap();
+
+    // Pandang dari atas (-Z): tutup silinder menghadap kamera.
+    let view = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+        .expect("HLR harus berhasil untuk silinder sederhana");
+
+    assert!(!view.curves.is_empty(), "HLR tidak boleh kosong");
+    assert!(
+        view.analytic_count() > 0,
+        "minimal satu kurva harus tetap analitik, bukan semuanya jadi garis"
+    );
+    assert!(
+        view.curves
+            .iter()
+            .any(|c| matches!(c.curve, opencascade::primitives::EdgeType::Circle)),
+        "tutup silinder harus muncul sebagai LINGKARAN, bukan rantai garis; \
+         jenis kurva yang didapat: {:?}",
+        view.curves.iter().map(|c| c.curve).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn exact_hlr_separates_visible_from_hidden_edges() {
+    // Balok dipandang dari depan: tiga rusuk belakang tertutup badan solid.
+    // HLR mesh menentukannya lewat uji oklusi terhadap segitiga; HLR eksak
+    // menentukannya dari topologi, jadi hasilnya tidak berubah-ubah
+    // mengikuti kerapatan tesselasi.
+    let _guard = lock_test();
+    let solid = extrude_profile(&rect_profile(40.0, 30.0), 20.0).unwrap();
+
+    let view = crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .expect("HLR harus berhasil untuk balok");
+
+    assert!(view.visible().count() > 0, "harus ada rusuk yang terlihat");
+    assert!(
+        view.hidden().count() > 0,
+        "balok pejal dipandang dari depan HARUS punya rusuk tersembunyi"
+    );
+}
+
+#[test]
+fn exact_hlr_rejects_up_vector_parallel_to_view() {
+    // `gp_Ax2` menolak sumbu X yang sejajar normalnya. Disaring lebih awal
+    // supaya jadi error Rust yang jelas, bukan lemparan C++ yang menembus
+    // batas FFI.
+    let _guard = lock_test();
+    let solid = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    assert!(
+        crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)).is_err(),
+        "vektor atas sejajar arah pandang harus ditolak"
+    );
+    assert!(
+        crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 0.0, 0.0), (0.0, 1.0, 0.0)).is_err(),
+        "arah pandang nol harus ditolak"
+    );
+}
+
+#[test]
+fn exact_hlr_is_independent_of_tessellation_density() {
+    // Klaim kunci dibanding HLR berbasis mesh: mengubah kerapatan tesselasi
+    // TIDAK boleh mengubah gambar tekniknya. Di sini di-mesh dengan
+    // toleransi berbeda lebih dulu, lalu HLR dijalankan pada shape yang sama.
+    let _guard = lock_test();
+    let cyl = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 8.0,
+        },
+        20.0,
+    )
+    .unwrap();
+
+    let before = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .unwrap()
+        .curves
+        .len();
+    // Paksa tesselasi (mengisi triangulasi internal shape).
+    let _ = cyl.tessellate();
+    let after = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .unwrap()
+        .curves
+        .len();
+
+    assert_eq!(
+        before, after,
+        "jumlah kurva HLR tidak boleh berubah karena tesselasi"
+    );
+}
