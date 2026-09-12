@@ -358,8 +358,8 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
     // Pose awal, untuk menghitung total perpindahan di akhir.
     let initial: std::collections::HashMap<AssemblyInstanceId, (DVec3, DQuat)> = tree
         .instances
-        .iter()
-        .map(|(id, inst)| (*id, instance_pose(inst)))
+        .keys()
+        .filter_map(|id| tree.instance_world_transform(*id).map(|p| (*id, p)))
         .collect();
 
     let mut iterations = 0;
@@ -385,10 +385,13 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
                 continue;
             }
 
-            let Some(pose_a) = tree.instances.get(&id_a).map(instance_pose) else {
+            // Pose DUNIA, bukan pose lokal: instance yang berada di dalam
+            // sub-assembly mewarisi transform induknya, dan mate harus
+            // dihitung terhadap posisi nyatanya di ruang perakitan.
+            let Some(pose_a) = tree.instance_world_transform(id_a) else {
                 continue;
             };
-            let Some(pose_b) = tree.instances.get(&id_b).map(instance_pose) else {
+            let Some(pose_b) = tree.instance_world_transform(id_b) else {
                 continue;
             };
 
@@ -440,20 +443,26 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
         }
 
         for (inst_id, (sum_t, sum_q, count)) in accum {
+            let (_, parent_q) = tree.instance_parent_transform(inst_id);
             let Some(inst) = tree.instances.get_mut(&inst_id) else {
                 continue;
             };
             let n = count.max(1) as f64;
             let avg_t = sum_t / n * RELAXATION;
-            inst.translation.0 += avg_t.x;
-            inst.translation.1 += avg_t.y;
-            inst.translation.2 += avg_t.z;
+            // Koreksi dihitung di ruang DUNIA, sementara `translation`
+            // instance dinyatakan relatif terhadap sub-assembly induknya —
+            // jadi koreksinya harus diputar balik ke kerangka induk.
+            let local_t = parent_q.inverse() * avg_t;
+            inst.translation.0 += local_t.x;
+            inst.translation.1 += local_t.y;
+            inst.translation.2 += local_t.z;
 
             if sum_q.length_squared() > 1e-12 {
                 // Rata-rata + relaksasi rotasi = interpolasi dari identitas.
-                let step = DQuat::IDENTITY.slerp(sum_q.normalize(), RELAXATION / n);
+                let step_world = DQuat::IDENTITY.slerp(sum_q.normalize(), RELAXATION / n);
+                let step_local = parent_q.inverse() * step_world * parent_q;
                 let (_, cur_q) = instance_pose(inst);
-                let new_q = (step * cur_q).normalize();
+                let new_q = (step_local * cur_q).normalize();
                 inst.rotation_quat = (new_q.x, new_q.y, new_q.z, new_q.w);
             }
         }
@@ -468,8 +477,8 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
         let id_a = mate.target_a.instance_id;
         let id_b = mate.target_b.instance_id;
         let (Some(pose_a), Some(pose_b)) = (
-            tree.instances.get(&id_a).map(instance_pose),
-            tree.instances.get(&id_b).map(instance_pose),
+            tree.instance_world_transform(id_a),
+            tree.instance_world_transform(id_b),
         ) else {
             continue;
         };
@@ -492,11 +501,13 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
     // Total perpindahan tiap instance dari posisi awalnya, supaya pemanggil
     // menggeser geometri B-rep-nya SEKALI saja — bukan sekali per iterasi.
     let mut applied = Vec::new();
-    for (id, inst) in tree.instances.iter() {
+    for id in tree.instances.keys() {
         let Some(&(t0, q0)) = initial.get(id) else {
             continue;
         };
-        let (t1, q1) = instance_pose(inst);
+        let Some((t1, q1)) = tree.instance_world_transform(*id) else {
+            continue;
+        };
         let dq = q1 * q0.inverse();
         let (axis, angle) = dq.to_axis_angle();
         let dt = t1 - t0;

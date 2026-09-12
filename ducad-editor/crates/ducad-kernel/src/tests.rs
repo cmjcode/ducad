@@ -2690,3 +2690,108 @@ fn exact_hlr_is_independent_of_tessellation_density() {
         "jumlah kurva HLR tidak boleh berubah karena tesselasi"
     );
 }
+
+// ---------------------------------------------------------------------
+// P3.3 — mid-phase deteksi tabrakan.
+// ---------------------------------------------------------------------
+
+#[test]
+fn interference_mid_phase_does_not_miss_full_containment() {
+    // JEBAKAN YANG PALING BERBAHAYA di mid-phase berbasis segitiga: bodi
+    // yang SEPENUHNYA berada di dalam bodi lain tidak punya satu pun
+    // segitiga yang beririsan, padahal itu interferensi total. Tanpa
+    // penjagaan containment, mid-phase akan menolaknya dan tabrakan itu
+    // hilang dari laporan.
+    let _guard = lock_test();
+    let outer = extrude_profile(&rect_profile(100.0, 100.0), 100.0).unwrap();
+    let inner_profile = Profile::Loop(vec![
+        ducad_kernel_seg((40.0, 40.0), (60.0, 40.0)),
+        ducad_kernel_seg((60.0, 40.0), (60.0, 60.0)),
+        ducad_kernel_seg((60.0, 60.0), (40.0, 60.0)),
+        ducad_kernel_seg((40.0, 60.0), (40.0, 40.0)),
+    ]);
+    let inner = crate::csg::extrude_profile_on_plane(
+        &inner_profile,
+        [0.0, 0.0, 40.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+    )
+    .unwrap();
+
+    let name_a = "Outer".to_string();
+    let name_b = "Inner".to_string();
+    let clashes = detect_interference(&[(1, name_a, &outer), (2, name_b, &inner)], 0.001);
+    assert_eq!(
+        clashes.len(),
+        1,
+        "bodi yang tertelan seluruhnya HARUS tetap terdeteksi sebagai tabrakan"
+    );
+    assert!(clashes[0].volume > 7_000.0, "volume {}", clashes[0].volume);
+}
+
+#[test]
+fn interference_mid_phase_rejects_overlapping_boxes_that_do_not_touch() {
+    // Dua balok yang bounding box gabungannya tumpang tindih tapi
+    // solid-nya tidak bersentuhan. Broad-phase AABB saja meloloskannya,
+    // sehingga dulu tetap membayar operasi boolean penuh.
+    let _guard = lock_test();
+    let a = crate::csg::extrude_profile_on_plane(
+        &rect_profile(20.0, 5.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        5.0,
+    )
+    .unwrap();
+    // Digeser sehingga AABB-nya beririsan di sumbu X, tapi terpisah di Y.
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(5.0, 20.0),
+        [10.0, 30.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        5.0,
+    )
+    .unwrap();
+
+    let clashes = detect_interference(
+        &[(1, "A".to_string(), &a), (2, "B".to_string(), &b)],
+        0.001,
+    );
+    assert!(clashes.is_empty(), "tidak bersentuhan, tidak boleh ada clash");
+}
+
+#[test]
+fn interference_still_detects_genuine_overlap() {
+    // Regresi: mid-phase tidak boleh menghilangkan tabrakan yang nyata.
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(40.0, 40.0), 40.0).unwrap();
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(40.0, 40.0),
+        [20.0, 20.0, 20.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        40.0,
+    )
+    .unwrap();
+
+    let clashes = detect_interference(
+        &[(1, "A".to_string(), &a), (2, "B".to_string(), &b)],
+        0.001,
+    );
+    assert_eq!(clashes.len(), 1, "tumpang tindih nyata harus terdeteksi");
+    // Irisan 20x20x20 = 8000 mm^3.
+    assert!(
+        (clashes[0].volume - 8000.0).abs() / 8000.0 < 0.02,
+        "volume tabrakan {}",
+        clashes[0].volume
+    );
+}
+
+fn ducad_kernel_seg(start: (f64, f64), end: (f64, f64)) -> ProfileSegment {
+    ProfileSegment::Line { start, end }
+}

@@ -78,8 +78,8 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 | Item | Status | Catatan |
 |---|---|---|
 | **P3.2** Mate solver | 🟡 **sebagian** | Solver sekuensial diganti relaksasi SIMULTAN gaya Jacobi. Memperbaiki tiga cacat nyata: mate belakangan merusak mate sebelumnya, status yang berbohong, dan hasil non-deterministik karena urutan `HashMap`. Geometri target kini ditafsirkan di kerangka LOKAL part lalu ditransformasi ke dunia. **Belum**: joints (revolute/slider/ball), limit mates, drag dengan solver, DOF per instance, exploded view. |
-| **P3.1** Model referensi part | ❌ **belum** | `PartRef::External`, komposisi transform sub-assembly (saat ini `parent_sub_assembly` hanya label pengelompokan, bukan kerangka transform), instancing di renderer. |
-| **P3.3** Interference skala besar | ❌ **belum** | Broad-phase AABB sederhana sudah ada; BVH `parry3d`, mid-phase tri-tri, clearance check, dan collision saat drag belum. |
+| **P3.1** Model referensi part | 🟡 **sebagian** | `SubAssembly` kini punya transform sendiri dan disusun hierarkis (`instance_world_transform`), dengan penjagaan siklus dan penolakan re-parent ke turunan sendiri. Solver mate memakai transform dunia itu. **Belum**: `PartRef::External` (referensi part dari berkas lain) dan instancing di renderer. |
+| **P3.3** Interference skala besar | 🟡 **sebagian** | Mid-phase ditambahkan: BVH segitiga + uji irisan segitiga-segitiga (SAT), sehingga pasangan yang AABB-nya tumpang tindih tapi tidak bersentuhan tidak lagi membayar boolean B-rep penuh. Menyertakan penjagaan containment — bodi yang tertelan seluruhnya tidak punya irisan segitiga tapi TETAP interferensi. **Belum**: clearance check (`BRepExtrema`), collision saat drag, paralelisasi. |
 | **P3.4** BOM & properti | ❌ **belum** | Custom properties per part, BOM hierarkis/indented, ekspor CSV/XLSX. |
 
 ---

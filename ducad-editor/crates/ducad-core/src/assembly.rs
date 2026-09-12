@@ -6,8 +6,9 @@
 //! - Relasi Mate Constraints 3D (Concentric, Coincident, Distance, Angle).
 //! - Pelacakan derajat kebebasan (Degrees of Freedom - DOF).
 
+use glam::{DQuat, DVec3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Identifier unik untuk instance part dalam perakitan.
 pub type AssemblyInstanceId = u32;
@@ -188,12 +189,47 @@ impl AssemblyInstance {
 }
 
 /// Node kelompok Sub-Assembly dalam hierarki perakitan.
+///
+/// Sub-assembly adalah KERANGKA KOORDINAT, bukan sekadar label
+/// pengelompokan di panel. Sebelumnya ia tidak punya transform sama sekali,
+/// sehingga memindahkan sebuah sub-assembly mustahil dan part di dalamnya
+/// tidak pernah ikut bergerak — hierarkinya hanya ada di tampilan pohon.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubAssembly {
     pub id: SubAssemblyId,
     pub name: String,
     pub expanded: bool,
     pub parent_sub_assembly: Option<SubAssemblyId>,
+    /// Translasi terhadap kerangka INDUKNYA (mm).
+    #[serde(default)]
+    pub translation: (f64, f64, f64),
+    /// Rotasi terhadap kerangka induknya, quaternion (x, y, z, w).
+    #[serde(default = "identity_quat")]
+    pub rotation_quat: (f64, f64, f64, f64),
+}
+
+fn identity_quat() -> (f64, f64, f64, f64) {
+    (0.0, 0.0, 0.0, 1.0)
+}
+
+/// Kedalaman hierarki maksimum yang ditelusuri saat menyusun transform.
+///
+/// Rantai `parent_sub_assembly` bisa membentuk siklus akibat data rusak
+/// atau operasi UI yang salah (memindahkan sub-assembly ke dalam
+/// turunannya sendiri). Tanpa batas ini, penyusunan transform akan
+/// berputar selamanya dan membekukan aplikasi.
+const MAX_ASSEMBLY_DEPTH: usize = 64;
+
+/// Ubah pasangan tuple tersimpan menjadi tipe glam, menormalkan quaternion
+/// yang nol/rusak jadi identitas alih-alih menghasilkan rotasi NaN.
+fn local_pose(t: (f64, f64, f64), q: (f64, f64, f64, f64)) -> (DVec3, DQuat) {
+    let quat = DQuat::from_xyzw(q.0, q.1, q.2, q.3);
+    let quat = if quat.length_squared() < 1e-12 {
+        DQuat::IDENTITY
+    } else {
+        quat.normalize()
+    };
+    (DVec3::new(t.0, t.1, t.2), quat)
 }
 
 /// Struktur data lengkap Pohon Hierarki Perakitan (Assembly Tree).
@@ -269,6 +305,8 @@ impl AssemblyTree {
                 name: name.into(),
                 expanded: true,
                 parent_sub_assembly: parent,
+                translation: (0.0, 0.0, 0.0),
+                rotation_quat: identity_quat(),
             },
         );
         id
@@ -288,6 +326,106 @@ impl AssemblyTree {
             }
         }
         self.sub_assemblies.remove(&id)
+    }
+
+    // ----------------------------------------------------------------
+    // Komposisi transform hierarkis.
+    // ----------------------------------------------------------------
+
+    /// Transform sebuah sub-assembly terhadap DUNIA, hasil penyusunan
+    /// seluruh rantai induknya.
+    ///
+    /// Mengembalikan `None` bila `id` tidak dikenal atau rantai induknya
+    /// membentuk siklus — lebih baik melapor daripada berputar selamanya
+    /// atau diam-diam memakai transform yang salah.
+    pub fn sub_world_transform(&self, id: SubAssemblyId) -> Option<(DVec3, DQuat)> {
+        // Kumpulkan rantai dari node ke akar dulu, baru disusun dari akar
+        // ke bawah: transform induk harus diterapkan SEBELUM transform anak.
+        let mut chain = Vec::new();
+        let mut seen = HashSet::new();
+        let mut cursor = Some(id);
+        while let Some(sid) = cursor {
+            if !seen.insert(sid) || chain.len() >= MAX_ASSEMBLY_DEPTH {
+                return None; // siklus atau kedalaman tak masuk akal
+            }
+            let sub = self.sub_assemblies.get(&sid)?;
+            chain.push(sub);
+            cursor = sub.parent_sub_assembly;
+        }
+
+        let mut t = DVec3::ZERO;
+        let mut q = DQuat::IDENTITY;
+        for sub in chain.iter().rev() {
+            let (lt, lq) = local_pose(sub.translation, sub.rotation_quat);
+            t += q * lt;
+            q = (q * lq).normalize();
+        }
+        Some((t, q))
+    }
+
+    /// Transform sebuah instance part terhadap DUNIA: transform lokalnya
+    /// disusun di atas transform seluruh sub-assembly induknya.
+    ///
+    /// Inilah yang membuat memindahkan sub-assembly benar-benar memindahkan
+    /// isinya.
+    pub fn instance_world_transform(&self, id: AssemblyInstanceId) -> Option<(DVec3, DQuat)> {
+        let inst = self.instances.get(&id)?;
+        let (lt, lq) = local_pose(inst.translation, inst.rotation_quat);
+        let (pt, pq) = match inst.parent_sub_assembly {
+            Some(parent) => self.sub_world_transform(parent)?,
+            None => (DVec3::ZERO, DQuat::IDENTITY),
+        };
+        Some((pt + pq * lt, (pq * lq).normalize()))
+    }
+
+    /// Transform kerangka INDUK sebuah instance — dipakai mengubah koreksi
+    /// yang dihitung di ruang dunia menjadi pergeseran lokal instance.
+    pub fn instance_parent_transform(&self, id: AssemblyInstanceId) -> (DVec3, DQuat) {
+        self.instances
+            .get(&id)
+            .and_then(|i| i.parent_sub_assembly)
+            .and_then(|p| self.sub_world_transform(p))
+            .unwrap_or((DVec3::ZERO, DQuat::IDENTITY))
+    }
+
+    /// Apakah menjadikan `new_parent` sebagai induk `sub` akan membuat
+    /// siklus. Dipakai UI sebelum memindahkan node di pohon perakitan.
+    pub fn would_create_cycle(&self, sub: SubAssemblyId, new_parent: Option<SubAssemblyId>) -> bool {
+        let mut cursor = new_parent;
+        let mut steps = 0;
+        while let Some(cur) = cursor {
+            if cur == sub {
+                return true;
+            }
+            steps += 1;
+            if steps > MAX_ASSEMBLY_DEPTH {
+                return true; // rantainya sendiri sudah rusak
+            }
+            cursor = self
+                .sub_assemblies
+                .get(&cur)
+                .and_then(|s| s.parent_sub_assembly);
+        }
+        false
+    }
+
+    /// Pindahkan sub-assembly ke induk baru, MENOLAK perpindahan yang akan
+    /// membuat siklus. Mengembalikan `false` bila ditolak.
+    pub fn set_sub_assembly_parent(
+        &mut self,
+        sub: SubAssemblyId,
+        new_parent: Option<SubAssemblyId>,
+    ) -> bool {
+        if self.would_create_cycle(sub, new_parent) {
+            return false;
+        }
+        match self.sub_assemblies.get_mut(&sub) {
+            Some(s) => {
+                s.parent_sub_assembly = new_parent;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Pindahkan instance ke dalam sub-assembly tertentu (atau keluar jika `None`).
@@ -544,3 +682,157 @@ impl ClashReport {
     }
 }
 
+
+#[cfg(test)]
+mod hierarchy_tests {
+    use super::*;
+    use std::f64::consts::FRAC_PI_2;
+
+    fn quat(axis: DVec3, angle: f64) -> (f64, f64, f64, f64) {
+        let q = DQuat::from_axis_angle(axis, angle);
+        (q.x, q.y, q.z, q.w)
+    }
+
+    #[test]
+    fn moving_a_sub_assembly_moves_its_parts() {
+        // Inti P3.1. Sebelumnya `SubAssembly` tidak punya transform sama
+        // sekali, jadi hierarkinya hanya ada di panel — memindahkan
+        // sub-assembly tidak menggerakkan apa pun.
+        let mut tree = AssemblyTree::default();
+        let sub = tree.add_sub_assembly("Gearbox", None);
+        let inst = tree.add_instance("Gear", 1);
+        tree.set_instance_parent(inst, Some(sub));
+
+        if let Some(i) = tree.instances.get_mut(&inst) {
+            i.translation = (5.0, 0.0, 0.0);
+        }
+        if let Some(s) = tree.sub_assemblies.get_mut(&sub) {
+            s.translation = (100.0, 0.0, 0.0);
+        }
+
+        let (t, _) = tree.instance_world_transform(inst).unwrap();
+        assert!(
+            (t - DVec3::new(105.0, 0.0, 0.0)).length() < 1e-9,
+            "posisi dunia {t:?} — transform sub-assembly harus ikut tersusun"
+        );
+    }
+
+    #[test]
+    fn sub_assembly_rotation_rotates_child_offset() {
+        // Rotasi induk harus MEMUTAR offset anaknya, bukan sekadar
+        // menjumlahkan translasi. Part di (10,0,0) dalam sub-assembly yang
+        // diputar 90° terhadap Z harus berakhir di (0,10,0).
+        let mut tree = AssemblyTree::default();
+        let sub = tree.add_sub_assembly("Arm", None);
+        let inst = tree.add_instance("Tip", 1);
+        tree.set_instance_parent(inst, Some(sub));
+
+        if let Some(i) = tree.instances.get_mut(&inst) {
+            i.translation = (10.0, 0.0, 0.0);
+        }
+        if let Some(s) = tree.sub_assemblies.get_mut(&sub) {
+            s.rotation_quat = quat(DVec3::Z, FRAC_PI_2);
+        }
+
+        let (t, _) = tree.instance_world_transform(inst).unwrap();
+        assert!(
+            (t - DVec3::new(0.0, 10.0, 0.0)).length() < 1e-9,
+            "posisi dunia {t:?}"
+        );
+    }
+
+    #[test]
+    fn nested_sub_assemblies_compose_in_order() {
+        // Transform induk diterapkan SEBELUM transform anak; urutan yang
+        // terbalik akan memberi jawaban berbeda pada rotasi.
+        let mut tree = AssemblyTree::default();
+        let outer = tree.add_sub_assembly("Outer", None);
+        let inner = tree.add_sub_assembly("Inner", Some(outer));
+        let inst = tree.add_instance("Part", 1);
+        tree.set_instance_parent(inst, Some(inner));
+
+        if let Some(s) = tree.sub_assemblies.get_mut(&outer) {
+            s.rotation_quat = quat(DVec3::Z, FRAC_PI_2);
+        }
+        if let Some(s) = tree.sub_assemblies.get_mut(&inner) {
+            s.translation = (10.0, 0.0, 0.0);
+        }
+        if let Some(i) = tree.instances.get_mut(&inst) {
+            i.translation = (0.0, 5.0, 0.0);
+        }
+
+        // Inner di (10,0,0) lokal -> diputar 90°Z jadi (0,10,0).
+        // Part (0,5,0) lokal -> diputar 90°Z jadi (-5,0,0); total (-5,10,0).
+        let (t, _) = tree.instance_world_transform(inst).unwrap();
+        assert!(
+            (t - DVec3::new(-5.0, 10.0, 0.0)).length() < 1e-9,
+            "posisi dunia {t:?}"
+        );
+    }
+
+    #[test]
+    fn cyclic_parent_chain_is_reported_not_hung() {
+        // Data rusak atau drag-drop yang salah bisa membuat siklus.
+        // Tanpa penjagaan, penyusunan transform berputar selamanya dan
+        // membekukan aplikasi.
+        let mut tree = AssemblyTree::default();
+        let a = tree.add_sub_assembly("A", None);
+        let b = tree.add_sub_assembly("B", Some(a));
+        // Paksa siklus langsung ke struktur data (melewati penjagaan API).
+        tree.sub_assemblies.get_mut(&a).unwrap().parent_sub_assembly = Some(b);
+
+        assert!(
+            tree.sub_world_transform(a).is_none(),
+            "rantai bersiklus harus dilaporkan None, bukan menggantung"
+        );
+    }
+
+    #[test]
+    fn reparenting_into_own_descendant_is_refused() {
+        let mut tree = AssemblyTree::default();
+        let a = tree.add_sub_assembly("A", None);
+        let b = tree.add_sub_assembly("B", Some(a));
+
+        assert!(tree.would_create_cycle(a, Some(b)));
+        assert!(
+            !tree.set_sub_assembly_parent(a, Some(b)),
+            "memindahkan A ke dalam turunannya sendiri harus DITOLAK"
+        );
+        // Struktur tidak berubah.
+        assert_eq!(
+            tree.sub_assemblies.get(&a).unwrap().parent_sub_assembly,
+            None
+        );
+
+        // Perpindahan yang sah tetap diterima.
+        let c = tree.add_sub_assembly("C", None);
+        assert!(tree.set_sub_assembly_parent(b, Some(c)));
+    }
+
+    #[test]
+    fn instance_without_parent_uses_its_own_transform() {
+        let mut tree = AssemblyTree::default();
+        let inst = tree.add_instance("Lone", 1);
+        if let Some(i) = tree.instances.get_mut(&inst) {
+            i.translation = (3.0, 4.0, 5.0);
+        }
+        let (t, q) = tree.instance_world_transform(inst).unwrap();
+        assert!((t - DVec3::new(3.0, 4.0, 5.0)).length() < 1e-9);
+        assert!((q.w - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zero_quaternion_is_treated_as_identity_not_nan() {
+        // Data lama / rusak bisa menyimpan quaternion nol. Menormalkannya
+        // akan menghasilkan NaN yang menjalar ke seluruh perakitan.
+        let mut tree = AssemblyTree::default();
+        let inst = tree.add_instance("Broken", 1);
+        if let Some(i) = tree.instances.get_mut(&inst) {
+            i.rotation_quat = (0.0, 0.0, 0.0, 0.0);
+            i.translation = (1.0, 2.0, 3.0);
+        }
+        let (t, q) = tree.instance_world_transform(inst).unwrap();
+        assert!(t.is_finite() && q.is_finite(), "tidak boleh NaN");
+        assert!((t - DVec3::new(1.0, 2.0, 3.0)).length() < 1e-9);
+    }
+}
