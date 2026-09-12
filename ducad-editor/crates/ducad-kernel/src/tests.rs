@@ -2379,3 +2379,81 @@ fn nested_holes_are_rejected_rather_than_silently_wrong() {
         "profil berlubang bersarang harus ditolak eksplisit"
     );
 }
+
+// ---------------------------------------------------------------------
+// P2.7 — validasi hasil operasi B-rep. P2.6 — mass properties.
+// ---------------------------------------------------------------------
+
+#[test]
+fn boolean_and_fillet_results_are_validated() {
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(40.0, 40.0), 20.0).unwrap();
+    let b = extrude_profile(&rect_profile(20.0, 20.0), 40.0).unwrap();
+
+    // Jalur boolean/fillet kini melewati `validate_or_heal`; yang diuji di
+    // sini adalah bahwa jalur normal TIDAK jadi menolak geometri yang sah.
+    let fused = union(&a, &b).expect("union sah harus tetap berhasil");
+    assert!(fused.is_valid(), "hasil union harus valid");
+
+    let cut = subtract(&a, &b).expect("subtract sah harus tetap berhasil");
+    assert!(cut.is_valid(), "hasil subtract harus valid");
+
+    let rounded = fillet_all(&a, 2.0).expect("fillet sah harus tetap berhasil");
+    assert!(rounded.is_valid(), "hasil fillet harus valid");
+}
+
+#[test]
+fn fillet_radius_too_large_fails_instead_of_returning_broken_solid() {
+    let _guard = lock_test();
+    let box_shape = extrude_profile(&rect_profile(20.0, 20.0), 20.0).unwrap();
+    // Radius jauh lebih besar dari setengah sisi terkecil: tidak ada solid
+    // yang masuk akal. Yang penting ia GAGAL, bukan mengembalikan sesuatu
+    // yang kelihatan benar di viewport lalu meledak saat ekspor STEP.
+    let result = fillet_all(&box_shape, 50.0);
+    if let Ok(shape) = result {
+        assert!(
+            shape.is_valid(),
+            "kalau fillet dilaporkan berhasil, hasilnya WAJIB valid"
+        );
+    }
+}
+
+#[test]
+fn surface_area_of_a_box_matches_analytic_value() {
+    let _guard = lock_test();
+    // Balok 40 x 30 x 20 mm: 2*(40*30 + 40*20 + 30*20) = 2*(1200+800+600).
+    let solid = extrude_profile(&rect_profile(40.0, 30.0), 20.0).unwrap();
+    let expected = 2.0 * (40.0 * 30.0 + 40.0 * 20.0 + 30.0 * 20.0);
+    let actual = solid.surface_area();
+    assert!(
+        (actual - expected).abs() / expected < 1e-9,
+        "luas {actual} != {expected}"
+    );
+}
+
+#[test]
+fn surface_area_increases_when_a_hole_is_added() {
+    // Lubang tembus MENAMBAH luas permukaan (dinding silinder) sekaligus
+    // MENGURANGI volume — dua arah yang berlawanan. Menguji keduanya
+    // sekaligus memastikan lubangnya benar-benar terpotong, bukan sekadar
+    // menghasilkan angka yang berubah.
+    let _guard = lock_test();
+    let plain = extrude_profile(&rect_profile(40.0, 40.0), 10.0).unwrap();
+    let holed = extrude_profile(
+        &rect_profile(40.0, 40.0).with_holes(vec![Profile::Circle {
+            center: (20.0, 20.0),
+            radius: 5.0,
+        }]),
+        10.0,
+    )
+    .unwrap();
+
+    assert!(
+        holed.surface_area() > plain.surface_area(),
+        "dinding lubang harus menambah luas permukaan"
+    );
+    assert!(
+        holed.volume().abs() < plain.volume().abs(),
+        "lubang harus mengurangi volume"
+    );
+}

@@ -11,7 +11,7 @@ use crate::picking::face::{
 use crate::picking::edge::resolve_edge_along_ray;
 use crate::picking::ray::PickRay;
 use crate::picking::vertex::resolve_vertex_along_ray;
-use crate::shape::{deep_clone, KernelShape};
+use crate::shape::{deep_clone, validate_or_heal, KernelShape};
 
 /// Arah pemilihan face yang dihilangkan untuk `shell_hollow` — face
 /// TERJAUH ke arah ini yang dibuang (mis. `PosZ` membuang face atas,
@@ -52,7 +52,7 @@ pub fn fillet_all(shape: &KernelShape, radius: f64) -> Result<KernelShape> {
     cloned
         .fillet(radius)
         .context("radius fillet terlalu besar untuk salah satu tepi shape")?;
-    Ok(KernelShape::from_inner(cloned))
+    validate_or_heal(KernelShape::from_inner(cloned), "Fillet")
 }
 
 /// Chamfer SEMUA tepi shape dengan `distance` yang sama (lihat batasan
@@ -66,7 +66,7 @@ pub fn chamfer_all(shape: &KernelShape, distance: f64) -> Result<KernelShape> {
     cloned
         .chamfer(distance)
         .context("jarak chamfer terlalu besar untuk salah satu tepi shape")?;
-    Ok(KernelShape::from_inner(cloned))
+    validate_or_heal(KernelShape::from_inner(cloned), "Chamfer")
 }
 
 /// Fillet HANYA tepi yang di-pick lewat `rays` (bukan semua tepi seperti

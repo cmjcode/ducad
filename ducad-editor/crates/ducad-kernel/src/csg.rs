@@ -10,7 +10,7 @@ use crate::profile::{
     build_face_on_plane, build_spine_wire, build_wire, build_wire_at_z, build_wire_on_plane,
     PathSegment, Profile,
 };
-use crate::shape::{deep_clone, KernelShape};
+use crate::shape::{deep_clone, validate_or_heal, KernelShape};
 
 /// Extrude profil pada bidang 3D sembarang (origin, u_axis, v_axis, normal) sepanjang `distance` mm
 /// searah normal bidang.
@@ -160,7 +160,7 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
         .context("gagal menggabungkan (union) dua shape")?
         .shape;
     merged = merged.clean();
-    Ok(KernelShape::from_inner(merged))
+    validate_or_heal(KernelShape::from_inner(merged), "Boolean Union")
 }
 
 /// Subtract (`a` dikurangi `b`) — lihat catatan `.clean()` di `union`.
@@ -172,7 +172,7 @@ pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
         .context("gagal mengurangi (subtract) dua shape")?
         .shape;
     result = result.clean();
-    Ok(KernelShape::from_inner(result))
+    validate_or_heal(KernelShape::from_inner(result), "Boolean Subtract")
 }
 
 /// Boolean intersect (irisan) dua shape — cuma sisakan volume yang
@@ -195,7 +195,7 @@ pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     if tessellate_shape(&adhoc.0).triangle_count() == 0 {
         bail!("intersect: kedua shape tidak bersinggungan (hasil kosong)");
     }
-    Ok(KernelShape::from_inner(adhoc.0))
+    validate_or_heal(KernelShape::from_inner(adhoc.0), "Boolean Intersect")
 }
 
 /// Operasi Emboss (timbul) atau Deboss (ukiran tenggelam / cut) untuk satu atau banyak profil pada bidang 3D.

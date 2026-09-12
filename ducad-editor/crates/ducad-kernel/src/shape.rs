@@ -36,6 +36,25 @@ impl KernelShape {
         tessellate_shape(&self.0)
     }
 
+    /// Apakah shape ini valid secara topologi dan geometri.
+    ///
+    /// Operasi boolean dan fillet OCCT bisa "berhasil" — mengembalikan shape
+    /// tanpa melapor error — sambil menghasilkan solid yang sebetulnya tidak
+    /// valid (face saling potong, wire tak tertutup, orientasi terbalik).
+    /// Tanpa pemeriksaan ini, geometri rusak baru ketahuan jauh di hilir:
+    /// saat diekspor ke STEP untuk CNC, saat di-mesh untuk 3D print, atau
+    /// tidak ketahuan sama sekali sampai part-nya gagal di pabrik.
+    pub fn is_valid(&self) -> bool {
+        let _guard = lock_kernel();
+        self.0.is_valid()
+    }
+
+    /// Luas permukaan total dalam mm², eksak dari B-rep.
+    pub fn surface_area(&self) -> f64 {
+        let _guard = lock_kernel();
+        self.0.surface_area()
+    }
+
     /// Volume solid dalam mm³, dihitung EKSAK dari B-rep (`BRepGProp`),
     /// bukan dari mesh.
     ///
@@ -158,6 +177,34 @@ impl KernelShape {
         let _ = std::fs::remove_file(&path);
         result.map(KernelShape)
     }
+}
+
+/// Validasi hasil operasi B-rep, dengan satu percobaan perbaikan otomatis.
+///
+/// Alur: periksa → kalau invalid coba `ShapeFix_Shape` → periksa lagi →
+/// kalau masih invalid, GAGAL dengan pesan yang menyebut operasinya.
+///
+/// Menggagalkan operasi lebih baik daripada mengembalikan solid rusak yang
+/// terlihat benar di viewport: geometri invalid akan menjalar ke setiap
+/// operasi berikutnya, dan baru meledak saat ekspor STEP atau slicing —
+/// jauh dari penyebabnya, sehingga nyaris mustahil dilacak pengguna.
+///
+/// `ShapeFix` dicoba lebih dulu karena banyak hasil boolean OCCT cuma
+/// melanggar toleransi secara ringan dan benar-benar bisa diselamatkan;
+/// menggagalkannya langsung akan menolak operasi yang sebetulnya sah.
+pub(crate) fn validate_or_heal(shape: KernelShape, operation: &str) -> Result<KernelShape> {
+    if shape.0.is_valid() {
+        return Ok(shape);
+    }
+    if let Some(fixed) = shape.0.healed() {
+        if fixed.is_valid() {
+            log::warn!("{operation}: hasil tidak valid, diperbaiki otomatis lewat ShapeFix");
+            return Ok(KernelShape(fixed));
+        }
+    }
+    anyhow::bail!(
+        "{operation}: menghasilkan geometri yang tidak valid dan tidak bisa diperbaiki otomatis"
+    )
 }
 
 /// Path file sementara unik (PID + timestamp nanosecond, sama pola dengan
