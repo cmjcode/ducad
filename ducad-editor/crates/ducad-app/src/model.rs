@@ -424,14 +424,20 @@ impl Command<ModelDoc> for DeleteBodyCommand {
     }
 }
 
+/// Isi varian `Applied` di-`Box` terpisah: `BodyGeometry` menyimpan
+/// `KernelShape` + `KernelMesh` sehingga varian itu jauh lebih besar dari
+/// `Pending`, dan enum tanpa box akan memakai ukuran varian terbesar untuk
+/// SETIAP nilai (termasuk yang masih `Pending`).
+struct SplitBodyApplied {
+    orig_body: ducad_core::Body,
+    orig_geo: BodyGeometry,
+    result_ids: Vec<BodyId>,
+    result_names: Vec<String>,
+}
+
 enum SplitBodyState {
     Pending(Vec<(String, BodyGeometry)>),
-    Applied {
-        orig_body: ducad_core::Body,
-        orig_geo: BodyGeometry,
-        result_ids: Vec<BodyId>,
-        result_names: Vec<String>,
-    },
+    Applied(Box<SplitBodyApplied>),
 }
 
 /// Split satu body menjadi N body terpisah (biasanya 2 body).
@@ -457,8 +463,8 @@ impl SplitBodyCommand {
 
     /// ID body hasil yang baru saja dibuat oleh command ini.
     pub fn result_ids(&self) -> &[BodyId] {
-        if let Some(SplitBodyState::Applied { result_ids, .. }) = &self.state {
-            result_ids
+        if let Some(SplitBodyState::Applied(applied)) = &self.state {
+            &applied.result_ids
         } else {
             &[]
         }
@@ -494,27 +500,27 @@ impl Command<ModelDoc> for SplitBodyCommand {
             result_names.push(name);
         }
 
-        self.state = Some(SplitBodyState::Applied {
+        self.state = Some(SplitBodyState::Applied(Box::new(SplitBodyApplied {
             orig_body,
             orig_geo,
             result_ids,
             result_names,
-        });
+        })));
     }
 
     fn revert(&mut self, model: &mut ModelDoc) {
-        let Some(SplitBodyState::Applied { .. }) = &self.state else {
+        let Some(SplitBodyState::Applied(_)) = &self.state else {
             return;
         };
-        let Some(SplitBodyState::Applied {
+        let Some(SplitBodyState::Applied(applied)) = self.state.take() else {
+            unreachable!()
+        };
+        let SplitBodyApplied {
             orig_body,
             orig_geo,
             result_ids,
             result_names,
-        }) = self.state.take()
-        else {
-            unreachable!()
-        };
+        } = *applied;
 
         let mut pending = Vec::with_capacity(result_ids.len());
         for (id, name) in result_ids.into_iter().zip(result_names) {

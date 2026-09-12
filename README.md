@@ -120,22 +120,31 @@ DUCAD/
 Clone the repository and run it via Cargo:
 
 ```bash
-# Clone the repository
-git clone https://github.com/cmjcode/ducad.git
-cd DUCAD
+# Clone the repository. `--recurse-submodules` is REQUIRED: the OCCT kernel
+# is consumed through a patched fork pinned as a submodule under
+# `ducad-editor/vendors/opencascade-rs`, and `[patch.crates-io]` in the
+# workspace manifest points into it. Without the submodule, `cargo` fails
+# while resolving dependencies — before compiling a single line.
+git clone --recurse-submodules https://github.com/cmjcode/ducad.git
+cd ducad/ducad-editor
 
-# Run the application (the first compilation will build the OCCT kernel, ~8-15 minutes)
+# Already cloned without the flag? Fetch the submodule now:
+#   git submodule update --init --recursive
+
+# Run the application (the first compilation builds the OCCT kernel, ~8-15 minutes)
 cargo run -p ducad-app
 ```
 
-> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is permanently cached in the `target/` directory so subsequent compilations run instantly.
+> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is cached in the `target/` directory so subsequent compilations run instantly.
+
+> **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
 
 ### Running Unit & Integration Tests
 
 Run workspace tests directly or via container:
 
 ```bash
-# Run all workspace unit and integration tests
+# Run all workspace unit and integration tests (from ducad-editor/)
 cargo test --workspace
 
 # Or run via Docker builder container (if cargo is not installed locally)

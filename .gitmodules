@@ -1,0 +1,13 @@
+# Kernel geometri OCCT dipakai lewat fork `opencascade-rs` yang DITAMBAL
+# sendiri (binding cxx tambahan + perbaikan toleransi picking + jalur link
+# statis Apple). Fork ini WAJIB ikut ter-clone: `ducad-editor/Cargo.toml`
+# mengarahkan `[patch.crates-io]` ke path di dalamnya, jadi tanpa submodule
+# ini `cargo build` gagal di langkah resolusi dependensi — bukan di tengah
+# kompilasi. Clone dengan `git clone --recurse-submodules`, atau jalankan
+# `git submodule update --init --recursive` pada working copy yang sudah ada.
+#
+# URL sengaja HTTPS (bukan SSH): runner CI tidak punya kunci SSH.
+[submodule "ducad-editor/vendors/opencascade-rs"]
+	path = ducad-editor/vendors/opencascade-rs
+	url = https://github.com/cmjcode/opencascade-rs.git
+	branch = ducad-patches

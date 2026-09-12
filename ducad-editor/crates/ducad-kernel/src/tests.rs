@@ -1671,6 +1671,11 @@ fn split_face_on_box() {
 
     let mesh = split.tessellate();
     assert!(mesh.triangle_count() > 0);
+    assert_eq!(orig_faces, 6, "Box sebelum split harus punya 6 face");
+    assert!(
+        new_faces > orig_faces,
+        "split_face harus MENAMBAH jumlah face (6 -> {new_faces}), bukan menyisakannya apa adanya"
+    );
     assert_eq!(new_faces, 10, "Box 6 face saat di-split di tengah harus memiliki 10 face terpisah");
 }
 

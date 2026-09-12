@@ -28,10 +28,8 @@ impl DuCADApp {
                 let v3 = Vec3::new(f.anchor.0 as f32, f.anchor.1 as f32, f.anchor.2 as f32);
                 if let Some(sp) = world_to_screen_pos(&self.camera, rect, v3) {
                     let s_dist = (sp - pos).length();
-                    if s_dist <= 12.0 {
-                        if best.as_ref().is_none_or(|(_, _, bd)| s_dist < *bd) {
-                            best = Some((*body_id, idx, s_dist));
-                        }
+                    if s_dist <= 12.0 && best.as_ref().is_none_or(|(_, _, bd)| s_dist < *bd) {
+                        best = Some((*body_id, idx, s_dist));
                     }
                 }
             }
@@ -928,8 +926,8 @@ mod tests {
             assert_eq!(*kind, RoundKind::Edge);
             assert_eq!(*cached_r, signed_r);
             assert_eq!(*cached_id, id);
-            assert!(mesh.positions.len() > 0);
-            assert!(mesh.indices.len() > 0);
+            assert!(!mesh.positions.is_empty());
+            assert!(!mesh.indices.is_empty());
         }
     }
 

@@ -1,0 +1,54 @@
+# Konfigurasi cargo-deny. Job CI-nya BELUM memblokir merge (lihat
+# `continue-on-error` di .github/workflows/ci.yml) sampai backlog pertama
+# dibereskan sekali.
+
+[graph]
+# Hanya platform yang benar-benar dibangun; tanpa ini cargo-deny ikut
+# menilai dependensi khusus platform yang tak pernah dikompilasi di sini.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-apple-ios",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+version = 2
+yanked = "warn"
+ignore = []
+
+[licenses]
+version = 2
+# DUCAD sendiri MIT OR Apache-2.0 (lihat workspace.package.license).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "BSL-1.0",
+    "OFL-1.1",
+]
+confidence-threshold = 0.9
+
+[[licenses.clarify]]
+# OCCT dilisensikan LGPL-2.1 dengan pengecualian tautan (lihat LICENSE di
+# root). Crate -sys hanya membungkusnya; pemeriksa lisensi tidak bisa
+# menyimpulkan ini sendiri.
+name = "occt-sys"
+expression = "LGPL-2.1-only WITH OCCT-exception-1.0"
+license-files = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "allow"

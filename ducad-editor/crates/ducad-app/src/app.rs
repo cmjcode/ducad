@@ -30,6 +30,17 @@ use crate::types::{
 };
 use crate::viewport::{pixel_tolerance_to_world, screen_to_plane_point, ViewportCallback};
 
+/// Isi cache pratinjau fillet/chamfer: jenis rounding, radius bertanda,
+/// body sasaran, mesh hasil, dan garis rusuknya. Dihitung ulang hanya saat
+/// radius berubah — lihat `round_preview_cache`.
+pub type RoundPreviewCache = (
+    crate::types::RoundKind,
+    f64,
+    BodyId,
+    ducad_kernel::KernelMesh,
+    Vec<([f32; 3], [f32; 3])>,
+);
+
 pub struct DuCADApp {
     pub camera: OrbitCamera,
     pub sketches: Vec<Sketch>,
@@ -235,13 +246,7 @@ pub struct DuCADApp {
     pub editing_round: Option<(BodyId, usize)>,
     pub round_gizmo_style: crate::types::RoundStyle,
     /// Cached preview mesh: (kind, radius, body_id, mesh, edge_lines). Recomputed only when radius changes.
-    pub round_preview_cache: Option<(
-        crate::types::RoundKind,
-        f64,
-        BodyId,
-        ducad_kernel::KernelMesh,
-        Vec<([f32; 3], [f32; 3])>,
-    )>,
+    pub round_preview_cache: Option<RoundPreviewCache>,
     pub hole_history: std::collections::HashMap<BodyId, crate::types::HoleHistory>,
     pub editing_hole_idx: Option<(BodyId, usize)>,
 

@@ -89,8 +89,8 @@ pub use modify::{
 };
 pub use picking::{
     edge_dimensions, edge_outward_normal, pick_edge, pick_face, pick_face_details, pick_vertex,
-    point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgePickHit,
-    FaceHit, PickRay, SurfaceKind,
+    point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgeNormalHit,
+    EdgePickHit, FaceHit, PickRay, SurfaceKind, Vec3Raw,
 };
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{

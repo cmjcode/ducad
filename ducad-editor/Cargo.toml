@@ -102,6 +102,35 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 2
 
+[profile.release]
+opt-level = 3
+# `lto = "thin"`, bukan "fat": graf dependensi ini menarik OCCT (C++,
+# ratusan objek lewat `occt-sys`) di samping wgpu/egui. Fat LTO pada
+# gabungan itu menaikkan waktu link rilis jadi puluhan menit dengan
+# kebutuhan RAM yang gampang menghabiskan runner CI, sementara selisih
+# performanya terhadap thin LTO tidak terasa pada beban kerja DUCAD yang
+# didominasi waktu di dalam kernel C++ (yang TIDAK ikut ter-LTO dari sisi
+# Rust sama sekali). Naikkan ke "fat" hanya kalau profiling membuktikan
+# ada yang bisa diambil.
+lto = "thin"
+codegen-units = 1
+# `panic` SENGAJA "unwind", bukan "abort" — `ducad_kernel::lock_kernel()`
+# memang dirancang PULIH dari `KERNEL_LOCK` yang ter-poison akibat panic
+# di operasi kernel sebelumnya (lihat komentarnya di
+# crates/ducad-kernel/src/lib.rs), supaya satu operasi gagal tidak
+# mengunci permanen seluruh aplikasi. Mekanisme itu hanya berfungsi kalau
+# panic bisa di-unwind; "abort" akan mematikan aplikasi CAD berisi
+# pekerjaan pengguna yang belum tersimpan.
+panic = "unwind"
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"
+# Simbol dipertahankan supaya profiler (Instruments/perf) bisa memberi
+# nama fungsi pada hasil benchmark.
+strip = "none"
+debug = "line-tables-only"
+
 # `faces_along_ray` upstream meng-hardcode toleransi geometris OCCT ke
 # 0.0001 — terlalu ketat utk ray oblique kamera 3D nyata, bikin face-pick
 # selalu None utk sisi samping. `Shape`/`Face` upstream simpan handle FFI

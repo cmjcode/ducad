@@ -99,11 +99,20 @@ pub fn pick_edge(shape: &KernelShape, ray: PickRay, tolerance: f64) -> Option<Ed
 /// Mengambil rata-rata normal keluar dari face-face yang bertemu di rusuk ini,
 /// lalu memproyeksikannya tegak lurus terhadap garis singgung rusuk (edge tangent).
 /// Bekerja konsisten untuk sudut luar (convex) maupun sudut dalam (concave).
+/// Titik/vektor 3D mentah di batas crate kernel. Sengaja tuple `f64`
+/// polos, bukan `glam::DVec3`: `ducad-kernel` dipaku ke glam versi
+/// kernel, jadi tipe glam tidak pernah boleh bocor ke crate pemanggil
+/// (pola yang sama dengan `KernelMesh`/`Profile`).
+pub type Vec3Raw = (f64, f64, f64);
+
+/// Pasangan (titik pada rusuk, normal keluar di titik itu).
+pub type EdgeNormalHit = (Vec3Raw, Vec3Raw);
+
 pub fn edge_outward_normal(
     shape: &KernelShape,
     ray: PickRay,
     tolerance: f64,
-) -> Option<((f64, f64, f64), (f64, f64, f64))> {
+) -> Option<EdgeNormalHit> {
     let _guard = lock_kernel();
     let (edge, point, _) = resolve_edge_along_ray(shape.inner(), ray, tolerance)?;
     let edge_start = edge.start_point();

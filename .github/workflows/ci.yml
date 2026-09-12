@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # OCCT membawa CMakeLists dengan `cmake_minimum_required` di bawah batas
+  # yang diterima CMake 4.x. Nilai ini mencerminkan
+  # `ducad-editor/.cargo/config.toml` supaya CI identik dengan build lokal.
+  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+defaults:
+  run:
+    working-directory: ducad-editor
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Lane cepat (< 2 menit): tidak menyentuh OCCT sama sekali.
+  # ---------------------------------------------------------------------
+  # Basis kode belum pernah dilewatkan rustfmt: `cargo fmt --all --check`
+  # saat ini melaporkan ~1.628 selisih yang tersebar di hampir seluruh
+  # berkas. Job ini SENGAJA belum memblokir.
+  #
+  # Memberlakukannya per-berkas-yang-disentuh sempat dicoba dan DITOLAK:
+  # berkas di sini besar-besar (`app.rs` 3.836 baris), sehingga menambah
+  # satu alias tipe saja akan memaksa reformat seluruh berkas — persis
+  # churn yang ingin dihindari.
+  #
+  # Cara membereskannya, saat tidak ada pekerjaan besar yang sedang
+  # berjalan di branch lain:
+  #
+  #   cd ducad-editor && cargo fmt --all
+  #   cargo test --workspace          # rustfmt menjaga semantik; buktikan
+  #   git commit -am "style: rustfmt seluruh workspace"
+  #   git rev-parse HEAD >> ../.git-blame-ignore-revs
+  #   git config blame.ignoreRevsFile .git-blame-ignore-revs
+  #
+  # Setelah itu: hapus `continue-on-error` di bawah agar gate memblokir.
+  fmt:
+    name: rustfmt (belum memblokir)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      # Tanpa submodule: rustfmt hanya mem-parse berkas, tidak pernah build.
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  quick:
+    name: clippy + test (crate tanpa kernel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ducad-editor
+          key: quick
+      # `ducad-core`/`-sketch`/`-render`/`-i18n`/`-cloud` tidak bergantung
+      # pada `ducad-kernel`, jadi tidak butuh OCCT dan memberi sinyal gagal
+      # dalam hitungan menit alih-alih belasan menit.
+      - name: clippy
+        run: >
+          cargo clippy
+          -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
+          --all-targets -- -D warnings
+      - name: test
+        run: >
+          cargo test
+          -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
+
+  # ---------------------------------------------------------------------
+  # Lane penuh: membangun OCCT (~10-15 menit tanpa cache).
+  # ---------------------------------------------------------------------
+  full:
+    name: clippy + test (workspace, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pasang dependensi sistem Linux
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build \
+            libgtk-3-dev \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+            libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Revisi submodule adalah satu-satunya masukan yang menentukan hasil
+      # build OCCT, jadi dipakai sebagai kunci cache.
+      - name: Resolusi revisi OCCT
+        id: occt
+        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache artefak build OCCT
+        uses: actions/cache@v4
+        with:
+          path: ducad-editor/target/debug/build
+          key: occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
+          restore-keys: |
+            occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ducad-editor
+          key: full-${{ matrix.os }}
+          # Jangan biarkan rust-cache memangkas direktori build: di situlah
+          # hasil kompilasi OCCT disimpan (lihat langkah cache di atas).
+          cache-directories: ducad-editor/target/debug/build
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: test
+        run: cargo test --workspace
+
+  # ---------------------------------------------------------------------
+  # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:
+  # backlog advisory/lisensi belum pernah dibereskan, dan gate merah sejak
+  # hari pertama hanya melatih orang mengabaikannya. Hapus
+  # `continue-on-error` begitu `cargo deny check` hijau sekali.
+  # ---------------------------------------------------------------------
+  deny:
+    name: cargo-deny (belum memblokir)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ducad-editor/Cargo.toml
+          command: check

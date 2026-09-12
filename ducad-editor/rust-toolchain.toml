@@ -1,0 +1,14 @@
+# Menjamin `rustfmt` + `clippy` selalu tersedia di mesin dev maupun runner
+# CI, sehingga gate mutu bisa dijalankan di mana saja tanpa langkah setup
+# manual.
+#
+# `channel` SENGAJA masih "stable", belum versi eksak. Memaku versi eksak
+# adalah yang benar untuk reproduktifitas (rilis stable baru bisa menambah
+# lint dan membuat `clippy -D warnings` mendadak merah tanpa ada perubahan
+# kode), TAPI mengganti channel mengubah fingerprint build sehingga OCCT
+# ikut dikompilasi ulang dari nol (~10-15 menit). Lakukan pemakuan itu
+# sebagai PR tersendiri saat rebuild penuh tidak mengganggu, dan naikkan
+# versinya secara sadar sesudahnya.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
