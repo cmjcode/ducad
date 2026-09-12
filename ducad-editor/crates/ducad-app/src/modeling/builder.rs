@@ -103,14 +103,19 @@ impl DuCADApp {
 
         // Fallback: hitung centroid dari profile jika entitas terpilih membentuk loop tertutup
         if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
-            match profile {
+            // Titik tarik gizmo mengikuti batas LUAR profil; lubang di
+            // dalamnya tidak boleh menggeser titik yang diharapkan pengguna.
+            match profile.outer() {
                 ducad_kernel::Profile::Circle { center, .. } | ducad_kernel::Profile::Ellipse { center, .. } => {
                     return Some(DVec2::new(center.0, center.1));
                 }
+                // `outer()` menurut definisinya tidak pernah mengembalikan
+                // varian ini, tapi kompilator tidak bisa menyimpulkannya.
+                ducad_kernel::Profile::WithHoles { .. } => {}
                 ducad_kernel::Profile::Loop(segments) => {
                     let mut sum = DVec2::ZERO;
                     let mut count = 0.0;
-                    for seg in &segments {
+                    for seg in segments {
                         match seg {
                             ducad_kernel::ProfileSegment::Line { start, end } => {
                                 sum += DVec2::new(start.0, start.1) + DVec2::new(end.0, end.1);

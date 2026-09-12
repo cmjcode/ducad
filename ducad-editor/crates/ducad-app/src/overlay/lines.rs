@@ -81,7 +81,9 @@ impl DuCADApp {
         if self.tool == ToolKind::Sweep {
             if let Some((profile, profile_plane)) = &self.pending_sweep_profile {
                 let color_staged = [0.15, 0.85, 0.40, 1.0];
-                match profile {
+                // Pratinjau menggambar batas LUAR saja — lubang tidak
+                // mengubah jalur sapuan yang sedang dipratinjau.
+                match profile.outer() {
                     ducad_kernel::Profile::Circle { center, radius } => {
                         let segs = 32;
                         for i in 0..segs {
@@ -104,6 +106,7 @@ impl DuCADApp {
                             verts.push(LineVertex { position: [p2.x, p2.y, p2.z], color: color_staged });
                         }
                     }
+                    ducad_kernel::Profile::WithHoles { .. } => {}
                     ducad_kernel::Profile::Loop(segments) => {
                         for seg in segments {
                             match seg {

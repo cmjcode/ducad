@@ -6,7 +6,10 @@ use opencascade::primitives::{Face, IntoShape, Solid};
 
 use crate::lock_kernel;
 use crate::mesh::tessellate_shape;
-use crate::profile::{build_spine_wire, build_wire, build_wire_at_z, build_wire_on_plane, PathSegment, Profile};
+use crate::profile::{
+    build_face_on_plane, build_spine_wire, build_wire, build_wire_at_z, build_wire_on_plane,
+    PathSegment, Profile,
+};
 use crate::shape::{deep_clone, KernelShape};
 
 /// Extrude profil pada bidang 3D sembarang (origin, u_axis, v_axis, normal) sepanjang `distance` mm
@@ -23,8 +26,7 @@ pub fn extrude_profile_on_plane(
         bail!("jarak extrude harus tidak nol");
     }
     let _guard = lock_kernel();
-    let wire = build_wire_on_plane(profile, origin, u_axis, v_axis, normal)?;
-    let face = Face::from_wire(&wire);
+    let face = build_face_on_plane(profile, origin, u_axis, v_axis, normal)?;
     let norm_len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
     let extrude_dir = if norm_len > 1e-6 {
         dvec3(

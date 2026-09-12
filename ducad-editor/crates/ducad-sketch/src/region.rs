@@ -472,6 +472,150 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
 }
 
 /// Cari region yang mencakup titik `p`, jika ada.
+/// Satu region padat beserta lubang-lubang langsung di dalamnya.
+///
+/// Sebelum ini deteksi region memperlakukan tiap loop tertutup sebagai
+/// profil padat yang berdiri sendiri, sehingga plat dengan 4 lubang
+/// terbaca sebagai 5 profil terpisah — dan pengguna harus meng-extrude
+/// batas luar lalu memotong tiap lubang satu per satu.
+#[derive(Debug, Clone)]
+pub struct RegionWithHoles {
+    /// Batas luar region padat.
+    pub outer: ClosedRegion,
+    /// Loop yang berada TEPAT satu tingkat di dalam `outer` — lubangnya.
+    pub holes: Vec<ClosedRegion>,
+}
+
+impl RegionWithHoles {
+    /// Luas bersih: batas luar dikurangi seluruh lubang.
+    pub fn net_area(&self) -> f64 {
+        (self.outer.area - self.holes.iter().map(|h| h.area).sum::<f64>()).max(0.0)
+    }
+
+    /// Seluruh entitas pembentuk region ini, termasuk pembentuk lubangnya.
+    pub fn all_entity_ids(&self) -> HashSet<EntityId> {
+        let mut ids = self.outer.entity_ids.clone();
+        for h in &self.holes {
+            ids.extend(h.entity_ids.iter().copied());
+        }
+        ids
+    }
+}
+
+/// Apakah `inner` sepenuhnya berada di dalam `outer`.
+///
+/// Diuji lewat centroid DITAMBAH beberapa titik batas, bukan centroid saja:
+/// centroid sebuah loop berbentuk L atau bulan sabit bisa jatuh di luar
+/// loop-nya sendiri, sehingga uji centroid tunggal akan salah menyimpulkan.
+/// Luas dipakai sebagai penyaring awal — sesuatu yang lebih besar tidak
+/// mungkin berada di dalam yang lebih kecil.
+fn region_contains(outer: &ClosedRegion, inner: &ClosedRegion) -> bool {
+    if inner.area >= outer.area {
+        return false;
+    }
+    if !outer.contains_point(inner.centroid) {
+        // Centroid di luar bisa berarti benar-benar terpisah, ATAU bentuk
+        // cekung. Sampel batas memutuskan.
+        let sampled = sample_boundary(inner, 8);
+        let inside = sampled.iter().filter(|p| outer.contains_point(**p)).count();
+        return inside == sampled.len() && !sampled.is_empty();
+    }
+    // Verifikasi tetap dilakukan walau centroid di dalam: dua loop yang
+    // saling potong bisa punya centroid di dalam tapi sebagian batas di luar.
+    let sampled = sample_boundary(inner, 8);
+    sampled.iter().all(|p| outer.contains_point(*p))
+}
+
+fn sample_boundary(region: &ClosedRegion, count: usize) -> Vec<DVec2> {
+    let n = region.boundary_points.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let step = (n / count.max(1)).max(1);
+    region.boundary_points.iter().step_by(step).copied().collect()
+}
+
+/// Susun region tertutup menjadi hierarki padat/lubang memakai aturan
+/// ganjil-genap (*even-odd rule*).
+///
+/// Kedalaman sebuah loop = jumlah loop yang melingkupinya. Kedalaman GENAP
+/// berarti material padat; kedalaman GANJIL berarti lubang. Dengan begitu
+/// pulau di dalam lubang (kedalaman 2) kembali menjadi region padat
+/// tersendiri — persis perilaku yang diharapkan di CAD.
+///
+/// Lubang dilekatkan pada leluhur padat TERDEKAT, bukan pada region terluar,
+/// sehingga plat berlubang yang di dalam lubangnya ada pulau berlubang lagi
+/// tetap terurai benar.
+pub fn find_region_hierarchy(sketch: &Sketch) -> Vec<RegionWithHoles> {
+    let regions = find_closed_regions(sketch);
+    build_hierarchy(regions)
+}
+
+/// Bagian murni dari [`find_region_hierarchy`], dipisah supaya bisa diuji
+/// dengan region buatan tanpa menyusun `Sketch` lengkap.
+pub fn build_hierarchy(mut regions: Vec<ClosedRegion>) -> Vec<RegionWithHoles> {
+    // Urut luas MENGECIL: saat memindai calon induk, induk terkecil yang
+    // melingkupi ditemukan terakhir sehingga mudah dipilih.
+    regions.sort_by(|a, b| b.area.partial_cmp(&a.area).unwrap_or(std::cmp::Ordering::Equal));
+
+    let n = regions.len();
+    // parent[i] = induk LANGSUNG (pelingkup terkecil) dari region i.
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    for i in 0..n {
+        let mut best: Option<usize> = None;
+        for j in 0..n {
+            if i == j {
+                continue;
+            }
+            if !region_contains(&regions[j], &regions[i]) {
+                continue;
+            }
+            // Pelingkup terkecil menang — itulah induk langsungnya.
+            match best {
+                Some(b) if regions[b].area <= regions[j].area => {}
+                _ => best = Some(j),
+            }
+        }
+        parent[i] = best;
+    }
+
+    let depth = |mut i: usize| -> usize {
+        let mut d = 0;
+        // `parent` selalu menunjuk region berluas LEBIH BESAR, jadi rantainya
+        // tidak mungkin melingkar dan perulangan ini pasti berhenti.
+        while let Some(p) = parent[i] {
+            d += 1;
+            i = p;
+        }
+        d
+    };
+
+    let mut out: Vec<RegionWithHoles> = Vec::new();
+    let mut slot_of: Vec<Option<usize>> = vec![None; n];
+
+    // Region padat (kedalaman genap) lebih dulu, supaya lubang punya tempat
+    // untuk dilekatkan.
+    for i in 0..n {
+        if depth(i) % 2 == 0 {
+            slot_of[i] = Some(out.len());
+            out.push(RegionWithHoles {
+                outer: regions[i].clone(),
+                holes: Vec::new(),
+            });
+        }
+    }
+    for i in 0..n {
+        if depth(i) % 2 == 1 {
+            if let Some(p) = parent[i] {
+                if let Some(slot) = slot_of[p] {
+                    out[slot].holes.push(regions[i].clone());
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn find_region_at_point(sketch: &Sketch, p: DVec2) -> Option<ClosedRegion> {
     let regions = find_closed_regions(sketch);
     // Prioritaskan region dengan luas terkecil jika ada nesting
@@ -862,5 +1006,127 @@ mod tests {
         assert!(reg.contains_point(DVec2::new(20.0, 20.0)));
         assert!(reg.contains_point(DVec2::new(25.0, 20.0)));
         assert!(!reg.contains_point(DVec2::new(35.0, 20.0)));
+    }
+}
+
+#[cfg(test)]
+mod hierarchy_tests {
+    use super::*;
+
+    /// Region persegi berpusat di `c` dengan setengah-sisi `h`.
+    fn square(c: DVec2, h: f64) -> ClosedRegion {
+        let pts = vec![
+            c + DVec2::new(-h, -h),
+            c + DVec2::new(h, -h),
+            c + DVec2::new(h, h),
+            c + DVec2::new(-h, h),
+        ];
+        ClosedRegion {
+            entity_ids: HashSet::new(),
+            boundary_points: pts,
+            centroid: c,
+            area: (2.0 * h) * (2.0 * h),
+        }
+    }
+
+    #[test]
+    fn plate_with_four_holes_becomes_one_region() {
+        // Kasus yang memotivasi fitur ini: sebelumnya ini terbaca sebagai
+        // 5 profil terpisah, dan penggunanya harus extrude lalu potong 4x.
+        let plate = square(DVec2::new(0.0, 0.0), 50.0);
+        let holes = [
+            square(DVec2::new(-25.0, -25.0), 5.0),
+            square(DVec2::new(25.0, -25.0), 5.0),
+            square(DVec2::new(25.0, 25.0), 5.0),
+            square(DVec2::new(-25.0, 25.0), 5.0),
+        ];
+        let mut all = vec![plate];
+        all.extend(holes);
+
+        let tree = build_hierarchy(all);
+        assert_eq!(tree.len(), 1, "harus jadi SATU region padat, bukan lima");
+        assert_eq!(tree[0].holes.len(), 4);
+        // 100x100 dikurangi 4 lubang 10x10.
+        assert!((tree[0].net_area() - (10_000.0 - 400.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn island_inside_a_hole_is_solid_again() {
+        // Aturan ganjil-genap: kedalaman 0 padat, 1 lubang, 2 padat lagi.
+        // Tanpa ini, pulau di dalam lubang akan hilang dari hasil extrude.
+        let outer = square(DVec2::ZERO, 100.0);
+        let hole = square(DVec2::ZERO, 50.0);
+        let island = square(DVec2::ZERO, 20.0);
+
+        let tree = build_hierarchy(vec![outer, hole, island]);
+        assert_eq!(tree.len(), 2, "batas luar dan pulau sama-sama padat");
+
+        let big = tree.iter().find(|r| r.outer.area > 30_000.0).unwrap();
+        assert_eq!(big.holes.len(), 1, "lubang menempel ke batas luar");
+
+        let small = tree.iter().find(|r| r.outer.area < 30_000.0).unwrap();
+        assert!(small.holes.is_empty(), "pulau tidak punya lubang");
+    }
+
+    #[test]
+    fn hole_attaches_to_nearest_enclosing_solid() {
+        // Lubang di dalam PULAU harus menempel ke pulau itu, bukan ke batas
+        // terluar — inilah kenapa induk dipilih dari pelingkup TERKECIL.
+        let outer = square(DVec2::ZERO, 100.0);
+        let hole = square(DVec2::ZERO, 60.0);
+        let island = square(DVec2::ZERO, 40.0);
+        let island_hole = square(DVec2::ZERO, 10.0);
+
+        let tree = build_hierarchy(vec![outer, hole, island, island_hole]);
+        assert_eq!(tree.len(), 2);
+
+        let island_region = tree.iter().find(|r| r.outer.area < 10_000.0).unwrap();
+        assert_eq!(
+            island_region.holes.len(),
+            1,
+            "lubang kecil harus menempel ke pulau, bukan ke batas terluar"
+        );
+        assert!((island_region.holes[0].area - 400.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn disjoint_regions_stay_separate() {
+        let a = square(DVec2::new(-100.0, 0.0), 10.0);
+        let b = square(DVec2::new(100.0, 0.0), 10.0);
+        let tree = build_hierarchy(vec![a, b]);
+        assert_eq!(tree.len(), 2);
+        assert!(tree.iter().all(|r| r.holes.is_empty()));
+    }
+
+    #[test]
+    fn concave_outer_does_not_swallow_neighbour_by_centroid_alone() {
+        // Centroid loop berbentuk "U" jatuh di RONGGA-nya, bukan di
+        // materialnya. Region kecil yang duduk di rongga itu karena itu
+        // punya centroid di dalam bounding area tapi TIDAK di dalam
+        // loop-nya. Uji berbasis sampel batas harus menangkap ini.
+        let u_shape = ClosedRegion {
+            entity_ids: HashSet::new(),
+            boundary_points: vec![
+                DVec2::new(-30.0, -30.0),
+                DVec2::new(30.0, -30.0),
+                DVec2::new(30.0, 30.0),
+                DVec2::new(10.0, 30.0),
+                DVec2::new(10.0, -10.0),
+                DVec2::new(-10.0, -10.0),
+                DVec2::new(-10.0, 30.0),
+                DVec2::new(-30.0, 30.0),
+            ],
+            centroid: DVec2::new(0.0, 10.0), // di dalam rongga huruf U
+            area: 2_000.0,
+        };
+        let in_notch = square(DVec2::new(0.0, 15.0), 3.0);
+
+        let tree = build_hierarchy(vec![u_shape, in_notch]);
+        assert_eq!(
+            tree.len(),
+            2,
+            "kotak di rongga huruf U bukan lubang — ia region padat terpisah"
+        );
+        assert!(tree.iter().all(|r| r.holes.is_empty()));
     }
 }

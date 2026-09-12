@@ -2311,3 +2311,71 @@ fn brep_bytes_are_much_smaller_than_step_text() {
         step.len()
     );
 }
+
+/// P1.4 — profil berlubang jadi solid dalam SATU operasi extrude, bukan
+/// extrude lalu boolean subtract per lubang.
+#[test]
+fn extrude_profile_with_holes_produces_hollow_solid() {
+    let _guard = lock_test();
+    let plate = rect_profile(40.0, 40.0);
+    // `rect_profile` membentang (0,0)..(w,h), jadi pusatnya (20,20) —
+    // bukan titik asal.
+    let hole = Profile::Circle {
+        center: (20.0, 20.0),
+        radius: 5.0,
+    };
+    let profile = plate.with_holes(vec![hole]);
+    assert!(profile.has_holes());
+
+    let solid = extrude_profile(&profile, 10.0).expect("extrude berlubang harus berhasil");
+    let mesh = solid.tessellate();
+    assert!(mesh.triangle_count() > 0);
+
+    // Volume = (40x40 - pi*5^2) * 10, dicek terhadap volume B-rep EKSAK —
+    // bukan volume mesh, yang menyimpang mengikuti kerapatan tesselasi
+    // dinding lubang.
+    let expected = (40.0 * 40.0 - std::f64::consts::PI * 25.0) * 10.0;
+    let actual = solid.volume().abs();
+    let rel_err = (actual - expected).abs() / expected;
+    assert!(
+        rel_err < 1e-6,
+        "volume {actual:.3} mm^3 menyimpang {:.4}% dari {expected:.3} mm^3",
+        rel_err * 100.0
+    );
+
+    // Solid tanpa lubang: 6 face. Dengan satu lubang silindris tembus:
+    // 6 + dinding lubang. Jumlahnya harus BERTAMBAH — kalau lubangnya
+    // diabaikan diam-diam, angka ini akan tetap 6.
+    let solid_faces = extrude_profile(&rect_profile(40.0, 40.0), 10.0)
+        .unwrap()
+        .inner()
+        .faces()
+        .count();
+    assert!(
+        solid.inner().faces().count() > solid_faces,
+        "lubang harus menambah face, bukan diabaikan"
+    );
+}
+
+#[test]
+fn profile_with_empty_holes_is_unchanged() {
+    // `with_holes(vec![])` mengembalikan profil apa adanya supaya pemanggil
+    // tidak perlu membedakan kasus "ternyata tidak ada lubang".
+    let p = rect_profile(10.0, 10.0).with_holes(Vec::new());
+    assert!(!p.has_holes());
+    assert!(matches!(p, Profile::Loop(_)));
+}
+
+#[test]
+fn nested_holes_are_rejected_rather_than_silently_wrong() {
+    let _guard = lock_test();
+    let inner = rect_profile(10.0, 10.0).with_holes(vec![Profile::Circle {
+        center: (5.0, 5.0),
+        radius: 2.0,
+    }]);
+    let bad = rect_profile(40.0, 40.0).with_holes(vec![inner]);
+    assert!(
+        extrude_profile(&bad, 5.0).is_err(),
+        "profil berlubang bersarang harus ditolak eksplisit"
+    );
+}

@@ -664,6 +664,53 @@ pub fn convert_spline_to_smooth_segments(points: &[DVec2]) -> Vec<(DVec2, DVec2,
 /// - Seleksi tunggal berisi 1 `Spline` tertutup mandiri → `Profile::Loop` (smooth arcs).
 /// - Seleksi berisi rantai `Line`/`Arc`/`Spline` yang membentuk loop tertutup.
 pub fn build_profile_from_selection(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Profile, String> {
+    // Seleksi yang membentuk region bersarang (plat + lubang) dibangun jadi
+    // SATU profil berlubang, bukan dipaksa jadi satu rantai tertutup —
+    // rantai seperti itu memang tidak akan pernah tersambung, dan dulu
+    // berakhir sebagai pesan error meski seleksinya sudah benar.
+    if ids.len() > 1 {
+        if let Some(profile) = build_nested_profile(sketch, ids) {
+            return Ok(profile);
+        }
+    }
+    build_simple_profile(sketch, ids)
+}
+
+/// Bangun [`Profile::WithHoles`] bila `ids` tepat membentuk satu region padat
+/// beserta lubang-lubangnya.
+///
+/// Mengembalikan `None` — bukan error — bila seleksinya bukan bentuk itu,
+/// sehingga pemanggil jatuh ke jalur rantai tunggal yang lama tanpa
+/// kehilangan pesan diagnostiknya.
+fn build_nested_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<Profile> {
+    let trees = ducad_sketch::find_region_hierarchy(sketch);
+
+    // Hanya region yang SELURUH entitasnya ikut terpilih yang boleh dipakai:
+    // memakai region yang cuma sebagian terpilih berarti diam-diam menarik
+    // geometri yang tidak diminta pengguna.
+    let mut matching: Vec<_> = trees
+        .into_iter()
+        .filter(|t| !t.holes.is_empty() && t.all_entity_ids().is_subset(ids))
+        .collect();
+
+    // Persis satu region padat berlubang. Beberapa region sekaligus butuh
+    // profil majemuk (compound face) yang belum didukung kernel — dibiarkan
+    // jatuh ke jalur lama alih-alih diam-diam mengambil salah satunya.
+    if matching.len() != 1 {
+        return None;
+    }
+    let tree = matching.remove(0);
+
+    let outer = build_simple_profile(sketch, &tree.outer.entity_ids).ok()?;
+    let mut holes = Vec::with_capacity(tree.holes.len());
+    for hole in &tree.holes {
+        holes.push(build_simple_profile(sketch, &hole.entity_ids).ok()?);
+    }
+    Some(outer.with_holes(holes))
+}
+
+/// Jalur lama: satu loop tertutup tunggal, tanpa deteksi lubang.
+fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Profile, String> {
     if ids.is_empty() {
         return Err("Pilih dulu entitas sketch yang membentuk profil tertutup".to_string());
     }

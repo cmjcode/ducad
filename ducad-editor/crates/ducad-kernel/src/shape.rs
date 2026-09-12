@@ -36,6 +36,24 @@ impl KernelShape {
         tessellate_shape(&self.0)
     }
 
+    /// Volume solid dalam mm³, dihitung EKSAK dari B-rep (`BRepGProp`),
+    /// bukan dari mesh.
+    ///
+    /// Berbeda dari `interference::compute_mesh_volume` yang menjumlahkan
+    /// tetrahedron bertanda dari segitiga hasil tesselasi: angka di sini
+    /// tidak terpengaruh kerapatan tesselasi maupun orientasi segitiga, dan
+    /// benar untuk permukaan lengkung (silinder lubang, fillet) yang justru
+    /// paling banyak menyimpang pada pendekatan mesh. Dipakai verifikasi
+    /// geometri dan — nantinya — panel mass properties.
+    ///
+    /// Nilainya bertanda: solid dengan orientasi terbalik mengembalikan
+    /// angka negatif, jadi pemanggil yang cuma butuh besarannya harus
+    /// memakai `.abs()`.
+    pub fn volume(&self) -> f64 {
+        let _guard = lock_kernel();
+        self.0.volume()
+    }
+
     pub fn write_stl(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let _guard = lock_kernel();
         self.0.write_stl(path)?;

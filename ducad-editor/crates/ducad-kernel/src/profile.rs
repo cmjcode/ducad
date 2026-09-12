@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use glam::dvec3;
-use opencascade::primitives::{Edge, Wire};
+use opencascade::primitives::{Edge, Face, Wire};
 
 /// Satu segmen loop profil 2D di bidang XY, dalam koordinat mentah (mm) —
 /// bukan `glam::DVec2` supaya tidak membocorkan versi glam manapun ke
@@ -33,6 +33,52 @@ pub enum Profile {
     /// end-to-end kembali ke titik awal (verifikasi kontinuitas jadi
     /// tanggung jawab pemanggil — lihat pembangun chain di `ducad-app`).
     Loop(Vec<ProfileSegment>),
+    /// Profil dengan lubang: satu batas LUAR ditambah N batas DALAM.
+    ///
+    /// Sebelum ini, plat berlubang harus dibuat dua tahap — extrude batas
+    /// luar jadi solid, lalu extrude tiap lubang dan boolean subtract satu
+    /// per satu. Selain merepotkan, tiap boolean adalah operasi B-rep penuh
+    /// yang bisa gagal sendiri; membentuk face berlubang sekali jalan jauh
+    /// lebih murah DAN lebih kokoh.
+    ///
+    /// `outer` dan tiap `holes` boleh berupa bentuk profil apa pun kecuali
+    /// `WithHoles` lagi — bersarang lebih dari satu tingkat (pulau di dalam
+    /// lubang) diselesaikan pemanggil dengan memecahnya jadi beberapa
+    /// `Profile` terpisah, bukan dengan menyarangkan varian ini. Lihat
+    /// `build_face_on_plane`.
+    WithHoles {
+        outer: Box<Profile>,
+        holes: Vec<Profile>,
+    },
+}
+
+impl Profile {
+    /// `true` bila profil ini membawa batas dalam.
+    pub fn has_holes(&self) -> bool {
+        matches!(self, Profile::WithHoles { holes, .. } if !holes.is_empty())
+    }
+
+    /// Batas luar profil — dirinya sendiri untuk profil tanpa lubang.
+    pub fn outer(&self) -> &Profile {
+        match self {
+            Profile::WithHoles { outer, .. } => outer,
+            other => other,
+        }
+    }
+
+    /// Bungkus `self` sebagai batas luar dengan `holes` sebagai batas dalam.
+    /// `holes` kosong mengembalikan `self` apa adanya, sehingga pemanggil
+    /// tidak perlu membedakan kasus "ternyata tidak ada lubang".
+    pub fn with_holes(self, holes: Vec<Profile>) -> Profile {
+        if holes.is_empty() {
+            self
+        } else {
+            Profile::WithHoles {
+                outer: Box::new(self),
+                holes,
+            }
+        }
+    }
 }
 
 pub(crate) fn build_wire(profile: &Profile) -> Result<Wire> {
@@ -83,6 +129,12 @@ pub(crate) fn build_wire_on_plane(
             let edge = Edge::ellipse(c3, norm, x_dir, major_r, minor_r);
             Ok(Wire::from_edges([&edge]))
         }
+        Profile::WithHoles { .. } => {
+            // Satu `Wire` adalah SATU kurva tertutup; lubang butuh beberapa
+            // wire yang hanya bisa digabung di tingkat `Face`. Pemanggil yang
+            // butuh lubang harus lewat `build_face_on_plane`.
+            bail!("profil berlubang tidak bisa jadi wire tunggal — pakai build_face_on_plane")
+        }
         Profile::Loop(segments) => {
             if segments.is_empty() {
                 bail!("profil loop kosong");
@@ -119,6 +171,95 @@ pub(crate) fn build_wire_on_plane(
     }
 }
 
+/// Bangun `Face` planar dari profil — satu-satunya jalur yang mendukung
+/// [`Profile::WithHoles`].
+///
+/// Untuk profil tanpa lubang hasilnya identik dengan
+/// `Face::from_wire(build_wire_on_plane(..))`; untuk profil berlubang,
+/// batas dalam ditambahkan lewat `Face::from_wire_with_holes`, yang
+/// membalik orientasi tiap wire lubang sehingga OCCT memperlakukannya
+/// sebagai rongga, bukan sebagai face terpisah.
+pub(crate) fn build_face_on_plane(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+) -> Result<Face> {
+    match profile {
+        Profile::WithHoles { outer, holes } => {
+            if outer.has_holes() || holes.iter().any(|h| h.has_holes()) {
+                bail!("profil berlubang tidak boleh bersarang — pecah jadi beberapa profil");
+            }
+            let outer_wire = build_wire_on_plane(outer, origin, u_axis, v_axis, normal)?;
+            // Wire lubang WAJIB berorientasi berlawanan dengan batas luar.
+            // Dengan orientasi yang sama, `BRepBuilderAPI_MakeFace::Add`
+            // memperlakukannya sebagai material tambahan, bukan rongga —
+            // terbukti lewat test: plat 40x40x10 berlubang R5 menghasilkan
+            // 16785 mm^3 (= 16000 + volume silindernya) alih-alih 15215.
+            // Binding tidak meng-expose `Wire::Reversed()`, jadi
+            // pembalikannya dilakukan di tingkat geometri profil.
+            let hole_wires: Vec<Wire> = holes
+                .iter()
+                .map(|h| build_hole_wire_on_plane(h, origin, u_axis, v_axis, normal))
+                .collect::<Result<_>>()?;
+            if hole_wires.is_empty() {
+                return Ok(Face::from_wire(&outer_wire));
+            }
+            Ok(Face::from_wire_with_holes(&outer_wire, &hole_wires))
+        }
+        simple => {
+            let wire = build_wire_on_plane(simple, origin, u_axis, v_axis, normal)?;
+            Ok(Face::from_wire(&wire))
+        }
+    }
+}
+
+/// Bangun wire batas DALAM dengan orientasi terbalik terhadap batas luar.
+///
+/// Caranya berbeda per bentuk karena arah wire ditentukan hal yang berbeda:
+/// - `Loop`: arahnya berasal dari urutan segmen, jadi urutannya dibalik dan
+///   tiap segmen ditukar ujungnya.
+/// - `Circle`/`Ellipse`: arahnya berasal dari normal bidang yang diberikan
+///   ke `Edge::circle`/`Edge::ellipse`, jadi cukup normalnya dinegasikan.
+fn build_hole_wire_on_plane(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+) -> Result<Wire> {
+    let flipped = [-normal[0], -normal[1], -normal[2]];
+    match profile {
+        Profile::Loop(segments) => {
+            let reversed: Vec<ProfileSegment> =
+                segments.iter().rev().copied().map(reverse_profile_segment).collect();
+            build_wire_on_plane(&Profile::Loop(reversed), origin, u_axis, v_axis, normal)
+        }
+        Profile::WithHoles { .. } => {
+            bail!("profil berlubang tidak boleh jadi lubang — pecah jadi beberapa profil")
+        }
+        analytic => build_wire_on_plane(analytic, origin, u_axis, v_axis, flipped),
+    }
+}
+
+/// Tukar arah satu segmen profil.
+fn reverse_profile_segment(seg: ProfileSegment) -> ProfileSegment {
+    match seg {
+        ProfileSegment::Line { start, end } => ProfileSegment::Line {
+            start: end,
+            end: start,
+        },
+        // `via` adalah titik DI atas busur, bukan ujung — ia tetap di
+        // tempatnya saat arah dibalik.
+        ProfileSegment::Arc { start, via, end } => ProfileSegment::Arc {
+            start: end,
+            via,
+            end: start,
+        },
+    }
+}
+
 /// Sama seperti `build_wire`, tapi diangkat ke ketinggian `z` — dipakai
 /// `loft_profiles` untuk menempatkan profil ATAS di `z = height` sementara
 /// profil BAWAH tetap di `z = 0` (sketch DUCAD cuma satu bidang XY, lihat
@@ -149,6 +290,9 @@ pub(crate) fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
             };
             let edge = Edge::ellipse(c3, norm, x_dir, major_r, minor_r);
             Ok(Wire::from_edges([&edge]))
+        }
+        Profile::WithHoles { .. } => {
+            bail!("profil berlubang tidak bisa jadi wire tunggal — pakai build_face_on_plane")
         }
         Profile::Loop(segments) => {
             if segments.is_empty() {

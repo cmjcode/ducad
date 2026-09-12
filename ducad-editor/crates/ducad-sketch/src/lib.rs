@@ -34,8 +34,9 @@ pub use ops::{
     Fillet2DResult, FilletTarget, PolygonMode, SlotMode,
 };
 pub use region::{
-    detect_rectangle, find_closed_regions, find_region_at_point, find_region_containing_entity,
-    ClosedRegion, RectAnchor, RectangleShape,
+    build_hierarchy, detect_rectangle, find_closed_regions, find_region_at_point,
+    find_region_containing_entity, find_region_hierarchy, ClosedRegion, RectAnchor, RectangleShape,
+    RegionWithHoles,
 };
 pub use sketch::Sketch;
 pub use snap::{
