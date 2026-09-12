@@ -319,7 +319,7 @@ impl DuCADApp {
             let path_plane_idx = self.sweep_path_plane_idx.unwrap_or_else(|| self.active_plane_index());
             let path_plane = self.plane_for_index(path_plane_idx);
             crate::model::build_path_from_selection_on_plane(
-                &self.sketches[path_plane_idx],
+                self.sketch_at_index(path_plane_idx),
                 &self.selected,
                 &path_plane,
             )

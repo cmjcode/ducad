@@ -128,7 +128,7 @@ impl LoadedDocument {
 
 /// Serialize dokumen multi-bidang langsung ke String JSON dengan fitur lengkap.
 pub fn serialize_detailed_to_json(
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[ExportBody],
 ) -> Result<String> {
     let bodies = bodies
@@ -158,9 +158,9 @@ pub fn serialize_detailed_to_json(
 
     let file = DuCADFile {
         format_version: FORMAT_VERSION,
-        sketch: sketches.first().cloned().unwrap_or_default(),
-        front_sketch: sketches.get(1).cloned(),
-        right_sketch: sketches.get(2).cloned(),
+        sketch: sketches.first().map(|s| (*s).clone()).unwrap_or_default(),
+        front_sketch: sketches.get(1).map(|s| (*s).clone()),
+        right_sketch: sketches.get(2).map(|s| (*s).clone()),
         bodies,
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
@@ -168,7 +168,7 @@ pub fn serialize_detailed_to_json(
 
 /// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
 pub fn serialize_to_json(
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<String> {
     let export_bodies: Vec<ExportBody> = bodies
@@ -236,7 +236,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
 /// Simpan dokumen multi-bidang (Top, Front, Right) lengkap dengan riwayat fitur ke `path` sebagai JSON.
 pub fn save_multi_plane_detailed(
     path: impl AsRef<Path>,
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[ExportBody],
 ) -> Result<()> {
     let json = serialize_detailed_to_json(sketches, bodies)?;
@@ -247,7 +247,7 @@ pub fn save_multi_plane_detailed(
 /// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
 pub fn save_multi_plane(
     path: impl AsRef<Path>,
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<()> {
     let export_bodies: Vec<ExportBody> = bodies
@@ -267,7 +267,7 @@ pub fn save_multi_plane(
 pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, ducad_core::Material, &KernelShape)]) -> Result<()> {
     save_multi_plane(
         path,
-        &[sketch.clone(), Sketch::default(), Sketch::default()],
+        &[sketch, &Sketch::default(), &Sketch::default()],
         bodies,
     )
 }
@@ -399,7 +399,8 @@ mod tests {
 
         let sketches = [top, front, right];
         let path = temp_path("multi_plane");
-        save_multi_plane(&path, &sketches, &[]).unwrap();
+        let sketch_refs: Vec<&Sketch> = sketches.iter().collect();
+        save_multi_plane(&path, &sketch_refs, &[]).unwrap();
 
         let loaded = load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -441,7 +442,7 @@ mod tests {
             round_history: Some((&base_shape, vec![feature])),
         };
 
-        save_multi_plane_detailed(&path, &[sketch], &[export_body]).unwrap();
+        save_multi_plane_detailed(&path, &[&sketch], &[export_body]).unwrap();
         let loaded = load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
 

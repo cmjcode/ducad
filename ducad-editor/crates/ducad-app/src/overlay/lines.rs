@@ -49,17 +49,15 @@ impl DuCADApp {
                     &empty_set
                 };
 
-                if idx < self.sketches.len() {
-                    verts.extend(sketch_render::entity_lines(
-                        &self.sketches[idx],
-                        h,
-                        sel,
-                        &plane,
-                    ));
-                }
-            } else if idx < self.sketches.len() {
+                verts.extend(sketch_render::entity_lines(
+                    self.sketch_at_index(idx),
+                    h,
+                    sel,
+                    &plane,
+                ));
+            } else {
                 verts.extend(sketch_render::inactive_entity_lines(
-                    &self.sketches[idx],
+                    self.sketch_at_index(idx),
                     &plane,
                 ));
             }

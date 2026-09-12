@@ -4,6 +4,7 @@
 
 pub mod commands;
 pub mod constraint;
+pub mod document;
 pub mod entity;
 pub mod measure;
 pub mod ops;
@@ -19,6 +20,7 @@ pub use commands::{
     DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
     ToggleConstruction, TranslateEntities, UndoStack, UpdateEntity,
 };
+pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{Entity, EntityId};
 pub use ops::{
     arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,

@@ -76,7 +76,8 @@ impl DuCADApp {
 
     pub fn save_native_to(&mut self, path: PathBuf) {
         let body_exports = self.native_export_bodies();
-        match ducad_io::native::save_multi_plane_detailed(&path, &self.sketches, &body_exports) {
+        let ordered = self.plane_ordered_sketches();
+        match ducad_io::native::save_multi_plane_detailed(&path, &ordered, &body_exports) {
             Ok(_) => {
                 let name = path
                     .file_name()
@@ -114,12 +115,11 @@ impl DuCADApp {
         };
         match ducad_io::native::load(&path) {
             Ok(loaded) => {
-                self.sketches = vec![loaded.sketch, loaded.front_sketch, loaded.right_sketch];
-                self.undos = vec![
-                    ducad_sketch::UndoStack::default(),
-                    ducad_sketch::UndoStack::default(),
-                    ducad_sketch::UndoStack::default(),
-                ];
+                self.load_standard_plane_sketches(
+                    loaded.sketch,
+                    loaded.front_sketch,
+                    loaded.right_sketch,
+                );
                 self.datum_planes.clear();
                 self.datum_plane_counter = 0;
                 self.selected.clear();

@@ -43,8 +43,10 @@ pub type RoundPreviewCache = (
 
 pub struct DuCADApp {
     pub camera: OrbitCamera,
-    pub sketches: Vec<Sketch>,
-    pub undos: Vec<ducad_sketch::UndoStack>,
+    /// Seluruh sketsa dokumen, dikunci identitas (`SketchId`) bukan posisi.
+    /// Menggantikan larik paralel `sketches`/`undos` yang dulu disinkronkan
+    /// lewat aritmetika indeks — lihat catatan modul `ducad_sketch::document`.
+    pub sketch_set: ducad_sketch::SketchSet,
     pub datum_planes: Vec<ducad_render::plane::DatumPlane>,
     pub datum_plane_counter: u32,
 
@@ -397,12 +399,7 @@ impl DuCADApp {
 
         Self {
             camera: OrbitCamera::default(),
-            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
-            undos: vec![
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-            ],
+            sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
             tool: ToolKind::Select,
@@ -677,12 +674,7 @@ impl DuCADApp {
         let history_db = crate::history_db::HistoryDb::in_memory();
         Self {
             camera: OrbitCamera::default(),
-            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
-            undos: vec![
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-            ],
+            sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
             tool: ToolKind::Select,
@@ -955,7 +947,8 @@ impl DuCADApp {
     /// Catat aktivitas baru ke SQLite bersama snapshot dokumen penuh, lalu perbarui cache riwayat.
     pub fn record_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
         let body_refs = self.native_body_refs();
-        let snapshot_json = ducad_io::native::serialize_to_json(&self.sketches, &body_refs).ok();
+        let ordered = self.plane_ordered_sketches();
+        let snapshot_json = ducad_io::native::serialize_to_json(&ordered, &body_refs).ok();
 
         self.history_db.log_activity(kind, action, details, snapshot_json.as_deref());
         self.activity_cache = self.history_db.load_activities();
@@ -965,12 +958,7 @@ impl DuCADApp {
     pub fn restore_snapshot_from_json(&mut self, json: &str) -> anyhow::Result<()> {
         let loaded = ducad_io::native::deserialize_from_json(json)?;
 
-        self.sketches = vec![loaded.sketch, loaded.front_sketch, loaded.right_sketch];
-        self.undos = vec![
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-        ];
+        self.load_standard_plane_sketches(loaded.sketch, loaded.front_sketch, loaded.right_sketch);
         self.datum_planes.clear();
         self.datum_plane_counter = 0;
         self.selected.clear();
@@ -1803,7 +1791,8 @@ impl eframe::App for DuCADApp {
                                 }
                             }
                             ItemsDrawerEvent::ToggleEntity2dVisibility(raw_id) => {
-                                for sketch in self.sketches.iter_mut() {
+                                for (_, slot) in self.sketch_set.iter_mut() {
+                                    let sketch = &mut slot.sketch;
                                     if let Some(id) = sketch.entities.keys().find(|i| i.data().as_ffi() == raw_id) {
                                         let is_now_visible = sketch.toggle_visibility(id);
                                         if !is_now_visible {
@@ -1824,7 +1813,8 @@ impl eframe::App for DuCADApp {
                                 }
                             }
                             ItemsDrawerEvent::ToggleGroupVisibility(group_name) => {
-                                for sketch in self.sketches.iter_mut() {
+                                for (_, slot) in self.sketch_set.iter_mut() {
+                                    let sketch = &mut slot.sketch;
                                     let member_ids: Vec<_> = sketch
                                         .entity_names
                                         .iter()

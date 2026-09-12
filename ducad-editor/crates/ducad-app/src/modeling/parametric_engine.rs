@@ -37,11 +37,7 @@ impl DuCADApp {
             (SketchPlaneRef::CustomDatum(datum_id), dep)
         };
 
-        let sketch = if plane_idx < self.sketches.len() {
-            &self.sketches[plane_idx]
-        } else {
-            &self.sketches[0]
-        };
+        let sketch = self.sketch_at_index(plane_idx);
 
         let entity_count = sketch.entities.len();
         let (shape_type, dim_w, dim_h) = if entity_count == 1 {
@@ -356,11 +352,13 @@ impl DuCADApp {
 
     /// Helper untuk mengubah ukuran entitas sketsa saat parameter dimensi di Feature Tree diedit.
     fn apply_sketch_dimension_update(&mut self, plane_index: usize, new_w: f64, new_h: Option<f64>) {
-        if plane_index >= self.sketches.len() || new_w <= 0.0 {
+        if new_w <= 0.0 {
             return;
         }
 
-        let sketch = &mut self.sketches[plane_index];
+        let Some(sketch) = self.sketch_at_index_mut(plane_index) else {
+            return;
+        };
         if sketch.entities.is_empty() {
             return;
         }
@@ -472,11 +470,7 @@ impl DuCADApp {
                 }
                 FeaturePayload::Extrude { distance, plane_index, .. } => {
                     let plane = self.plane_for_index(plane_index);
-                    let sketch = if plane_index < self.sketches.len() {
-                        &self.sketches[plane_index]
-                    } else {
-                        &self.sketches[0]
-                    };
+                    let sketch = self.sketch_at_index(plane_index);
 
                     let all_ids: std::collections::HashSet<_> = sketch
                         .entities
@@ -513,11 +507,7 @@ impl DuCADApp {
                     }
                 }
                 FeaturePayload::Revolve { angle_deg, axis_origin, axis_dir, plane_index, .. } => {
-                    let sketch = if plane_index < self.sketches.len() {
-                        &self.sketches[plane_index]
-                    } else {
-                        &self.sketches[0]
-                    };
+                    let sketch = self.sketch_at_index(plane_index);
 
                     let all_ids: std::collections::HashSet<_> = sketch
                         .entities
@@ -605,11 +595,7 @@ impl DuCADApp {
 
         if !has_solid_features && !existing_bodies.is_empty() {
             let active_idx = self.active_plane_index();
-            let sketch = if active_idx < self.sketches.len() {
-                &self.sketches[active_idx]
-            } else {
-                &self.sketches[0]
-            };
+            let sketch = self.sketch_at_index(active_idx);
 
             let all_ids: std::collections::HashSet<_> = sketch
                 .entities
@@ -652,7 +638,7 @@ mod tests {
         let mut app = DuCADApp::new_for_test();
 
         // 1. Gambar sebuah Circle di Sketch Top Plane
-        app.sketches[0].entities.insert(Entity::Circle {
+        app.sketch_at_index_mut(0).unwrap().entities.insert(Entity::Circle {
             center: DVec2::ZERO,
             radius: 15.0,
             is_construction: false,
@@ -674,7 +660,7 @@ mod tests {
         assert!(update_res.is_ok());
 
         // Validasi bahwa entitas sketsa terupdate menjadi radius 30.0
-        let circle_r = match app.sketches[0].entities.iter().next().unwrap().1 {
+        let circle_r = match app.sketch_at_index(0).entities.iter().next().unwrap().1 {
             Entity::Circle { radius, .. } => *radius,
             _ => 0.0,
         };
@@ -691,22 +677,22 @@ mod tests {
         let mut app = DuCADApp::new_for_test();
 
         // Gambar 4 garis persegi 40x20
-        app.sketches[0].entities.insert(Entity::Line {
+        app.sketch_at_index_mut(0).unwrap().entities.insert(Entity::Line {
             start: DVec2::new(0.0, 0.0),
             end: DVec2::new(40.0, 0.0),
             is_construction: false,
         });
-        app.sketches[0].entities.insert(Entity::Line {
+        app.sketch_at_index_mut(0).unwrap().entities.insert(Entity::Line {
             start: DVec2::new(40.0, 0.0),
             end: DVec2::new(40.0, 20.0),
             is_construction: false,
         });
-        app.sketches[0].entities.insert(Entity::Line {
+        app.sketch_at_index_mut(0).unwrap().entities.insert(Entity::Line {
             start: DVec2::new(40.0, 20.0),
             end: DVec2::new(0.0, 20.0),
             is_construction: false,
         });
-        app.sketches[0].entities.insert(Entity::Line {
+        app.sketch_at_index_mut(0).unwrap().entities.insert(Entity::Line {
             start: DVec2::new(0.0, 20.0),
             end: DVec2::new(0.0, 0.0),
             is_construction: false,
@@ -723,7 +709,7 @@ mod tests {
         assert!(update_res.is_ok());
 
         // Periksa bounding box sketch baru
-        let (min, max) = app.sketches[0].bounding_box().unwrap();
+        let (min, max) = app.sketch_at_index(0).bounding_box().unwrap();
         let size = max - min;
         assert!((size.x - 80.0).abs() < 1e-3);
         assert!((size.y - 60.0).abs() < 1e-3);
