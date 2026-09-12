@@ -12,6 +12,83 @@ use crate::profile::{
 };
 use crate::shape::{deep_clone, validate_or_heal, KernelShape};
 
+/// Seberapa jauh sebuah profil di-extrude, dan ke arah mana.
+///
+/// Sebelumnya hanya ada satu perilaku: maju sejauh `distance` dari bidang
+/// sketsa. Padahal bos/potongan yang berpusat pada bidangnya adalah hal
+/// biasa — dan mengerjakannya dengan dua extrude lalu union berarti membayar
+/// satu operasi boolean penuh (yang bisa gagal sendiri) untuk sesuatu yang
+/// sebetulnya cuma pergeseran titik awal.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExtrudeExtent {
+    /// Maju sejauh `0..distance` dari bidang sketsa. Nilai negatif berarti
+    /// mundur — perilaku yang sama dengan `extrude_profile_on_plane`.
+    Blind(f64),
+    /// Total setebal `length`, berpusat pada bidang sketsa (setengah maju,
+    /// setengah mundur).
+    Symmetric(f64),
+    /// Panjang berbeda di tiap sisi bidang sketsa.
+    TwoSided { forward: f64, backward: f64 },
+}
+
+impl ExtrudeExtent {
+    /// Uraikan jadi (pergeseran titik awal sepanjang normal, panjang total).
+    ///
+    /// Semua varian diselesaikan sebagai SATU prisma: bidang profil digeser
+    /// mundur lalu di-extrude sepanjang jumlahnya. Tidak ada boolean yang
+    /// dibayar, dan hasilnya satu solid tanpa sambungan internal.
+    fn resolve(self) -> (f64, f64) {
+        match self {
+            ExtrudeExtent::Blind(d) => {
+                if d >= 0.0 {
+                    (0.0, d)
+                } else {
+                    // Extrude mundur = mulai dari ujung mundur lalu maju.
+                    (d, -d)
+                }
+            }
+            ExtrudeExtent::Symmetric(len) => (-len.abs() * 0.5, len.abs()),
+            ExtrudeExtent::TwoSided { forward, backward } => (-backward, forward + backward),
+        }
+    }
+
+    /// Panjang total material yang dihasilkan.
+    pub fn total_length(self) -> f64 {
+        self.resolve().1
+    }
+}
+
+/// Extrude profil pada bidang 3D sembarang dengan mode [`ExtrudeExtent`].
+pub fn extrude_profile_extent(
+    profile: &Profile,
+    origin: [f64; 3],
+    u_axis: [f64; 3],
+    v_axis: [f64; 3],
+    normal: [f64; 3],
+    extent: ExtrudeExtent,
+) -> Result<KernelShape> {
+    let (offset, length) = extent.resolve();
+    if length.abs() < 1e-9 {
+        bail!("panjang extrude harus tidak nol");
+    }
+    let norm_len =
+        (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    if norm_len < 1e-9 {
+        bail!("normal bidang extrude degenerate");
+    }
+    let unit = [
+        normal[0] / norm_len,
+        normal[1] / norm_len,
+        normal[2] / norm_len,
+    ];
+    let shifted_origin = [
+        origin[0] + unit[0] * offset,
+        origin[1] + unit[1] * offset,
+        origin[2] + unit[2] * offset,
+    ];
+    extrude_profile_on_plane(profile, shifted_origin, u_axis, v_axis, normal, length)
+}
+
 /// Extrude profil pada bidang 3D sembarang (origin, u_axis, v_axis, normal) sepanjang `distance` mm
 /// searah normal bidang.
 pub fn extrude_profile_on_plane(

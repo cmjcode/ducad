@@ -1,4 +1,4 @@
-# Status Fase A (P0) & Fase B (P1)
+# Status Fase A (P0), Fase B (P1) & Fase C (P2)
 
 Diperbarui: 2026-09-12. Sumber rencana: `.claude/plans/ducad-pro-cad-roadmap.plan.md`.
 
@@ -47,13 +47,32 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 
 ---
 
+## Fase C — P2 Pemodelan 3D
+
+| Item | Status | Catatan |
+|---|---|---|
+| **P2.7** Robustness kernel | 🟡 **sebagian** | `validate_or_heal` (periksa → `ShapeFix` → periksa lagi → gagal) dipasang di Union/Subtract/Intersect/Fillet/Chamfer. Binding cxx baru `BRepCheck_Analyzer` + `ShapeFix_Shape`. **Belum**: boolean fuzzy (`SetFuzzyValue`), pelaporan edge mana yang menggagalkan fillet, dan mengganti 224 `unwrap()` dengan `thiserror`. |
+| **P2.6** Mass properties | 🟡 **sebagian** | `volume()` dan `surface_area()` eksak dari B-rep. **Belum**: massa dari densitas material, pusat massa, tensor inersia, panel UI-nya. Sisa P2.6 (hole ANSI, cosmetic thread, pattern regen-aware, sheet metal) belum. |
+| **P2.1** Mode extrude | 🟡 **sebagian** | `ExtrudeExtent::{Blind, Symmetric, TwoSided}` — semuanya diselesaikan sebagai SATU prisma dengan menggeser titik awal, tanpa boolean. **Belum**: `UpToNext`/`UpToBody`/`UpToFace` (butuh `BRepFeat_MakePrism` + **P0.4**), draft, thin, opsi revolve. |
+| **P2.2** Sketch on face asosiatif | ⛔ **terblokir** | Butuh `TopoRef` dari **P0.4**. |
+| **P2.3** Binding OCCT batch | 🟡 **sebagian** | 3 dari ~17 kelas terikat (`BRepCheck_Analyzer`, `ShapeFix_Shape`, `SurfaceProperties`). **Belum** yang paling penting: `BRepTools_History` (P0.4) dan `HLRBRep_Algo` (Fase D). |
+| **P2.4** Surface modeling | ❌ **belum** | Thicken, knit, trim, extend, replace/delete face. |
+| **P2.5** Direct modeling | ❌ **belum** | Move/rotate/offset/delete/replace face, combine multi-body, scale. |
+| **P2.8** Kernel paralel & tessellation inkremental | ❌ **belum** | `KERNEL_LOCK` masih menyerialkan SEMUA operasi OCCT, bukan hanya transfer STEP/IGES. |
+
+---
+
 ## Urutan yang disarankan berikutnya
 
-1. **P0.1 lanjutan** — `Document` tunggal + `EditorState`. Membuka P1.3 dan
-   P1.5 sekaligus, dan merupakan prasyarat container v2 (P0.3).
-2. **P0.4** binding `BRepTools_History` — memblokir P0.5, dan tanpanya
-   fillet/hole/mate tidak akan pernah asosiatif.
-3. **P1.1** entitas 2D — juga membuka sisa impor DXF.
+1. **P0.4** binding `BRepTools_History` — kini penghalang terbesar:
+   memblokir P0.5 (regen parametrik), P2.2 (sketch on face asosiatif), dan
+   `UpToFace` di P2.1. Tanpanya fillet/hole/mate tidak akan pernah
+   asosiatif. Polanya sudah terbukti: dua binding cxx baru ditambahkan di
+   P2.7 tanpa perlu menautkan pustaka OCCT baru.
+2. **P0.1 lanjutan** — `Document` tunggal + `EditorState`. Membuka P1.3 dan
+   P1.5 sekaligus, dan prasyarat container v2 (P0.3).
+3. **P1.1** entitas 2D — juga membuka sisa impor DXF (ellips berotasi saat
+   ini dilewati, bukan diimpor salah).
 
 ## Tindakan yang perlu pemilik repo
 

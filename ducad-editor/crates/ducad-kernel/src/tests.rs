@@ -2457,3 +2457,129 @@ fn surface_area_increases_when_a_hole_is_added() {
         "lubang harus mengurangi volume"
     );
 }
+
+// ---------------------------------------------------------------------
+// P2.1 — mode extrude (simetris, dua sisi, mundur).
+// ---------------------------------------------------------------------
+
+/// Rentang Z mesh sebuah shape — dipakai memverifikasi DI MANA material
+/// berada, bukan sekadar berapa banyak.
+fn z_range(shape: &KernelShape) -> (f32, f32) {
+    let mesh = shape.tessellate();
+    let (min, max) = mesh.bounding_box().expect("mesh tidak boleh kosong");
+    (min[2], max[2])
+}
+
+#[test]
+fn symmetric_extrude_straddles_the_sketch_plane() {
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Symmetric(20.0),
+    )
+    .expect("extrude simetris harus berhasil");
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -10.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!((zmax - 10.0).abs() < 1e-3, "zmax = {zmax}");
+    // Volume total harus sama dengan blind sepanjang 20 — simetris hanya
+    // memindahkan materialnya, tidak mengubah jumlahnya.
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 20.0).abs() < 1e-6);
+}
+
+#[test]
+fn two_sided_extrude_uses_different_lengths_per_side() {
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::TwoSided {
+            forward: 30.0,
+            backward: 5.0,
+        },
+    )
+    .unwrap();
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -5.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!((zmax - 30.0).abs() < 1e-3, "zmax = {zmax}");
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 35.0).abs() < 1e-6);
+}
+
+#[test]
+fn negative_blind_extrude_goes_backward_not_nowhere() {
+    // `Blind` negatif harus menghasilkan material di sisi MUNDUR bidang,
+    // bukan gagal atau menghasilkan solid bervolume negatif.
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Blind(-15.0),
+    )
+    .unwrap();
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -15.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!(zmax.abs() < 1e-3, "zmax = {zmax}");
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 15.0).abs() < 1e-6);
+}
+
+#[test]
+fn zero_length_extent_is_rejected() {
+    let _guard = lock_test();
+    for extent in [
+        ExtrudeExtent::Blind(0.0),
+        ExtrudeExtent::Symmetric(0.0),
+        ExtrudeExtent::TwoSided {
+            forward: 5.0,
+            backward: -5.0,
+        },
+    ] {
+        assert!(
+            extrude_profile_extent(
+                &rect_profile(10.0, 10.0),
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                extent,
+            )
+            .is_err(),
+            "{extent:?} berpanjang total nol dan harus ditolak"
+        );
+    }
+}
+
+#[test]
+fn extents_are_built_as_one_prism_without_internal_seam() {
+    // Simetris diselesaikan dengan menggeser titik awal lalu satu extrude,
+    // BUKAN dua extrude + union. Kalau ia memakai boolean, solid hasilnya
+    // akan punya face sambungan di bidang sketsa sehingga jumlah face-nya
+    // melebihi prisma biasa.
+    let _guard = lock_test();
+    let plain = extrude_profile(&rect_profile(10.0, 10.0), 20.0).unwrap();
+    let symmetric = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Symmetric(20.0),
+    )
+    .unwrap();
+    assert_eq!(
+        symmetric.inner().faces().count(),
+        plain.inner().faces().count(),
+        "extrude simetris tidak boleh menyisakan face sambungan"
+    );
+}
