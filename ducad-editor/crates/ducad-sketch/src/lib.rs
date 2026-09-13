@@ -4,6 +4,7 @@
 
 pub mod commands;
 pub mod constraint;
+pub mod document;
 pub mod entity;
 pub mod measure;
 pub mod ops;
@@ -19,6 +20,7 @@ pub use commands::{
     DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
     ToggleConstruction, TranslateEntities, UndoStack, UpdateEntity,
 };
+pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{Entity, EntityId};
 pub use ops::{
     arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
@@ -32,8 +34,9 @@ pub use ops::{
     Fillet2DResult, FilletTarget, PolygonMode, SlotMode,
 };
 pub use region::{
-    detect_rectangle, find_closed_regions, find_region_at_point, find_region_containing_entity,
-    ClosedRegion, RectAnchor, RectangleShape,
+    build_hierarchy, detect_rectangle, find_closed_regions, find_region_at_point,
+    find_region_containing_entity, find_region_hierarchy, ClosedRegion, RectAnchor, RectangleShape,
+    RegionWithHoles,
 };
 pub use sketch::Sketch;
 pub use snap::{

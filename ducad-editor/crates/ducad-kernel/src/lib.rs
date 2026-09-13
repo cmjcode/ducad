@@ -10,6 +10,7 @@ pub mod csg;
 pub mod detail;
 pub mod helix;
 pub mod hlr;
+pub mod hlr_exact;
 pub mod hole;
 pub mod interference;
 pub mod mesh;
@@ -57,11 +58,13 @@ pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
 
 // Re-exports for public API compatibility
 pub use assembly_solver::{
-    apply_mate_transform_to_shape, solve_angle, solve_assembly, solve_coincident, solve_concentric,
+    apply_mate_transform_to_shape, evaluate_motion, solve_angle, solve_assembly,
+    solve_assembly_with_drag, solve_coincident, solve_concentric, AssemblySolveReport,
     solve_single_mate, MateTransformResult,
 };
 pub use csg::{
-    emboss_profiles_on_plane, extrude_profile, extrude_profile_on_plane, intersect, loft_profiles,
+    emboss_profiles_on_plane, extrude_profile, extrude_profile_extent, extrude_profile_on_plane,
+    intersect, loft_profiles, ExtrudeExtent,
     revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
 };
@@ -74,10 +77,11 @@ pub use hlr::{
     HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
     ProjectedViewKind,
 };
+pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
 pub use hole::{apply_hole, create_hole_cutter};
 pub use interference::{
-    compute_mesh_centroid, compute_mesh_volume, compute_pair_interference, detect_interference,
-    BodyClash,
+    check_clearance, compute_mesh_centroid, compute_mesh_volume, compute_pair_interference,
+    detect_interference, BodyClash, ClearanceResult,
 };
 pub use mesh::KernelMesh;
 pub use modify::{
@@ -89,8 +93,8 @@ pub use modify::{
 };
 pub use picking::{
     edge_dimensions, edge_outward_normal, pick_edge, pick_face, pick_face_details, pick_vertex,
-    point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgePickHit,
-    FaceHit, PickRay, SurfaceKind,
+    point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgeNormalHit,
+    EdgePickHit, FaceHit, PickRay, SurfaceKind, Vec3Raw,
 };
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{

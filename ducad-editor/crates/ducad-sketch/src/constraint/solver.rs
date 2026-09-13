@@ -115,6 +115,18 @@ pub(crate) fn involved_entities(constraints: &[Constraint]) -> Vec<EntityId> {
                 push_unique(b.entity_id(), &mut ids);
                 push_unique(*axis, &mut ids);
             }
+            Constraint::PointOnCurve { point, curve } => {
+                push_unique(point.entity_id(), &mut ids);
+                push_unique(*curve, &mut ids);
+            }
+            Constraint::Midpoint { point, line } => {
+                push_unique(point.entity_id(), &mut ids);
+                push_unique(*line, &mut ids);
+            }
+            Constraint::Concentric { a, b } | Constraint::Collinear { a, b } => {
+                push_unique(*a, &mut ids);
+                push_unique(*b, &mut ids);
+            }
         }
     }
     ids
@@ -302,6 +314,55 @@ fn constraint_residuals(
             let reflected = crate::ops::reflect_point(pa, axis_s, axis_e);
             vec![reflected.x - pb.x, reflected.y - pb.y]
         }
+        Constraint::PointOnCurve { point, curve } => {
+            let p = read_point_ref(point, x, offsets);
+            match kinds.get(curve) {
+                Some(EntityKind::Line) => {
+                    let (s, e) = read_line(*curve, x, offsets);
+                    // Jarak BERTANDA (cross product), bukan `.abs()`: nilai
+                    // mutlak punya kink di nol sehingga turunannya tidak
+                    // terdefinisi persis di solusi yang dicari — solver
+                    // Newton/LM akan berosilasi di sana.
+                    let d = e - s;
+                    let len = d.length();
+                    if len < 1e-9 {
+                        vec![0.0]
+                    } else {
+                        vec![(d.x * (p.y - s.y) - d.y * (p.x - s.x)) / len]
+                    }
+                }
+                Some(EntityKind::Radial) => {
+                    let c = read_center(*curve, x, offsets);
+                    let r = read_radius_param(*curve, x, offsets);
+                    vec![(p - c).length() - r]
+                }
+                None => vec![],
+            }
+        }
+        Constraint::Midpoint { point, line } => {
+            let p = read_point_ref(point, x, offsets);
+            let (s, e) = read_line(*line, x, offsets);
+            let mid = (s + e) * 0.5;
+            vec![p.x - mid.x, p.y - mid.y]
+        }
+        Constraint::Concentric { a, b } => {
+            let (ca, cb) = (read_center(*a, x, offsets), read_center(*b, x, offsets));
+            vec![ca.x - cb.x, ca.y - cb.y]
+        }
+        Constraint::Collinear { a, b } => {
+            let (sa, ea) = read_line(*a, x, offsets);
+            let (sb, eb) = read_line(*b, x, offsets);
+            let da = ea - sa;
+            let len = da.length();
+            if len < 1e-9 {
+                return vec![0.0, 0.0];
+            }
+            // Sejajar DAN kedua ujung `b` berada di garis tak hingga `a`.
+            // Dua residual jarak-bertanda sudah mencakup kesejajaran, jadi
+            // tidak perlu persamaan cross terpisah yang akan redundan.
+            let signed = |p: glam::DVec2| (da.x * (p.y - sa.y) - da.y * (p.x - sa.x)) / len;
+            vec![signed(sb), signed(eb)]
+        }
     }
 }
 
@@ -372,7 +433,225 @@ const MAX_LAMBDA_TRIES: usize = 12;
 
 /// Selesaikan `constraints` di atas geometri `sketch` saat ini, menulis
 /// balik hasilnya ke entitas yang terlibat.
+/// Keadaan sebuah sketsa terhadap kendalanya.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstraintState {
+    /// Masih ada derajat kebebasan tersisa — geometri bisa digeser.
+    Under,
+    /// Derajat kebebasan nol dan tidak ada kendala berlebih.
+    Fully,
+    /// Ada kendala yang tidak menambah informasi baru (redundan) atau
+    /// saling bertentangan.
+    Over,
+}
+
+/// Hasil analisis derajat kebebasan sebuah sketsa.
+///
+/// Inilah yang membedakan sketsa CAD dari sekadar gambar: pengguna harus
+/// bisa melihat apakah geometrinya masih bisa bergeser (biru), sudah
+/// terkunci penuh (hitam), atau justru dikendalai berlebihan (merah).
+/// Sebelumnya DUCAD tidak punya informasi ini sama sekali.
+#[derive(Debug, Clone)]
+pub struct DofReport {
+    /// Jumlah parameter bebas geometri yang terlibat.
+    pub unknowns: usize,
+    /// Jumlah persamaan yang dihasilkan seluruh kendala.
+    pub equations: usize,
+    /// Rank matriks Jacobian — jumlah persamaan yang benar-benar saling
+    /// bebas.
+    pub rank: usize,
+    /// Derajat kebebasan tersisa (`unknowns - rank`).
+    pub dof: usize,
+    /// Indeks kendala (pada slice masukan) yang tidak menambah rank, alias
+    /// tidak memberi informasi baru. Dilaporkan per kendala — bukan sekadar
+    /// "sketsa over-constrained" — supaya UI bisa menunjuk kendala mana yang
+    /// perlu dihapus.
+    pub redundant: Vec<usize>,
+    pub state: ConstraintState,
+}
+
+/// Analisis derajat kebebasan tanpa memodifikasi sketsa.
+///
+/// Rank dihitung lewat eliminasi Gauss dengan pivot parsial pada Jacobian
+/// numerik di posisi geometri SAAT INI. Rank Jacobian bisa berbeda di
+/// konfigurasi yang berbeda (mis. dua garis yang kebetulan sejajar membuat
+/// sebuah kendala jadi redundan secara lokal), jadi hasilnya berlaku untuk
+/// konfigurasi sekarang — sama seperti solver CAD komersial.
+pub fn analyze_dof(sketch: &Sketch, constraints: &[Constraint]) -> DofReport {
+    let entity_ids = involved_entities(constraints);
+    if entity_ids.is_empty() {
+        return DofReport {
+            unknowns: 0,
+            equations: 0,
+            rank: 0,
+            dof: 0,
+            redundant: Vec::new(),
+            state: ConstraintState::Fully,
+        };
+    }
+    let (offsets, x) = build_offsets_and_x0(&entity_ids, sketch);
+    let kinds = build_kinds(&entity_ids, sketch);
+    let n = x.len();
+
+    // Baris Jacobian dikelompokkan per kendala supaya redundansi bisa
+    // dilaporkan per kendala, bukan per persamaan.
+    let mut rows_per_constraint: Vec<Vec<Vec<f64>>> = Vec::with_capacity(constraints.len());
+    for c in constraints {
+        let single = std::slice::from_ref(c);
+        let f = |xx: &[f64]| -> Vec<f64> {
+            single
+                .iter()
+                .flat_map(|cc| constraint_residuals(cc, xx, &offsets, &kinds))
+                .collect()
+        };
+        let r0 = f(&x);
+        rows_per_constraint.push(numeric_jacobian(&f, &x, &r0));
+    }
+
+    // Tambahkan baris satu kendala sekaligus; kendala yang tidak menaikkan
+    // rank berarti tidak membawa informasi baru.
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    let mut redundant = Vec::new();
+    let mut equations = 0;
+    for (idx, rows) in rows_per_constraint.iter().enumerate() {
+        equations += rows.len();
+        let before = basis.len();
+        for row in rows {
+            if let Some(reduced) = reduce_against(row, &basis) {
+                basis.push(reduced);
+            }
+        }
+        if basis.len() == before && !rows.is_empty() {
+            redundant.push(idx);
+        }
+    }
+
+    let rank = basis.len();
+    let dof = n.saturating_sub(rank);
+    let state = if !redundant.is_empty() {
+        ConstraintState::Over
+    } else if dof == 0 {
+        ConstraintState::Fully
+    } else {
+        ConstraintState::Under
+    };
+
+    DofReport {
+        unknowns: n,
+        equations,
+        rank,
+        dof,
+        redundant,
+        state,
+    }
+}
+
+/// Kurangi `row` terhadap basis ortogonal-baris yang sudah ada
+/// (Gram-Schmidt termodifikasi). Mengembalikan `None` bila baris itu
+/// kombinasi linear dari basis — alias tidak menambah rank.
+fn reduce_against(row: &[f64], basis: &[Vec<f64>]) -> Option<Vec<f64>> {
+    let mut v = row.to_vec();
+    for b in basis {
+        let dot: f64 = v.iter().zip(b).map(|(a, c)| a * c).sum();
+        let bb: f64 = b.iter().map(|c| c * c).sum();
+        if bb > 1e-18 {
+            let k = dot / bb;
+            for (vi, bi) in v.iter_mut().zip(b) {
+                *vi -= k * bi;
+            }
+        }
+    }
+    let norm: f64 = v.iter().map(|c| c * c).sum::<f64>().sqrt();
+    // Ambang relatif terhadap besaran baris asalnya, supaya kendala berskala
+    // besar (mis. jarak ratusan mm) tidak salah dianggap redundan.
+    let base: f64 = row.iter().map(|c| c * c).sum::<f64>().sqrt().max(1.0);
+    if norm / base < 1e-7 {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// Pecah kendala jadi kelompok-kelompok yang tidak berbagi entitas apa pun.
+///
+/// Sketsa nyata hampir selalu terdiri dari beberapa gugus terpisah (profil
+/// luar, lubang, garis konstruksi). Menyelesaikannya sebagai SATU sistem
+/// berarti eliminasi Gauss O(n³) atas seluruh sketsa, padahal gugus-gugus
+/// itu tidak saling memengaruhi sama sekali. Memecahnya mengubah satu
+/// sistem besar jadi banyak sistem kecil — penghematan yang tumbuh kubik
+/// terhadap ukuran sketsa.
+fn partition_into_clusters(constraints: &[Constraint]) -> Vec<Vec<usize>> {
+    let mut parent: HashMap<EntityId, EntityId> = HashMap::new();
+    fn find(parent: &mut HashMap<EntityId, EntityId>, x: EntityId) -> EntityId {
+        let p = *parent.get(&x).unwrap_or(&x);
+        if p == x {
+            return x;
+        }
+        let root = find(parent, p);
+        parent.insert(x, root);
+        root
+    }
+
+    for c in constraints {
+        let ids = involved_entities(std::slice::from_ref(c));
+        for w in ids.windows(2) {
+            let (ra, rb) = (find(&mut parent, w[0]), find(&mut parent, w[1]));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+        for id in ids {
+            parent.entry(id).or_insert(id);
+        }
+    }
+
+    let mut groups: HashMap<EntityId, Vec<usize>> = HashMap::new();
+    for (i, c) in constraints.iter().enumerate() {
+        let ids = involved_entities(std::slice::from_ref(c));
+        let key = match ids.first() {
+            Some(id) => find(&mut parent, *id),
+            // Kendala tanpa entitas (mis. Tangent Line-Line yang no-op)
+            // tidak punya gugus; dibuang di sini karena residualnya kosong.
+            None => continue,
+        };
+        groups.entry(key).or_default().push(i);
+    }
+    groups.into_values().collect()
+}
+
+/// Selesaikan seluruh kendala, memecahnya jadi gugus-gugus independen lebih
+/// dulu. Lihat [`partition_into_clusters`].
 pub fn solve(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult {
+    if constraints.is_empty() {
+        return SolveResult {
+            converged: true,
+            iterations: 0,
+            final_residual_norm: 0.0,
+        };
+    }
+    let clusters = partition_into_clusters(constraints);
+    if clusters.len() <= 1 {
+        return solve_cluster(sketch, constraints);
+    }
+
+    let mut converged = true;
+    let mut iterations = 0;
+    let mut sq_sum = 0.0;
+    for cluster in clusters {
+        let subset: Vec<Constraint> = cluster.iter().map(|&i| constraints[i].clone()).collect();
+        let r = solve_cluster(sketch, &subset);
+        converged &= r.converged;
+        iterations = iterations.max(r.iterations);
+        sq_sum += r.final_residual_norm * r.final_residual_norm;
+    }
+    SolveResult {
+        converged,
+        iterations,
+        final_residual_norm: sq_sum.sqrt(),
+    }
+}
+
+fn solve_cluster(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult {
     let entity_ids = involved_entities(constraints);
     if entity_ids.is_empty() || constraints.is_empty() {
         return SolveResult {

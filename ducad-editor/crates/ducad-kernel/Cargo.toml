@@ -10,6 +10,7 @@ ducad-core = { workspace = true }
 opencascade = { workspace = true }
 glam = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
 serde = { workspace = true }
 
 [[bin]]

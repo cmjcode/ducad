@@ -333,7 +333,7 @@ impl DuCADApp {
         pos: egui::Pos2,
         tolerance: f64,
     ) -> Option<(usize, EntityId)> {
-        hit_test_multi_plane(&self.camera, rect, &self.sketches, pos, tolerance, 0)
+        hit_test_multi_plane(&self.camera, rect, &self.plane_ordered_sketches(), pos, tolerance, 0)
     }
 
     pub fn hit_test_click_cycled(
@@ -372,7 +372,7 @@ impl DuCADApp {
             _ => 0,
         };
         self.last_select_click = Some((pos, cycle));
-        hit_test_multi_plane(&self.camera, rect, &self.sketches, pos, tolerance, cycle)
+        hit_test_multi_plane(&self.camera, rect, &self.plane_ordered_sketches(), pos, tolerance, cycle)
     }
 
     pub fn on_click_point(&mut self, p: DVec2) {
@@ -689,6 +689,9 @@ impl DuCADApp {
                         &format!("Menggeser posisi objek sejauh ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
                     self.round_history.remove(&target_id);
+                    // Sinkronkan instance perakitan & biarkan mate menarik
+                    // balik sepanjang derajat kebebasan yang terkunci.
+                    self.after_body_moved(target_id, delta);
                     self.model_status = Some(format!(
                         "Body digeser ({:.1}, {:.1}, {:.1}) mm",
                         delta.x, delta.y, delta.z
@@ -1057,8 +1060,24 @@ impl DuCADApp {
             self.last_snap = None;
             return;
         };
-        let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+        let tol = pixel_tolerance_to_world(&self.camera, rect) * self.touch_config.effective_pixel_tolerance();
         let grid_step = 10.0;
+
+        // Dalam mode PencilOnly, sentuhan 1 jari difungsikan untuk navigasi kanvas (orbit/pan)
+        // dan diabaikan untuk menggambar/membuat sketsa (Palm Rejection)
+        let has_pencil_pressure = ui.input(|i| {
+            i.events.iter().any(|e| match e {
+                egui::Event::Touch { force: Some(f), .. } => *f > 0.0,
+                _ => false,
+            })
+        });
+        let is_touch_input = ui.input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }))
+                || i.multi_touch().is_some()
+        });
+        let is_finger_navigating = self.touch_config.single_finger_navigates()
+            && is_touch_input
+            && !has_pencil_pressure;
 
         match self.tool {
             ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
@@ -1133,6 +1152,7 @@ impl DuCADApp {
                     .is_some_and(|p| self.check_near_gizmo(rect, Some(p)));
 
                 if response.clicked()
+                    && !is_finger_navigating
                     && !suppress_click_from_radial
                     && !click_hits_body_dim_pill
                     && !click_hits_gizmo
@@ -1221,7 +1241,7 @@ impl DuCADApp {
                                         origin: (origin.x as f64, origin.y as f64, origin.z as f64),
                                         dir: (dir.x as f64, dir.y as f64, dir.z as f64),
                                     };
-                                    let tol = pixel_tolerance_to_world(&self.camera, rect) * 14.0;
+                                    let tol = pixel_tolerance_to_world(&self.camera, rect) * self.touch_config.effective_pixel_tolerance();
                                     for (_id, geo) in self.model.geometry.iter() {
                                         if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, tol) {
                                             self.selected_edges = vec![crate::types::PickedEdge { ray, polyline }];
@@ -1553,15 +1573,15 @@ impl DuCADApp {
                         if let Some((plane_idx, ent_id)) = target {
                             let plane = self.plane_for_index(plane_idx);
                             if self.pending_sweep_profile.is_none() {
-                                if let Some(r) = find_region_containing_entity(&self.sketches[plane_idx], ent_id) {
+                                if let Some(r) = find_region_containing_entity(self.sketch_at_index(plane_idx), ent_id) {
                                     let ids: HashSet<EntityId> = r.entity_ids.into_iter().collect();
-                                    if let Ok(profile) = crate::model::build_profile_from_selection(&self.sketches[plane_idx], &ids) {
+                                    if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch_at_index(plane_idx), &ids) {
                                         self.pending_sweep_profile = Some((profile, plane));
                                         self.selected.clear();
                                         self.sweep_path_plane_idx = None;
                                         self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
                                     }
-                                } else if let Ok(profile) = crate::model::build_profile_from_selection(&self.sketches[plane_idx], &std::iter::once(ent_id).collect()) {
+                                } else if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch_at_index(plane_idx), &std::iter::once(ent_id).collect()) {
                                     self.pending_sweep_profile = Some((profile, plane));
                                     self.selected.clear();
                                     self.sweep_path_plane_idx = None;
@@ -1583,7 +1603,7 @@ impl DuCADApp {
                                     self.selected.insert(ent_id);
                                 }
 
-                                if let Ok(path) = crate::model::build_path_from_selection_on_plane(&self.sketches[plane_idx], &self.selected, &plane) {
+                                if let Ok(path) = crate::model::build_path_from_selection_on_plane(self.sketch_at_index(plane_idx), &self.selected, &plane) {
                                     self.pending_sweep_path = Some(path);
                                     self.model_status = Some("✓ Profil & Jalur terpilih! Tekan 'Buat Sweep 3D' di atas atau tekan Enter".to_string());
                                 } else {
@@ -1868,7 +1888,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.handle_line_chain_click(effective, tol);
                 }
@@ -1879,7 +1899,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.handle_spline_click(effective, tol);
                 }
@@ -1898,7 +1918,7 @@ impl DuCADApp {
                     .hovered()
                     .then(|| self.find_current_snap(raw, tol, grid_step, None))
                     .flatten();
-                if response.clicked() {
+                if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.on_click_point(effective);
                 }
@@ -1912,11 +1932,11 @@ impl DuCADApp {
                         .hovered()
                         .then(|| self.find_current_snap(raw, tol, grid_step, None))
                         .flatten();
-                    if response.clicked() {
+                    if response.clicked() && !is_finger_navigating {
                         let effective = self.snapped_or(raw);
                         self.on_click_point(effective);
                     }
-                } else if response.clicked() {
+                } else if response.clicked() && !is_finger_navigating {
                     self.open_revolve_dialog();
                 }
             }
@@ -2243,7 +2263,7 @@ impl DuCADApp {
 pub fn hit_test_multi_plane(
     camera: &ducad_render::OrbitCamera,
     rect: egui::Rect,
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     pos: egui::Pos2,
     tolerance: f64,
     cycle: usize,
@@ -2293,12 +2313,13 @@ mod tests {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, 600.0));
         // Hit on front sketch (plane 1) line at Z=20
         let p_screen = crate::viewport::world_to_screen_pos(&camera, rect, glam::vec3(0.0, 0.0, 20.0)).unwrap();
-        let hit = hit_test_multi_plane(&camera, rect, &sketches, p_screen, 2.0, 0);
+        let sketch_refs: Vec<&Sketch> = sketches.iter().collect();
+        let hit = hit_test_multi_plane(&camera, rect, &sketch_refs, p_screen, 2.0, 0);
         assert_eq!(hit, Some((1, l_id)));
 
         // Hit on top sketch (plane 0) circle boundary at (10, 0, 0)
         let p_circle_screen = crate::viewport::world_to_screen_pos(&camera, rect, glam::vec3(10.0, 0.0, 0.0)).unwrap();
-        let hit_c = hit_test_multi_plane(&camera, rect, &sketches, p_circle_screen, 2.0, 0);
+        let hit_c = hit_test_multi_plane(&camera, rect, &sketch_refs, p_circle_screen, 2.0, 0);
         assert_eq!(hit_c, Some((0, c_id)));
     }
 }

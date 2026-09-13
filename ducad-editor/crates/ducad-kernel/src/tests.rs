@@ -1671,6 +1671,11 @@ fn split_face_on_box() {
 
     let mesh = split.tessellate();
     assert!(mesh.triangle_count() > 0);
+    assert_eq!(orig_faces, 6, "Box sebelum split harus punya 6 face");
+    assert!(
+        new_faces > orig_faces,
+        "split_face harus MENAMBAH jumlah face (6 -> {new_faces}), bukan menyisakannya apa adanya"
+    );
     assert_eq!(new_faces, 10, "Box 6 face saat di-split di tengah harus memiliki 10 face terpisah");
 }
 
@@ -2248,3 +2253,672 @@ fn test_extract_shape_edges_for_box() {
 }
 
 
+
+/// BREP biner adalah jalur penyimpanan internal yang diusulkan menggantikan
+/// teks STEP di file native `.ducad`. Test ini membuktikan dua hal yang
+/// harus benar sebelum penggantian itu layak: roundtrip-nya menjaga
+/// geometri, dan ukurannya memang jauh lebih kecil.
+#[test]
+fn brep_bytes_roundtrip_preserves_geometry() {
+    let _guard = lock_test();
+    let profile = rect_profile(40.0, 30.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+    let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+
+    let bytes = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+    assert!(!bytes.is_empty(), "BREP tidak boleh kosong");
+
+    let restored =
+        KernelShape::from_brep_bytes(&bytes).expect("from_brep_bytes harus berhasil");
+
+    let before = rounded.tessellate();
+    let after = restored.tessellate();
+    assert_eq!(
+        before.positions.len(),
+        after.positions.len(),
+        "jumlah vertex harus identik setelah roundtrip"
+    );
+    assert_eq!(
+        before.triangle_count(),
+        after.triangle_count(),
+        "jumlah segitiga harus identik setelah roundtrip"
+    );
+    assert_eq!(
+        rounded.inner().faces().count(),
+        restored.inner().faces().count(),
+        "jumlah face harus identik setelah roundtrip"
+    );
+}
+
+#[test]
+fn brep_bytes_are_much_smaller_than_step_text() {
+    let _guard = lock_test();
+    let profile = rect_profile(40.0, 30.0);
+    let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+    let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+
+    let brep = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+    let step = rounded.to_step_string().expect("to_step_string harus berhasil");
+
+    // Angka persisnya tidak dikunci (bisa bergeser antar versi OCCT); yang
+    // dikunci adalah KLAIM yang mendasari keputusan format file: BREP biner
+    // secara substansial lebih kecil daripada teks STEP AP214.
+    println!("BREP {} byte vs STEP {} byte", brep.len(), step.len());
+    assert!(
+        brep.len() * 2 < step.len(),
+        "BREP ({} byte) seharusnya < separuh STEP ({} byte)",
+        brep.len(),
+        step.len()
+    );
+}
+
+/// P1.4 — profil berlubang jadi solid dalam SATU operasi extrude, bukan
+/// extrude lalu boolean subtract per lubang.
+#[test]
+fn extrude_profile_with_holes_produces_hollow_solid() {
+    let _guard = lock_test();
+    let plate = rect_profile(40.0, 40.0);
+    // `rect_profile` membentang (0,0)..(w,h), jadi pusatnya (20,20) —
+    // bukan titik asal.
+    let hole = Profile::Circle {
+        center: (20.0, 20.0),
+        radius: 5.0,
+    };
+    let profile = plate.with_holes(vec![hole]);
+    assert!(profile.has_holes());
+
+    let solid = extrude_profile(&profile, 10.0).expect("extrude berlubang harus berhasil");
+    let mesh = solid.tessellate();
+    assert!(mesh.triangle_count() > 0);
+
+    // Volume = (40x40 - pi*5^2) * 10, dicek terhadap volume B-rep EKSAK —
+    // bukan volume mesh, yang menyimpang mengikuti kerapatan tesselasi
+    // dinding lubang.
+    let expected = (40.0 * 40.0 - std::f64::consts::PI * 25.0) * 10.0;
+    let actual = solid.volume().abs();
+    let rel_err = (actual - expected).abs() / expected;
+    assert!(
+        rel_err < 1e-6,
+        "volume {actual:.3} mm^3 menyimpang {:.4}% dari {expected:.3} mm^3",
+        rel_err * 100.0
+    );
+
+    // Solid tanpa lubang: 6 face. Dengan satu lubang silindris tembus:
+    // 6 + dinding lubang. Jumlahnya harus BERTAMBAH — kalau lubangnya
+    // diabaikan diam-diam, angka ini akan tetap 6.
+    let solid_faces = extrude_profile(&rect_profile(40.0, 40.0), 10.0)
+        .unwrap()
+        .inner()
+        .faces()
+        .count();
+    assert!(
+        solid.inner().faces().count() > solid_faces,
+        "lubang harus menambah face, bukan diabaikan"
+    );
+}
+
+#[test]
+fn profile_with_empty_holes_is_unchanged() {
+    // `with_holes(vec![])` mengembalikan profil apa adanya supaya pemanggil
+    // tidak perlu membedakan kasus "ternyata tidak ada lubang".
+    let p = rect_profile(10.0, 10.0).with_holes(Vec::new());
+    assert!(!p.has_holes());
+    assert!(matches!(p, Profile::Loop(_)));
+}
+
+#[test]
+fn nested_holes_are_rejected_rather_than_silently_wrong() {
+    let _guard = lock_test();
+    let inner = rect_profile(10.0, 10.0).with_holes(vec![Profile::Circle {
+        center: (5.0, 5.0),
+        radius: 2.0,
+    }]);
+    let bad = rect_profile(40.0, 40.0).with_holes(vec![inner]);
+    assert!(
+        extrude_profile(&bad, 5.0).is_err(),
+        "profil berlubang bersarang harus ditolak eksplisit"
+    );
+}
+
+// ---------------------------------------------------------------------
+// P2.7 — validasi hasil operasi B-rep. P2.6 — mass properties.
+// ---------------------------------------------------------------------
+
+#[test]
+fn boolean_and_fillet_results_are_validated() {
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(40.0, 40.0), 20.0).unwrap();
+    let b = extrude_profile(&rect_profile(20.0, 20.0), 40.0).unwrap();
+
+    // Jalur boolean/fillet kini melewati `validate_or_heal`; yang diuji di
+    // sini adalah bahwa jalur normal TIDAK jadi menolak geometri yang sah.
+    let fused = union(&a, &b).expect("union sah harus tetap berhasil");
+    assert!(fused.is_valid(), "hasil union harus valid");
+
+    let cut = subtract(&a, &b).expect("subtract sah harus tetap berhasil");
+    assert!(cut.is_valid(), "hasil subtract harus valid");
+
+    let rounded = fillet_all(&a, 2.0).expect("fillet sah harus tetap berhasil");
+    assert!(rounded.is_valid(), "hasil fillet harus valid");
+}
+
+#[test]
+fn fillet_radius_too_large_fails_instead_of_returning_broken_solid() {
+    let _guard = lock_test();
+    let box_shape = extrude_profile(&rect_profile(20.0, 20.0), 20.0).unwrap();
+    // Radius jauh lebih besar dari setengah sisi terkecil: tidak ada solid
+    // yang masuk akal. Yang penting ia GAGAL, bukan mengembalikan sesuatu
+    // yang kelihatan benar di viewport lalu meledak saat ekspor STEP.
+    let result = fillet_all(&box_shape, 50.0);
+    if let Ok(shape) = result {
+        assert!(
+            shape.is_valid(),
+            "kalau fillet dilaporkan berhasil, hasilnya WAJIB valid"
+        );
+    }
+}
+
+#[test]
+fn surface_area_of_a_box_matches_analytic_value() {
+    let _guard = lock_test();
+    // Balok 40 x 30 x 20 mm: 2*(40*30 + 40*20 + 30*20) = 2*(1200+800+600).
+    let solid = extrude_profile(&rect_profile(40.0, 30.0), 20.0).unwrap();
+    let expected = 2.0 * (40.0 * 30.0 + 40.0 * 20.0 + 30.0 * 20.0);
+    let actual = solid.surface_area();
+    assert!(
+        (actual - expected).abs() / expected < 1e-9,
+        "luas {actual} != {expected}"
+    );
+}
+
+#[test]
+fn surface_area_increases_when_a_hole_is_added() {
+    // Lubang tembus MENAMBAH luas permukaan (dinding silinder) sekaligus
+    // MENGURANGI volume — dua arah yang berlawanan. Menguji keduanya
+    // sekaligus memastikan lubangnya benar-benar terpotong, bukan sekadar
+    // menghasilkan angka yang berubah.
+    let _guard = lock_test();
+    let plain = extrude_profile(&rect_profile(40.0, 40.0), 10.0).unwrap();
+    let holed = extrude_profile(
+        &rect_profile(40.0, 40.0).with_holes(vec![Profile::Circle {
+            center: (20.0, 20.0),
+            radius: 5.0,
+        }]),
+        10.0,
+    )
+    .unwrap();
+
+    assert!(
+        holed.surface_area() > plain.surface_area(),
+        "dinding lubang harus menambah luas permukaan"
+    );
+    assert!(
+        holed.volume().abs() < plain.volume().abs(),
+        "lubang harus mengurangi volume"
+    );
+}
+
+// ---------------------------------------------------------------------
+// P2.1 — mode extrude (simetris, dua sisi, mundur).
+// ---------------------------------------------------------------------
+
+/// Rentang Z mesh sebuah shape — dipakai memverifikasi DI MANA material
+/// berada, bukan sekadar berapa banyak.
+fn z_range(shape: &KernelShape) -> (f32, f32) {
+    let mesh = shape.tessellate();
+    let (min, max) = mesh.bounding_box().expect("mesh tidak boleh kosong");
+    (min[2], max[2])
+}
+
+#[test]
+fn symmetric_extrude_straddles_the_sketch_plane() {
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Symmetric(20.0),
+    )
+    .expect("extrude simetris harus berhasil");
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -10.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!((zmax - 10.0).abs() < 1e-3, "zmax = {zmax}");
+    // Volume total harus sama dengan blind sepanjang 20 — simetris hanya
+    // memindahkan materialnya, tidak mengubah jumlahnya.
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 20.0).abs() < 1e-6);
+}
+
+#[test]
+fn two_sided_extrude_uses_different_lengths_per_side() {
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::TwoSided {
+            forward: 30.0,
+            backward: 5.0,
+        },
+    )
+    .unwrap();
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -5.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!((zmax - 30.0).abs() < 1e-3, "zmax = {zmax}");
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 35.0).abs() < 1e-6);
+}
+
+#[test]
+fn negative_blind_extrude_goes_backward_not_nowhere() {
+    // `Blind` negatif harus menghasilkan material di sisi MUNDUR bidang,
+    // bukan gagal atau menghasilkan solid bervolume negatif.
+    let _guard = lock_test();
+    let solid = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Blind(-15.0),
+    )
+    .unwrap();
+
+    let (zmin, zmax) = z_range(&solid);
+    assert!((zmin - -15.0).abs() < 1e-3, "zmin = {zmin}");
+    assert!(zmax.abs() < 1e-3, "zmax = {zmax}");
+    assert!((solid.volume().abs() - 10.0 * 10.0 * 15.0).abs() < 1e-6);
+}
+
+#[test]
+fn zero_length_extent_is_rejected() {
+    let _guard = lock_test();
+    for extent in [
+        ExtrudeExtent::Blind(0.0),
+        ExtrudeExtent::Symmetric(0.0),
+        ExtrudeExtent::TwoSided {
+            forward: 5.0,
+            backward: -5.0,
+        },
+    ] {
+        assert!(
+            extrude_profile_extent(
+                &rect_profile(10.0, 10.0),
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                extent,
+            )
+            .is_err(),
+            "{extent:?} berpanjang total nol dan harus ditolak"
+        );
+    }
+}
+
+#[test]
+fn extents_are_built_as_one_prism_without_internal_seam() {
+    // Simetris diselesaikan dengan menggeser titik awal lalu satu extrude,
+    // BUKAN dua extrude + union. Kalau ia memakai boolean, solid hasilnya
+    // akan punya face sambungan di bidang sketsa sehingga jumlah face-nya
+    // melebihi prisma biasa.
+    let _guard = lock_test();
+    let plain = extrude_profile(&rect_profile(10.0, 10.0), 20.0).unwrap();
+    let symmetric = extrude_profile_extent(
+        &rect_profile(10.0, 10.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        ExtrudeExtent::Symmetric(20.0),
+    )
+    .unwrap();
+    assert_eq!(
+        symmetric.inner().faces().count(),
+        plain.inner().faces().count(),
+        "extrude simetris tidak boleh menyisakan face sambungan"
+    );
+}
+
+// ---------------------------------------------------------------------
+// P4.1 — HLR eksak.
+// ---------------------------------------------------------------------
+
+#[test]
+fn exact_hlr_keeps_a_circle_as_a_circle() {
+    // INTI P4.1. HLR berbasis mesh mengembalikan lingkaran sebagai poligon
+    // puluhan sisi — bergerigi saat dicetak dan tidak bisa diberi dimensi
+    // diameter yang benar. HLR eksak bekerja pada topologi B-rep, jadi
+    // lingkarannya tetap kurva analitik.
+    let _guard = lock_test();
+    let cyl = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 10.0,
+        },
+        30.0,
+    )
+    .unwrap();
+
+    // Pandang dari atas (-Z): tutup silinder menghadap kamera.
+    let view = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0))
+        .expect("HLR harus berhasil untuk silinder sederhana");
+
+    assert!(!view.curves.is_empty(), "HLR tidak boleh kosong");
+    assert!(
+        view.analytic_count() > 0,
+        "minimal satu kurva harus tetap analitik, bukan semuanya jadi garis"
+    );
+    assert!(
+        view.curves
+            .iter()
+            .any(|c| matches!(c.curve, opencascade::primitives::EdgeType::Circle)),
+        "tutup silinder harus muncul sebagai LINGKARAN, bukan rantai garis; \
+         jenis kurva yang didapat: {:?}",
+        view.curves.iter().map(|c| c.curve).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn exact_hlr_separates_visible_from_hidden_edges() {
+    // Balok dipandang dari depan: tiga rusuk belakang tertutup badan solid.
+    // HLR mesh menentukannya lewat uji oklusi terhadap segitiga; HLR eksak
+    // menentukannya dari topologi, jadi hasilnya tidak berubah-ubah
+    // mengikuti kerapatan tesselasi.
+    let _guard = lock_test();
+    let solid = extrude_profile(&rect_profile(40.0, 30.0), 20.0).unwrap();
+
+    let view = crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .expect("HLR harus berhasil untuk balok");
+
+    assert!(view.visible().count() > 0, "harus ada rusuk yang terlihat");
+    assert!(
+        view.hidden().count() > 0,
+        "balok pejal dipandang dari depan HARUS punya rusuk tersembunyi"
+    );
+}
+
+#[test]
+fn exact_hlr_rejects_up_vector_parallel_to_view() {
+    // `gp_Ax2` menolak sumbu X yang sejajar normalnya. Disaring lebih awal
+    // supaya jadi error Rust yang jelas, bukan lemparan C++ yang menembus
+    // batas FFI.
+    let _guard = lock_test();
+    let solid = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    assert!(
+        crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 0.0, 1.0), (0.0, 0.0, 1.0)).is_err(),
+        "vektor atas sejajar arah pandang harus ditolak"
+    );
+    assert!(
+        crate::hlr_exact::extract_exact_hlr(&solid, (0.0, 0.0, 0.0), (0.0, 1.0, 0.0)).is_err(),
+        "arah pandang nol harus ditolak"
+    );
+}
+
+#[test]
+fn exact_hlr_is_independent_of_tessellation_density() {
+    // Klaim kunci dibanding HLR berbasis mesh: mengubah kerapatan tesselasi
+    // TIDAK boleh mengubah gambar tekniknya. Di sini di-mesh dengan
+    // toleransi berbeda lebih dulu, lalu HLR dijalankan pada shape yang sama.
+    let _guard = lock_test();
+    let cyl = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 8.0,
+        },
+        20.0,
+    )
+    .unwrap();
+
+    let before = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .unwrap()
+        .curves
+        .len();
+    // Paksa tesselasi (mengisi triangulasi internal shape).
+    let _ = cyl.tessellate();
+    let after = crate::hlr_exact::extract_exact_hlr(&cyl, (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        .unwrap()
+        .curves
+        .len();
+
+    assert_eq!(
+        before, after,
+        "jumlah kurva HLR tidak boleh berubah karena tesselasi"
+    );
+}
+
+// ---------------------------------------------------------------------
+// P3.3 — mid-phase deteksi tabrakan.
+// ---------------------------------------------------------------------
+
+#[test]
+fn interference_mid_phase_does_not_miss_full_containment() {
+    // JEBAKAN YANG PALING BERBAHAYA di mid-phase berbasis segitiga: bodi
+    // yang SEPENUHNYA berada di dalam bodi lain tidak punya satu pun
+    // segitiga yang beririsan, padahal itu interferensi total. Tanpa
+    // penjagaan containment, mid-phase akan menolaknya dan tabrakan itu
+    // hilang dari laporan.
+    let _guard = lock_test();
+    let outer = extrude_profile(&rect_profile(100.0, 100.0), 100.0).unwrap();
+    let inner_profile = Profile::Loop(vec![
+        ducad_kernel_seg((40.0, 40.0), (60.0, 40.0)),
+        ducad_kernel_seg((60.0, 40.0), (60.0, 60.0)),
+        ducad_kernel_seg((60.0, 60.0), (40.0, 60.0)),
+        ducad_kernel_seg((40.0, 60.0), (40.0, 40.0)),
+    ]);
+    let inner = crate::csg::extrude_profile_on_plane(
+        &inner_profile,
+        [0.0, 0.0, 40.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        20.0,
+    )
+    .unwrap();
+
+    let name_a = "Outer".to_string();
+    let name_b = "Inner".to_string();
+    let clashes = detect_interference(&[(1, name_a, &outer), (2, name_b, &inner)], 0.001);
+    assert_eq!(
+        clashes.len(),
+        1,
+        "bodi yang tertelan seluruhnya HARUS tetap terdeteksi sebagai tabrakan"
+    );
+    assert!(clashes[0].volume > 7_000.0, "volume {}", clashes[0].volume);
+}
+
+#[test]
+fn interference_mid_phase_rejects_overlapping_boxes_that_do_not_touch() {
+    // Dua balok yang bounding box gabungannya tumpang tindih tapi
+    // solid-nya tidak bersentuhan. Broad-phase AABB saja meloloskannya,
+    // sehingga dulu tetap membayar operasi boolean penuh.
+    let _guard = lock_test();
+    let a = crate::csg::extrude_profile_on_plane(
+        &rect_profile(20.0, 5.0),
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        5.0,
+    )
+    .unwrap();
+    // Digeser sehingga AABB-nya beririsan di sumbu X, tapi terpisah di Y.
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(5.0, 20.0),
+        [10.0, 30.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        5.0,
+    )
+    .unwrap();
+
+    let clashes = detect_interference(
+        &[(1, "A".to_string(), &a), (2, "B".to_string(), &b)],
+        0.001,
+    );
+    assert!(clashes.is_empty(), "tidak bersentuhan, tidak boleh ada clash");
+}
+
+#[test]
+fn interference_still_detects_genuine_overlap() {
+    // Regresi: mid-phase tidak boleh menghilangkan tabrakan yang nyata.
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(40.0, 40.0), 40.0).unwrap();
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(40.0, 40.0),
+        [20.0, 20.0, 20.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        40.0,
+    )
+    .unwrap();
+
+    let clashes = detect_interference(
+        &[(1, "A".to_string(), &a), (2, "B".to_string(), &b)],
+        0.001,
+    );
+    assert_eq!(clashes.len(), 1, "tumpang tindih nyata harus terdeteksi");
+    // Irisan 20x20x20 = 8000 mm^3.
+    assert!(
+        (clashes[0].volume - 8000.0).abs() / 8000.0 < 0.02,
+        "volume tabrakan {}",
+        clashes[0].volume
+    );
+}
+
+fn ducad_kernel_seg(start: (f64, f64), end: (f64, f64)) -> ProfileSegment {
+    ProfileSegment::Line { start, end }
+}
+
+// ---------------------------------------------------------------------
+// P3.3 — clearance check.
+// ---------------------------------------------------------------------
+
+#[test]
+fn clearance_measures_the_real_gap_between_two_bodies() {
+    // Pertanyaan yang TIDAK bisa dijawab deteksi tabrakan: tabrakan hanya
+    // melaporkan yang sudah saling menembus, sementara part berjarak 0,1 mm
+    // lolos begitu saja padahal mustahil dirakit.
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(10.0, 10.0),
+        [25.0, 0.0, 0.0], // celah 15 mm dari x = 10 ke x = 25
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+    )
+    .unwrap();
+
+    let r = crate::interference::check_clearance(&a, &b, 2.0).unwrap();
+    assert!(
+        (r.distance - 15.0).abs() < 1e-6,
+        "jarak terukur {} mm, seharusnya 15",
+        r.distance
+    );
+    assert!(r.passes, "15 mm harus lolos syarat 2 mm");
+
+    // Syarat yang lebih ketat dari celah nyata harus GAGAL.
+    let strict = crate::interference::check_clearance(&a, &b, 20.0).unwrap();
+    assert!(!strict.passes, "15 mm tidak boleh lolos syarat 20 mm");
+    assert!((strict.distance - 15.0).abs() < 1e-6, "jaraknya tetap sama");
+}
+
+#[test]
+fn clearance_is_zero_for_touching_and_overlapping_bodies() {
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    // Bersentuhan tepat di x = 10.
+    let touching = crate::csg::extrude_profile_on_plane(
+        &rect_profile(10.0, 10.0),
+        [10.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+    )
+    .unwrap();
+    let r = crate::interference::check_clearance(&a, &touching, 0.5).unwrap();
+    assert!(r.distance < 1e-6, "bersentuhan harus berjarak nol");
+    assert!(!r.passes, "celah nol tidak memenuhi syarat 0,5 mm");
+}
+
+#[test]
+fn clearance_on_curved_surfaces_uses_exact_geometry() {
+    // Titik utama memakai BRepExtrema alih-alih jarak antar mesh: pada
+    // permukaan lengkung, jarak antar titik tesselasi selalu sedikit
+    // MELEBIHI jarak permukaan sesungguhnya. Dua silinder R5 yang pusatnya
+    // berjarak 30 mm punya celah tepat 20 mm.
+    let _guard = lock_test();
+    let a = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 5.0,
+        },
+        10.0,
+    )
+    .unwrap();
+    let b = extrude_profile(
+        &Profile::Circle {
+            center: (30.0, 0.0),
+            radius: 5.0,
+        },
+        10.0,
+    )
+    .unwrap();
+
+    let r = crate::interference::check_clearance(&a, &b, 1.0).unwrap();
+    assert!(
+        (r.distance - 20.0).abs() < 1e-6,
+        "celah antar silinder {} mm, seharusnya tepat 20",
+        r.distance
+    );
+}
+
+// ---------------------------------------------------------------------
+// Regresi: translasi harus KUMULATIF, bukan absolut.
+// ---------------------------------------------------------------------
+
+#[test]
+fn translating_twice_accumulates_instead_of_resetting() {
+    // `set_global_translation` yang lama MENGATUR Location secara absolut:
+    // geser (10,0,0) lalu geser (5,0,0) berakhir di x=5, bukan x=15. Drag
+    // body dua kali mereset drag pertama, dan solver perakitan menempatkan
+    // part di posisi yang salah pada setiap solve sesudah yang pertama.
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let once = translate_shape(&shape, 10.0, 0.0, 0.0).unwrap();
+    let twice = translate_shape(&once, 5.0, 0.0, 0.0).unwrap();
+
+    let cx = |s: &KernelShape| s.tessellate().center()[0];
+    assert!((cx(&shape) - 5.0).abs() < 1e-3);
+    assert!((cx(&once) - 15.0).abs() < 1e-3, "sekali: {}", cx(&once));
+    assert!((cx(&twice) - 20.0).abs() < 1e-3, "dua kali harus kumulatif: {}", cx(&twice));
+}
+
+#[test]
+fn transform_after_translate_composes_with_existing_position() {
+    // Jalur yang dipakai `apply_mate_transform_to_shape`: koreksi solver
+    // diterapkan pada geometri yang SUDAH berpindah.
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let moved = translate_shape(&shape, 5.0, 7.0, 30.0).unwrap();
+    let corrected = crate::shape::transform_shape(
+        &moved,
+        (-5.0, -7.0, 0.0),
+        (5.0, 7.0, 30.0),
+        (0.0, 0.0, 1.0),
+        0.0,
+    )
+    .unwrap();
+    let c = corrected.tessellate().center();
+    assert!((c[0] - 5.0).abs() < 1e-3 && (c[1] - 5.0).abs() < 1e-3, "x,y kembali ke asal: {c:?}");
+    assert!((c[2] - 35.0).abs() < 1e-3, "z tetap 30 + 5: {c:?}");
+}

@@ -77,6 +77,11 @@
 * **Command Palette (`Ctrl/Cmd+K`)**: Instant access to all tools and commands via quick text search.
 * **Radial Menu (`Space`)**: Circular menu under the mouse cursor for quick access to essential tools.
 * **3D ViewCube**: Interactive cube camera orientation control (Top, Front, Right, Isometric, Orbit).
+* **Apple iPad & Touch Design Support**:
+  * *Apple Pencil Only (`PencilOnly`)*: Pure drafting mode with hardware Palm Rejection. Apple Pencil executes drawing, snapping, and entity selection with pressure sensitivity; finger gestures exclusively orbit, pan, and zoom without accidental marks.
+  * *Finger Touch Design (`FingerDesign`)*: Direct touch sketching with expanded 14px hit tolerances and 44pt touch targets adhering to Apple Human Interface Guidelines (HIG).
+  * *Hybrid Mode (`PencilAndFinger`)*: Seamlessly draw and design using both Apple Pencil and finger touch.
+  * *Collision-Free iPad Layout*: Dynamic coordinate spacing eliminates overlap between TopBar and the 3D ViewCube; compact screen detection bundles secondary tools into an overflow menu ("⋯").
 * **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
 * **Multi-Language Support (i18n)**: 18+ languages with English as the default interface and developer-friendly notes.
 
@@ -115,20 +120,44 @@ DUCAD/
 Clone the repository and run it via Cargo:
 
 ```bash
-# Clone the repository
-git clone https://github.com/cmjcode/ducad.git
-cd DUCAD
+# Clone the repository. `--recurse-submodules` is REQUIRED: the OCCT kernel
+# is consumed through a patched fork pinned as a submodule under
+# `ducad-editor/vendors/opencascade-rs`, and `[patch.crates-io]` in the
+# workspace manifest points into it. Without the submodule, `cargo` fails
+# while resolving dependencies — before compiling a single line.
+git clone --recurse-submodules https://github.com/cmjcode/ducad.git
+cd ducad/ducad-editor
 
-# Run the application (the first compilation will build the OCCT kernel, ~8-15 minutes)
+# Already cloned without the flag? Fetch the submodule now:
+#   git submodule update --init --recursive
+
+# Run the application (the first compilation builds the OCCT kernel, ~8-15 minutes)
 cargo run -p ducad-app
 ```
 
-> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is permanently cached in the `target/` directory so subsequent compilations run instantly.
+> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is cached in the `target/` directory so subsequent compilations run instantly.
+
+> **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
 
 ### Running Unit & Integration Tests
 
+Run workspace tests directly or via container:
+
 ```bash
+# Run all workspace unit and integration tests (from ducad-editor/)
 cargo test --workspace
+
+# Or run via Docker builder container (if cargo is not installed locally)
+docker run --rm --label visva_task_id=UI_iPAD_berantakan \
+  -v "$(pwd)":/workspace -w /workspace/ducad-editor ducad-builder:latest cargo test --workspace
+```
+
+### Running Backend & Cloud Sync API Tests
+
+Execute the automated cURL test suite for DuCAD Cloud and touch configuration endpoints:
+
+```bash
+./test_api.sh
 ```
 
 ---

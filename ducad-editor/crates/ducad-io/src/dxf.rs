@@ -422,8 +422,84 @@ fn push_arc(out: &mut String, center: DVec2, radius: f64, start_angle: f64, end_
 /// `ENTITIES` tidak ditemukan sama sekali (file bukan DXF, atau varian
 /// yang jauh dari R12), mengembalikan hasil kosong alih-alih error keras —
 /// parser ini sengaja minimal, bukan implementasi spek DXF penuh.
+/// Ubah satu segmen *bulge* DXF menjadi busur.
+///
+/// DXF menyimpan busur di dalam polyline sebagai **bulge**: `b = tan(θ/4)`
+/// dengan `θ` sudut tempuh bertanda (positif = berlawanan arah jarum jam).
+/// Nilai `0` berarti segmen lurus.
+///
+/// Mengembalikan `None` bila segmennya lurus atau degenerate — pemanggil
+/// menggambarnya sebagai garis.
+fn bulge_to_arc(p1: DVec2, p2: DVec2, bulge: f64) -> Option<Entity> {
+    if bulge.abs() < 1e-12 {
+        return None;
+    }
+    let chord = p2 - p1;
+    let chord_len = chord.length();
+    if chord_len < 1e-12 {
+        return None;
+    }
+    let half = 2.0 * bulge.atan(); // = θ/2
+    let sin_half = half.sin();
+    if sin_half.abs() < 1e-12 {
+        return None;
+    }
+    let d = chord_len * 0.5;
+    let radius = (d / sin_half).abs();
+
+    let dir = chord / chord_len;
+    // Normal +90°. Pusat berada sejauh apotema `d / tan(θ/2)` dari titik
+    // tengah tali busur; tandanya otomatis mengikuti tanda `bulge`, jadi
+    // busur cekung dan cembung tidak perlu ditangani terpisah.
+    let normal = DVec2::new(-dir.y, dir.x);
+    let apothem = d / half.tan();
+    let center = (p1 + p2) * 0.5 + normal * apothem;
+
+    let ang = |p: DVec2| {
+        let v = p - center;
+        v.y.atan2(v.x)
+    };
+    // `Entity::Arc` selalu CCW dari start ke end. Busur searah jarum jam
+    // (bulge negatif) karena itu dicatat terbalik: CCW dari p2 ke p1
+    // menggambar kurva yang SAMA.
+    let (start_angle, end_angle) = if bulge > 0.0 {
+        (ang(p1), ang(p2))
+    } else {
+        (ang(p2), ang(p1))
+    };
+    Some(Entity::arc(center, radius, start_angle, end_angle))
+}
+
+/// Bangun entitas dari deretan titik polyline beserta bulge per segmen.
+fn polyline_to_entities(points: &[(DVec2, f64)], closed: bool) -> Vec<Entity> {
+    let mut out = Vec::new();
+    if points.len() < 2 {
+        return out;
+    }
+    let n = points.len();
+    let last = if closed { n } else { n - 1 };
+    for i in 0..last {
+        let (p1, bulge) = points[i];
+        let (p2, _) = points[(i + 1) % n];
+        if (p2 - p1).length() < 1e-12 {
+            continue;
+        }
+        match bulge_to_arc(p1, p2, bulge) {
+            Some(arc) => out.push(arc),
+            None => out.push(Entity::line(p1, p2)),
+        }
+    }
+    out
+}
+
 pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
     let text = std::fs::read_to_string(path).context("gagal membaca file DXF")?;
+    import_str(&text)
+}
+
+/// Bagian murni dari [`import`] — memisahkan parsing dari I/O berkas supaya
+/// bisa diuji dengan fixture string tanpa menyentuh disk.
+pub fn import_str(text: &str) -> Result<ImportResult> {
     let mut lines = text.lines().map(str::trim);
 
     // Cari pasangan (kode=2, nilai=ENTITIES) — dikonsumsi berpasangan
@@ -437,11 +513,18 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
         }
     }
     if !found_entities {
-        return Ok(ImportResult { entities: Vec::new(), skipped: 0 });
+        return Ok(ImportResult {
+            entities: Vec::new(),
+            skipped: 0,
+        });
     }
 
+    /// Akumulator satu entitas. Berbeda dari versi sebelumnya yang menimpa
+    /// kode 10/20: LWPOLYLINE mengulang kode yang sama sekali per vertex,
+    /// jadi titik harus DIKUMPULKAN, bukan ditimpa.
     #[derive(Default)]
-    struct Fields {
+    struct Rec {
+        kind: Option<String>,
         x0: f64,
         y0: f64,
         x1: f64,
@@ -449,34 +532,74 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
         radius: f64,
         start_angle: f64,
         end_angle: f64,
+        ratio: f64,
+        flags: i64,
+        /// Titik terkumpul (polyline). `f64` kedua adalah bulge segmen itu.
+        pts: Vec<(DVec2, f64)>,
+        /// Vertex polyline yang sedang dibaca tapi belum punya pasangan Y.
+        pending_x: Option<f64>,
+        pending_bulge: f64,
     }
 
-    let mut entities = Vec::new();
-    let mut skipped = 0usize;
-    let mut current: Option<&str> = None;
-    let mut fields = Fields::default();
+    impl Rec {
+        fn push_pending(&mut self) {
+            if let Some(x) = self.pending_x.take() {
+                self.pts.push((DVec2::new(x, self.y0), self.pending_bulge));
+                self.pending_bulge = 0.0;
+            }
+        }
+    }
 
-    // Flush TIDAK mereset `current`/`fields` sendiri — kedua titik
-    // pemanggilnya di bawah selalu langsung menimpa keduanya lagi
-    // (match baru atau `None` sebelum `break`), jadi reset di dalam macro
-    // cuma jadi assignment mati yang langsung tertimpa (kompiler warn).
+    let mut entities: Vec<Entity> = Vec::new();
+    let mut skipped = 0usize;
+    let mut rec = Rec::default();
+    // Vertex POLYLINE gaya lama datang sebagai entitas VERTEX terpisah di
+    // antara POLYLINE dan SEQEND, jadi butuh akumulator sendiri.
+    let mut poly_pts: Vec<(DVec2, f64)> = Vec::new();
+    let mut poly_closed = false;
+    let mut in_polyline = false;
+
     macro_rules! flush {
         () => {
-            match current {
+            match rec.kind.as_deref() {
                 Some("LINE") => entities.push(Entity::line(
-                    DVec2::new(fields.x0, fields.y0),
-                    DVec2::new(fields.x1, fields.y1),
+                    DVec2::new(rec.x0, rec.y0),
+                    DVec2::new(rec.x1, rec.y1),
                 )),
-                Some("CIRCLE") => entities.push(Entity::circle(
-                    DVec2::new(fields.x0, fields.y0),
-                    fields.radius,
-                )),
+                Some("CIRCLE") => {
+                    entities.push(Entity::circle(DVec2::new(rec.x0, rec.y0), rec.radius))
+                }
                 Some("ARC") => entities.push(Entity::arc(
-                    DVec2::new(fields.x0, fields.y0),
-                    fields.radius,
-                    fields.start_angle.to_radians(),
-                    fields.end_angle.to_radians(),
+                    DVec2::new(rec.x0, rec.y0),
+                    rec.radius,
+                    rec.start_angle.to_radians(),
+                    rec.end_angle.to_radians(),
                 )),
+                Some("LWPOLYLINE") => {
+                    rec.push_pending();
+                    let closed = rec.flags & 1 != 0;
+                    entities.extend(polyline_to_entities(&rec.pts, closed));
+                }
+                Some("ELLIPSE") => {
+                    // 11/21 adalah vektor sumbu MAYOR relatif terhadap pusat;
+                    // 40 adalah rasio minor/mayor. Model `Entity::Ellipse`
+                    // DUCAD masih sejajar sumbu, jadi ellips yang berotasi
+                    // TIDAK diimpor — dihitung sebagai dilewati, bukan
+                    // diimpor dengan rotasi yang diam-diam dibuang.
+                    let major = DVec2::new(rec.x1, rec.y1);
+                    let major_len = major.length();
+                    let center = DVec2::new(rec.x0, rec.y0);
+                    let minor_len = major_len * rec.ratio;
+                    if major_len < 1e-9 || rec.ratio <= 0.0 {
+                        skipped += 1;
+                    } else if major.y.abs() < 1e-9 {
+                        entities.push(Entity::ellipse(center, major_len, minor_len));
+                    } else if major.x.abs() < 1e-9 {
+                        entities.push(Entity::ellipse(center, minor_len, major_len));
+                    } else {
+                        skipped += 1;
+                    }
+                }
                 _ => {}
             }
         };
@@ -484,31 +607,109 @@ pub fn import(path: impl AsRef<Path>) -> Result<ImportResult> {
 
     while let (Some(code), Some(value)) = (lines.next(), lines.next()) {
         if code == "0" {
-            flush!();
-            fields = Fields::default();
-            if value == "ENDSEC" || value == "EOF" {
-                break;
-            }
-            current = match value {
-                "LINE" => Some("LINE"),
-                "CIRCLE" => Some("CIRCLE"),
-                "ARC" => Some("ARC"),
-                _ => {
-                    skipped += 1;
-                    None
+            match value {
+                "VERTEX" => {
+                    // Vertex POLYLINE gaya lama: kumpulkan, jangan flush.
+                    rec.push_pending();
+                    if in_polyline {
+                        poly_pts.append(&mut rec.pts);
+                    }
+                    rec = Rec {
+                        kind: Some("VERTEX".to_string()),
+                        ..Default::default()
+                    };
+                    continue;
                 }
-            };
-        } else if let Ok(parsed) = value.parse::<f64>() {
-            match (current.unwrap_or(""), code) {
-                (_, "10") => fields.x0 = parsed,
-                (_, "20") => fields.y0 = parsed,
-                ("LINE", "11") => fields.x1 = parsed,
-                ("LINE", "21") => fields.y1 = parsed,
-                (_, "40") => fields.radius = parsed,
-                ("ARC", "50") => fields.start_angle = parsed,
-                ("ARC", "51") => fields.end_angle = parsed,
+                "SEQEND" => {
+                    rec.push_pending();
+                    if in_polyline {
+                        poly_pts.append(&mut rec.pts);
+                        entities.extend(polyline_to_entities(&poly_pts, poly_closed));
+                    }
+                    poly_pts.clear();
+                    in_polyline = false;
+                    rec = Rec::default();
+                    continue;
+                }
                 _ => {}
             }
+
+            if rec.kind.as_deref() == Some("VERTEX") {
+                rec.push_pending();
+                if in_polyline {
+                    poly_pts.append(&mut rec.pts);
+                }
+            } else {
+                flush!();
+            }
+
+            if value == "ENDSEC" || value == "EOF" {
+                if in_polyline && !poly_pts.is_empty() {
+                    entities.extend(polyline_to_entities(&poly_pts, poly_closed));
+                }
+                break;
+            }
+
+            let known = matches!(value, "LINE" | "CIRCLE" | "ARC" | "LWPOLYLINE" | "ELLIPSE");
+            if value == "POLYLINE" {
+                in_polyline = true;
+                poly_pts.clear();
+                poly_closed = false;
+                rec = Rec {
+                    kind: Some("POLYLINE".to_string()),
+                    ..Default::default()
+                };
+            } else if known {
+                rec = Rec {
+                    kind: Some(value.to_string()),
+                    ..Default::default()
+                };
+            } else {
+                skipped += 1;
+                rec = Rec::default();
+            }
+            continue;
+        }
+
+        let Ok(parsed) = value.parse::<f64>() else {
+            continue;
+        };
+        let kind = rec.kind.clone().unwrap_or_default();
+        match (kind.as_str(), code) {
+            // Polyline: kode 10/20 BERULANG per vertex, jadi X ditahan
+            // sampai Y-nya datang lalu pasangannya disimpan.
+            ("LWPOLYLINE", "10") | ("VERTEX", "10") => {
+                rec.push_pending();
+                rec.pending_x = Some(parsed);
+            }
+            ("LWPOLYLINE", "20") | ("VERTEX", "20") => {
+                rec.y0 = parsed;
+                rec.push_pending();
+            }
+            ("LWPOLYLINE", "42") | ("VERTEX", "42") => {
+                // Bulge muncul SESUDAH vertex-nya tersimpan, jadi dipasang
+                // ke titik terakhir yang sudah masuk.
+                if let Some(last) = rec.pts.last_mut() {
+                    last.1 = parsed;
+                } else {
+                    rec.pending_bulge = parsed;
+                }
+            }
+            ("LWPOLYLINE", "70") | ("POLYLINE", "70") => {
+                rec.flags = parsed as i64;
+                if kind == "POLYLINE" {
+                    poly_closed = rec.flags & 1 != 0;
+                }
+            }
+            (_, "10") => rec.x0 = parsed,
+            (_, "20") => rec.y0 = parsed,
+            ("LINE", "11") | ("ELLIPSE", "11") => rec.x1 = parsed,
+            ("LINE", "21") | ("ELLIPSE", "21") => rec.y1 = parsed,
+            ("ELLIPSE", "40") => rec.ratio = parsed,
+            (_, "40") => rec.radius = parsed,
+            ("ARC", "50") => rec.start_angle = parsed,
+            ("ARC", "51") => rec.end_angle = parsed,
+            _ => {}
         }
     }
 
@@ -671,5 +872,179 @@ mod tests {
         assert!(content.contains("LAYER\n2\nBOM_TABLE"));
         assert!(content.contains("LAYER\n2\nCALLOUT_BALLOONS"));
         assert!(content.contains("EOF"));
+    }
+}
+
+#[cfg(test)]
+mod import_coverage_tests {
+    use super::*;
+    use std::f64::consts::PI;
+
+    fn wrap(body: &str) -> String {
+        format!("0\nSECTION\n2\nENTITIES\n{body}0\nENDSEC\n0\nEOF\n")
+    }
+
+    #[test]
+    fn lwpolyline_open_becomes_line_chain() {
+        // LWPOLYLINE adalah entitas paling umum di DXF nyata dan sebelumnya
+        // dilewati seluruhnya.
+        let dxf = wrap(
+            "0\nLWPOLYLINE\n90\n3\n70\n0\n\
+             10\n0.0\n20\n0.0\n\
+             10\n10.0\n20\n0.0\n\
+             10\n10.0\n20\n5.0\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 2, "3 titik terbuka = 2 segmen");
+        assert!(res.entities.iter().all(|e| matches!(e, Entity::Line { .. })));
+    }
+
+    #[test]
+    fn lwpolyline_closed_adds_the_closing_segment() {
+        let dxf = wrap(
+            "0\nLWPOLYLINE\n90\n3\n70\n1\n\
+             10\n0.0\n20\n0.0\n\
+             10\n10.0\n20\n0.0\n\
+             10\n10.0\n20\n10.0\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 3, "segitiga tertutup = 3 segmen");
+    }
+
+    #[test]
+    fn bulge_segment_becomes_geometrically_correct_arc() {
+        // bulge = tan(θ/4). Untuk θ = π/2, bulge = tan(π/8) ≈ 0.414214.
+        // Busur CCW dari (0,0) ke (1,0) dengan sudut tempuh 90° punya pusat
+        // (0.5, 0.5) dan radius 1/√2. Diverifikasi angkanya, bukan sekadar
+        // "menghasilkan sebuah Arc".
+        let b = (PI / 8.0).tan();
+        let dxf = wrap(&format!(
+            "0\nLWPOLYLINE\n90\n2\n70\n0\n\
+             10\n0.0\n20\n0.0\n42\n{b}\n\
+             10\n1.0\n20\n0.0\n"
+        ));
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 1);
+        match &res.entities[0] {
+            Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                ..
+            } => {
+                assert!(
+                    (*center - DVec2::new(0.5, 0.5)).length() < 1e-9,
+                    "pusat {center:?}"
+                );
+                assert!(
+                    (*radius - (0.5f64).sqrt()).abs() < 1e-9,
+                    "radius {radius}"
+                );
+                let sweep = (end_angle - start_angle).rem_euclid(2.0 * PI);
+                assert!(
+                    (sweep - PI / 2.0).abs() < 1e-9,
+                    "sudut tempuh {sweep} bukan 90°"
+                );
+            }
+            other => panic!("harus Arc, dapat {other:?}"),
+        }
+    }
+
+    #[test]
+    fn negative_bulge_produces_the_same_curve_reversed() {
+        // Bulge negatif = searah jarum jam. `Entity::Arc` selalu CCW, jadi
+        // busurnya dicatat terbalik — kurvanya harus tetap melalui kedua
+        // titik ujung yang sama.
+        let b = -(PI / 8.0).tan();
+        let dxf = wrap(&format!(
+            "0\nLWPOLYLINE\n90\n2\n70\n0\n\
+             10\n0.0\n20\n0.0\n42\n{b}\n\
+             10\n1.0\n20\n0.0\n"
+        ));
+        let res = import_str(&dxf).unwrap();
+        match &res.entities[0] {
+            Entity::Arc { center, radius, .. } => {
+                // Cermin dari kasus positif: pusat di bawah tali busur.
+                assert!((*center - DVec2::new(0.5, -0.5)).length() < 1e-9);
+                for p in [DVec2::ZERO, DVec2::new(1.0, 0.0)] {
+                    assert!(
+                        ((p - *center).length() - radius).abs() < 1e-9,
+                        "ujung {p:?} harus berada di busur"
+                    );
+                }
+            }
+            other => panic!("harus Arc, dapat {other:?}"),
+        }
+    }
+
+    #[test]
+    fn old_style_polyline_with_vertex_entities() {
+        let dxf = wrap(
+            "0\nPOLYLINE\n70\n0\n\
+             0\nVERTEX\n10\n0.0\n20\n0.0\n\
+             0\nVERTEX\n10\n5.0\n20\n0.0\n\
+             0\nVERTEX\n10\n5.0\n20\n5.0\n\
+             0\nSEQEND\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 2);
+    }
+
+    #[test]
+    fn axis_aligned_ellipse_is_imported() {
+        // 11/21 adalah vektor sumbu mayor RELATIF terhadap pusat; 40 rasio.
+        let dxf = wrap(
+            "0\nELLIPSE\n10\n1.0\n20\n2.0\n11\n10.0\n21\n0.0\n40\n0.5\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 1);
+        match &res.entities[0] {
+            Entity::Ellipse {
+                center,
+                radius_x,
+                radius_y,
+                ..
+            } => {
+                assert!((*center - DVec2::new(1.0, 2.0)).length() < 1e-9);
+                assert!((*radius_x - 10.0).abs() < 1e-9);
+                assert!((*radius_y - 5.0).abs() < 1e-9);
+            }
+            other => panic!("harus Ellipse, dapat {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rotated_ellipse_is_skipped_not_silently_flattened() {
+        // Model `Entity::Ellipse` DUCAD masih sejajar sumbu. Mengimpor
+        // ellips berotasi berarti membuang rotasinya diam-diam — geometri
+        // yang SALAH. Lebih baik dilaporkan sebagai dilewati.
+        let dxf = wrap(
+            "0\nELLIPSE\n10\n0.0\n20\n0.0\n11\n7.07\n21\n7.07\n40\n0.5\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert!(res.entities.is_empty());
+        assert_eq!(res.skipped, 1);
+    }
+
+    #[test]
+    fn mixed_file_keeps_previously_supported_entities() {
+        // Regresi: penulisan ulang parser tidak boleh menghilangkan
+        // dukungan LINE/CIRCLE/ARC yang sudah ada.
+        let dxf = wrap(
+            "0\nLINE\n10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n\
+             0\nCIRCLE\n10\n5.0\n20\n5.0\n40\n2.0\n\
+             0\nARC\n10\n0.0\n20\n0.0\n40\n3.0\n50\n0.0\n51\n90.0\n\
+             0\nTEXT\n1\nhalo\n\
+             0\nLWPOLYLINE\n90\n2\n70\n0\n10\n0.0\n20\n0.0\n10\n4.0\n20\n0.0\n",
+        );
+        let res = import_str(&dxf).unwrap();
+        assert_eq!(res.entities.len(), 4, "3 lama + 1 segmen polyline");
+        assert_eq!(res.skipped, 1, "TEXT masih dilaporkan dilewati");
+        assert!(res
+            .entities
+            .iter()
+            .any(|e| matches!(e, Entity::Circle { .. })));
+        assert!(res.entities.iter().any(|e| matches!(e, Entity::Arc { .. })));
     }
 }

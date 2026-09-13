@@ -319,7 +319,7 @@ impl DuCADApp {
             let path_plane_idx = self.sweep_path_plane_idx.unwrap_or_else(|| self.active_plane_index());
             let path_plane = self.plane_for_index(path_plane_idx);
             crate::model::build_path_from_selection_on_plane(
-                &self.sketches[path_plane_idx],
+                self.sketch_at_index(path_plane_idx),
                 &self.selected,
                 &path_plane,
             )
@@ -1776,9 +1776,9 @@ impl DuCADApp {
     /// Selesaikan seluruh relasi mate perakitan dan terapkan transformasi ke geometri 3D bodi solid.
     pub fn solve_and_apply_assembly(&mut self) {
         self.sync_assembly_instances();
-        let solved = ducad_kernel::solve_assembly(&mut self.assembly_tree);
+        let report = ducad_kernel::solve_assembly(&mut self.assembly_tree);
 
-        for (inst_id, tf) in solved {
+        for (inst_id, tf) in report.applied {
             if let Some(inst) = self.assembly_tree.instances.get(&inst_id) {
                 // Cari body_id yang cocok dengan inst.body_id_raw
                 let target_body = self.model.doc.bodies.iter().find_map(|(b_id, _)| {

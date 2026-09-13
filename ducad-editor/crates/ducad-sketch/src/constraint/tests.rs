@@ -320,3 +320,231 @@ fn add_constraint_undo_restores_geometry_and_constraint_list() {
     let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
     assert!((end.y - start.y).abs() < 1e-6);
 }
+
+// ---------------------------------------------------------------------
+// P1.2 — analisis DOF, dekomposisi gugus, dan constraint baru.
+// ---------------------------------------------------------------------
+mod p1_2 {
+    use super::*;
+    use crate::constraint::{analyze_dof, ConstraintState};
+
+    #[test]
+    fn free_line_reports_four_degrees_of_freedom() {
+        // Garis punya 4 parameter (x,y start + x,y end). Satu kendala
+        // Horizontal mengunci satu di antaranya, menyisakan 3.
+        let mut sketch = Sketch::default();
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 1.0)));
+
+        let report = analyze_dof(&sketch, &[Constraint::Horizontal { line: l }]);
+        assert_eq!(report.unknowns, 4);
+        assert_eq!(report.rank, 1);
+        assert_eq!(report.dof, 3);
+        assert_eq!(report.state, ConstraintState::Under);
+        assert!(report.redundant.is_empty());
+    }
+
+    #[test]
+    fn fully_constrained_line_reports_zero_dof() {
+        let mut sketch = Sketch::default();
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let report = analyze_dof(
+            &sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineStart(l),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(10.0, 0.0),
+                },
+            ],
+        );
+        assert_eq!(report.dof, 0);
+        assert_eq!(report.state, ConstraintState::Fully);
+    }
+
+    #[test]
+    fn duplicate_constraint_is_reported_as_redundant_by_index() {
+        // Kegunaan utamanya: UI bisa menunjuk kendala MANA yang harus
+        // dihapus, bukan sekadar bilang "sketsa over-constrained".
+        let mut sketch = Sketch::default();
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let report = analyze_dof(
+            &sketch,
+            &[
+                Constraint::Horizontal { line: l },
+                Constraint::Horizontal { line: l },
+            ],
+        );
+        assert_eq!(report.state, ConstraintState::Over);
+        assert_eq!(report.redundant, vec![1], "yang KEDUA yang berlebih");
+        assert_eq!(report.rank, 1, "dua kendala identik tetap rank 1");
+    }
+
+    #[test]
+    fn independent_groups_still_solve_correctly() {
+        // Dekomposisi gugus hanya boleh mempercepat, tidak mengubah hasil.
+        let mut sketch = Sketch::default();
+        let a = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 3.0)));
+        let b = sketch.entities.insert(Entity::line(
+            DVec2::new(100.0, 0.0),
+            DVec2::new(110.0, 4.0),
+        ));
+
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Horizontal { line: a },
+                Constraint::Horizontal { line: b },
+            ],
+        );
+        assert!(res.converged);
+
+        for id in [a, b] {
+            match sketch.entities.get(id).unwrap() {
+                Entity::Line { start, end, .. } => {
+                    assert!((end.y - start.y).abs() < 1e-6, "garis harus horizontal");
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn point_on_curve_slides_point_onto_circle() {
+        // Beda dari Coincident: titiknya menempel pada KURVA, masih bebas
+        // meluncur sepanjangnya. Sebelumnya tidak bisa dinyatakan sama sekali.
+        let mut sketch = Sketch::default();
+        let c = sketch.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(3.0, 0.0), DVec2::new(50.0, 0.0)));
+
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::Center(c),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Radius {
+                    entity: c,
+                    value: 10.0,
+                },
+                Constraint::PointOnCurve {
+                    point: PointRef::LineStart(l),
+                    curve: c,
+                },
+            ],
+        );
+        assert!(res.converged, "residual {}", res.final_residual_norm);
+
+        let Entity::Line { start, .. } = sketch.entities.get(l).unwrap() else {
+            unreachable!()
+        };
+        assert!(
+            (start.length() - 10.0).abs() < 1e-6,
+            "ujung garis harus berada di lingkaran, jaraknya {}",
+            start.length()
+        );
+    }
+
+    #[test]
+    fn midpoint_places_point_at_line_centre() {
+        let mut sketch = Sketch::default();
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(20.0, 0.0)));
+        let m = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(5.0, 5.0), DVec2::new(6.0, 6.0)));
+
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineStart(l),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(20.0, 0.0),
+                },
+                Constraint::Midpoint {
+                    point: PointRef::LineStart(m),
+                    line: l,
+                },
+            ],
+        );
+        assert!(res.converged);
+        let Entity::Line { start, .. } = sketch.entities.get(m).unwrap() else {
+            unreachable!()
+        };
+        assert!((*start - DVec2::new(10.0, 0.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn concentric_aligns_two_centres() {
+        let mut sketch = Sketch::default();
+        let a = sketch.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
+        let b = sketch
+            .entities
+            .insert(Entity::circle(DVec2::new(7.0, 3.0), 4.0));
+
+        let res = solve(&mut sketch, &[Constraint::Concentric { a, b }]);
+        assert!(res.converged);
+
+        let ca = match sketch.entities.get(a).unwrap() {
+            Entity::Circle { center, .. } => *center,
+            _ => unreachable!(),
+        };
+        let cb = match sketch.entities.get(b).unwrap() {
+            Entity::Circle { center, .. } => *center,
+            _ => unreachable!(),
+        };
+        assert!((ca - cb).length() < 1e-6);
+    }
+
+    #[test]
+    fn collinear_puts_both_lines_on_one_straight_line() {
+        let mut sketch = Sketch::default();
+        let a = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let b = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(20.0, 5.0), DVec2::new(30.0, 8.0)));
+
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineStart(a),
+                    target: DVec2::ZERO,
+                },
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(a),
+                    target: DVec2::new(10.0, 0.0),
+                },
+                Constraint::Collinear { a, b },
+            ],
+        );
+        assert!(res.converged, "residual {}", res.final_residual_norm);
+
+        let Entity::Line { start, end, .. } = sketch.entities.get(b).unwrap() else {
+            unreachable!()
+        };
+        // Garis `a` terkunci di sumbu X, jadi kedua ujung `b` harus y = 0.
+        assert!(start.y.abs() < 1e-6, "start.y = {}", start.y);
+        assert!(end.y.abs() < 1e-6, "end.y = {}", end.y);
+    }
+}

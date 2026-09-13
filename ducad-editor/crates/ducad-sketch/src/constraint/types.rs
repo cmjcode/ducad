@@ -65,4 +65,19 @@ pub enum Constraint {
     Tangent { a: EntityId, b: EntityId },
     /// Titik `a` dan `b` saling cermin melintasi garis `axis`.
     Symmetric { a: PointRef, b: PointRef, axis: EntityId },
+
+    // ---- P1.2: constraint yang sebelumnya tidak ada ----
+    /// Titik `point` menempel pada kurva `curve` (garis tak hingga untuk
+    /// Line, lingkaran untuk Circle/Arc). Berbeda dari `Coincident` yang
+    /// hanya mengikat titik-ke-TITIK, ini mengikat titik-ke-KURVA sehingga
+    /// titiknya masih bebas meluncur sepanjang kurva — kebutuhan sehari-hari
+    /// yang sebelumnya tidak bisa dinyatakan sama sekali.
+    PointOnCurve { point: PointRef, curve: EntityId },
+    /// `point` berada tepat di tengah `line`.
+    Midpoint { point: PointRef, line: EntityId },
+    /// Pusat dua entitas radial berimpit.
+    Concentric { a: EntityId, b: EntityId },
+    /// Dua garis terletak pada satu garis lurus yang sama (sejajar DAN
+    /// segaris) — lebih kuat dari `Parallel`.
+    Collinear { a: EntityId, b: EntityId },
 }

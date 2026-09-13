@@ -8,15 +8,26 @@ use slotmap::SlotMap;
 pub mod hole;
 pub use hole::{HoleKind, HoleSpec, IsoMetricThread};
 
+pub mod undo;
+// `Command`/`UndoStack` dipindah ke modul `undo` (lihat catatan modulnya)
+// dan di-re-export di sini supaya seluruh pemanggil lama tidak berubah.
+pub use undo::{Command, Transaction, UndoStack};
+
 pub mod parametric;
 pub use parametric::{
     FeatureId, FeatureNode, FeaturePayload, FeatureStatus, ParametricDag, SketchPlaneRef,
 };
 
+pub mod external;
+pub use external::{
+    check_source_state, new_part_uuid, resolve_external, resolve_external_with, stable_hash,
+    ExternalPartRef, FallbackReason, PartSource, ResolveOutcome, SourceStamp, SourceState,
+};
+
 pub mod assembly;
 pub use assembly::{
     AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
-    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind,
+    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind, MotionStudy,
     SubAssembly, SubAssemblyId,
 };
 
@@ -245,71 +256,6 @@ impl Document {
             visible: true,
             material,
         })
-    }
-}
-
-/// Operasi yang bisa di-undo terhadap target `T` — mis. `Document` (body 3D)
-/// atau `Sketch` di ducad-sketch (entitas 2D). Generik sejak awal supaya
-/// setiap lapisan dokumen (sketch, body, nanti assembly) dapat undo/redo
-/// yang sama tanpa retrofit; semua mutasi WAJIB lewat trait ini.
-pub trait Command<T> {
-    fn name(&self) -> &str;
-    fn apply(&mut self, target: &mut T);
-    fn revert(&mut self, target: &mut T);
-}
-
-/// Tumpukan undo/redo klasik, generik atas target `T`.
-pub struct UndoStack<T> {
-    undo: Vec<Box<dyn Command<T>>>,
-    redo: Vec<Box<dyn Command<T>>>,
-}
-
-// Impl manual (bukan #[derive(Default)]) agar tidak menambahkan bound
-// keliru `T: Default` — Vec::new() tidak butuh itu.
-impl<T> Default for UndoStack<T> {
-    fn default() -> Self {
-        Self {
-            undo: Vec::new(),
-            redo: Vec::new(),
-        }
-    }
-}
-
-impl<T> UndoStack<T> {
-    pub fn execute(&mut self, mut cmd: Box<dyn Command<T>>, target: &mut T) {
-        cmd.apply(target);
-        self.undo.push(cmd);
-        self.redo.clear();
-    }
-
-    pub fn undo(&mut self, target: &mut T) -> Option<&str> {
-        let mut cmd = self.undo.pop()?;
-        cmd.revert(target);
-        self.redo.push(cmd);
-        self.redo.last().map(|c| c.name())
-    }
-
-    pub fn redo(&mut self, target: &mut T) -> Option<&str> {
-        let mut cmd = self.redo.pop()?;
-        cmd.apply(target);
-        self.undo.push(cmd);
-        self.undo.last().map(|c| c.name())
-    }
-
-    pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
-    }
-
-    pub fn can_redo(&self) -> bool {
-        !self.redo.is_empty()
-    }
-
-    pub fn undo_count(&self) -> usize {
-        self.undo.len()
-    }
-
-    pub fn redo_count(&self) -> usize {
-        self.redo.len()
     }
 }
 

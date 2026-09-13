@@ -36,6 +36,43 @@ impl KernelShape {
         tessellate_shape(&self.0)
     }
 
+    /// Apakah shape ini valid secara topologi dan geometri.
+    ///
+    /// Operasi boolean dan fillet OCCT bisa "berhasil" — mengembalikan shape
+    /// tanpa melapor error — sambil menghasilkan solid yang sebetulnya tidak
+    /// valid (face saling potong, wire tak tertutup, orientasi terbalik).
+    /// Tanpa pemeriksaan ini, geometri rusak baru ketahuan jauh di hilir:
+    /// saat diekspor ke STEP untuk CNC, saat di-mesh untuk 3D print, atau
+    /// tidak ketahuan sama sekali sampai part-nya gagal di pabrik.
+    pub fn is_valid(&self) -> bool {
+        let _guard = lock_kernel();
+        self.0.is_valid()
+    }
+
+    /// Luas permukaan total dalam mm², eksak dari B-rep.
+    pub fn surface_area(&self) -> f64 {
+        let _guard = lock_kernel();
+        self.0.surface_area()
+    }
+
+    /// Volume solid dalam mm³, dihitung EKSAK dari B-rep (`BRepGProp`),
+    /// bukan dari mesh.
+    ///
+    /// Berbeda dari `interference::compute_mesh_volume` yang menjumlahkan
+    /// tetrahedron bertanda dari segitiga hasil tesselasi: angka di sini
+    /// tidak terpengaruh kerapatan tesselasi maupun orientasi segitiga, dan
+    /// benar untuk permukaan lengkung (silinder lubang, fillet) yang justru
+    /// paling banyak menyimpang pada pendekatan mesh. Dipakai verifikasi
+    /// geometri dan — nantinya — panel mass properties.
+    ///
+    /// Nilainya bertanda: solid dengan orientasi terbalik mengembalikan
+    /// angka negatif, jadi pemanggil yang cuma butuh besarannya harus
+    /// memakai `.abs()`.
+    pub fn volume(&self) -> f64 {
+        let _guard = lock_kernel();
+        self.0.volume()
+    }
+
     pub fn write_stl(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let _guard = lock_kernel();
         self.0.write_stl(path)?;
@@ -87,6 +124,47 @@ impl KernelShape {
         result
     }
 
+    /// Serialize B-rep ini jadi BREP biner OCCT (`BinTools`).
+    ///
+    /// Alternatif `to_step_string` untuk penyimpanan INTERNAL (file native
+    /// `.ducad`, snapshot undo, cache). Bukan pengganti STEP untuk
+    /// PERTUKARAN data: BREP adalah format internal OCCT, tidak dibaca CAD
+    /// lain, dan tidak menjanjikan kompatibilitas lintas versi OCCT mayor.
+    /// Justru karena itu ia jauh lebih murah — tidak ada lapisan pemetaan
+    /// skema AP214, tidak ada teks yang harus di-parse.
+    ///
+    /// Roundtrip lewat berkas sementara, pola yang sama dengan
+    /// `to_step_string`: binding ini belum meng-expose `BinTools::Write`
+    /// ke `std::ostream` in-memory. Menambah binding itu adalah
+    /// optimisasi lanjutan yang jelas, tapi bukan prasyarat — biaya
+    /// dominannya ada di serialisasi OCCT sendiri, bukan di I/O berkas.
+    pub fn to_brep_bytes(&self) -> Result<Vec<u8>> {
+        let _guard = lock_kernel();
+        let path = temp_step_path("to-brep-bytes");
+        let result = (|| -> Result<Vec<u8>> {
+            self.0
+                .write_brep_bin(&path)
+                .context("to_brep_bytes: gagal menulis BREP sementara")?;
+            std::fs::read(&path).context("to_brep_bytes: gagal membaca balik BREP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result
+    }
+
+    /// Kebalikan [`KernelShape::to_brep_bytes`].
+    pub fn from_brep_bytes(bytes: &[u8]) -> Result<Self> {
+        let _guard = lock_kernel();
+        let path = temp_step_path("from-brep-bytes");
+        let result = (|| -> Result<Shape> {
+            std::fs::write(&path, bytes)
+                .context("from_brep_bytes: gagal menulis BREP sementara")?;
+            Shape::read_brep_bin(&path)
+                .context("from_brep_bytes: gagal membaca balik BREP sementara")
+        })();
+        let _ = std::fs::remove_file(&path);
+        result.map(KernelShape)
+    }
+
     /// Kebalikan `to_step_string`.
     pub fn from_step_string(step: &str) -> Result<Self> {
         let _guard = lock_kernel();
@@ -99,6 +177,34 @@ impl KernelShape {
         let _ = std::fs::remove_file(&path);
         result.map(KernelShape)
     }
+}
+
+/// Validasi hasil operasi B-rep, dengan satu percobaan perbaikan otomatis.
+///
+/// Alur: periksa → kalau invalid coba `ShapeFix_Shape` → periksa lagi →
+/// kalau masih invalid, GAGAL dengan pesan yang menyebut operasinya.
+///
+/// Menggagalkan operasi lebih baik daripada mengembalikan solid rusak yang
+/// terlihat benar di viewport: geometri invalid akan menjalar ke setiap
+/// operasi berikutnya, dan baru meledak saat ekspor STEP atau slicing —
+/// jauh dari penyebabnya, sehingga nyaris mustahil dilacak pengguna.
+///
+/// `ShapeFix` dicoba lebih dulu karena banyak hasil boolean OCCT cuma
+/// melanggar toleransi secara ringan dan benar-benar bisa diselamatkan;
+/// menggagalkannya langsung akan menolak operasi yang sebetulnya sah.
+pub(crate) fn validate_or_heal(shape: KernelShape, operation: &str) -> Result<KernelShape> {
+    if shape.0.is_valid() {
+        return Ok(shape);
+    }
+    if let Some(fixed) = shape.0.healed() {
+        if fixed.is_valid() {
+            log::warn!("{operation}: hasil tidak valid, diperbaiki otomatis lewat ShapeFix");
+            return Ok(KernelShape(fixed));
+        }
+    }
+    anyhow::bail!(
+        "{operation}: menghasilkan geometri yang tidak valid dan tidak bisa diperbaiki otomatis"
+    )
 }
 
 /// Path file sementara unik (PID + timestamp nanosecond, sama pola dengan
@@ -131,22 +237,33 @@ pub fn clone_shape(shape: &KernelShape) -> Result<KernelShape> {
     Ok(KernelShape(shape.0.clone()))
 }
 
-/// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — dipakai
-/// gizmo drag axis body 3D. Fungsional (tidak memutasi `shape` pemanggil):
-/// `Shape` tidak `Clone`, jadi `deep_clone` dulu sama seperti
-/// `fillet_all`/`chamfer_all`, tapi di sini transformasinya jauh lebih
-/// murah — `set_global_translation` (API vendor `opencascade-0.2.0`,
-/// sudah ada) cuma menggeser `Location` shape, TIDAK merombak B-rep sama
-/// sekali (beda dari fillet/chamfer/boolean yang benar-benar membangun
-/// ulang geometri). `dx`/`dy`/`dz` adalah delta, bukan posisi absolut —
-/// pemanggil (gizmo di `ducad-app`) selalu menghitung ulang dari shape
-/// ASLI sebelum drag dimulai (pola sama dgn gizmo extrude face lain),
-/// jadi tidak ada akumulasi error floating-point lintas frame drag.
+/// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — sebuah
+/// DELTA yang tersusun dengan posisi shape saat ini. Fungsional (tidak
+/// memutasi `shape` pemanggil).
+///
+/// # Bug yang diperbaiki
+///
+/// Versi sebelumnya memakai `set_global_translation`, yang memanggil
+/// `TopoDS_Shape::Location(loc)` — itu MENGATUR Location shape secara
+/// absolut, bukan menambahkannya. Dokumentasinya tetap mengaku "delta", dan
+/// gizmo drag menyiasatinya dengan selalu menghitung dari shape asli. Tapi
+/// jalur lain tidak: `apply_mate_transform_to_shape` menerapkan koreksi
+/// solver perakitan pada geometri SAAT INI, sehingga setiap solve sesudah
+/// yang pertama — atau sesudah body pernah digeser — menempatkan part di
+/// posisi yang salah. Ditemukan lewat test drag-dengan-solver: B-rep
+/// berakhir di `-pivot + delta`, bukan di `posisi + delta`.
+///
+/// Sekarang memakai `translated()`, yang membakar translasi lewat
+/// `BRepBuilderAPI_Transform` — delta sejati, sama seperti `rotate()`.
+/// Harganya: salinan B-rep alih-alih sekadar mengubah Location. Untuk
+/// drag interaktif pada part besar itu terasa, tapi kebenaran posisi
+/// bukan sesuatu yang bisa ditukar dengan kecepatan.
 pub fn translate_shape(shape: &KernelShape, dx: f64, dy: f64, dz: f64) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    let mut cloned = deep_clone(&shape.0)?;
-    cloned.set_global_translation(dvec3(dx, dy, dz));
-    Ok(KernelShape(cloned))
+    if dx.abs() < 1e-12 && dy.abs() < 1e-12 && dz.abs() < 1e-12 {
+        return Ok(KernelShape(deep_clone(&shape.0)?));
+    }
+    Ok(KernelShape(shape.0.translated(dvec3(dx, dy, dz))))
 }
 
 /// Putar shape mengelilingi sumbu yang melewati titik `pivot` dengan arah `axis` sebesar `angle_rad` radian.
@@ -178,7 +295,11 @@ pub fn scale_shape(shape: &KernelShape, pivot: (f64, f64, f64), factor: f64) -> 
     Ok(KernelShape(cloned))
 }
 
-/// Transformasi shape dengan pergeseran (dx, dy, dz) dan rotasi sekeliling sumbu `axis` di `pivot`.
+/// Transformasi rigid-body: rotasi `angle_rad` mengelilingi sumbu `axis`
+/// yang melewati `pivot`, LALU pergeseran `translation`. Keduanya DELTA
+/// terhadap posisi shape saat ini — lihat catatan bug di
+/// [`translate_shape`]; versi sebelumnya menerapkan translasinya secara
+/// absolut.
 pub fn transform_shape(
     shape: &KernelShape,
     translation: (f64, f64, f64),
@@ -196,7 +317,7 @@ pub fn transform_shape(
         );
     }
     if translation.0.abs() > 1e-6 || translation.1.abs() > 1e-6 || translation.2.abs() > 1e-6 {
-        cloned.set_global_translation(dvec3(translation.0, translation.1, translation.2));
+        cloned = cloned.translated(dvec3(translation.0, translation.1, translation.2));
     }
     Ok(KernelShape(cloned))
 }

@@ -13,6 +13,9 @@ use egui::{Color32, CornerRadius, Frame, Margin, Stroke, Style, Vec2, Visuals};
 /// Tinggi minimum widget interaktif default (ramping untuk desktop CAD).
 pub const MIN_TOUCH_TARGET: f32 = 28.0;
 
+/// Tinggi target sentuh standar Apple Human Interface Guidelines untuk iPad (44pt).
+pub const TOUCH_TARGET_IPAD: f32 = 44.0;
+
 /// Lebar standar terpadu untuk semua panel drawer dan popup dialog di pojok kanan bawah.
 pub const BOTTOM_RIGHT_PANEL_WIDTH: f32 = 260.0;
 
@@ -175,6 +178,13 @@ pub fn dimension_pill_frame() -> Frame {
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     egui_icons::initialize(ctx);
 
+    apply_with_touch(ctx, mode, MIN_TOUCH_TARGET);
+}
+
+/// Terapkan tema + gaya target-sentuh kustom (misalnya 44pt Apple HIG untuk iPad) ke context egui.
+pub fn apply_with_touch(ctx: &egui::Context, mode: ThemeMode, touch_target_y: f32) {
+    egui_icons::initialize(ctx);
+
     let theme = match mode {
         ThemeMode::Dark => egui::Theme::Dark,
         ThemeMode::Light => egui::Theme::Light,
@@ -185,7 +195,7 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
         visuals: mode.visuals(),
         ..Default::default()
     };
-    style.spacing.interact_size.y = MIN_TOUCH_TARGET;
+    style.spacing.interact_size.y = touch_target_y.max(MIN_TOUCH_TARGET);
     style.spacing.button_padding = Vec2::new(8.0, 4.0);
     style.spacing.item_spacing = Vec2::new(4.0, 4.0);
     ctx.set_style_of(theme, style);

@@ -70,6 +70,16 @@ pub struct NativeRoundHistory {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeBody {
     pub name: String,
+    /// Identitas STABIL body ini, dipakai referensi eksternal dari berkas
+    /// perakitan lain agar tetap sahih walau body diganti nama atau
+    /// urutannya berubah.
+    ///
+    /// `default` membuat berkas lama tetap terbaca — tapi UUID yang
+    /// dihasilkan begitu BERBEDA tiap kali dimuat, jadi referensi ke berkas
+    /// yang belum pernah disimpan ulang harus jatuh ke pencocokan NAMA.
+    /// Itulah alasan `ExternalPartRef` tetap menyimpan `source_name`.
+    #[serde(default = "ducad_core::new_part_uuid")]
+    pub uuid: String,
     pub visible: bool,
     #[serde(default)]
     pub material: ducad_core::Material,
@@ -82,6 +92,9 @@ pub struct NativeBody {
 /// Struktur data referensi untuk ekspor body lengkap dengan riwayat fitur.
 pub struct ExportBody<'a> {
     pub name: &'a str,
+    /// UUID stabil; `None` berarti body ini belum pernah punya satu dan
+    /// akan diberi UUID baru saat disimpan.
+    pub uuid: Option<String>,
     pub visible: bool,
     pub material: ducad_core::Material,
     pub shape: &'a KernelShape,
@@ -128,7 +141,7 @@ impl LoadedDocument {
 
 /// Serialize dokumen multi-bidang langsung ke String JSON dengan fitur lengkap.
 pub fn serialize_detailed_to_json(
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[ExportBody],
 ) -> Result<String> {
     let bodies = bodies
@@ -146,6 +159,13 @@ pub fn serialize_detailed_to_json(
             };
             Ok(NativeBody {
                 name: b.name.to_string(),
+                // Body yang belum punya UUID mendapatkannya SEKARANG, saat
+                // disimpan — sejak itu ia stabil lintas penyimpanan
+                // berikutnya dan bisa dirujuk dari berkas perakitan lain.
+                uuid: b
+                    .uuid
+                    .clone()
+                    .unwrap_or_else(ducad_core::new_part_uuid),
                 visible: b.visible,
                 material: b.material,
                 step: b.shape
@@ -158,9 +178,9 @@ pub fn serialize_detailed_to_json(
 
     let file = DuCADFile {
         format_version: FORMAT_VERSION,
-        sketch: sketches.first().cloned().unwrap_or_default(),
-        front_sketch: sketches.get(1).cloned(),
-        right_sketch: sketches.get(2).cloned(),
+        sketch: sketches.first().map(|s| (*s).clone()).unwrap_or_default(),
+        front_sketch: sketches.get(1).map(|s| (*s).clone()),
+        right_sketch: sketches.get(2).map(|s| (*s).clone()),
         bodies,
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
@@ -168,13 +188,14 @@ pub fn serialize_detailed_to_json(
 
 /// Serialize dokumen multi-bidang langsung ke String JSON (untuk snapshot database).
 pub fn serialize_to_json(
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<String> {
     let export_bodies: Vec<ExportBody> = bodies
         .iter()
         .map(|(name, vis, mat, shape)| ExportBody {
             name,
+            uuid: None,
             visible: *vis,
             material: *mat,
             shape,
@@ -236,7 +257,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
 /// Simpan dokumen multi-bidang (Top, Front, Right) lengkap dengan riwayat fitur ke `path` sebagai JSON.
 pub fn save_multi_plane_detailed(
     path: impl AsRef<Path>,
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[ExportBody],
 ) -> Result<()> {
     let json = serialize_detailed_to_json(sketches, bodies)?;
@@ -247,13 +268,14 @@ pub fn save_multi_plane_detailed(
 /// Simpan dokumen multi-bidang (Top, Front, Right) ke `path` sebagai JSON.
 pub fn save_multi_plane(
     path: impl AsRef<Path>,
-    sketches: &[Sketch],
+    sketches: &[&Sketch],
     bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
 ) -> Result<()> {
     let export_bodies: Vec<ExportBody> = bodies
         .iter()
         .map(|(name, vis, mat, shape)| ExportBody {
             name,
+            uuid: None,
             visible: *vis,
             material: *mat,
             shape,
@@ -267,12 +289,30 @@ pub fn save_multi_plane(
 pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, ducad_core::Material, &KernelShape)]) -> Result<()> {
     save_multi_plane(
         path,
-        &[sketch.clone(), Sketch::default(), Sketch::default()],
+        &[sketch, &Sketch::default(), &Sketch::default()],
         bodies,
     )
 }
 
 /// Muat dokumen dari `path`.
+/// Baca struktur berkas MENTAH tanpa merekonstruksi geometri kernel.
+///
+/// Dipakai pemuat part eksternal: ia cuma perlu menemukan SATU body di
+/// antara sekian banyak, jadi merekonstruksi seluruh body (tiap satunya
+/// sebuah parse STEP yang mahal) hanya untuk membuang hampir semuanya
+/// adalah pemborosan yang terasa pada berkas besar.
+pub fn deserialize_raw(json: &str) -> Result<DuCADFile> {
+    let file: DuCADFile = serde_json::from_str(json).context("JSON .ducad tidak valid")?;
+    if file.format_version > FORMAT_VERSION {
+        bail!(
+            "versi format berkas {} lebih baru dari yang dikenal ({})",
+            file.format_version,
+            FORMAT_VERSION
+        );
+    }
+    Ok(file)
+}
+
 pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
     let json = std::fs::read_to_string(&path).context("gagal membaca file .ducad")?;
     deserialize_from_json(&json)
@@ -399,7 +439,8 @@ mod tests {
 
         let sketches = [top, front, right];
         let path = temp_path("multi_plane");
-        save_multi_plane(&path, &sketches, &[]).unwrap();
+        let sketch_refs: Vec<&Sketch> = sketches.iter().collect();
+        save_multi_plane(&path, &sketch_refs, &[]).unwrap();
 
         let loaded = load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -434,6 +475,7 @@ mod tests {
         };
 
         let export_body = ExportBody {
+            uuid: None,
             name: "Filleted Box",
             visible: true,
             material: ducad_core::Material::default(),
@@ -441,7 +483,7 @@ mod tests {
             round_history: Some((&base_shape, vec![feature])),
         };
 
-        save_multi_plane_detailed(&path, &[sketch], &[export_body]).unwrap();
+        save_multi_plane_detailed(&path, &[&sketch], &[export_body]).unwrap();
         let loaded = load(&path).unwrap();
         let _ = std::fs::remove_file(&path);
 

@@ -1,7 +1,7 @@
 use ducad_core::Command;
 use ducad_kernel::{KernelMesh, KernelShape};
 use ducad_render::{PlaneKind, SketchPlane};
-use ducad_sketch::Sketch;
+use ducad_sketch::{PlaneRef, Sketch, SketchId};
 
 use crate::app::DuCADApp;
 use crate::model::ModelDoc;
@@ -16,6 +16,98 @@ impl DuCADApp {
             2 => SketchPlane::right(),
             _ => SketchPlane::top(),
         }
+    }
+
+    /// Terjemahkan indeks bidang gaya lama (0=Top, 1=Front, 2=Right, 3+=datum)
+    /// menjadi [`PlaneRef`].
+    ///
+    /// Jembatan sementara: sebagian pemanggil (mis. `parametric_engine`) masih
+    /// menyimpan `plane_index: usize` di dalam payload fitur. Indeks itu
+    /// BERGESER saat datum plane dihapus — persis cacat yang `PlaneRef`
+    /// hilangkan — jadi payload tersebut perlu ikut dipindah ke `PlaneRef`
+    /// (bagian dari P0.5). Sampai saat itu, konversinya terpusat di sini
+    /// alih-alih aritmetika `+ 3` / `- 3` yang berserak.
+    #[inline]
+    pub fn plane_ref_for_index(&self, idx: usize) -> PlaneRef {
+        match idx {
+            0 => PlaneRef::Top,
+            1 => PlaneRef::Front,
+            2 => PlaneRef::Right,
+            i => self
+                .datum_planes
+                .get(i - 3)
+                .map(|dp| PlaneRef::Datum(dp.id))
+                .unwrap_or(PlaneRef::Top),
+        }
+    }
+
+    /// Kebalikan [`Self::plane_ref_for_index`].
+    #[inline]
+    pub fn index_for_plane_ref(&self, plane: PlaneRef) -> usize {
+        match plane {
+            PlaneRef::Top => 0,
+            PlaneRef::Front => 1,
+            PlaneRef::Right => 2,
+            PlaneRef::Datum(id) => self
+                .datum_planes
+                .iter()
+                .position(|dp| dp.id == id)
+                .map(|pos| pos + 3)
+                .unwrap_or(0),
+        }
+    }
+
+    /// [`PlaneRef`] bidang yang sedang aktif.
+    #[inline]
+    pub fn active_plane_ref(&self) -> PlaneRef {
+        match self.active_plane.kind {
+            PlaneKind::Top => PlaneRef::Top,
+            PlaneKind::Front => PlaneRef::Front,
+            PlaneKind::Right => PlaneRef::Right,
+            PlaneKind::Custom(id) => PlaneRef::Datum(id),
+        }
+    }
+
+    /// Id sketsa yang sedang aktif — sketsa pertama pada bidang aktif.
+    ///
+    /// Berbeda dari kode lama yang jatuh ke `sketches[0]` saat indeks meleset
+    /// (diam-diam menulis ke sketsa yang SALAH), di sini kegagalan resolusi
+    /// jatuh ke sketsa aktif `SketchSet` yang dijamin valid.
+    #[inline]
+    pub fn active_sketch_id(&self) -> SketchId {
+        self.sketch_set
+            .first_on_plane(self.active_plane_ref())
+            .unwrap_or_else(|| self.sketch_set.active_id())
+    }
+
+    /// Sketsa pada indeks bidang gaya lama.
+    #[inline]
+    pub fn sketch_at_index(&self, idx: usize) -> &Sketch {
+        let plane = self.plane_ref_for_index(idx);
+        self.sketch_set
+            .first_on_plane(plane)
+            .and_then(|id| self.sketch_set.sketch(id))
+            .unwrap_or_else(|| self.sketch_set.active_sketch())
+    }
+
+    #[inline]
+    pub fn sketch_at_index_mut(&mut self, idx: usize) -> Option<&mut Sketch> {
+        let plane = self.plane_ref_for_index(idx);
+        let id = self.sketch_set.first_on_plane(plane)?;
+        self.sketch_set.sketch_mut(id)
+    }
+
+    /// Seluruh sketsa dalam urutan indeks bidang gaya lama.
+    ///
+    /// Dipakai jalur yang masih berpikir dalam indeks: hit-test lintas bidang
+    /// dan serialisasi file native. Mengembalikan rujukan, bukan salinan —
+    /// hit-test dipanggil tiap frame.
+    pub fn plane_ordered_sketches(&self) -> Vec<&Sketch> {
+        let mut out = Vec::with_capacity(3 + self.datum_planes.len());
+        for idx in 0..(3 + self.datum_planes.len()) {
+            out.push(self.sketch_at_index(idx));
+        }
+        out
     }
 
     #[inline]
@@ -65,8 +157,7 @@ impl DuCADApp {
         plane.kind = PlaneKind::Custom(id);
         let datum_plane = ducad_render::plane::DatumPlane::new(id, name.clone(), plane);
         self.datum_planes.push(datum_plane);
-        self.sketches.push(Sketch::default());
-        self.undos.push(ducad_sketch::UndoStack::default());
+        self.sketch_set.add(name.clone(), PlaneRef::Datum(id));
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
             "Buat Bidang Referensi (Datum Plane)",
@@ -78,7 +169,6 @@ impl DuCADApp {
 
     pub fn delete_datum_plane(&mut self, id: u32) {
         if let Some(pos) = self.datum_planes.iter().position(|dp| dp.id == id) {
-            let idx = pos + 3;
             let is_active = match self.active_plane.kind {
                 PlaneKind::Custom(active_id) => active_id == id,
                 _ => false,
@@ -88,10 +178,9 @@ impl DuCADApp {
             }
             let name = self.datum_planes[pos].name.clone();
             self.datum_planes.remove(pos);
-            if idx < self.sketches.len() {
-                self.sketches.remove(idx);
-                self.undos.remove(idx);
-            }
+            // Dicocokkan lewat PlaneRef, bukan posisi: menghapus datum di
+            // TENGAH daftar tidak lagi menggeser sketsa datum sesudahnya.
+            self.sketch_set.remove_plane(PlaneRef::Datum(id));
             self.record_activity(
                 ducad_ui::ActivityKindUi::Solid3D,
                 "Hapus Bidang Referensi",
@@ -183,23 +272,18 @@ impl DuCADApp {
 
     #[inline]
     pub fn sketch(&self) -> &Sketch {
-        let idx = self.active_plane_index();
-        if idx < self.sketches.len() {
-            &self.sketches[idx]
-        } else {
-            &self.sketches[0]
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set
+            .sketch(id)
+            .unwrap_or_else(|| self.sketch_set.active_sketch())
     }
 
     #[inline]
     #[allow(dead_code)]
     pub fn sketch_mut(&mut self) -> &mut Sketch {
-        let idx = self.active_plane_index();
-        if idx < self.sketches.len() {
-            &mut self.sketches[idx]
-        } else {
-            &mut self.sketches[0]
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.set_active(id);
+        self.sketch_set.active_sketch_mut()
     }
 
     #[inline]
@@ -215,9 +299,9 @@ impl DuCADApp {
                 .unwrap_or_else(|| self.active_plane.kind.display_label().to_string()),
             _ => self.active_plane.kind.display_label().to_string(),
         };
-        if idx < self.sketches.len() {
-            self.undos[idx].execute(cmd, &mut self.sketches[idx]);
-        }
+        let sketch_id = self.active_sketch_id();
+        self.sketch_set.set_active(sketch_id);
+        self.sketch_set.execute(cmd);
 
         let (action_title, detail_desc) = match name.as_str() {
             "Line" => ("Sketsa Garis 2D", format!("Menggambar segmen garis di Bidang {}", plane_label)),
@@ -275,58 +359,40 @@ impl DuCADApp {
 
     #[inline]
     pub fn undo_active_sketch(&mut self) {
-        let idx = self.active_plane_index();
-        if idx < self.sketches.len() {
-            self.undos[idx].undo(&mut self.sketches[idx]);
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.set_active(id);
+        self.sketch_set.undo();
     }
 
     #[inline]
     pub fn redo_active_sketch(&mut self) {
-        let idx = self.active_plane_index();
-        if idx < self.sketches.len() {
-            self.undos[idx].redo(&mut self.sketches[idx]);
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.set_active(id);
+        self.sketch_set.redo();
     }
 
     #[inline]
     pub fn can_undo_active_sketch(&self) -> bool {
-        let idx = self.active_plane_index();
-        if idx < self.undos.len() {
-            self.undos[idx].can_undo()
-        } else {
-            false
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.get(id).is_some_and(|slot| slot.undo.can_undo())
     }
 
     #[inline]
     pub fn can_redo_active_sketch(&self) -> bool {
-        let idx = self.active_plane_index();
-        if idx < self.undos.len() {
-            self.undos[idx].can_redo()
-        } else {
-            false
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.get(id).is_some_and(|slot| slot.undo.can_redo())
     }
 
     #[inline]
     pub fn sketch_undo_count(&self) -> usize {
-        let idx = self.active_plane_index();
-        if idx < self.undos.len() {
-            self.undos[idx].undo_count()
-        } else {
-            0
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.get(id).map_or(0, |slot| slot.undo.undo_count())
     }
 
     #[inline]
     pub fn sketch_redo_count(&self) -> usize {
-        let idx = self.active_plane_index();
-        if idx < self.undos.len() {
-            self.undos[idx].redo_count()
-        } else {
-            0
-        }
+        let id = self.active_sketch_id();
+        self.sketch_set.get(id).map_or(0, |slot| slot.undo.redo_count())
     }
 
     /// Ubah bidang kerja sketsa aktif dan selaraskan kamera.
@@ -365,12 +431,7 @@ impl DuCADApp {
     }
 
     pub fn new_document(&mut self) {
-        self.sketches = vec![Sketch::default(), Sketch::default(), Sketch::default()];
-        self.undos = vec![
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-        ];
+        self.sketch_set.reset();
         self.datum_planes.clear();
         self.datum_plane_counter = 0;
         self.selected.clear();
@@ -390,6 +451,28 @@ impl DuCADApp {
         self.file_status = Some("Dokumen baru".to_string());
         self.measurements.clear();
         self.set_tool(ToolKind::Select);
+    }
+
+    /// Muat tiga sketsa bidang standar dari berkas, membuang seluruh sketsa
+    /// lain (datum) beserta riwayat undo-nya.
+    ///
+    /// Format native v1 hanya menyimpan tiga bidang standar — sketsa pada
+    /// datum plane TIDAK ikut tersimpan. Itu kehilangan data yang diperbaiki
+    /// P0.3 (format v2); di sini perilakunya dipertahankan apa adanya supaya
+    /// perubahan model sketsa tidak bercampur dengan perubahan format berkas.
+    pub fn load_standard_plane_sketches(&mut self, top: Sketch, front: Sketch, right: Sketch) {
+        self.sketch_set.reset();
+        for (plane, loaded) in [
+            (PlaneRef::Top, top),
+            (PlaneRef::Front, front),
+            (PlaneRef::Right, right),
+        ] {
+            if let Some(id) = self.sketch_set.first_on_plane(plane) {
+                if let Some(slot) = self.sketch_set.sketch_mut(id) {
+                    *slot = loaded;
+                }
+            }
+        }
     }
 
     pub fn native_body_refs(&self) -> Vec<(&str, bool, ducad_core::Material, &KernelShape)> {
@@ -432,6 +515,10 @@ impl DuCADApp {
                 });
                 ducad_io::native::ExportBody {
                     name: meta.name.as_str(),
+                    // Body internal belum menyimpan UUID sendiri; berkas
+                    // native memberinya satu saat disimpan. Menautkannya ke
+                    // `Document` adalah bagian P0.1 yang belum selesai.
+                    uuid: None,
                     visible: meta.visible,
                     material: meta.material,
                     shape,
@@ -466,12 +553,12 @@ impl DuCADApp {
             .map(|(id, meta)| {
                 (
                     meta.name.as_str(),
-                    &self
-                        .model
+                    self.model
                         .geometry
                         .get(id)
                         .expect("body hilang dari storage")
-                        .mesh,
+                        .mesh
+                        .as_ref(),
                 )
             })
             .collect()
@@ -487,12 +574,12 @@ impl DuCADApp {
                 (
                     meta.name.as_str(),
                     meta.material,
-                    &self
-                        .model
+                    self.model
                         .geometry
                         .get(id)
                         .expect("body hilang dari storage")
-                        .mesh,
+                        .mesh
+                        .as_ref(),
                 )
             })
             .collect()

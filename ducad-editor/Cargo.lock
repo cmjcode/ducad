@@ -1218,6 +1218,7 @@ dependencies = [
  "anyhow",
  "ducad-core",
  "glam",
+ "log",
  "opencascade",
  "serde",
 ]
@@ -1257,6 +1258,7 @@ dependencies = [
  "egui",
  "egui_icons",
  "glam",
+ "serde",
 ]
 
 [[package]]

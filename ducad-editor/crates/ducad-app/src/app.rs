@@ -30,10 +30,23 @@ use crate::types::{
 };
 use crate::viewport::{pixel_tolerance_to_world, screen_to_plane_point, ViewportCallback};
 
+/// Isi cache pratinjau fillet/chamfer: jenis rounding, radius bertanda,
+/// body sasaran, mesh hasil, dan garis rusuknya. Dihitung ulang hanya saat
+/// radius berubah — lihat `round_preview_cache`.
+pub type RoundPreviewCache = (
+    crate::types::RoundKind,
+    f64,
+    BodyId,
+    ducad_kernel::KernelMesh,
+    Vec<([f32; 3], [f32; 3])>,
+);
+
 pub struct DuCADApp {
     pub camera: OrbitCamera,
-    pub sketches: Vec<Sketch>,
-    pub undos: Vec<ducad_sketch::UndoStack>,
+    /// Seluruh sketsa dokumen, dikunci identitas (`SketchId`) bukan posisi.
+    /// Menggantikan larik paralel `sketches`/`undos` yang dulu disinkronkan
+    /// lewat aritmetika indeks — lihat catatan modul `ducad_sketch::document`.
+    pub sketch_set: ducad_sketch::SketchSet,
     pub datum_planes: Vec<ducad_render::plane::DatumPlane>,
     pub datum_plane_counter: u32,
 
@@ -126,6 +139,8 @@ pub struct DuCADApp {
     pub zebra_config: ducad_render::ZebraConfig,
     /// Draft angle heatmap inspection (Fase 3.2).
     pub draft_config: ducad_render::DraftConfig,
+    /// Konfigurasi Touch Design (Apple Pencil & Jari untuk iPad)
+    pub touch_config: ducad_ui::TouchDesignConfig,
 
     pub show_all_dimensions: bool,
     /// Entity yg pill dimensinya sedang dibuka utk diedit di kanvas (Fase 3 —
@@ -233,13 +248,7 @@ pub struct DuCADApp {
     pub editing_round: Option<(BodyId, usize)>,
     pub round_gizmo_style: crate::types::RoundStyle,
     /// Cached preview mesh: (kind, radius, body_id, mesh, edge_lines). Recomputed only when radius changes.
-    pub round_preview_cache: Option<(
-        crate::types::RoundKind,
-        f64,
-        BodyId,
-        ducad_kernel::KernelMesh,
-        Vec<([f32; 3], [f32; 3])>,
-    )>,
+    pub round_preview_cache: Option<RoundPreviewCache>,
     pub hole_history: std::collections::HashMap<BodyId, crate::types::HoleHistory>,
     pub editing_hole_idx: Option<(BodyId, usize)>,
 
@@ -390,12 +399,7 @@ impl DuCADApp {
 
         Self {
             camera: OrbitCamera::default(),
-            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
-            undos: vec![
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-            ],
+            sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
             tool: ToolKind::Select,
@@ -478,6 +482,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -669,12 +674,7 @@ impl DuCADApp {
         let history_db = crate::history_db::HistoryDb::in_memory();
         Self {
             camera: OrbitCamera::default(),
-            sketches: vec![Sketch::default(), Sketch::default(), Sketch::default()],
-            undos: vec![
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-                ducad_sketch::UndoStack::default(),
-            ],
+            sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
             tool: ToolKind::Select,
@@ -757,6 +757,7 @@ impl DuCADApp {
             studio_config: ducad_render::StudioConfig::default(),
             zebra_config: ducad_render::ZebraConfig::default(),
             draft_config: ducad_render::DraftConfig::default(),
+            touch_config: ducad_ui::TouchDesignConfig::default(),
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
@@ -946,7 +947,8 @@ impl DuCADApp {
     /// Catat aktivitas baru ke SQLite bersama snapshot dokumen penuh, lalu perbarui cache riwayat.
     pub fn record_activity(&mut self, kind: ActivityKindUi, action: &str, details: &str) {
         let body_refs = self.native_body_refs();
-        let snapshot_json = ducad_io::native::serialize_to_json(&self.sketches, &body_refs).ok();
+        let ordered = self.plane_ordered_sketches();
+        let snapshot_json = ducad_io::native::serialize_to_json(&ordered, &body_refs).ok();
 
         self.history_db.log_activity(kind, action, details, snapshot_json.as_deref());
         self.activity_cache = self.history_db.load_activities();
@@ -956,12 +958,7 @@ impl DuCADApp {
     pub fn restore_snapshot_from_json(&mut self, json: &str) -> anyhow::Result<()> {
         let loaded = ducad_io::native::deserialize_from_json(json)?;
 
-        self.sketches = vec![loaded.sketch, loaded.front_sketch, loaded.right_sketch];
-        self.undos = vec![
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-            ducad_sketch::UndoStack::default(),
-        ];
+        self.load_standard_plane_sketches(loaded.sketch, loaded.front_sketch, loaded.right_sketch);
         self.datum_planes.clear();
         self.datum_plane_counter = 0;
         self.selected.clear();
@@ -1146,7 +1143,7 @@ impl DuCADApp {
         }
 
         let radial_active = self.radial_menu.is_open() || self.radial_press.is_some();
-        let allow_primary_orbit = matches!(
+        let allow_primary_orbit = (matches!(
             self.tool,
             ToolKind::Select
                 | ToolKind::SplitBody
@@ -1158,7 +1155,8 @@ impl DuCADApp {
                 | ToolKind::History
                 | ToolKind::Shell
                 | ToolKind::Rib
-        ) && !radial_active
+        ) || self.touch_config.single_finger_navigates())
+            && !radial_active
             && !is_near_gizmo
             && !self.extruding_from_gizmo
             && !self.extruding_face_from_gizmo
@@ -1173,15 +1171,23 @@ impl DuCADApp {
         let body_edge_lines = self.build_body_edge_lines();
         let (body_positions, body_normals, body_colors, body_materials, body_indices) =
             self.build_combined_body_mesh();
+        let body_instances = self.build_instanced_bodies();
 
-        // Hitung bounding box otomatis untuk level lantai (ground_z) dan proyeksi bayangan kontak studio
-        if !body_positions.is_empty() {
+        // Hitung bounding box otomatis untuk level lantai (ground_z) dan proyeksi bayangan kontak studio.
+        // Body instanced tidak ada di `body_positions`, jadi sudut bbox-nya
+        // ditambahkan terpisah — kalau tidak, bayangan lantai menghilang
+        // begitu tidak ada body yang terpilih.
+        let instance_corners: Vec<[f32; 3]> = body_instances
+            .iter()
+            .flat_map(|i| i.world_bounds_corners())
+            .collect();
+        if !body_positions.is_empty() || !instance_corners.is_empty() {
             let mut min_x = f32::MAX;
             let mut max_x = f32::MIN;
             let mut min_y = f32::MAX;
             let mut max_y = f32::MIN;
             let mut min_z = f32::MAX;
-            for p in &body_positions {
+            for p in body_positions.iter().chain(instance_corners.iter()) {
                 min_x = min_x.min(p[0]);
                 max_x = max_x.max(p[0]);
                 min_y = min_y.min(p[1]);
@@ -1212,6 +1218,7 @@ impl DuCADApp {
                 body_colors,
                 body_materials,
                 body_indices,
+                body_instances,
                 gizmo_positions,
                 gizmo_normals,
                 gizmo_colors,
@@ -1413,6 +1420,11 @@ impl eframe::App for DuCADApp {
             .to_string();
         let is_saved = self.current_file_path.is_some();
 
+        // Sengaja tidak memakai `touch_config.mode`: mode sentuh bisa di-cycle
+        // dari tombol header, dan mengikatnya ke sini membuat header berpindah
+        // layout compact ↔ penuh (tombol muncul/hilang) setiap kali diklik.
+        let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
+
         let mut topbar_state = TopBarState {
             document_name: doc_name,
             status_saved: is_saved,
@@ -1446,10 +1458,13 @@ impl eframe::App for DuCADApp {
             is_authenticating: matches!(self.auth_status, ducad_cloud::AuthStatus::Authenticating { .. }),
             account_drawer_open: self.account_drawer_open,
             account_button_rect: self.account_button_rect,
+            touch_config: self.touch_config,
+            is_ipad,
         };
 
+        let mut topbar_rect: Option<egui::Rect> = None;
         if !self.drawing_sheet_state.is_open {
-            egui::Area::new(egui::Id::new("ducad-topbar-area"))
+            let topbar_resp = egui::Area::new(egui::Id::new("ducad-topbar-area"))
                 .fixed_pos(egui::pos2(topbar_x, 10.0))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
@@ -1557,9 +1572,27 @@ impl eframe::App for DuCADApp {
                                     self.delete_selected_bodies();
                                 }
                             }
+                            TopBarEvent::SetTouchDesignMode(m) => {
+                                self.touch_config.set_mode(m);
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
+                            }
+                            TopBarEvent::CycleTouchDesignMode => {
+                                let next = self.touch_config.mode.next();
+                                self.touch_config.set_mode(next);
+                                ducad_ui::apply_with_touch(&ctx, self.theme, self.touch_config.touch_target_size);
+                                self.model_status = Some(format!("Mode Sentuh aktif: {}", next.label()));
+                            }
+                            TopBarEvent::TogglePalmRejection => {
+                                self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
+                                let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
+                                self.model_status = Some(format!("Palm Rejection: {}", st));
+                            }
                         }
                     }
                 });
+            topbar_rect = Some(topbar_resp.response.rect);
+
 
             self.plane_menu_open = topbar_state.plane_menu_open;
             self.account_button_rect = topbar_state.account_button_rect;
@@ -1768,7 +1801,8 @@ impl eframe::App for DuCADApp {
                                 }
                             }
                             ItemsDrawerEvent::ToggleEntity2dVisibility(raw_id) => {
-                                for sketch in self.sketches.iter_mut() {
+                                for (_, slot) in self.sketch_set.iter_mut() {
+                                    let sketch = &mut slot.sketch;
                                     if let Some(id) = sketch.entities.keys().find(|i| i.data().as_ffi() == raw_id) {
                                         let is_now_visible = sketch.toggle_visibility(id);
                                         if !is_now_visible {
@@ -1789,7 +1823,8 @@ impl eframe::App for DuCADApp {
                                 }
                             }
                             ItemsDrawerEvent::ToggleGroupVisibility(group_name) => {
-                                for sketch in self.sketches.iter_mut() {
+                                for (_, slot) in self.sketch_set.iter_mut() {
+                                    let sketch = &mut slot.sketch;
                                     let member_ids: Vec<_> = sketch
                                         .entity_names
                                         .iter()
@@ -2280,6 +2315,71 @@ impl eframe::App for DuCADApp {
                                 self.selected_clash_id = None;
                                 ctx.request_repaint();
                             }
+                            AssemblyDrawerEvent::AddExternalPart => {
+                                let filter = "Part DuCAD".to_string();
+                                if let Some(path) = self.pick_open_path(&filter, &["ducad"]) {
+                                    match self.add_external_part(&path) {
+                                        Ok(ids) => {
+                                            self.selected_assembly_instance = ids.first().copied();
+                                            self.assembly_drawer.stale_external = self
+                                                .poll_external_sources()
+                                                .into_iter()
+                                                .map(|(id, _)| id)
+                                                .collect();
+                                        }
+                                        Err(e) => self.model_status = Some(e),
+                                    }
+                                }
+                            }
+                            AssemblyDrawerEvent::RefreshExternalStatus => {
+                                let stale: Vec<_> = self
+                                    .poll_external_sources()
+                                    .into_iter()
+                                    .map(|(id, _)| id)
+                                    .collect();
+                                self.model_status = Some(if stale.is_empty() {
+                                    "Semua part eksternal mutakhir".to_string()
+                                } else {
+                                    format!("{} part eksternal berubah di sumbernya", stale.len())
+                                });
+                                self.assembly_drawer.stale_external = stale;
+                            }
+                            AssemblyDrawerEvent::ReloadExternalPart(id) => {
+                                if let Err(e) = self.reload_external_part(id) {
+                                    self.model_status = Some(e);
+                                }
+                                self.assembly_drawer.stale_external.retain(|x| *x != id);
+                            }
+                            AssemblyDrawerEvent::MakeIndependent(id) => {
+                                self.make_part_independent(id);
+                                self.assembly_drawer.stale_external.retain(|x| *x != id);
+                            }
+                            AssemblyDrawerEvent::SetExplodeFactor(f) => {
+                                self.set_explode_factor(f);
+                            }
+                            AssemblyDrawerEvent::AutoExplode { distance } => {
+                                self.auto_explode(distance);
+                            }
+                            AssemblyDrawerEvent::AddMotionStudy { mate, from, to } => {
+                                match self.add_motion_study(mate, from, to) {
+                                    Ok(i) => {
+                                        self.assembly_drawer.motion_selected = i;
+                                        self.assembly_drawer.motion_t = 0.0;
+                                    }
+                                    Err(e) => self.model_status = Some(e),
+                                }
+                            }
+                            AssemblyDrawerEvent::ScrubMotionStudy { index, t } => {
+                                self.scrub_motion_study(index, t);
+                            }
+                            AssemblyDrawerEvent::DeleteMotionStudy(i) => {
+                                if i < self.assembly_tree.motion_studies.len() {
+                                    self.assembly_tree.motion_studies.remove(i);
+                                    self.assembly_drawer.motion_selected = 0;
+                                    self.assembly_drawer.motion_playing = false;
+                                    self.model.doc.dirty = true;
+                                }
+                            }
                             AssemblyDrawerEvent::Close => {
                                 self.assembly_drawer_open = false;
                             }
@@ -2601,7 +2701,9 @@ impl eframe::App for DuCADApp {
                     });
                 });
 
-            let viewcube_y = 102.0;
+            let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0);
+            let viewcube_margin_top = 16.0;
+            let viewcube_y = (topbar_bottom_y + viewcube_margin_top + 42.0).max(102.0);
             let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
             let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
             egui::Area::new(egui::Id::new("ducad-viewcube-area"))
@@ -3740,6 +3842,65 @@ mod tests {
         );
         // Camera distance 5000 * 0.75 = 3750 + 100 = 3850 -> ceil to 3900
         assert!(extent >= 3900.0, "Extent was {extent}, expected >= 3900.0");
+    }
+
+    #[test]
+    fn test_viewcube_placement_below_topbar() {
+        let topbar_margin_right = 12.0;
+        let screen_w = 1024.0;
+        let viewcube_margin_top = 16.0;
+
+        // Case 1: TopBar standard height (max.y = 56.0)
+        let topbar_rect_1 = Some(egui::Rect::from_min_max(
+            egui::pos2(12.0, 10.0),
+            egui::pos2(screen_w - topbar_margin_right, 56.0),
+        ));
+        let topbar_bottom_y_1 = topbar_rect_1.map(|r| r.max.y).unwrap_or(10.0);
+        let viewcube_y_1 = (topbar_bottom_y_1 + viewcube_margin_top + 42.0).max(102.0);
+        let viewcube_top_y_1 = viewcube_y_1 - 42.0;
+        assert!(
+            viewcube_top_y_1 >= topbar_bottom_y_1 + viewcube_margin_top,
+            "ViewCube top ({viewcube_top_y_1}) must be at least 16px below TopBar bottom ({topbar_bottom_y_1})"
+        );
+
+        // Case 2: TopBar on iPad with 44pt touch targets or wrapped (max.y = 80.0)
+        let topbar_rect_2 = Some(egui::Rect::from_min_max(
+            egui::pos2(12.0, 10.0),
+            egui::pos2(screen_w - topbar_margin_right, 80.0),
+        ));
+        let topbar_bottom_y_2 = topbar_rect_2.map(|r| r.max.y).unwrap_or(10.0);
+        let viewcube_y_2 = (topbar_bottom_y_2 + viewcube_margin_top + 42.0).max(102.0);
+        let viewcube_top_y_2 = viewcube_y_2 - 42.0;
+        assert!(
+            viewcube_top_y_2 >= topbar_bottom_y_2 + viewcube_margin_top,
+            "ViewCube top ({viewcube_top_y_2}) must be at least 16px below TopBar bottom ({topbar_bottom_y_2})"
+        );
+        assert_eq!(viewcube_y_2, 80.0 + 16.0 + 42.0);
+    }
+
+    #[test]
+    fn test_touch_mode_navigation_and_design_flags() {
+        use ducad_ui::{TouchDesignConfig, TouchDesignMode};
+
+        let mut cfg = TouchDesignConfig::default();
+        // Hybrid default: both can design, single finger does not navigate
+        assert!(cfg.allows_finger_design());
+        assert!(!cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 18.0);
+
+        // PencilOnly: finger navigates canvas, cannot design
+        cfg.set_mode(TouchDesignMode::PencilOnly);
+        assert!(!cfg.allows_finger_design());
+        assert!(cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 12.0);
+        assert_eq!(cfg.touch_target_size, 36.0);
+
+        // FingerDesign: optimized for touch, 44pt HIG, large snap distance
+        cfg.set_mode(TouchDesignMode::FingerDesign);
+        assert!(cfg.allows_finger_design());
+        assert!(!cfg.single_finger_navigates());
+        assert_eq!(cfg.effective_pixel_tolerance(), 24.0);
+        assert_eq!(cfg.touch_target_size, 44.0);
     }
 }
 
