@@ -1420,9 +1420,10 @@ impl eframe::App for DuCADApp {
             .to_string();
         let is_saved = self.current_file_path.is_some();
 
-        let is_ipad = cfg!(target_os = "ios")
-            || screen_rect.width() < 1050.0
-            || self.touch_config.mode != ducad_ui::TouchDesignMode::PencilAndFinger;
+        // Sengaja tidak memakai `touch_config.mode`: mode sentuh bisa di-cycle
+        // dari tombol header, dan mengikatnya ke sini membuat header berpindah
+        // layout compact ↔ penuh (tombol muncul/hilang) setiap kali diklik.
+        let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
 
         let mut topbar_state = TopBarState {
             document_name: doc_name,

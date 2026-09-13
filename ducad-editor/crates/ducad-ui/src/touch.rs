@@ -5,6 +5,8 @@
 //! - Mode Desain Khusus Pencil (Jari khusus untuk Navigasi Kanvas 1 & 2 jari, mencegah goresan tak sengaja / Palm Rejection)
 //! - Mode Desain Sentuh Jari (Touch-Optimized dengan target sentuh 44pt Apple HIG dan toleransi snapping lebih besar)
 
+use egui_icons::icons::{ICON_GESTURE, ICON_STYLUS, ICON_TOUCH_APP};
+
 /// Mode Desain Sentuh di iPad dan Layar Sentuh.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -41,6 +43,22 @@ impl TouchDesignMode {
             Self::PencilAndFinger => "✏️+👆",
             Self::PencilOnly => "✏️",
             Self::FingerDesign => "👆",
+        }
+    }
+
+    /// Ikon Material untuk tombol ikon di header.
+    ///
+    /// Sengaja terpisah dari [`Self::icon`] yang memakai emoji: emoji dirender
+    /// dari font fallback dengan metrik berbeda, sehingga tombolnya jadi lebih
+    /// lebar dari tombol header lain pada ukuran font yang sama — terukur 35.5
+    /// px untuk emoji tunggal dan 64.2 px untuk `"✏️+👆"`, vs 35.0 px untuk
+    /// Material Icon. Emoji tetap dipakai untuk teks menu, yang tidak terikat
+    /// grid tombol header.
+    pub fn material_icon(self) -> &'static str {
+        match self {
+            Self::PencilAndFinger => ICON_GESTURE.codepoint,
+            Self::PencilOnly => ICON_STYLUS.codepoint,
+            Self::FingerDesign => ICON_TOUCH_APP.codepoint,
         }
     }
 

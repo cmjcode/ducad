@@ -8,7 +8,10 @@
 //! Measurements, dan Delete. Kontrol yang hanya relevan di satu mode
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
-use crate::theme::{glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{
+    glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_PRIMARY,
+    TEXT_SECONDARY,
+};
 use crate::touch::{TouchDesignConfig, TouchDesignMode};
 use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
@@ -126,9 +129,25 @@ impl TopBar {
         let item_gap = if is_tight { 2.0 } else { 4.0 };
 
         glass_frame().show(ui, |ui| {
-            let bar_h = (state.touch_config.touch_target_size).max((icon_sz + 14.0).max(30.0));
+            // Kunci tinggi minimum widget interaktif header ke nilai tetap.
+            // `apply_with_touch` (dipanggil `App` tiap mode sentuh berganti)
+            // mengubah `interact_size.y` GLOBAL ke 36/40/44 px per mode — dan itu
+            // tinggi minimum semua tombol egui — sehingga tanpa kunci ini seluruh
+            // tombol header dan tinggi bar ikut melompat tiap klik toggle mode.
+            // Target sentuh besar tetap berlaku untuk UI lain di luar header.
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+
+            // Tinggi header sengaja TIDAK diikat ke `touch_config.touch_target_size`:
+            // tombol header memakai `icon_size` (lihat `header_icon_btn`), jadi mengikat
+            // bar ke touch target hanya bikin tingginya melompat 36/40/44 px tiap mode
+            // sentuh di-cycle tanpa memperbesar area sentuh satu tombol pun.
+            let bar_h = (icon_sz + 14.0).max(30.0);
             ui.set_height(bar_h);
-            ui.horizontal(|ui| {
+            // `horizontal_centered` (bukan `horizontal`) supaya baris tombol dipusatkan
+            // vertikal di dalam `bar_h`. `set_height` di atas mengunci max height ui,
+            // jadi sisa ruang terbagi rata atas-bawah — bukan menumpuk di bawah baris
+            // seperti `horizontal` yang rata-atas.
+            ui.horizontal_centered(|ui| {
                 // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
                 ui.menu_button(
                     RichText::new(ICON_MENU.codepoint)
@@ -758,7 +777,7 @@ impl TopBar {
                     };
                     let touch_btn = header_icon_btn(
                         ui,
-                        state.touch_config.mode.icon(),
+                        state.touch_config.mode.material_icon(),
                         icon_sz,
                         state.touch_config.mode != TouchDesignMode::PencilAndFinger,
                         &format!("Mode Sentuh: {}", state.touch_config.mode.label()),
@@ -950,4 +969,127 @@ fn header_icon_btn(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{apply, apply_with_touch, ThemeMode};
+
+    fn dummy_state(mode: TouchDesignMode) -> TopBarState {
+        let mut touch_config = TouchDesignConfig::default();
+        touch_config.set_mode(mode);
+        TopBarState {
+            document_name: "Untitled.ducad".to_string(),
+            status_saved: false,
+            current_unit: LengthUnit::Millimeters,
+            icon_size: crate::theme::ICON_SIZE_DEFAULT,
+            is_sketching: false,
+            items_drawer_open: false,
+            assembly_drawer_open: false,
+            section_view_active: false,
+            is_measure_active: false,
+            zebra_view_active: false,
+            studio_lighting_active: false,
+            active_plane_name: "Top".to_string(),
+            custom_planes: Vec::new(),
+            plane_menu_open: false,
+            items_button_rect: egui::Rect::NOTHING,
+            account: None,
+            is_authenticating: false,
+            account_drawer_open: false,
+            account_button_rect: egui::Rect::NOTHING,
+            touch_config,
+            is_ipad: false,
+        }
+    }
+
+    /// Tinggi header diukur setelah `TopBar::show` untuk satu mode sentuh.
+    fn header_height(mode: TouchDesignMode) -> f32 {
+        let ctx = egui::Context::default();
+        // Tiru `App` saat mode sentuh di-cycle: `apply_with_touch` mengubah
+        // `interact_size.y` global ke 36/40/44 sesuai mode.
+        let touch_target = dummy_state(mode).touch_config.touch_target_size;
+        apply_with_touch(&ctx, ThemeMode::Dark, touch_target);
+        let mut height = 0.0;
+        // Dua frame: frame pertama memanaskan layout/font, frame kedua diukur.
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(1200.0);
+                    let mut state = dummy_state(mode);
+                    let scope = ui.scope(|ui| {
+                        TopBar::show(ui, &mut state);
+                    });
+                    height = scope.response.rect.height();
+                });
+            });
+            output.textures_delta.clear();
+        }
+        height
+    }
+
+    /// Regresi: klik tombol quick-toggle mode sentuh sempat mengubah tinggi
+    /// header karena `bar_h` diikat ke `touch_config.touch_target_size`
+    /// (36/40/44 px per mode). Tinggi header harus sama di ketiga mode.
+    #[test]
+    fn tinggi_header_stabil_saat_mode_sentuh_di_cycle() {
+        let hybrid = header_height(TouchDesignMode::PencilAndFinger);
+        let pencil = header_height(TouchDesignMode::PencilOnly);
+        let finger = header_height(TouchDesignMode::FingerDesign);
+
+        assert!(hybrid > 0.0, "header tidak ter-render");
+        assert_eq!(
+            hybrid, pencil,
+            "tinggi header berubah saat pindah ke PencilOnly"
+        );
+        assert_eq!(
+            hybrid, finger,
+            "tinggi header berubah saat pindah ke FingerDesign"
+        );
+    }
+
+    /// Regresi: tombol mode sentuh sempat memakai emoji (`icon()`), yang
+    /// dirender dari font fallback dengan metrik berbeda — `"\u{270f}\u{fe0f}+\u{1f446}"`
+    /// bahkan melebar ke ~64 px vs 35 px tombol header lain. `material_icon()`
+    /// harus menghasilkan tombol yang persis seukuran tombol header lainnya.
+    #[test]
+    fn tombol_mode_sentuh_seukuran_tombol_header_lain() {
+        let ctx = egui::Context::default();
+        apply(&ctx, ThemeMode::Dark);
+        let mut sizes: Vec<(String, Vec2)> = Vec::new();
+        // Dua frame: frame pertama memanaskan layout/font, frame kedua diukur.
+        for _ in 0..2 {
+            sizes.clear();
+            let mut output = ctx.run_ui(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut measure = |label: &str, icon: &str| {
+                        let rect =
+                            header_icon_btn(ui, icon, 18.0, false, label, None, None, None, None)
+                                .rect;
+                        sizes.push((label.to_string(), rect.size()));
+                    };
+                    measure("settings", ICON_SETTINGS.codepoint);
+                    measure("share", ICON_SHARE.codepoint);
+                    for mode in [
+                        TouchDesignMode::PencilAndFinger,
+                        TouchDesignMode::PencilOnly,
+                        TouchDesignMode::FingerDesign,
+                    ] {
+                        measure("touch-mode", mode.material_icon());
+                    }
+                });
+            });
+            output.textures_delta.clear();
+        }
+
+        let (_, baseline) = sizes[0].clone();
+        assert!(baseline.x > 0.0, "tombol tidak ter-render");
+        for (label, size) in &sizes {
+            assert_eq!(
+                *size, baseline,
+                "tombol `{label}` ({size:?}) beda ukuran dari tombol header lain ({baseline:?})"
+            );
+        }
+    }
 }
