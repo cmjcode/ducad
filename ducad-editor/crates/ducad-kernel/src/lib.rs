@@ -80,8 +80,8 @@ pub use hlr::{
 pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
 pub use hole::{apply_hole, create_hole_cutter};
 pub use interference::{
-    compute_mesh_centroid, compute_mesh_volume, compute_pair_interference, detect_interference,
-    BodyClash,
+    check_clearance, compute_mesh_centroid, compute_mesh_volume, compute_pair_interference,
+    detect_interference, BodyClash, ClearanceResult,
 };
 pub use mesh::KernelMesh;
 pub use modify::{

@@ -163,6 +163,50 @@ pub fn aabb_intersects(
     overlap_x && overlap_y && overlap_z
 }
 
+/// Hasil pemeriksaan celah (clearance) antara dua bodi.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClearanceResult {
+    /// Jarak minimum antar permukaan (mm). Nol berarti bersentuhan atau
+    /// saling menembus.
+    pub distance: f64,
+    /// Titik terdekat pada bodi pertama.
+    pub point_a: (f64, f64, f64),
+    /// Titik terdekat pada bodi kedua.
+    pub point_b: (f64, f64, f64),
+    /// Apakah `distance` memenuhi celah minimum yang diminta.
+    pub passes: bool,
+}
+
+/// Periksa celah minimum antara dua bodi.
+///
+/// Menjawab pertanyaan yang paling sering diajukan sebelum fabrikasi —
+/// "apakah ada jarak minimal sekian mm di antara kedua part ini?" — yang
+/// TIDAK bisa dijawab deteksi tabrakan: tabrakan hanya melaporkan yang
+/// sudah saling menembus, sementara part yang berjarak 0,1 mm lolos begitu
+/// saja padahal mustahil dirakit.
+///
+/// Jaraknya dihitung terhadap permukaan analitik sesungguhnya
+/// (`BRepExtrema_DistShapeShape`), bukan antar bounding box atau antar
+/// titik mesh — perbedaan yang menentukan pada silinder dan permukaan
+/// lengkung lain, yang justru paling sering menjadi celah terketat pada
+/// perakitan.
+pub fn check_clearance(
+    a: &KernelShape,
+    b: &KernelShape,
+    required_mm: f64,
+) -> Result<ClearanceResult> {
+    let _guard = crate::lock_kernel();
+    let Some((distance, pa, pb)) = a.inner().min_distance_to(b.inner()) else {
+        anyhow::bail!("perhitungan jarak minimum gagal untuk pasangan bodi ini");
+    };
+    Ok(ClearanceResult {
+        distance,
+        point_a: (pa.x, pa.y, pa.z),
+        point_b: (pb.x, pb.y, pb.z),
+        passes: distance >= required_mm,
+    })
+}
+
 /// Simpul pohon AABB (BVH) di atas segitiga sebuah mesh.
 struct BvhNode {
     min: [f32; 3],
