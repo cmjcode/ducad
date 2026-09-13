@@ -84,6 +84,116 @@ pub enum MateKind {
     },
 }
 
+/// Jenis sambungan mekanis siap pakai (*joint*).
+///
+/// Joint bukan jenis kendala baru — ia adalah NAMA untuk kombinasi kendala
+/// yang sudah ada, plus deklarasi eksplisit derajat kebebasan mana yang
+/// sengaja DIBIARKAN bebas. Membedakannya penting: "engsel" dan "silinder
+/// sepusat yang rotasinya dikunci" memakai geometri yang sama persis, tapi
+/// yang pertama boleh berputar dan yang kedua tidak — dan tanpa nama joint,
+/// perbedaan itu tidak terekam di mana pun.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JointKind {
+    /// Terkunci penuh, 0 DOF.
+    Rigid,
+    /// Engsel: berputar pada satu sumbu, 1 DOF rotasi.
+    Revolute,
+    /// Luncur: bergeser sepanjang satu sumbu, 1 DOF translasi.
+    Slider,
+    /// Silindris: berputar DAN bergeser pada sumbu yang sama, 2 DOF.
+    Cylindrical,
+    /// Bidang: bergeser di dua arah + berputar pada normalnya, 3 DOF.
+    Planar,
+    /// Bola: bebas berputar di tiga sumbu, 3 DOF rotasi.
+    Ball,
+}
+
+impl JointKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            JointKind::Rigid => "Rigid",
+            JointKind::Revolute => "Revolute (Engsel)",
+            JointKind::Slider => "Slider (Luncur)",
+            JointKind::Cylindrical => "Cylindrical",
+            JointKind::Planar => "Planar",
+            JointKind::Ball => "Ball (Bola)",
+        }
+    }
+
+    /// Derajat kebebasan yang TERSISA setelah joint ini diterapkan.
+    pub fn remaining_dof(self) -> DegreesOfFreedom {
+        let (t, r) = match self {
+            JointKind::Rigid => (0, 0),
+            JointKind::Revolute => (0, 1),
+            JointKind::Slider => (1, 0),
+            JointKind::Cylindrical => (1, 1),
+            JointKind::Planar => (2, 1),
+            JointKind::Ball => (0, 3),
+        };
+        DegreesOfFreedom {
+            translation_dof: t,
+            rotation_dof: r,
+        }
+    }
+
+    /// Kendala dasar yang menyusun joint ini.
+    pub fn underlying_mate(self) -> MateKind {
+        match self {
+            JointKind::Rigid => MateKind::Concentric {
+                lock_rotation: true,
+                aligned: true,
+            },
+            JointKind::Revolute | JointKind::Ball => MateKind::Concentric {
+                lock_rotation: false,
+                aligned: true,
+            },
+            JointKind::Slider | JointKind::Cylindrical => MateKind::Concentric {
+                lock_rotation: false,
+                aligned: true,
+            },
+            JointKind::Planar => MateKind::Coincident {
+                opposite_normal: true,
+            },
+        }
+    }
+}
+
+/// Batas gerak sebuah mate (*limit mate*).
+///
+/// Engsel pintu tidak berputar 360°, dan poros teleskopik punya panjang
+/// maksimum. Tanpa batas ini, solver akan dengan senang hati menempatkan
+/// part di posisi yang mustahil secara fisik.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct MateLimits {
+    /// Batas bawah nilai mate (mm untuk Distance, derajat untuk Angle).
+    pub min: Option<f64>,
+    /// Batas atas.
+    pub max: Option<f64>,
+}
+
+impl MateLimits {
+    pub fn is_unbounded(&self) -> bool {
+        self.min.is_none() && self.max.is_none()
+    }
+
+    /// Jepit `value` ke dalam rentang. Batas yang terbalik (min > max)
+    /// diperlakukan sebagai tidak ada — data rusak tidak boleh membuat
+    /// nilai melompat ke angka yang aneh.
+    pub fn clamp(&self, value: f64) -> f64 {
+        match (self.min, self.max) {
+            (Some(lo), Some(hi)) if lo <= hi => value.clamp(lo, hi),
+            (Some(lo), None) => value.max(lo),
+            (None, Some(hi)) => value.min(hi),
+            _ => value,
+        }
+    }
+
+    /// Apakah `value` berada di dalam rentang.
+    pub fn contains(&self, value: f64) -> bool {
+        (self.clamp(value) - value).abs() < 1e-9
+    }
+}
+
 impl MateKind {
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -91,6 +201,37 @@ impl MateKind {
             MateKind::Coincident { .. } => "Coincident",
             MateKind::Distance { .. } => "Distance",
             MateKind::Angle { .. } => "Angle",
+        }
+    }
+
+    /// Nilai terkendali mate ini, bila ada — jarak (mm) atau sudut
+    /// (derajat). `None` untuk mate yang tidak punya nilai numerik.
+    pub fn driven_value(&self) -> Option<f64> {
+        match self {
+            MateKind::Distance { offset, .. } => Some(*offset),
+            MateKind::Angle { angle_deg, .. } => Some(*angle_deg),
+            _ => None,
+        }
+    }
+
+    /// Salinan mate dengan nilai terkendalinya dijepit ke `limits`.
+    pub fn with_value_clamped(&self, limits: &MateLimits) -> MateKind {
+        match self {
+            MateKind::Distance {
+                offset,
+                opposite_normal,
+            } => MateKind::Distance {
+                offset: limits.clamp(*offset),
+                opposite_normal: *opposite_normal,
+            },
+            MateKind::Angle {
+                angle_deg,
+                opposite_normal,
+            } => MateKind::Angle {
+                angle_deg: limits.clamp(*angle_deg),
+                opposite_normal: *opposite_normal,
+            },
+            other => other.clone(),
         }
     }
 }
@@ -119,6 +260,12 @@ pub struct MateConstraint {
     pub target_b: MateTarget,
     pub status: MateStatus,
     pub suppressed: bool,
+    /// Batas gerak opsional. `default` supaya berkas lama tetap terbaca.
+    #[serde(default)]
+    pub limits: MateLimits,
+    /// Joint yang diwakili mate ini, bila ia dibuat lewat preset joint.
+    #[serde(default)]
+    pub joint: Option<JointKind>,
 }
 
 /// Derajat kebebasan (Degrees of Freedom - DOF) sebuah komponen dalam perakitan 3D.
@@ -171,6 +318,65 @@ pub struct AssemblyInstance {
     pub visible: bool,
     /// ID Sub-Assembly induk jika berada dalam kelompok sub-assembly.
     pub parent_sub_assembly: Option<SubAssemblyId>,
+    /// Nomor part untuk BOM. Dua instance dengan nomor sama digabung jadi
+    /// satu baris berkuantitas.
+    #[serde(default)]
+    pub part_number: Option<String>,
+    /// Bahan, muncul di kolom material BOM.
+    #[serde(default)]
+    pub material: Option<String>,
+}
+
+/// Satu baris tabel BOM (*Bill of Materials*).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BomRow {
+    /// Nomor urut, dipakai balon penunjuk di gambar isometrik.
+    pub item: u32,
+    pub part_number: Option<String>,
+    pub name: String,
+    pub material: Option<String>,
+    pub quantity: u32,
+    /// Sub-assembly tingkat pertama yang memuatnya (BOM *indented*).
+    pub sub_assembly: Option<String>,
+}
+
+impl BomRow {
+    /// Satu baris CSV. Field yang memuat koma, kutip, atau baris baru
+    /// dikutip dan kutipnya digandakan sesuai RFC 4180 — tanpa itu, nama
+    /// part seperti `Bracket, Left` akan menggeser seluruh kolom.
+    pub fn to_csv_row(&self) -> String {
+        fn esc(v: &str) -> String {
+            if v.contains([',', '"', '\n', '\r']) {
+                format!("\"{}\"", v.replace('"', "\"\""))
+            } else {
+                v.to_string()
+            }
+        }
+        let cols = [
+            self.item.to_string(),
+            esc(self.part_number.as_deref().unwrap_or("")),
+            esc(&self.name),
+            esc(self.material.as_deref().unwrap_or("")),
+            self.quantity.to_string(),
+            esc(self.sub_assembly.as_deref().unwrap_or("")),
+        ];
+        cols.join(",")
+    }
+
+    pub fn csv_header() -> &'static str {
+        "Item,PartNumber,Name,Material,Qty,SubAssembly"
+    }
+}
+
+/// Seluruh tabel BOM sebagai teks CSV.
+pub fn bom_to_csv(rows: &[BomRow]) -> String {
+    let mut out = String::from(BomRow::csv_header());
+    for r in rows {
+        out.push('\n');
+        out.push_str(&r.to_csv_row());
+    }
+    out.push('\n');
+    out
 }
 
 impl AssemblyInstance {
@@ -184,6 +390,8 @@ impl AssemblyInstance {
             rotation_quat: (0.0, 0.0, 0.0, 1.0), // Identity quaternion
             visible: true,
             parent_sub_assembly: None,
+            part_number: None,
+            material: None,
         }
     }
 }
@@ -329,6 +537,75 @@ impl AssemblyTree {
     }
 
     // ----------------------------------------------------------------
+    // Bill of Materials.
+    // ----------------------------------------------------------------
+
+    /// Susun BOM dari pohon perakitan.
+    ///
+    /// Part yang sama yang dipakai berkali-kali digabung jadi SATU baris
+    /// berkuantitas — itulah inti sebuah BOM. Penggabungan memakai
+    /// `part_number` bila ada, dan jatuh ke `body_id_raw` bila belum diisi;
+    /// memakai NAMA sebagai kunci akan salah, karena dua part berbeda boleh
+    /// bernama sama dan satu part boleh diganti namanya per instance.
+    ///
+    /// `flat = true` menghasilkan daftar rata seluruh part. `flat = false`
+    /// mengelompokkan per sub-assembly tingkat pertama, seperti BOM
+    /// *indented* pada gambar kerja.
+    pub fn build_bom(&self, flat: bool) -> Vec<BomRow> {
+        use std::collections::BTreeMap;
+
+        // BTreeMap, bukan HashMap: urutan baris BOM harus sama tiap kali
+        // digenerate, kalau tidak diff antar revisi gambar jadi tak terbaca.
+        let mut rows: BTreeMap<(Option<SubAssemblyId>, String), BomRow> = BTreeMap::new();
+
+        for inst in self.instances.values() {
+            let key_id = inst
+                .part_number
+                .clone()
+                .unwrap_or_else(|| format!("#{}", inst.body_id_raw));
+            let group = if flat {
+                None
+            } else {
+                self.top_level_parent(inst.parent_sub_assembly)
+            };
+            let entry = rows.entry((group, key_id.clone())).or_insert_with(|| BomRow {
+                item: 0,
+                part_number: inst.part_number.clone(),
+                name: inst.name.clone(),
+                material: inst.material.clone(),
+                quantity: 0,
+                sub_assembly: group.and_then(|g| self.sub_assemblies.get(&g).map(|s| s.name.clone())),
+            });
+            entry.quantity += 1;
+        }
+
+        let mut out: Vec<BomRow> = rows.into_values().collect();
+        for (i, row) in out.iter_mut().enumerate() {
+            row.item = i as u32 + 1;
+        }
+        out
+    }
+
+    /// Sub-assembly tingkat PERTAMA yang memuat `start`, menelusuri ke atas.
+    fn top_level_parent(&self, start: Option<SubAssemblyId>) -> Option<SubAssemblyId> {
+        let mut cursor = start?;
+        let mut steps = 0;
+        loop {
+            let sub = self.sub_assemblies.get(&cursor)?;
+            match sub.parent_sub_assembly {
+                Some(p) => {
+                    steps += 1;
+                    if steps > MAX_ASSEMBLY_DEPTH {
+                        return Some(cursor); // rantai bersiklus; berhenti
+                    }
+                    cursor = p;
+                }
+                None => return Some(cursor),
+            }
+        }
+    }
+
+    // ----------------------------------------------------------------
     // Komposisi transform hierarkis.
     // ----------------------------------------------------------------
 
@@ -450,6 +727,8 @@ impl AssemblyTree {
         let id = self.next_mate_id;
         self.next_mate_id += 1;
         let constraint = MateConstraint {
+            limits: MateLimits::default(),
+            joint: None,
             id,
             name: name.into(),
             kind,
@@ -834,5 +1113,240 @@ mod hierarchy_tests {
         let (t, q) = tree.instance_world_transform(inst).unwrap();
         assert!(t.is_finite() && q.is_finite(), "tidak boleh NaN");
         assert!((t - DVec3::new(1.0, 2.0, 3.0)).length() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod joint_and_limit_tests {
+    use super::*;
+
+    #[test]
+    fn joints_declare_which_freedoms_stay_open() {
+        // Joint bukan kendala baru — ia NAMA untuk kombinasi kendala plus
+        // deklarasi DOF mana yang sengaja dibiarkan bebas. "Engsel" dan
+        // "silinder sepusat yang rotasinya dikunci" memakai geometri sama
+        // persis; tanpa nama joint, perbedaannya tidak terekam di mana pun.
+        assert_eq!(JointKind::Rigid.remaining_dof().total_dof(), 0);
+        assert_eq!(JointKind::Revolute.remaining_dof().rotation_dof, 1);
+        assert_eq!(JointKind::Revolute.remaining_dof().translation_dof, 0);
+        assert_eq!(JointKind::Slider.remaining_dof().translation_dof, 1);
+        assert_eq!(JointKind::Slider.remaining_dof().rotation_dof, 0);
+        assert_eq!(JointKind::Cylindrical.remaining_dof().total_dof(), 2);
+        assert_eq!(JointKind::Ball.remaining_dof().rotation_dof, 3);
+
+        // Revolute dan Rigid memakai geometri yang sama (Concentric) tapi
+        // berbeda pada penguncian rotasinya.
+        assert!(matches!(
+            JointKind::Rigid.underlying_mate(),
+            MateKind::Concentric {
+                lock_rotation: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            JointKind::Revolute.underlying_mate(),
+            MateKind::Concentric {
+                lock_rotation: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn limits_clamp_driven_values() {
+        // Engsel pintu tidak berputar 360°. Tanpa batas, solver akan dengan
+        // senang hati menempatkan part di posisi yang mustahil secara fisik.
+        let limits = MateLimits {
+            min: Some(0.0),
+            max: Some(90.0),
+        };
+        assert_eq!(limits.clamp(45.0), 45.0);
+        assert_eq!(limits.clamp(-10.0), 0.0);
+        assert_eq!(limits.clamp(120.0), 90.0);
+        assert!(limits.contains(45.0));
+        assert!(!limits.contains(120.0));
+
+        let clamped = MateKind::Angle {
+            angle_deg: 120.0,
+            opposite_normal: false,
+        }
+        .with_value_clamped(&limits);
+        assert_eq!(clamped.driven_value(), Some(90.0));
+    }
+
+    #[test]
+    fn one_sided_limits_work() {
+        let only_min = MateLimits {
+            min: Some(5.0),
+            max: None,
+        };
+        assert_eq!(only_min.clamp(1.0), 5.0);
+        assert_eq!(only_min.clamp(50.0), 50.0);
+
+        let only_max = MateLimits {
+            min: None,
+            max: Some(5.0),
+        };
+        assert_eq!(only_max.clamp(1.0), 1.0);
+        assert_eq!(only_max.clamp(50.0), 5.0);
+    }
+
+    #[test]
+    fn inverted_limits_are_ignored_not_obeyed() {
+        // Data rusak (min > max) tidak boleh membuat nilai melompat ke
+        // angka yang aneh; batas seperti itu diperlakukan sebagai tidak ada.
+        let bad = MateLimits {
+            min: Some(90.0),
+            max: Some(0.0),
+        };
+        assert_eq!(bad.clamp(45.0), 45.0);
+    }
+
+    #[test]
+    fn mates_without_numeric_value_are_untouched_by_limits() {
+        let limits = MateLimits {
+            min: Some(0.0),
+            max: Some(1.0),
+        };
+        let concentric = MateKind::Concentric {
+            lock_rotation: false,
+            aligned: true,
+        };
+        assert_eq!(concentric.driven_value(), None);
+        assert_eq!(concentric.with_value_clamped(&limits), concentric);
+    }
+}
+
+#[cfg(test)]
+mod bom_tests {
+    use super::*;
+
+    fn tree_with_repeats() -> AssemblyTree {
+        let mut tree = AssemblyTree::default();
+        for (name, pn) in [
+            ("Baut M6", "BOLT-M6"),
+            ("Baut M6", "BOLT-M6"),
+            ("Baut M6", "BOLT-M6"),
+            ("Plat", "PLATE-01"),
+        ] {
+            let id = tree.add_instance(name, 1);
+            if let Some(i) = tree.instances.get_mut(&id) {
+                i.part_number = Some(pn.to_string());
+                i.material = Some("Baja".to_string());
+            }
+        }
+        tree
+    }
+
+    #[test]
+    fn repeated_parts_collapse_into_one_row_with_quantity() {
+        // Inti sebuah BOM: part yang sama dipakai berkali-kali jadi SATU
+        // baris berkuantitas, bukan empat baris terpisah.
+        let tree = tree_with_repeats();
+        let bom = tree.build_bom(true);
+        assert_eq!(bom.len(), 2, "3 baut + 1 plat = 2 baris");
+
+        let bolts = bom
+            .iter()
+            .find(|r| r.part_number.as_deref() == Some("BOLT-M6"))
+            .unwrap();
+        assert_eq!(bolts.quantity, 3);
+    }
+
+    #[test]
+    fn parts_are_grouped_by_part_number_not_by_name() {
+        // Dua part BERBEDA boleh bernama sama, dan satu part boleh diganti
+        // namanya per instance. Menggabungkan berdasarkan nama akan salah.
+        let mut tree = AssemblyTree::default();
+        for pn in ["A-1", "A-2"] {
+            let id = tree.add_instance("Bracket", 1);
+            tree.instances.get_mut(&id).unwrap().part_number = Some(pn.to_string());
+        }
+        let bom = tree.build_bom(true);
+        assert_eq!(bom.len(), 2, "nama sama tapi nomor part beda = 2 baris");
+        assert!(bom.iter().all(|r| r.quantity == 1));
+    }
+
+    #[test]
+    fn instances_without_part_number_fall_back_to_body_id() {
+        // Belum semua part diberi nomor. Dua instance dari BODY yang sama
+        // tetap harus digabung; body berbeda tidak.
+        let mut tree = AssemblyTree::default();
+        tree.add_instance("X", 7);
+        tree.add_instance("X", 7);
+        tree.add_instance("Y", 9);
+        let bom = tree.build_bom(true);
+        assert_eq!(bom.len(), 2);
+        assert_eq!(
+            bom.iter().map(|r| r.quantity).sum::<u32>(),
+            3,
+            "total kuantitas harus tetap 3"
+        );
+    }
+
+    #[test]
+    fn indented_bom_groups_by_top_level_sub_assembly() {
+        // BOM indented mengelompokkan per sub-assembly TINGKAT PERTAMA,
+        // jadi part yang bersarang dalam harus naik ke kelompok teratasnya.
+        let mut tree = AssemblyTree::default();
+        let outer = tree.add_sub_assembly("Gearbox", None);
+        let inner = tree.add_sub_assembly("Shaft Group", Some(outer));
+
+        let a = tree.add_instance("Gear", 1);
+        tree.set_instance_parent(a, Some(inner));
+        let b = tree.add_instance("Loose Bolt", 2);
+
+        let bom = tree.build_bom(false);
+        let gear = bom.iter().find(|r| r.name == "Gear").unwrap();
+        assert_eq!(
+            gear.sub_assembly.as_deref(),
+            Some("Gearbox"),
+            "harus naik ke sub-assembly teratas, bukan 'Shaft Group'"
+        );
+        let bolt = bom.iter().find(|r| r.name == "Loose Bolt").unwrap();
+        assert_eq!(bolt.sub_assembly, None);
+        assert_eq!(b, b); // instance id dipakai, memastikan ia benar dibuat
+    }
+
+    #[test]
+    fn item_numbers_are_sequential_and_stable() {
+        // Nomor item dipakai balon penunjuk di gambar; urutannya harus sama
+        // tiap kali BOM digenerate, kalau tidak diff antar revisi gambar
+        // jadi tak terbaca.
+        let tree = tree_with_repeats();
+        let first = tree.build_bom(true);
+        let second = tree.build_bom(true);
+        assert_eq!(first, second, "BOM harus deterministik");
+        assert_eq!(
+            first.iter().map(|r| r.item).collect::<Vec<_>>(),
+            (1..=first.len() as u32).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn csv_escapes_commas_and_quotes() {
+        // Tanpa pengutipan, nama part seperti `Bracket, Left` akan
+        // menggeser SELURUH kolom di berkas CSV.
+        let row = BomRow {
+            item: 1,
+            part_number: Some("PN-1".to_string()),
+            name: "Bracket, Left".to_string(),
+            material: Some("Alu \"6061\"".to_string()),
+            quantity: 2,
+            sub_assembly: None,
+        };
+        let csv = row.to_csv_row();
+        assert!(csv.contains("\"Bracket, Left\""), "csv: {csv}");
+        assert!(csv.contains("\"Alu \"\"6061\"\"\""), "csv: {csv}");
+        assert_eq!(csv.matches(',').count(), 5 + 1, "koma pemisah + 1 di dalam kutip");
+    }
+
+    #[test]
+    fn csv_has_header_and_one_line_per_row() {
+        let tree = tree_with_repeats();
+        let csv = bom_to_csv(&tree.build_bom(true));
+        let lines: Vec<&str> = csv.trim_end().lines().collect();
+        assert_eq!(lines[0], BomRow::csv_header());
+        assert_eq!(lines.len(), 3, "header + 2 baris");
     }
 }

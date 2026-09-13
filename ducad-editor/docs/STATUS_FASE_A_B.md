@@ -77,10 +77,10 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 
 | Item | Status | Catatan |
 |---|---|---|
-| **P3.2** Mate solver | 🟡 **sebagian** | Solver sekuensial diganti relaksasi SIMULTAN gaya Jacobi. Memperbaiki tiga cacat nyata: mate belakangan merusak mate sebelumnya, status yang berbohong, dan hasil non-deterministik karena urutan `HashMap`. Geometri target kini ditafsirkan di kerangka LOKAL part lalu ditransformasi ke dunia. **Belum**: joints (revolute/slider/ball), limit mates, drag dengan solver, DOF per instance, exploded view. |
-| **P3.1** Model referensi part | 🟡 **sebagian** | `SubAssembly` kini punya transform sendiri dan disusun hierarkis (`instance_world_transform`), dengan penjagaan siklus dan penolakan re-parent ke turunan sendiri. Solver mate memakai transform dunia itu. **Belum**: `PartRef::External` (referensi part dari berkas lain) dan instancing di renderer. |
-| **P3.3** Interference skala besar | 🟡 **sebagian** | Mid-phase ditambahkan: BVH segitiga + uji irisan segitiga-segitiga (SAT), sehingga pasangan yang AABB-nya tumpang tindih tapi tidak bersentuhan tidak lagi membayar boolean B-rep penuh. Menyertakan penjagaan containment — bodi yang tertelan seluruhnya tidak punya irisan segitiga tapi TETAP interferensi. **Belum**: clearance check (`BRepExtrema`), collision saat drag, paralelisasi. |
-| **P3.4** BOM & properti | ❌ **belum** | Custom properties per part, BOM hierarkis/indented, ekspor CSV/XLSX. |
+| **P3.2** Mate solver | 🟡 **sebagian** | Relaksasi SIMULTAN gaya Jacobi menggantikan solver sekuensial (memperbaiki: mate belakangan merusak yang sebelumnya, status yang berbohong, hasil non-deterministik). `JointKind` (Rigid/Revolute/Slider/Cylindrical/Planar/Ball) dengan DOF tersisa eksplisit, dan `MateLimits` yang dihormati solver. **Belum**: drag dengan solver, DOF per instance di UI, exploded view, motion study. |
+| **P3.1** Model referensi part | 🟡 **sebagian** | `SubAssembly` kini kerangka transform yang disusun hierarkis (`instance_world_transform`), dengan penjagaan siklus dan penolakan re-parent ke turunan sendiri. **Belum**: `PartRef::External` (butuh mesin pemuat berkas lain — bukan sekadar field) dan instancing di renderer. |
+| **P3.3** Interference & clearance | 🟡 **sebagian** | Mid-phase BVH segitiga + SAT (dengan penjagaan containment — bodi yang tertelan seluruhnya tidak punya irisan segitiga tapi TETAP interferensi). `check_clearance` menjawab "apakah ada celah minimal N mm" lewat `BRepExtrema_DistShapeShape` — eksak pada permukaan lengkung. **Belum**: collision saat drag, paralelisasi. |
+| **P3.4** BOM & properti | 🟡 **sebagian** | `part_number`/`material` per instance, `build_bom` dengan rollup kuantitas (digabung per nomor part, bukan per nama), mode rata & indented per sub-assembly tingkat pertama, ekspor CSV ber-escape RFC 4180. **Belum**: XLSX, penautan ke balon penunjuk di gambar. |
 
 ---
 

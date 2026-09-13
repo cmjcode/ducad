@@ -415,6 +415,13 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
             let mut probe = mate.clone();
             probe.target_a.kind = world_ref;
             probe.target_b.kind = world_moving;
+            // Batas gerak dihormati dengan menjepit nilai terkendali mate
+            // SEBELUM diselesaikan: engsel pintu tidak berputar 360°, dan
+            // tanpa ini solver akan menempatkan part di posisi yang mustahil
+            // secara fisik.
+            if !mate.limits.is_unbounded() {
+                probe.kind = mate.kind.with_value_clamped(&mate.limits);
+            }
 
             let Ok(tf) = solve_single_mate(&probe) else {
                 continue;
@@ -485,6 +492,9 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
         let mut probe = mate.clone();
         probe.target_a.kind = target_to_world(&mate.target_a.kind, pose_a);
         probe.target_b.kind = target_to_world(&mate.target_b.kind, pose_b);
+        if !mate.limits.is_unbounded() {
+            probe.kind = mate.kind.with_value_clamped(&mate.limits);
+        }
         let status = match solve_single_mate(&probe) {
             Ok(tf) if mate_residual(&tf) < 1e-3 => MateStatus::Satisfied,
             Ok(tf) => MateStatus::Conflicted(format!(
@@ -644,6 +654,8 @@ mod simultaneous_tests {
             },
             status: MateStatus::UnderConstrained,
             suppressed: false,
+            limits: Default::default(),
+            joint: None,
         }
     }
 

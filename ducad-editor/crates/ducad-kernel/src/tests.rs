@@ -2795,3 +2795,89 @@ fn interference_still_detects_genuine_overlap() {
 fn ducad_kernel_seg(start: (f64, f64), end: (f64, f64)) -> ProfileSegment {
     ProfileSegment::Line { start, end }
 }
+
+// ---------------------------------------------------------------------
+// P3.3 — clearance check.
+// ---------------------------------------------------------------------
+
+#[test]
+fn clearance_measures_the_real_gap_between_two_bodies() {
+    // Pertanyaan yang TIDAK bisa dijawab deteksi tabrakan: tabrakan hanya
+    // melaporkan yang sudah saling menembus, sementara part berjarak 0,1 mm
+    // lolos begitu saja padahal mustahil dirakit.
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let b = crate::csg::extrude_profile_on_plane(
+        &rect_profile(10.0, 10.0),
+        [25.0, 0.0, 0.0], // celah 15 mm dari x = 10 ke x = 25
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+    )
+    .unwrap();
+
+    let r = crate::interference::check_clearance(&a, &b, 2.0).unwrap();
+    assert!(
+        (r.distance - 15.0).abs() < 1e-6,
+        "jarak terukur {} mm, seharusnya 15",
+        r.distance
+    );
+    assert!(r.passes, "15 mm harus lolos syarat 2 mm");
+
+    // Syarat yang lebih ketat dari celah nyata harus GAGAL.
+    let strict = crate::interference::check_clearance(&a, &b, 20.0).unwrap();
+    assert!(!strict.passes, "15 mm tidak boleh lolos syarat 20 mm");
+    assert!((strict.distance - 15.0).abs() < 1e-6, "jaraknya tetap sama");
+}
+
+#[test]
+fn clearance_is_zero_for_touching_and_overlapping_bodies() {
+    let _guard = lock_test();
+    let a = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    // Bersentuhan tepat di x = 10.
+    let touching = crate::csg::extrude_profile_on_plane(
+        &rect_profile(10.0, 10.0),
+        [10.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        10.0,
+    )
+    .unwrap();
+    let r = crate::interference::check_clearance(&a, &touching, 0.5).unwrap();
+    assert!(r.distance < 1e-6, "bersentuhan harus berjarak nol");
+    assert!(!r.passes, "celah nol tidak memenuhi syarat 0,5 mm");
+}
+
+#[test]
+fn clearance_on_curved_surfaces_uses_exact_geometry() {
+    // Titik utama memakai BRepExtrema alih-alih jarak antar mesh: pada
+    // permukaan lengkung, jarak antar titik tesselasi selalu sedikit
+    // MELEBIHI jarak permukaan sesungguhnya. Dua silinder R5 yang pusatnya
+    // berjarak 30 mm punya celah tepat 20 mm.
+    let _guard = lock_test();
+    let a = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 5.0,
+        },
+        10.0,
+    )
+    .unwrap();
+    let b = extrude_profile(
+        &Profile::Circle {
+            center: (30.0, 0.0),
+            radius: 5.0,
+        },
+        10.0,
+    )
+    .unwrap();
+
+    let r = crate::interference::check_clearance(&a, &b, 1.0).unwrap();
+    assert!(
+        (r.distance - 20.0).abs() < 1e-6,
+        "celah antar silinder {} mm, seharusnya tepat 20",
+        r.distance
+    );
+}
