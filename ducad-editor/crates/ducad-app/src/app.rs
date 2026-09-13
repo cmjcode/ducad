@@ -2305,6 +2305,71 @@ impl eframe::App for DuCADApp {
                                 self.selected_clash_id = None;
                                 ctx.request_repaint();
                             }
+                            AssemblyDrawerEvent::AddExternalPart => {
+                                let filter = "Part DuCAD".to_string();
+                                if let Some(path) = self.pick_open_path(&filter, &["ducad"]) {
+                                    match self.add_external_part(&path) {
+                                        Ok(ids) => {
+                                            self.selected_assembly_instance = ids.first().copied();
+                                            self.assembly_drawer.stale_external = self
+                                                .poll_external_sources()
+                                                .into_iter()
+                                                .map(|(id, _)| id)
+                                                .collect();
+                                        }
+                                        Err(e) => self.model_status = Some(e),
+                                    }
+                                }
+                            }
+                            AssemblyDrawerEvent::RefreshExternalStatus => {
+                                let stale: Vec<_> = self
+                                    .poll_external_sources()
+                                    .into_iter()
+                                    .map(|(id, _)| id)
+                                    .collect();
+                                self.model_status = Some(if stale.is_empty() {
+                                    "Semua part eksternal mutakhir".to_string()
+                                } else {
+                                    format!("{} part eksternal berubah di sumbernya", stale.len())
+                                });
+                                self.assembly_drawer.stale_external = stale;
+                            }
+                            AssemblyDrawerEvent::ReloadExternalPart(id) => {
+                                if let Err(e) = self.reload_external_part(id) {
+                                    self.model_status = Some(e);
+                                }
+                                self.assembly_drawer.stale_external.retain(|x| *x != id);
+                            }
+                            AssemblyDrawerEvent::MakeIndependent(id) => {
+                                self.make_part_independent(id);
+                                self.assembly_drawer.stale_external.retain(|x| *x != id);
+                            }
+                            AssemblyDrawerEvent::SetExplodeFactor(f) => {
+                                self.set_explode_factor(f);
+                            }
+                            AssemblyDrawerEvent::AutoExplode { distance } => {
+                                self.auto_explode(distance);
+                            }
+                            AssemblyDrawerEvent::AddMotionStudy { mate, from, to } => {
+                                match self.add_motion_study(mate, from, to) {
+                                    Ok(i) => {
+                                        self.assembly_drawer.motion_selected = i;
+                                        self.assembly_drawer.motion_t = 0.0;
+                                    }
+                                    Err(e) => self.model_status = Some(e),
+                                }
+                            }
+                            AssemblyDrawerEvent::ScrubMotionStudy { index, t } => {
+                                self.scrub_motion_study(index, t);
+                            }
+                            AssemblyDrawerEvent::DeleteMotionStudy(i) => {
+                                if i < self.assembly_tree.motion_studies.len() {
+                                    self.assembly_tree.motion_studies.remove(i);
+                                    self.assembly_drawer.motion_selected = 0;
+                                    self.assembly_drawer.motion_playing = false;
+                                    self.model.doc.dirty = true;
+                                }
+                            }
                             AssemblyDrawerEvent::Close => {
                                 self.assembly_drawer_open = false;
                             }

@@ -62,6 +62,27 @@ pub enum AssemblyDrawerEvent {
     ConvertClashToBody(u32),
     /// Bersihkan hasil deteksi tabrakan.
     ClearClashes,
+    /// Sisipkan part dari berkas `.ducad` lain (membuka pemilih berkas).
+    AddExternalPart,
+    /// Periksa apakah ada sumber eksternal yang berubah, tanpa memuat.
+    RefreshExternalStatus,
+    /// Muat ulang geometri satu part eksternal dari sumbernya.
+    ReloadExternalPart(AssemblyInstanceId),
+    /// Putus tautan ke berkas sumber; geometri yang ada dipertahankan.
+    MakeIndependent(AssemblyInstanceId),
+    /// Ubah faktor urai tampilan (0 = terakit, 1 = terurai penuh).
+    SetExplodeFactor(f64),
+    /// Isi arah urai tiap part secara radial dari pusat perakitan.
+    AutoExplode { distance: f64 },
+    /// Buat studi gerak pada mate bernilai numerik.
+    AddMotionStudy {
+        mate: MateConstraintId,
+        from: f64,
+        to: f64,
+    },
+    /// Geser playhead studi gerak ke `t` dalam [0, 1].
+    ScrubMotionStudy { index: usize, t: f64 },
+    DeleteMotionStudy(usize),
     /// Tutup panel Assembly Tree.
     Close,
 }
@@ -76,6 +97,18 @@ pub struct AssemblyDrawer {
     pub editing_mate_id: Option<MateConstraintId>,
     pub edit_input_val: String,
     pub edit_flip_alignment: bool,
+    // ---- P3.1/P3.2: part eksternal, exploded view, studi gerak ----
+    pub tools_expanded: bool,
+    pub explode_distance_input: String,
+    pub motion_mate_selected: Option<MateConstraintId>,
+    pub motion_from_input: String,
+    pub motion_to_input: String,
+    pub motion_selected: usize,
+    pub motion_t: f32,
+    pub motion_playing: bool,
+    /// Instance eksternal yang sumbernya berubah/tak terbaca menurut
+    /// pemeriksaan terakhir. Diisi aplikasi; drawer hanya menampilkannya.
+    pub stale_external: Vec<AssemblyInstanceId>,
 }
 
 impl Default for AssemblyDrawer {
@@ -90,6 +123,15 @@ impl Default for AssemblyDrawer {
             editing_mate_id: None,
             edit_input_val: String::new(),
             edit_flip_alignment: false,
+            tools_expanded: true,
+            explode_distance_input: "50".to_string(),
+            motion_mate_selected: None,
+            motion_from_input: "0".to_string(),
+            motion_to_input: "90".to_string(),
+            motion_selected: 0,
+            motion_t: 0.0,
+            motion_playing: false,
+            stale_external: Vec::new(),
         }
     }
 }
@@ -979,6 +1021,202 @@ impl AssemblyDrawer {
                                 });
                             });
                         }
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // SEKSI 4: Part eksternal, exploded view, studi gerak (P3.1/P3.2)
+                    ui.horizontal(|ui| {
+                        let icon = if self.tools_expanded {
+                            ICON_KEYBOARD_ARROW_DOWN.codepoint
+                        } else {
+                            ICON_KEYBOARD_ARROW_RIGHT.codepoint
+                        };
+                        if ui
+                            .button(RichText::new(icon).size(13.0).color(TEXT_SECONDARY))
+                            .clicked()
+                        {
+                            self.tools_expanded = !self.tools_expanded;
+                        }
+                        ui.label(
+                            RichText::new("PERAKITAN LANJUTAN")
+                                .size(11.0)
+                                .strong()
+                                .color(TEXT_SECONDARY),
+                        );
+                    });
+
+                    if self.tools_expanded {
+                        // 4a. Part eksternal
+                        card_frame().show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("Part eksternal").size(10.5).strong().color(TEXT_PRIMARY));
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui
+                                        .button(RichText::new(format!("{} Sisipkan", ICON_ADD.codepoint)).size(10.0).color(ACCENT_BLUE))
+                                        .on_hover_text("Sisipkan part dari berkas .ducad lain; tautannya dipertahankan")
+                                        .clicked()
+                                    {
+                                        events.push(AssemblyDrawerEvent::AddExternalPart);
+                                    }
+                                    if ui
+                                        .button(RichText::new("Periksa perubahan").size(10.0).color(TEXT_SECONDARY))
+                                        .on_hover_text("Bandingkan berkas sumber dengan saat terakhir dimuat, tanpa memuat ulang")
+                                        .clicked()
+                                    {
+                                        events.push(AssemblyDrawerEvent::RefreshExternalStatus);
+                                    }
+                                });
+                            });
+                            let externals: Vec<_> = tree.external_instances().collect();
+                            if externals.is_empty() {
+                                ui.label(RichText::new("Belum ada part dari berkas lain.").size(9.5).color(TEXT_MUTED));
+                            }
+                            for (id, r) in externals {
+                                let stale = self.stale_external.contains(&id);
+                                let name = tree.instances.get(&id).map(|i| i.name.as_str()).unwrap_or("?");
+                                ui.horizontal(|ui| {
+                                    if stale {
+                                        ui.label(RichText::new(ICON_WARNING.codepoint).size(12.0).color(ACCENT_ORANGE))
+                                            .on_hover_text("Berkas sumber berubah sejak terakhir dimuat");
+                                    }
+                                    ui.label(RichText::new(name).size(10.0).color(TEXT_PRIMARY));
+                                    ui.label(RichText::new(&r.relative_path).size(9.0).color(TEXT_MUTED));
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui.button(RichText::new("Lepas").size(9.5).color(TEXT_SECONDARY))
+                                            .on_hover_text("Putus tautan ke berkas sumber; geometri saat ini dipertahankan")
+                                            .clicked()
+                                        {
+                                            events.push(AssemblyDrawerEvent::MakeIndependent(id));
+                                        }
+                                        let reload = RichText::new("Muat ulang").size(9.5)
+                                            .color(if stale { ACCENT_ORANGE } else { ACCENT_BLUE });
+                                        if ui.button(reload).clicked() {
+                                            events.push(AssemblyDrawerEvent::ReloadExternalPart(id));
+                                        }
+                                    });
+                                });
+                            }
+                        });
+
+                        ui.add_space(4.0);
+
+                        // 4b. Exploded view
+                        card_frame().show(ui, |ui| {
+                            ui.label(RichText::new("Exploded view").size(10.5).strong().color(TEXT_PRIMARY));
+                            let mut f = tree.explode_factor as f32;
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("Urai").size(9.5).color(TEXT_SECONDARY));
+                                if ui.add(egui::Slider::new(&mut f, 0.0..=1.0).show_value(false)).changed() {
+                                    events.push(AssemblyDrawerEvent::SetExplodeFactor(f as f64));
+                                }
+                                ui.label(RichText::new(format!("{:.0}%", f * 100.0)).size(9.5).color(TEXT_MUTED));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("Jarak (mm)").size(9.5).color(TEXT_SECONDARY));
+                                ui.add(egui::TextEdit::singleline(&mut self.explode_distance_input).desired_width(48.0));
+                                if ui
+                                    .button(RichText::new("Urai otomatis").size(10.0).color(ACCENT_BLUE))
+                                    .on_hover_text("Dorong tiap part menjauh dari pusat perakitan; part yang di-ground tetap di tempat")
+                                    .clicked()
+                                {
+                                    let distance = self.explode_distance_input.trim().parse::<f64>().unwrap_or(50.0);
+                                    events.push(AssemblyDrawerEvent::AutoExplode { distance });
+                                }
+                            });
+                        });
+
+                        ui.add_space(4.0);
+
+                        // 4c. Studi gerak
+                        card_frame().show(ui, |ui| {
+                            ui.label(RichText::new("Studi gerak").size(10.5).strong().color(TEXT_PRIMARY));
+
+                            let numeric_mates: Vec<&MateConstraint> = tree
+                                .mates
+                                .values()
+                                .filter(|m| m.kind.driven_value().is_some())
+                                .collect();
+                            if numeric_mates.is_empty() {
+                                ui.label(
+                                    RichText::new("Butuh mate Distance atau Angle untuk digerakkan.")
+                                        .size(9.5)
+                                        .color(TEXT_MUTED),
+                                );
+                            } else {
+                                ui.horizontal(|ui| {
+                                    let label = self
+                                        .motion_mate_selected
+                                        .and_then(|id| tree.mates.get(&id))
+                                        .map(|m| m.name.clone())
+                                        .unwrap_or_else(|| "Pilih mate".to_string());
+                                    egui::ComboBox::from_id_salt("motion_mate")
+                                        .selected_text(RichText::new(label).size(9.5))
+                                        .show_ui(ui, |ui| {
+                                            for m in &numeric_mates {
+                                                ui.selectable_value(&mut self.motion_mate_selected, Some(m.id), &m.name);
+                                            }
+                                        });
+                                    ui.label(RichText::new("dari").size(9.5).color(TEXT_SECONDARY));
+                                    ui.add(egui::TextEdit::singleline(&mut self.motion_from_input).desired_width(40.0));
+                                    ui.label(RichText::new("ke").size(9.5).color(TEXT_SECONDARY));
+                                    ui.add(egui::TextEdit::singleline(&mut self.motion_to_input).desired_width(40.0));
+                                    if ui.button(RichText::new(ICON_ADD.codepoint).size(12.0).color(ACCENT_BLUE)).clicked() {
+                                        if let Some(mate) = self.motion_mate_selected {
+                                            let from = self.motion_from_input.trim().parse::<f64>().unwrap_or(0.0);
+                                            let to = self.motion_to_input.trim().parse::<f64>().unwrap_or(0.0);
+                                            events.push(AssemblyDrawerEvent::AddMotionStudy { mate, from, to });
+                                        }
+                                    }
+                                });
+                            }
+
+                            for (i, study) in tree.motion_studies.iter().enumerate() {
+                                let selected = i == self.motion_selected;
+                                ui.horizontal(|ui| {
+                                    if ui.selectable_label(selected, RichText::new(&study.name).size(10.0)).clicked() {
+                                        self.motion_selected = i;
+                                        self.motion_t = 0.0;
+                                        self.motion_playing = false;
+                                    }
+                                    ui.label(RichText::new(format!("{:.1} → {:.1}", study.from, study.to)).size(9.0).color(TEXT_MUTED));
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui.button(RichText::new(ICON_DELETE.codepoint).size(11.0).color(TEXT_SECONDARY)).clicked() {
+                                            events.push(AssemblyDrawerEvent::DeleteMotionStudy(i));
+                                        }
+                                    });
+                                });
+                            }
+
+                            if let Some(study) = tree.motion_studies.get(self.motion_selected) {
+                                ui.horizontal(|ui| {
+                                    let play_icon = if self.motion_playing { "⏸" } else { ICON_PLAY_ARROW.codepoint };
+                                    if ui.button(RichText::new(play_icon).size(12.0).color(ACCENT_BLUE)).clicked() {
+                                        self.motion_playing = !self.motion_playing;
+                                    }
+                                    let mut t = self.motion_t;
+                                    if ui.add(egui::Slider::new(&mut t, 0.0..=1.0).show_value(false)).changed() {
+                                        self.motion_t = t;
+                                        self.motion_playing = false;
+                                        events.push(AssemblyDrawerEvent::ScrubMotionStudy { index: self.motion_selected, t: t as f64 });
+                                    }
+                                    ui.label(RichText::new(format!("{:.1}", study.value_at(self.motion_t as f64))).size(9.5).color(TEXT_MUTED));
+                                });
+
+                                if self.motion_playing {
+                                    // Satu putaran penuh from->to memakan ~3 detik, bolak-balik.
+                                    let dt = ui.input(|i| i.stable_dt).min(0.1);
+                                    let step = dt / 3.0;
+                                    let cycle = (self.motion_t + step).rem_euclid(2.0);
+                                    self.motion_t = cycle;
+                                    let t_eff = if cycle <= 1.0 { cycle } else { 2.0 - cycle };
+                                    events.push(AssemblyDrawerEvent::ScrubMotionStudy { index: self.motion_selected, t: t_eff as f64 });
+                                    ui.ctx().request_repaint();
+                                }
+                            }
+                        });
                     }
                 });
             });

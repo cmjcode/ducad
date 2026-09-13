@@ -325,6 +325,47 @@ pub struct AssemblyInstance {
     /// Bahan, muncul di kolom material BOM.
     #[serde(default)]
     pub material: Option<String>,
+    /// Pergeseran (ruang dunia, mm) saat perakitan DIURAI PENUH
+    /// (*exploded view*). Dikalikan `AssemblyTree::explode_factor` saat
+    /// ditampilkan; TIDAK pernah dilihat solver — lihat
+    /// `instance_display_transform`.
+    #[serde(default)]
+    pub explode_offset: (f64, f64, f64),
+    /// Dari mana geometri instance ini berasal. `None` (berkas lama) berarti
+    /// internal — sama dengan `body_id_raw`.
+    ///
+    /// `body_id_raw` tetap dipertahankan sebagai penunjuk ke geometri yang
+    /// SAAT INI dimuat di `ModelDoc`, apa pun asalnya: part eksternal pun
+    /// setelah dimuat mendapat body lokal, dan seluruh jalur render/
+    /// picking/ekspor tetap bekerja lewat `body_id_raw` tanpa perlu tahu
+    /// asalnya.
+    #[serde(default)]
+    pub source: Option<crate::external::PartSource>,
+}
+
+/// Studi gerak: satu mate yang nilainya DIGERAKKAN dari `from` ke `to`,
+/// dan seluruh perakitan diselesaikan ulang di tiap langkahnya.
+///
+/// Inilah cara memeriksa engsel tidak menabrak rangka saat membuka, atau
+/// piston tidak keluar dari silindernya — sebelum ada yang dipotong.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MotionStudy {
+    pub name: String,
+    /// Mate yang nilainya digerakkan. Harus mate bernilai numerik
+    /// (`Distance` atau `Angle`).
+    pub driven_mate: MateConstraintId,
+    pub from: f64,
+    pub to: f64,
+    /// Jumlah langkah dari `from` ke `to` saat dimainkan.
+    pub steps: u32,
+}
+
+impl MotionStudy {
+    /// Nilai mate pada posisi `t` dalam [0, 1].
+    pub fn value_at(&self, t: f64) -> f64 {
+        let t = t.clamp(0.0, 1.0);
+        self.from + (self.to - self.from) * t
+    }
 }
 
 /// Satu baris tabel BOM (*Bill of Materials*).
@@ -392,6 +433,8 @@ impl AssemblyInstance {
             parent_sub_assembly: None,
             part_number: None,
             material: None,
+            explode_offset: (0.0, 0.0, 0.0),
+            source: None,
         }
     }
 }
@@ -444,6 +487,15 @@ fn local_pose(t: (f64, f64, f64), q: (f64, f64, f64, f64)) -> (DVec3, DQuat) {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AssemblyTree {
     pub instances: HashMap<AssemblyInstanceId, AssemblyInstance>,
+    /// Seberapa jauh tampilan diurai: 0 = terakit, 1 = terurai penuh.
+    /// Hanya memengaruhi TAMPILAN; solver mate selalu bekerja pada keadaan
+    /// terakit, kalau tidak ia akan berusaha menarik part-part yang
+    /// sengaja dijauhkan itu kembali.
+    #[serde(default)]
+    pub explode_factor: f64,
+    /// Studi gerak yang didefinisikan pada perakitan ini.
+    #[serde(default)]
+    pub motion_studies: Vec<MotionStudy>,
     pub sub_assemblies: HashMap<SubAssemblyId, SubAssembly>,
     pub mates: HashMap<MateConstraintId, MateConstraint>,
     pub next_instance_id: AssemblyInstanceId,
@@ -455,6 +507,8 @@ impl Default for AssemblyTree {
     fn default() -> Self {
         Self {
             instances: HashMap::new(),
+            explode_factor: 0.0,
+            motion_studies: Vec::new(),
             sub_assemblies: HashMap::new(),
             mates: HashMap::new(),
             next_instance_id: 1,
@@ -653,6 +707,72 @@ impl AssemblyTree {
             None => (DVec3::ZERO, DQuat::IDENTITY),
         };
         Some((pt + pq * lt, (pq * lq).normalize()))
+    }
+
+    /// Instance yang geometrinya berasal dari berkas lain.
+    pub fn external_instances(&self) -> impl Iterator<Item = (AssemblyInstanceId, &crate::external::ExternalPartRef)> {
+        self.instances.iter().filter_map(|(id, inst)| {
+            inst.source
+                .as_ref()
+                .and_then(|s| s.external())
+                .map(|r| (*id, r))
+        })
+    }
+
+    /// Transform untuk DITAMPILKAN: keadaan terakit ditambah pergeseran
+    /// urai yang diskalakan `explode_factor`.
+    ///
+    /// Dipisah dari [`Self::instance_world_transform`] dengan sengaja:
+    /// solver mate memakai yang terakit, renderer memakai yang ini. Kalau
+    /// keduanya satu fungsi, mengurai tampilan akan membuat solver melihat
+    /// semua mate terlanggar dan menarik part-part itu kembali.
+    pub fn instance_display_transform(&self, id: AssemblyInstanceId) -> Option<(DVec3, DQuat)> {
+        let (t, q) = self.instance_world_transform(id)?;
+        let inst = self.instances.get(&id)?;
+        let f = self.explode_factor.clamp(0.0, 1.0);
+        let off = DVec3::new(
+            inst.explode_offset.0,
+            inst.explode_offset.1,
+            inst.explode_offset.2,
+        );
+        Some((t + off * f, q))
+    }
+
+    /// Isi `explode_offset` tiap instance secara RADIAL dari pusat
+    /// perakitan — perilaku tombol "Explode" pada umumnya. Part yang tepat
+    /// di pusat (arah tak terdefinisi) didorong ke +Z supaya tidak diam di
+    /// tempat dan tertutup part lain.
+    ///
+    /// `distance` adalah jarak dorong pada faktor 1. Part yang di-ground
+    /// tidak digeser: ia jangkar yang jadi acuan visual seluruh urai.
+    pub fn auto_explode_radial(&mut self, distance: f64) {
+        let poses: Vec<(AssemblyInstanceId, DVec3)> = self
+            .instances
+            .keys()
+            .filter_map(|id| self.instance_world_transform(*id).map(|(t, _)| (*id, t)))
+            .collect();
+        if poses.is_empty() {
+            return;
+        }
+        let center = poses.iter().map(|(_, t)| *t).sum::<DVec3>() / poses.len() as f64;
+
+        for (id, t) in poses {
+            let Some(inst) = self.instances.get_mut(&id) else {
+                continue;
+            };
+            if inst.is_grounded {
+                inst.explode_offset = (0.0, 0.0, 0.0);
+                continue;
+            }
+            let dir = t - center;
+            let dir = if dir.length() < 1e-9 {
+                DVec3::Z
+            } else {
+                dir.normalize()
+            };
+            let off = dir * distance;
+            inst.explode_offset = (off.x, off.y, off.z);
+        }
     }
 
     /// Transform kerangka INDUK sebuah instance — dipakai mengubah koreksi

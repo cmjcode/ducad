@@ -58,8 +58,8 @@ pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
 
 // Re-exports for public API compatibility
 pub use assembly_solver::{
-    apply_mate_transform_to_shape, solve_angle, solve_assembly, solve_coincident, solve_concentric,
-    AssemblySolveReport,
+    apply_mate_transform_to_shape, evaluate_motion, solve_angle, solve_assembly,
+    solve_assembly_with_drag, solve_coincident, solve_concentric, AssemblySolveReport,
     solve_single_mate, MateTransformResult,
 };
 pub use csg::{

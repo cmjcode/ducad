@@ -27,7 +27,7 @@ pub use external::{
 pub mod assembly;
 pub use assembly::{
     AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
-    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind,
+    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind, MotionStudy,
     SubAssembly, SubAssemblyId,
 };
 

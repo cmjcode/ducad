@@ -2881,3 +2881,44 @@ fn clearance_on_curved_surfaces_uses_exact_geometry() {
         r.distance
     );
 }
+
+// ---------------------------------------------------------------------
+// Regresi: translasi harus KUMULATIF, bukan absolut.
+// ---------------------------------------------------------------------
+
+#[test]
+fn translating_twice_accumulates_instead_of_resetting() {
+    // `set_global_translation` yang lama MENGATUR Location secara absolut:
+    // geser (10,0,0) lalu geser (5,0,0) berakhir di x=5, bukan x=15. Drag
+    // body dua kali mereset drag pertama, dan solver perakitan menempatkan
+    // part di posisi yang salah pada setiap solve sesudah yang pertama.
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let once = translate_shape(&shape, 10.0, 0.0, 0.0).unwrap();
+    let twice = translate_shape(&once, 5.0, 0.0, 0.0).unwrap();
+
+    let cx = |s: &KernelShape| s.tessellate().center()[0];
+    assert!((cx(&shape) - 5.0).abs() < 1e-3);
+    assert!((cx(&once) - 15.0).abs() < 1e-3, "sekali: {}", cx(&once));
+    assert!((cx(&twice) - 20.0).abs() < 1e-3, "dua kali harus kumulatif: {}", cx(&twice));
+}
+
+#[test]
+fn transform_after_translate_composes_with_existing_position() {
+    // Jalur yang dipakai `apply_mate_transform_to_shape`: koreksi solver
+    // diterapkan pada geometri yang SUDAH berpindah.
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(10.0, 10.0), 10.0).unwrap();
+    let moved = translate_shape(&shape, 5.0, 7.0, 30.0).unwrap();
+    let corrected = crate::shape::transform_shape(
+        &moved,
+        (-5.0, -7.0, 0.0),
+        (5.0, 7.0, 30.0),
+        (0.0, 0.0, 1.0),
+        0.0,
+    )
+    .unwrap();
+    let c = corrected.tessellate().center();
+    assert!((c[0] - 5.0).abs() < 1e-3 && (c[1] - 5.0).abs() < 1e-3, "x,y kembali ke asal: {c:?}");
+    assert!((c[2] - 35.0).abs() < 1e-3, "z tetap 30 + 5: {c:?}");
+}

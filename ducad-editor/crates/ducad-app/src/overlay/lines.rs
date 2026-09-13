@@ -1454,6 +1454,19 @@ impl DuCADApp {
 
             let mut transformed_positions = mesh_to_render.positions.clone();
             let mut transformed_normals = mesh_to_render.normals.clone();
+
+            // Exploded view diterapkan DI SINI, pada mesh yang akan
+            // ditampilkan — bukan pada B-rep. B-rep adalah sumber kebenaran
+            // untuk picking/ekspor/interferensi dan harus tetap pada posisi
+            // terakit; mengurai tampilan tidak boleh mengubah geometrinya.
+            let explode = self.explode_display_offset(id);
+            if explode.length_squared() > 1e-12 {
+                for p in &mut transformed_positions {
+                    p[0] += explode.x;
+                    p[1] += explode.y;
+                    p[2] += explode.z;
+                }
+            }
             let is_selected_body = self.selected_bodies.contains(&id)
                 && self.active_face.is_none()
                 && self.staged_mate_targets.is_empty()

@@ -544,6 +544,64 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
     }
 }
 
+/// Seret satu instance ke `target_world` lalu selesaikan ulang seluruh
+/// perakitan.
+///
+/// Inilah perilaku "drag part" di CAD perakitan: part yang diseret TIDAK
+/// dipaku di titik seretan. Ia dipindahkan ke sana, lalu mate-nya menarik
+/// balik — sehingga part hanya benar-benar berpindah sepanjang derajat
+/// kebebasan yang masih bebas. Poros pada mate silinder yang diseret
+/// menyamping akan kembali ke sumbunya, tapi mempertahankan pergeserannya
+/// sepanjang sumbu itu. Part yang di-ground tidak bisa diseret sama sekali.
+pub fn solve_assembly_with_drag(
+    tree: &mut AssemblyTree,
+    dragged: AssemblyInstanceId,
+    target_world: (f64, f64, f64),
+) -> AssemblySolveReport {
+    let grounded = tree.instances.get(&dragged).is_some_and(|i| i.is_grounded);
+    if !grounded {
+        // Target diberikan di ruang dunia; `translation` instance relatif
+        // terhadap induknya, jadi diputar balik lebih dulu.
+        let (parent_t, parent_q) = tree.instance_parent_transform(dragged);
+        let world = DVec3::new(target_world.0, target_world.1, target_world.2);
+        let local = parent_q.inverse() * (world - parent_t);
+        if let Some(inst) = tree.instances.get_mut(&dragged) {
+            inst.translation = (local.x, local.y, local.z);
+        }
+    }
+    solve_assembly(tree)
+}
+
+/// Evaluasi studi gerak pada posisi `t` dalam [0, 1]: nilai mate yang
+/// digerakkan diatur, lalu seluruh perakitan diselesaikan ulang.
+///
+/// Mengembalikan `None` bila mate-nya tidak ada atau bukan mate bernilai
+/// numerik — menggerakkan `Concentric` tidak punya arti.
+pub fn evaluate_motion(
+    tree: &mut AssemblyTree,
+    study: &ducad_core::assembly::MotionStudy,
+    t: f64,
+) -> Option<AssemblySolveReport> {
+    let value = study.value_at(t);
+    let mate = tree.mates.get_mut(&study.driven_mate)?;
+    mate.kind = match &mate.kind {
+        MateKind::Distance {
+            opposite_normal, ..
+        } => MateKind::Distance {
+            offset: value,
+            opposite_normal: *opposite_normal,
+        },
+        MateKind::Angle {
+            opposite_normal, ..
+        } => MateKind::Angle {
+            angle_deg: value,
+            opposite_normal: *opposite_normal,
+        },
+        _ => return None,
+    };
+    Some(solve_assembly(tree))
+}
+
 /// Terapkan hasil transformasi rigid-body langsung ke geometri B-Rep `KernelShape`.
 pub fn apply_mate_transform_to_shape(
     shape: &KernelShape,
@@ -900,5 +958,181 @@ mod simultaneous_tests {
         solve_assembly(&mut tree);
         let b = tree.instances.get(&base).unwrap();
         assert_eq!(b.translation, (0.0, 0.0, 0.0), "part grounded tidak boleh bergeser");
+    }
+}
+
+#[cfg(test)]
+mod drag_motion_explode_tests {
+    use super::*;
+    use ducad_core::assembly::{AssemblyTree, MateConstraint, MateStatus, MateTarget, MotionStudy};
+
+    fn tree_with_two_parts() -> (AssemblyTree, AssemblyInstanceId, AssemblyInstanceId) {
+        let mut tree = AssemblyTree::default();
+        let base = tree.add_instance("Base".to_string(), 1);
+        let part = tree.add_instance("Part".to_string(), 2);
+        tree.instances.get_mut(&base).unwrap().is_grounded = true;
+        (tree, base, part)
+    }
+
+    fn mate(
+        id: u32,
+        kind: MateKind,
+        a: (AssemblyInstanceId, MateTargetKind),
+        b: (AssemblyInstanceId, MateTargetKind),
+    ) -> MateConstraint {
+        MateConstraint {
+            id,
+            name: format!("Mate {id}"),
+            kind,
+            target_a: MateTarget { instance_id: a.0, kind: a.1 },
+            target_b: MateTarget { instance_id: b.0, kind: b.1 },
+            status: MateStatus::UnderConstrained,
+            suppressed: false,
+            limits: Default::default(),
+            joint: None,
+        }
+    }
+
+    fn z_axis(origin: (f64, f64, f64)) -> MateTargetKind {
+        MateTargetKind::CylinderAxis {
+            origin,
+            direction: (0.0, 0.0, 1.0),
+            radius: 5.0,
+        }
+    }
+
+    #[test]
+    fn dragging_a_slider_only_moves_it_along_its_free_axis() {
+        // INTI drag-dengan-solver. Part pada mate silinder sumbu Z bebas
+        // bergeser sepanjang Z dan berputar, tapi TIDAK bebas menyamping.
+        // Diseret ke (5, 7, 30): X dan Y harus ditarik kembali ke sumbu,
+        // sementara Z = 30 dipertahankan.
+        let (mut tree, base, part) = tree_with_two_parts();
+        tree.mates.insert(
+            1,
+            mate(
+                1,
+                MateKind::Concentric { lock_rotation: false, aligned: true },
+                (base, z_axis((0.0, 0.0, 0.0))),
+                (part, z_axis((0.0, 0.0, 0.0))),
+            ),
+        );
+
+        let report = solve_assembly_with_drag(&mut tree, part, (5.0, 7.0, 30.0));
+        assert!(report.converged, "residual {}", report.max_residual);
+
+        let t = tree.instances.get(&part).unwrap().translation;
+        assert!(t.0.abs() < 1e-3 && t.1.abs() < 1e-3, "harus kembali ke sumbu: {t:?}");
+        assert!((t.2 - 30.0).abs() < 1e-3, "pergeseran sepanjang sumbu harus dipertahankan: {t:?}");
+    }
+
+    #[test]
+    fn grounded_part_cannot_be_dragged() {
+        let (mut tree, base, _part) = tree_with_two_parts();
+        solve_assembly_with_drag(&mut tree, base, (100.0, 100.0, 100.0));
+        assert_eq!(tree.instances.get(&base).unwrap().translation, (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn motion_study_drives_a_distance_mate_through_intermediate_positions() {
+        let (mut tree, base, part) = tree_with_two_parts();
+        let plane = |z: f64| MateTargetKind::PlanarFace {
+            origin: (0.0, 0.0, z),
+            normal: (0.0, 0.0, 1.0),
+        };
+        tree.mates.insert(
+            1,
+            mate(
+                1,
+                MateKind::Distance { offset: 0.0, opposite_normal: false },
+                (base, plane(0.0)),
+                (part, plane(0.0)),
+            ),
+        );
+        let study = MotionStudy {
+            name: "Buka".to_string(),
+            driven_mate: 1,
+            from: 10.0,
+            to: 50.0,
+            steps: 4,
+        };
+
+        // t = 0.5 -> jarak 30 mm. Yang diverifikasi adalah POSISI part,
+        // bukan cuma nilai mate-nya: solver benar-benar harus menggerakkan.
+        let report = evaluate_motion(&mut tree, &study, 0.5).expect("mate numerik");
+        assert!(report.converged, "residual {}", report.max_residual);
+        let z = tree.instances.get(&part).unwrap().translation.2;
+        assert!((z - 30.0).abs() < 1e-3, "z = {z}, seharusnya 30");
+
+        let _ = evaluate_motion(&mut tree, &study, 1.0).unwrap();
+        let z = tree.instances.get(&part).unwrap().translation.2;
+        assert!((z - 50.0).abs() < 1e-3, "z = {z}, seharusnya 50");
+    }
+
+    #[test]
+    fn motion_study_refuses_non_numeric_mates() {
+        // Menggerakkan `Concentric` tidak punya arti; harus None, bukan
+        // diam-diam tidak melakukan apa-apa lalu melaporkan sukses.
+        let (mut tree, base, part) = tree_with_two_parts();
+        tree.mates.insert(
+            1,
+            mate(
+                1,
+                MateKind::Concentric { lock_rotation: false, aligned: true },
+                (base, z_axis((0.0, 0.0, 0.0))),
+                (part, z_axis((0.0, 0.0, 0.0))),
+            ),
+        );
+        let study = MotionStudy { name: "x".into(), driven_mate: 1, from: 0.0, to: 1.0, steps: 1 };
+        assert!(evaluate_motion(&mut tree, &study, 0.5).is_none());
+    }
+
+    #[test]
+    fn explode_factor_moves_display_but_never_the_solver() {
+        // Jebakan exploded view: kalau solver melihat pergeseran urai, ia
+        // menganggap semua mate terlanggar dan menarik part kembali —
+        // membatalkan urai atau, lebih buruk, merusak posisi terakit.
+        let (mut tree, base, part) = tree_with_two_parts();
+        tree.mates.insert(
+            1,
+            mate(
+                1,
+                MateKind::Concentric { lock_rotation: false, aligned: true },
+                (base, z_axis((0.0, 0.0, 0.0))),
+                (part, z_axis((0.0, 0.0, 0.0))),
+            ),
+        );
+        solve_assembly(&mut tree);
+        let assembled = tree.instance_world_transform(part).unwrap().0;
+
+        tree.instances.get_mut(&part).unwrap().explode_offset = (0.0, 0.0, 100.0);
+        tree.explode_factor = 0.5;
+
+        // Tampilan bergeser 50 mm...
+        let shown = tree.instance_display_transform(part).unwrap().0;
+        assert!((shown - assembled - DVec3::new(0.0, 0.0, 50.0)).length() < 1e-9);
+
+        // ...tapi solver masih melihat keadaan terakit dan tetap puas.
+        let report = solve_assembly(&mut tree);
+        assert!(report.converged);
+        assert_eq!(tree.mates[&1].status, MateStatus::Satisfied);
+        assert!((tree.instance_world_transform(part).unwrap().0 - assembled).length() < 1e-9);
+    }
+
+    #[test]
+    fn auto_explode_pushes_parts_outward_and_leaves_ground_anchored() {
+        let mut tree = AssemblyTree::default();
+        let base = tree.add_instance("Base".to_string(), 1);
+        tree.instances.get_mut(&base).unwrap().is_grounded = true;
+        let left = tree.add_instance("L".to_string(), 2);
+        let right = tree.add_instance("R".to_string(), 3);
+        tree.instances.get_mut(&left).unwrap().translation = (-10.0, 0.0, 0.0);
+        tree.instances.get_mut(&right).unwrap().translation = (10.0, 0.0, 0.0);
+
+        tree.auto_explode_radial(40.0);
+
+        assert_eq!(tree.instances[&base].explode_offset, (0.0, 0.0, 0.0), "jangkar tidak bergeser");
+        assert!(tree.instances[&left].explode_offset.0 < -30.0, "kiri terdorong ke kiri");
+        assert!(tree.instances[&right].explode_offset.0 > 30.0, "kanan terdorong ke kanan");
     }
 }

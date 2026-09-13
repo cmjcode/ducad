@@ -237,22 +237,33 @@ pub fn clone_shape(shape: &KernelShape) -> Result<KernelShape> {
     Ok(KernelShape(shape.0.clone()))
 }
 
-/// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — dipakai
-/// gizmo drag axis body 3D. Fungsional (tidak memutasi `shape` pemanggil):
-/// `Shape` tidak `Clone`, jadi `deep_clone` dulu sama seperti
-/// `fillet_all`/`chamfer_all`, tapi di sini transformasinya jauh lebih
-/// murah — `set_global_translation` (API vendor `opencascade-0.2.0`,
-/// sudah ada) cuma menggeser `Location` shape, TIDAK merombak B-rep sama
-/// sekali (beda dari fillet/chamfer/boolean yang benar-benar membangun
-/// ulang geometri). `dx`/`dy`/`dz` adalah delta, bukan posisi absolut —
-/// pemanggil (gizmo di `ducad-app`) selalu menghitung ulang dari shape
-/// ASLI sebelum drag dimulai (pola sama dgn gizmo extrude face lain),
-/// jadi tidak ada akumulasi error floating-point lintas frame drag.
+/// Geser shape sepanjang X/Y/Z dunia sejauh `(dx, dy, dz)` mm — sebuah
+/// DELTA yang tersusun dengan posisi shape saat ini. Fungsional (tidak
+/// memutasi `shape` pemanggil).
+///
+/// # Bug yang diperbaiki
+///
+/// Versi sebelumnya memakai `set_global_translation`, yang memanggil
+/// `TopoDS_Shape::Location(loc)` — itu MENGATUR Location shape secara
+/// absolut, bukan menambahkannya. Dokumentasinya tetap mengaku "delta", dan
+/// gizmo drag menyiasatinya dengan selalu menghitung dari shape asli. Tapi
+/// jalur lain tidak: `apply_mate_transform_to_shape` menerapkan koreksi
+/// solver perakitan pada geometri SAAT INI, sehingga setiap solve sesudah
+/// yang pertama — atau sesudah body pernah digeser — menempatkan part di
+/// posisi yang salah. Ditemukan lewat test drag-dengan-solver: B-rep
+/// berakhir di `-pivot + delta`, bukan di `posisi + delta`.
+///
+/// Sekarang memakai `translated()`, yang membakar translasi lewat
+/// `BRepBuilderAPI_Transform` — delta sejati, sama seperti `rotate()`.
+/// Harganya: salinan B-rep alih-alih sekadar mengubah Location. Untuk
+/// drag interaktif pada part besar itu terasa, tapi kebenaran posisi
+/// bukan sesuatu yang bisa ditukar dengan kecepatan.
 pub fn translate_shape(shape: &KernelShape, dx: f64, dy: f64, dz: f64) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    let mut cloned = deep_clone(&shape.0)?;
-    cloned.set_global_translation(dvec3(dx, dy, dz));
-    Ok(KernelShape(cloned))
+    if dx.abs() < 1e-12 && dy.abs() < 1e-12 && dz.abs() < 1e-12 {
+        return Ok(KernelShape(deep_clone(&shape.0)?));
+    }
+    Ok(KernelShape(shape.0.translated(dvec3(dx, dy, dz))))
 }
 
 /// Putar shape mengelilingi sumbu yang melewati titik `pivot` dengan arah `axis` sebesar `angle_rad` radian.
@@ -284,7 +295,11 @@ pub fn scale_shape(shape: &KernelShape, pivot: (f64, f64, f64), factor: f64) -> 
     Ok(KernelShape(cloned))
 }
 
-/// Transformasi shape dengan pergeseran (dx, dy, dz) dan rotasi sekeliling sumbu `axis` di `pivot`.
+/// Transformasi rigid-body: rotasi `angle_rad` mengelilingi sumbu `axis`
+/// yang melewati `pivot`, LALU pergeseran `translation`. Keduanya DELTA
+/// terhadap posisi shape saat ini — lihat catatan bug di
+/// [`translate_shape`]; versi sebelumnya menerapkan translasinya secara
+/// absolut.
 pub fn transform_shape(
     shape: &KernelShape,
     translation: (f64, f64, f64),
@@ -302,7 +317,7 @@ pub fn transform_shape(
         );
     }
     if translation.0.abs() > 1e-6 || translation.1.abs() > 1e-6 || translation.2.abs() > 1e-6 {
-        cloned.set_global_translation(dvec3(translation.0, translation.1, translation.2));
+        cloned = cloned.translated(dvec3(translation.0, translation.1, translation.2));
     }
     Ok(KernelShape(cloned))
 }

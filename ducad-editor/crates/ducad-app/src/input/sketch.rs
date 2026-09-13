@@ -689,6 +689,9 @@ impl DuCADApp {
                         &format!("Menggeser posisi objek sejauh ({:.1}, {:.1}, {:.1}) mm", delta.x, delta.y, delta.z),
                     );
                     self.round_history.remove(&target_id);
+                    // Sinkronkan instance perakitan & biarkan mate menarik
+                    // balik sepanjang derajat kebebasan yang terkunci.
+                    self.after_body_moved(target_id, delta);
                     self.model_status = Some(format!(
                         "Body digeser ({:.1}, {:.1}, {:.1}) mm",
                         delta.x, delta.y, delta.z
