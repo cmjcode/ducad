@@ -9,6 +9,15 @@ use crate::app::DuCADApp;
 use crate::input::{chamfer_2d_preview, fillet_2d_preview, trim_removal_preview};
 use crate::types::{ToolKind};
 
+/// Mesh gabungan jalur per-vertex: (posisi, normal, warna, material, indeks).
+pub type CombinedBodyMesh = (
+    Vec<[f32; 3]>,
+    Vec<[f32; 3]>,
+    Vec<[f32; 4]>,
+    Vec<[f32; 4]>,
+    Vec<u32>,
+);
+
 impl DuCADApp {
     pub fn build_overlay_lines(
         &self,
@@ -1418,9 +1427,48 @@ impl DuCADApp {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn build_combined_body_mesh(
-        &self,
-    ) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<[f32; 4]>, Vec<[f32; 4]>, Vec<u32>) {
+    /// Apakah body ini butuh warna PER-VERTEX (highlight face, preview
+    /// extrude/fillet, seleksi, target potong)? Kalau ya ia lewat jalur
+    /// mesh gabungan; kalau tidak — kasus umum — ia lewat jalur instanced.
+    /// Predikat ini dipakai KEDUA jalur supaya tiap body digambar tepat
+    /// satu kali.
+    pub fn body_needs_per_vertex_colors(&self, id: ducad_core::BodyId) -> bool {
+        let active_face_is = |b: ducad_core::BodyId| self.active_face.as_ref().is_some_and(|(a, _, _)| *a == b);
+        (self.gizmo_is_cutting && self.gizmo_target_body == Some(id))
+            || self.selected_bodies.contains(&id)
+            || active_face_is(id)
+            || self.staged_mate_targets.iter().any(|(b, _, _)| *b == id)
+            || self
+                .round_preview_cache
+                .as_ref()
+                .is_some_and(|(_, _, o, _, _)| *o == id)
+    }
+
+    /// Body polos untuk jalur instanced: satu `BodyInstance` per body,
+    /// dengan transform = pergeseran explode. Mesh yang identik berbagi
+    /// `mesh_key` sehingga digambar sebagai instance dari satu buffer.
+    pub fn build_instanced_bodies(&self) -> Vec<ducad_render::BodyInstance> {
+        let mut out = Vec::new();
+        for (id, geo) in self.model.geometry.iter() {
+            let Some(body) = self.model.doc.bodies.get(id) else {
+                continue;
+            };
+            if !body.visible || self.body_needs_per_vertex_colors(id) {
+                continue;
+            }
+            let mat = &body.material;
+            out.push(ducad_render::BodyInstance {
+                mesh_key: geo.mesh_fingerprint,
+                mesh: std::sync::Arc::new(crate::model::BodyMeshRef(geo.mesh.clone())),
+                model: glam::Mat4::from_translation(self.explode_display_offset(id)),
+                color: mat.base_color,
+                material: [mat.roughness, mat.metallic, mat.clearcoat, 0.0],
+            });
+        }
+        out
+    }
+
+    pub fn build_combined_body_mesh(&self) -> CombinedBodyMesh {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         let mut colors = Vec::new();
@@ -1439,6 +1487,12 @@ impl DuCADApp {
             if !body.visible {
                 continue;
             }
+            // Body polos digambar lewat jalur instanced (lihat
+            // `build_instanced_bodies`); di sini hanya yang butuh warna
+            // per-vertex.
+            if !self.body_needs_per_vertex_colors(id) {
+                continue;
+            }
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
 
@@ -1446,10 +1500,10 @@ impl DuCADApp {
                 if *override_id == id {
                     std::borrow::Cow::Borrowed(cached_mesh)
                 } else {
-                    std::borrow::Cow::Borrowed(&geo.mesh)
+                    std::borrow::Cow::Borrowed(geo.mesh.as_ref())
                 }
             } else {
-                std::borrow::Cow::Borrowed(&geo.mesh)
+                std::borrow::Cow::Borrowed(geo.mesh.as_ref())
             };
 
             let mut transformed_positions = mesh_to_render.positions.clone();
@@ -1957,6 +2011,24 @@ impl DuCADApp {
                 geo.edge_lines.as_slice()
             };
 
+            // Garis tepi harus ikut exploded view seperti mesh-nya; sebelum
+            // ini ia tetap di posisi terakit sementara body-nya bergeser.
+            let explode = self.explode_display_offset(id);
+            let exploded_storage: Vec<([f32; 3], [f32; 3])>;
+            let edge_lines_to_render: &[([f32; 3], [f32; 3])] = if explode.length_squared() > 1e-12 {
+                exploded_storage = edge_lines_to_render
+                    .iter()
+                    .map(|&(a, b)| {
+                        (
+                            [a[0] + explode.x, a[1] + explode.y, a[2] + explode.z],
+                            [b[0] + explode.x, b[1] + explode.y, b[2] + explode.z],
+                        )
+                    })
+                    .collect();
+                &exploded_storage
+            } else {
+                edge_lines_to_render
+            };
             for &(p1_raw, p2_raw) in edge_lines_to_render {
                 let mut p1 = Vec3::from_array(p1_raw);
                 let mut p2 = Vec3::from_array(p2_raw);
@@ -1981,5 +2053,93 @@ impl DuCADApp {
         }
 
         lines
+    }
+}
+
+#[cfg(test)]
+mod instancing_partition_tests {
+    use crate::app::DuCADApp;
+    use crate::model::BodyGeometry;
+    use ducad_kernel::{extrude_profile, Profile};
+
+    fn cyl(r: f64, h: f64) -> BodyGeometry {
+        BodyGeometry::from_shape(
+            extrude_profile(&Profile::Circle { center: (0.0, 0.0), radius: r }, h).unwrap(),
+        )
+    }
+
+    #[test]
+    fn every_visible_body_is_drawn_by_exactly_one_path() {
+        // Invarian inti jalur ganda. Dua kali = z-fighting; nol kali = body
+        // hilang dari viewport. Diuji dengan satu body terpilih (per-vertex)
+        // dan dua polos (instanced).
+        let mut app = DuCADApp::new_for_test();
+        let a = app.model.doc.add_body("A");
+        app.model.geometry.insert(a, cyl(5.0, 10.0));
+        let b = app.model.doc.add_body("B");
+        app.model.geometry.insert(b, cyl(5.0, 10.0));
+        let c = app.model.doc.add_body("C");
+        app.model.geometry.insert(c, cyl(3.0, 4.0));
+        app.selected_bodies.insert(a);
+
+        let instanced = app.build_instanced_bodies();
+        let (pos, _, _, _, idx) = app.build_combined_body_mesh();
+
+        assert_eq!(instanced.len(), 2, "dua body polos lewat jalur instanced");
+        assert!(app.body_needs_per_vertex_colors(a));
+        assert!(!app.body_needs_per_vertex_colors(b));
+        // Jalur merged hanya memuat A: satu silinder, jumlah vertex/indeks
+        // persis sama dengan mesh A.
+        let mesh_a = &app.model.geometry.get(a).unwrap().mesh;
+        assert_eq!(pos.len(), mesh_a.positions.len());
+        assert_eq!(idx.len(), mesh_a.indices.len());
+    }
+
+    #[test]
+    fn identical_meshes_share_one_gpu_key() {
+        // Inilah instancing sejati: part eksternal yang sama disisipkan
+        // berulang harus jadi N instance dari SATU buffer.
+        let mut app = DuCADApp::new_for_test();
+        let a = app.model.doc.add_body("A");
+        app.model.geometry.insert(a, cyl(5.0, 10.0));
+        let b = app.model.doc.add_body("B");
+        app.model.geometry.insert(b, cyl(5.0, 10.0));
+        let c = app.model.doc.add_body("C");
+        app.model.geometry.insert(c, cyl(5.0, 12.0));
+
+        let inst = app.build_instanced_bodies();
+        let key = |name: &str| {
+            let id = app.model.doc.bodies.iter().find(|(_, m)| m.name == name).unwrap().0;
+            app.model.geometry.get(id).unwrap().mesh_fingerprint
+        };
+        assert_eq!(key("A"), key("B"), "mesh identik -> key sama");
+        assert_ne!(key("A"), key("C"), "mesh berbeda -> key berbeda");
+        let distinct: std::collections::HashSet<u64> = inst.iter().map(|i| i.mesh_key).collect();
+        assert_eq!(distinct.len(), 2, "3 body, 2 buffer GPU");
+    }
+
+    #[test]
+    fn hidden_bodies_go_through_neither_path() {
+        let mut app = DuCADApp::new_for_test();
+        let a = app.model.doc.add_body("A");
+        app.model.geometry.insert(a, cyl(5.0, 10.0));
+        app.model.doc.bodies.get_mut(a).unwrap().visible = false;
+        assert!(app.build_instanced_bodies().is_empty());
+        assert!(app.build_combined_body_mesh().0.is_empty());
+    }
+
+    #[test]
+    fn explode_offset_becomes_the_instance_model_matrix() {
+        let mut app = DuCADApp::new_for_test();
+        let a = app.model.doc.add_body("A");
+        app.model.geometry.insert(a, cyl(5.0, 10.0));
+        let id = app.assembly_tree.add_instance("A", slotmap::Key::data(&a).as_ffi());
+        app.assembly_tree.instances.get_mut(&id).unwrap().is_grounded = false;
+        app.assembly_tree.instances.get_mut(&id).unwrap().explode_offset = (0.0, 0.0, 40.0);
+        app.set_explode_factor(0.5);
+
+        let inst = app.build_instanced_bodies();
+        let t = inst[0].model.w_axis;
+        assert!((t.z - 20.0).abs() < 1e-5, "translasi model {t:?}");
     }
 }

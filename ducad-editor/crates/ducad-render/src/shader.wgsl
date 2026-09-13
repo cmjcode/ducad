@@ -161,6 +161,41 @@ fn vs_mesh(in: MeshIn) -> MeshOut {
     return out;
 }
 
+// ---- Jalur instanced: satu mesh, banyak transform ----
+//
+// Vertex-rate hanya posisi+normal; warna & material datang dari instance.
+// Keluarannya `MeshOut` yang sama sehingga `fs_mesh` (pencahayaan, zebra,
+// draft heatmap, clip plane) dipakai ulang tanpa perubahan.
+struct BodyIn {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+};
+
+struct InstanceIn {
+    @location(4) m0: vec4<f32>,
+    @location(5) m1: vec4<f32>,
+    @location(6) m2: vec4<f32>,
+    @location(7) m3: vec4<f32>,
+    @location(8) color: vec4<f32>,
+    @location(9) material_params: vec4<f32>,
+};
+
+@vertex
+fn vs_mesh_instanced(in: BodyIn, inst: InstanceIn) -> MeshOut {
+    let model = mat4x4<f32>(inst.m0, inst.m1, inst.m2, inst.m3);
+    let world = model * vec4<f32>(in.position, 1.0);
+    var out: MeshOut;
+    out.clip = globals.view_proj * world;
+    out.world = world.xyz;
+    // Transform yang dikirim selalu rigid (translasi/rotasi) — tidak ada
+    // skala non-uniform — jadi 3x3 atas model sudah benar untuk normal;
+    // inverse-transpose tidak diperlukan.
+    out.normal = normalize((model * vec4<f32>(in.normal, 0.0)).xyz);
+    out.color = inst.color;
+    out.material_params = inst.material_params;
+    return out;
+}
+
 @fragment
 fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     let clip_side = dot(globals.clip_plane.xyz, in.world) - globals.clip_plane.w;

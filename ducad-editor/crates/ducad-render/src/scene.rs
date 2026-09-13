@@ -149,6 +149,95 @@ pub struct MeshVertex {
     pub material_params: [f32; 4],
 }
 
+/// Vertex jalur instanced: hanya geometri. Warna/material per-instance.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct BodyVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+}
+
+/// Data per-instance (instance-rate vertex buffer): matriks model
+/// kolom-mayor + warna + parameter material. 96 byte.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct InstanceRaw {
+    pub model: [[f32; 4]; 4],
+    pub color: [f32; 4],
+    pub material: [f32; 4],
+}
+
+/// Sumber geometri mesh untuk jalur instanced. Trait, bukan tipe konkret:
+/// crate render tidak (dan tidak boleh) bergantung pada `ducad-kernel`,
+/// jadi ia tidak bisa menyebut `KernelMesh` — pemanggil membungkusnya.
+pub trait MeshSource: Send + Sync {
+    fn positions(&self) -> &[[f32; 3]];
+    fn normals(&self) -> &[[f32; 3]];
+    fn indices(&self) -> &[u32];
+}
+
+/// Satu body yang dirender lewat jalur instanced.
+///
+/// `mesh_key` mengidentifikasi ISI mesh; dua body dengan key sama (part
+/// eksternal yang sama disisipkan berulang) berbagi satu buffer GPU dan
+/// digambar sebagai dua instance dalam satu draw call. `mesh` hanya
+/// dibaca saat cache GPU belum punya key itu.
+pub struct BodyInstance {
+    pub mesh_key: u64,
+    pub mesh: std::sync::Arc<dyn MeshSource>,
+    pub model: Mat4,
+    pub color: [f32; 4],
+    pub material: [f32; 4],
+}
+
+impl BodyInstance {
+    /// Delapan sudut bounding box mesh setelah ditransformasi `model` —
+    /// untuk bbox bayangan lantai, yang dulu hanya melihat jalur merged.
+    pub fn world_bounds_corners(&self) -> Vec<[f32; 3]> {
+        let pts = self.mesh.positions();
+        if pts.is_empty() {
+            return Vec::new();
+        }
+        let mut lo = pts[0];
+        let mut hi = pts[0];
+        for p in &pts[1..] {
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        }
+        let mut out = Vec::with_capacity(8);
+        for &x in &[lo[0], hi[0]] {
+            for &y in &[lo[1], hi[1]] {
+                for &z in &[lo[2], hi[2]] {
+                    let w = self.model.transform_point3(Vec3::new(x, y, z));
+                    out.push([w.x, w.y, w.z]);
+                }
+            }
+        }
+        out
+    }
+}
+
+struct GpuBodyMesh {
+    vertex_buf: wgpu::Buffer,
+    index_buf: wgpu::Buffer,
+    index_count: u32,
+    /// Frame terakhir mesh ini dipakai — untuk eviksi, supaya body yang
+    /// dihapus tidak menyisakan buffer GPU selamanya.
+    last_used: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InstanceBatch {
+    key: u64,
+    first: u32,
+    count: u32,
+}
+
+/// Berapa frame sebuah mesh boleh tidak terpakai sebelum buffer-nya dibuang.
+const BODY_MESH_EVICT_AFTER_FRAMES: u64 = 300;
+
 struct GpuMesh {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
@@ -192,6 +281,14 @@ pub struct SceneRenderer {
     floor_ibuf: wgpu::Buffer,
     floor_index_count: u32,
     mesh_pipeline: wgpu::RenderPipeline,
+    mesh_instanced_pipeline: wgpu::RenderPipeline,
+    body_meshes: std::collections::HashMap<u64, GpuBodyMesh>,
+    instance_buf: Option<wgpu::Buffer>,
+    instance_capacity: usize,
+    instance_data: Vec<InstanceRaw>,
+    instance_batches: Vec<InstanceBatch>,
+    instances_dirty: bool,
+    frame_counter: u64,
     body_edge_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     gizmo_pipeline: wgpu::RenderPipeline,
@@ -379,6 +476,47 @@ impl SceneRenderer {
             cache: None,
         });
 
+        let mesh_instanced_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("mesh-instanced"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_mesh_instanced"),
+                    compilation_options: Default::default(),
+                    buffers: &[
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<BodyVertex>() as u64,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3],
+                        }),
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<InstanceRaw>() as u64,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &wgpu::vertex_attr_array![
+                                4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
+                                8 => Float32x4, 9 => Float32x4
+                            ],
+                        }),
+                    ],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_mesh"),
+                    compilation_options: Default::default(),
+                    targets: &color_target,
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: depth_stencil.clone(),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+
         let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh"),
             layout: Some(&pipeline_layout),
@@ -507,6 +645,14 @@ impl SceneRenderer {
             floor_ibuf,
             floor_index_count: 6,
             mesh_pipeline,
+            mesh_instanced_pipeline,
+            body_meshes: std::collections::HashMap::new(),
+            instance_buf: None,
+            instance_capacity: 0,
+            instance_data: Vec::new(),
+            instance_batches: Vec::new(),
+            instances_dirty: false,
+            frame_counter: 0,
             body_edge_pipeline,
             overlay_pipeline,
             gizmo_pipeline,
@@ -663,6 +809,98 @@ impl SceneRenderer {
     }
 
     /// Upload mesh body (dari ducad-kernel) untuk ditampilkan dengan caching fingerprint.
+    /// Kirim body-body untuk jalur instanced. Dipanggil tiap frame.
+    ///
+    /// Buffer geometri di-cache per `mesh_key` dan hanya dibuat saat key
+    /// itu belum ada — frame biasa tidak mengunggah satu vertex pun, hanya
+    /// buffer instance (96 byte per body) yang diperbarui di `prepare`.
+    pub fn set_instanced_bodies(&mut self, device: &wgpu::Device, instances: &[BodyInstance]) {
+        use wgpu::util::DeviceExt;
+        self.frame_counter += 1;
+
+        // Kelompokkan per mesh_key secara STABIL supaya instance dari body
+        // yang sama berdekatan dan jadi satu draw call.
+        let mut order: Vec<usize> = (0..instances.len()).collect();
+        order.sort_by_key(|&i| instances[i].mesh_key);
+
+        self.instance_data.clear();
+        self.instance_batches.clear();
+        for &i in &order {
+            let inst = &instances[i];
+            let raw = InstanceRaw {
+                model: inst.model.to_cols_array_2d(),
+                color: inst.color,
+                material: inst.material,
+            };
+            match self.instance_batches.last_mut() {
+                Some(b) if b.key == inst.mesh_key => b.count += 1,
+                _ => self.instance_batches.push(InstanceBatch {
+                    key: inst.mesh_key,
+                    first: self.instance_data.len() as u32,
+                    count: 1,
+                }),
+            }
+            self.instance_data.push(raw);
+
+            let frame = self.frame_counter;
+            let entry = self.body_meshes.entry(inst.mesh_key);
+            match entry {
+                std::collections::hash_map::Entry::Occupied(mut e) => e.get_mut().last_used = frame,
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    let pos = inst.mesh.positions();
+                    let nrm = inst.mesh.normals();
+                    let idx = inst.mesh.indices();
+                    if idx.is_empty() {
+                        continue;
+                    }
+                    let verts: Vec<BodyVertex> = pos
+                        .iter()
+                        .enumerate()
+                        .map(|(k, p)| BodyVertex {
+                            position: *p,
+                            normal: nrm.get(k).copied().unwrap_or([0.0, 0.0, 1.0]),
+                        })
+                        .collect();
+                    let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("body-vb"),
+                        contents: bytemuck::cast_slice(&verts),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                    let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("body-ib"),
+                        contents: bytemuck::cast_slice(idx),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+                    v.insert(GpuBodyMesh {
+                        vertex_buf,
+                        index_buf,
+                        index_count: idx.len() as u32,
+                        last_used: frame,
+                    });
+                }
+            }
+        }
+
+        // Eviksi: body yang dihapus tidak boleh menyisakan buffer selamanya.
+        let cutoff = self.frame_counter.saturating_sub(BODY_MESH_EVICT_AFTER_FRAMES);
+        self.body_meshes.retain(|_, m| m.last_used >= cutoff);
+
+        // Buffer instance: tumbuh bila perlu, kalau tidak dipakai ulang dan
+        // ditulis lewat `queue.write_buffer` di `prepare`.
+        let needed = self.instance_data.len();
+        if needed > self.instance_capacity {
+            let cap = needed.next_power_of_two().max(16);
+            self.instance_buf = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("instance-vb"),
+                size: (cap * std::mem::size_of::<InstanceRaw>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            self.instance_capacity = cap;
+        }
+        self.instances_dirty = true;
+    }
+
     pub fn set_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -772,6 +1010,14 @@ impl SceneRenderer {
     }
 
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, eye: Vec3) {
+        if self.instances_dirty {
+            if let Some(buf) = &self.instance_buf {
+                if !self.instance_data.is_empty() {
+                    queue.write_buffer(buf, 0, bytemuck::cast_slice(&self.instance_data));
+                }
+            }
+            self.instances_dirty = false;
+        }
         // Hitung arah 3-point lighting berdasarkan StudioPreset
         let (key_dir, fill_dir, rim_dir) = match self.studio_config.preset {
             StudioPreset::CleanStudio => (
@@ -909,6 +1155,22 @@ impl SceneRenderer {
             rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
 
+        // 2a. Jalur instanced: satu draw call per mesh unik.
+        if let Some(ibuf) = &self.instance_buf {
+            if !self.instance_batches.is_empty() {
+                rpass.set_pipeline(&self.mesh_instanced_pipeline);
+                rpass.set_vertex_buffer(1, ibuf.slice(..));
+                for b in &self.instance_batches {
+                    let Some(m) = self.body_meshes.get(&b.key) else {
+                        continue;
+                    };
+                    rpass.set_vertex_buffer(0, m.vertex_buf.slice(..));
+                    rpass.set_index_buffer(m.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    rpass.draw_indexed(0..m.index_count, 0, b.first..b.first + b.count);
+                }
+            }
+        }
+
         // 2b. Gambar Garis Tepi Solid 3D (CAD Feature Edges)
         if let Some(buf) = &self.body_edge_vbuf {
             rpass.set_pipeline(&self.body_edge_pipeline);
@@ -1033,3 +1295,50 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod instancing_tests {
+    use super::*;
+
+    struct Tri;
+    impl MeshSource for Tri {
+        fn positions(&self) -> &[[f32; 3]] {
+            &[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 5.0, 2.0]]
+        }
+        fn normals(&self) -> &[[f32; 3]] {
+            &[[0.0, 0.0, 1.0]; 3]
+        }
+        fn indices(&self) -> &[u32] {
+            &[0, 1, 2]
+        }
+    }
+
+    #[test]
+    fn world_bounds_corners_follow_the_model_transform() {
+        // Bbox bayangan lantai dihitung dari sudut-sudut ini; kalau tidak
+        // ikut transform, bayangan menempel di posisi terakit walau body
+        // sedang diurai.
+        let inst = BodyInstance {
+            mesh_key: 1,
+            mesh: std::sync::Arc::new(Tri),
+            model: Mat4::from_translation(Vec3::new(100.0, 0.0, 50.0)),
+            color: [1.0; 4],
+            material: [0.5, 0.0, 0.0, 0.0],
+        };
+        let corners = inst.world_bounds_corners();
+        assert_eq!(corners.len(), 8);
+        let min_x = corners.iter().map(|c| c[0]).fold(f32::MAX, f32::min);
+        let max_x = corners.iter().map(|c| c[0]).fold(f32::MIN, f32::max);
+        let min_z = corners.iter().map(|c| c[2]).fold(f32::MAX, f32::min);
+        assert!((min_x - 100.0).abs() < 1e-5 && (max_x - 110.0).abs() < 1e-5);
+        assert!((min_z - 50.0).abs() < 1e-5, "min_z = {min_z}");
+    }
+
+    #[test]
+    fn instance_raw_is_exactly_96_bytes() {
+        // Stride buffer instance di pipeline dihitung dari ukuran ini;
+        // padding tak terduga akan menggeser seluruh atribut di shader.
+        assert_eq!(std::mem::size_of::<InstanceRaw>(), 96);
+        assert_eq!(std::mem::size_of::<BodyVertex>(), 24);
+    }
+}

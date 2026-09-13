@@ -78,7 +78,7 @@ Gate mutu di tiap baris "selesai": `cargo clippy --workspace --all-targets
 | Item | Status | Catatan |
 |---|---|---|
 | **P3.2** Mate solver | ✅ **selesai** (inti) | Solver simultan, joints, limit mates, **drag dengan solver** (part hanya bergerak sepanjang DOF bebasnya; tersambung ke drag body di viewport dan menyinkronkan instance ↔ B-rep), **exploded view** (display-only, tidak pernah dilihat solver; slider + urai otomatis radial), **studi gerak** (mate numerik digerakkan `from`→`to`, playhead + putar bolak-balik). Sisa: DOF per instance di UI. |
-| **P3.1** Model referensi part | 🟡 **sebagian** | Kerangka transform hierarkis, `PartSource::External` lengkap (resolusi path berlapis, UUID stabil, deteksi perubahan dengan penjagaan *racily clean*), DAN tersambung ke UI: seksi "Part eksternal" di drawer perakitan — sisipkan, periksa perubahan (lencana), muat ulang pada posisi terakit, lepas tautan. **Belum**: instancing GPU di renderer — sengaja ditunda, lihat catatan di bawah. |
+| **P3.1** Model referensi part | 🟡 **sebagian** | Kerangka transform hierarkis, `PartSource::External` lengkap (resolusi path berlapis, UUID stabil, deteksi perubahan dengan penjagaan *racily clean*), DAN tersambung ke UI: seksi "Part eksternal" di drawer perakitan — sisipkan, periksa perubahan (lencana), muat ulang pada posisi terakit, lepas tautan. Instancing GPU **selesai**: jalur instanced (buffer per-mesh di-cache per fingerprint, buffer transform per-instance, satu `draw_indexed(.., first..first+n)` per mesh unik) berdampingan dengan jalur merged untuk body berwarna per-vertex. Mesh identik berbagi satu buffer GPU. |
 | **P3.3** Interference & clearance | 🟡 **sebagian** | Mid-phase BVH segitiga + SAT (dengan penjagaan containment — bodi yang tertelan seluruhnya tidak punya irisan segitiga tapi TETAP interferensi). `check_clearance` menjawab "apakah ada celah minimal N mm" lewat `BRepExtrema_DistShapeShape` — eksak pada permukaan lengkung. **Belum**: collision saat drag, paralelisasi. |
 | **P3.4** BOM & properti | 🟡 **sebagian** | `part_number`/`material` per instance, `build_bom` dengan rollup kuantitas (digabung per nomor part, bukan per nama), mode rata & indented per sub-assembly tingkat pertama, ekspor CSV ber-escape RFC 4180. **Belum**: XLSX, penautan ke balon penunjuk di gambar. |
 
@@ -92,15 +92,14 @@ pertama menempatkan part di posisi yang salah, dan drag body dua kali
 mereset drag pertama. Keduanya kini delta sejati (`translated()`, dibakar
 lewat `BRepBuilderAPI_Transform`), dengan test regresi kumulatif.
 
-### Instancing GPU sengaja ditunda
+### Instancing GPU
 
-Renderer masih menggabungkan semua body jadi satu buffer per frame.
-Instancing GPU sejati (buffer per-body + buffer transform per-instance +
-`draw_indexed(.., 0..N)`) adalah perubahan pipeline wgpu yang hasilnya
-hanya bisa diverifikasi dengan menjalankan aplikasi — dan kesalahan di sana
-berarti viewport kosong bagi pengguna tanpa ada test yang menangkapnya.
-Explode view sudah dirender benar lewat jalur build-mesh yang ada; instancing
-adalah optimisasi, bukan prasyarat fungsi.
+Selesai. Body polos (kasus umum) lewat jalur instanced; body dengan warna
+per-vertex (terpilih, highlight face, preview extrude/fillet, target potong)
+tetap lewat jalur merged sehingga tidak ada fitur yang hilang. Test mengunci
+invarian "tiap body tergambar tepat satu kali" dan "mesh identik berbagi
+satu key". Yang belum diverifikasi otomatis: hasil piksel — perlu dilihat di
+aplikasi berjalan.
 
 ---
 

@@ -553,12 +553,12 @@ impl DuCADApp {
             .map(|(id, meta)| {
                 (
                     meta.name.as_str(),
-                    &self
-                        .model
+                    self.model
                         .geometry
                         .get(id)
                         .expect("body hilang dari storage")
-                        .mesh,
+                        .mesh
+                        .as_ref(),
                 )
             })
             .collect()
@@ -574,12 +574,12 @@ impl DuCADApp {
                 (
                     meta.name.as_str(),
                     meta.material,
-                    &self
-                        .model
+                    self.model
                         .geometry
                         .get(id)
                         .expect("body hilang dari storage")
-                        .mesh,
+                        .mesh
+                        .as_ref(),
                 )
             })
             .collect()

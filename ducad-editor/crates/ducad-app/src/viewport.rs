@@ -19,6 +19,8 @@ pub struct ViewportCallback {
     pub body_colors: Vec<[f32; 4]>,
     pub body_materials: Vec<[f32; 4]>,
     pub body_indices: Vec<u32>,
+    /// Body polos, jalur instanced.
+    pub body_instances: Vec<ducad_render::BodyInstance>,
     pub gizmo_positions: Vec<[f32; 3]>,
     pub gizmo_normals: Vec<[f32; 3]>,
     pub gizmo_colors: Vec<[f32; 4]>,
@@ -50,6 +52,7 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
                 Some(&self.body_materials),
                 &self.body_indices,
             );
+            scene.set_instanced_bodies(device, &self.body_instances);
             scene.set_gizmo_mesh(
                 device,
                 &self.gizmo_positions,

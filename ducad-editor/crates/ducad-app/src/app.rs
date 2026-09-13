@@ -1171,15 +1171,23 @@ impl DuCADApp {
         let body_edge_lines = self.build_body_edge_lines();
         let (body_positions, body_normals, body_colors, body_materials, body_indices) =
             self.build_combined_body_mesh();
+        let body_instances = self.build_instanced_bodies();
 
-        // Hitung bounding box otomatis untuk level lantai (ground_z) dan proyeksi bayangan kontak studio
-        if !body_positions.is_empty() {
+        // Hitung bounding box otomatis untuk level lantai (ground_z) dan proyeksi bayangan kontak studio.
+        // Body instanced tidak ada di `body_positions`, jadi sudut bbox-nya
+        // ditambahkan terpisah — kalau tidak, bayangan lantai menghilang
+        // begitu tidak ada body yang terpilih.
+        let instance_corners: Vec<[f32; 3]> = body_instances
+            .iter()
+            .flat_map(|i| i.world_bounds_corners())
+            .collect();
+        if !body_positions.is_empty() || !instance_corners.is_empty() {
             let mut min_x = f32::MAX;
             let mut max_x = f32::MIN;
             let mut min_y = f32::MAX;
             let mut max_y = f32::MIN;
             let mut min_z = f32::MAX;
-            for p in &body_positions {
+            for p in body_positions.iter().chain(instance_corners.iter()) {
                 min_x = min_x.min(p[0]);
                 max_x = max_x.max(p[0]);
                 min_y = min_y.min(p[1]);
@@ -1210,6 +1218,7 @@ impl DuCADApp {
                 body_colors,
                 body_materials,
                 body_indices,
+                body_instances,
                 gizmo_positions,
                 gizmo_normals,
                 gizmo_colors,

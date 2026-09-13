@@ -31,7 +31,13 @@ use slotmap::SecondaryMap;
 /// geometri body dibuat/berubah, bukan tiap frame render viewport.
 pub struct BodyGeometry {
     pub shape: KernelShape,
-    pub mesh: KernelMesh,
+    /// `Arc` supaya callback render (yang harus `'static`) bisa memegang
+    /// mesh tanpa menyalin vertex tiap frame — dulu seluruh posisi di-clone
+    /// per body per frame ke buffer gabungan.
+    pub mesh: std::sync::Arc<KernelMesh>,
+    /// Sidik jari ISI mesh, dihitung sekali. Kunci cache buffer GPU: dua
+    /// body dengan mesh identik berbagi satu buffer dan jadi instance.
+    pub mesh_fingerprint: u64,
     pub edge_dims: Vec<ducad_kernel::EdgeDimension>,
     pub edge_lines: Vec<([f32; 3], [f32; 3])>,
     pub vertices: Vec<[f32; 3]>,
@@ -56,9 +62,11 @@ impl BodyGeometry {
             .into_iter()
             .map(|(x, y, z)| [x as f32, y as f32, z as f32])
             .collect();
+        let mesh_fingerprint = mesh_fingerprint(&mesh);
         Self {
             shape,
-            mesh,
+            mesh: std::sync::Arc::new(mesh),
+            mesh_fingerprint,
             edge_dims,
             edge_lines,
             vertices,
@@ -72,13 +80,59 @@ impl BodyGeometry {
             .into_iter()
             .map(|(x, y, z)| [x as f32, y as f32, z as f32])
             .collect();
+        let mesh_fingerprint = mesh_fingerprint(&mesh);
         Self {
             shape,
-            mesh,
+            mesh: std::sync::Arc::new(mesh),
+            mesh_fingerprint,
             edge_dims: Vec::new(),
             edge_lines,
             vertices,
         }
+    }
+}
+
+/// FNV-1a atas bit posisi, normal, dan indeks. Stabil lintas jalan program
+/// (bukan `DefaultHasher`), sehingga key cache GPU tidak berubah-ubah.
+fn mesh_fingerprint(mesh: &KernelMesh) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |v: u32| {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100_0000_01b3);
+        }
+    };
+    feed(mesh.positions.len() as u32);
+    feed(mesh.indices.len() as u32);
+    for p in &mesh.positions {
+        feed(p[0].to_bits());
+        feed(p[1].to_bits());
+        feed(p[2].to_bits());
+    }
+    for n in &mesh.normals {
+        feed(n[0].to_bits());
+        feed(n[1].to_bits());
+        feed(n[2].to_bits());
+    }
+    for i in &mesh.indices {
+        feed(*i);
+    }
+    h
+}
+
+/// Pembungkus `Arc<KernelMesh>` yang mengimplementasikan `MeshSource` milik
+/// crate render — aturan orphan melarang impl langsung pada `KernelMesh`.
+pub struct BodyMeshRef(pub std::sync::Arc<KernelMesh>);
+
+impl ducad_render::MeshSource for BodyMeshRef {
+    fn positions(&self) -> &[[f32; 3]] {
+        &self.0.positions
+    }
+    fn normals(&self) -> &[[f32; 3]] {
+        &self.0.normals
+    }
+    fn indices(&self) -> &[u32] {
+        &self.0.indices
     }
 }
 
