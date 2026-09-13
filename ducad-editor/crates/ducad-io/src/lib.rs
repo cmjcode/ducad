@@ -13,6 +13,7 @@ pub mod drawing;
 pub mod dxf;
 pub mod glb;
 pub mod mesh_export;
+pub mod external;
 pub mod native;
 pub mod pdf;
 pub mod step_io;

@@ -515,6 +515,10 @@ impl DuCADApp {
                 });
                 ducad_io::native::ExportBody {
                     name: meta.name.as_str(),
+                    // Body internal belum menyimpan UUID sendiri; berkas
+                    // native memberinya satu saat disimpan. Menautkannya ke
+                    // `Document` adalah bagian P0.1 yang belum selesai.
+                    uuid: None,
                     visible: meta.visible,
                     material: meta.material,
                     shape,

@@ -18,6 +18,12 @@ pub use parametric::{
     FeatureId, FeatureNode, FeaturePayload, FeatureStatus, ParametricDag, SketchPlaneRef,
 };
 
+pub mod external;
+pub use external::{
+    check_source_state, new_part_uuid, resolve_external, resolve_external_with, stable_hash,
+    ExternalPartRef, FallbackReason, PartSource, ResolveOutcome, SourceStamp, SourceState,
+};
+
 pub mod assembly;
 pub use assembly::{
     AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
