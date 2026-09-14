@@ -2618,12 +2618,20 @@ impl eframe::App for DuCADApp {
         // 2. Floating Buttons Bar di Pojok Kanan Bawah (Lighting, CMF Material, Draft Analysis, History, Folder)
         if !self.drawing_sheet_state.is_open {
             let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+            let icon_sz = self.icon_size.clamp(12.0, 18.0);
+            let btn_side = (icon_sz + 18.0).max(34.0);
             egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
                 .fixed_pos(btns_pos)
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    ui.horizontal(|ui| {
+                    // Kunci tinggi minimum widget interaktif & tinggi bar ke nilai tetap (`btn_side`).
+                    // `apply_with_touch` mengubah `interact_size.y` global ke 36/40/44 px per mode sentuh,
+                    // sehingga tanpa kunci ini baris membesar dan pivot RIGHT_BOTTOM menyebabkan tombol
+                    // melompat/bergerak naik-turun setiap kali mode sentuh di-klik.
+                    ui.spacing_mut().interact_size.y = btn_side;
+                    ui.set_height(btn_side);
+                    ui.horizontal_centered(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
                         // Tombol Studio Lighting & SSAO
@@ -3901,6 +3909,64 @@ mod tests {
         assert!(!cfg.single_finger_navigates());
         assert_eq!(cfg.effective_pixel_tolerance(), 24.0);
         assert_eq!(cfg.touch_target_size, 44.0);
+    }
+
+    #[test]
+    fn posisi_tombol_kanan_bawah_stabil_saat_mode_sentuh_di_cycle() {
+        use ducad_ui::{apply_with_touch, ThemeMode, TouchDesignMode};
+
+        let measure_btn_rect = |mode: TouchDesignMode| -> egui::Rect {
+            let ctx = egui::Context::default();
+            let touch_target = match mode {
+                TouchDesignMode::FingerDesign => 44.0,
+                TouchDesignMode::PencilOnly => 36.0,
+                TouchDesignMode::PencilAndFinger => 40.0,
+            };
+            apply_with_touch(&ctx, ThemeMode::Dark, touch_target);
+
+            let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+            let mut measured_rect = egui::Rect::NOTHING;
+
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(Default::default(), |ctx| {
+                    let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+                    let icon_sz = 18.0f32.clamp(12.0, 18.0);
+                    let btn_side = (icon_sz + 18.0).max(34.0);
+                    egui::Area::new(egui::Id::new("test-bottom-right-btns"))
+                        .fixed_pos(btns_pos)
+                        .pivot(egui::Align2::RIGHT_BOTTOM)
+                        .show(ctx, |ui| {
+                            ui.spacing_mut().interact_size.y = btn_side;
+                            ui.set_height(btn_side);
+                            let scope = ui.horizontal_centered(|ui| {
+                                ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+                                round_floating_icon_btn(
+                                    ui,
+                                    egui_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                                    false,
+                                    "Test",
+                                    18.0,
+                                );
+                            });
+                            measured_rect = scope.response.rect;
+                        });
+                });
+                output.textures_delta.clear();
+            }
+            measured_rect
+        };
+
+        let r_hybrid = measure_btn_rect(TouchDesignMode::PencilAndFinger);
+        let r_pencil = measure_btn_rect(TouchDesignMode::PencilOnly);
+        let r_finger = measure_btn_rect(TouchDesignMode::FingerDesign);
+
+        assert!(r_hybrid.is_positive(), "Area tombol tidak ter-render");
+        assert_eq!(r_hybrid.min.y, r_pencil.min.y, "Tombol bergeser vertikal pada mode PencilOnly");
+        assert_eq!(r_hybrid.min.y, r_finger.min.y, "Tombol bergeser vertikal pada mode FingerDesign");
+        assert_eq!(r_hybrid.max.y, r_pencil.max.y, "Tombol bergeser vertikal pada mode PencilOnly");
+        assert_eq!(r_finger.max.y, r_pencil.max.y, "Tombol bergeser vertikal pada mode FingerDesign");
+        assert_eq!(r_hybrid.height(), r_pencil.height(), "Tinggi tombol berubah pada mode PencilOnly");
+        assert_eq!(r_finger.height(), r_pencil.height(), "Tinggi tombol berubah pada mode FingerDesign");
     }
 }
 

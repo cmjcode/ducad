@@ -97,6 +97,7 @@ impl LeftToolbar {
             .inner_margin(Margin::same(4))
             .corner_radius(CornerRadius::same(8))
             .show(ui, |ui| {
+                ui.spacing_mut().interact_size.y = btn_width;
                 ui.set_width(btn_width);
                 ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.5);
 

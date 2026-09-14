@@ -12,7 +12,7 @@ use egui_icons::icons::{
     ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
     ICON_WARNING,
 };
-use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, MIN_TOUCH_TARGET, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextAction {
@@ -65,6 +65,7 @@ impl ContextActionBar {
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 // Header ringkas info seleksi
@@ -153,6 +154,7 @@ impl ContextActionBar {
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
@@ -239,6 +241,7 @@ impl ContextActionBar {
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
@@ -301,6 +304,7 @@ impl ContextActionBar {
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
             ui.horizontal(|ui| {
                 ui.label(
