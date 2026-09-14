@@ -43,6 +43,8 @@ pub enum TopBarFileOp {
     ExportPdf,
     ExportDrawingDxf,
     ExportDrawingSvg,
+    /// Tangkapan vektor 2D dari sudut pandang kamera viewport saat ini.
+    ExportVectorSnapshot,
     OpenDrawingSheet,
 }
 
@@ -829,6 +831,18 @@ impl TopBar {
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportDrawingSvg));
+                                ui.close();
+                            }
+                            if ui
+                                .button(format!(
+                                    "{} {}",
+                                    ICON_PICTURE_AS_PDF.codepoint,
+                                    t!("menu-export-vector-snapshot")
+                                ))
+                                .clicked()
+                            {
+                                event =
+                                    Some(TopBarEvent::File(TopBarFileOp::ExportVectorSnapshot));
                                 ui.close();
                             }
                             ui.separator();

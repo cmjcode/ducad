@@ -4,11 +4,12 @@
 //! dari model solid 3D dengan pemisahan garis tampak (visible solid line), garis
 //! tersembunyi (hidden dashed line), siluet permukaan lengkung, dan garis sumbu (centerlines).
 
-use glam::{vec2, vec3, Vec2, Vec3};
+use glam::{vec2, vec3, Mat4, Vec2, Vec3};
 use std::collections::HashMap;
 
 use crate::lock_kernel;
 use crate::mesh::KernelMesh;
+use crate::projection::Projector;
 use crate::shape::KernelShape;
 
 /// Jenis tampak proyeksi 2D standar teknik.
@@ -298,7 +299,10 @@ impl HlrExtractor {
         model_bbox: ([f32; 3], [f32; 3]),
     ) -> ProjectedView {
         let (view_dir, right_vec, up_vec) = view_kind.camera_vectors();
-        let depth_dir = -view_dir; // Vektor kedalaman (makin besar = makin dekat ke kamera)
+        // Gambar kerja selalu ortogonal dalam mm: satu unit model = satu unit
+        // gambar, sumbu v ke atas. Lihat `crate::projection` untuk konvensi
+        // kedalamannya.
+        let projector = Projector::orthographic_mm(view_dir, right_vec, up_vec);
 
         // 1. Kumpulkan semua 3D kurva tepi dari B-Rep solid
         let mut raw_3d_segments: Vec<(Vec3, Vec3, bool)> = Vec::new(); // (start, end, is_silhouette)
@@ -345,7 +349,7 @@ impl HlrExtractor {
         }
 
         // 2. Ekstraksi garis siluet (silhouette edges) dari mesh segitiga
-        let silhouette_segments = extract_silhouette_edges(mesh, view_dir);
+        let silhouette_segments = extract_silhouette_edges(mesh, &projector);
         for (p1, p2) in silhouette_segments {
             raw_3d_segments.push((p1, p2, true));
         }
@@ -356,16 +360,16 @@ impl HlrExtractor {
         let mut bounds_max = vec2(f32::MIN, f32::MIN);
 
         // Pre-hitung segitiga terproyeksi (HANYA segitiga front-facing yang dapat menghalangi pandangan)
-        let projected_triangles = build_projected_triangles(mesh, right_vec, up_vec, depth_dir, view_dir);
+        let projected_triangles = build_projected_triangles(mesh, &projector);
 
         for (p1_3d, p2_3d, is_silhouette) in raw_3d_segments {
-            let u1 = p1_3d.dot(right_vec);
-            let v1 = p1_3d.dot(up_vec);
-            let d1 = p1_3d.dot(depth_dir);
-
-            let u2 = p2_3d.dot(right_vec);
-            let v2 = p2_3d.dot(up_vec);
-            let d2 = p2_3d.dot(depth_dir);
+            let (Some((uv1, d1)), Some((uv2, d2))) =
+                (projector.project(p1_3d), projector.project(p2_3d))
+            else {
+                continue;
+            };
+            let (u1, v1) = (uv1.x, uv1.y);
+            let (u2, v2) = (uv2.x, uv2.y);
 
             let seg_len_2d = ((u1 - u2).powi(2) + (v1 - v2).powi(2)).sqrt();
             if seg_len_2d < 0.02 {
@@ -396,7 +400,13 @@ impl HlrExtractor {
                 let mid_v = (sub_v1 + sub_v2) * 0.5;
                 let mid_d = (sub_d1 + sub_d2) * 0.5;
 
-                let is_occluded = test_occlusion(mid_u, mid_v, mid_d, &projected_triangles);
+                let is_occluded = test_occlusion(
+                    mid_u,
+                    mid_v,
+                    mid_d,
+                    &projected_triangles,
+                    projector.depth_epsilon(mid_d),
+                );
 
                 let kind = if is_occluded {
                     HlrLineKind::Hidden
@@ -446,8 +456,13 @@ impl HlrExtractor {
     }
 }
 
-/// Struktur data segitiga terproyeksi untuk fast spatial query.
-struct ProjectedTri {
+/// Segitiga yang sudah diproyeksikan ke bidang gambar, dipakai sebagai
+/// penghalang pada uji oklusi.
+///
+/// `d0`/`d1`/`d2` mengikuti konvensi [`Projector`]: makin besar makin dekat
+/// ke kamera, dan nilainya linier di ruang layar pada KEDUA mode proyeksi —
+/// itulah sebabnya interpolasi barisentrik 2D di [`test_occlusion`] sah.
+pub(crate) struct ProjectedTri {
     u_min: f32,
     u_max: f32,
     v_min: f32,
@@ -463,15 +478,27 @@ struct ProjectedTri {
     d2: f32,
 }
 
-fn build_projected_triangles(
-    mesh: &KernelMesh,
-    right: Vec3,
-    up: Vec3,
-    depth: Vec3,
-    view_dir: Vec3,
-) -> Vec<ProjectedTri> {
+fn build_projected_triangles(mesh: &KernelMesh, projector: &Projector) -> Vec<ProjectedTri> {
     let mut tris = Vec::with_capacity(mesh.triangle_count());
+    append_projected_triangles(mesh, Mat4::IDENTITY, projector, &mut tris);
+    tris
+}
+
+/// Proyeksikan segitiga `mesh` (setelah transformasi `model`) yang menghadap
+/// kamera, lalu tambahkan ke `out`.
+///
+/// Menerima `model` supaya beberapa body dengan penempatan berbeda — misalnya
+/// rakitan yang sedang di-explode — bisa dikumpulkan menjadi SATU himpunan
+/// penghalang. Normal dihitung dari titik yang SUDAH ditransformasi, jadi
+/// transformasi non-seragam pun tidak perlu matriks invers-transpos terpisah.
+pub(crate) fn append_projected_triangles(
+    mesh: &KernelMesh,
+    model: Mat4,
+    projector: &Projector,
+    out: &mut Vec<ProjectedTri>,
+) {
     let tri_count = mesh.indices.len() / 3;
+    let identitas = model == Mat4::IDENTITY;
 
     for i in 0..tri_count {
         let i0 = mesh.indices[i * 3] as usize;
@@ -482,35 +509,43 @@ fn build_projected_triangles(
             continue;
         }
 
-        let p0 = Vec3::from_array(mesh.positions[i0]);
-        let p1 = Vec3::from_array(mesh.positions[i1]);
-        let p2 = Vec3::from_array(mesh.positions[i2]);
+        let mut p0 = Vec3::from_array(mesh.positions[i0]);
+        let mut p1 = Vec3::from_array(mesh.positions[i1]);
+        let mut p2 = Vec3::from_array(mesh.positions[i2]);
+        if !identitas {
+            p0 = model.transform_point3(p0);
+            p1 = model.transform_point3(p1);
+            p2 = model.transform_point3(p2);
+        }
 
         // Hitung normal segitiga
         let tri_normal = (p1 - p0).cross(p2 - p0);
         // Hanya masukkan segitiga yang menghadap kamera (front-facing)
-        if tri_normal.dot(view_dir) >= -1e-4 {
+        let centroid = (p0 + p1 + p2) / 3.0;
+        if projector.facing(tri_normal, centroid) >= -1e-4 {
             continue;
         }
 
-        let u0 = p0.dot(right);
-        let v0 = p0.dot(up);
-        let d0 = p0.dot(depth);
+        let (Some((uv0, d0)), Some((uv1, d1)), Some((uv2, d2))) = (
+            projector.project(p0),
+            projector.project(p1),
+            projector.project(p2),
+        ) else {
+            // Segitiga menembus bidang dekat kamera; membaginya di sana jauh
+            // lebih rumit daripada nilainya sebagai penghalang, jadi dilewati.
+            continue;
+        };
 
-        let u1 = p1.dot(right);
-        let v1 = p1.dot(up);
-        let d1 = p1.dot(depth);
-
-        let u2 = p2.dot(right);
-        let v2 = p2.dot(up);
-        let d2 = p2.dot(depth);
+        let (u0, v0) = (uv0.x, uv0.y);
+        let (u1, v1) = (uv1.x, uv1.y);
+        let (u2, v2) = (uv2.x, uv2.y);
 
         let u_min = u0.min(u1).min(u2);
         let u_max = u0.max(u1).max(u2);
         let v_min = v0.min(v1).min(v2);
         let v_max = v0.max(v1).max(v2);
 
-        tris.push(ProjectedTri {
+        out.push(ProjectedTri {
             u_min,
             u_max,
             v_min,
@@ -526,14 +561,21 @@ fn build_projected_triangles(
             d2,
         });
     }
-
-    tris
 }
 
 /// Menguji apakah titik 2D (u, v) pada kedalaman `test_d` dihalangi oleh segitiga lain yang berada lebih depan (`tri_d > test_d + epsilon`).
-fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bool {
-    const EPSILON: f32 = 0.50; // Toleransi kedalaman mm untuk menghindari false self-occlusion
-
+///
+/// `epsilon` adalah ambang "benar-benar di depan" dalam satuan kedalaman yang
+/// sedang dipakai; ambil dari [`Projector::depth_epsilon`] agar jalur ortogonal
+/// (mm) dan perspektif (`1/z`) sama-sama benar. Tanpa ambang ini permukaan
+/// akan menghalangi rusuknya sendiri.
+pub(crate) fn test_occlusion(
+    u: f32,
+    v: f32,
+    test_d: f32,
+    triangles: &[ProjectedTri],
+    epsilon: f32,
+) -> bool {
     for tri in triangles {
         // Fast AABB rejection
         if u < tri.u_min || u > tri.u_max || v < tri.v_min || v > tri.v_max {
@@ -567,7 +609,7 @@ fn test_occlusion(u: f32, v: f32, test_d: f32, triangles: &[ProjectedTri]) -> bo
         if a >= -1e-3 && b >= -1e-3 && (a + b) <= 1.001 {
             // Interpolasi kedalaman segitiga pada (u, v)
             let tri_d = tri.d0 + a * (tri.d1 - tri.d0) + b * (tri.d2 - tri.d0);
-            if tri_d > test_d + EPSILON {
+            if tri_d > test_d + epsilon {
                 return true; // Ada solid di depan segmen ini!
             }
         }
@@ -627,24 +669,50 @@ pub(crate) fn extract_mesh_feature_edges(mesh: &KernelMesh) -> Vec<(Vec3, Vec3)>
 }
 
 /// Ekstraksi garis siluet (silhouette edges) di mana normal permukaan berubah orientasi terhadap arah kamera.
-fn extract_silhouette_edges(mesh: &KernelMesh, view_dir: Vec3) -> Vec<(Vec3, Vec3)> {
-    let mut silhouette = Vec::new();
+fn extract_silhouette_edges(mesh: &KernelMesh, projector: &Projector) -> Vec<(Vec3, Vec3)> {
+    let mut out = Vec::new();
+    append_silhouette_edges(mesh, Mat4::IDENTITY, projector, &mut out);
+    out
+}
+
+/// Sama seperti [`extract_silhouette_edges`], tapi titiknya ditransformasi
+/// `model` lebih dulu dan hasilnya ditambahkan ke `out`.
+///
+/// Siluet bergantung pada POSISI kamera, bukan hanya arahnya, begitu
+/// proyeksinya perspektif — jadi transformasi harus diterapkan sebelum uji
+/// orientasi, bukan sesudahnya.
+pub(crate) fn append_silhouette_edges(
+    mesh: &KernelMesh,
+    model: Mat4,
+    projector: &Projector,
+    out: &mut Vec<(Vec3, Vec3)>,
+) {
     let tri_count = mesh.triangle_count();
     if tri_count == 0 {
-        return silhouette;
+        return;
     }
+    let identitas = model == Mat4::IDENTITY;
+    let titik = |i: usize| -> Vec3 {
+        let p = Vec3::from_array(mesh.positions[i]);
+        if identitas {
+            p
+        } else {
+            model.transform_point3(p)
+        }
+    };
 
-    // Hitung normal per segitiga dan simpan dot product dengan arah kamera
+    // Hitung normal per segitiga dan simpan orientasinya terhadap kamera
     let mut tri_facing_cam = Vec::with_capacity(tri_count);
     for i in 0..tri_count {
         let i0 = mesh.indices[i * 3] as usize;
         let i1 = mesh.indices[i * 3 + 1] as usize;
         let i2 = mesh.indices[i * 3 + 2] as usize;
-        let p0 = Vec3::from_array(mesh.positions[i0]);
-        let p1 = Vec3::from_array(mesh.positions[i1]);
-        let p2 = Vec3::from_array(mesh.positions[i2]);
+        let p0 = titik(i0);
+        let p1 = titik(i1);
+        let p2 = titik(i2);
         let normal = (p1 - p0).cross(p2 - p0);
-        tri_facing_cam.push(normal.dot(view_dir) < 0.0);
+        let centroid = (p0 + p1 + p2) / 3.0;
+        tri_facing_cam.push(projector.facing(normal, centroid) < 0.0);
     }
 
     // Kumpulkan pasangan tepi terbagi (shared edges)
@@ -666,19 +734,13 @@ fn extract_silhouette_edges(mesh: &KernelMesh, view_dir: Vec3) -> Vec<(Vec3, Vec
             let f2 = tri_facing_cam[tris[1]];
             // Tepi siluet jika satu segitiga menghadap kamera dan yang lainnya menjauh
             if f1 != f2 {
-                let p1 = Vec3::from_array(mesh.positions[u as usize]);
-                let p2 = Vec3::from_array(mesh.positions[v as usize]);
-                silhouette.push((p1, p2));
+                out.push((titik(u as usize), titik(v as usize)));
             }
         } else if tris.len() == 1 {
             // Boundary edge terbuka
-            let p1 = Vec3::from_array(mesh.positions[u as usize]);
-            let p2 = Vec3::from_array(mesh.positions[v as usize]);
-            silhouette.push((p1, p2));
+            out.push((titik(u as usize), titik(v as usize)));
         }
     }
-
-    silhouette
 }
 
 /// Ekstraksi garis sumbu simetri (centerlines) untuk silinder dan lingkaran.
@@ -737,7 +799,7 @@ fn extract_centerlines(
 }
 
 /// Sederhanakan dan gabungkan segmen-segmen kolinear yang bertipe sama.
-fn simplify_and_merge_segments(mut segments: Vec<HlrSegment2D>) -> Vec<HlrSegment2D> {
+pub(crate) fn simplify_and_merge_segments(mut segments: Vec<HlrSegment2D>) -> Vec<HlrSegment2D> {
     if segments.len() <= 1 {
         return segments;
     }

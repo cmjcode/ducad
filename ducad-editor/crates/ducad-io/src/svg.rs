@@ -3,9 +3,10 @@
 //! Format SVG mendukung:
 //! 1. Ekspor Sketsa 2D (`Sketch`) skala presisi 1:1 (satuan mm) siap kirim ke mesin laser cutting (LightBurn, Glowforge), CNC router, dan software ilustrasi (Inkscape, Illustrator).
 //! 2. Ekspor Lembar Kerja Gambar Teknik 2D (`DrawingSheet`) lengkap dengan multi-tampak (Front, Top, Right, Isometric), Section View (pola arsir 45°), Detail View lingkaran, garis dimensi linier/sudut, bingkai kertas ISO, dan Kepala Gambar (Title Block).
+//! 3. Ekspor Vector Snapshot (`VectorSnapshot`) — tangkapan vektor 2D dari sudut pandang kamera viewport yang sedang dipakai, dalam koordinat piksel. Berbeda dengan dua yang di atas yang bersatuan milimeter kertas, keluaran ini berskala layar dan ditujukan untuk ilustrasi/presentasi, bukan untuk didimensi.
 
 use anyhow::{Context, Result};
-use ducad_kernel::{HlrLineKind, ProjectedViewKind};
+use ducad_kernel::{HlrLineKind, ProjectedViewKind, VectorSnapshot};
 use ducad_sketch::{Entity, Sketch};
 use glam::DVec2;
 use std::path::Path;
@@ -766,6 +767,195 @@ pub fn export_drawing_sheet_svg_string(sheet: &DrawingSheet) -> Result<String> {
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Vector Snapshot (tangkapan vektor dari kamera viewport)
+// ---------------------------------------------------------------------------
+
+/// Opsi gaya untuk ekspor [`VectorSnapshot`].
+///
+/// Semua ketebalan dalam PIKSEL, bukan milimeter: koordinat tangkapan adalah
+/// piksel viewport, jadi lebar garis harus satu sistem dengannya supaya
+/// tampilannya tidak berubah saat berkas diperbesar.
+#[derive(Debug, Clone)]
+pub struct SvgSnapshotOptions {
+    /// Ketebalan garis tampak.
+    pub visible_stroke_px: f64,
+    /// Ketebalan garis siluet permukaan lengkung.
+    pub silhouette_stroke_px: f64,
+    /// Ketebalan garis tersembunyi.
+    pub hidden_stroke_px: f64,
+    /// Warna garis tampak.
+    pub visible_color: String,
+    /// Warna garis siluet.
+    pub silhouette_color: String,
+    /// Warna garis tersembunyi.
+    pub hidden_color: String,
+    /// Pola putus-putus garis tersembunyi (nilai atribut `stroke-dasharray`).
+    pub hidden_dasharray: String,
+    /// Warna latar. `None` menghasilkan latar transparan — yang biasanya
+    /// diinginkan saat gambar ditempel ke dokumen lain.
+    pub background: Option<String>,
+    /// Tuliskan lapisan garis tersembunyi. Mematikan ini hanya menyembunyikan
+    /// lapisannya; untuk tidak menghitungnya sama sekali, matikan
+    /// `include_hidden` pada opsi tangkapan di kernel.
+    pub include_hidden: bool,
+}
+
+impl Default for SvgSnapshotOptions {
+    fn default() -> Self {
+        Self {
+            visible_stroke_px: 1.4,
+            silhouette_stroke_px: 1.1,
+            hidden_stroke_px: 0.7,
+            visible_color: "#111827".to_string(),
+            silhouette_color: "#374151".to_string(),
+            hidden_color: "#9ca3af".to_string(),
+            hidden_dasharray: "6 4".to_string(),
+            background: None,
+            include_hidden: true,
+        }
+    }
+}
+
+impl SvgSnapshotOptions {
+    /// Preset garis tunggal hitam rata tanpa garis tersembunyi — cocok untuk
+    /// gambar garis (line art) yang akan diwarnai ulang di Illustrator/Inkscape.
+    pub fn line_art_preset() -> Self {
+        Self {
+            visible_stroke_px: 1.6,
+            silhouette_stroke_px: 1.6,
+            hidden_stroke_px: 1.6,
+            visible_color: "#000000".to_string(),
+            silhouette_color: "#000000".to_string(),
+            hidden_color: "#000000".to_string(),
+            hidden_dasharray: "6 4".to_string(),
+            background: None,
+            include_hidden: false,
+        }
+    }
+}
+
+/// Ekspor tangkapan vektor viewport ke berkas `.svg`.
+pub fn export_vector_snapshot_svg(snapshot: &VectorSnapshot, path: impl AsRef<Path>) -> Result<()> {
+    export_vector_snapshot_svg_with_options(snapshot, path, &SvgSnapshotOptions::default())
+}
+
+/// Ekspor tangkapan vektor viewport dengan opsi gaya kustom.
+pub fn export_vector_snapshot_svg_with_options(
+    snapshot: &VectorSnapshot,
+    path: impl AsRef<Path>,
+    options: &SvgSnapshotOptions,
+) -> Result<()> {
+    let svg_content = export_vector_snapshot_svg_string(snapshot, options)?;
+    std::fs::write(path.as_ref(), svg_content).with_context(|| {
+        format!(
+            "Gagal menulis file SVG Vector Snapshot ke {}",
+            path.as_ref().display()
+        )
+    })
+}
+
+/// Serialisasi tangkapan vektor viewport menjadi teks XML SVG utuh.
+///
+/// Garis dikelompokkan per jenis ke dalam tiga `<g>` berlabel, dengan atribut
+/// goresan dipasang di grup alih-alih diulang pada tiap `<line>`. Hasilnya
+/// jauh lebih ringkas, dan di editor vektor setiap lapisan bisa dipilih atau
+/// disembunyikan sekaligus.
+pub fn export_vector_snapshot_svg_string(
+    snapshot: &VectorSnapshot,
+    options: &SvgSnapshotOptions,
+) -> Result<String> {
+    let w = snapshot.width_px.max(1.0);
+    let h = snapshot.height_px.max(1.0);
+
+    let mut out = String::with_capacity(16 * 1024 + snapshot.segments.len() * 64);
+    out.push_str(&format!(
+        r##"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0}" height="{h:.0}" viewBox="0 0 {w:.2} {h:.2}" version="1.1">
+  <title>DUCAD Vector Snapshot</title>
+"##
+    ));
+
+    if let Some(bg) = &options.background {
+        out.push_str(&format!(
+            r##"  <rect width="{w:.2}" height="{h:.2}" fill="{bg}" />
+"##,
+            bg = escape_xml(bg)
+        ));
+    }
+
+    // Garis tersembunyi digambar LEBIH DULU supaya garis tampak menimpanya di
+    // titik-titik persilangan, sesuai kelaziman gambar teknik.
+    if options.include_hidden {
+        write_snapshot_layer(
+            &mut out,
+            snapshot,
+            HlrLineKind::Hidden,
+            "snapshot_hidden",
+            &options.hidden_color,
+            options.hidden_stroke_px,
+            Some(&options.hidden_dasharray),
+        );
+    }
+    write_snapshot_layer(
+        &mut out,
+        snapshot,
+        HlrLineKind::Silhouette,
+        "snapshot_silhouette",
+        &options.silhouette_color,
+        options.silhouette_stroke_px,
+        None,
+    );
+    write_snapshot_layer(
+        &mut out,
+        snapshot,
+        HlrLineKind::Visible,
+        "snapshot_visible",
+        &options.visible_color,
+        options.visible_stroke_px,
+        None,
+    );
+
+    out.push_str("</svg>\n");
+    Ok(out)
+}
+
+/// Tulis satu lapisan `<g>` berisi seluruh segmen berjenis `kind`.
+/// Grup dilewati sama sekali bila tidak ada segmen yang cocok, supaya tidak
+/// ada lapisan kosong yang mengotori panel objek di editor vektor.
+fn write_snapshot_layer(
+    out: &mut String,
+    snapshot: &VectorSnapshot,
+    kind: HlrLineKind,
+    id: &str,
+    color: &str,
+    stroke_px: f64,
+    dasharray: Option<&str>,
+) {
+    let mut segs = snapshot.segments.iter().filter(|s| s.kind == kind).peekable();
+    if segs.peek().is_none() {
+        return;
+    }
+
+    let dash = match dasharray {
+        Some(d) if !d.is_empty() => format!(r#" stroke-dasharray="{}""#, escape_xml(d)),
+        _ => String::new(),
+    };
+    out.push_str(&format!(
+        r##"  <g id="{id}" fill="none" stroke="{color}" stroke-width="{stroke_px:.2}" stroke-linecap="round"{dash}>
+"##,
+        color = escape_xml(color)
+    ));
+    for seg in segs {
+        out.push_str(&format!(
+            r##"    <line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" />
+"##,
+            seg.start[0], seg.start[1], seg.end[0], seg.end[1]
+        ));
+    }
+    out.push_str("  </g>\n");
+}
+
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -777,7 +967,8 @@ fn escape_xml(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ducad_kernel::HlrExtractor;
+    use ducad_kernel::{HlrExtractor, HlrSegment2D};
+    use glam::Vec2;
 
     fn sample_sketch() -> Sketch {
         let mut sk = Sketch::default();
@@ -847,5 +1038,187 @@ mod tests {
         assert!(svg.contains("Aluminium 6061-T6"));
         assert!(svg.contains(r#"id="callout_balloons""#));
     }
-}
 
+    fn sample_snapshot() -> VectorSnapshot {
+        VectorSnapshot {
+            segments: vec![
+                HlrSegment2D::new(Vec2::new(10.0, 10.0), Vec2::new(90.0, 10.0), HlrLineKind::Visible),
+                HlrSegment2D::new(Vec2::new(90.0, 10.0), Vec2::new(90.0, 60.0), HlrLineKind::Visible),
+                HlrSegment2D::new(Vec2::new(10.0, 10.0), Vec2::new(40.0, 30.0), HlrLineKind::Hidden),
+                HlrSegment2D::new(Vec2::new(40.0, 30.0), Vec2::new(70.0, 55.0), HlrLineKind::Silhouette),
+            ],
+            width_px: 800.0,
+            height_px: 600.0,
+        }
+    }
+
+    #[test]
+    fn test_export_vector_snapshot_svg_structure() {
+        let svg =
+            export_vector_snapshot_svg_string(&sample_snapshot(), &SvgSnapshotOptions::default())
+                .unwrap();
+
+        assert!(svg.starts_with(r#"<?xml version="1.0""#));
+        assert!(svg.ends_with("</svg>\n"));
+        // viewBox harus memakai ukuran viewport, bukan kotak pembatas garis.
+        assert!(svg.contains(r#"viewBox="0 0 800.00 600.00""#), "{svg}");
+        assert!(svg.contains(r#"id="snapshot_visible""#));
+        assert!(svg.contains(r#"id="snapshot_hidden""#));
+        assert!(svg.contains(r#"id="snapshot_silhouette""#));
+        assert_eq!(svg.matches("<line ").count(), 4);
+    }
+
+    #[test]
+    fn test_vector_snapshot_hidden_layer_is_dashed_and_drawn_first() {
+        let svg =
+            export_vector_snapshot_svg_string(&sample_snapshot(), &SvgSnapshotOptions::default())
+                .unwrap();
+        assert!(svg.contains(r#"stroke-dasharray="6 4""#));
+        // Garis tampak harus menimpa garis tersembunyi, jadi ditulis belakangan.
+        let hidden = svg.find(r#"id="snapshot_hidden""#).unwrap();
+        let visible = svg.find(r#"id="snapshot_visible""#).unwrap();
+        assert!(hidden < visible);
+    }
+
+    #[test]
+    fn test_vector_snapshot_can_omit_the_hidden_layer() {
+        let opts = SvgSnapshotOptions {
+            include_hidden: false,
+            ..Default::default()
+        };
+        let svg = export_vector_snapshot_svg_string(&sample_snapshot(), &opts).unwrap();
+        assert!(!svg.contains(r#"id="snapshot_hidden""#));
+        assert_eq!(svg.matches("<line ").count(), 3);
+    }
+
+    #[test]
+    fn test_vector_snapshot_background_is_transparent_by_default() {
+        let default_svg =
+            export_vector_snapshot_svg_string(&sample_snapshot(), &SvgSnapshotOptions::default())
+                .unwrap();
+        assert!(!default_svg.contains("<rect "));
+
+        let opts = SvgSnapshotOptions {
+            background: Some("#ffffff".to_string()),
+            ..Default::default()
+        };
+        let putih = export_vector_snapshot_svg_string(&sample_snapshot(), &opts).unwrap();
+        assert!(putih.contains(r##"<rect width="800.00" height="600.00" fill="#ffffff" />"##));
+    }
+
+    #[test]
+    fn test_vector_snapshot_skips_empty_layers() {
+        let snap = VectorSnapshot {
+            segments: vec![HlrSegment2D::new(
+                Vec2::new(0.0, 0.0),
+                Vec2::new(10.0, 10.0),
+                HlrLineKind::Visible,
+            )],
+            width_px: 100.0,
+            height_px: 100.0,
+        };
+        let svg = export_vector_snapshot_svg_string(&snap, &SvgSnapshotOptions::default()).unwrap();
+        assert!(svg.contains(r#"id="snapshot_visible""#));
+        assert!(!svg.contains(r#"id="snapshot_hidden""#));
+        assert!(!svg.contains(r#"id="snapshot_silhouette""#));
+    }
+
+    #[test]
+    fn test_vector_snapshot_line_art_preset_is_pure_black() {
+        let svg =
+            export_vector_snapshot_svg_string(&sample_snapshot(), &SvgSnapshotOptions::line_art_preset())
+                .unwrap();
+        assert!(svg.contains(r##"stroke="#000000""##));
+        assert!(!svg.contains(r#"id="snapshot_hidden""#));
+    }
+
+    /// Jalur penuh: solid B-rep asli dari kernel OCCT, berlubang, ditangkap
+    /// dari kamera serong, lalu ditulis sebagai SVG.
+    ///
+    /// Tes unit di `ducad_kernel::vector_snapshot` memakai mesh buatan tangan;
+    /// yang ini membuktikan rangkaiannya utuh di atas geometri sungguhan —
+    /// termasuk bahwa lubang menghasilkan garis tersembunyi.
+    #[test]
+    fn test_vector_snapshot_end_to_end_from_real_solid() {
+        let _guard = crate::occt_test_lock::LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+
+        use ducad_kernel::{Profile, ProfileSegment};
+        let sudut = [(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)];
+        let mut tepi = Vec::new();
+        for i in 0..4 {
+            tepi.push(ProfileSegment::Line {
+                start: sudut[i],
+                end: sudut[(i + 1) % 4],
+            });
+        }
+        // Plat 60x40 dengan satu lubang tembus 20 mm, dibentuk sekali jalan
+        // sebagai face berlubang alih-alih lewat boolean.
+        let profil = Profile::WithHoles {
+            outer: Box::new(Profile::Loop(tepi)),
+            holes: vec![Profile::Circle {
+                center: (30.0, 20.0),
+                radius: 10.0,
+            }],
+        };
+        let shape = ducad_kernel::extrude_profile(&profil, 30.0)
+            .expect("extrude plat berlubang harus berhasil");
+
+        let mesh = shape.tessellate();
+        let edges = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
+        assert!(!edges.is_empty(), "solid harus punya rusuk");
+
+        let camera = ducad_kernel::SnapshotCamera {
+            eye: glam::Vec3::new(140.0, -150.0, 120.0),
+            target: glam::Vec3::new(30.0, 20.0, 15.0),
+            up: glam::Vec3::Z,
+            fov_y: 45f32.to_radians(),
+            width_px: 1200.0,
+            height_px: 800.0,
+            near: 0.25,
+            orthographic: false,
+        };
+        let snapshot = ducad_kernel::extract_vector_snapshot(
+            &camera,
+            &[ducad_kernel::SnapshotBody::new(&edges, &mesh)],
+            &[],
+            &ducad_kernel::SnapshotOptions::default(),
+        );
+
+        assert!(
+            snapshot.count(HlrLineKind::Visible) > 0,
+            "balok berlubang harus punya garis tampak"
+        );
+        assert!(
+            snapshot.count(HlrLineKind::Hidden) > 0,
+            "dinding lubang di sisi jauh harus tersembunyi"
+        );
+
+        let svg =
+            export_vector_snapshot_svg_string(&snapshot, &SvgSnapshotOptions::default()).unwrap();
+        assert!(svg.contains(r#"viewBox="0 0 1200.00 800.00""#));
+        assert!(svg.contains(r#"id="snapshot_visible""#));
+        assert!(svg.contains(r#"id="snapshot_hidden""#));
+
+        // Berkas benar-benar bisa ditulis ke disk.
+        let path = std::env::temp_dir().join("ducad_snapshot_e2e_test.svg");
+        export_vector_snapshot_svg(&snapshot, &path).unwrap();
+        let ditulis = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(ditulis, svg);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_empty_vector_snapshot_still_produces_valid_svg() {
+        let snap = VectorSnapshot {
+            segments: Vec::new(),
+            width_px: 640.0,
+            height_px: 480.0,
+        };
+        let svg = export_vector_snapshot_svg_string(&snap, &SvgSnapshotOptions::default()).unwrap();
+        assert!(svg.contains(r#"viewBox="0 0 640.00 480.00""#));
+        assert!(svg.ends_with("</svg>\n"));
+        assert!(!svg.contains("<line "));
+    }
+}

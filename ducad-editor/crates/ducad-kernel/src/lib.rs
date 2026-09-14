@@ -17,9 +17,11 @@ pub mod mesh;
 pub mod modify;
 pub mod picking;
 pub mod profile;
+pub mod projection;
 pub mod section;
 pub mod shape;
 pub mod step;
+pub mod vector_snapshot;
 
 #[cfg(test)]
 mod tests;
@@ -78,6 +80,12 @@ pub use hlr::{
     ProjectedViewKind,
 };
 pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
+pub use projection::{
+    clip_segment_to_halfspace, clip_segment_to_rect, Projector, DEFAULT_DEPTH_TOLERANCE_MM,
+};
+pub use vector_snapshot::{
+    extract_vector_snapshot, SnapshotBody, SnapshotCamera, SnapshotOptions, VectorSnapshot,
+};
 pub use hole::{apply_hole, create_hole_cutter};
 pub use interference::{
     check_clearance, compute_mesh_centroid, compute_mesh_volume, compute_pair_interference,

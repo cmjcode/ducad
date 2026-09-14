@@ -43,6 +43,10 @@ pub type RoundPreviewCache = (
 
 pub struct DuCADApp {
     pub camera: OrbitCamera,
+    /// Ukuran viewport 3D terakhir yang benar-benar digambar, dalam piksel.
+    /// Vector Snapshot memakainya sebagai `viewBox` SVG supaya tangkapan
+    /// punya proporsi yang sama persis dengan yang dilihat pengguna.
+    pub last_viewport_size: [f32; 2],
     /// Seluruh sketsa dokumen, dikunci identitas (`SketchId`) bukan posisi.
     /// Menggantikan larik paralel `sketches`/`undos` yang dulu disinkronkan
     /// lewat aritmetika indeks — lihat catatan modul `ducad_sketch::document`.
@@ -399,6 +403,7 @@ impl DuCADApp {
 
         Self {
             camera: OrbitCamera::default(),
+            last_viewport_size: [1600.0, 900.0],
             sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
@@ -674,6 +679,7 @@ impl DuCADApp {
         let history_db = crate::history_db::HistoryDb::in_memory();
         Self {
             camera: OrbitCamera::default(),
+            last_viewport_size: [1600.0, 900.0],
             sketch_set: ducad_sketch::SketchSet::new(),
             datum_planes: Vec::new(),
             datum_plane_counter: 0,
@@ -1166,6 +1172,9 @@ impl DuCADApp {
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 
         let aspect = rect.width() / rect.height().max(1.0);
+        // Direkam tiap frame supaya Vector Snapshot memakai ukuran viewport
+        // yang benar-benar terakhir digambar, bukan tebakan.
+        self.last_viewport_size = [rect.width(), rect.height()];
         let world_scale = pixel_tolerance_to_world(&self.camera, rect);
         let overlay = self.build_overlay_lines(raw_cursor, world_scale);
         let body_edge_lines = self.build_body_edge_lines();
@@ -1503,6 +1512,9 @@ impl eframe::App for DuCADApp {
                                 TopBarFileOp::ExportPdf => self.export_drawing_pdf(),
                                 TopBarFileOp::ExportDrawingDxf => self.export_drawing_dxf(),
                                 TopBarFileOp::ExportDrawingSvg => self.export_drawing_svg(),
+                                TopBarFileOp::ExportVectorSnapshot => {
+                                    self.export_vector_snapshot()
+                                }
                                 TopBarFileOp::OpenDrawingSheet => self.open_drawing_sheet(),
                             },
                             TopBarEvent::ToggleTheme => {

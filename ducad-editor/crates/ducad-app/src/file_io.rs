@@ -436,12 +436,13 @@ impl DuCADApp {
     }
 
     /// Membuat dokumen DrawingSheet baru dari seluruh body solid, mesh, dan entitas sketsa dasar.
-    pub fn build_current_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
-        let shapes = self.all_body_shapes();
-        let meshes = self.visible_body_meshes();
-        let mesh_refs: Vec<&ducad_kernel::KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
-
-        // Ekstraksi entitas sketsa profil 2D aktif (garis, lingkaran, busur, spline)
+    /// Ubah entitas sketsa yang aktif menjadi ruas garis 3D di koordinat dunia.
+    ///
+    /// Lingkaran, busur, dan elips dicacah menjadi poligon karena konsumennya
+    /// — HLR gambar kerja dan Vector Snapshot — sama-sama bekerja pada ruas
+    /// garis lurus. Dipakai bersama oleh keduanya supaya sketsa yang sama
+    /// muncul identik di gambar teknik dan di tangkapan viewport.
+    pub fn sketch_world_segments(&self) -> Vec<(glam::Vec3, glam::Vec3)> {
         let mut sketch_segments: Vec<(glam::Vec3, glam::Vec3)> = Vec::new();
         let plane = &self.active_plane;
         for (_, entity) in &self.sketch().entities {
@@ -531,6 +532,16 @@ impl DuCADApp {
                 }
             }
         }
+
+        sketch_segments
+    }
+
+    pub fn build_current_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
+        let shapes = self.all_body_shapes();
+        let meshes = self.visible_body_meshes();
+        let mesh_refs: Vec<&ducad_kernel::KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
+
+        let sketch_segments = self.sketch_world_segments();
 
         let drawing = ducad_kernel::HlrExtractor::extract_drawing_with_sketch(
             &shapes,
@@ -874,6 +885,120 @@ impl DuCADApp {
                 self.file_status =
                     Some(ducad_i18n::t!("file-export-drawing-svg-failed", error = err_str.as_str()));
             }
+        }
+    }
+
+    /// Ekspor Vector Snapshot: "memipihkan" sudut pandang kamera viewport saat
+    /// ini menjadi garis vektor 2D dan menuliskannya sebagai berkas SVG.
+    ///
+    /// Berbeda dengan [`Self::export_drawing_svg`] yang menghasilkan lembar
+    /// gambar teknik berskala milimeter dari empat tampak ortogonal baku,
+    /// fungsi ini menangkap PERSIS sudut pandang yang sedang dipakai — lengkap
+    /// dengan perspektif, pergeseran explode, dan bidang potong Section View —
+    /// dalam koordinat piksel viewport.
+    pub fn export_vector_snapshot(&mut self) {
+        let camera = self.snapshot_camera();
+        let sketch_segments = self.sketch_world_segments();
+
+        // Body terlihat beserta penempatannya. `edge_lines` sudah dihitung
+        // sekali saat body dibangun, jadi di sini tidak ada kerja kernel lagi.
+        let bodies: Vec<(glam::Mat4, &BodyGeometry)> = self
+            .model
+            .geometry
+            .iter()
+            .filter_map(|(id, geo)| {
+                let body = self.model.doc.bodies.get(id)?;
+                if !body.visible {
+                    return None;
+                }
+                Some((
+                    glam::Mat4::from_translation(self.explode_display_offset(id)),
+                    geo,
+                ))
+            })
+            .collect();
+
+        if bodies.is_empty() && sketch_segments.is_empty() {
+            self.file_status = Some(ducad_i18n::t!("file-snapshot-empty"));
+            return;
+        }
+
+        let snapshot_bodies: Vec<ducad_kernel::SnapshotBody<'_>> = bodies
+            .iter()
+            .map(|(model, geo)| {
+                ducad_kernel::SnapshotBody::with_model(&geo.edge_lines, geo.mesh.as_ref(), *model)
+            })
+            .collect();
+
+        let options = ducad_kernel::SnapshotOptions {
+            clip_plane: self.section_clip_plane(),
+            ..Default::default()
+        };
+        let snapshot = ducad_kernel::extract_vector_snapshot(
+            &camera,
+            &snapshot_bodies,
+            &sketch_segments,
+            &options,
+        );
+
+        if snapshot.is_empty() {
+            // Geometri ada, tapi tidak ada yang jatuh di dalam bingkai kamera.
+            self.file_status = Some(ducad_i18n::t!("file-snapshot-offscreen"));
+            return;
+        }
+
+        let filter_name = ducad_i18n::t!("file-drawing-svg-filter");
+        let default_name = self
+            .current_file_path
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .and_then(|n| n.to_str())
+            .map(|stem| format!("{stem}_snapshot.svg"))
+            .unwrap_or_else(|| "snapshot.svg".to_string());
+
+        let Some(path) = self.pick_save_path(&filter_name, &["svg"], &default_name) else {
+            return;
+        };
+
+        match ducad_io::export_vector_snapshot_svg(&snapshot, &path) {
+            Ok(_) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("snapshot.svg");
+                let count = snapshot.segments.len().to_string();
+                self.file_status = Some(ducad_i18n::t!(
+                    "file-exported-snapshot",
+                    name = name,
+                    count = count.as_str()
+                ));
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                self.file_status = Some(ducad_i18n::t!(
+                    "file-export-snapshot-failed",
+                    error = err_str.as_str()
+                ));
+            }
+        }
+    }
+
+    /// Susun parameter kamera tangkapan dari kamera orbit viewport.
+    ///
+    /// `near` disamakan dengan yang dipakai matriks proyeksi render
+    /// (`OrbitCamera::view_proj`) supaya geometri yang terpotong di layar juga
+    /// terpotong di tangkapan.
+    fn snapshot_camera(&self) -> ducad_kernel::SnapshotCamera {
+        let [w, h] = self.last_viewport_size;
+        ducad_kernel::SnapshotCamera {
+            eye: self.camera.eye(),
+            target: self.camera.target,
+            up: glam::Vec3::Z,
+            fov_y: self.camera.fov_y,
+            width_px: w.max(1.0),
+            height_px: h.max(1.0),
+            near: (self.camera.distance * 0.001).max(0.01),
+            orthographic: false,
         }
     }
 }
