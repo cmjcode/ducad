@@ -102,12 +102,15 @@ fn positive(what: &str, v: f64) -> OpResult<f64> {
     Ok(v)
 }
 
+/// `(anak (sufiks nama, entitas), nama induk, konstruksi?)`.
+type Expanded = (Vec<(Option<String>, Entity)>, Option<String>, bool);
+
 /// Satu `EntitySpec` → daftar `(sufiks nama anak, Entity)`. Sufiks `None`
 /// berarti entitas tunggal yang memakai nama induk apa adanya.
 fn expand(
     spec: &EntitySpec,
     params: &Params,
-) -> OpResult<(Vec<(Option<String>, Entity)>, Option<String>, bool)> {
+) -> OpResult<Expanded> {
     let single = |e: Entity| vec![(None, e)];
     let numbered = |es: Vec<Entity>| {
         es.into_iter()
