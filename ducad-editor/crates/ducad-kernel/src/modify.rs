@@ -12,6 +12,7 @@ use crate::picking::edge::resolve_edge_along_ray;
 use crate::picking::ray::PickRay;
 use crate::picking::vertex::resolve_vertex_along_ray;
 use crate::shape::{deep_clone, validate_or_heal, KernelShape};
+use crate::topo::{ordered_faces, take_by_index, unique_edges};
 
 /// Arah pemilihan face yang dihilangkan untuk `shell_hollow` — face
 /// TERJAUH ke arah ini yang dibuang (mis. `PosZ` membuang face atas,
@@ -284,6 +285,50 @@ pub fn chamfer_edges(
         edges.len()
     );
     Ok(KernelShape::from_inner(cloned))
+}
+
+/// Fillet tepi berdasarkan indeks [`crate::topo::enumerate_edges`] — varian
+/// headless dari `fillet_edges` (tanpa ray picking).
+pub fn fillet_edges_by_index(shape: &KernelShape, radius: f64, edges: &[usize]) -> Result<KernelShape> {
+    if radius <= 0.0 {
+        bail!("radius fillet harus > 0");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(shape.inner())?;
+    let picked = take_by_index(unique_edges(&cloned), edges, "tepi")?;
+    cloned
+        .fillet_edges(radius, &picked)
+        .context("radius fillet terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    validate_or_heal(KernelShape::from_inner(cloned), "Fillet")
+}
+
+/// Chamfer tepi berdasarkan indeks [`crate::topo::enumerate_edges`].
+pub fn chamfer_edges_by_index(shape: &KernelShape, distance: f64, edges: &[usize]) -> Result<KernelShape> {
+    if distance <= 0.0 {
+        bail!("jarak chamfer harus > 0");
+    }
+    let _guard = lock_kernel();
+    let mut cloned = deep_clone(shape.inner())?;
+    let picked = take_by_index(unique_edges(&cloned), edges, "tepi")?;
+    cloned
+        .chamfer_edges(distance, &picked)
+        .context("jarak chamfer terlalu besar untuk tepi terpilih (mis. melebihi batas ujung objek)")?;
+    validate_or_heal(KernelShape::from_inner(cloned), "Chamfer")
+}
+
+/// Shell/hollow dengan face yang dibuang dipilih lewat indeks
+/// [`crate::topo::enumerate_faces`].
+pub fn shell_faces_by_index(shape: &KernelShape, thickness: f64, remove_faces: &[usize]) -> Result<KernelShape> {
+    if thickness <= 0.0 {
+        bail!("tebal shell harus > 0");
+    }
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let faces = take_by_index(ordered_faces(&cloned), remove_faces, "face")?;
+    let hollowed = cloned
+        .try_hollow(-thickness.abs(), faces)
+        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
+    validate_or_heal(KernelShape::from_inner(hollowed), "Shell")
 }
 
 /// "Kosongkan" shape jadi cangkang setebal `thickness` mm, membuang face

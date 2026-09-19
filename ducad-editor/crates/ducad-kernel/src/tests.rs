@@ -2922,3 +2922,135 @@ fn transform_after_translate_composes_with_existing_position() {
     assert!((c[0] - 5.0).abs() < 1e-3 && (c[1] - 5.0).abs() < 1e-3, "x,y kembali ke asal: {c:?}");
     assert!((c[2] - 35.0).abs() < 1e-3, "z tetap 30 + 5: {c:?}");
 }
+
+// ---------------------------------------------------------------------
+// P0.4 — enumerasi topologi + operasi berbasis indeks
+// ---------------------------------------------------------------------
+
+fn box_60_40_8() -> KernelShape {
+    extrude_profile(&rect_profile(60.0, 40.0), 8.0).unwrap()
+}
+
+fn box_with_hole() -> KernelShape {
+    let profile = rect_profile(60.0, 40.0).with_holes(vec![Profile::Circle {
+        center: (30.0, 20.0),
+        radius: 2.75,
+    }]);
+    extrude_profile(&profile, 8.0).unwrap()
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+#[test]
+fn topo_box_faces_outward_and_area() {
+    let _guard = lock_test();
+    let shape = box_60_40_8();
+    let faces = topo::enumerate_faces(&shape);
+    assert_eq!(faces.len(), 6);
+    let center = [30.0, 20.0, 4.0];
+    let mut total = 0.0;
+    for f in &faces {
+        assert_eq!(f.kind, SurfaceKind::Plane);
+        assert_eq!(f.concave, None);
+        let rel = [f.centroid[0] - center[0], f.centroid[1] - center[1], f.centroid[2] - center[2]];
+        assert!(dot3(f.normal, rel) > 0.0, "normal face {} harus keluar: {:?} @ {:?}", f.index, f.normal, f.centroid);
+        total += f.area;
+    }
+    let sa = shape.surface_area();
+    assert!((total - sa).abs() / sa < 1e-6, "{total} vs {sa}");
+}
+
+#[test]
+fn topo_box_has_twelve_unique_line_edges() {
+    let _guard = lock_test();
+    let edges = topo::enumerate_edges(&box_60_40_8());
+    assert_eq!(edges.len(), 12);
+    assert!(edges.iter().all(|e| e.kind == EdgeKind::Line));
+    let vertical = edges
+        .iter()
+        .filter(|e| e.dir.is_some_and(|d| (d[2] - 1.0).abs() < 1e-9))
+        .count();
+    assert_eq!(vertical, 4);
+}
+
+#[test]
+fn topo_cylinder_face_and_circle_edges() {
+    let _guard = lock_test();
+    let shape = extrude_profile(&Profile::Circle { center: (0.0, 0.0), radius: 10.0 }, 20.0).unwrap();
+    let faces = topo::enumerate_faces(&shape);
+    let cyl: Vec<_> = faces.iter().filter(|f| f.kind == SurfaceKind::Cylinder).collect();
+    assert_eq!(cyl.len(), 1);
+    assert!((cyl[0].radius.unwrap() - 10.0).abs() < 1e-6);
+    let axis_dir = cyl[0].axis.unwrap().1;
+    assert!((axis_dir[2].abs() - 1.0).abs() < 1e-9, "{axis_dir:?}");
+    assert_eq!(cyl[0].concave, Some(false));
+    let circles: Vec<_> = topo::enumerate_edges(&shape)
+        .into_iter()
+        .filter(|e| e.kind == EdgeKind::Circle)
+        .collect();
+    assert_eq!(circles.len(), 2);
+    for c in circles {
+        assert!((c.radius.unwrap() - 10.0).abs() < 1e-3, "{:?}", c.radius);
+    }
+}
+
+#[test]
+fn topo_hole_is_concave_and_top_boundary() {
+    let _guard = lock_test();
+    let shape = box_with_hole();
+    let faces = topo::enumerate_faces(&shape);
+    let cyl: Vec<_> = faces.iter().filter(|f| f.kind == SurfaceKind::Cylinder).collect();
+    assert!(!cyl.is_empty());
+    assert!(cyl.iter().all(|f| f.concave == Some(true)), "{:?}", cyl.iter().map(|f| f.concave).collect::<Vec<_>>());
+    let top = faces
+        .iter()
+        .find(|f| f.kind == SurfaceKind::Plane && f.normal[2] > 0.9)
+        .expect("face +Z");
+    assert!(top.boundary.len() >= 4);
+    assert!(top.boundary.iter().all(|p| (p[2] - 8.0).abs() < 1e-6));
+}
+
+#[test]
+fn fillet_by_index_vertical_edges_volume() {
+    let _guard = lock_test();
+    let shape = box_60_40_8();
+    let idx: Vec<usize> = topo::enumerate_edges(&shape)
+        .iter()
+        .filter(|e| e.dir.is_some_and(|d| (d[2] - 1.0).abs() < 1e-9))
+        .map(|e| e.index)
+        .collect();
+    assert_eq!(idx.len(), 4);
+    let out = fillet_edges_by_index(&shape, 3.0, &idx).unwrap();
+    assert!(out.is_valid());
+    let expected = 60.0 * 40.0 * 8.0 - 4.0 * (1.0 - std::f64::consts::PI / 4.0) * 9.0 * 8.0;
+    let v = out.volume().abs();
+    assert!((v - expected).abs() / expected < 0.005, "{v} vs {expected}");
+}
+
+#[test]
+fn shell_by_index_top_face_volume() {
+    let _guard = lock_test();
+    let shape = box_60_40_8();
+    let top = topo::enumerate_faces(&shape)
+        .into_iter()
+        .find(|f| f.normal[2] > 0.9)
+        .unwrap()
+        .index;
+    let out = shell_faces_by_index(&shape, 2.0, &[top]).unwrap();
+    assert!(out.is_valid());
+    let expected = 60.0 * 40.0 * 8.0 - 56.0 * 36.0 * 6.0;
+    let v = out.volume().abs();
+    assert!((v - expected).abs() / expected < 0.01, "{v} vs {expected}");
+}
+
+#[test]
+fn by_index_out_of_range_errors() {
+    let _guard = lock_test();
+    let shape = box_60_40_8();
+    assert!(fillet_edges_by_index(&shape, 1.0, &[12]).is_err());
+    assert!(chamfer_edges_by_index(&shape, 1.0, &[99]).is_err());
+    assert!(shell_faces_by_index(&shape, 1.0, &[6]).is_err());
+    assert!(fillet_edges_by_index(&shape, 1.0, &[]).is_err());
+}

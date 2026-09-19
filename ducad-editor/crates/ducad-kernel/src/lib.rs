@@ -21,6 +21,7 @@ pub mod projection;
 pub mod section;
 pub mod shape;
 pub mod step;
+pub mod topo;
 pub mod vector_snapshot;
 
 #[cfg(test)]
@@ -95,7 +96,7 @@ pub use mesh::KernelMesh;
 pub use modify::{
     chamfer_all, chamfer_edges, chamfer_vertex, circular_pattern_shape, create_rib,
     create_rib_from_curve, create_rib_solid, draft_angle, extrude_face, fillet_all,
-    fillet_edges, fillet_edges_variable, fillet_vertex, linear_pattern_shape, make_filleted_box,
+    fillet_edges, fillet_edges_by_index, chamfer_edges_by_index, shell_faces_by_index, fillet_edges_variable, fillet_vertex, linear_pattern_shape, make_filleted_box,
     resize_shape_along_edge, revolve_face, shell_hollow, shell_hollow_faces,
     shell_variable_thickness, split_body, split_body_with_tool, split_face, Direction,
 };
@@ -113,3 +114,4 @@ pub use shape::{
     translate_shape, KernelShape,
 };
 pub use step::write_step_compound;
+pub use topo::{enumerate_edges, enumerate_faces, EdgeInfo, EdgeKind, FaceInfo};

@@ -18,7 +18,8 @@ pub(crate) const FACE_PICK_TOLERANCE_MM: f64 = 0.01;
 /// Fase 1: sekadar deteksi/label — belum dipakai fitur apa pun, disiapkan
 /// utk fitur mendatang yang berperilaku beda tergantung tipe face (mis.
 /// deteksi smart boolean, hint UI khusus silinder/bola).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
     Plane,
     Cylinder,
