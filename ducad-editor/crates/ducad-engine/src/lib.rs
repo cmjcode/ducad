@@ -4,7 +4,9 @@
 //! dan I/O (`ducad-io`) TANPA egui/wgpu, sehingga operasi modeling yang
 //! sama bisa dipanggil dari GUI, CLI, maupun server MCP.
 
+pub mod model;
 pub mod plane;
+pub mod profile;
 
 pub use plane::PlaneFrame;
 

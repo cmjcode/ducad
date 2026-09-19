@@ -72,7 +72,7 @@ impl DuCADApp {
         match crate::model::extrude_selection_with_holes_on_plane(
             self.sketch(),
             &self.selected,
-            &self.active_plane,
+            &crate::document::plane_frame_from(&self.active_plane),
             distance,
         ) {
             Ok(solids) => {
@@ -321,7 +321,7 @@ impl DuCADApp {
             crate::model::build_path_from_selection_on_plane(
                 self.sketch_at_index(path_plane_idx),
                 &self.selected,
-                &path_plane,
+                &crate::document::plane_frame_from(&path_plane),
             )
             .ok()
         }) else {

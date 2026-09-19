@@ -1603,7 +1603,7 @@ impl DuCADApp {
                                     self.selected.insert(ent_id);
                                 }
 
-                                if let Ok(path) = crate::model::build_path_from_selection_on_plane(self.sketch_at_index(plane_idx), &self.selected, &plane) {
+                                if let Ok(path) = crate::model::build_path_from_selection_on_plane(self.sketch_at_index(plane_idx), &self.selected, &crate::document::plane_frame_from(&plane)) {
                                     self.pending_sweep_path = Some(path);
                                     self.model_status = Some("✓ Profil & Jalur terpilih! Tekan 'Buat Sweep 3D' di atas atau tekan Enter".to_string());
                                 } else {

@@ -138,7 +138,7 @@ impl DuCADApp {
             if let Ok(solids) = crate::model::extrude_selection_with_holes_on_plane(
                 self.sketch(),
                 &self.selected,
-                &self.active_plane,
+                &crate::document::plane_frame_from(&self.active_plane),
                 self.gizmo_distance,
             ) {
                 if self.gizmo_is_cutting {
