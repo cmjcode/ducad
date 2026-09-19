@@ -1,0 +1,37 @@
+{
+  "id": "lid_clearance",
+  "prompt": "Buat dua body: \"box\" berupa kotak 40 x 40 x 20 mm (z 0..20, berpusat di origin pada XY) dan \"lid\" berupa tutup 40 x 40 x 3 mm tepat di atasnya dengan celah 0.5 mm (z 20.5..23.5). Keduanya harus tetap body terpisah bernama box dan lid. Simpan sebagai out/part.ducad.",
+  "notes": "volume box = 40·40·20, lid = 40·40·3; celah = 0.5",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 2
+    },
+    {
+      "check": "volume",
+      "body": "box",
+      "expect": 32000,
+      "tol_pct": 0.5
+    },
+    {
+      "check": "volume",
+      "body": "lid",
+      "expect": 4800,
+      "tol_pct": 0.5
+    },
+    {
+      "check": "clearance",
+      "a": "box",
+      "b": "lid",
+      "min": 0.5
+    },
+    {
+      "check": "no_interference",
+      "bodies": "*"
+    }
+  ]
+}

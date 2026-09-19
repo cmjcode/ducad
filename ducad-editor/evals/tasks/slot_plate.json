@@ -1,0 +1,31 @@
+{
+  "id": "slot_plate",
+  "prompt": "Buat plat 80 x 30 x 6 mm berpusat di origin pada bidang XY, dengan slot tembus (lubang lonjong) dari pusat (−16, 0) ke (16, 0) berjari-jari 4 mm. Simpan sebagai out/part.ducad.",
+  "notes": "volume = 80·30·6 − (32·8 + π·4²)·6",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        80,
+        30,
+        6
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 12562.41,
+      "tol_pct": 1.0
+    }
+  ]
+}

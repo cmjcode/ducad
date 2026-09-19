@@ -1,0 +1,69 @@
+{
+  "params": {
+    "w": 60,
+    "h": 40,
+    "t": 8,
+    "r": 3,
+    "hole_d": 5.5
+  },
+  "ops": [
+    {
+      "op": "sketch",
+      "id": "base",
+      "plane": "XY",
+      "entities": [
+        {
+          "rect": {
+            "center": [
+              0,
+              0
+            ],
+            "w": "$w",
+            "h": "$h",
+            "name": "outline"
+          }
+        }
+      ]
+    },
+    {
+      "op": "extrude",
+      "id": "plate",
+      "sketch": "base",
+      "distance": "$t"
+    },
+    {
+      "op": "fillet",
+      "id": "f1",
+      "body": "plate",
+      "edges": "|Z",
+      "radius": "$r"
+    },
+    {
+      "op": "hole",
+      "id": "h1",
+      "body": "plate",
+      "face": ">Z",
+      "at": [
+        [
+          -20,
+          -10
+        ],
+        [
+          20,
+          -10
+        ],
+        [
+          -20,
+          10
+        ],
+        [
+          20,
+          10
+        ]
+      ],
+      "spec": {
+        "diameter": "$hole_d"
+      }
+    }
+  ]
+}

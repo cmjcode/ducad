@@ -1,0 +1,42 @@
+{
+  "id": "param_edit",
+  "setup_ops": "fixtures/plate_param.ops.json",
+  "prompt": "File in/part.ducad berisi plat parametrik (params t = tebal, hole_d = diameter lubang). Ubah tebal menjadi 12 mm dan lubang menjadi clearance M6 (Ø6.6) TANPA menulis ulang atau menambah op — ubah parameternya saja. Simpan hasilnya sebagai out/part.ducad.",
+  "notes": "volume = 60·40·12 − 4(1−π/4)·3²·12 − 4π·3.3²·12; oplog tetap 4 op",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        60,
+        40,
+        12
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 27065.12,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 6.6,
+      "expect": 4
+    },
+    {
+      "check": "oplog_len",
+      "expect": 4
+    }
+  ]
+}

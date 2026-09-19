@@ -1,0 +1,36 @@
+{
+  "id": "hex_blank",
+  "prompt": "Buat blank prisma segi enam beraturan dengan jarak antar-sisi 13 mm dan tinggi 6.5 mm (alas di z=0, sumbu Z), dengan lubang tengah tembus Ø8. Simpan sebagai out/part.ducad.",
+  "notes": "volume = ((√3/2)·13² − π·4²)·6.5; jarak antar-sudut = 13/cos30° ≈ 15.01",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_max",
+      "body": "*",
+      "max": [
+        15.02,
+        15.02,
+        6.5
+      ]
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 624.6,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 8,
+      "expect": 1
+    }
+  ]
+}

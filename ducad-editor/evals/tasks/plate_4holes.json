@@ -1,0 +1,37 @@
+{
+  "id": "plate_4holes",
+  "prompt": "Buat plat 60 x 40 x 8 mm berpusat di origin pada bidang XY, sudut vertikal di-fillet R3, dengan 4 lubang tembus clearance M5 di (±20, ±10). Simpan sebagai out/part.ducad.",
+  "notes": "volume = 60·40·8 − 4(1−π/4)·3²·8 − 4π·2.75²·8",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        60,
+        40,
+        8
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 18377.93,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 5.5,
+      "expect": 4
+    }
+  ]
+}

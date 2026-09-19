@@ -1,0 +1,37 @@
+{
+  "id": "l_bracket",
+  "prompt": "Buat bracket L: alas 50 x 30 x 5 mm dengan sudut di (0,0,0) sampai (50,30,5), ditambah dinding tegak 50 x 5 x 30 mm menempati x 0..50, y 0..5, z 0..30 (menyatu dengan alas). Fillet tepi lipatan dalam (sepanjang X di y=5, z=5) dengan R2. Buat 2 lubang tembus clearance M5 di alas pada (12.5, 20) dan (37.5, 20). Satu body saja. Simpan sebagai out/part.ducad.",
+  "notes": "volume = 50·30·5 + 50·5·30 − 50·5·5 + (1−π/4)·2²·50 − 2π·2.75²·5",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        50,
+        30,
+        30
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 13555.34,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 5.5,
+      "expect": 2
+    }
+  ]
+}

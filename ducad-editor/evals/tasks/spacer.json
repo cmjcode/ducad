@@ -1,0 +1,37 @@
+{
+  "id": "spacer",
+  "prompt": "Buat spacer silinder Ø12 mm tinggi 20 mm (sumbu Z, alas di z=0) dengan lubang tengah tembus Ø5.5. Simpan sebagai out/part.ducad.",
+  "notes": "volume = π·20·(6² − 2.75²)",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        12,
+        12,
+        20
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 1786.78,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 5.5,
+      "expect": 1
+    }
+  ]
+}

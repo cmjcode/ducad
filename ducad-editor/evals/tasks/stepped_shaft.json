@@ -1,0 +1,31 @@
+{
+  "id": "stepped_shaft",
+  "prompt": "Buat poros bertingkat dengan revolve: bagian Ø20 sepanjang 30 mm lalu bagian Ø12 sepanjang 20 mm, segaris, sumbu poros searah Z mulai z=0 (total 50 mm). Simpan sebagai out/part.ducad.",
+  "notes": "volume = π·(10²·30 + 6²·20)",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        20,
+        20,
+        50
+      ],
+      "tol": 0.1
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 11686.73,
+      "tol_pct": 1.0
+    }
+  ]
+}

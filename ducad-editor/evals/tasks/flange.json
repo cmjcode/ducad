@@ -1,0 +1,43 @@
+{
+  "id": "flange",
+  "prompt": "Buat flens: cakram Ø80 mm tebal 10 mm berpusat di origin pada bidang XY (z 0..10), lubang tengah (bore) Ø30 tembus, dan 6 lubang tembus Ø6.6 berjarak sama pada lingkaran pitch (PCD) Ø60. Simpan sebagai out/part.ducad.",
+  "notes": "volume = π·10·(40² − 15² − 6·3.3²)",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        80,
+        80,
+        10
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 41144.18,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 6.6,
+      "expect": 6
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 30,
+      "expect": 1
+    }
+  ]
+}

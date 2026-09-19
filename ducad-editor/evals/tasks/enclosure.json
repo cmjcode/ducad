@@ -1,0 +1,36 @@
+{
+  "id": "enclosure",
+  "prompt": "Buat kotak enclosure: ukuran luar 100 x 60 x 30 mm (alas di z=0), tebal dinding dan alas 2 mm, bagian atas terbuka. Simpan sebagai out/part.ducad.",
+  "notes": "volume = 100·60·30 − 96·56·28",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        100,
+        60,
+        30
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "volume",
+      "body": "*",
+      "expect": 29472.0,
+      "tol_pct": 1.0
+    },
+    {
+      "check": "min_wall",
+      "body": "*",
+      "min": 2
+    }
+  ]
+}
