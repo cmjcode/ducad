@@ -5,6 +5,40 @@
 pub mod eval;
 pub mod parse;
 
+/// Ringkasan tata bahasa & semantik selector untuk agent (≤ 40 baris).
+pub const SELECTOR_CHEATSHEET: &str = "\
+Selector face/tepi (tidak peka huruf besar; LIN_TOL 1e-4 mm, ANG_TOL 0.5 derajat)
+selector := term (or|and|except term)*        -- asosiatif kiri, prioritas sama
+term     := base filter*
+BASE                 FACE                               TEPI
+all                  semua face                         semua tepi
+>A / <A              posisi centroid maks/min di A      posisi mid maks/min di A
++A / -A              normal keluar searah +A/-A         (tidak berlaku)
+|A                   normal sejajar A                   garis sejajar A
+#A                   normal tegak lurus A               garis tegak lurus A
+largest / smallest   luas maks/min                      (tidak berlaku)
+longest / shortest   (tidak berlaku)                    panjang maks/min
+idx:i,j              indeks enumerasi                   indeks enumerasi
+of(S)                (tidak berlaku)                    tepi dari face hasil S
+(S)                  pengelompokan                      pengelompokan
+A = X | Y | Z
+FILTER [KEY CMP VALUE], CMP = = < > <= >=, '=' numerik toleransi 1e-3
+kind   face: plane|cylinder|cone|sphere|torus|other   tepi: line|circle|other
+area   luas face (mm2)          len  panjang tepi (mm)
+r      radius (face silinder/kerucut/bola, tepi lingkaran)
+x y z  komponen centroid face / mid tepi
+Hasil terurut naik. Kosong -> selector_empty + context.available (jumlah per jenis).
+CONTOH
+>Z                          face paling atas
++Z[z=5]                     face menghadap +Z pada ketinggian 5
+#Z                          dinding samping box
+|Z                          tepi tegak (untuk fillet sudut)
+of(>Z)                      tepi keliling face atas
+of(>Z) and |X               tepi atas yang sejajar X
+all except |Z               semua tepi selain yang tegak
+all[kind=cylinder][r=2.75]  dinding lubang M5 clearance
+";
+
 pub use eval::{eval_edges, eval_faces, ANG_TOL_DEG};
 pub use parse::{parse, SelCtx, SelExpr};
 

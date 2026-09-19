@@ -214,3 +214,166 @@ fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server() -> (Server, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "ducad-mcp-unit-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        (Server::new(dir.clone()).unwrap(), dir)
+    }
+
+    fn call(s: &mut Server, id: u64, name: &str, args: Value) -> Value {
+        let msg = json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call", "params": { "name": name, "arguments": args } });
+        handle_message(s, &msg.to_string()).unwrap()["result"].clone()
+    }
+
+    fn text(result: &Value) -> Value {
+        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn initialize_and_tools_list() {
+        let (mut s, _) = server();
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(r["result"]["protocolVersion"], PROTOCOL_VERSION);
+        assert_eq!(r["result"]["instructions"], INSTRUCTIONS);
+        let r =
+            handle_message(&mut s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
+        let tools = r["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 15);
+        for t in tools {
+            assert!(t["inputSchema"].is_object(), "{}", t["name"]);
+            assert_eq!(t["inputSchema"]["additionalProperties"], false);
+            assert!(t["description"].as_str().unwrap().len() > 10);
+        }
+    }
+
+    #[test]
+    fn full_flow() {
+        let (mut s, dir) = server();
+        let plate: Value = serde_json::from_str(ducad_engine::ops::EXAMPLE_PLATE).unwrap();
+        let ops = plate["ops"].as_array().unwrap().clone();
+
+        let r = call(&mut s, 1, "new_part", json!({}));
+        assert_eq!(r["isError"], false);
+        assert_eq!(text(&r)["session"], "s1");
+        let r = call(
+            &mut s,
+            2,
+            "set_params",
+            json!({ "params": plate["params"] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&mut s, 3, "run_ops", json!({ "ops": ops[..2] }));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            4,
+            "query_geometry",
+            json!({ "body": "plate", "edges": "|Z" }),
+        );
+        assert_eq!(text(&r)["count"], 4);
+        let r = call(&mut s, 5, "run_ops", json!({ "ops": ops[2..] }));
+        assert_eq!(r["isError"], false, "{r}");
+
+        let r = call(&mut s, 6, "inspect", json!({}));
+        let v = text(&r)["bodies"][0]["volume"].as_f64().unwrap();
+        let pi = std::f64::consts::PI;
+        let expected =
+            60.0 * 40.0 * 8.0 - 4.0 * (1.0 - pi / 4.0) * 9.0 * 8.0 - 4.0 * pi * 2.75 * 2.75 * 8.0;
+        assert!((v - expected).abs() / expected < 1e-3, "{v}");
+
+        let r = call(&mut s, 7, "render_view", json!({ "view": "iso" }));
+        assert_eq!(r["content"][1]["type"], "image");
+        assert_eq!(r["content"][1]["mimeType"], "image/png");
+
+        let r = call(
+            &mut s,
+            8,
+            "measure",
+            json!({ "a": { "body": "plate", "face": ">Z" }, "b": { "body": "plate", "face": "<Z" } }),
+        );
+        assert_eq!(text(&r)["plane_gap"], 8.0);
+
+        let r = call(&mut s, 9, "save_part", json!({ "path": "plate.ducad" }));
+        assert_eq!(r["isError"], false, "{r}");
+        assert!(dir.join("plate.ducad").exists());
+        let r = call(&mut s, 10, "open_part", json!({ "path": "plate.ducad" }));
+        assert_eq!(text(&r)["session"], "s2");
+        let r = call(&mut s, 11, "get_oplog", json!({ "session": "s2" }));
+        assert_eq!(text(&r)["ops"].as_array().unwrap().len(), 4);
+
+        // Dua sesi terbuka → argumen session wajib.
+        let r = call(&mut s, 12, "inspect", json!({}));
+        assert_eq!(r["isError"], true);
+        let r = call(&mut s, 13, "undo", json!({ "session": "s1" }));
+        assert_eq!(text(&r)["changed"], true);
+        let r = call(&mut s, 14, "get_schema", json!({}));
+        let schema = text(&r);
+        assert!(schema["selector_cheatsheet"]
+            .as_str()
+            .unwrap()
+            .contains("of(>Z)"));
+        assert!(schema["op_schema"]["definitions"]["Op"].is_object());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failing_run_is_error_with_code() {
+        let (mut s, dir) = server();
+        call(&mut s, 1, "new_part", json!({}));
+        let r = call(
+            &mut s,
+            2,
+            "run_ops",
+            json!({ "ops": [{"op":"fillet","id":"f","body":"none","edges":"all","radius":1}] }),
+        );
+        assert_eq!(r["isError"], true);
+        let t = r["content"][0]["text"].as_str().unwrap();
+        assert!(t.contains("\"code\":\"unknown_ref\""), "{t}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn protocol_edge_cases_and_path_fence() {
+        let (mut s, dir) = server();
+        assert!(handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#
+        )
+        .is_none());
+        let r = handle_message(&mut s, "{rusak").unwrap();
+        assert_eq!(r["error"]["code"], -32700);
+        let r = handle_message(&mut s, r#"{"jsonrpc":"2.0","id":3,"method":"tidak/ada"}"#).unwrap();
+        assert_eq!(r["error"]["code"], -32601);
+        call(&mut s, 4, "new_part", json!({}));
+        let r = call(&mut s, 5, "save_part", json!({ "path": "../luar.ducad" }));
+        assert_eq!(r["isError"], true);
+        assert!(r["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("di luar root"));
+        let r = call(&mut s, 6, "save_part", json!({ "path": "/etc/luar.ducad" }));
+        assert_eq!(r["isError"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn oversized_text_is_truncated() {
+        let big = json!({ "items": (0..20000).map(|i| json!({ "i": i, "pad": "xxxxxxxxxx" })).collect::<Vec<_>>() });
+        let t = crate::tools::compact_text(big);
+        assert!(t.len() <= crate::tools::MAX_TEXT_BYTES);
+        let v: Value = serde_json::from_str(&t).unwrap();
+        assert_eq!(v["truncated"], true);
+    }
+}
