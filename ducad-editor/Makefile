@@ -364,6 +364,12 @@ xcode-publish-all: xcode-project
 
 # Pasang binary headless ke ~/.cargo/bin; `.mcp.json` di root repo
 # menjalankan ${HOME}/.cargo/bin/ducad-mcp.
+# MNEMONIC (memori agent, repo tetangga ../../MNEMONIC) dipasang bila ada.
 install-agent-tools:
 	cargo install --path crates/ducad-cli --locked
 	cargo install --path crates/ducad-mcp --locked
+	@if [ -d ../../MNEMONIC ]; then \
+		cargo install --path ../../MNEMONIC --bin mnemonic-cli --locked; \
+	else \
+		echo "MNEMONIC tidak ditemukan di ../../MNEMONIC — dilewati"; \
+	fi

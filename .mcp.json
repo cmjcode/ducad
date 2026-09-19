@@ -1,2 +1,4 @@
 { "mcpServers": {
-    "ducad": { "command": "${HOME}/.cargo/bin/ducad-mcp", "args": ["--root", "${PWD}"] } } }
+    "ducad":    { "command": "${HOME}/.cargo/bin/ducad-mcp", "args": ["--root", "${PWD}"] },
+    "mnemonic": { "command": "${HOME}/.cargo/bin/mnemonic-cli",
+                  "args": ["--vault", "${HOME}/DUCAD-Memory", "mcp"] } } }
