@@ -35,6 +35,8 @@ pub enum OpErrorCode {
     Io,
     /// Fitur belum diimplementasikan.
     Unsupported,
+    /// Model berubah sejak proposal dibuat (P8.4).
+    ProposalStale,
 }
 
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]

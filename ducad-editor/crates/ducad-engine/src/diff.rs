@@ -228,48 +228,34 @@ fn volume_of_difference(
     }
 }
 
-/// Bandingkan dua sesi. `geometric = true` menghitung volume tambah/hilang
-/// dengan boolean kernel (kegagalan kernel → `None` + peringatan, bukan error).
-pub fn diff(a: &Session, b: &Session, geometric: bool) -> (DesignDiff, DiffShapes) {
-    let (da, db) = (a.design(), b.design());
-    let names: BTreeSet<&String> = da.params.keys().chain(db.params.keys()).collect();
-    let params = names
-        .into_iter()
-        .filter_map(|n| {
-            let (o, w) = (da.params.get(n).copied(), db.params.get(n).copied());
-            (o != w).then(|| ParamChange {
-                name: n.clone(),
-                old: o,
-                new: w,
-            })
+/// Salinan (nama, uuid, shape, bbox, volume) semua body model.
+pub(crate) fn snapshot_bodies(m: &crate::model::ModelDoc) -> Vec<BodySnapshot> {
+    m.doc
+        .bodies
+        .iter()
+        .filter_map(|(id, body)| {
+            let g = m.geometry.get(id)?;
+            let shape = ducad_kernel::clone_shape(&g.shape).ok()?;
+            Some((
+                body.name.clone(),
+                body.uuid.clone(),
+                shape,
+                bbox(g),
+                g.shape.volume().abs(),
+            ))
         })
-        .collect();
-    let ops = diff_ops(&da.oplog, &db.oplog);
+        .collect()
+}
 
-    let bodies_of = |s: &Session| -> Vec<BodySnapshot> {
-        let m = s.model();
-        m.doc
-            .bodies
-            .iter()
-            .filter_map(|(id, body)| {
-                let g = m.geometry.get(id)?;
-                let shape = ducad_kernel::clone_shape(&g.shape).ok()?;
-                Some((
-                    body.name.clone(),
-                    body.uuid.clone(),
-                    shape,
-                    bbox(g),
-                    g.shape.volume().abs(),
-                ))
-            })
-            .collect()
-    };
-    let old = bodies_of(a);
-    let mut new = bodies_of(b);
+/// Diff body lama vs baru (dicocokkan lewat nama, lalu uuid).
+pub(crate) fn diff_bodies(
+    old: Vec<BodySnapshot>,
+    mut new: Vec<BodySnapshot>,
+    geometric: bool,
+) -> (Vec<BodyDiff>, DiffShapes, Vec<String>) {
     let mut warnings = Vec::new();
     let mut shapes = DiffShapes::default();
     let mut bodies = Vec::new();
-
     for (name, uuid, shape, bb, vol) in old {
         let pos = new
             .iter()
@@ -338,6 +324,32 @@ pub fn diff(a: &Session, b: &Session, geometric: bool) -> (DesignDiff, DiffShape
             shapes.added.push(shape);
         }
     }
+    (bodies, shapes, warnings)
+}
+
+/// Bandingkan dua sesi. `geometric = true` menghitung volume tambah/hilang
+/// dengan boolean kernel (kegagalan kernel → `None` + peringatan, bukan error).
+pub fn diff(a: &Session, b: &Session, geometric: bool) -> (DesignDiff, DiffShapes) {
+    let (da, db) = (a.design(), b.design());
+    let names: BTreeSet<&String> = da.params.keys().chain(db.params.keys()).collect();
+    let params = names
+        .into_iter()
+        .filter_map(|n| {
+            let (o, w) = (da.params.get(n).copied(), db.params.get(n).copied());
+            (o != w).then(|| ParamChange {
+                name: n.clone(),
+                old: o,
+                new: w,
+            })
+        })
+        .collect();
+    let ops = diff_ops(&da.oplog, &db.oplog);
+
+    let (bodies, shapes, warnings) = diff_bodies(
+        snapshot_bodies(a.model()),
+        snapshot_bodies(b.model()),
+        geometric,
+    );
     (
         DesignDiff {
             params,

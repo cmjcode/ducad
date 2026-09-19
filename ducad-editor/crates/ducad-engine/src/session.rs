@@ -120,6 +120,30 @@ pub struct Session {
     sketches: SketchSet,
     meta: SessionMeta,
     redo: Vec<Vec<Op>>,
+    /// Proposal tertunda (maks [`MAX_PROPOSALS`], yang tertua dibuang).
+    proposals: std::collections::VecDeque<StoredProposal>,
+    next_proposal: u32,
+}
+
+/// Jumlah proposal tertunda yang disimpan per sesi.
+pub const MAX_PROPOSALS: usize = 8;
+
+struct StoredProposal {
+    id: String,
+    ops: Vec<Op>,
+    base_fingerprint: String,
+}
+
+/// Proposal perubahan (ghost preview, P8.4): batch yang sudah dijalankan
+/// lalu dibatalkan, beserta diff body-nya.
+#[derive(Debug, Clone, Serialize)]
+pub struct Proposal {
+    pub id: String,
+    pub ops: Vec<Op>,
+    /// `committed = false`.
+    pub report: BatchReport,
+    pub diff: Vec<crate::diff::BodyDiff>,
+    pub base_fingerprint: String,
 }
 
 impl Default for Session {
@@ -249,6 +273,18 @@ impl SessionCore<'_> {
 
     /// Jalankan `ops` secara atomik (algoritma P1.5).
     pub fn run(&mut self, ops: Vec<Op>, dry_run: bool) -> BatchReport {
+        self.run_with(ops, dry_run, |_| ()).0
+    }
+
+    /// Seperti [`SessionCore::run`], plus `inspect` yang dipanggil atas model
+    /// SETELAH semua op berhasil dan SEBELUM commit/rollback (dipakai
+    /// `propose` untuk mengambil geometri hasil lalu membatalkannya).
+    pub fn run_with<T>(
+        &mut self,
+        ops: Vec<Op>,
+        dry_run: bool,
+        inspect: impl FnOnce(&ModelDoc) -> T,
+    ) -> (BatchReport, Option<T>) {
         let saved = self.meta.clone();
         self.model_undo.begin("batch");
         let mut new_sketches: Vec<SketchId> = Vec::new();
@@ -282,19 +318,21 @@ impl SessionCore<'_> {
             }
         }
 
+        let inspected = failure.is_none().then(|| inspect(self.model));
         if failure.is_some() || dry_run {
             self.model_undo.rollback(self.model);
             for sid in new_sketches {
                 self.sketches.remove(sid);
             }
             *self.meta = saved;
-            return BatchReport {
+            let report = BatchReport {
                 committed: false,
                 outcomes,
                 error: failure,
                 summary: self.summary(),
                 checks: None,
             };
+            return (report, inspected);
         }
 
         self.model_undo.commit();
@@ -306,13 +344,14 @@ impl SessionCore<'_> {
         self.meta.design.fingerprint = fingerprint(self.model);
         let checks = (!self.meta.design.checks.is_empty())
             .then(|| crate::check::run_checks_on(self.model, self.meta, &self.meta.design.checks));
-        BatchReport {
+        let report = BatchReport {
             committed: true,
             outcomes,
             error: None,
             summary: self.summary(),
             checks,
-        }
+        };
+        (report, inspected)
     }
 
     fn check_id(&self, op: &Op, used: &HashSet<String>) -> OpResult<()> {
@@ -909,6 +948,8 @@ impl Session {
             sketches: SketchSet::new(),
             meta: SessionMeta::default(),
             redo: Vec::new(),
+            proposals: std::collections::VecDeque::new(),
+            next_proposal: 1,
         }
     }
 
@@ -1207,15 +1248,100 @@ impl Session {
         }
     }
 
+    /// Jalankan `ops` tanpa mengubah model (batch lalu rollback) dan
+    /// kembalikan diff-nya sebagai proposal. Batch yang gagal → error-nya.
+    pub fn propose(&mut self, ops: Vec<Op>) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
+        let before = crate::diff::snapshot_bodies(&self.model);
+        let base_fingerprint = fingerprint(&self.model);
+        let (report, after) = self
+            .core()
+            .run_with(ops.clone(), true, crate::diff::snapshot_bodies);
+        if let Some(e) = report.error.clone() {
+            return Err(e);
+        }
+        let (diff, shapes, _) = crate::diff::diff_bodies(before, after.unwrap_or_default(), true);
+        let id = format!("p{}", self.next_proposal);
+        self.next_proposal += 1;
+        if self.proposals.len() >= MAX_PROPOSALS {
+            self.proposals.pop_front();
+        }
+        self.proposals.push_back(StoredProposal {
+            id: id.clone(),
+            ops: ops.clone(),
+            base_fingerprint: base_fingerprint.clone(),
+        });
+        Ok((
+            Proposal {
+                id,
+                ops,
+                report,
+                diff,
+                base_fingerprint,
+            },
+            shapes,
+        ))
+    }
+
+    /// Terapkan proposal. Model berubah sejak proposal dibuat → error
+    /// `ProposalStale` (proposal tetap disimpan agar bisa dibuang).
+    pub fn accept(&mut self, proposal_id: &str) -> BatchReport {
+        let Some(pos) = self.proposals.iter().position(|p| p.id == proposal_id) else {
+            let known: Vec<String> = self.proposals.iter().map(|p| p.id.clone()).collect();
+            return self.failed_report(OpError::new(
+                OpErrorCode::UnknownRef,
+                format!("proposal '{proposal_id}' tidak dikenal (yang ada: {known:?})"),
+            ));
+        };
+        if self.proposals[pos].base_fingerprint != fingerprint(&self.model) {
+            return self.failed_report(
+                OpError::new(
+                    OpErrorCode::ProposalStale,
+                    format!("model berubah sejak proposal '{proposal_id}' dibuat"),
+                )
+                .with_hint("buat proposal baru dengan propose_ops"),
+            );
+        }
+        let ops = self.proposals[pos].ops.clone();
+        let report = self.run(ops, false);
+        if report.committed {
+            self.proposals.remove(pos);
+        }
+        report
+    }
+
+    /// Buang proposal; `false` bila id tidak dikenal.
+    pub fn reject(&mut self, proposal_id: &str) -> bool {
+        let before = self.proposals.len();
+        self.proposals.retain(|p| p.id != proposal_id);
+        self.proposals.len() != before
+    }
+
+    fn failed_report(&self, e: OpError) -> BatchReport {
+        BatchReport {
+            committed: false,
+            outcomes: Vec::new(),
+            error: Some(e),
+            summary: self.summary(),
+            checks: None,
+        }
+    }
+
     /// Ganti seluruh daftar check desain.
     pub fn set_checks(&mut self, checks: Vec<crate::check::CheckItem>) {
         self.meta.design.checks = checks;
     }
 
     /// Evaluasi `checks` (atau `design.checks` bila `None`).
-    pub fn run_checks(&self, checks: Option<&[crate::check::CheckItem]>) -> crate::check::CheckSummary {
+    pub fn run_checks(
+        &self,
+        checks: Option<&[crate::check::CheckItem]>,
+    ) -> crate::check::CheckSummary {
         let list = checks.unwrap_or(&self.meta.design.checks);
-        crate::check::CheckSummary::from_results(crate::check::run_checks_on(&self.model, &self.meta, list))
+        crate::check::CheckSummary::from_results(crate::check::run_checks_on(
+            &self.model,
+            &self.meta,
+            list,
+        ))
     }
 
     /// Buang batch terakhir lalu replay. `false` bila tidak ada yang bisa di-undo.

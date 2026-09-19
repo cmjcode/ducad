@@ -131,3 +131,45 @@ fn diff_render_has_colored_layers() {
     assert!(r.svg.contains(r#"id="layer_0""#) && r.svg.contains(r#"id="layer_2""#));
     assert!(r.visible_segments > 0);
 }
+
+#[test]
+fn propose_does_not_change_model_and_stale_accept_fails() {
+    let mut s = session(ducad_engine::ops::EXAMPLE_PLATE);
+    let v0 = s.body("plate").unwrap().1.shape.volume().abs();
+    let ops: Vec<ducad_engine::ops::Op> = serde_json::from_str(
+        r#"[{"op":"shell","id":"sh","body":"plate","remove_faces":"<Z","thickness":1}]"#,
+    )
+    .unwrap();
+    let (p, shapes) = s.propose(ops.clone()).unwrap();
+    assert!(!p.report.committed);
+    assert_eq!(p.diff[0].status, "changed");
+    assert!(p.diff[0].removed_volume.unwrap() > 0.0);
+    assert!(!shapes.removed.is_empty());
+    assert!(
+        (s.body("plate").unwrap().1.shape.volume().abs() - v0).abs() < 1e-9,
+        "propose tidak mengubah model"
+    );
+    assert_eq!(s.design().oplog.len(), 4);
+
+    // Proposal kedua lalu model diubah → accept basi.
+    let (p2, _) = s.propose(ops.clone()).unwrap();
+    let other: Vec<ducad_engine::ops::Op> = serde_json::from_str(
+        r#"[{"op":"primitive","id":"x","shape":{"sphere":{"r":1}},"at":[100,0,0]}]"#,
+    )
+    .unwrap();
+    assert!(s.run(other, false).committed);
+    let r = s.accept(&p2.id);
+    assert_eq!(
+        r.error.unwrap().code,
+        ducad_engine::OpErrorCode::ProposalStale
+    );
+    assert!(s.reject(&p2.id));
+    assert!(!s.reject(&p2.id));
+
+    // Proposal baru di atas model terkini bisa diterima.
+    let (p3, _) = s.propose(ops).unwrap();
+    let r = s.accept(&p3.id);
+    assert!(r.committed, "{:?}", r.error);
+    assert!(s.body("plate").unwrap().1.shape.volume().abs() < v0);
+    let _ = p;
+}

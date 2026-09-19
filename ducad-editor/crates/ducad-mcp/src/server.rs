@@ -250,7 +250,7 @@ mod tests {
         let r =
             handle_message(&mut s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
         let tools = r["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 20);
         for t in tools {
             assert!(t["inputSchema"].is_object(), "{}", t["name"]);
             assert_eq!(t["inputSchema"]["additionalProperties"], false);
@@ -348,6 +348,32 @@ mod tests {
             text(&r)["checks"].is_array(),
             "BatchReport memuat checks: {r}"
         );
+        let r = call(
+            &mut s,
+            30,
+            "propose_ops",
+            json!({ "session": "s2", "ops": [
+            {"op": "shell", "id": "sh", "body": "plate", "remove_faces": "<Z", "thickness": 1}
+        ] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(r["content"][1]["type"], "image");
+        let pid = text(&r)["proposal_id"].as_str().unwrap().to_string();
+        let r = call(
+            &mut s,
+            31,
+            "accept_proposal",
+            json!({ "session": "s2", "proposal_id": pid }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(text(&r)["committed"], true);
+        let r = call(
+            &mut s,
+            32,
+            "reject_proposal",
+            json!({ "session": "s2", "proposal_id": "p99" }),
+        );
+        assert_eq!(text(&r)["rejected"], false);
         let r = call(&mut s, 14, "get_schema", json!({}));
         let schema = text(&r);
         assert!(schema["selector_cheatsheet"]

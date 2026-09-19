@@ -32,6 +32,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "get_schema",
     "set_checks",
     "run_checks",
+    "propose_ops",
+    "accept_proposal",
+    "reject_proposal",
 ];
 
 /// Batas teks hasil tool sebelum daftar terpanjang dipotong.
@@ -73,6 +76,14 @@ pub fn definitions() -> Vec<Value> {
         }),
         &["ops"],
     );
+    let mut propose_ops = schema(
+        json!({
+            "session": session_prop(),
+            "ops": { "type": "array", "items": { "$ref": "#/definitions/Op" } }
+        }),
+        &["ops"],
+    );
+    propose_ops["definitions"] = definitions.clone();
     run_ops["definitions"] = definitions;
     let check_defs =
         serde_json::to_value(schemars::schema_for!(Vec<CheckItem>)).unwrap_or(json!({}));
@@ -188,6 +199,21 @@ pub fn definitions() -> Vec<Value> {
             "run_checks",
             "Evaluasi check desain (atau daftar 'checks' yang diberikan) terhadap geometri saat ini.",
             run_checks,
+        ),
+        tool(
+            "propose_ops",
+            "Pratinjau batch Op tanpa mengubah part: diff body (+/- volume) dan gambar diff berwarna. Terapkan dengan accept_proposal.",
+            propose_ops,
+        ),
+        tool(
+            "accept_proposal",
+            "Terapkan proposal dari propose_ops (gagal proposal_stale bila part berubah sejak proposal dibuat).",
+            schema(json!({ "session": session_prop(), "proposal_id": { "type": "string" } }), &["proposal_id"]),
+        ),
+        tool(
+            "reject_proposal",
+            "Buang proposal yang tidak dipakai.",
+            schema(json!({ "session": session_prop(), "proposal_id": { "type": "string" } }), &["proposal_id"]),
         ),
     ]
 }
@@ -630,6 +656,53 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                 part.session.run_checks(a.checks.as_deref())
             };
             Ok(ToolOut::ok(to_value(summary)?))
+        }
+        "propose_ops" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                ops: Vec<Op>,
+            }
+            let a: A = args(a)?;
+            let (_, part) = server.pick(a.session.as_deref())?;
+            let (proposal, shapes) = part.session.propose(a.ops)?;
+            let r =
+                ducad_engine::render::render_diff_svg(&part.session, &shapes, View::Iso, 800, 600)?;
+            let png = svg_to_png(&r.svg, 800, 600)?;
+            Ok(ToolOut {
+                payload: json!({
+                    "proposal_id": proposal.id,
+                    "report": proposal.report,
+                    "diff": proposal.diff,
+                }),
+                image_png: Some(png),
+                is_error: false,
+            })
+        }
+        "accept_proposal" | "reject_proposal" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                proposal_id: String,
+            }
+            let a: A = args(a)?;
+            let (_, part) = server.pick(a.session.as_deref())?;
+            if name == "reject_proposal" {
+                return Ok(ToolOut::ok(
+                    json!({ "rejected": part.session.reject(&a.proposal_id) }),
+                ));
+            }
+            let report = part.session.accept(&a.proposal_id);
+            let is_error = report.error.is_some();
+            Ok(ToolOut {
+                payload: to_value(report)?,
+                image_png: None,
+                is_error,
+            })
         }
         other => Err(OpError::invalid(format!("tool tidak dikenal: {other}"))),
     }
