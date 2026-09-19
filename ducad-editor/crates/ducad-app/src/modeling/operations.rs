@@ -1,9 +1,13 @@
 use ducad_core::BodyId;
 use ducad_kernel::PickRay;
 use ducad_render::SketchPlane;
-use ducad_sketch::constraint::{self, AddConstraint, Constraint};
+use ducad_sketch::constraint::{AddConstraint, Constraint};
 use glam::{DVec2, Vec3};
 use slotmap::Key;
+
+use ducad_engine::compute::{self, EdgePick, FacePick, ProfilePick};
+use ducad_engine::{OpError, OpErrorCode, PlaneFrame};
+use ducad_kernel::ExtrudeExtent;
 
 use crate::app::DuCADApp;
 use crate::model::{
@@ -15,19 +19,26 @@ use crate::types::{PickMode, ToolKind};
 impl DuCADApp {
     /// Terapkan constraint pada entitas terpilih di sketch aktif.
     pub fn apply_constraint(&mut self, new_constraint: Constraint) {
-        let mut trial = self.sketch().clone();
-        trial.constraints.push(new_constraint.clone());
-        let snapshot = trial.constraints.clone();
-        let result = constraint::solve(&mut trial, &snapshot);
-
-        if result.converged {
-            self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
-            self.constraint_status = None;
-        } else {
-            self.constraint_status = Some(format!(
-                "Constraint gagal diselesaikan (sisa residual {:.4}) — dibatalkan, sketch tidak berubah",
-                result.final_residual_norm
-            ));
+        match compute::solve_with(self.sketch(), std::slice::from_ref(&new_constraint)) {
+            // `OverConstrained` berarti solver KONVERGEN tetapi constraint baru
+            // redundan/meruntuhkan geometri. GUI sejak dulu hanya memeriksa
+            // konvergensi, jadi perilaku itu dipertahankan di sini (P0.8:
+            // tanpa perubahan UX); penolakan ketat berlaku di Session.
+            Ok(_) => {
+                self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
+                self.constraint_status = None;
+            }
+            Err(e) if e.code == OpErrorCode::OverConstrained => {
+                self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
+                self.constraint_status = None;
+            }
+            Err(e) => {
+                let residual = e.context.get("residual").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+                self.constraint_status = Some(format!(
+                    "Constraint gagal diselesaikan (sisa residual {:.4}) — dibatalkan, sketch tidak berubah",
+                    residual
+                ));
+            }
         }
     }
 
@@ -41,40 +52,16 @@ impl DuCADApp {
             }
         };
 
-        // 1. Jalur Objek Geometris Parametrik Murni (Circle, Ellipse, Loop Line/Arc/Spline CAD):
-        let is_text_selection = self.selected.iter().any(|id| {
-            matches!(self.sketch().entities.get(*id), Some(ducad_sketch::Entity::Spline { points, .. }) if points.len() >= 8)
-        });
-
-        if !is_text_selection {
-            if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
-                let origin = [self.active_plane.origin.x as f64, self.active_plane.origin.y as f64, self.active_plane.origin.z as f64];
-                let u_axis = [self.active_plane.u_axis.x as f64, self.active_plane.u_axis.y as f64, self.active_plane.u_axis.z as f64];
-                let v_axis = [self.active_plane.v_axis.x as f64, self.active_plane.v_axis.y as f64, self.active_plane.v_axis.z as f64];
-                let normal = [self.active_plane.normal.x as f64, self.active_plane.normal.y as f64, self.active_plane.normal.z as f64];
-
-                if let Ok(shape) = ducad_kernel::extrude_profile_on_plane(
-                    &profile, origin, u_axis, v_axis, normal, distance,
-                ) {
-                    let geo = BodyGeometry::from_shape(shape);
-                    self.execute_model_command(
-                        Box::new(AddSolidCommand::new("Extrude", geo)),
-                        &format!("Membuat solid Extrude setinggi {:.1} mm", distance),
-                    );
-                    self.record_extrude_feature(distance, false);
-                    self.model_status = None;
-                    return;
-                }
-            }
-        }
-
-        // 2. Jalur Teks 3D & Multi-Region / Lubang Boolean:
-        match crate::model::extrude_selection_with_holes_on_plane(
+        // Kedua jalur lama (profil tunggal, lalu teks/multi-region) kini ada
+        // di `compute::extrude` lewat `ProfilePick::Entities`.
+        let plane = crate::document::plane_frame_from(&self.active_plane);
+        let result = compute::extrude(
             self.sketch(),
-            &self.selected,
-            &crate::document::plane_frame_from(&self.active_plane),
-            distance,
-        ) {
+            &ProfilePick::Entities(&self.selected),
+            &plane,
+            ExtrudeExtent::Blind(distance),
+        );
+        match result {
             Ok(solids) => {
                 if solids.len() == 1 {
                     let (name, geo) = solids.into_iter().next().unwrap();
@@ -93,7 +80,7 @@ impl DuCADApp {
                 }
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(format!("Extrude gagal: {e}")),
+            Err(e) => self.model_status = Some(op_status("Extrude", &e)),
         }
     }
 
@@ -104,26 +91,18 @@ impl DuCADApp {
         axis_dir: (f64, f64),
         angle_deg: Option<f64>,
     ) -> bool {
-        let profile = match crate::model::build_profile_from_selection(self.sketch(), &self.selected) {
-            Ok(p) => p,
-            Err(msg) => {
-                self.alert_modal.show_error(
-                    "Revolve Gagal: Profil Tidak Valid",
-                    msg.to_string(),
-                    vec![
-                        "Pastikan sketsa membentuk garis atau kurva tertutup sempurna (misal: kotak atau lingkaran).",
-                        "Gunakan Tool Pilih (S) lalu drag untuk menyeleksi seluruh entitas yang membentuk profil tertutup.",
-                        "Gunakan constraint Coincident pada titik ujung garis yang belum menyatu.",
-                    ],
-                );
-                self.model_status = Some(msg);
-                return false;
-            }
-        };
-
-        match ducad_kernel::revolve_profile(&profile, axis_origin, axis_dir, angle_deg) {
-            Ok(shape) => {
-                let geo = BodyGeometry::from_shape(shape);
+        // GUI lama selalu me-revolve di bidang XY apa pun bidang aktifnya;
+        // `PlaneFrame::top()` mempertahankan perilaku itu persis.
+        let result = compute::revolve(
+            self.sketch(),
+            &ProfilePick::Entities(&self.selected),
+            &PlaneFrame::top(),
+            DVec2::new(axis_origin.0, axis_origin.1),
+            DVec2::new(axis_dir.0, axis_dir.1),
+            angle_deg,
+        );
+        match result {
+            Ok(geo) => {
                 self.execute_model_command(
                     Box::new(AddSolidCommand::new("Revolve", geo)),
                     &format!("Sudut {:.0}°", angle_deg.unwrap_or(360.0)),
@@ -135,17 +114,30 @@ impl DuCADApp {
                 ));
                 true
             }
+            Err(e) if e.code == OpErrorCode::ProfileNotClosed => {
+                self.alert_modal.show_error(
+                    "Revolve Gagal: Profil Tidak Valid",
+                    e.message.clone(),
+                    vec![
+                        "Pastikan sketsa membentuk garis atau kurva tertutup sempurna (misal: kotak atau lingkaran).",
+                        "Gunakan Tool Pilih (S) lalu drag untuk menyeleksi seluruh entitas yang membentuk profil tertutup.",
+                        "Gunakan constraint Coincident pada titik ujung garis yang belum menyatu.",
+                    ],
+                );
+                self.model_status = Some(e.message);
+                false
+            }
             Err(e) => {
                 self.alert_modal.show_error(
                     "Revolve Gagal: Kesalahan Geometri / Sumbu",
-                    format!("{e}"),
+                    e.message.clone(),
                     vec![
                         "Pastikan garis sumbu poros putar TIDAK MEMOTONG bagian dalam profil.",
                         "Letakkan garis sumbu di luar profil atau tepat berhimpit pada salah satu tepi profil.",
                         "Coba gunakan preset 'Sumbu Y' atau 'Tepi Kiri' pada jendela opsi Revolve.",
                     ],
                 );
-                self.model_status = Some(format!("Revolve gagal: {e}"));
+                self.model_status = Some(op_status("Revolve", &e));
                 false
             }
         }
@@ -505,13 +497,17 @@ impl DuCADApp {
                     Some("Pilih minimal 1 tepi/rusuk untuk Fillet Variabel".to_string());
                 return;
             }
+            // Fillet variabel belum punya padanan compute: kernel dipanggil
+            // langsung seperti sebelumnya.
             let res = ducad_kernel::fillet_edges_variable(
                 &geo.shape,
                 radius,
                 radius_end,
                 &rays,
                 Self::EDGE_REAPPLY_TOLERANCE_MM,
-            );
+            )
+            .map(BodyGeometry::from_shape)
+            .map_err(|e| OpError::new(OpErrorCode::KernelFailed, e.to_string()));
             (
                 res,
                 "Fillet Variabel",
@@ -521,19 +517,15 @@ impl DuCADApp {
                 ),
             )
         } else if rays.is_empty() {
-            let res = ducad_kernel::fillet_all(&geo.shape, radius);
+            let res = compute::fillet(&geo.shape, &EdgePick::All, radius);
             (
                 res,
                 "Fillet",
                 format!("Melengkungkan semua rusuk body (Radius {:.1} mm)", radius),
             )
         } else {
-            let res = ducad_kernel::fillet_edges(
-                &geo.shape,
-                radius,
-                &rays,
-                Self::EDGE_REAPPLY_TOLERANCE_MM,
-            );
+            let pick = EdgePick::Rays(&rays, Self::EDGE_REAPPLY_TOLERANCE_MM);
+            let res = compute::fillet(&geo.shape, &pick, radius);
             (
                 res,
                 "Fillet",
@@ -541,8 +533,7 @@ impl DuCADApp {
             )
         };
         match result {
-            Ok(shape) => {
-                let new_geo = BodyGeometry::from_shape(shape);
+            Ok(new_geo) => {
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
                     &desc,
@@ -552,7 +543,7 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(format!("Fillet gagal: {e}")),
+            Err(e) => self.model_status = Some(op_status("Fillet", &e)),
         }
     }
 
@@ -576,18 +567,13 @@ impl DuCADApp {
         };
         let rays: Vec<PickRay> = self.selected_edges.iter().map(|e| e.ray).collect();
         let result = if rays.is_empty() {
-            ducad_kernel::chamfer_all(&geo.shape, distance)
+            compute::chamfer(&geo.shape, &EdgePick::All, distance)
         } else {
-            ducad_kernel::chamfer_edges(
-                &geo.shape,
-                distance,
-                &rays,
-                Self::EDGE_REAPPLY_TOLERANCE_MM,
-            )
+            let pick = EdgePick::Rays(&rays, Self::EDGE_REAPPLY_TOLERANCE_MM);
+            compute::chamfer(&geo.shape, &pick, distance)
         };
         match result {
-            Ok(shape) => {
-                let new_geo = BodyGeometry::from_shape(shape);
+            Ok(new_geo) => {
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Chamfer", id, new_geo)),
                     &format!("Meniruskan sudut siku rusuk body ({:.1} mm)", distance),
@@ -597,7 +583,7 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(format!("Chamfer gagal: {e}")),
+            Err(e) => self.model_status = Some(op_status("Chamfer", &e)),
         }
     }
 
@@ -620,13 +606,16 @@ impl DuCADApp {
             return;
         };
         let result = if self.selected_faces.is_empty() {
+            // Pemilihan face berdasarkan arah (`shell_direction`) belum punya
+            // padanan `FacePick`: kernel dipanggil langsung seperti sebelumnya.
             ducad_kernel::shell_hollow(&geo.shape, thickness, self.shell_direction)
+                .map(BodyGeometry::from_shape)
+                .map_err(|e| OpError::new(OpErrorCode::KernelFailed, e.to_string()))
         } else {
-            ducad_kernel::shell_hollow_faces(&geo.shape, thickness, &self.selected_faces)
+            compute::shell(&geo.shape, &FacePick::Rays(&self.selected_faces), thickness)
         };
         match result {
-            Ok(shape) => {
-                let new_geo = BodyGeometry::from_shape(shape);
+            Ok(new_geo) => {
                 self.execute_model_command(
                     Box::new(ReplaceGeometryCommand::new("Shell", id, new_geo)),
                     &format!("Membuat rongga hollow dinding tebal {:.1} mm", thickness),
@@ -636,7 +625,7 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(format!("Shell gagal: {e}")),
+            Err(e) => self.model_status = Some(op_status("Shell", &e)),
         }
     }
 
@@ -1299,44 +1288,37 @@ impl DuCADApp {
                 continue;
             };
 
-            let duplicated_shapes = match self.pattern_kind {
-                ducad_ui::PatternKind::Linear => {
-                    ducad_kernel::linear_pattern_shape(
-                        &geo.shape,
-                        self.pattern_count_x,
-                        self.pattern_pitch_x,
-                        self.pattern_count_y,
-                        self.pattern_pitch_y,
-                        self.pattern_count_z,
-                        self.pattern_pitch_z,
-                    )
-                }
+            let duplicated = match self.pattern_kind {
+                ducad_ui::PatternKind::Linear => compute::linear_pattern(
+                    &geo.shape,
+                    [self.pattern_count_x, self.pattern_count_y, self.pattern_count_z],
+                    [self.pattern_pitch_x, self.pattern_pitch_y, self.pattern_pitch_z],
+                ),
                 ducad_ui::PatternKind::Circular => {
                     let pivot = self.pattern_custom_pivot_3d
                         .map(|v| (v.x as f64, v.y as f64, v.z as f64))
                         .unwrap_or((0.0, 0.0, 0.0));
                     let axis = self.pattern_circ_axis.to_dir();
-                    let total_angle_rad = self.pattern_circ_angle_deg.to_radians();
 
-                    ducad_kernel::circular_pattern_shape(
+                    compute::circular_pattern(
                         &geo.shape,
-                        pivot,
-                        axis,
+                        [pivot.0, pivot.1, pivot.2],
+                        [axis.0, axis.1, axis.2],
                         self.pattern_circ_count,
-                        total_angle_rad,
+                        self.pattern_circ_angle_deg,
                     )
                 }
             };
 
-            match duplicated_shapes {
-                Ok(shapes) => {
-                    for (idx, shape) in shapes.into_iter().enumerate() {
+            match duplicated {
+                Ok(geos) => {
+                    for (idx, geo) in geos.into_iter().enumerate() {
                         let name = format!("{} (Array {})", orig_name, idx + 1);
-                        new_bodies.push((name, BodyGeometry::from_shape(shape)));
+                        new_bodies.push((name, geo));
                     }
                 }
                 Err(e) => {
-                    self.model_status = Some(format!("Pattern 3D gagal: {e}"));
+                    self.model_status = Some(format!("Pattern 3D gagal: {}", e.message));
                     return;
                 }
             }
@@ -1438,35 +1420,38 @@ impl DuCADApp {
                     hist.features[target_idx] = new_feature.clone();
 
                     // Rebuild all holes from base shape
-                    match ducad_kernel::clone_shape(&hist.base) {
-                        Ok(mut curr_shape) => {
-                            let mut err = None;
-                            for feat in &hist.features {
-                                match ducad_kernel::apply_hole(&curr_shape, &feat.spec, feat.pos, feat.normal) {
-                                    Ok(sh) => curr_shape = sh,
-                                    Err(e) => {
-                                        err = Some(e);
-                                        break;
-                                    }
-                                }
-                            }
-                            if let Some(e) = err {
-                                (Err(e), true)
-                            } else {
-                                (Ok(curr_shape), true)
+                    let mut curr: Option<BodyGeometry> = None;
+                    let mut err = None;
+                    for feat in &hist.features {
+                        let base = curr.as_ref().map(|g| &g.shape).unwrap_or(&hist.base);
+                        match hole_at(base, &feat.spec, feat.pos, feat.normal) {
+                            Ok(g) => curr = Some(g),
+                            Err(e) => {
+                                err = Some(e);
+                                break;
                             }
                         }
-                        Err(e) => (Err(e), true),
+                    }
+                    match (err, curr) {
+                        (Some(e), _) => (Err(e), true),
+                        (None, Some(g)) => (Ok(g), true),
+                        // Tidak ada fitur tersisa: body kembali ke bentuk dasar.
+                        (None, None) => (
+                            ducad_kernel::clone_shape(&hist.base)
+                                .map(BodyGeometry::from_shape)
+                                .map_err(|e| OpError::new(OpErrorCode::KernelFailed, e.to_string())),
+                            true,
+                        ),
                     }
                 } else {
-                    (ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal), false)
+                    (hole_at(&geo.shape, &spec, pos, normal), false)
                 }
             } else {
-                (ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal), false)
+                (hole_at(&geo.shape, &spec, pos, normal), false)
             }
         } else {
             // Lubang baru pada solid body (New Hole)
-            match ducad_kernel::apply_hole(&geo.shape, &spec, pos, normal) {
+            match hole_at(&geo.shape, &spec, pos, normal) {
                 Ok(sh) => {
                     if let std::collections::hash_map::Entry::Vacant(e) = self.hole_history.entry(body_id) {
                         if let Ok(base_sh) = ducad_kernel::clone_shape(&geo.shape) {
@@ -1486,8 +1471,7 @@ impl DuCADApp {
         };
 
         match new_shape_res {
-            Ok(new_shape) => {
-                let new_geo = BodyGeometry::from_shape(new_shape);
+            Ok(new_geo) => {
                 let callout = spec.technical_callout();
                 let history_msg = if is_reedit {
                     format!("Edit Hole: {callout}")
@@ -1514,14 +1498,14 @@ impl DuCADApp {
             Err(e) => {
                 self.alert_modal.show_error(
                     "Operasi Hole Wizard Gagal",
-                    format!("{e}"),
+                    e.message.clone(),
                     vec![
                         "Pastikan diameter lubang tidak melebihi dimensi permukaan benda.",
                         "Untuk lubang berkedalaman (blind), pastikan kedalaman tidak melebihi ketebalan benda atau gunakan opsi Tembus (Through All).",
                         "Untuk lubang bertingkat (Counterbore/Countersink), pastikan diameter kepala lebih besar dari diameter lubang utama.",
                     ],
                 );
-                self.model_status = Some(format!("Hole Wizard gagal: {e}"));
+                self.model_status = Some(format!("Hole Wizard gagal: {}", e.message));
             }
         }
     }
@@ -1901,4 +1885,28 @@ impl DuCADApp {
             }
         }
     }
+}
+
+/// Teks status "X gagal: …" untuk error compute. `OpError::kernel` sudah
+/// memberi awalan "X gagal: " sendiri, jadi awalan tidak digandakan.
+pub(crate) fn op_status(prefix: &str, e: &OpError) -> String {
+    let own = format!("{prefix} gagal: ");
+    if e.message.starts_with(&own) {
+        e.message.clone()
+    } else {
+        format!("{own}{}", e.message)
+    }
+}
+
+/// Satu lubang lewat `compute::hole` dengan argumen gaya tuple milik GUI.
+/// `OpError` sengaja besar (kontrak JSON engine) — lihat catatan di
+/// `ducad-engine/src/lib.rs`.
+#[allow(clippy::result_large_err)]
+fn hole_at(
+    shape: &ducad_kernel::KernelShape,
+    spec: &ducad_core::hole::HoleSpec,
+    pos: (f64, f64, f64),
+    normal: (f64, f64, f64),
+) -> Result<BodyGeometry, OpError> {
+    compute::hole(shape, spec, &[[pos.0, pos.1, pos.2]], [normal.0, normal.1, normal.2])
 }

@@ -302,6 +302,7 @@ impl Command<ModelDoc> for SetBodyMaterialCommand {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanKind {
     Union,
     Subtract,
@@ -349,18 +350,22 @@ impl BooleanCommand {
     ) -> Result<Self, String> {
         let geo_a = model.geometry.get(a).ok_or("Body A tidak ditemukan")?;
         let geo_b = model.geometry.get(b).ok_or("Body B tidak ditemukan")?;
-        let result_shape = match kind {
-            BooleanKind::Union => ducad_kernel::union(&geo_a.shape, &geo_b.shape),
-            BooleanKind::Subtract => ducad_kernel::subtract(&geo_a.shape, &geo_b.shape),
-            BooleanKind::Intersect => ducad_kernel::intersect(&geo_a.shape, &geo_b.shape),
-        }
-        .map_err(|e| format!("{label} gagal: {e}"))?;
+        // Satu implementasi dengan Session (P0.8): `compute::boolean` juga
+        // memeriksa validitas & volume hasil.
+        let result_geo = crate::compute::boolean(&geo_a.shape, &geo_b.shape, kind).map_err(|e| {
+            let own = format!("{label} gagal: ");
+            if e.message.starts_with(&own) {
+                e.message
+            } else {
+                format!("{own}{}", e.message)
+            }
+        })?;
         Ok(Self {
             label,
             result_name: result_name.into(),
             a,
             b,
-            state: Some(BooleanState::Pending(BodyGeometry::from_shape(result_shape))),
+            state: Some(BooleanState::Pending(result_geo)),
         })
     }
 }
