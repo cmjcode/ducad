@@ -17,6 +17,7 @@ ducad-io = { path = "crates/ducad-io" }
 ducad-ui = { path = "crates/ducad-ui" }
 ducad-i18n = { path = "crates/ducad-i18n" }
 ducad-cloud = { path = "crates/ducad-cloud" }
+ducad-engine = { path = "crates/ducad-engine" }
 
 dirs = "6.0"
 fluent-bundle = "0.16"

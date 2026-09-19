@@ -1188,6 +1188,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ducad-engine"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "ducad-core",
+ "ducad-io",
+ "ducad-kernel",
+ "ducad-sketch",
+ "glam",
+ "log",
+ "serde",
+ "serde_json",
+ "slotmap",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "ducad-i18n"
 version = "0.1.2"
 dependencies = [
