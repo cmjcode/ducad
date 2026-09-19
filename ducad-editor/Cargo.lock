@@ -1200,11 +1200,13 @@ dependencies = [
  "ducad-sketch",
  "glam",
  "log",
+ "resvg",
  "schemars",
  "serde",
  "serde_json",
  "slotmap",
  "thiserror 2.0.20",
+ "usvg",
 ]
 
 [[package]]

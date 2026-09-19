@@ -18,3 +18,10 @@ schemars = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+# Fitur `raster`: SVG → PNG untuk CLI/MCP. Versi sama dengan ducad-app.
+resvg = { version = "0.48", optional = true }
+usvg = { version = "0.48", optional = true, default-features = false }
+
+[features]
+default = []
+raster = ["dep:resvg", "dep:usvg"]
