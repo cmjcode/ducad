@@ -121,6 +121,9 @@ pub struct DuCADApp {
     pub design: Option<serde_json::Value>,
     /// Hasil checks desain untuk panel & top bar (P7.5).
     pub checks: crate::checks_ui::ChecksState,
+    /// Kartu error operasi + fix terverifikasi (P9.3).
+    pub error_card: ducad_ui::ErrorCardState,
+    pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
     pub file_status: Option<String>,
 
     pub language: ducad_i18n::Language,
@@ -471,6 +474,8 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
+            error_card: ducad_ui::ErrorCardState::default(),
+            error_fixes: Vec::new(),
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -749,6 +754,8 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
+            error_card: ducad_ui::ErrorCardState::default(),
+            error_fixes: Vec::new(),
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -3668,6 +3675,7 @@ impl eframe::App for DuCADApp {
 
         // Render Alert Modal Peringatan jika ada operasi yang gagal
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
+        self.error_card_frame(&ctx);
     }
 }
 

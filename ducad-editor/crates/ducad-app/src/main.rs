@@ -11,6 +11,7 @@ pub mod checks_ui;
 #[cfg(target_vendor = "apple")]
 pub mod apple;
 pub mod document;
+pub mod error_card_ui;
 pub mod file_io;
 pub mod history_db;
 pub mod import_worker;

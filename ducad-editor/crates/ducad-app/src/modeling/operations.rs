@@ -543,7 +543,15 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(op_status("Fillet", &e)),
+            Err(e) => {
+                self.model_status = Some(op_status("Fillet", &e));
+                let fixes = if self.fillet_variable_enabled {
+                    Vec::new()
+                } else {
+                    self.round_fix_candidates(id, true, radius, &rays)
+                };
+                self.show_op_error(&e, fixes);
+            }
         }
     }
 
@@ -583,7 +591,11 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(op_status("Chamfer", &e)),
+            Err(e) => {
+                self.model_status = Some(op_status("Chamfer", &e));
+                let fixes = self.round_fix_candidates(id, false, distance, &rays);
+                self.show_op_error(&e, fixes);
+            }
         }
     }
 
@@ -625,7 +637,12 @@ impl DuCADApp {
                 self.picking_mode = PickMode::None;
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(op_status("Shell", &e)),
+            Err(e) => {
+                self.model_status = Some(op_status("Shell", &e));
+                let faces = self.selected_faces.clone();
+                let fixes = self.shell_fix_candidates(id, thickness, &faces);
+                self.show_op_error(&e, fixes);
+            }
         }
     }
 
