@@ -76,3 +76,60 @@ fn file_without_design_is_adopted_with_unique_names() {
     assert_eq!(adopted.design().base_bodies.len(), 2);
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn edited_file_is_adopted_with_oplog_stale_warning() {
+    let mut s = plate_session();
+    let path = temp("stale");
+    s.save(&path).unwrap();
+
+    // STEP box lain dari sesi terpisah.
+    let mut other = Session::new();
+    let ops: Vec<Op> =
+        serde_json::from_str(r#"[{"op":"primitive","id":"x","shape":{"box":{"size":[7,7,7]}}}]"#)
+            .unwrap();
+    assert!(other.run(ops, false).committed);
+    let other_path = temp("stale-other");
+    other.save(&other_path).unwrap();
+    let other_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&other_path).unwrap()).unwrap();
+
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    json["bodies"][0]["step"] = other_json["bodies"][0]["step"].clone();
+    std::fs::write(&path, json.to_string()).unwrap();
+
+    let loaded = Session::from_file(&path).unwrap();
+    assert!(loaded
+        .summary()
+        .warnings
+        .contains(&"oplog_stale".to_string()));
+    assert!(
+        loaded.design().oplog.is_empty(),
+        "mode adopsi: oplog kosong"
+    );
+    assert_eq!(
+        loaded.design().params["t"],
+        8.0,
+        "params lama dipertahankan"
+    );
+    let v = loaded.body("plate").unwrap().1.shape.volume().abs();
+    assert!(
+        (v - 343.0).abs() < 1e-6,
+        "body dari berkas, bukan hasil replay: {v}"
+    );
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&other_path);
+}
+
+#[test]
+fn explicit_replay_of_design_with_wrong_fingerprint_is_oplog_stale() {
+    let s = plate_session();
+    let mut design = s.design().clone();
+    design.fingerprint = "0000000000000000".into();
+    let err = match Session::replay(design) {
+        Ok(_) => panic!("harus OplogStale"),
+        Err(e) => e,
+    };
+    assert_eq!(err.code, ducad_engine::OpErrorCode::OplogStale);
+}

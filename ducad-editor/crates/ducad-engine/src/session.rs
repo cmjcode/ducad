@@ -1016,10 +1016,16 @@ impl Session {
     /// dengan oplog kosong, nama ganda dibedakan dengan sufiks `#2`, `#3`.
     pub fn from_file(path: &std::path::Path) -> OpResult<Self> {
         let json = std::fs::read_to_string(path).map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("gagal membaca {}: {e}", path.display()))
+            OpError::new(
+                OpErrorCode::Io,
+                format!("gagal membaca {}: {e}", path.display()),
+            )
         })?;
         let file = ducad_io::native::deserialize_raw(&json).map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("berkas {} tidak valid: {e:#}", path.display()))
+            OpError::new(
+                OpErrorCode::Io,
+                format!("berkas {} tidak valid: {e:#}", path.display()),
+            )
         })?;
         let design = file
             .design
@@ -1028,9 +1034,32 @@ impl Session {
             .transpose();
         match design {
             Ok(Some(design)) => {
-                let mut s = Self::replay(DesignDoc { fingerprint: String::new(), ..design })?;
-                s.adopt_uuids(&file.bodies);
-                Ok(s)
+                // Body di berkas dibandingkan dengan sidik jari yang tercatat
+                // di `design` saat disimpan. Berbeda → berkas diubah (GUI)
+                // setelah op terakhir: jangan replay, adopsi body berkas.
+                let keep = DesignDoc {
+                    params: design.params.clone(),
+                    checks: design.checks.clone(),
+                    ..DesignDoc::default()
+                };
+                let stale_warning = || vec!["oplog_stale".to_string()];
+                let adopted = Self::adopt(file.bodies.clone(), keep.clone(), stale_warning())?;
+                if adopted.meta.design.fingerprint != design.fingerprint {
+                    log::warn!(
+                        "oplog basi: sidik jari berkas {} != design {}",
+                        adopted.meta.design.fingerprint,
+                        design.fingerprint
+                    );
+                    return Ok(adopted);
+                }
+                match Self::replay(design) {
+                    Ok(mut s) => {
+                        s.adopt_uuids(&file.bodies);
+                        Ok(s)
+                    }
+                    Err(e) if e.code == OpErrorCode::OplogStale => Ok(adopted),
+                    Err(e) => Err(e),
+                }
             }
             Ok(None) => Self::adopt(file.bodies, DesignDoc::default(), Vec::new()),
             Err(e) => Self::adopt(
@@ -1085,9 +1114,8 @@ impl Session {
     /// kebenaran tetap `design`.
     pub fn save(&mut self, path: &std::path::Path) -> OpResult<()> {
         self.meta.design.fingerprint = fingerprint(&self.model);
-        let design = serde_json::to_value(&self.meta.design).map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("gagal serialisasi design: {e}"))
-        })?;
+        let design = serde_json::to_value(&self.meta.design)
+            .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal serialisasi design: {e}")))?;
         let planes = [PlaneRef::Top, PlaneRef::Front, PlaneRef::Right];
         let display: Vec<Sketch> = planes.iter().map(|p| self.display_sketch(*p)).collect();
         let display_refs: Vec<&Sketch> = display.iter().collect();
@@ -1117,7 +1145,10 @@ impl Session {
             Some(&design),
         )
         .map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("gagal menyimpan {}: {e:#}", path.display()))
+            OpError::new(
+                OpErrorCode::Io,
+                format!("gagal menyimpan {}: {e:#}", path.display()),
+            )
         })
     }
 
