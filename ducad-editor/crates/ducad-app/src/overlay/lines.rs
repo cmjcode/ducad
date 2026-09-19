@@ -348,6 +348,30 @@ impl DuCADApp {
         }
     }
 
+        // Pratinjau Freehand (P12.3): coretan mentah tipis abu-abu, bentuk
+        // hasil pengenalan memakai gaya pratinjau entitas biasa.
+        {
+            let raw: &[glam::DVec2] = match &self.freehand.preview {
+                Some(prev) => &prev.raw,
+                None => &self.freehand.stroke,
+            };
+            for w in raw.windows(2) {
+                let a = self.active_plane.to_world(w[0], 0.06);
+                let b = self.active_plane.to_world(w[1], 0.06);
+                verts.extend(sketch_render::dashed_line_3d(
+                    [a.x, a.y, a.z],
+                    [b.x, b.y, b.z],
+                    0.8,
+                    [0.55, 0.55, 0.58, 0.70],
+                ));
+            }
+            if let Some(prev) = &self.freehand.preview {
+                for e in &prev.entities {
+                    verts.extend(sketch_render::preview_lines(e, &self.active_plane));
+                }
+            }
+        }
+
         if let Some((p1, p2)) = self.selection_box {
             let min = p1.min(p2);
             let max = p1.max(p2);

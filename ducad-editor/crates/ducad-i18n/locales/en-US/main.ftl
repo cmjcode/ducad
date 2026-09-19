@@ -1188,3 +1188,10 @@ ai-chip-on-device = AI: on device
 ai-chip-external = AI: external enabled
 ai-privacy-offline = On device only
 ai-privacy-external = Allow external agents
+
+## Freehand tool (P12)
+tool-freehand = Freehand
+tool-freehand-desc = Draw freely with Pencil/mouse; the shape is cleaned up and constrained automatically
+freehand-committed = Stroke turned into constrained sketch entities
+freehand-accept = Accept shape
+freehand-reject = Reject shape

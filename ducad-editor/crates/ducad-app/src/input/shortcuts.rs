@@ -440,6 +440,7 @@ impl DuCADApp {
     pub fn status_text(&self) -> String {
         let hint = match self.tool {
             ToolKind::Select => ducad_i18n::t!("status-prompt-select"),
+            ToolKind::Freehand => ducad_i18n::t!("tool-freehand-desc"),
             ToolKind::Line => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-line-0"),
                 _ if self.line_chain_segments >= 2 => {

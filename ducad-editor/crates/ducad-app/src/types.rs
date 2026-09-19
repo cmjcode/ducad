@@ -18,6 +18,8 @@ pub enum ToolKind {
     Slot,
     /// Kurva Spline multi-titik (Catmull-Rom).
     Spline,
+    /// Coretan bebas (Pencil/mouse) → bentuk rapi ber-constraint (P12.3).
+    Freehand,
     /// Teks 2D sketsa (vektorisasi font TTF/OTF — Fase 9.5).
     Text,
     /// 2D Fillet (busur sudut tangensial).
@@ -88,6 +90,7 @@ impl ToolKind {
             ToolKind::Polygon => ToolbarTool::Polygon,
             ToolKind::Slot => ToolbarTool::Slot,
             ToolKind::Spline => ToolbarTool::Spline,
+            ToolKind::Freehand => ToolbarTool::Freehand,
             ToolKind::Text => ToolbarTool::Text,
             ToolKind::Fillet2D => ToolbarTool::Fillet2D,
             ToolKind::Chamfer2D => ToolbarTool::Chamfer2D,
@@ -131,6 +134,7 @@ impl ToolKind {
             ToolbarTool::Polygon => ToolKind::Polygon,
             ToolbarTool::Slot => ToolKind::Slot,
             ToolbarTool::Spline => ToolKind::Spline,
+            ToolbarTool::Freehand => ToolKind::Freehand,
             ToolbarTool::Text => ToolKind::Text,
             ToolbarTool::Fillet2D => ToolKind::Fillet2D,
             ToolbarTool::Chamfer2D => ToolKind::Chamfer2D,
@@ -251,6 +255,8 @@ pub enum PaletteAction {
 
 pub fn required_points(tool: ToolKind) -> usize {
     match tool {
+        // Freehand tidak memakai klik titik: satu coretan penuh.
+        ToolKind::Freehand => 0,
         ToolKind::Text => 1,
         ToolKind::Rectangle
         | ToolKind::Circle

@@ -12,7 +12,7 @@ use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_icons::icons::{
     ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
-    ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
+    ICON_GESTURE, ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
     ICON_TITLE,
 };
 
@@ -28,6 +28,8 @@ pub enum ToolbarTool {
     Polygon,
     Slot,
     Spline,
+    /// Coretan bebas (Pencil/mouse) → bentuk rapi ber-constraint.
+    Freehand,
     Text,
     Fillet2D,
     Chamfer2D,
@@ -143,6 +145,8 @@ impl LeftToolbar {
                 let slot_desc = t!("tool-slot-desc");
                 let spline_title = t!("tool-spline");
                 let spline_desc = t!("tool-spline-desc");
+                let freehand_title = t!("tool-freehand");
+                let freehand_desc = t!("tool-freehand-desc");
                 let text_title = t!("tool-text");
                 let text_desc = t!("tool-text-desc");
                 let extend_title = t!("tool-extend");
@@ -208,6 +212,13 @@ impl LeftToolbar {
                         &spline_title,
                         Some("S"),
                         Some(&spline_desc),
+                    ),
+                    (
+                        ToolbarTool::Freehand,
+                        ICON_GESTURE.codepoint,
+                        &freehand_title,
+                        Some("F"),
+                        Some(&freehand_desc),
                     ),
                     (
                         ToolbarTool::Text,

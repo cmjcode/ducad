@@ -195,3 +195,14 @@ fn two_objects_use_the_first() {
     .unwrap();
     assert_eq!(r.rationale, "a");
 }
+
+#[test]
+fn bare_action_is_wrapped() {
+    let r = ducad_assist::parse_reply(r#"{"set_params":{"t":12}}"#).unwrap();
+    assert_eq!(r.actions.len(), 1);
+    let err = ducad_assist::parse_reply(r#"{"rationale":"x"}"#).unwrap_err();
+    match err {
+        ducad_assist::ParseError::BadShape(m) => assert!(m.contains("actions"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+}

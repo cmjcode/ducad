@@ -110,14 +110,30 @@ pub fn parse_reply(text: &str) -> Result<AssistReply, ParseError> {
             .filter(serde_json::Value::is_object)
             .ok_or_else(|| ParseError::NotJson(e.to_string()))?,
     };
-    serde_json::from_value(value.clone()).map_err(|e| ParseError::BadShape(shape_error(&value, e)))
+    match serde_json::from_value::<AssistReply>(value.clone()) {
+        // Model kecil kadang membalas SATU aksi telanjang tanpa pembungkus
+        // {rationale, actions} — isinya sah, jadi dibungkus di sini.
+        Ok(r) if r.actions.is_empty() && !value.get("actions").is_some_and(|a| a.is_array()) => {
+            match serde_json::from_value::<AssistAction>(value.clone()) {
+                Ok(action) => Ok(AssistReply {
+                    rationale: r.rationale,
+                    actions: vec![action],
+                }),
+                Err(e) => Err(ParseError::BadShape(shape_error(&value, e))),
+            }
+        }
+        Ok(r) => Ok(r),
+        Err(e) => Err(ParseError::BadShape(shape_error(&value, e))),
+    }
 }
 
 /// Pesan bentuk-salah yang menunjuk aksi pertama yang tidak valid — pesan
 /// serde mentah ("invalid type: sequence") terlalu kabur bagi model kecil.
 fn shape_error(value: &serde_json::Value, whole: serde_json::Error) -> String {
     let Some(actions) = value.get("actions").and_then(|a| a.as_array()) else {
-        return format!("objek harus punya larik \"actions\": {whole}");
+        return format!(
+            "objek harus berbentuk {{\"rationale\": \"…\", \"actions\": [ … ]}} ({whole})"
+        );
     };
     for (i, a) in actions.iter().enumerate() {
         if let Err(e) = serde_json::from_value::<AssistAction>(a.clone()) {

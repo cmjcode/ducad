@@ -123,6 +123,8 @@ pub struct DuCADApp {
     pub checks: crate::checks_ui::ChecksState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
+    /// Alat coretan bebas (P12.3).
+    pub freehand: crate::freehand::FreehandState,
     /// Kartu error operasi + fix terverifikasi (P9.3).
     pub error_card: ducad_ui::ErrorCardState,
     pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
@@ -477,6 +479,7 @@ impl DuCADApp {
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            freehand: crate::freehand::FreehandState::new(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -758,6 +761,7 @@ impl DuCADApp {
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            freehand: crate::freehand::FreehandState::new(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -3685,6 +3689,7 @@ impl eframe::App for DuCADApp {
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
+        self.freehand_tick();
     }
 }
 

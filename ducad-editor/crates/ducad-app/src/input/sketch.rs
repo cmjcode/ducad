@@ -1882,6 +1882,37 @@ impl DuCADApp {
                     }
                 }
             }
+            ToolKind::Freehand => {
+                self.hovered = None;
+                self.last_snap = None;
+                if response.drag_started_by(egui::PointerButton::Primary) {
+                    self.freehand_reject();
+                }
+                if response.dragged_by(egui::PointerButton::Primary) {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        if let Some(p) =
+                            screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)
+                        {
+                            // Tekanan Pencil bila ada (iPadOS).
+                            let force = ui.input(|i| {
+                                i.events.iter().rev().find_map(|e| match e {
+                                    egui::Event::Touch { force, .. } => *force,
+                                    _ => None,
+                                })
+                            });
+                            self.freehand_push(p, force);
+                        }
+                    }
+                }
+                if response.drag_stopped() {
+                    self.freehand_finish();
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.freehand_reject();
+                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.freehand_accept();
+                }
+            }
             ToolKind::Line => {
                 self.hovered = None;
                 self.last_snap = response

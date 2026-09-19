@@ -1188,3 +1188,10 @@ ai-chip-on-device = AI: di perangkat
 ai-chip-external = AI: eksternal aktif
 ai-privacy-offline = Hanya di perangkat
 ai-privacy-external = Izinkan agent eksternal
+
+## Alat Freehand (P12)
+tool-freehand = Freehand
+tool-freehand-desc = Gambar bebas dengan Pencil/mouse; bentuknya dirapikan dan diberi constraint otomatis
+freehand-committed = Coretan diubah menjadi entitas sketsa ber-constraint
+freehand-accept = Terima bentuk
+freehand-reject = Tolak bentuk
