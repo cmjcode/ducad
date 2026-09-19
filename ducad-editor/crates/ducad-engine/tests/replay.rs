@@ -96,7 +96,7 @@ fn set_params_changes_thickness() {
 #[test]
 fn bracket_ops_reproduce_p09_fixture() {
     let s = load(include_str!("fixtures/bracket.ops.json"));
-    assert_eq!(s.summary().bodies, vec!["bracket".to_string()]);
+    assert_eq!(s.summary().body_names(), vec!["bracket".to_string()]);
     let (_, geo) = s.body("bracket").unwrap();
     assert!(geo.shape.is_valid());
     let v = geo.shape.volume().abs();

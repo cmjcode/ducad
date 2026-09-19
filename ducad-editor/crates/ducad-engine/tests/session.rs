@@ -34,7 +34,7 @@ fn volume(s: &Session, name: &str) -> f64 {
 #[test]
 fn plate_ops_build_expected_volume() {
     let s = session_with_plate();
-    assert_eq!(s.summary().bodies, vec!["plate".to_string()]);
+    assert_eq!(s.summary().body_names(), vec!["plate".to_string()]);
     let v = volume(&s, "plate");
     assert!(
         (v - plate_volume(8.0)).abs() / plate_volume(8.0) < 1e-3,
@@ -47,7 +47,7 @@ fn plate_ops_build_expected_volume() {
 #[test]
 fn failing_batch_rolls_back_everything() {
     let mut s = session_with_plate();
-    let before_bodies = s.summary().bodies;
+    let before_bodies = s.summary().body_names();
     let before_len = s.design().oplog.len();
     let before_v = volume(&s, "plate");
     let report = s.run(
@@ -67,7 +67,7 @@ fn failing_batch_rolls_back_everything() {
         2,
         "outcome op yang sempat berhasil tetap dilaporkan"
     );
-    assert_eq!(s.summary().bodies, before_bodies);
+    assert_eq!(s.summary().body_names(), before_bodies);
     assert_eq!(s.design().oplog.len(), before_len);
     assert!((volume(&s, "plate") - before_v).abs() < 1e-9);
 }
@@ -82,7 +82,7 @@ fn dry_run_reports_but_changes_nothing() {
     assert!(!report.committed);
     assert!(report.error.is_none());
     assert_eq!(report.outcomes[0].created, vec!["b1".to_string()]);
-    assert_eq!(s.summary().bodies, vec!["plate".to_string()]);
+    assert_eq!(s.summary().body_names(), vec!["plate".to_string()]);
     assert_eq!(s.design().oplog.len(), 4);
 }
 

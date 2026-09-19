@@ -240,7 +240,7 @@ impl SessionCore<'_> {
     }
 
     fn summary(&self) -> Summary {
-        summarize_state(self.model, self.meta)
+        summarize_state(self.model, self.sketches, self.meta, None, false, 0)
     }
 
     /// Jalankan `ops` secara atomik (algoritma P1.5).
@@ -946,7 +946,7 @@ impl Session {
     }
 
     pub fn summary(&self) -> Summary {
-        summarize_state(&self.model, &self.meta)
+        summarize_state(&self.model, &self.sketches, &self.meta, None, false, 0)
     }
 
     /// Jalankan batch op secara atomik.

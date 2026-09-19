@@ -69,7 +69,7 @@ fn file_without_design_is_adopted_with_unique_names() {
 
     let adopted = Session::from_file(&path).unwrap();
     assert_eq!(
-        adopted.summary().bodies,
+        adopted.summary().body_names(),
         vec!["Solid".to_string(), "Solid#2".to_string()]
     );
     assert!(adopted.design().oplog.is_empty());
