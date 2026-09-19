@@ -1,0 +1,15 @@
+# Templat workflow untuk repo part DUCAD Anda. Salin ke
+# `.github/workflows/ducad-build.yml`. Lihat `README.md` di folder ini.
+name: ducad-build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: gh release download --repo cmjcode/ducad --pattern 'ducad-tools-macos-arm64.tar.gz' && tar xzf ducad-tools-*.tar.gz
+        env: { GH_TOKEN: "${{ github.token }}" }
+      - run: |
+          for f in parts/*.ops.json; do ./ducad-cli build "$f" --out "dist/$(basename "$f" .ops.json)"; done
+      - uses: actions/upload-artifact@v4
+        with: { name: cad-artifacts, path: dist/ }
