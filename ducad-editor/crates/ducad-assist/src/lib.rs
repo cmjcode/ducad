@@ -7,6 +7,9 @@
 //! memutuskan `accept`. Error op dan check gagal diumpankan balik ke model
 //! (maks `max_iters` putaran).
 
+// `OpError` sengaja kaya konteks (sama dengan ducad-engine).
+#![allow(clippy::result_large_err)]
+
 pub mod backend;
 pub mod prompt;
 
@@ -39,7 +42,7 @@ pub const CAPABILITY_NOTE: &str = "Model di perangkat cocok untuk mengubah ukura
 pub enum AssistAction {
     SetParams(Params),
     AppendOps(Vec<Op>),
-    ReplaceOp { id: String, op: Op },
+    ReplaceOp { id: String, op: Box<Op> },
     Explain(String),
     AskUser(String),
 }
@@ -157,7 +160,7 @@ fn collect_edit(
             AssistAction::AppendOps(ops) => append.extend(ops.iter().cloned()),
             AssistAction::ReplaceOp { id, op } => replace.push(ReplaceOp {
                 id: id.clone(),
-                op: op.clone(),
+                op: (**op).clone(),
             }),
             AssistAction::Explain(_) | AssistAction::AskUser(_) => {}
         }
