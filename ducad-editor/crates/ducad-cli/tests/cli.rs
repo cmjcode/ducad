@@ -202,3 +202,23 @@ fn oplog_is_git_friendly() {
     assert_eq!(v["params"]["t"], 8.0);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[test]
+fn diff_exit_codes_and_json() {
+    let d = tmpdir("diff");
+    let (a, b) = (d.join("a.ducad"), d.join("b.ducad"));
+    assert_eq!(cli(&["run", PLATE, "--out", s(&a)]).status.code(), Some(0));
+    assert_eq!(
+        cli(&["replay", s(&a), "--param", "t=10", "--out", s(&b)])
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(cli(&["diff", s(&a), s(&a)]).status.code(), Some(0));
+    let o = cli(&["diff", s(&a), s(&b), "--json", "--no-geometry"]);
+    assert_eq!(o.status.code(), Some(1));
+    let j = stdout_json(&o);
+    assert_eq!(j["params"][0]["name"], "t");
+    assert_eq!(j["bodies"][0]["status"], "changed");
+    let _ = std::fs::remove_dir_all(&d);
+}

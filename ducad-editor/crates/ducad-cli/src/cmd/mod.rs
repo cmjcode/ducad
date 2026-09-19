@@ -1,4 +1,5 @@
 pub mod check;
+pub mod diff;
 pub mod export;
 pub mod inspect;
 pub mod oplog;

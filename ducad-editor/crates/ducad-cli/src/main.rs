@@ -81,6 +81,8 @@ enum Command {
     Check(cmd::check::Args),
     /// Tulis oplog ramah git (satu op per baris).
     Oplog(cmd::oplog::Args),
+    /// Bandingkan dua part (kode 1 bila berbeda).
+    Diff(cmd::diff::Args),
     /// Uji selector face/tepi pada satu body.
     Select(cmd::select::Args),
     /// Render tampak part ke SVG/PNG.
@@ -102,6 +104,7 @@ fn main() -> ExitCode {
         Command::Inspect(a) => cmd::inspect::exec(a),
         Command::Check(a) => cmd::check::exec(a),
         Command::Oplog(a) => cmd::oplog::exec(a),
+        Command::Diff(a) => cmd::diff::exec(a),
         Command::Select(a) => cmd::select::exec(a),
         Command::Render(a) => cmd::render::exec(a),
         Command::Export(a) => cmd::export::exec(a),
