@@ -1,0 +1,11 @@
+{ "params": { "len": 50, "depth": 30, "t": 5, "wall_h": 30, "r": 2 },
+  "ops": [
+    {"op":"sketch","id":"base_sk","plane":"XY","entities":[
+      {"rect":{"corner":[0,0],"w":"$len","h":"$depth","name":"outline"}}]},
+    {"op":"extrude","id":"base","sketch":"base_sk","distance":"$t"},
+    {"op":"primitive","id":"wall","shape":{"box":{"size":["$len","$t","$wall_h"]}}},
+    {"op":"boolean","id":"bracket","kind":"union","a":"base","b":"wall"},
+    {"op":"fillet","id":"fold","body":"bracket","edges":"|X[y=5][z=5]","radius":"$r"},
+    {"op":"hole","id":"holes","body":"bracket","face":"+Z[z=5]",
+     "at_world":[[12.5,20,5],[37.5,20,5]],"spec":{"iso":"M5"}}
+  ] }
