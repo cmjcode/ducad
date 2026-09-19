@@ -8,6 +8,7 @@ pub mod document;
 pub mod entity;
 pub mod measure;
 pub mod ops;
+pub mod recognize;
 pub mod region;
 pub mod sketch;
 pub mod snap;
@@ -33,6 +34,7 @@ pub use ops::{
     slot_from_points, slot_from_radius, translate_entity, trim_segments, Chamfer2DResult,
     Fillet2DResult, FilletTarget, PolygonMode, SlotMode,
 };
+pub use recognize::{recognize, to_entities, Recognized, Stroke};
 pub use region::{
     build_hierarchy, detect_rectangle, find_closed_regions, find_region_at_point,
     find_region_containing_entity, find_region_hierarchy, ClosedRegion, RectAnchor, RectangleShape,
