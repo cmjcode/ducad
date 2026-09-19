@@ -1140,6 +1140,7 @@ dependencies = [
  "chrono",
  "ducad-cloud",
  "ducad-core",
+ "ducad-engine",
  "ducad-i18n",
  "ducad-io",
  "ducad-kernel",

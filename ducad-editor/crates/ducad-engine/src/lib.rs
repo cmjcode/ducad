@@ -4,6 +4,10 @@
 //! dan I/O (`ducad-io`) TANPA egui/wgpu, sehingga operasi modeling yang
 //! sama bisa dipanggil dari GUI, CLI, maupun server MCP.
 
+pub mod plane;
+
+pub use plane::PlaneFrame;
+
 #[test]
 fn engine_has_no_gui_dependency() {
     let manifest = include_str!("../Cargo.toml");

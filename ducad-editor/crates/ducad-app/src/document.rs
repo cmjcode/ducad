@@ -7,6 +7,20 @@ use crate::app::DuCADApp;
 use crate::model::ModelDoc;
 use crate::types::ToolKind;
 
+/// Salin `SketchPlane` (f32, milik crate render) ke `PlaneFrame` (f64, milik
+/// engine) apa adanya — normal TIDAK dihitung ulang, karena normal Front
+/// sengaja −Y yang bukan `u × v`. Fungsi bebas, bukan `impl From`: kedua
+/// tipe berasal dari crate lain sehingga aturan orphan melarangnya.
+pub fn plane_frame_from(plane: &SketchPlane) -> ducad_engine::PlaneFrame {
+    let a = |v: glam::Vec3| [v.x as f64, v.y as f64, v.z as f64];
+    ducad_engine::PlaneFrame {
+        origin: a(plane.origin),
+        u_axis: a(plane.u_axis),
+        v_axis: a(plane.v_axis),
+        normal: a(plane.normal),
+    }
+}
+
 impl DuCADApp {
     #[inline]
     pub fn static_plane_for_index(idx: usize) -> SketchPlane {
@@ -694,3 +708,16 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod plane_frame_tests {
+    use super::plane_frame_from;
+    use ducad_engine::PlaneFrame;
+    use ducad_render::SketchPlane;
+
+    #[test]
+    fn plane_frame_from_matches_engine_standard_planes() {
+        assert_eq!(plane_frame_from(&SketchPlane::top()), PlaneFrame::top());
+        assert_eq!(plane_frame_from(&SketchPlane::front()), PlaneFrame::front());
+        assert_eq!(plane_frame_from(&SketchPlane::right()), PlaneFrame::right());
+    }
+}
