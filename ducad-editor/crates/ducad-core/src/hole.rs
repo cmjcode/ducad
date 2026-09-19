@@ -242,3 +242,53 @@ impl HoleSpec {
         }
     }
 }
+
+/// Tabel Markdown parameter ISO M2–M12 dari [`IsoMetricThread::standard_params`]
+/// — sumber `Standards/ISO-Metric-Fasteners.md` di vault memori agent
+/// (`scripts/memory-vault/`), supaya angkanya identik dengan engine.
+pub fn iso_fastener_table_markdown() -> String {
+    let mut out = String::from(
+        "| Ukuran | Pitch | Tap drill Ø | Clearance Ø | Counterbore Ø | Counterbore dalam | Countersink Ø |\n\
+         |---|---|---|---|---|---|---|\n",
+    );
+    for t in IsoMetricThread::all() {
+        if *t == IsoMetricThread::Custom {
+            continue;
+        }
+        let (_, pitch, tap, clr, cb_d, cb_t, cs_d) = t.standard_params();
+        out.push_str(&format!(
+            "| {} | {pitch:.2} | {tap:.2} | {clr:.1} | {cb_d:.1} | {cb_t:.1} | {cs_d:.1} |\n",
+            t.label()
+        ));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tabel di templat vault harus sama persis dengan hasil kode. Perbarui
+    /// dengan `DUCAD_UPDATE_VAULT=1 cargo test -p ducad-core iso_table`.
+    #[test]
+    fn iso_table_in_vault_template_matches_engine() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../scripts/memory-vault/Standards/ISO-Metric-Fasteners.md"
+        );
+        let table = iso_fastener_table_markdown();
+        let doc = std::fs::read_to_string(path).unwrap_or_default();
+        if std::env::var_os("DUCAD_UPDATE_VAULT").is_some() {
+            let begin = "<!-- tabel:mulai -->\n";
+            let end = "<!-- tabel:akhir -->";
+            let (Some(a), Some(b)) = (doc.find(begin), doc.find(end)) else {
+                panic!("penanda tabel tidak ada di {path}");
+            };
+            let updated = format!("{}{begin}{table}{}", &doc[..a], &doc[b..]);
+            std::fs::write(path, updated).unwrap();
+            return;
+        }
+        assert!(doc.contains(&table), "tabel ISO di {path} basi; jalankan dengan DUCAD_UPDATE_VAULT=1");
+        assert!(table.contains("| M5 | 0.80 | 4.20 | 5.5 | 10.0 | 5.4 | 11.2 |"));
+    }
+}
