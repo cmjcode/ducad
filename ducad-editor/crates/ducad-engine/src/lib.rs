@@ -11,6 +11,7 @@
 // tipe publik kontrak.
 #![allow(clippy::result_large_err)]
 
+pub mod check;
 pub mod compute;
 pub mod error;
 pub mod export;
