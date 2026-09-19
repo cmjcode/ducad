@@ -43,6 +43,8 @@ pub enum FeatureTreeEvent {
     },
     /// Hapus seluruh log riwayat aktivitas.
     ClearHistory,
+    /// Buat cabang histori baru dari entri ini (P8.5).
+    BranchFromHistory { id: i64 },
     /// Tutup panel Feature Tree & Riwayat.
     Close,
 }
@@ -54,6 +56,8 @@ pub struct FeatureTreeDrawer {
     pub editing_feature_id: Option<FeatureId>,
     pub edit_input_val1: String,
     pub edit_input_val2: String,
+    /// Filter cabang histori; `None` = semua cabang.
+    pub branch_filter: Option<String>,
 }
 
 impl FeatureTreeDrawer {
@@ -149,8 +153,10 @@ impl FeatureTreeDrawer {
                     })
                     .collect();
 
+                let branch_filter = self.branch_filter.clone();
                 let filtered_activities: Vec<&ActivityItemInfo> = activities
                     .iter()
+                    .filter(|item| branch_filter.as_ref().is_none_or(|b| &item.branch == b))
                     .filter(|item| {
                         if query.is_empty() {
                             true
@@ -880,6 +886,23 @@ impl FeatureTreeDrawer {
                             });
                         });
 
+                        // Filter cabang: hanya tampil bila ada lebih dari satu cabang.
+                        let mut branches: Vec<&str> = activities.iter().map(|a| a.branch.as_str()).collect();
+                        branches.sort_unstable();
+                        branches.dedup();
+                        if branches.len() > 1 {
+                            let all = t!("history-branch-all");
+                            let selected = self.branch_filter.clone().unwrap_or_else(|| all.clone());
+                            egui::ComboBox::from_id_salt("ducad-history-branch-filter")
+                                .selected_text(RichText::new(selected).size(9.0))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.branch_filter, None, all.clone());
+                                    for b in &branches {
+                                        ui.selectable_value(&mut self.branch_filter, Some(b.to_string()), *b);
+                                    }
+                                });
+                        }
+
                         if filtered_activities.is_empty() {
                             card_frame().show(ui, |ui| {
                                 ui.set_width(ui.available_width());
@@ -1004,8 +1027,18 @@ impl FeatureTreeDrawer {
                                         egui::StrokeKind::Inside,
                                     );
                                 }
+                                let branch_label = t!("history-branch-from-here");
+                                interact.context_menu(|ui| {
+                                    if ui.button(&branch_label).clicked() {
+                                        event = Some(FeatureTreeEvent::BranchFromHistory { id: item.id });
+                                        ui.close();
+                                    }
+                                });
+                                if item.branch != "main" {
+                                    ui.label(RichText::new(&item.branch).size(7.5).color(TEXT_MUTED));
+                                }
                                 if interact
-                                    .on_hover_text("Klik untuk melompat / restore ke snapshot ini")
+                                    .on_hover_text("Klik untuk melompat / restore ke snapshot ini (klik kanan: buat cabang)")
                                     .clicked()
                                 {
                                     event = Some(FeatureTreeEvent::JumpToHistory {

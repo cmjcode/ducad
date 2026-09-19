@@ -972,6 +972,26 @@ impl DuCADApp {
         self.activity_cache = self.history_db.load_activities();
     }
 
+    /// "Buat cabang dari sini" (P8.5): pulihkan snapshot entri `id`, lalu
+    /// catat entri berikutnya di cabang baru dengan titik cabang `id`.
+    pub fn branch_from_history(&mut self, id: i64) {
+        let Some(snap_json) = self.history_db.get_snapshot(id) else {
+            self.model_status = Some("Snapshot untuk riwayat ini tidak tersedia".to_string());
+            return;
+        };
+        if let Err(e) = self.restore_snapshot_from_json(&snap_json) {
+            self.model_status = Some(format!("Gagal memulihkan snapshot: {e}"));
+            return;
+        }
+        let branch = self.history_db.start_branch_from(id);
+        self.record_activity(
+            ActivityKindUi::Solid3D,
+            &ducad_i18n::t!("history-branch-created", name = branch.as_str()),
+            "",
+        );
+        self.model_status = Some(ducad_i18n::t!("history-branch-created", name = branch.as_str()));
+    }
+
     /// Pulihkan dokumen ke snapshot JSON tertentu (Time-Travel).
     pub fn restore_snapshot_from_json(&mut self, json: &str) -> anyhow::Result<()> {
         let loaded = ducad_io::native::deserialize_from_json(json)?;
@@ -2203,6 +2223,10 @@ impl eframe::App for DuCADApp {
                             FeatureTreeEvent::ClearHistory => {
                                 self.history_db.clear();
                                 self.activity_cache.clear();
+                                ctx.request_repaint();
+                            }
+                            FeatureTreeEvent::BranchFromHistory { id } => {
+                                self.branch_from_history(id);
                                 ctx.request_repaint();
                             }
                             FeatureTreeEvent::Close => {

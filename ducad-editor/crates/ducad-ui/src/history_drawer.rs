@@ -29,6 +29,8 @@ pub struct ActivityItemInfo {
     pub kind: ActivityKindUi,
     pub action: String,
     pub details: String,
+    /// Cabang histori (`"main"` atau `"cabang-<n>"`).
+    pub branch: String,
 }
 
 #[derive(Debug, Clone)]

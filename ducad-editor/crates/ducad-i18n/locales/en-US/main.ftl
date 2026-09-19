@@ -1135,3 +1135,8 @@ checks-close = Close checks panel
 checks-empty = This part has no design checks yet.
 checks-stale = Recomputing…
 checks-summary-tooltip = Design check results (click for details)
+
+# History branches (P8.5)
+history-branch-all = All branches
+history-branch-from-here = Branch from here
+history-branch-created = Branch { $name } created

@@ -1135,3 +1135,8 @@ checks-close = Tutup panel checks
 checks-empty = Part ini belum punya check desain.
 checks-stale = Sedang dihitung ulang…
 checks-summary-tooltip = Hasil check desain (klik untuk detail)
+
+# Cabang histori (P8.5)
+history-branch-all = Semua cabang
+history-branch-from-here = Buat cabang dari sini
+history-branch-created = Cabang { $name } dibuat
