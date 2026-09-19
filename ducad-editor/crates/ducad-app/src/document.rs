@@ -459,6 +459,7 @@ impl DuCADApp {
         self.model_undo = ducad_core::UndoStack::default();
         self.selected_bodies.clear();
         self.current_file_path = None;
+        self.design = None;
         self.history_db.clear();
         self.activity_cache.clear();
         self.parametric_dag.clear();
@@ -529,10 +530,7 @@ impl DuCADApp {
                 });
                 ducad_io::native::ExportBody {
                     name: meta.name.as_str(),
-                    // Body internal belum menyimpan UUID sendiri; berkas
-                    // native memberinya satu saat disimpan. Menautkannya ke
-                    // `Document` adalah bagian P0.1 yang belum selesai.
-                    uuid: None,
+                    uuid: Some(meta.uuid.clone()),
                     visible: meta.visible,
                     material: meta.material,
                     shape,

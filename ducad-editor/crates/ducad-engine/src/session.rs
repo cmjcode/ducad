@@ -975,6 +975,7 @@ impl Session {
                 .add_body_with_material(nb.name.clone(), nb.material);
             if let Some(b) = s.model.doc.bodies.get_mut(id) {
                 b.visible = nb.visible;
+                b.uuid = nb.uuid.clone();
             }
             s.model.geometry.insert(id, BodyGeometry::from_shape(shape));
         }
@@ -1008,6 +1009,136 @@ impl Session {
         // Tanpa riwayat batch asli: tiap op menjadi satu langkah undo.
         s.meta.batches = vec![1; n];
         Ok(s)
+    }
+
+    /// Muat berkas `.ducad`. Berkas dengan `design` di-replay; berkas tanpa
+    /// `design` (buatan GUI/impor) diadopsi: body-nya menjadi `base_bodies`
+    /// dengan oplog kosong, nama ganda dibedakan dengan sufiks `#2`, `#3`.
+    pub fn from_file(path: &std::path::Path) -> OpResult<Self> {
+        let json = std::fs::read_to_string(path).map_err(|e| {
+            OpError::new(OpErrorCode::Io, format!("gagal membaca {}: {e}", path.display()))
+        })?;
+        let file = ducad_io::native::deserialize_raw(&json).map_err(|e| {
+            OpError::new(OpErrorCode::Io, format!("berkas {} tidak valid: {e:#}", path.display()))
+        })?;
+        let design = file
+            .design
+            .clone()
+            .map(serde_json::from_value::<DesignDoc>)
+            .transpose();
+        match design {
+            Ok(Some(design)) => {
+                let mut s = Self::replay(DesignDoc { fingerprint: String::new(), ..design })?;
+                s.adopt_uuids(&file.bodies);
+                Ok(s)
+            }
+            Ok(None) => Self::adopt(file.bodies, DesignDoc::default(), Vec::new()),
+            Err(e) => Self::adopt(
+                file.bodies,
+                DesignDoc::default(),
+                vec![format!("design_invalid: {e}")],
+            ),
+        }
+    }
+
+    /// Salin uuid body dari berkas ke body hasil replay (cocok lewat nama),
+    /// supaya uuid stabil lintas simpan → muat → simpan.
+    fn adopt_uuids(&mut self, bodies: &[NativeBody]) {
+        for nb in bodies {
+            if let Some(id) = find_body(&self.model, &nb.name) {
+                if let Some(b) = self.model.doc.bodies.get_mut(id) {
+                    b.uuid = nb.uuid.clone();
+                }
+            }
+        }
+    }
+
+    /// Mode adopsi: body berkas menjadi `base_bodies`, oplog kosong.
+    fn adopt(bodies: Vec<NativeBody>, base: DesignDoc, warnings: Vec<String>) -> OpResult<Self> {
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        let base_bodies = bodies
+            .into_iter()
+            .map(|mut nb| {
+                let n = seen.entry(nb.name.clone()).or_insert(0);
+                *n += 1;
+                if *n > 1 {
+                    nb.name = format!("{}#{n}", nb.name);
+                }
+                nb
+            })
+            .collect();
+        let design = DesignDoc {
+            oplog: Vec::new(),
+            fingerprint: String::new(),
+            base_bodies,
+            ..base
+        };
+        let (mut s, _) = Self::rebuild(design)?;
+        s.meta.design.fingerprint = fingerprint(&s.model);
+        s.meta.warnings = warnings;
+        Ok(s)
+    }
+
+    /// Simpan ke `.ducad` v2. Field `sketch`/`front_sketch`/`right_sketch`
+    /// hanya untuk tampilan di GUI: gabungan entitas semua sketch pada
+    /// bidang standar itu (sketch pada datum/face tidak ditulis). Sumber
+    /// kebenaran tetap `design`.
+    pub fn save(&mut self, path: &std::path::Path) -> OpResult<()> {
+        self.meta.design.fingerprint = fingerprint(&self.model);
+        let design = serde_json::to_value(&self.meta.design).map_err(|e| {
+            OpError::new(OpErrorCode::Io, format!("gagal serialisasi design: {e}"))
+        })?;
+        let planes = [PlaneRef::Top, PlaneRef::Front, PlaneRef::Right];
+        let display: Vec<Sketch> = planes.iter().map(|p| self.display_sketch(*p)).collect();
+        let display_refs: Vec<&Sketch> = display.iter().collect();
+        let mut bodies: Vec<(&ducad_core::Body, &KernelShape)> = self
+            .model
+            .doc
+            .bodies
+            .iter()
+            .filter_map(|(id, b)| Some((b, &self.model.geometry.get(id)?.shape)))
+            .collect();
+        bodies.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+        let exports: Vec<ducad_io::native::ExportBody> = bodies
+            .iter()
+            .map(|(b, shape)| ducad_io::native::ExportBody {
+                name: &b.name,
+                uuid: Some(b.uuid.clone()),
+                visible: b.visible,
+                material: b.material,
+                shape,
+                round_history: None,
+            })
+            .collect();
+        ducad_io::native::save_multi_plane_detailed_with_design(
+            path,
+            &display_refs,
+            &exports,
+            Some(&design),
+        )
+        .map_err(|e| {
+            OpError::new(OpErrorCode::Io, format!("gagal menyimpan {}: {e:#}", path.display()))
+        })
+    }
+
+    /// Gabungan entitas semua sketch engine pada `plane`. Constraint tidak
+    /// ikut (EntityId berubah saat digabung), nama entitas juga tidak:
+    /// `Sketch::entity_names` berkunci `EntityId` sehingga serde_json menolak
+    /// menyerialisasinya ("key must be a string").
+    fn display_sketch(&self, plane: PlaneRef) -> Sketch {
+        let mut out = Sketch::default();
+        for sid in self.meta.sketch_ids.values() {
+            let Some(slot) = self.sketches.get(*sid) else {
+                continue;
+            };
+            if slot.plane != plane {
+                continue;
+            }
+            for e in slot.sketch.entities.values() {
+                out.entities.insert(e.clone());
+            }
+        }
+        out
     }
 
     /// Ganti params lalu replay penuh; gagal → sesi lama utuh.

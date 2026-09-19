@@ -24,14 +24,18 @@ use ducad_sketch::Sketch;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Versi format berkas — dinaikkan tiap kali skema `DuCADFile` berubah
-/// dengan cara yang tak-kompatibel-mundur. `load` menolak versi yang lebih
-/// baru dari yang dikenal crate ini (lebih aman daripada mencoba baca &
-/// diam-diam salah); versi LAMA dari yang dikenal saat ini masih diterima
-/// (belum ada migrasi ditulis karena baru versi 1 yang pernah ada).
-/// Versi format berkas — dinaikkan tiap kali skema `DuCADFile` berubah
-/// dengan cara yang tak-kompatibel-mundur.
-pub const FORMAT_VERSION: u32 = 1;
+/// Versi format berkas tertinggi yang dikenal — dinaikkan tiap kali skema
+/// `DuCADFile` berubah dengan cara yang tak-kompatibel-mundur. `load`
+/// menolak versi yang lebih baru (lebih aman daripada mencoba baca &
+/// diam-diam salah); versi lama masih diterima.
+///
+/// Versi 2 menambah field `design` (oplog parametrik `ducad-engine`).
+/// Penulis memakai 2 HANYA bila `design` terisi, supaya build lama tetap
+/// bisa membuka berkas tanpa oplog.
+pub const FORMAT_VERSION: u32 = 2;
+
+/// Versi yang ditulis untuk berkas tanpa `design`.
+const FORMAT_VERSION_NO_DESIGN: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NativeRoundKind {
@@ -111,6 +115,10 @@ pub struct DuCADFile {
     #[serde(default)]
     pub right_sketch: Option<Sketch>,
     pub bodies: Vec<NativeBody>,
+    /// Desain parametrik (`ducad_engine::DesignDoc`) sebagai JSON mentah —
+    /// `ducad-io` tidak boleh bergantung pada `ducad-engine`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<serde_json::Value>,
 }
 
 /// Body yang SUDAH dimuat (geometrinya sudah direkonstruksi jadi
@@ -118,6 +126,8 @@ pub struct DuCADFile {
 /// `ModelDoc`-nya sendiri (lewat `Document::add_body` + insert geometri).
 pub struct LoadedBody {
     pub name: String,
+    /// UUID stabil dari berkas (berkas lama tanpa UUID mendapat yang baru).
+    pub uuid: String,
     pub visible: bool,
     pub material: ducad_core::Material,
     pub shape: KernelShape,
@@ -130,6 +140,8 @@ pub struct LoadedDocument {
     pub front_sketch: Sketch,
     pub right_sketch: Sketch,
     pub bodies: Vec<LoadedBody>,
+    /// Field `design` berkas v2, apa adanya.
+    pub design: Option<serde_json::Value>,
 }
 
 impl LoadedDocument {
@@ -143,6 +155,16 @@ impl LoadedDocument {
 pub fn serialize_detailed_to_json(
     sketches: &[&Sketch],
     bodies: &[ExportBody],
+) -> Result<String> {
+    serialize_detailed_to_json_with_design(sketches, bodies, None)
+}
+
+/// Seperti [`serialize_detailed_to_json`] plus field `design` (format v2
+/// bila `design` terisi, v1 bila tidak).
+pub fn serialize_detailed_to_json_with_design(
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
 ) -> Result<String> {
     let bodies = bodies
         .iter()
@@ -177,11 +199,16 @@ pub fn serialize_detailed_to_json(
         .collect::<Result<Vec<_>>>()?;
 
     let file = DuCADFile {
-        format_version: FORMAT_VERSION,
+        format_version: if design.is_some() {
+            FORMAT_VERSION
+        } else {
+            FORMAT_VERSION_NO_DESIGN
+        },
         sketch: sketches.first().map(|s| (*s).clone()).unwrap_or_default(),
         front_sketch: sketches.get(1).map(|s| (*s).clone()),
         right_sketch: sketches.get(2).map(|s| (*s).clone()),
         bodies,
+        design: design.cloned(),
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
 }
@@ -235,6 +262,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
             };
             Ok(LoadedBody {
                 name: b.name,
+                uuid: b.uuid,
                 visible: b.visible,
                 material: b.material,
                 shape,
@@ -251,6 +279,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         front_sketch,
         right_sketch,
         bodies,
+        design: file.design,
     })
 }
 
@@ -260,7 +289,17 @@ pub fn save_multi_plane_detailed(
     sketches: &[&Sketch],
     bodies: &[ExportBody],
 ) -> Result<()> {
-    let json = serialize_detailed_to_json(sketches, bodies)?;
+    save_multi_plane_detailed_with_design(path, sketches, bodies, None)
+}
+
+/// Seperti [`save_multi_plane_detailed`] plus field `design`.
+pub fn save_multi_plane_detailed_with_design(
+    path: impl AsRef<Path>,
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
+) -> Result<()> {
+    let json = serialize_detailed_to_json_with_design(sketches, bodies, design)?;
     std::fs::write(path, json).context("gagal menulis file .ducad")?;
     Ok(())
 }
@@ -377,6 +416,79 @@ mod tests {
             loaded.bodies[0].shape.tessellate().positions.len(),
             shape.tessellate().positions.len()
         );
+    }
+
+    fn box_shape() -> KernelShape {
+        extrude_profile(&rect_profile(20.0, 10.0), 5.0).unwrap()
+    }
+
+    fn export<'a>(shape: &'a KernelShape, uuid: Option<String>) -> ExportBody<'a> {
+        ExportBody {
+            name: "Body 1",
+            uuid,
+            visible: true,
+            material: ducad_core::Material::default(),
+            shape,
+            round_history: None,
+        }
+    }
+
+    #[test]
+    fn v1_file_without_uuid_or_design_still_loads() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let json = serialize_detailed_to_json(&[&Sketch::default()], &[export(&shape, None)]).unwrap();
+        // Simulasikan berkas v1 lama: tanpa field `uuid` pada body dan tanpa `design`.
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["format_version"], 1);
+        assert!(v.get("design").is_none());
+        v["bodies"][0].as_object_mut().unwrap().remove("uuid");
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert_eq!(loaded.bodies.len(), 1);
+        assert!(!loaded.bodies[0].uuid.is_empty());
+        assert!(loaded.design.is_none());
+    }
+
+    #[test]
+    fn format_version_depends_on_design() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let without = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&without).unwrap();
+        assert_eq!(v["format_version"], 1);
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let with = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], Some(&design)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&with).unwrap();
+        assert_eq!(v["format_version"], 2);
+        let loaded = deserialize_from_json(&with).unwrap();
+        assert_eq!(loaded.design, Some(design));
+    }
+
+    #[test]
+    fn uuid_is_stable_across_save_load_save() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let first = serialize_detailed_to_json(&[], &[export(&shape, None)]).unwrap();
+        let loaded = deserialize_from_json(&first).unwrap();
+        let uuid = loaded.bodies[0].uuid.clone();
+        let second = serialize_detailed_to_json(&[], &[export(&loaded.bodies[0].shape, Some(uuid.clone()))]).unwrap();
+        let again = deserialize_from_json(&second).unwrap();
+        assert_eq!(again.bodies[0].uuid, uuid);
+    }
+
+    #[test]
+    fn arbitrary_design_json_does_not_break_loading() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        for design in [
+            serde_json::json!(42),
+            serde_json::json!("teks"),
+            serde_json::json!([1, {"x": null}]),
+            serde_json::json!({"schema": "bukan angka", "oplog": {"aneh": true}}),
+        ] {
+            let json = serialize_detailed_to_json_with_design(&[], &[], Some(&design)).unwrap();
+            let loaded = deserialize_from_json(&json).unwrap();
+            assert_eq!(loaded.design, Some(design));
+        }
     }
 
     #[test]

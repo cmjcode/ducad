@@ -77,7 +77,12 @@ impl DuCADApp {
     pub fn save_native_to(&mut self, path: PathBuf) {
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
-        match ducad_io::native::save_multi_plane_detailed(&path, &ordered, &body_exports) {
+        match ducad_io::native::save_multi_plane_detailed_with_design(
+            &path,
+            &ordered,
+            &body_exports,
+            self.design.as_ref(),
+        ) {
             Ok(_) => {
                 let name = path
                     .file_name()
@@ -135,6 +140,7 @@ impl DuCADApp {
                 self.active_edge = None;
                 self.active_face = None;
 
+                self.design = loaded.design;
                 let mut new_model = ModelDoc::default();
                 for nb in loaded.bodies {
                     let geo = BodyGeometry::from_shape(nb.shape);
@@ -142,6 +148,7 @@ impl DuCADApp {
                     new_model.geometry.insert(id, geo);
                     if let Some(meta) = new_model.doc.bodies.get_mut(id) {
                         meta.visible = nb.visible;
+                        meta.uuid = nb.uuid;
                     }
                     if let Some((base, native_feats)) = nb.round_history {
                         let features = native_feats.into_iter().map(crate::types::RoundFeature::from).collect();

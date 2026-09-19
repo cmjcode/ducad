@@ -113,6 +113,12 @@ pub struct DuCADApp {
     pub active_vertex: Option<(BodyId, PickRay, (f64, f64, f64))>,
 
     pub current_file_path: Option<PathBuf>,
+    /// Field `design` (oplog parametrik `ducad-engine`) dari berkas `.ducad`
+    /// v2 yang sedang terbuka, disimpan APA ADANYA dan ditulis balik saat
+    /// menyimpan (P1.6). GUI belum menulis oplog; bila geometri diubah di
+    /// GUI, sidik jarinya tidak lagi cocok dan engine masuk mode adopsi
+    /// saat membuka berkas itu (P1.7).
+    pub design: Option<serde_json::Value>,
     pub file_status: Option<String>,
 
     pub language: ducad_i18n::Language,
@@ -461,6 +467,7 @@ impl DuCADApp {
             active_vertex: None,
 
             current_file_path: None,
+            design: None,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -737,6 +744,7 @@ impl DuCADApp {
             active_vertex: None,
 
             current_file_path: None,
+            design: None,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -982,6 +990,7 @@ impl DuCADApp {
             new_model.geometry.insert(id, geo);
             if let Some(meta) = new_model.doc.bodies.get_mut(id) {
                 meta.visible = nb.visible;
+                meta.uuid = nb.uuid;
             }
         }
         self.model = new_model;

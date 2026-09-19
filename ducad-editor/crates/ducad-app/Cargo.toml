@@ -24,6 +24,7 @@ egui = { workspace = true }
 egui_wgpu = { workspace = true }
 egui_icons = { workspace = true }
 glam = { workspace = true }
+serde_json = { workspace = true }
 slotmap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }

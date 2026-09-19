@@ -1162,6 +1162,7 @@ dependencies = [
  "resvg",
  "rfd",
  "rusqlite",
+ "serde_json",
  "slotmap",
  "usvg",
 ]

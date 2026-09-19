@@ -234,6 +234,12 @@ pub struct Body {
     pub visible: bool,
     #[serde(default)]
     pub material: Material,
+    /// Identitas STABIL body lintas simpan/muat (dirujuk berkas perakitan
+    /// lain). Diisi saat body dibuat dan disalin apa adanya dari/ke file
+    /// native — dulu app menulis `uuid: None` sehingga nilainya berganti
+    /// tiap kali disimpan.
+    #[serde(default = "crate::new_part_uuid")]
+    pub uuid: String,
 }
 
 /// Dokumen aktif: kumpulan body + status modifikasi.
@@ -255,6 +261,7 @@ impl Document {
             name: name.into(),
             visible: true,
             material,
+            uuid: crate::new_part_uuid(),
         })
     }
 }
