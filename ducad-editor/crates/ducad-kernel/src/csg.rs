@@ -252,6 +252,20 @@ pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     validate_or_heal(KernelShape::from_inner(result), "Boolean Subtract")
 }
 
+/// Error bertipe untuk irisan kosong — supaya pemanggil (engine) bisa
+/// membedakannya dari kegagalan kernel lain lewat `downcast_ref`, tanpa
+/// mencocokkan teks pesan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmptyIntersection;
+
+impl std::fmt::Display for EmptyIntersection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("intersect: kedua shape tidak bersinggungan (hasil kosong)")
+    }
+}
+
+impl std::error::Error for EmptyIntersection {}
+
 /// Boolean intersect (irisan) dua shape — cuma sisakan volume yang
 /// tumpang-tindih. `opencascade-rs` 0.2.0 tidak expose `.intersect()` di
 /// `Shape` publik seperti union/subtract (cuma di `AdHocShape`, wrapper
@@ -270,7 +284,7 @@ pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     // `lock_kernel()` lagi selagi `_guard` di atas masih dipegang (Mutex
     // std tidak reentrant, akan deadlock).
     if tessellate_shape(&adhoc.0).triangle_count() == 0 {
-        bail!("intersect: kedua shape tidak bersinggungan (hasil kosong)");
+        return Err(EmptyIntersection.into());
     }
     validate_or_heal(KernelShape::from_inner(adhoc.0), "Boolean Intersect")
 }

@@ -16,7 +16,7 @@ use crate::plane::PlaneFrame;
 /// `Entity::Arc` — konversi CCW yang sama dengan yang dipakai render
 /// (`push_arc` di `ducad-render::sketch`): span dinormalisasi ke (0, TAU]
 /// dari `start_angle` ke `end_angle` searah CCW.
-fn arc_endpoints_and_via(center: DVec2, radius: f64, start_angle: f64, end_angle: f64) -> (DVec2, DVec2, DVec2) {
+pub(crate) fn arc_endpoints_and_via(center: DVec2, radius: f64, start_angle: f64, end_angle: f64) -> (DVec2, DVec2, DVec2) {
     let tau = std::f64::consts::TAU;
     let span = {
         let s = end_angle - start_angle;

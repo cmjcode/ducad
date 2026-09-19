@@ -4,6 +4,14 @@
 //! dan I/O (`ducad-io`) TANPA egui/wgpu, sehingga operasi modeling yang
 //! sama bisa dipanggil dari GUI, CLI, maupun server MCP.
 
+// `OpError` sengaja "gemuk" (pesan, hint, id op, context JSON): bentuknya
+// adalah kontrak JSON CLI/MCP (P0.6) dan jalur error jarang dilalui, jadi
+// biaya memindahkannya lewat `Result` tidak berarti dibanding operasi OCCT
+// di baliknya. Membungkusnya dalam `Box` hanya demi lint ini akan mengubah
+// tipe publik kontrak.
+#![allow(clippy::result_large_err)]
+
+pub mod compute;
 pub mod error;
 pub mod model;
 pub mod plane;

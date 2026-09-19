@@ -68,7 +68,7 @@ pub use assembly_solver::{
 };
 pub use csg::{
     emboss_profiles_on_plane, extrude_profile, extrude_profile_extent, extrude_profile_on_plane,
-    intersect, loft_profiles, ExtrudeExtent,
+    intersect, loft_profiles, EmptyIntersection, ExtrudeExtent,
     revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
     sweep_profile_on_plane_along_path, union,
 };
