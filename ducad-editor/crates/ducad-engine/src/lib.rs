@@ -13,6 +13,7 @@
 
 pub mod compute;
 pub mod error;
+pub mod export;
 pub mod inspect;
 pub mod model;
 pub mod ops;
