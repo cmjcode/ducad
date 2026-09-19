@@ -13,12 +13,13 @@ oplog JSON yang bisa di-replay. Platform: macOS (desktop) dan iPad (iOS).
 Arah panah = "bergantung pada".
 
 - `ducad-core` — dokumen, body, material, undo stack, spesifikasi lubang. Tanpa kernel.
-- `ducad-sketch` — entitas 2D, constraint + solver, region tertutup. → core
+- `ducad-sketch` — entitas 2D, constraint + solver, region tertutup, pengenal coretan (`recognize`) + inferensi constraint (`infer`). → core
 - `ducad-kernel` — satu-satunya pembungkus OpenCASCADE (`KernelShape`, `KernelMesh`). → core
 - `ducad-io` — format `.ducad`, STEP/STL/OBJ/GLB, SVG/PDF/DXF. → core, sketch, kernel
 - `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render. → core, sketch, kernel, io
-- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/select/render/export/schema). → engine
-- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio 15 tool. → engine
+- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/schema). → engine, assist
+- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio 20 tool. → engine
+- `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
 - `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun.
 - `ducad-app` — GUI (binary `ducad`); operasi modeling = adapter tipis di atas `ducad_engine::compute`. → semua di atas
@@ -37,6 +38,10 @@ cargo clippy --workspace --all-targets -- -D warnings   # gerbang CI
 cargo test --workspace                         # gerbang CI
 make install-agent-tools                       # pasang ducad-cli, ducad-mcp (+ mnemonic-cli bila ada)
 ```
+
+`ducad-cli build PART --out DIR` membuat artefak manufaktur (STEP/STL/PDF/
+PNG/BOM) + `report.json`/`report.md` secara deterministik; checks yang gagal
+menghentikan build dengan kode 3. Lihat `docs/ci/README.md`.
 
 Version control desain: commit `*.ops.json` sebagai sumber dan `.ducad`
 sebagai artefak. `ducad-cli oplog PART.ducad` menulis oplog satu op per
