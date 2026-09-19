@@ -1,0 +1,1815 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "AllTag": {
+      "description": "Tag string `\"all\"`.",
+      "enum": [
+        "all"
+      ],
+      "type": "string"
+    },
+    "AxisSpec": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "dir": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "origin": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "dir",
+            "origin"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Sumbu revolve: `\"u\"`/`\"v\"` (sumbu bidang sketch lewat origin) atau garis 2D di bidang sketch."
+    },
+    "BodyMode": {
+      "enum": [
+        "new",
+        "add",
+        "cut"
+      ],
+      "type": "string"
+    },
+    "BoolKind": {
+      "enum": [
+        "union",
+        "subtract",
+        "intersect"
+      ],
+      "type": "string"
+    },
+    "ConstraintSpec": {
+      "description": "Constraint sketch. Entitas dirujuk dengan nama; titik dengan `\"<nama>.start\" | \".end\" | \".center\"`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "horizontal": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "horizontal"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "vertical": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "vertical"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "parallel": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "parallel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "perpendicular": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "perpendicular"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "equal_length": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "equal_length"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "equal_radius": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "equal_radius"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "coincident": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "coincident"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fixed": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "point": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "at",
+                "point"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "fixed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "distance": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "a",
+                "b",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "distance"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "radius": {
+              "additionalProperties": false,
+              "properties": {
+                "entity": {
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "entity",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "radius"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sudut CCW dari arah `a` ke arah `b`, derajat.",
+          "properties": {
+            "angle": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                },
+                "deg": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "a",
+                "b",
+                "deg"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "angle"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "tangent": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "tangent"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "concentric": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "concentric"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "collinear": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "collinear"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "midpoint": {
+              "additionalProperties": false,
+              "properties": {
+                "line": {
+                  "type": "string"
+                },
+                "point": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "point"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "midpoint"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "point_on_curve": {
+              "additionalProperties": false,
+              "properties": {
+                "curve": {
+                  "type": "string"
+                },
+                "point": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "curve",
+                "point"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "point_on_curve"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "symmetric": {
+              "additionalProperties": false,
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "axis": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "a",
+                "axis",
+                "b"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "symmetric"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EntitySpec": {
+      "description": "Entitas sketch (externally tagged, mis. `{\"rect\": {...}}`).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "additionalProperties": false,
+              "properties": {
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "from": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "line"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Tepat satu dari `center`/`corner` (sudut kiri-bawah). Anak: `name.bottom`, `name.right`, `name.top`, `name.left`.",
+          "properties": {
+            "rect": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "default": null,
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "corner": {
+                  "default": null,
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "h": {
+                  "$ref": "#/definitions/Num"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "w": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "h",
+                "w"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "rect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "circle": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "r": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "center",
+                "r"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "circle"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Busur CCW dari `start_deg` ke `end_deg`.",
+          "properties": {
+            "arc": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "end_deg": {
+                  "$ref": "#/definitions/Num"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "r": {
+                  "$ref": "#/definitions/Num"
+                },
+                "start_deg": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "center",
+                "end_deg",
+                "r",
+                "start_deg"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "arc"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Busur lewat tiga titik.",
+          "properties": {
+            "arc3": {
+              "additionalProperties": false,
+              "properties": {
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "p1": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "p2": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "p3": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "p1",
+                "p2",
+                "p3"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "arc3"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ellipse": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rx": {
+                  "$ref": "#/definitions/Num"
+                },
+                "ry": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "center",
+                "rx",
+                "ry"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ellipse"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Poligon beraturan `sides` (3..=64); anak `name.0 … name.{n-1}`.",
+          "properties": {
+            "polygon": {
+              "additionalProperties": false,
+              "properties": {
+                "center": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "inscribed": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "r": {
+                  "$ref": "#/definitions/Num"
+                },
+                "sides": {
+                  "format": "uint32",
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "center",
+                "r",
+                "sides"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "polygon"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Slot lonjong antar-pusat `from`–`to` dengan radius `r`; anak `name.0 …`.",
+          "properties": {
+            "slot": {
+              "additionalProperties": false,
+              "properties": {
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "from": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "r": {
+                  "$ref": "#/definitions/Num"
+                },
+                "to": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "from",
+                "r",
+                "to"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "slot"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Rangkaian garis; anak `name.0 …`.",
+          "properties": {
+            "polyline": {
+              "additionalProperties": false,
+              "properties": {
+                "closed": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "points": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "polyline"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "spline": {
+              "additionalProperties": false,
+              "properties": {
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "points": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/definitions/Num"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "spline"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExtrudeDir": {
+      "enum": [
+        "normal",
+        "reverse",
+        "symmetric"
+      ],
+      "type": "string"
+    },
+    "HoleKindSpec": {
+      "enum": [
+        "clearance",
+        "tapped",
+        "counterbore",
+        "countersink"
+      ],
+      "type": "string"
+    },
+    "HoleSpecRef": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "description": "`iso`: `\"M2\"`..`\"M12\"`, `\"M2.5\"`. `depth: null` = tembus.",
+          "properties": {
+            "depth": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "iso": {
+              "type": "string"
+            },
+            "kind": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/HoleKindSpec"
+                }
+              ],
+              "default": "clearance"
+            }
+          },
+          "required": [
+            "iso"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "depth": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "diameter": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "diameter"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Num": {
+      "anyOf": [
+        {
+          "format": "double",
+          "type": "number"
+        },
+        {
+          "description": "Ekspresi, mis. `\"$w/2 - 3\"`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Op": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "constraints": {
+              "default": [],
+              "items": {
+                "$ref": "#/definitions/ConstraintSpec"
+              },
+              "type": "array"
+            },
+            "entities": {
+              "items": {
+                "$ref": "#/definitions/EntitySpec"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "sketch"
+              ],
+              "type": "string"
+            },
+            "plane": {
+              "$ref": "#/definitions/PlaneSpec"
+            }
+          },
+          "required": [
+            "entities",
+            "id",
+            "op",
+            "plane"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "direction": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ExtrudeDir"
+                }
+              ],
+              "default": "normal"
+            },
+            "distance": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Untuk `direction = symmetric`: tebal TOTAL."
+            },
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new"
+            },
+            "op": {
+              "enum": [
+                "extrude"
+              ],
+              "type": "string"
+            },
+            "profile": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProfileSel"
+                }
+              ],
+              "default": "all"
+            },
+            "sketch": {
+              "type": "string"
+            },
+            "target": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "distance",
+            "id",
+            "op",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "angle_deg": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "`null` = 360°."
+            },
+            "axis": {
+              "$ref": "#/definitions/AxisSpec"
+            },
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new"
+            },
+            "op": {
+              "enum": [
+                "revolve"
+              ],
+              "type": "string"
+            },
+            "profile": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProfileSel"
+                }
+              ],
+              "default": "all"
+            },
+            "sketch": {
+              "type": "string"
+            },
+            "target": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "axis",
+            "id",
+            "op",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "primitive"
+              ],
+              "type": "string"
+            },
+            "shape": {
+              "$ref": "#/definitions/PrimitiveSpec"
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "shape"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "a": {
+              "type": "string"
+            },
+            "b": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/definitions/BoolKind"
+            },
+            "op": {
+              "enum": [
+                "boolean"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "a",
+            "b",
+            "id",
+            "kind",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "edges": {
+              "description": "Selector tepi, mis. `\"|Z\"`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "fillet"
+              ],
+              "type": "string"
+            },
+            "radius": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "edges",
+            "id",
+            "op",
+            "radius"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "distance": {
+              "$ref": "#/definitions/Num"
+            },
+            "edges": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "chamfer"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "distance",
+            "edges",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "shell"
+              ],
+              "type": "string"
+            },
+            "remove_faces": {
+              "description": "Selector face yang dibuang, mis. `\">Z\"`.",
+              "type": "string"
+            },
+            "thickness": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op",
+            "remove_faces",
+            "thickness"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "default": [],
+              "description": "Titik lokal (u, v) pada bidang face (`PlaneFrame::on_face`).",
+              "items": {
+                "items": {
+                  "$ref": "#/definitions/Num"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "at_world": {
+              "default": [],
+              "description": "Titik dunia, diproyeksikan tegak lurus ke bidang face.",
+              "items": {
+                "items": {
+                  "$ref": "#/definitions/Num"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "body": {
+              "type": "string"
+            },
+            "face": {
+              "description": "Selector yang harus menghasilkan tepat 1 face planar.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "hole"
+              ],
+              "type": "string"
+            },
+            "spec": {
+              "$ref": "#/definitions/HoleSpecRef"
+            }
+          },
+          "required": [
+            "body",
+            "face",
+            "id",
+            "op",
+            "spec"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/definitions/PatternKind"
+            },
+            "merge": {
+              "default": false,
+              "type": "boolean"
+            },
+            "op": {
+              "enum": [
+                "pattern"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "kind",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "transform"
+              ],
+              "type": "string"
+            },
+            "rotate": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RotateSpec"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "translate": {
+              "default": null,
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "delete"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PatternKind": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "linear": {
+              "additionalProperties": false,
+              "properties": {
+                "count": {
+                  "items": {
+                    "format": "uint32",
+                    "minimum": 0.0,
+                    "type": "integer"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "pitch": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "count",
+                "pitch"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "linear"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "circular": {
+              "additionalProperties": false,
+              "properties": {
+                "angle_deg": {
+                  "$ref": "#/definitions/Num"
+                },
+                "axis": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "count": {
+                  "format": "uint32",
+                  "minimum": 0.0,
+                  "type": "integer"
+                },
+                "pivot": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "angle_deg",
+                "axis",
+                "count",
+                "pivot"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "circular"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PlaneSpec": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "base": {
+              "type": "string"
+            },
+            "offset": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "base",
+            "offset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "face": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "face"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Bidang sketch: nama (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, alias `\"top\"`/`\"front\"`/ `\"right\"`, tidak peka huruf besar), bidang bernama yang digeser, atau face planar sebuah body."
+    },
+    "PrimitiveSpec": {
+      "description": "Externally tagged: `{\"box\": {...}}`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "box": {
+              "additionalProperties": false,
+              "properties": {
+                "centered": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "size": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "size"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "box"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cylinder": {
+              "additionalProperties": false,
+              "properties": {
+                "h": {
+                  "$ref": "#/definitions/Num"
+                },
+                "r": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "h",
+                "r"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "cylinder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sphere": {
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "r"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "sphere"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cone": {
+              "additionalProperties": false,
+              "properties": {
+                "h": {
+                  "$ref": "#/definitions/Num"
+                },
+                "r1": {
+                  "$ref": "#/definitions/Num"
+                },
+                "r2": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "h",
+                "r1",
+                "r2"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "cone"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProfileSel": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AllTag"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "names"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "at"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Pemilihan profil: `\"all\"`, `{\"names\": [...]}` (nama entitas sketch), atau `{\"at\": [u, v]}` (region terkecil yang memuat titik)."
+    },
+    "RotateSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "angle_deg": {
+          "$ref": "#/definitions/Num"
+        },
+        "axis": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "pivot": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "angle_deg",
+        "axis",
+        "pivot"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Isi file ops: `{ \"params\": {...}, \"ops\": [...] }`.",
+  "properties": {
+    "ops": {
+      "items": {
+        "$ref": "#/definitions/Op"
+      },
+      "type": "array"
+    },
+    "params": {
+      "additionalProperties": {
+        "format": "double",
+        "type": "number"
+      },
+      "default": {},
+      "type": "object"
+    }
+  },
+  "required": [
+    "ops"
+  ],
+  "title": "OpFile",
+  "type": "object"
+}
