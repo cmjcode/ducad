@@ -76,3 +76,58 @@ pub fn export(s: &Session, format: ExportFormat, path: &Path) -> OpResult<u64> {
         .map(|m| m.len())
         .map_err(|e| OpError::new(OpErrorCode::Io, format!("berkas ekspor tidak terbaca: {e}")))
 }
+
+/// Ganti cap waktu di `FILE_NAME` header STEP (argumen ke-2) dengan
+/// `<date>T00:00:00` agar keluaran build deterministik (P10.2). Teks tanpa
+/// `FILE_NAME` dikembalikan apa adanya.
+pub fn normalize_step_timestamp(text: &str, date: &str) -> String {
+    let Some(start) = text.find("FILE_NAME('") else {
+        return text.to_string();
+    };
+    let after_name = start + "FILE_NAME('".len();
+    // Akhir nama: `'` pertama yang bukan bagian dari escape `''`.
+    let bytes = text.as_bytes();
+    let mut i = after_name;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            if bytes.get(i + 1) == Some(&b'\'') {
+                i += 2;
+                continue;
+            }
+            break;
+        }
+        i += 1;
+    }
+    // Berikutnya harus `,'<timestamp>'`.
+    let Some(rest) = text.get(i + 1..) else {
+        return text.to_string();
+    };
+    let Some(ts_rel) = rest.strip_prefix(",'") else {
+        return text.to_string();
+    };
+    let ts_start = i + 1 + 2;
+    let Some(ts_len) = ts_rel.find('\'') else {
+        return text.to_string();
+    };
+    format!(
+        "{}{date}T00:00:00{}",
+        &text[..ts_start],
+        &text[ts_start + ts_len..]
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_timestamp_is_replaced() {
+        let t = "HEADER;\nFILE_NAME('Open CASCADE Shape Model','2026-09-20T04:34:45',('Author'),(\n";
+        let n = normalize_step_timestamp(t, "2026-01-02");
+        assert_eq!(
+            n,
+            "HEADER;\nFILE_NAME('Open CASCADE Shape Model','2026-01-02T00:00:00',('Author'),(\n"
+        );
+        assert_eq!(normalize_step_timestamp("DATA;", "2026-01-02"), "DATA;");
+    }
+}

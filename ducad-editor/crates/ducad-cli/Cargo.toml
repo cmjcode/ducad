@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-io = { workspace = true }
+ducad-core = { workspace = true }
 ducad-kernel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

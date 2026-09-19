@@ -1105,6 +1105,17 @@ impl Session {
     /// `design` (buatan GUI/impor) diadopsi: body-nya menjadi `base_bodies`
     /// dengan oplog kosong, nama ganda dibedakan dengan sufiks `#2`, `#3`.
     pub fn from_file(path: &std::path::Path) -> OpResult<Self> {
+        Self::load(path, false)
+    }
+
+    /// Seperti [`Session::from_file`], tetapi berkas yang TIDAK basi dan
+    /// gagal direproduksi dari oplog → `OplogStale` (bukan adopsi diam-diam).
+    /// Dipakai `ducad-cli build` (P10.2).
+    pub fn from_file_strict(path: &std::path::Path) -> OpResult<Self> {
+        Self::load(path, true)
+    }
+
+    fn load(path: &std::path::Path, strict: bool) -> OpResult<Self> {
         let json = std::fs::read_to_string(path).map_err(|e| {
             OpError::new(
                 OpErrorCode::Io,
@@ -1147,7 +1158,7 @@ impl Session {
                         s.adopt_uuids(&file.bodies);
                         Ok(s)
                     }
-                    Err(e) if e.code == OpErrorCode::OplogStale => Ok(adopted),
+                    Err(e) if e.code == OpErrorCode::OplogStale && !strict => Ok(adopted),
                     Err(e) => Err(e),
                 }
             }

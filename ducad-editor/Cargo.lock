@@ -1193,6 +1193,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
+ "ducad-core",
  "ducad-engine",
  "ducad-io",
  "ducad-kernel",

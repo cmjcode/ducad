@@ -5,7 +5,7 @@
 //! tersembunyi (hidden dashed line), siluet permukaan lengkung, dan garis sumbu (centerlines).
 
 use glam::{vec2, vec3, Mat4, Vec2, Vec3};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::lock_kernel;
 use crate::mesh::KernelMesh;
@@ -637,7 +637,8 @@ pub(crate) fn extract_mesh_feature_edges(mesh: &KernelMesh) -> Vec<(Vec3, Vec3)>
         tri_normals.push(n);
     }
 
-    let mut edge_map: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    // BTreeMap: urutan iterasi stabil → keluaran gambar deterministik (P10.2).
+    let mut edge_map: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
     for tri_idx in 0..tri_count {
         let i0 = mesh.indices[tri_idx * 3];
         let i1 = mesh.indices[tri_idx * 3 + 1];
@@ -716,7 +717,8 @@ pub(crate) fn append_silhouette_edges(
     }
 
     // Kumpulkan pasangan tepi terbagi (shared edges)
-    let mut edge_map: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    // BTreeMap: urutan iterasi stabil → keluaran gambar deterministik (P10.2).
+    let mut edge_map: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
     for tri_idx in 0..tri_count {
         let i0 = mesh.indices[tri_idx * 3];
         let i1 = mesh.indices[tri_idx * 3 + 1];

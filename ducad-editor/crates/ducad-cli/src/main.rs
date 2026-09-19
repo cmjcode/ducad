@@ -89,6 +89,8 @@ enum Command {
     Render(cmd::render::Args),
     /// Ekspor part ke STEP/STL/OBJ/GLB.
     Export(cmd::export::Args),
+    /// Bangun artefak manufaktur + laporan untuk CI (kode 3 bila check gagal).
+    Build(cmd::build::Args),
     /// Cetak JSON Schema OpFile.
     Schema,
 }
@@ -108,6 +110,7 @@ fn main() -> ExitCode {
         Command::Select(a) => cmd::select::exec(a),
         Command::Render(a) => cmd::render::exec(a),
         Command::Export(a) => cmd::export::exec(a),
+        Command::Build(a) => cmd::build::exec(a),
         Command::Schema => cmd::print_json(&ducad_engine::ops::op_schema()).map(|_| Exit::Ok),
     };
     match result {

@@ -183,6 +183,13 @@ fn build_nested_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<Prof
 }
 
 /// Jalur lama: satu loop tertutup tunggal, tanpa deteksi lubang.
+/// Id terurut (urutan kunci slotmap), agar hasil tidak bergantung urutan hash.
+fn sorted_ids(ids: &HashSet<EntityId>) -> Vec<EntityId> {
+    let mut v: Vec<EntityId> = ids.iter().copied().collect();
+    v.sort();
+    v
+}
+
 fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Profile, String> {
     if ids.is_empty() {
         return Err("Pilih dulu entitas sketch yang membentuk profil tertutup".to_string());
@@ -237,7 +244,9 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
     }
 
     let mut segs: Vec<Seg> = Vec::new();
-    for id in ids {
+    // Urut id: urutan `HashSet` acak per proses → titik awal loop (dan
+    // urutan topologi hasil) berubah-ubah; build CI butuh deterministik.
+    for id in &sorted_ids(ids) {
         match sketch.entities.get(*id) {
             Some(Entity::Line { start, end, .. }) => segs.push(Seg {
                 start: *start,
@@ -610,7 +619,7 @@ pub fn build_path_from_selection_on_plane(
     }
 
     let mut segs: Vec<PathSeg2D> = Vec::new();
-    for id in ids {
+    for id in &sorted_ids(ids) {
         match sketch.entities.get(*id) {
             Some(Entity::Line { start, end, .. }) => segs.push(PathSeg2D {
                 start: *start,

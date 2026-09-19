@@ -248,3 +248,94 @@ fn diff_svg_output() {
     );
     let _ = std::fs::remove_dir_all(&d);
 }
+
+fn fnv(path: &Path) -> u64 {
+    std::fs::read(path)
+        .unwrap()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+}
+
+#[test]
+fn build_default_artifacts_deterministic() {
+    let d = tmpdir("build");
+    let (a, b) = (d.join("a"), d.join("b"));
+    for out in [&a, &b] {
+        let o = cli(&["build", PLATE, "--out", s(out), "--date", "2026-01-02"]);
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+    }
+    for f in [
+        "plate.step",
+        "plate.stl",
+        "plate-drawing.pdf",
+        "plate-iso.png",
+        "plate-bom.csv",
+        "report.json",
+        "report.md",
+    ] {
+        assert!(a.join(f).is_file(), "{f} tidak ada");
+    }
+    for f in ["plate.step", "plate.stl", "plate-drawing.pdf", "plate-bom.csv"] {
+        assert_eq!(fnv(&a.join(f)), fnv(&b.join(f)), "{f} tidak deterministik");
+    }
+    let bom = std::fs::read_to_string(a.join("plate-bom.csv")).unwrap();
+    assert_eq!(
+        bom.lines().next(),
+        Some("item,part,qty,material,volume_mm3,mass_g,file")
+    );
+    assert_eq!(bom.lines().count(), 2, "{bom}");
+    let step = std::fs::read_to_string(a.join("plate.step")).unwrap();
+    assert!(step.contains("'2026-01-02T00:00:00'"));
+    let md = std::fs::read_to_string(a.join("report.md")).unwrap();
+    assert!(md.lines().count() <= 60, "{md}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn build_failed_check_exits_3_without_artifacts() {
+    let d = tmpdir("buildfail");
+    let mut file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(PLATE).unwrap()).unwrap();
+    file["checks"] = serde_json::json!([{"check":"body_count","expect":2}]);
+    let ops = d.join("bad.ops.json");
+    std::fs::write(&ops, file.to_string()).unwrap();
+    let out = d.join("out");
+    let o = cli(&["build", s(&ops), "--out", s(&out)]);
+    assert_eq!(
+        o.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(!out.join("bad.step").exists());
+    assert!(out.join("report.json").is_file());
+    assert!(out.join("report.md").is_file());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn build_ducad_replays() {
+    let d = tmpdir("buildpart");
+    let part = d.join("p.ducad");
+    assert_eq!(cli(&["run", PLATE, "--out", s(&part)]).status.code(), Some(0));
+    let out = d.join("out");
+    let o = cli(&["build", s(&part), "--out", s(&out), "--formats", "step,bom"]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let r: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("report.json")).unwrap()).unwrap();
+    assert_eq!(r["load"], "replay");
+    assert_eq!(r["artifacts"].as_array().unwrap().len(), 2);
+    let _ = std::fs::remove_dir_all(&d);
+}
