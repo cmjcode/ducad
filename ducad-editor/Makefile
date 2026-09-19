@@ -8,7 +8,8 @@
         build-macos build-linux build-windows \
         bundle-macos bundle-linux bundle-windows pkg-macos-store \
         build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
-        release build run dev test check fmt info notarize notarize-check
+        release build run dev test check fmt info notarize notarize-check \
+        install-agent-tools
 
 all: help
 
@@ -357,3 +358,12 @@ xcode-publish-all: xcode-project
 	@chmod +x apple/scripts/publish_xcode.sh
 	@./apple/scripts/publish_xcode.sh all
 
+############################################
+# Agent tools (ducad-cli + server MCP ducad-mcp)
+############################################
+
+# Pasang binary headless ke ~/.cargo/bin; `.mcp.json` di root repo
+# menjalankan ${HOME}/.cargo/bin/ducad-mcp.
+install-agent-tools:
+	cargo install --path crates/ducad-cli --locked
+	cargo install --path crates/ducad-mcp --locked

@@ -1,0 +1,2 @@
+{ "mcpServers": {
+    "ducad": { "command": "${HOME}/.cargo/bin/ducad-mcp", "args": ["--root", "${PWD}"] } } }
