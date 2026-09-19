@@ -222,3 +222,29 @@ fn diff_exit_codes_and_json() {
     assert_eq!(j["bodies"][0]["status"], "changed");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[test]
+fn diff_svg_output() {
+    let d = tmpdir("diffsvg");
+    let (a, b, svg) = (d.join("a.ducad"), d.join("b.ducad"), d.join("d.svg"));
+    assert_eq!(cli(&["run", PLATE, "--out", s(&a)]).status.code(), Some(0));
+    assert_eq!(
+        cli(&["replay", s(&a), "--param", "t=10", "--out", s(&b)])
+            .status
+            .code(),
+        Some(0)
+    );
+    let o = cli(&["diff", s(&a), s(&b), "--svg", s(&svg)]);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let text = std::fs::read_to_string(&svg).unwrap();
+    assert!(
+        text.contains("#16a34a"),
+        "lapisan volume bertambah berwarna hijau"
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}

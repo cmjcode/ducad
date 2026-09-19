@@ -108,3 +108,26 @@ fn added_removed_and_reordered_ops() {
         "{statuses:?}"
     );
 }
+
+#[test]
+fn diff_render_has_colored_layers() {
+    let three = plate_with_holes(r#""at":[[-20,-10],[20,-10],[-20,10]]"#);
+    let a = session(&three);
+    let b = session(ducad_engine::ops::EXAMPLE_PLATE);
+    let (_, shapes) = diff(&a, &b, true);
+    let r = ducad_engine::render::render_diff_svg(
+        &b,
+        &shapes,
+        ducad_engine::render::View::Iso,
+        800,
+        600,
+    )
+    .unwrap();
+    assert!(r.svg.starts_with("<svg"));
+    assert!(
+        r.svg.contains("#dc2626"),
+        "lapisan volume hilang berwarna merah"
+    );
+    assert!(r.svg.contains(r#"id="layer_0""#) && r.svg.contains(r#"id="layer_2""#));
+    assert!(r.visible_segments > 0);
+}

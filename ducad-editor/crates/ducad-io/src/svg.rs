@@ -799,6 +799,9 @@ pub struct SvgSnapshotOptions {
     /// lapisannya; untuk tidak menghitungnya sama sekali, matikan
     /// `include_hidden` pada opsi tangkapan di kernel.
     pub include_hidden: bool,
+    /// Pola putus-putus untuk garis tampak & siluet (`None` = garis utuh) —
+    /// dipakai lapisan "volume hilang" pada render diff.
+    pub visible_dasharray: Option<String>,
 }
 
 impl Default for SvgSnapshotOptions {
@@ -813,6 +816,7 @@ impl Default for SvgSnapshotOptions {
             hidden_dasharray: "6 4".to_string(),
             background: None,
             include_hidden: true,
+            visible_dasharray: None,
         }
     }
 }
@@ -831,6 +835,7 @@ impl SvgSnapshotOptions {
             hidden_dasharray: "6 4".to_string(),
             background: None,
             include_hidden: false,
+            visible_dasharray: None,
         }
     }
 }
@@ -884,38 +889,83 @@ pub fn export_vector_snapshot_svg_string(
         ));
     }
 
+    write_snapshot_kinds(&mut out, snapshot, options, "snapshot");
+    out.push_str("</svg>\n");
+    Ok(out)
+}
+
+/// Tulis lapisan tersembunyi (opsional), siluet, lalu tampak dengan id
+/// berawalan `prefix`.
+fn write_snapshot_kinds(
+    out: &mut String,
+    snapshot: &VectorSnapshot,
+    options: &SvgSnapshotOptions,
+    prefix: &str,
+) {
+    let dash = options.visible_dasharray.as_deref();
     // Garis tersembunyi digambar LEBIH DULU supaya garis tampak menimpanya di
     // titik-titik persilangan, sesuai kelaziman gambar teknik.
     if options.include_hidden {
         write_snapshot_layer(
-            &mut out,
+            out,
             snapshot,
             HlrLineKind::Hidden,
-            "snapshot_hidden",
+            &format!("{prefix}_hidden"),
             &options.hidden_color,
             options.hidden_stroke_px,
             Some(&options.hidden_dasharray),
         );
     }
     write_snapshot_layer(
-        &mut out,
+        out,
         snapshot,
         HlrLineKind::Silhouette,
-        "snapshot_silhouette",
+        &format!("{prefix}_silhouette"),
         &options.silhouette_color,
         options.silhouette_stroke_px,
-        None,
+        dash,
     );
     write_snapshot_layer(
-        &mut out,
+        out,
         snapshot,
         HlrLineKind::Visible,
-        "snapshot_visible",
+        &format!("{prefix}_visible"),
         &options.visible_color,
         options.visible_stroke_px,
-        None,
+        dash,
     );
+}
 
+/// Beberapa tangkapan (satu kamera, `viewBox` sama) dalam SATU `<svg>`, satu
+/// `<g id="layer_i">` per lapisan — dipakai render diff berwarna. Ukuran dan
+/// latar diambil dari lapisan pertama.
+pub fn export_vector_snapshot_svg_layers(
+    layers: &[(&VectorSnapshot, &SvgSnapshotOptions)],
+) -> Result<String> {
+    let Some((first, first_opts)) = layers.first() else {
+        anyhow::bail!("tidak ada lapisan untuk diekspor");
+    };
+    let w = first.width_px.max(1.0);
+    let h = first.height_px.max(1.0);
+    let mut out = String::with_capacity(16 * 1024);
+    out.push_str(&format!(
+        r##"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0}" height="{h:.0}" viewBox="0 0 {w:.2} {h:.2}" version="1.1">
+  <title>DUCAD Vector Snapshot</title>
+"##
+    ));
+    if let Some(bg) = &first_opts.background {
+        out.push_str(&format!(
+            r##"  <rect width="{w:.2}" height="{h:.2}" fill="{bg}" />
+"##,
+            bg = escape_xml(bg)
+        ));
+    }
+    for (i, (snap, opts)) in layers.iter().enumerate() {
+        out.push_str(&format!("  <g id=\"layer_{i}\">\n"));
+        write_snapshot_kinds(&mut out, snap, opts, &format!("layer_{i}"));
+        out.push_str("  </g>\n");
+    }
     out.push_str("</svg>\n");
     Ok(out)
 }

@@ -14,12 +14,37 @@ pub struct Args {
     /// Jangan hitung volume tambah/hilang dengan boolean kernel.
     #[arg(long)]
     no_geometry: bool,
+    /// Tulis render diff berwarna (tampak iso) ke SVG.
+    #[arg(long)]
+    svg: Option<PathBuf>,
+    /// Tulis render diff berwarna (tampak iso) ke PNG 800x600.
+    #[arg(long)]
+    png: Option<PathBuf>,
 }
 
 pub fn exec(a: Args) -> CliResult {
     let sa = open_part(&a.a)?;
     let sb = open_part(&a.b)?;
-    let (d, _shapes) = diff(&sa, &sb, !a.no_geometry);
+    let (d, shapes) = diff(&sa, &sb, !a.no_geometry);
+    if a.svg.is_some() || a.png.is_some() {
+        let r = ducad_engine::render::render_diff_svg(
+            &sb,
+            &shapes,
+            ducad_engine::render::View::Iso,
+            800,
+            600,
+        )?;
+        let write = |p: &PathBuf, bytes: &[u8]| {
+            std::fs::write(p, bytes)
+                .map_err(|e| crate::CliError::usage(format!("gagal menulis {}: {e}", p.display())))
+        };
+        if let Some(p) = &a.svg {
+            write(p, r.svg.as_bytes())?;
+        }
+        if let Some(p) = &a.png {
+            write(p, &ducad_engine::render::svg_to_png(&r.svg, 800, 600)?)?;
+        }
+    }
     if a.json {
         print_json(&d)?;
     } else {

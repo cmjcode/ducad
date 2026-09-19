@@ -30,7 +30,8 @@ pub use pdf::export_pdf;
 pub use svg::{
     export_drawing_sheet_svg, export_sketch_svg, export_sketch_svg_string,
     export_sketch_svg_with_options, export_vector_snapshot_svg,
-    export_vector_snapshot_svg_string, export_vector_snapshot_svg_with_options, SvgSketchOptions,
+    export_vector_snapshot_svg_layers, export_vector_snapshot_svg_string,
+    export_vector_snapshot_svg_with_options, SvgSketchOptions,
     SvgSnapshotOptions,
 };
 

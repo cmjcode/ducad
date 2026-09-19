@@ -68,6 +68,130 @@ pub struct RenderResult {
 const FOV_Y_DEG: f32 = 45.0;
 const MAX_SVG_BYTES: usize = 300 * 1024;
 
+/// Kamera ortografik deterministik yang membingkai bbox `lo..hi`.
+fn camera_for_bbox(lo: Vec3, hi: Vec3, view: View, width: u32, height: u32) -> SnapshotCamera {
+    let c = (lo + hi) * 0.5;
+    let diag = (hi - lo).length().max(1.0);
+    let fov = FOV_Y_DEG.to_radians();
+    let dist = 0.6 * diag / (fov * 0.5).tan();
+    let (dir, up) = view.direction_up();
+    SnapshotCamera {
+        eye: c + dir.normalize() * dist,
+        target: c,
+        up,
+        fov_y: fov,
+        width_px: width as f32,
+        height_px: height as f32,
+        near: 0.1,
+        orthographic: true,
+    }
+}
+
+/// Warna lapisan volume yang bertambah pada render diff.
+pub const DIFF_ADDED_COLOR: &str = "#16a34a";
+/// Warna lapisan volume yang hilang pada render diff.
+pub const DIFF_REMOVED_COLOR: &str = "#dc2626";
+
+/// Render diff berwarna (P8.3): lapisan 1 = body versi baru `b` (warna
+/// default), lapisan 2 = volume bertambah (hijau), lapisan 3 = volume hilang
+/// (merah, putus-putus). Oklusi antar-lapisan diabaikan; tanpa garis
+/// tersembunyi.
+pub fn render_diff_svg(
+    b: &Session,
+    shapes: &crate::diff::DiffShapes,
+    view: View,
+    width: u32,
+    height: u32,
+) -> OpResult<RenderResult> {
+    use crate::model::BodyGeometry;
+    let model = b.model();
+    let base: Vec<&BodyGeometry> = model
+        .doc
+        .bodies
+        .iter()
+        .filter(|(_, body)| body.visible)
+        .filter_map(|(id, _)| model.geometry.get(id))
+        .collect();
+    let clone_geo = |s: &ducad_kernel::KernelShape| -> OpResult<BodyGeometry> {
+        let c = ducad_kernel::clone_shape(s).map_err(|e| OpError::kernel("Render diff", e))?;
+        Ok(BodyGeometry::from_shape(c))
+    };
+    let added = shapes
+        .added
+        .iter()
+        .map(clone_geo)
+        .collect::<OpResult<Vec<_>>>()?;
+    let removed = shapes
+        .removed
+        .iter()
+        .map(clone_geo)
+        .collect::<OpResult<Vec<_>>>()?;
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for g in base
+        .iter()
+        .copied()
+        .chain(added.iter())
+        .chain(removed.iter())
+    {
+        if let Some((a, z)) = g.mesh.bounding_box() {
+            lo = lo.min(Vec3::from_array(a));
+            hi = hi.max(Vec3::from_array(z));
+        }
+    }
+    if lo.x > hi.x {
+        return Err(OpError::invalid("tidak ada body untuk dirender"));
+    }
+    let camera = camera_for_bbox(lo, hi, view, width, height);
+    let options = SnapshotOptions {
+        include_hidden: false,
+        ..SnapshotOptions::default()
+    };
+    let snap = |geos: &[&BodyGeometry]| {
+        let bodies: Vec<SnapshotBody> = geos
+            .iter()
+            .map(|g| SnapshotBody::new(&g.edge_lines, &g.mesh))
+            .collect();
+        ducad_kernel::extract_vector_snapshot(&camera, &bodies, &[], &options)
+    };
+    let s_base = snap(&base);
+    let s_added = snap(&added.iter().collect::<Vec<_>>());
+    let s_removed = snap(&removed.iter().collect::<Vec<_>>());
+    let o_base = ducad_io::svg::SvgSnapshotOptions {
+        background: Some("#ffffff".into()),
+        include_hidden: false,
+        ..Default::default()
+    };
+    let colored = |color: &str, dash: Option<&str>| ducad_io::svg::SvgSnapshotOptions {
+        visible_color: color.into(),
+        silhouette_color: color.into(),
+        visible_stroke_px: 2.0,
+        silhouette_stroke_px: 1.6,
+        include_hidden: false,
+        visible_dasharray: dash.map(str::to_string),
+        ..Default::default()
+    };
+    let (o_added, o_removed) = (
+        colored(DIFF_ADDED_COLOR, None),
+        colored(DIFF_REMOVED_COLOR, Some("5 3")),
+    );
+    let svg = ducad_io::svg::export_vector_snapshot_svg_layers(&[
+        (&s_base, &o_base),
+        (&s_added, &o_added),
+        (&s_removed, &o_removed),
+    ])
+    .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal membuat SVG diff: {e:#}")))?;
+    let svg = match svg.find("<svg") {
+        Some(i) => svg[i..].to_string(),
+        None => svg,
+    };
+    let count = |s: &ducad_kernel::VectorSnapshot| s.segments.len();
+    Ok(RenderResult {
+        svg,
+        visible_segments: count(&s_base) + count(&s_added) + count(&s_removed),
+        hidden_segments: 0,
+    })
+}
+
 /// Render body sesi sebagai SVG garis (tampak + opsional tersembunyi).
 pub fn render_svg(s: &Session, opt: &RenderOptions) -> OpResult<RenderResult> {
     if opt.width == 0 || opt.height == 0 || opt.width > 8192 || opt.height > 8192 {
@@ -110,21 +234,7 @@ pub fn render_svg(s: &Session, opt: &RenderOptions) -> OpResult<RenderResult> {
             "body yang dipilih tidak punya mesh",
         ));
     }
-    let c = (lo + hi) * 0.5;
-    let diag = (hi - lo).length().max(1.0);
-    let fov = FOV_Y_DEG.to_radians();
-    let dist = 0.6 * diag / (fov * 0.5).tan();
-    let (dir, up) = opt.view.direction_up();
-    let camera = SnapshotCamera {
-        eye: c + dir.normalize() * dist,
-        target: c,
-        up,
-        fov_y: fov,
-        width_px: opt.width as f32,
-        height_px: opt.height as f32,
-        near: 0.1,
-        orthographic: true,
-    };
+    let camera = camera_for_bbox(lo, hi, opt.view, opt.width, opt.height);
     let snap_bodies: Vec<SnapshotBody> = picked
         .iter()
         .map(|(_, g)| SnapshotBody::new(&g.edge_lines, &g.mesh))
