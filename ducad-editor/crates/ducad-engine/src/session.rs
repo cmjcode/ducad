@@ -927,7 +927,7 @@ fn hole_positions(
     }
 }
 
-fn hole_spec(spec: &HoleSpecRef, params: &Params) -> OpResult<ducad_core::hole::HoleSpec> {
+pub(crate) fn hole_spec(spec: &HoleSpecRef, params: &Params) -> OpResult<ducad_core::hole::HoleSpec> {
     use ducad_core::hole::{HoleKind, HoleSpec, IsoMetricThread};
     const THROUGH_DEFAULT_DEPTH: f64 = 20.0;
     let depth = |d: &Option<Num>| -> OpResult<Option<f64>> {

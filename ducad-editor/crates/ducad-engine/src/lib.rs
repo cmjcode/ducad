@@ -15,6 +15,7 @@ pub mod check;
 pub mod compute;
 pub mod diagnose;
 pub mod diff;
+pub mod drawing_auto;
 pub mod error;
 pub mod export;
 pub mod inspect;
