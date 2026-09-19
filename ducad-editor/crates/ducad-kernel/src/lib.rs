@@ -22,6 +22,7 @@ pub mod projection;
 pub mod section;
 pub mod shape;
 pub mod step;
+pub mod thickness;
 pub mod topo;
 pub mod vector_snapshot;
 
@@ -116,4 +117,5 @@ pub use shape::{
     translate_shape, KernelShape,
 };
 pub use step::write_step_compound;
+pub use thickness::{min_wall_thickness, WallReport, DEFAULT_WALL_SAMPLES};
 pub use topo::{enumerate_edges, enumerate_faces, EdgeInfo, EdgeKind, FaceInfo};

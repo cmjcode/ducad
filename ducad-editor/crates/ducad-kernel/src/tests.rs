@@ -3110,3 +3110,92 @@ fn primitives_reject_non_positive() {
     assert!(make_cone(1.0, -1.0, 1.0).is_err());
     assert!(make_cone(1.0, 0.5, 0.0).is_err());
 }
+
+// ---------------------------------------------------------------------
+// P7.3 — tebal dinding minimum berbasis mesh
+// ---------------------------------------------------------------------
+
+#[test]
+fn wall_thickness_of_plate_is_its_height() {
+    let _guard = lock_test();
+    let mesh = box_60_40_8().tessellate();
+    let r = min_wall_thickness(&mesh, DEFAULT_WALL_SAMPLES).unwrap();
+    assert!((r.min - 8.0).abs() <= 0.05, "{r:?}");
+    assert!(r.samples > 0);
+    let again = min_wall_thickness(&mesh, DEFAULT_WALL_SAMPLES).unwrap();
+    assert_eq!(r, again, "hasil harus deterministik");
+}
+
+#[test]
+fn wall_thickness_of_shelled_box() {
+    let _guard = lock_test();
+    let shape = box_60_40_8();
+    let top = topo::enumerate_faces(&shape)
+        .into_iter()
+        .find(|f| f.normal[2] > 0.9)
+        .unwrap()
+        .index;
+    let shelled = shell_faces_by_index(&shape, 2.0, &[top]).unwrap();
+    let r = min_wall_thickness(&shelled.tessellate(), DEFAULT_WALL_SAMPLES).unwrap();
+    assert!((r.min - 2.0).abs() <= 0.1, "{r:?}");
+}
+
+#[test]
+fn wall_thickness_next_to_hole() {
+    let _guard = lock_test();
+    // Lubang r=2.75 berpusat 5 mm dari tepi x=0 → dinding 2.25 mm.
+    let profile = rect_profile(60.0, 40.0).with_holes(vec![Profile::Circle {
+        center: (5.0, 20.0),
+        radius: 2.75,
+    }]);
+    let shape = extrude_profile(&profile, 8.0).unwrap();
+    let r = min_wall_thickness(&shape.tessellate(), DEFAULT_WALL_SAMPLES).unwrap();
+    assert!((r.min - 2.25).abs() <= 0.15, "{r:?}");
+    assert!(r.at[0] < 5.0, "lokasi minimum harus di antara lubang dan tepi: {:?}", r.at);
+}
+
+/// Dua pelat sejajar sejarak 3 mm, total ~100k segitiga.
+fn two_plates_mesh(cells: usize) -> KernelMesh {
+    let mut m = KernelMesh::default();
+    for (z, nz) in [(0.0f32, -1.0f32), (3.0, 1.0)] {
+        let base = m.positions.len() as u32;
+        for j in 0..=cells {
+            for i in 0..=cells {
+                m.positions.push([i as f32 * 0.5, j as f32 * 0.5, z]);
+                m.normals.push([0.0, 0.0, nz]);
+            }
+        }
+        let w = (cells + 1) as u32;
+        for j in 0..cells as u32 {
+            for i in 0..cells as u32 {
+                let a = base + j * w + i;
+                // Winding CCW dilihat dari luar: pelat bawah (normal −Z) dibalik.
+                if nz > 0.0 {
+                    m.indices.extend([a, a + 1, a + w, a + 1, a + w + 1, a + w]);
+                } else {
+                    m.indices.extend([a, a + w, a + 1, a + 1, a + w, a + w + 1]);
+                }
+            }
+        }
+    }
+    m
+}
+
+#[test]
+fn wall_thickness_synthetic_plates() {
+    let r = min_wall_thickness(&two_plates_mesh(20), DEFAULT_WALL_SAMPLES).unwrap();
+    assert!((r.min - 3.0).abs() < 1e-3, "{r:?}");
+}
+
+/// Jalankan dengan `cargo test --release -p ducad-kernel -- --ignored wall_thickness_100k`.
+#[test]
+#[ignore]
+fn wall_thickness_100k_triangles_under_2s() {
+    let mesh = two_plates_mesh(158); // 2 × 158² × 2 ≈ 99 856 segitiga
+    assert!(mesh.triangle_count() > 99_000);
+    let t0 = std::time::Instant::now();
+    let r = min_wall_thickness(&mesh, DEFAULT_WALL_SAMPLES).unwrap();
+    let dt = t0.elapsed();
+    eprintln!("min_wall 100k segitiga: {dt:?} ({} sampel)", r.samples);
+    assert!(dt.as_secs_f64() < 2.0, "{dt:?}");
+}
