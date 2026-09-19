@@ -14,6 +14,7 @@
 pub mod compute;
 pub mod error;
 pub mod model;
+pub mod ops;
 pub mod plane;
 pub mod profile;
 
