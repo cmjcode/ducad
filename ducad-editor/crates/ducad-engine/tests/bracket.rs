@@ -8,7 +8,8 @@
 //! - tumpang tindih 50×5×5                 = −1250   → union 13750
 //! - fillet cekung r=2 sepanjang 50        = +(1 − π/4)·2²·50 ≈ +42.920
 //! - 2 lubang M5 clearance Ø5.5 tembus 5mm = −2·π·2.75²·5   ≈ −237.583
-//! total ≈ 13555.337 mm³
+//!
+//! Total ≈ 13555.337 mm³.
 
 use std::f64::consts::PI;
 
