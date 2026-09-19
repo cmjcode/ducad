@@ -9,7 +9,14 @@ authors.workspace = true
 name = "ducad-cli"
 path = "src/main.rs"
 
+[features]
+default = []
+# Backend AI di perangkat untuk `ducad-cli assist` (P11); mati secara default.
+apple-fm = ["ducad-assist/apple-fm"]
+local-gguf = ["ducad-assist/local-gguf"]
+
 [dependencies]
+ducad-assist = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-io = { workspace = true }
 ducad-core = { workspace = true }

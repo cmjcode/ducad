@@ -1170,3 +1170,21 @@ error-hole_outside_face = Hole outside face
 error-hole_deeper_than_body = Hole deeper than body
 error-boolean_no_overlap = Bodies do not overlap
 error-profile_open_gap = Profile almost closed
+
+## Local AI assistant (P11)
+assist-title = Ask AI…
+assist-hint = E.g. "make it 10 mm thick" or "add an M4 hole at the centre of the top face"
+assist-ask = Ask
+assist-cancel = Cancel
+assist-working = The model is working…
+assist-apply = Apply
+assist-reject = Reject
+assist-no-backend = This build has no on-device AI backend.
+assist-needs-design = This document is not a parametric part (no oplog), so the AI cannot propose changes yet.
+assist-capability-note = The on-device model is good at changing sizes and adding simple features. For complex new parts, use an external agent.
+assist-applied = AI suggestion applied.
+assist-rejected = AI suggestion rejected.
+ai-chip-on-device = AI: on device
+ai-chip-external = AI: external enabled
+ai-privacy-offline = On device only
+ai-privacy-external = Allow external agents

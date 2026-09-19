@@ -77,6 +77,8 @@ pub enum TopBarEvent {
     CycleTouchDesignMode,
     /// Buka/tutup panel Checks (P7.5).
     ToggleChecksPanel,
+    /// Buka dialog "Tanya AI…".
+    OpenAssist,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -120,6 +122,9 @@ pub struct TopBarState {
     pub is_ipad: bool,
     /// Ringkasan checks desain `(lulus, tidak lulus)`; `None` = tidak ada check.
     pub checks_summary: Option<(usize, usize)>,
+    /// Status AI (P11.4): `Some(true)` = backend di perangkat aktif,
+    /// `Some(false)` = backend eksternal diizinkan, `None` = tidak ada AI.
+    pub ai_on_device: Option<bool>,
     pub checks_panel_open: bool,
 }
 
@@ -530,6 +535,22 @@ impl TopBar {
                     );
                     if assem_btn.clicked() {
                         event = Some(TopBarEvent::ToggleAssemblyDrawer);
+                    }
+
+                    // 8b. Chip status AI (P11.4).
+                    if let Some(on_device) = state.ai_on_device {
+                        let (label, color) = if on_device {
+                            (t!("ai-chip-on-device"), crate::theme::ACCENT_GREEN)
+                        } else {
+                            (t!("ai-chip-external"), Color32::from_rgb(255, 159, 10))
+                        };
+                        if ui
+                            .add(egui::Button::new(RichText::new(label).size(11.0).color(color)))
+                            .on_hover_text(t!("assist-title"))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::OpenAssist);
+                        }
                     }
 
                     // 8. Ringkasan checks desain (hanya bila part punya check).
@@ -1049,6 +1070,7 @@ mod tests {
             touch_config,
             is_ipad: false,
             checks_summary: None,
+            ai_on_device: None,
             checks_panel_open: false,
         }
     }

@@ -98,9 +98,41 @@ pub fn parse_reply(text: &str) -> Result<AssistReply, ParseError> {
     if end < start {
         return Err(ParseError::NotJson("tidak ada objek JSON".into()));
     }
-    let value: serde_json::Value = serde_json::from_str(&text[start..=end])
-        .map_err(|e| ParseError::NotJson(e.to_string()))?;
-    serde_json::from_value(value).map_err(|e| ParseError::BadShape(e.to_string()))
+    // Aturan P11.2: `{` pertama s.d. `}` terakhir. Model kecil kadang
+    // menulis DUA objek berturut-turut; bila rentang itu bukan JSON, pakai
+    // objek utuh pertama.
+    let value: serde_json::Value = match serde_json::from_str(&text[start..=end]) {
+        Ok(v) => v,
+        Err(e) => serde_json::Deserializer::from_str(&text[start..])
+            .into_iter::<serde_json::Value>()
+            .next()
+            .and_then(Result::ok)
+            .filter(serde_json::Value::is_object)
+            .ok_or_else(|| ParseError::NotJson(e.to_string()))?,
+    };
+    serde_json::from_value(value.clone()).map_err(|e| ParseError::BadShape(shape_error(&value, e)))
+}
+
+/// Pesan bentuk-salah yang menunjuk aksi pertama yang tidak valid — pesan
+/// serde mentah ("invalid type: sequence") terlalu kabur bagi model kecil.
+fn shape_error(value: &serde_json::Value, whole: serde_json::Error) -> String {
+    let Some(actions) = value.get("actions").and_then(|a| a.as_array()) else {
+        return format!("objek harus punya larik \"actions\": {whole}");
+    };
+    for (i, a) in actions.iter().enumerate() {
+        if let Err(e) = serde_json::from_value::<AssistAction>(a.clone()) {
+            let mut snippet = a.to_string();
+            if snippet.len() > 160 {
+                let cut = (0..=160).rev().find(|k| snippet.is_char_boundary(*k)).unwrap_or(0);
+                snippet.truncate(cut);
+                snippet.push('…');
+            }
+            return format!(
+                "aksi #{i} {snippet} tidak valid: {e}. Kunci aksi yang sah: set_params, append_ops, replace_op, explain, ask_user; op ditulis di dalam append_ops"
+            );
+        }
+    }
+    whole.to_string()
 }
 
 fn backend_err(name: &str, e: anyhow::Error) -> OpError {
@@ -119,6 +151,7 @@ fn ask(
     let raw = backend
         .complete(system, user, MAX_TOKENS)
         .map_err(|e| backend_err(&name, e))?;
+    log::debug!("balasan {name}: {raw}");
     transcript.push((user.to_string(), raw.clone()));
     let first = match parse_reply(&raw) {
         Ok(r) => return Ok(Ok(r)),
@@ -126,11 +159,12 @@ fn ask(
         Err(ParseError::NotJson(e)) => e,
     };
     let retry = format!(
-        "{user}\n\nBalasan sebelumnya bukan JSON valid: {first}\nBalas HANYA satu objek JSON {{\"rationale\": ..., \"actions\": [...]}}."
+        "{user}\n\nBalasan sebelumnya bukan JSON valid ({first}). Balas HANYA satu objek JSON lengkap berkunci rationale dan actions, seperti CONTOH di prompt sistem."
     );
     let raw = backend
         .complete(system, &retry, MAX_TOKENS)
         .map_err(|e| backend_err(&name, e))?;
+    log::debug!("balasan ulang {name}: {raw}");
     transcript.push((retry, raw.clone()));
     match parse_reply(&raw) {
         Ok(r) => Ok(Ok(r)),

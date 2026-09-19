@@ -245,6 +245,8 @@ pub enum PaletteAction {
     ClearMeasurements,
     SetTouchDesignMode(ducad_ui::TouchDesignMode),
     TogglePalmRejection,
+    /// Buka dialog asisten AI lokal (P11.4).
+    OpenAssist,
 }
 
 pub fn required_points(tool: ToolKind) -> usize {

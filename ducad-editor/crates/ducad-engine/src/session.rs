@@ -1022,6 +1022,12 @@ impl Session {
         &self.model
     }
 
+    /// Ambil alih model sesi (`KernelShape` tidak `Clone`) — dipakai GUI
+    /// untuk mengadopsi hasil sesi tanpa menyalin geometri.
+    pub fn into_model(self) -> ModelDoc {
+        self.model
+    }
+
     pub fn design(&self) -> &DesignDoc {
         &self.meta.design
     }

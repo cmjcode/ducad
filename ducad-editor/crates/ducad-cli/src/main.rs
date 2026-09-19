@@ -91,6 +91,8 @@ enum Command {
     Export(cmd::export::Args),
     /// Bangun artefak manufaktur + laporan untuk CI (kode 3 bila check gagal).
     Build(cmd::build::Args),
+    /// Minta asisten AI di perangkat mengusulkan perubahan (proposal).
+    Assist(cmd::assist::Args),
     /// Cetak JSON Schema OpFile.
     Schema,
 }
@@ -111,6 +113,7 @@ fn main() -> ExitCode {
         Command::Render(a) => cmd::render::exec(a),
         Command::Export(a) => cmd::export::exec(a),
         Command::Build(a) => cmd::build::exec(a),
+        Command::Assist(a) => cmd::assist::exec(a),
         Command::Schema => cmd::print_json(&ducad_engine::ops::op_schema()).map(|_| Exit::Ok),
     };
     match result {

@@ -1352,6 +1352,7 @@ dependencies = [
  "anyhow",
  "block2 0.6.2",
  "chrono",
+ "ducad-assist",
  "ducad-cloud",
  "ducad-core",
  "ducad-engine",
@@ -1401,6 +1402,7 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
+ "ducad-assist",
  "ducad-core",
  "ducad-engine",
  "ducad-io",

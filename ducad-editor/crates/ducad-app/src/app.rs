@@ -121,6 +121,8 @@ pub struct DuCADApp {
     pub design: Option<serde_json::Value>,
     /// Hasil checks desain untuk panel & top bar (P7.5).
     pub checks: crate::checks_ui::ChecksState,
+    /// Asisten AI lokal (P11.4).
+    pub ai: crate::assist_ui::AiState,
     /// Kartu error operasi + fix terverifikasi (P9.3).
     pub error_card: ducad_ui::ErrorCardState,
     pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
@@ -474,6 +476,7 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
+            ai: crate::assist_ui::AiState::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -754,6 +757,7 @@ impl DuCADApp {
             current_file_path: None,
             design: None,
             checks: crate::checks_ui::ChecksState::default(),
+            ai: crate::assist_ui::AiState::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -1515,6 +1519,9 @@ impl eframe::App for DuCADApp {
             is_ipad,
             checks_summary,
             checks_panel_open: self.checks.panel_open,
+            ai_on_device: (!crate::assist_ui::backend_name().is_empty()).then_some(
+                self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly,
+            ),
         };
 
         let mut topbar_rect: Option<egui::Rect> = None;
@@ -1649,6 +1656,7 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::ToggleChecksPanel => {
                                 self.checks.panel_open = !self.checks.panel_open;
                             }
+                            TopBarEvent::OpenAssist => self.open_assist_dialog(),
                         }
                     }
                 });
@@ -3676,6 +3684,7 @@ impl eframe::App for DuCADApp {
         // Render Alert Modal Peringatan jika ada operasi yang gagal
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
         self.error_card_frame(&ctx);
+        self.assist_frame(&ctx);
     }
 }
 

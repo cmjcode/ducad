@@ -171,3 +171,27 @@ fn crate_never_commits() {
         }
     }
 }
+
+#[test]
+fn shape_error_names_the_bad_action() {
+    let err = ducad_assist::parse_reply(
+        r#"{"rationale":"x","actions":[{"set_params":{"t":8}},{"sketch":{"op":"sketch"}}]}"#,
+    )
+    .unwrap_err();
+    match err {
+        ducad_assist::ParseError::BadShape(m) => {
+            assert!(m.contains("aksi #1"), "{m}");
+            assert!(m.contains("append_ops"), "{m}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn two_objects_use_the_first() {
+    let r = ducad_assist::parse_reply(
+        "{\"rationale\":\"a\",\"actions\":[{\"set_params\":{\"t\":12}}]}\n\n{\"rationale\":\"b\",\"actions\":[]}",
+    )
+    .unwrap();
+    assert_eq!(r.rationale, "a");
+}

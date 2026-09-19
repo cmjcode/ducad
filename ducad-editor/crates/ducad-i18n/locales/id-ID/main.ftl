@@ -1170,3 +1170,21 @@ error-hole_outside_face = Lubang di luar face
 error-hole_deeper_than_body = Lubang lebih dalam dari body
 error-boolean_no_overlap = Body tidak beririsan
 error-profile_open_gap = Profil hampir tertutup
+
+## Asisten AI lokal (P11)
+assist-title = Tanya AI…
+assist-hint = Mis. "tebal jadi 10 mm" atau "tambah lubang M4 di tengah face atas"
+assist-ask = Tanya
+assist-cancel = Batal
+assist-working = Model sedang bekerja…
+assist-apply = Terapkan
+assist-reject = Tolak
+assist-no-backend = Build ini tanpa backend AI di perangkat.
+assist-needs-design = Bagian ini bukan part parametrik (tidak ada oplog), jadi AI belum bisa mengusulkan perubahan.
+assist-capability-note = Model di perangkat cocok untuk mengubah ukuran dan menambah fitur sederhana. Untuk membuat part baru yang rumit, pakai agent eksternal.
+assist-applied = Usulan AI diterapkan.
+assist-rejected = Usulan AI ditolak.
+ai-chip-on-device = AI: di perangkat
+ai-chip-external = AI: eksternal aktif
+ai-privacy-offline = Hanya di perangkat
+ai-privacy-external = Izinkan agent eksternal

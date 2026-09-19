@@ -9,6 +9,13 @@ authors.workspace = true
 name = "ducad"
 path = "src/main.rs"
 
+[features]
+default = []
+# Asisten AI di perangkat (P11); mati secara default agar build biasa
+# dan build iOS tidak terpengaruh.
+apple-fm = ["ducad-assist/apple-fm"]
+local-gguf = ["ducad-assist/local-gguf"]
+
 [dependencies]
 ducad-core = { workspace = true }
 ducad-sketch = { workspace = true }
@@ -19,6 +26,7 @@ ducad-ui = { workspace = true }
 ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
 ducad-engine = { workspace = true }
+ducad-assist = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }

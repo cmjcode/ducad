@@ -9,6 +9,11 @@ impl DuCADApp {
     pub fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
         let mut actions = vec![
             (
+                ducad_i18n::t!("assist-title"),
+                String::new(),
+                PaletteAction::OpenAssist,
+            ),
+            (
                 "Dokumen Baru".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::New),
@@ -394,6 +399,7 @@ impl DuCADApp {
                 ducad_ui::apply_with_touch(ctx, self.theme, self.touch_config.touch_target_size);
                 self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
             }
+            PaletteAction::OpenAssist => self.open_assist_dialog(),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
