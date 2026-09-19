@@ -34,9 +34,9 @@ pub struct DesignDoc {
     pub params: Params,
     #[serde(default)]
     pub oplog: Vec<Op>,
-    /// Diketik di P7.
+    /// Persyaratan desain yang diperiksa setelah tiap batch (P7).
     #[serde(default)]
-    pub checks: Vec<serde_json::Value>,
+    pub checks: Vec<crate::check::CheckItem>,
     /// Body bawaan (file buatan GUI/impor) yang menjadi titik awal replay.
     #[serde(default)]
     pub base_bodies: Vec<NativeBody>,
@@ -80,6 +80,10 @@ pub struct BatchReport {
     pub error: Option<OpError>,
     /// Keadaan SETELAH batch (atau setelah rollback).
     pub summary: Summary,
+    /// Hasil `design.checks` setelah batch ter-commit (bila ada check).
+    /// Check yang gagal TIDAK membatalkan batch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks: Option<Vec<crate::check::CheckResult>>,
 }
 
 /// Metadata sesi di luar model/sketch — bagian yang diklon saat batch dan
@@ -289,6 +293,7 @@ impl SessionCore<'_> {
                 outcomes,
                 error: failure,
                 summary: self.summary(),
+                checks: None,
             };
         }
 
@@ -299,11 +304,14 @@ impl SessionCore<'_> {
             self.meta.batches.push(n);
         }
         self.meta.design.fingerprint = fingerprint(self.model);
+        let checks = (!self.meta.design.checks.is_empty())
+            .then(|| crate::check::run_checks_on(self.model, self.meta, &self.meta.design.checks));
         BatchReport {
             committed: true,
             outcomes,
             error: None,
             summary: self.summary(),
+            checks,
         }
     }
 
@@ -1194,8 +1202,20 @@ impl Session {
                 outcomes: Vec::new(),
                 error: Some(e),
                 summary: self.summary(),
+                checks: None,
             }),
         }
+    }
+
+    /// Ganti seluruh daftar check desain.
+    pub fn set_checks(&mut self, checks: Vec<crate::check::CheckItem>) {
+        self.meta.design.checks = checks;
+    }
+
+    /// Evaluasi `checks` (atau `design.checks` bila `None`).
+    pub fn run_checks(&self, checks: Option<&[crate::check::CheckItem]>) -> crate::check::CheckSummary {
+        let list = checks.unwrap_or(&self.meta.design.checks);
+        crate::check::CheckSummary::from_results(crate::check::run_checks_on(&self.model, &self.meta, list))
     }
 
     /// Buang batch terakhir lalu replay. `false` bila tidak ada yang bisa di-undo.
