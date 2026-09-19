@@ -1,0 +1,3 @@
+# Diff .ducad lewat oplog-nya (P8.1). Aktifkan sekali per clone:
+#   git config diff.ducad.textconv "ducad-cli oplog"
+*.ducad diff=ducad

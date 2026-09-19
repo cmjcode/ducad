@@ -61,6 +61,9 @@ pub fn exec(a: Args) -> CliResult {
             return Ok(Exit::OpFailed);
         }
     }
+    if !file.checks.is_empty() {
+        session.set_checks(file.checks);
+    }
     let report = session.run(file.ops, a.dry_run);
     print_json(&report)?;
     if let Some(p) = &a.report {

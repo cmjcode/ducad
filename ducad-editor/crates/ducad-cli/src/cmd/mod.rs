@@ -1,6 +1,7 @@
 pub mod check;
 pub mod export;
 pub mod inspect;
+pub mod oplog;
 pub mod render;
 pub mod replay;
 pub mod run;

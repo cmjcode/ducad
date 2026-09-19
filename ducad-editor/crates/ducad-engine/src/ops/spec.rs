@@ -451,13 +451,17 @@ pub enum ConstraintSpec {
     },
 }
 
-/// Isi file ops: `{ "params": {...}, "ops": [...] }`.
+/// Isi file ops: `{ "params": {...}, "ops": [...], "checks"?: [...] }`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OpFile {
     #[serde(default)]
     pub params: Params,
     pub ops: Vec<Op>,
+    /// Check desain opsional (format P7); `ducad-cli run` memasangnya ke
+    /// `design.checks` sebelum menjalankan op.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<crate::check::CheckItem>,
 }
 
 /// JSON Schema `OpFile`. Salinannya disimpan di `schema/ops.schema.json`.

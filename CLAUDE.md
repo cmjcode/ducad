@@ -38,6 +38,11 @@ cargo test --workspace                         # gerbang CI
 make install-agent-tools                       # pasang ducad-cli, ducad-mcp (+ mnemonic-cli bila ada)
 ```
 
+Version control desain: commit `*.ops.json` sebagai sumber dan `.ducad`
+sebagai artefak. `ducad-cli oplog PART.ducad` menulis oplog satu op per
+baris; aktifkan diff git dengan `git config diff.ducad.textconv "ducad-cli oplog"`
+(`.gitattributes` sudah memetakan `*.ducad diff=ducad`).
+
 Skema `Op` tersimpan di `crates/ducad-engine/schema/ops.schema.json`;
 perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 

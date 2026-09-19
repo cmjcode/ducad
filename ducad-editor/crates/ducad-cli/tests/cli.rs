@@ -180,3 +180,25 @@ fn check_command_exit_codes() {
     );
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[test]
+fn oplog_is_git_friendly() {
+    let d = tmpdir("oplog");
+    let part = d.join("p.ducad");
+    assert_eq!(
+        cli(&["run", PLATE, "--out", s(&part)]).status.code(),
+        Some(0)
+    );
+    let o = cli(&["oplog", s(&part)]);
+    assert_eq!(o.status.code(), Some(0));
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert_eq!(
+        text.lines()
+            .filter(|l| l.trim_start().starts_with("{\"op\":"))
+            .count(),
+        4
+    );
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["params"]["t"], 8.0);
+    let _ = std::fs::remove_dir_all(&d);
+}

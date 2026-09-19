@@ -17,6 +17,7 @@ pub mod error;
 pub mod export;
 pub mod inspect;
 pub mod model;
+pub mod oplog;
 pub mod ops;
 pub mod plane;
 pub mod profile;

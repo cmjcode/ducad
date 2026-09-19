@@ -51,6 +51,20 @@
       ],
       "type": "string"
     },
+    "BodySel": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "`\"*\"` pada field `body` = satu-satunya body (error bila jumlah ≠ 1); `\"*\"` pada field `bodies` = semua body."
+    },
     "BoolKind": {
       "enum": [
         "union",
@@ -58,6 +72,332 @@
         "intersect"
       ],
       "type": "string"
+    },
+    "CheckItem": {
+      "description": "Satu check beserta id/catatan opsional. Catatan: serde tidak mendukung `flatten` + `deny_unknown_fields`, jadi field tak dikenal diabaikan di sini.",
+      "oneOf": [
+        {
+          "properties": {
+            "bodies": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "valid"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "bodies",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "check": {
+              "enum": [
+                "body_count"
+              ],
+              "type": "string"
+            },
+            "expect": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "check",
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "volume"
+              ],
+              "type": "string"
+            },
+            "expect": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "max": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "min": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "tol_pct": {
+              "default": 1.0,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "body",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Urutan X, Y, Z.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "bbox_size"
+              ],
+              "type": "string"
+            },
+            "expect": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "tol": {
+              "default": 0.05,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "bbox_max"
+              ],
+              "type": "string"
+            },
+            "max": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "max"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "mass"
+              ],
+              "type": "string"
+            },
+            "density_g_cm3": {
+              "default": null,
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max_g": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "min_g": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "body",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "min_wall"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "hole_count"
+              ],
+              "type": "string"
+            },
+            "diameter": {
+              "$ref": "#/definitions/Num"
+            },
+            "expect": {
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "tol": {
+              "default": 0.02,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "diameter",
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "a": {
+              "type": "string"
+            },
+            "b": {
+              "type": "string"
+            },
+            "check": {
+              "enum": [
+                "clearance"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "a",
+            "b",
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "bodies": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "no_interference"
+              ],
+              "type": "string"
+            },
+            "tol_mm3": {
+              "default": 0.01,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "bodies",
+            "check"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "ConstraintSpec": {
       "description": "Constraint sketch. Entitas dirujuk dengan nama; titik dengan `\"<nama>.start\" | \".end\" | \".center\"`.",
@@ -1790,8 +2130,15 @@
       "type": "object"
     }
   },
-  "description": "Isi file ops: `{ \"params\": {...}, \"ops\": [...] }`.",
+  "description": "Isi file ops: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",
   "properties": {
+    "checks": {
+      "description": "Check desain opsional (format P7); `ducad-cli run` memasangnya ke `design.checks` sebelum menjalankan op.",
+      "items": {
+        "$ref": "#/definitions/CheckItem"
+      },
+      "type": "array"
+    },
     "ops": {
       "items": {
         "$ref": "#/definitions/Op"
