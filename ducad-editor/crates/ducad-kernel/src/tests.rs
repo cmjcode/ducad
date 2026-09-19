@@ -3054,3 +3054,59 @@ fn by_index_out_of_range_errors() {
     assert!(shell_faces_by_index(&shape, 1.0, &[6]).is_err());
     assert!(fillet_edges_by_index(&shape, 1.0, &[]).is_err());
 }
+
+// ---------------------------------------------------------------------
+// P0.5 — primitif solid
+// ---------------------------------------------------------------------
+
+fn rel_close(a: f64, b: f64, tol: f64) -> bool {
+    (a - b).abs() / b.abs() < tol
+}
+
+#[test]
+fn primitives_volumes_match_analytic() {
+    let _guard = lock_test();
+    use std::f64::consts::PI;
+    let b = make_box(60.0, 40.0, 8.0, false).unwrap();
+    assert!(b.is_valid());
+    assert!(rel_close(b.volume().abs(), 60.0 * 40.0 * 8.0, 1e-6));
+    let bc = make_box(10.0, 20.0, 30.0, true).unwrap();
+    assert!(rel_close(bc.volume().abs(), 6000.0, 1e-6));
+
+    let c = make_cylinder(10.0, 20.0).unwrap();
+    assert!(c.is_valid());
+    assert!(rel_close(c.volume().abs(), PI * 100.0 * 20.0, 1e-3));
+
+    let s = make_sphere(5.0).unwrap();
+    assert!(s.is_valid());
+    assert!(rel_close(s.volume().abs(), 4.0 / 3.0 * PI * 125.0, 1e-3));
+
+    let (r1, r2, h) = (10.0, 4.0, 12.0);
+    let k = make_cone(r1, r2, h).unwrap();
+    assert!(k.is_valid());
+    assert!(rel_close(k.volume().abs(), PI * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2), 1e-3));
+    let tip = make_cone(10.0, 0.0, 12.0).unwrap();
+    assert!(rel_close(tip.volume().abs(), PI * 12.0 / 3.0 * 100.0, 1e-3));
+}
+
+#[test]
+fn make_box_mesh_bbox_starts_at_origin() {
+    let _guard = lock_test();
+    let (min, max) = make_box(60.0, 40.0, 8.0, false).unwrap().tessellate().bounding_box().unwrap();
+    for (got, want) in min.iter().zip([0.0, 0.0, 0.0]).chain(max.iter().zip([60.0, 40.0, 8.0])) {
+        assert!((*got as f64 - want).abs() < 1e-3, "{min:?} {max:?}");
+    }
+}
+
+#[test]
+fn primitives_reject_non_positive() {
+    let _guard = lock_test();
+    assert!(make_box(0.0, 1.0, 1.0, false).is_err());
+    assert!(make_box(1.0, -1.0, 1.0, true).is_err());
+    assert!(make_cylinder(0.0, 5.0).is_err());
+    assert!(make_cylinder(5.0, -1.0).is_err());
+    assert!(make_sphere(0.0).is_err());
+    assert!(make_cone(0.0, 1.0, 1.0).is_err());
+    assert!(make_cone(1.0, -1.0, 1.0).is_err());
+    assert!(make_cone(1.0, 0.5, 0.0).is_err());
+}

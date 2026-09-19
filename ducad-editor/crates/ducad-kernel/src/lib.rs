@@ -16,6 +16,7 @@ pub mod interference;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
+pub mod primitives;
 pub mod profile;
 pub mod projection;
 pub mod section;
@@ -105,6 +106,7 @@ pub use picking::{
     point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgeNormalHit,
     EdgePickHit, FaceHit, PickRay, SurfaceKind, Vec3Raw,
 };
+pub use primitives::{make_box, make_cone, make_cylinder, make_sphere};
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{
     generate_iso_hatch_pattern, CuttingLineIndicator, SectionExtractor, SectionPlaneConfig,
