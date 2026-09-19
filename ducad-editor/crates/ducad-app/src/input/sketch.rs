@@ -1886,7 +1886,8 @@ impl DuCADApp {
                 self.hovered = None;
                 self.last_snap = None;
                 if response.drag_started_by(egui::PointerButton::Primary) {
-                    self.freehand_reject();
+                    // Mulai coretan berikutnya = terima usulan sebelumnya.
+                    self.freehand_accept();
                 }
                 if response.dragged_by(egui::PointerButton::Primary) {
                     if let Some(pos) = response.interact_pointer_pos() {
