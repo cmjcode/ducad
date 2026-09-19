@@ -13,14 +13,17 @@
 
 pub mod compute;
 pub mod error;
+pub mod inspect;
 pub mod model;
 pub mod ops;
 pub mod plane;
 pub mod profile;
 pub mod select;
+pub mod session;
 
 pub use error::{OpError, OpErrorCode, OpResult};
 pub use plane::PlaneFrame;
+pub use session::{BatchReport, DesignDoc, OpOutcome, Session, SessionCore, SessionMeta};
 
 #[test]
 fn engine_has_no_gui_dependency() {

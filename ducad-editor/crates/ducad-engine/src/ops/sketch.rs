@@ -1,10 +1,6 @@
 //! Evaluasi `Op::Sketch` (P1.3): resolusi bidang, ekspansi `EntitySpec`,
 //! penamaan entitas, terjemahan `ConstraintSpec`, dan solve.
 
-// Dipakai `Session` (P1.5); sampai modul itu ada, fungsi di sini hanya
-// dipanggil tes.
-#![allow(dead_code)]
-
 use std::collections::{BTreeSet, HashMap};
 
 use ducad_kernel::{KernelShape, SurfaceKind};
@@ -27,6 +23,7 @@ pub(crate) enum ResolvedPlane {
 }
 
 impl ResolvedPlane {
+    #[cfg(test)]
     pub fn frame(&self) -> PlaneFrame {
         match self {
             ResolvedPlane::Standard(f, _) | ResolvedPlane::Datum(f) => *f,
@@ -107,10 +104,7 @@ type Expanded = (Vec<(Option<String>, Entity)>, Option<String>, bool);
 
 /// Satu `EntitySpec` → daftar `(sufiks nama anak, Entity)`. Sufiks `None`
 /// berarti entitas tunggal yang memakai nama induk apa adanya.
-fn expand(
-    spec: &EntitySpec,
-    params: &Params,
-) -> OpResult<Expanded> {
+fn expand(spec: &EntitySpec, params: &Params) -> OpResult<Expanded> {
     let single = |e: Entity| vec![(None, e)];
     let numbered = |es: Vec<Entity>| {
         es.into_iter()

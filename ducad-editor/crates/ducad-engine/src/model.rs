@@ -129,6 +129,9 @@ pub struct ModelDoc {
 /// pola yang sama: hitung dulu, baru masuk undo stack kalau sukses).
 pub struct AddSolidCommand {
     label: String,
+    /// Nama body bila berbeda dari `label` (engine menamai body dengan id
+    /// op pembuatnya). `None` = pakai `label`, perilaku GUI lama.
+    body_name: Option<String>,
     pending: Option<BodyGeometry>,
     id: Option<BodyId>,
 }
@@ -137,9 +140,16 @@ impl AddSolidCommand {
     pub fn new(label: impl Into<String>, geometry: BodyGeometry) -> Self {
         Self {
             label: label.into(),
+            body_name: None,
             pending: Some(geometry),
             id: None,
         }
+    }
+
+    /// Beri body nama sendiri; `label` tetap menjadi nama command (undo).
+    pub fn with_body_name(mut self, name: impl Into<String>) -> Self {
+        self.body_name = Some(name.into());
+        self
     }
 }
 
@@ -150,7 +160,8 @@ impl Command<ModelDoc> for AddSolidCommand {
 
     fn apply(&mut self, model: &mut ModelDoc) {
         if let Some(geo) = self.pending.take() {
-            let id = model.doc.add_body(self.label.clone());
+            let name = self.body_name.clone().unwrap_or_else(|| self.label.clone());
+            let id = model.doc.add_body(name);
             model.geometry.insert(id, geo);
             self.id = Some(id);
         }
@@ -337,6 +348,24 @@ pub struct BooleanCommand {
 }
 
 impl BooleanCommand {
+    /// Command dari hasil boolean yang SUDAH dihitung pemanggil (mis.
+    /// `Session`, yang butuh kode `OpError` asli dari `compute::boolean`).
+    pub fn from_result(
+        label: &'static str,
+        result_name: impl Into<String>,
+        a: BodyId,
+        b: BodyId,
+        result: BodyGeometry,
+    ) -> Self {
+        Self {
+            label,
+            result_name: result_name.into(),
+            a,
+            b,
+            state: Some(BooleanState::Pending(result)),
+        }
+    }
+
     /// Hitung hasil boolean SEKARANG (dry-run) — mengembalikan `Err` kalau
     /// salah satu body tak ada geometrinya atau operasi kernel gagal,
     /// tanpa menyentuh `model` sama sekali.
