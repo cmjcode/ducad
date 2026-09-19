@@ -312,6 +312,9 @@ impl SessionCore<'_> {
                 Err(mut e) => {
                     e.op_index = Some(i);
                     e.op_id = Some(op.id().to_string());
+                    // Diagnosis + fix terverifikasi, SEBELUM rollback: model
+                    // masih berisi hasil op 0..i-1 dari batch ini (P9.2).
+                    let e = crate::diagnose::diagnose(self, op, e, &ops);
                     failure = Some(e);
                     break;
                 }
@@ -368,6 +371,26 @@ impl SessionCore<'_> {
             ));
         }
         Ok(())
+    }
+
+    /// Coba `op` di atas keadaan saat ini lalu batalkan seluruh efeknya
+    /// (dipakai verifikasi fix P9). Undo stack asli ditukar sementara dengan
+    /// stack kosong sehingga transaksi batch yang sedang terbuka tidak
+    /// tersentuh.
+    pub(crate) fn try_op(&mut self, op: &Op) -> bool {
+        let saved_meta = self.meta.clone();
+        let mut temp = UndoStack::default();
+        std::mem::swap(self.model_undo, &mut temp);
+        self.model_undo.begin("verifikasi");
+        let mut new_sketches = Vec::new();
+        let ok = self.apply(op, 0, &mut new_sketches).is_ok();
+        self.model_undo.rollback(self.model);
+        std::mem::swap(self.model_undo, &mut temp);
+        for sid in new_sketches {
+            self.sketches.remove(sid);
+        }
+        *self.meta = saved_meta;
+        ok
     }
 
     fn exec(&mut self, cmd: Box<dyn ducad_core::Command<ModelDoc>>) {
@@ -441,14 +464,7 @@ impl SessionCore<'_> {
                 target,
             } => {
                 let d = eval(distance, &params)?;
-                let extent = match direction {
-                    ExtrudeDir::Normal => ExtrudeExtent::Blind(d),
-                    ExtrudeDir::Reverse => ExtrudeExtent::Blind(-d),
-                    // `ExtrudeExtent::Symmetric(len)`: len = tebal TOTAL
-                    // (csg.rs: offset −len/2, panjang len) — sama dengan
-                    // kontrak JSON.
-                    ExtrudeDir::Symmetric => ExtrudeExtent::Symmetric(d),
-                };
+                let extent = extent_for(*direction, d);
                 let solids = {
                     let (sk, frame) = self.sketch(sketch)?;
                     let ids = profile_entities(sk, profile)?;
@@ -534,6 +550,12 @@ impl SessionCore<'_> {
                 }
                 let (a_id, a_geo) = self.body(a)?;
                 let (b_id, b_geo) = self.body(b)?;
+                // Pre-check memblokir (pasti salah, murah): subtract/intersect
+                // tanpa irisan bbox. Union tanpa irisan hanya peringatan.
+                let blocking = kind != BooleanKind::Union;
+                if let Some(w) = crate::diagnose::precheck_boolean(a, b, a_geo, b_geo, blocking)? {
+                    out.warnings.push(w);
+                }
                 let geo = compute::boolean(&a_geo.shape, &b_geo.shape, kind)?;
                 out.detail = volume_detail(&geo);
                 self.exec(Box::new(BooleanCommand::from_result(
@@ -611,6 +633,15 @@ impl SessionCore<'_> {
                 let frame = PlaneFrame::on_face(f.centroid, f.normal);
                 let positions = hole_positions(&frame, at, at_world, &params)?;
                 let spec = hole_spec(spec, &params)?;
+                // Pre-check memblokir: titik di luar face (tanpa apply_hole).
+                crate::diagnose::precheck_hole(f, &frame, &positions)?;
+                if !spec.is_through {
+                    if let Some(w) =
+                        crate::diagnose::hole_depth_warning(geo, &positions, f.normal, spec.depth)
+                    {
+                        out.warnings.push(w);
+                    }
+                }
                 let new_geo = compute::hole(&geo.shape, &spec, &positions, f.normal)?;
                 out.detail = serde_json::json!({
                     "holes": positions.len(),
@@ -815,7 +846,17 @@ fn volume_detail(geo: &BodyGeometry) -> serde_json::Value {
 
 /// Entitas untuk `ProfileSel::Names`: nama persis atau anaknya (`outline`
 /// memilih `outline.top`, `outline.left`, …).
-fn profile_entities(sketch: &Sketch, sel: &ProfileSel) -> OpResult<HashSet<EntityId>> {
+/// Arah extrude JSON → `ExtrudeExtent`. `Symmetric(len)`: len = tebal
+/// TOTAL (csg.rs: offset −len/2, panjang len) — sama dengan kontrak JSON.
+pub(crate) fn extent_for(direction: ExtrudeDir, d: f64) -> ExtrudeExtent {
+    match direction {
+        ExtrudeDir::Normal => ExtrudeExtent::Blind(d),
+        ExtrudeDir::Reverse => ExtrudeExtent::Blind(-d),
+        ExtrudeDir::Symmetric => ExtrudeExtent::Symmetric(d),
+    }
+}
+
+pub(crate) fn profile_entities(sketch: &Sketch, sel: &ProfileSel) -> OpResult<HashSet<EntityId>> {
     let ProfileSel::Names { names } = sel else {
         return Ok(HashSet::new());
     };
@@ -841,7 +882,7 @@ fn profile_entities(sketch: &Sketch, sel: &ProfileSel) -> OpResult<HashSet<Entit
     Ok(ids)
 }
 
-fn profile_pick<'a>(
+pub(crate) fn profile_pick<'a>(
     sel: &ProfileSel,
     ids: &'a HashSet<EntityId>,
     params: &Params,

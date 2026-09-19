@@ -13,6 +13,7 @@
 
 pub mod check;
 pub mod compute;
+pub mod diagnose;
 pub mod diff;
 pub mod error;
 pub mod export;

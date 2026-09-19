@@ -117,5 +117,5 @@ pub use shape::{
     translate_shape, KernelShape,
 };
 pub use step::write_step_compound;
-pub use thickness::{min_wall_thickness, WallReport, DEFAULT_WALL_SAMPLES};
+pub use thickness::{min_wall_thickness, ray_hit_distance, WallReport, DEFAULT_WALL_SAMPLES};
 pub use topo::{enumerate_edges, enumerate_faces, EdgeInfo, EdgeKind, FaceInfo};

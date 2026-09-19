@@ -303,3 +303,17 @@ pub fn min_wall_thickness(mesh: &KernelMesh, max_samples: usize) -> Option<WallR
         samples: values.len(),
     })
 }
+
+/// Jarak dari `origin` sepanjang `dir` (satuan) ke permukaan mesh pertama
+/// (t > 1e-4). Dipakai diagnosis lubang buta yang lebih dalam dari body.
+pub fn ray_hit_distance(mesh: &KernelMesh, origin: [f32; 3], dir: [f32; 3]) -> Option<f32> {
+    let vertex = |i: u32| mesh.positions.get(i as usize).copied();
+    let mut tris: Vec<[V3; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
+    for c in mesh.indices.chunks_exact(3) {
+        tris.push([vertex(c[0])?, vertex(c[1])?, vertex(c[2])?]);
+    }
+    if tris.is_empty() {
+        return None;
+    }
+    Bvh::build(&tris).closest(origin, dir, u32::MAX)
+}

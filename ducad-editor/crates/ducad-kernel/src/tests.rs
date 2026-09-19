@@ -3199,3 +3199,12 @@ fn wall_thickness_100k_triangles_under_2s() {
     eprintln!("min_wall 100k segitiga: {dt:?} ({} sampel)", r.samples);
     assert!(dt.as_secs_f64() < 2.0, "{dt:?}");
 }
+
+#[test]
+fn ray_hit_distance_through_plate() {
+    let _guard = lock_test();
+    let mesh = box_60_40_8().tessellate();
+    let d = crate::ray_hit_distance(&mesh, [30.0, 20.0, 7.999], [0.0, 0.0, -1.0]).unwrap();
+    assert!((d - 7.999).abs() < 1e-3, "{d}");
+    assert!(crate::ray_hit_distance(&mesh, [30.0, 20.0, 20.0], [0.0, 0.0, 1.0]).is_none());
+}
