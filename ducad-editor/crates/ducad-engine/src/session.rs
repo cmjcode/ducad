@@ -1468,15 +1468,16 @@ impl Session {
     }
 
     /// Proposal umum (P11): params baru, penggantian op, dan op tambahan,
-    /// diuji dengan replay pada SALINAN sesi. Tanpa params/penggantian sama
-    /// dengan [`Session::propose`].
+    /// diuji dengan replay pada SALINAN sesi; `report.checks` berisi hasil
+    /// `design.checks` pada keadaan usulan. Tanpa params/penggantian dan
+    /// tanpa checks sama dengan [`Session::propose`].
     pub fn propose_edit(
         &mut self,
         params: Option<Params>,
         replace: Vec<ReplaceOp>,
         append: Vec<Op>,
     ) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
-        if params.is_none() && replace.is_empty() {
+        if params.is_none() && replace.is_empty() && self.meta.design.checks.is_empty() {
             return self.propose(append);
         }
         let design = self.edited_design(params.as_ref(), &replace, &append)?;
