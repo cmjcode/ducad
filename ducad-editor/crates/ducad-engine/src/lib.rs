@@ -26,7 +26,7 @@ pub mod render;
 pub mod select;
 pub mod session;
 
-pub use error::{OpError, OpErrorCode, OpResult};
+pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
 pub use plane::PlaneFrame;
 pub use session::{BatchReport, DesignDoc, OpOutcome, Session, SessionCore, SessionMeta};
 

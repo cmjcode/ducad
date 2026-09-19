@@ -37,6 +37,21 @@ pub enum OpErrorCode {
     Unsupported,
     /// Model berubah sejak proposal dibuat (P8.4).
     ProposalStale,
+    // ---- P9: kode diagnosis spesifik ----
+    /// Radius fillet melebihi batas tepi tetangga.
+    FilletRadiusTooLarge,
+    /// Jarak chamfer melebihi batas tepi tetangga.
+    ChamferTooLarge,
+    /// Tebal shell ≥ setengah dimensi terkecil body.
+    ShellTooThick,
+    /// Titik lubang di luar batas face.
+    HoleOutsideFace,
+    /// Lubang buta lebih dalam dari tebal body (peringatan).
+    HoleDeeperThanBody,
+    /// Bbox dua body tidak beririsan (subtract/intersect).
+    BooleanNoOverlap,
+    /// Profil hampir tertutup: dua ujung menggantung berdekatan.
+    ProfileOpenGap,
 }
 
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
@@ -56,6 +71,83 @@ pub struct OpError {
     /// Data terukur, mis. `{"radius":3.0,"shortest_edge":2.1}`.
     #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
     pub context: serde_json::Value,
+    /// Perbaikan yang SUDAH diverifikasi (P9). Tidak pernah diterapkan
+    /// otomatis: kirim ulang `patched_op` secara eksplisit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<SuggestedFix>,
+}
+
+/// Patch JSON atas satu op: `set` pointer → nilai, `remove` pointer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpPatch {
+    pub op_id: String,
+    #[serde(default)]
+    pub set: std::collections::BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub remove: Vec<String>,
+}
+
+/// Perbaikan terverifikasi untuk sebuah error.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SuggestedFix {
+    /// Kalimat singkat, mis. "Pakai radius 1.8 mm".
+    pub label: String,
+    pub patch: OpPatch,
+    pub patched_op: crate::ops::Op,
+    pub verified: bool,
+}
+
+/// Terapkan `patch` pada `op` lewat `serde_json::Value`, lalu deserialisasi
+/// ulang. Pointer yang tidak ada → `InvalidParam`.
+pub fn apply_patch(op: &crate::ops::Op, patch: &OpPatch) -> OpResult<crate::ops::Op> {
+    let mut v = serde_json::to_value(op)
+        .map_err(|e| OpError::invalid(format!("op tidak bisa diserialisasi: {e}")))?;
+    for (ptr, val) in &patch.set {
+        let slot = v.pointer_mut(ptr).ok_or_else(|| {
+            OpError::invalid(format!(
+                "pointer patch '{ptr}' tidak ada di op '{}'",
+                patch.op_id
+            ))
+        })?;
+        *slot = val.clone();
+    }
+    // Hapus dari pointer terdalam/terbesar dulu agar indeks larik tidak bergeser.
+    let mut removals = patch.remove.clone();
+    // Indeks larik dibandingkan secara numerik ("/c/10" setelah "/c/9").
+    let key = |p: &String| -> (String, Option<usize>, String) {
+        let (parent, last) = p.rsplit_once('/').unwrap_or(("", p.as_str()));
+        (parent.to_string(), last.parse().ok(), last.to_string())
+    };
+    removals.sort_by_key(|p| std::cmp::Reverse(key(p)));
+    for ptr in &removals {
+        let (parent, key) = ptr
+            .rsplit_once('/')
+            .ok_or_else(|| OpError::invalid(format!("pointer patch '{ptr}' tidak valid")))?;
+        let key = key.replace("~1", "/").replace("~0", "~");
+        let target = v.pointer_mut(parent).ok_or_else(|| {
+            OpError::invalid(format!(
+                "pointer patch '{ptr}' tidak ada di op '{}'",
+                patch.op_id
+            ))
+        })?;
+        let removed = match target {
+            serde_json::Value::Array(a) => key
+                .parse::<usize>()
+                .ok()
+                .filter(|i| *i < a.len())
+                .map(|i| a.remove(i)),
+            serde_json::Value::Object(o) => o.remove(&key),
+            _ => None,
+        };
+        if removed.is_none() {
+            return Err(OpError::invalid(format!(
+                "pointer patch '{ptr}' tidak ada di op '{}'",
+                patch.op_id
+            )));
+        }
+    }
+    serde_json::from_value(v)
+        .map_err(|e| OpError::invalid(format!("op hasil patch tidak valid: {e}")))
 }
 
 impl OpError {
@@ -67,6 +159,7 @@ impl OpError {
             op_index: None,
             op_id: None,
             context: serde_json::Value::Null,
+            fixes: Vec::new(),
         }
     }
 
@@ -123,6 +216,63 @@ mod tests {
     fn code_is_snake_case() {
         let json = serde_json::to_value(OpErrorCode::SelectorEmpty).unwrap();
         assert_eq!(json, serde_json::json!("selector_empty"));
+    }
+
+    #[test]
+    fn apply_patch_set_remove_and_unknown_pointer() {
+        let op: crate::ops::Op = serde_json::from_str(
+            r#"{"op":"sketch","id":"s","plane":"XY","entities":[],"constraints":[{"horizontal":"a"},{"vertical":"a"}]}"#,
+        )
+        .unwrap();
+        let patch = OpPatch {
+            op_id: "s".into(),
+            set: Default::default(),
+            remove: vec!["/constraints/1".into()],
+        };
+        let patched = apply_patch(&op, &patch).unwrap();
+        match patched {
+            crate::ops::Op::Sketch { constraints, .. } => assert_eq!(constraints.len(), 1),
+            _ => unreachable!(),
+        }
+        let fillet: crate::ops::Op =
+            serde_json::from_str(r#"{"op":"fillet","id":"f","body":"b","edges":"|Z","radius":3}"#)
+                .unwrap();
+        let mut set = std::collections::BTreeMap::new();
+        set.insert("/radius".to_string(), serde_json::json!(1.8));
+        let patched = apply_patch(
+            &fillet,
+            &OpPatch {
+                op_id: "f".into(),
+                set,
+                remove: vec![],
+            },
+        )
+        .unwrap();
+        assert!(
+            matches!(patched, crate::ops::Op::Fillet { radius: crate::ops::Num::Value(r), .. } if r == 1.8)
+        );
+        let mut bad = std::collections::BTreeMap::new();
+        bad.insert("/radiuss".to_string(), serde_json::json!(1));
+        let err = apply_patch(
+            &fillet,
+            &OpPatch {
+                op_id: "f".into(),
+                set: bad,
+                remove: vec![],
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code, OpErrorCode::InvalidParam);
+        let err = apply_patch(
+            &fillet,
+            &OpPatch {
+                op_id: "f".into(),
+                set: Default::default(),
+                remove: vec!["/x/9".into()],
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code, OpErrorCode::InvalidParam);
     }
 
     #[test]
