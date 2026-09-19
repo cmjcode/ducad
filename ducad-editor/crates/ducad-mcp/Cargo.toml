@@ -14,6 +14,7 @@ ducad-engine = { workspace = true, features = ["raster"] }
 ducad-kernel = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }

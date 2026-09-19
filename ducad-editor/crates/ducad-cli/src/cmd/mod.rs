@@ -1,3 +1,4 @@
+pub mod check;
 pub mod export;
 pub mod inspect;
 pub mod render;

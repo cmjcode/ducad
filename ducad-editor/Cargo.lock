@@ -1290,6 +1290,7 @@ dependencies = [
  "ducad-kernel",
  "env_logger",
  "log",
+ "schemars",
  "serde",
  "serde_json",
 ]

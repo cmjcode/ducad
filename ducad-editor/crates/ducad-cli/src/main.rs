@@ -77,6 +77,8 @@ enum Command {
     Replay(cmd::replay::Args),
     /// Ringkasan part: body, sketch, params.
     Inspect(cmd::inspect::Args),
+    /// Evaluasi checks desain (kode 3 bila ada yang gagal).
+    Check(cmd::check::Args),
     /// Uji selector face/tepi pada satu body.
     Select(cmd::select::Args),
     /// Render tampak part ke SVG/PNG.
@@ -96,6 +98,7 @@ fn main() -> ExitCode {
         Command::Run(a) => cmd::run::exec(a),
         Command::Replay(a) => cmd::replay::exec(a),
         Command::Inspect(a) => cmd::inspect::exec(a),
+        Command::Check(a) => cmd::check::exec(a),
         Command::Select(a) => cmd::select::exec(a),
         Command::Render(a) => cmd::render::exec(a),
         Command::Export(a) => cmd::export::exec(a),

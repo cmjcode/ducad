@@ -16,7 +16,7 @@ const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
-pub const INSTRUCTIONS: &str = "DUCAD adalah CAD B-rep parametrik. Satuan mm, sudut derajat. Alur kerja: (1) `get_schema` sekali untuk melihat format `Op` dan tata bahasa selector; (2) `new_part` atau `open_part`; (3) `run_ops` dengan `dry_run: true` untuk memvalidasi, lalu tanpa `dry_run`; (4) `inspect` dan `render_view` untuk memverifikasi hasil terhadap spesifikasi; (5) `save_part`. Body dirujuk dengan `id` op pembuatnya. Face/tepi dirujuk dengan selector seperti `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; uji selector dengan `query_geometry` sebelum dipakai. Batch `run_ops` bersifat atomik: bila satu op gagal, seluruh batch dibatalkan dan `error` menjelaskan penyebab serta `hint`. Ubah dimensi dengan `set_params`, bukan dengan menumpuk op baru.";
+pub const INSTRUCTIONS: &str = "DUCAD adalah CAD B-rep parametrik. Satuan mm, sudut derajat. Alur kerja: (1) `get_schema` sekali untuk melihat format `Op` dan tata bahasa selector; (2) `new_part` atau `open_part`; (3) tulis checks dari persyaratan user dengan `set_checks` sebelum memodelkan; (4) `run_ops` dengan `dry_run: true` untuk memvalidasi, lalu tanpa `dry_run`; (5) `inspect`, `run_checks`, dan `render_view` untuk memverifikasi hasil terhadap spesifikasi; (6) `save_part`. Body dirujuk dengan `id` op pembuatnya. Face/tepi dirujuk dengan selector seperti `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; uji selector dengan `query_geometry` sebelum dipakai. Batch `run_ops` bersifat atomik: bila satu op gagal, seluruh batch dibatalkan dan `error` menjelaskan penyebab serta `hint`. Ubah dimensi dengan `set_params`, bukan dengan menumpuk op baru.";
 
 /// Satu part terbuka.
 pub struct Part {
@@ -250,7 +250,7 @@ mod tests {
         let r =
             handle_message(&mut s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
         let tools = r["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 17);
         for t in tools {
             assert!(t["inputSchema"].is_object(), "{}", t["name"]);
             assert_eq!(t["inputSchema"]["additionalProperties"], false);
@@ -318,6 +318,36 @@ mod tests {
         assert_eq!(r["isError"], true);
         let r = call(&mut s, 13, "undo", json!({ "session": "s1" }));
         assert_eq!(text(&r)["changed"], true);
+        let r = call(
+            &mut s,
+            20,
+            "set_checks",
+            json!({ "session": "s2", "checks": [
+            {"check": "hole_count", "body": "*", "diameter": 5.5, "expect": 4},
+            {"check": "min_wall", "body": "*", "min": 2}
+        ] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(text(&r)["pass"], 2);
+        let r = call(
+            &mut s,
+            21,
+            "run_checks",
+            json!({ "session": "s2", "checks": [{"check": "body_count", "expect": 5}] }),
+        );
+        assert_eq!(text(&r)["fail"], 1);
+        let r = call(
+            &mut s,
+            22,
+            "run_ops",
+            json!({ "session": "s2", "ops": [
+            {"op": "primitive", "id": "extra", "shape": {"sphere": {"r": 1}}, "at": [200, 0, 0]}
+        ] }),
+        );
+        assert!(
+            text(&r)["checks"].is_array(),
+            "BatchReport memuat checks: {r}"
+        );
         let r = call(&mut s, 14, "get_schema", json!({}));
         let schema = text(&r);
         assert!(schema["selector_cheatsheet"]

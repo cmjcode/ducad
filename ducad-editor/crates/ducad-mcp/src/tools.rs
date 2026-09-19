@@ -1,6 +1,7 @@
 //! Definisi dan implementasi 15 tool MCP DUCAD (P3.2).
 
 use base64::Engine as _;
+use ducad_engine::check::CheckItem;
 use ducad_engine::export::{export, ExportFormat};
 use ducad_engine::inspect::{summarize, DEFAULT_TOPOLOGY_LIMIT};
 use ducad_engine::ops::{op_schema, Op, Params, EXAMPLE_PLATE};
@@ -29,6 +30,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "redo",
     "export",
     "get_schema",
+    "set_checks",
+    "run_checks",
 ];
 
 /// Batas teks hasil tool sebelum daftar terpanjang dipotong.
@@ -71,6 +74,24 @@ pub fn definitions() -> Vec<Value> {
         &["ops"],
     );
     run_ops["definitions"] = definitions;
+    let check_defs =
+        serde_json::to_value(schemars::schema_for!(Vec<CheckItem>)).unwrap_or(json!({}));
+    let check_items = check_defs
+        .get("items")
+        .cloned()
+        .unwrap_or(json!({ "type": "object" }));
+    let with_check_defs = |mut v: Value| {
+        v["definitions"] = check_defs.get("definitions").cloned().unwrap_or(json!({}));
+        v
+    };
+    let set_checks = with_check_defs(schema(
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items.clone() } }),
+        &["checks"],
+    ));
+    let run_checks = with_check_defs(schema(
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items } }),
+        &[],
+    ));
     let view = json!({ "type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "bottom"] });
     vec![
         tool(
@@ -157,6 +178,16 @@ pub fn definitions() -> Vec<Value> {
             "get_schema",
             "Skema Op, cheatsheet selector, dan contoh lengkap. Panggil sekali di awal.",
             schema(json!({}), &[]),
+        ),
+        tool(
+            "set_checks",
+            "Ganti seluruh daftar check desain (persyaratan user: volume, bbox_size, hole_count, min_wall, clearance, …) dan evaluasi sekarang. Tulis sebelum memodelkan.",
+            set_checks,
+        ),
+        tool(
+            "run_checks",
+            "Evaluasi check desain (atau daftar 'checks' yang diberikan) terhadap geometri saat ini.",
+            run_checks,
         ),
     ]
 }
@@ -577,6 +608,28 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                 "selector_cheatsheet": SELECTOR_CHEATSHEET,
                 "example": example,
             })))
+        }
+        "set_checks" | "run_checks" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                #[serde(default)]
+                checks: Option<Vec<CheckItem>>,
+            }
+            let a: A = args(a)?;
+            let (_, part) = server.pick(a.session.as_deref())?;
+            let summary = if name == "set_checks" {
+                let checks = a
+                    .checks
+                    .ok_or_else(|| OpError::invalid("set_checks butuh 'checks'"))?;
+                part.session.set_checks(checks);
+                part.session.run_checks(None)
+            } else {
+                part.session.run_checks(a.checks.as_deref())
+            };
+            Ok(ToolOut::ok(to_value(summary)?))
         }
         other => Err(OpError::invalid(format!("tool tidak dikenal: {other}"))),
     }

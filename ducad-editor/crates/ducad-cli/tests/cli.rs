@@ -144,3 +144,39 @@ fn schema_and_usage_errors() {
     assert_eq!(cli(&["run", "/tidak/ada.json"]).status.code(), Some(2));
     assert_eq!(cli(&["run", PLATE, "--param", "t"]).status.code(), Some(2));
 }
+
+#[test]
+fn check_command_exit_codes() {
+    let d = tmpdir("check");
+    let part = d.join("p.ducad");
+    assert_eq!(
+        cli(&["run", PLATE, "--out", s(&part)]).status.code(),
+        Some(0)
+    );
+    let good = d.join("good.json");
+    std::fs::write(
+        &good,
+        r#"{"id":"t","checks":[{"check":"body_count","expect":1},{"check":"hole_count","body":"*","diameter":5.5,"expect":4}]}"#,
+    )
+    .unwrap();
+    let o = cli(&["check", s(&part), "--checks", s(&good), "--json"]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_eq!(stdout_json(&o)["pass"], 2);
+    let bad = d.join("bad.json");
+    std::fs::write(&bad, r#"[{"check":"body_count","expect":3}]"#).unwrap();
+    assert_eq!(
+        cli(&["check", s(&part), "--checks", s(&bad)]).status.code(),
+        Some(3)
+    );
+    assert_eq!(
+        cli(&["check", s(&part)]).status.code(),
+        Some(2),
+        "tanpa check sama sekali"
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}
