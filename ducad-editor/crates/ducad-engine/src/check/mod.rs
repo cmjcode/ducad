@@ -6,5 +6,7 @@ pub mod run;
 pub mod types;
 
 pub use holes::{find_holes, Hole};
-pub use run::{all_pass, run_checks, run_checks_on, CheckSummary};
+pub use run::{
+    all_pass, evaluate_min_wall, resolve_min_wall, run_checks, run_checks_on, CheckSummary,
+};
 pub use types::{BodySel, Check, CheckItem, CheckResult, CheckStatus};

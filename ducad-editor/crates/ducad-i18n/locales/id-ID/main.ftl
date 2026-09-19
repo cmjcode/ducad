@@ -1128,3 +1128,10 @@ assembly-clash-create-body = Ubah Jadi Bodi
 assembly-clash-clear = Bersihkan Hasil
 assembly-clash-created-body-notify = Volume tabrakan berhasil diubah menjadi bodi solid baru '{ $name }'
 context-check-clash = Uji Tabrakan
+
+# Checks desain (P7.5)
+checks-title = Checks
+checks-close = Tutup panel checks
+checks-empty = Part ini belum punya check desain.
+checks-stale = Sedang dihitung ulang…
+checks-summary-tooltip = Hasil check desain (klik untuk detail)

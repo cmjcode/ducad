@@ -1128,3 +1128,10 @@ assembly-clash-create-body = Convert to Body
 assembly-clash-clear = Clear Results
 assembly-clash-created-body-notify = Clash volume converted to new solid body '{ $name }'
 context-check-clash = Check Clash
+
+# Design checks (P7.5)
+checks-title = Checks
+checks-close = Close checks panel
+checks-empty = This part has no design checks yet.
+checks-stale = Recomputing…
+checks-summary-tooltip = Design check results (click for details)

@@ -119,6 +119,8 @@ pub struct DuCADApp {
     /// GUI, sidik jarinya tidak lagi cocok dan engine masuk mode adopsi
     /// saat membuka berkas itu (P1.7).
     pub design: Option<serde_json::Value>,
+    /// Hasil checks desain untuk panel & top bar (P7.5).
+    pub checks: crate::checks_ui::ChecksState,
     pub file_status: Option<String>,
 
     pub language: ducad_i18n::Language,
@@ -468,6 +470,7 @@ impl DuCADApp {
 
             current_file_path: None,
             design: None,
+            checks: crate::checks_ui::ChecksState::default(),
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -745,6 +748,7 @@ impl DuCADApp {
 
             current_file_path: None,
             design: None,
+            checks: crate::checks_ui::ChecksState::default(),
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -1443,6 +1447,10 @@ impl eframe::App for DuCADApp {
         // layout compact ↔ penuh (tombol muncul/hilang) setiap kali diklik.
         let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
 
+        self.refresh_checks(&ctx);
+        let check_rows = self.check_rows();
+        let checks_summary = (!check_rows.is_empty()).then(|| ducad_ui::checks_summary(&check_rows));
+
         let mut topbar_state = TopBarState {
             document_name: doc_name,
             status_saved: is_saved,
@@ -1478,6 +1486,8 @@ impl eframe::App for DuCADApp {
             account_button_rect: self.account_button_rect,
             touch_config: self.touch_config,
             is_ipad,
+            checks_summary,
+            checks_panel_open: self.checks.panel_open,
         };
 
         let mut topbar_rect: Option<egui::Rect> = None;
@@ -1609,11 +1619,28 @@ impl eframe::App for DuCADApp {
                                 let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
                                 self.model_status = Some(format!("Palm Rejection: {}", st));
                             }
+                            TopBarEvent::ToggleChecksPanel => {
+                                self.checks.panel_open = !self.checks.panel_open;
+                            }
                         }
                     }
                 });
             topbar_rect = Some(topbar_resp.response.rect);
 
+            if self.checks.panel_open {
+                let top = topbar_resp.response.rect.max.y + 8.0;
+                let panel_event = egui::Area::new(egui::Id::new("ducad-checks-panel-area"))
+                    .fixed_pos(egui::pos2(screen_rect.max.x - 16.0, top))
+                    .pivot(egui::Align2::RIGHT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| ducad_ui::ChecksPanel::show(ui, &check_rows))
+                    .inner;
+                match panel_event {
+                    Some(ducad_ui::ChecksPanelEvent::RowClicked(i)) => self.focus_check(i),
+                    Some(ducad_ui::ChecksPanelEvent::Close) => self.checks.panel_open = false,
+                    None => {}
+                }
+            }
 
             self.plane_menu_open = topbar_state.plane_menu_open;
             self.account_button_rect = topbar_state.account_button_rect;

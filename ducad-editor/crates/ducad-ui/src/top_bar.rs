@@ -75,6 +75,8 @@ pub enum TopBarEvent {
     SetTouchDesignMode(TouchDesignMode),
     TogglePalmRejection,
     CycleTouchDesignMode,
+    /// Buka/tutup panel Checks (P7.5).
+    ToggleChecksPanel,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -116,6 +118,9 @@ pub struct TopBarState {
     pub touch_config: TouchDesignConfig,
     /// Mode tampilan iPad / tablet layar sentuh
     pub is_ipad: bool,
+    /// Ringkasan checks desain `(lulus, tidak lulus)`; `None` = tidak ada check.
+    pub checks_summary: Option<(usize, usize)>,
+    pub checks_panel_open: bool,
 }
 
 pub struct TopBar;
@@ -526,6 +531,26 @@ impl TopBar {
                     if assem_btn.clicked() {
                         event = Some(TopBarEvent::ToggleAssemblyDrawer);
                     }
+
+                    // 8. Ringkasan checks desain (hanya bila part punya check).
+                    if let Some((pass, not_pass)) = state.checks_summary {
+                        let color = if not_pass == 0 {
+                            crate::theme::ACCENT_GREEN
+                        } else {
+                            Color32::from_rgb(255, 69, 58)
+                        };
+                        let chk_btn = ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(format!("✓ {pass} ✗ {not_pass}")).size(11.0).color(color),
+                                )
+                                .selected(state.checks_panel_open),
+                            )
+                            .on_hover_text(t!("checks-summary-tooltip"));
+                        if chk_btn.clicked() {
+                            event = Some(TopBarEvent::ToggleChecksPanel);
+                        }
+                    }
                 } else {
                     ui.add_space(2.0);
                     ui.menu_button(
@@ -554,6 +579,14 @@ impl TopBar {
                             if ui.button(format!("{}{} {}", a_chk, ICON_CATEGORY.codepoint, assem_title)).clicked() {
                                 event = Some(TopBarEvent::ToggleAssemblyDrawer);
                                 ui.close();
+                            }
+                            if let Some((pass, not_pass)) = state.checks_summary {
+                                let c_chk = if state.checks_panel_open { "✓ " } else { "  " };
+                                let label = format!("{c_chk}{} (✓ {pass} ✗ {not_pass})", t!("checks-title"));
+                                if ui.button(label).clicked() {
+                                    event = Some(TopBarEvent::ToggleChecksPanel);
+                                    ui.close();
+                                }
                             }
                         },
                     ).response.on_hover_text("Menu Alat Tambahan (Ukuran, Zebra, Gambar 2D, Assembly)");
@@ -1015,11 +1048,17 @@ mod tests {
             account_button_rect: egui::Rect::NOTHING,
             touch_config,
             is_ipad: false,
+            checks_summary: None,
+            checks_panel_open: false,
         }
     }
 
     /// Tinggi header diukur setelah `TopBar::show` untuk satu mode sentuh.
     fn header_height(mode: TouchDesignMode) -> f32 {
+        header_height_with(mode, None)
+    }
+
+    fn header_height_with(mode: TouchDesignMode, checks: Option<(usize, usize)>) -> f32 {
         let ctx = egui::Context::default();
         // Tiru `App` saat mode sentuh di-cycle: `apply_with_touch` mengubah
         // `interact_size.y` global ke 36/40/44 sesuai mode.
@@ -1032,6 +1071,7 @@ mod tests {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.set_width(1200.0);
                     let mut state = dummy_state(mode);
+                    state.checks_summary = checks;
                     let scope = ui.scope(|ui| {
                         TopBar::show(ui, &mut state);
                     });
@@ -1041,6 +1081,15 @@ mod tests {
             output.textures_delta.clear();
         }
         height
+    }
+
+    /// Tombol ringkasan checks (P7.5) hanya muncul bila part punya check dan
+    /// tidak boleh mengubah tinggi header.
+    #[test]
+    fn tombol_checks_tidak_mengubah_tinggi_header() {
+        let without = header_height_with(TouchDesignMode::PencilAndFinger, None);
+        let with = header_height_with(TouchDesignMode::PencilAndFinger, Some((3, 1)));
+        assert!((without - with).abs() < 0.5, "{without} vs {with}");
     }
 
     /// Regresi: klik tombol quick-toggle mode sentuh sempat mengubah tinggi

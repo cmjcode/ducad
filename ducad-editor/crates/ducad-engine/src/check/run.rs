@@ -319,19 +319,15 @@ impl Ctx<'_> {
             Check::MinWall { body, min } => {
                 let (name, g) = self.one(body)?;
                 let min = self.num(min)?;
-                let report =
-                    ducad_kernel::min_wall_thickness(&g.mesh, ducad_kernel::DEFAULT_WALL_SAMPLES)
-                        .ok_or("tebal dinding tidak bisa diukur (mesh tanpa sampel)")?;
-                let t = report.min as f64;
-                let pass = t >= min - 0.05;
-                Ok(Outcome::new(
-                    pass,
-                    json!({ "min": round4(t), "p05": round4(report.p05 as f64), "samples": report.samples }),
-                    json!({ "min": min }),
-                    format!("tebal dinding minimum {t:.3} mm (p05 {:.3}), diharapkan ≥ {min}", report.p05),
-                )
-                .body(&name)
-                .at(Some(report.at.map(|v| round4(v as f64)))))
+                let r = evaluate_min_wall(&g.mesh, &name, min);
+                Ok(Outcome {
+                    status: r.status,
+                    measured: r.measured,
+                    expected: r.expected,
+                    message: r.message,
+                    location: r.location,
+                    body: r.body,
+                })
             }
             Check::HoleCount {
                 body,
@@ -410,4 +406,57 @@ impl Ctx<'_> {
 fn bbox_size(g: &BodyGeometry) -> Result<[f64; 3], String> {
     let (min, max) = g.mesh.bounding_box().ok_or("body tanpa mesh")?;
     Ok([0, 1, 2].map(|i| (max[i] - min[i]) as f64))
+}
+
+/// Resolusi check `min_wall` ke (nama body, batas minimum) tanpa mengukur —
+/// dipakai GUI untuk menjalankan [`evaluate_min_wall`] di thread latar.
+pub fn resolve_min_wall(
+    model: &ModelDoc,
+    meta: &SessionMeta,
+    item: &CheckItem,
+) -> Option<(String, f64)> {
+    let Check::MinWall { body, min } = &item.check else {
+        return None;
+    };
+    let ctx = Ctx {
+        model,
+        params: &meta.design.params,
+    };
+    let (name, _) = ctx.one(body).ok()?;
+    Some((name, ctx.num(min).ok()?))
+}
+
+/// Evaluasi `min_wall` langsung dari mesh. Tidak menyentuh OCCT, jadi aman
+/// di thread latar. `index`/`id` hasil diisi pemanggil.
+pub fn evaluate_min_wall(mesh: &ducad_kernel::KernelMesh, body: &str, min: f64) -> CheckResult {
+    let base = CheckResult {
+        index: 0,
+        id: None,
+        kind: "min_wall",
+        status: CheckStatus::Error,
+        measured: serde_json::Value::Null,
+        expected: json!({ "min": min }),
+        message: "tebal dinding tidak bisa diukur (mesh tanpa sampel)".into(),
+        location: None,
+        body: Some(body.to_string()),
+    };
+    let Some(report) = ducad_kernel::min_wall_thickness(mesh, ducad_kernel::DEFAULT_WALL_SAMPLES)
+    else {
+        return base;
+    };
+    let t = report.min as f64;
+    CheckResult {
+        status: if t >= min - 0.05 {
+            CheckStatus::Pass
+        } else {
+            CheckStatus::Fail
+        },
+        measured: json!({ "min": round4(t), "p05": round4(report.p05 as f64), "samples": report.samples }),
+        message: format!(
+            "tebal dinding minimum {t:.3} mm (p05 {:.3}), diharapkan ≥ {min}",
+            report.p05
+        ),
+        location: Some(report.at.map(|v| round4(v as f64))),
+        ..base
+    }
 }

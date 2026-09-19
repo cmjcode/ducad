@@ -7,6 +7,7 @@ use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
 pub mod app;
+pub mod checks_ui;
 #[cfg(target_vendor = "apple")]
 pub mod apple;
 pub mod document;
