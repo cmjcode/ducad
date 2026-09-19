@@ -17,6 +17,7 @@ pub mod model;
 pub mod ops;
 pub mod plane;
 pub mod profile;
+pub mod select;
 
 pub use error::{OpError, OpErrorCode, OpResult};
 pub use plane::PlaneFrame;
