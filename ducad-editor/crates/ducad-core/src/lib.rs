@@ -137,6 +137,18 @@ impl MaterialPreset {
             MaterialPreset::Custom,
         ]
     }
+
+    /// Densitas perkiraan (g/cm³) untuk check massa: plastik 1,20;
+    /// aluminium 2,70; krom/baja 7,85; kaca 2,50. `Custom` tidak diketahui.
+    pub fn density_g_cm3(self) -> Option<f64> {
+        match self {
+            MaterialPreset::MattePlastic | MaterialPreset::GlossyPlastic => Some(1.20),
+            MaterialPreset::AnodizedAluminum => Some(2.70),
+            MaterialPreset::PolishedChrome => Some(7.85),
+            MaterialPreset::TranslucentGlass => Some(2.50),
+            MaterialPreset::Custom => None,
+        }
+    }
 }
 
 /// Definisi material fisik (PBR - Physically-Based Rendering) untuk sebuah solid body 3D.
@@ -269,6 +281,16 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn material_density_table() {
+        assert_eq!(MaterialPreset::MattePlastic.density_g_cm3(), Some(1.20));
+        assert_eq!(MaterialPreset::GlossyPlastic.density_g_cm3(), Some(1.20));
+        assert_eq!(MaterialPreset::AnodizedAluminum.density_g_cm3(), Some(2.70));
+        assert_eq!(MaterialPreset::PolishedChrome.density_g_cm3(), Some(7.85));
+        assert_eq!(MaterialPreset::TranslucentGlass.density_g_cm3(), Some(2.50));
+        assert_eq!(MaterialPreset::Custom.density_g_cm3(), None);
+    }
 
     struct AddBox {
         id: Option<BodyId>,
