@@ -131,7 +131,16 @@ pub const MAX_PROPOSALS: usize = 8;
 struct StoredProposal {
     id: String,
     ops: Vec<Op>,
+    /// Bagian non-append (P11): params baru dan/atau op yang diganti.
+    edit: Option<(Option<Params>, Vec<ReplaceOp>)>,
     base_fingerprint: String,
+}
+
+/// Penggantian satu op di oplog (id op tetap).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplaceOp {
+    pub id: String,
+    pub op: Op,
 }
 
 /// Proposal perubahan (ghost preview, P8.4): batch yang sudah dijalankan
@@ -140,6 +149,12 @@ struct StoredProposal {
 pub struct Proposal {
     pub id: String,
     pub ops: Vec<Op>,
+    /// Params baru (proposal dari `propose_edit`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<Params>,
+    /// Op yang diganti (proposal dari `propose_edit`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub replace: Vec<ReplaceOp>,
     /// `committed = false`.
     pub report: BatchReport,
     pub diff: Vec<crate::diff::BodyDiff>,
@@ -1320,12 +1335,15 @@ impl Session {
         self.proposals.push_back(StoredProposal {
             id: id.clone(),
             ops: ops.clone(),
+            edit: None,
             base_fingerprint: base_fingerprint.clone(),
         });
         Ok((
             Proposal {
                 id,
                 ops,
+                params: None,
+                replace: Vec::new(),
                 report,
                 diff,
                 base_fingerprint,
@@ -1354,11 +1372,144 @@ impl Session {
             );
         }
         let ops = self.proposals[pos].ops.clone();
-        let report = self.run(ops, false);
+        let report = match self.proposals[pos].edit.clone() {
+            Some((params, replace)) => self.apply_edit(params, &replace, ops),
+            None => self.run(ops, false),
+        };
         if report.committed {
-            self.proposals.remove(pos);
+            if let Some(pos) = self.proposals.iter().position(|p| p.id == proposal_id) {
+                self.proposals.remove(pos);
+            }
         }
         report
+    }
+
+    /// Design hasil edit: params diganti, op diganti di tempat, `append`
+    /// ditambahkan di akhir.
+    fn edited_design(
+        &self,
+        params: Option<&Params>,
+        replace: &[ReplaceOp],
+        append: &[Op],
+    ) -> OpResult<DesignDoc> {
+        let mut design = self.meta.design.clone();
+        if let Some(p) = params {
+            design.params = p.clone();
+        }
+        for r in replace {
+            let slot = design
+                .oplog
+                .iter_mut()
+                .find(|o| o.id() == r.id)
+                .ok_or_else(|| {
+                    OpError::new(
+                        OpErrorCode::UnknownRef,
+                        format!("op '{}' tidak ada di oplog", r.id),
+                    )
+                })?;
+            if r.op.id() != r.id {
+                return Err(OpError::invalid(format!(
+                    "op pengganti ber-id '{}' harus memakai id '{}'",
+                    r.op.id(),
+                    r.id
+                )));
+            }
+            *slot = r.op.clone();
+        }
+        design.oplog.extend(append.iter().cloned());
+        Ok(design)
+    }
+
+    /// Ganti sesi dengan hasil rebuild, pertahankan riwayat batch, proposal,
+    /// dan peringatan.
+    fn adopt_rebuilt(&mut self, mut s: Session, appended: usize) {
+        s.meta.batches = std::mem::take(&mut self.meta.batches);
+        if appended > 0 {
+            s.meta.batches.push(appended);
+        }
+        s.meta.warnings = std::mem::take(&mut self.meta.warnings);
+        s.proposals = std::mem::take(&mut self.proposals);
+        s.next_proposal = self.next_proposal;
+        *self = s;
+    }
+
+    fn apply_edit(
+        &mut self,
+        params: Option<Params>,
+        replace: &[ReplaceOp],
+        append: Vec<Op>,
+    ) -> BatchReport {
+        let design = match self.edited_design(params.as_ref(), replace, &append) {
+            Ok(d) => d,
+            Err(e) => return self.failed_report(e),
+        };
+        match Self::rebuild(design) {
+            Ok((s, report)) => {
+                self.adopt_rebuilt(s, append.len());
+                BatchReport {
+                    summary: self.summary(),
+                    ..report
+                }
+            }
+            Err(e) => self.failed_report(e),
+        }
+    }
+
+    /// Ganti satu op di oplog lalu replay penuh; gagal → sesi lama utuh
+    /// (P11). Id op tidak dikenal → `UnknownRef`.
+    pub fn replace_op(&mut self, id: &str, op: Op) -> OpResult<BatchReport> {
+        let replace = [ReplaceOp {
+            id: id.to_string(),
+            op,
+        }];
+        // Validasi id lebih dulu agar error referensi menjadi `Err`.
+        self.edited_design(None, &replace, &[])?;
+        Ok(self.apply_edit(None, &replace, Vec::new()))
+    }
+
+    /// Proposal umum (P11): params baru, penggantian op, dan op tambahan,
+    /// diuji dengan replay pada SALINAN sesi. Tanpa params/penggantian sama
+    /// dengan [`Session::propose`].
+    pub fn propose_edit(
+        &mut self,
+        params: Option<Params>,
+        replace: Vec<ReplaceOp>,
+        append: Vec<Op>,
+    ) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
+        if params.is_none() && replace.is_empty() {
+            return self.propose(append);
+        }
+        let design = self.edited_design(params.as_ref(), &replace, &append)?;
+        let before = crate::diff::snapshot_bodies(&self.model);
+        let base_fingerprint = fingerprint(&self.model);
+        let (copy, mut report) = Self::rebuild(design)?;
+        let after = crate::diff::snapshot_bodies(&copy.model);
+        let (diff, shapes, _) = crate::diff::diff_bodies(before, after, true);
+        report.committed = false;
+        report.summary = copy.summary();
+        let id = format!("p{}", self.next_proposal);
+        self.next_proposal += 1;
+        if self.proposals.len() >= MAX_PROPOSALS {
+            self.proposals.pop_front();
+        }
+        self.proposals.push_back(StoredProposal {
+            id: id.clone(),
+            ops: append.clone(),
+            edit: Some((params.clone(), replace.clone())),
+            base_fingerprint: base_fingerprint.clone(),
+        });
+        Ok((
+            Proposal {
+                id,
+                ops: append,
+                params,
+                replace,
+                report,
+                diff,
+                base_fingerprint,
+            },
+            shapes,
+        ))
     }
 
     /// Buang proposal; `false` bila id tidak dikenal.

@@ -30,7 +30,9 @@ pub mod session;
 
 pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
 pub use plane::PlaneFrame;
-pub use session::{BatchReport, DesignDoc, OpOutcome, Session, SessionCore, SessionMeta};
+pub use session::{
+    BatchReport, DesignDoc, OpOutcome, Proposal, ReplaceOp, Session, SessionCore, SessionMeta,
+};
 
 #[test]
 fn engine_has_no_gui_dependency() {
