@@ -1009,7 +1009,9 @@ impl Session {
         }
     }
 
-    fn core(&mut self) -> SessionCore<'_> {
+    /// Pinjaman state sesi. `pub` supaya tool bersama (`tooling`) bisa
+    /// dijalankan lewat jalur yang sama oleh `Session` maupun jembatan live.
+    pub fn core(&mut self) -> SessionCore<'_> {
         SessionCore {
             model: &mut self.model,
             model_undo: &mut self.model_undo,

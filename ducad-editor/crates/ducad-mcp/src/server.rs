@@ -33,6 +33,51 @@ pub struct Server {
     pub root: PathBuf,
 }
 
+/// Pagar path berbasis satu direktori root.
+pub struct RootPaths(pub PathBuf);
+
+impl ducad_engine::tooling::ToolPaths for RootPaths {
+    fn resolve(&self, p: &str) -> OpResult<PathBuf> {
+        resolve_in_root(&self.0, p)
+    }
+}
+
+/// Resolusi path tool relatif ke `root`; hasil kanonik HARUS di dalam
+/// `root` (pagar keamanan). Path yang belum ada dikanonisasi lewat induknya.
+pub fn resolve_in_root(root: &Path, p: &str) -> OpResult<PathBuf> {
+    let outside = || OpError::new(OpErrorCode::Io, format!("path di luar root: {p}"));
+    let raw = Path::new(p);
+    let joined = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        root.join(raw)
+    };
+    let canonical = match joined.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            let file = joined.file_name().ok_or_else(outside)?;
+            if Path::new(file)
+                .components()
+                .any(|c| matches!(c, Component::ParentDir))
+            {
+                return Err(outside());
+            }
+            let parent = joined.parent().ok_or_else(outside)?;
+            let parent = parent.canonicalize().map_err(|e| {
+                OpError::new(
+                    OpErrorCode::Io,
+                    format!("direktori {} tidak ada: {e}", parent.display()),
+                )
+            })?;
+            parent.join(file)
+        }
+    };
+    if !canonical.starts_with(root) {
+        return Err(outside());
+    }
+    Ok(canonical)
+}
+
 impl Server {
     pub fn new(root: PathBuf) -> anyhow::Result<Self> {
         let root = root.canonicalize()?;
@@ -47,37 +92,13 @@ impl Server {
     /// `root` (pagar keamanan). Path yang belum ada dikanonisasi lewat
     /// induknya.
     pub fn resolve(&self, p: &str) -> OpResult<PathBuf> {
-        let outside = || OpError::new(OpErrorCode::Io, format!("path di luar root: {p}"));
-        let raw = Path::new(p);
-        let joined = if raw.is_absolute() {
-            raw.to_path_buf()
-        } else {
-            self.root.join(raw)
-        };
-        let canonical = match joined.canonicalize() {
-            Ok(c) => c,
-            Err(_) => {
-                let file = joined.file_name().ok_or_else(outside)?;
-                if Path::new(file)
-                    .components()
-                    .any(|c| matches!(c, Component::ParentDir))
-                {
-                    return Err(outside());
-                }
-                let parent = joined.parent().ok_or_else(outside)?;
-                let parent = parent.canonicalize().map_err(|e| {
-                    OpError::new(
-                        OpErrorCode::Io,
-                        format!("direktori {} tidak ada: {e}", parent.display()),
-                    )
-                })?;
-                parent.join(file)
-            }
-        };
-        if !canonical.starts_with(&self.root) {
-            return Err(outside());
-        }
-        Ok(canonical)
+        resolve_in_root(&self.root, p)
+    }
+
+    /// Pagar path yang bisa dipegang tanpa meminjam `Server` (dipakai saat
+    /// sesi sudah dipinjam secara mutable).
+    pub fn paths(&self) -> RootPaths {
+        RootPaths(self.root.clone())
     }
 
     /// Pilih sesi: eksplisit, atau satu-satunya sesi yang ada.
@@ -427,8 +448,8 @@ mod tests {
     #[test]
     fn oversized_text_is_truncated() {
         let big = json!({ "items": (0..20000).map(|i| json!({ "i": i, "pad": "xxxxxxxxxx" })).collect::<Vec<_>>() });
-        let t = crate::tools::compact_text(big);
-        assert!(t.len() <= crate::tools::MAX_TEXT_BYTES);
+        let t = ducad_engine::tooling::compact_text(big);
+        assert!(t.len() <= ducad_engine::tooling::MAX_TEXT_BYTES);
         let v: Value = serde_json::from_str(&t).unwrap();
         assert_eq!(v["truncated"], true);
     }

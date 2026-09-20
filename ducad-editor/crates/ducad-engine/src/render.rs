@@ -194,35 +194,62 @@ pub fn render_diff_svg(
 
 /// Render body sesi sebagai SVG garis (tampak + opsional tersembunyi).
 pub fn render_svg(s: &Session, opt: &RenderOptions) -> OpResult<RenderResult> {
+    let model = s.model();
+    let picked = pick_bodies(opt, |n| s.body(n), model)?;
+    render_picked(&picked, opt)
+}
+
+/// Seperti [`render_svg`] tetapi di atas state pinjaman — dipakai jembatan
+/// live (P5).
+pub fn render_svg_core(
+    core: &crate::session::SessionCore,
+    opt: &RenderOptions,
+) -> OpResult<RenderResult> {
+    let picked = pick_bodies(opt, |n| core.body(n), core.model)?;
+    render_picked(&picked, opt)
+}
+
+/// Body yang akan dirender: daftar `opt.bodies`, atau semua body terlihat.
+fn pick_bodies<'m>(
+    opt: &RenderOptions,
+    lookup: impl Fn(&str) -> OpResult<(ducad_core::BodyId, &'m crate::model::BodyGeometry)>,
+    model: &'m crate::model::ModelDoc,
+) -> OpResult<Vec<&'m crate::model::BodyGeometry>> {
+    let mut picked = Vec::new();
+    match &opt.bodies {
+        Some(names) => {
+            for n in names {
+                let (_, geo) = lookup(n)?;
+                picked.push(geo);
+            }
+        }
+        None => {
+            for (id, b) in model.doc.bodies.iter() {
+                if let (true, Some(geo)) = (b.visible, model.geometry.get(id)) {
+                    picked.push(geo);
+                }
+            }
+        }
+    }
+    Ok(picked)
+}
+
+fn render_picked(
+    picked: &[&crate::model::BodyGeometry],
+    opt: &RenderOptions,
+) -> OpResult<RenderResult> {
     if opt.width == 0 || opt.height == 0 || opt.width > 8192 || opt.height > 8192 {
         return Err(OpError::invalid(format!(
             "ukuran render harus 1..=8192 piksel (diberikan {}x{})",
             opt.width, opt.height
         )));
     }
-    let model = s.model();
-    let mut picked = Vec::new();
-    match &opt.bodies {
-        Some(names) => {
-            for n in names {
-                let (id, geo) = s.body(n)?;
-                picked.push((id, geo));
-            }
-        }
-        None => {
-            for (id, b) in model.doc.bodies.iter() {
-                if let (true, Some(geo)) = (b.visible, model.geometry.get(id)) {
-                    picked.push((id, geo));
-                }
-            }
-        }
-    }
     if picked.is_empty() {
         return Err(OpError::invalid("tidak ada body untuk dirender"));
     }
 
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for (_, g) in &picked {
+    for g in picked {
         if let Some((a, b)) = g.mesh.bounding_box() {
             lo = lo.min(Vec3::from_array(a));
             hi = hi.max(Vec3::from_array(b));
@@ -237,7 +264,7 @@ pub fn render_svg(s: &Session, opt: &RenderOptions) -> OpResult<RenderResult> {
     let camera = camera_for_bbox(lo, hi, opt.view, opt.width, opt.height);
     let snap_bodies: Vec<SnapshotBody> = picked
         .iter()
-        .map(|(_, g)| SnapshotBody::new(&g.edge_lines, &g.mesh))
+        .map(|g| SnapshotBody::new(&g.edge_lines, &g.mesh))
         .collect();
 
     let mut min_segment_px = SnapshotOptions::default().min_segment_px;

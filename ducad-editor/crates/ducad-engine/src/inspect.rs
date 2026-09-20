@@ -203,6 +203,27 @@ pub(crate) fn summarize_state(
     }
 }
 
+/// Seperti [`summarize`] tetapi di atas state pinjaman — dipakai jembatan
+/// live (P5) yang menjalankan tool atas state GUI, bukan atas `Session`.
+pub fn summarize_core(
+    core: &crate::session::SessionCore,
+    body: Option<&str>,
+    topology: bool,
+    limit: usize,
+) -> OpResult<Summary> {
+    if let Some(name) = body {
+        core.body(name)?;
+    }
+    Ok(summarize_state(
+        core.model,
+        core.sketches,
+        core.meta,
+        body,
+        topology,
+        limit,
+    ))
+}
+
 /// Ringkasan sesi. `body` membatasi ke satu body (UnknownRef /
 /// BodyConsumed bila tidak ada); `topology` menyertakan daftar face/tepi
 /// maksimal `limit` per body.

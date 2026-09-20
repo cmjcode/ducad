@@ -27,6 +27,7 @@ pub mod profile;
 pub mod render;
 pub mod select;
 pub mod session;
+pub mod tooling;
 
 pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
 pub use plane::PlaneFrame;

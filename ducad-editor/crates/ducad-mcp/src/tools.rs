@@ -3,12 +3,14 @@
 use base64::Engine as _;
 use ducad_engine::check::CheckItem;
 use ducad_engine::export::{export, ExportFormat};
-use ducad_engine::inspect::{summarize, DEFAULT_TOPOLOGY_LIMIT};
-use ducad_engine::ops::{op_schema, Op, Params, EXAMPLE_PLATE};
-use ducad_engine::render::{render_svg, svg_to_png, RenderOptions, View};
-use ducad_engine::select::{select_edges, select_faces, SELECTOR_CHEATSHEET};
-use ducad_engine::{OpError, OpErrorCode, OpResult, Session};
-use ducad_kernel::SurfaceKind;
+use ducad_engine::inspect::summarize;
+use ducad_engine::ops::{op_schema, Op, Params};
+use ducad_engine::render::{svg_to_png, View};
+use ducad_engine::tooling::{
+    args, call_core_tool, call_stateless_tool, compact_text, to_value, SessionArg, ToolOut,
+    CORE_TOOLS, STATELESS_TOOLS,
+};
+use ducad_engine::{OpError, OpResult, Session};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -36,10 +38,6 @@ pub const TOOL_NAMES: &[&str] = &[
     "accept_proposal",
     "reject_proposal",
 ];
-
-/// Batas teks hasil tool sebelum daftar terpanjang dipotong.
-pub const MAX_TEXT_BYTES: usize = 60 * 1024;
-const MAX_QUERY_ITEMS: usize = 50;
 
 fn session_prop() -> Value {
     json!({ "type": "string", "description": "Id sesi (mis. \"s1\"); boleh kosong bila hanya ada satu part terbuka." })
@@ -218,38 +216,14 @@ pub fn definitions() -> Vec<Value> {
     ]
 }
 
-/// Payload hasil tool (+ gambar opsional).
-struct ToolOut {
-    payload: Value,
-    image_png: Option<Vec<u8>>,
-    is_error: bool,
-}
-
-impl ToolOut {
-    fn ok(payload: Value) -> Self {
-        Self {
-            payload,
-            image_png: None,
-            is_error: false,
-        }
-    }
-}
-
-fn args<T: for<'de> Deserialize<'de>>(v: Value) -> OpResult<T> {
-    serde_json::from_value(v)
-        .map_err(|e| OpError::invalid(format!("argumen tool tidak valid: {e}")))
-}
-
 /// Jalankan tool; error menjadi `isError: true` dengan payload `{"error": OpError}`.
 pub fn call(server: &mut Server, name: &str, arguments: Value) -> Value {
-    let out = match call_inner(server, name, arguments) {
-        Ok(o) => o,
-        Err(e) => ToolOut {
-            payload: json!({ "error": e }),
-            image_png: None,
-            is_error: true,
-        },
-    };
+    tool_result(call_inner(server, name, arguments).unwrap_or_else(ToolOut::err))
+}
+
+/// Bungkus [`ToolOut`] menjadi hasil `tools/call` MCP (teks + gambar).
+/// Dipakai juga mode `--attach` untuk hasil yang datang dari jembatan.
+pub fn tool_result(out: ToolOut) -> Value {
     let text = compact_text(out.payload);
     let mut content = vec![json!({ "type": "text", "text": text })];
     if let Some(png) = out.image_png {
@@ -262,102 +236,33 @@ pub fn call(server: &mut Server, name: &str, arguments: Value) -> Value {
     json!({ "content": content, "isError": out.is_error })
 }
 
-/// JSON kompak; bila > 60 KB, larik terpanjang dipangkas separuh berulang
-/// dan `truncated: true` + cara mempersempit ditambahkan.
-pub fn compact_text(mut payload: Value) -> String {
-    let mut text = payload.to_string();
-    let mut rounds = 0;
-    while text.len() > MAX_TEXT_BYTES && rounds < 64 && halve_longest_array(&mut payload) {
-        rounds += 1;
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert("truncated".into(), json!(true));
-            obj.insert(
-                "truncation_hint".into(),
-                json!("hasil dipotong: persempit dengan argumen 'body', 'limit', atau selector yang lebih spesifik"),
-            );
-        }
-        text = payload.to_string();
-    }
-    text
-}
-
-/// Langkah jalur JSON: kunci objek atau indeks larik.
-#[derive(Clone)]
-enum Step {
-    Key(String),
-    Index(usize),
-}
-
-/// Cari jalur ke larik terpanjang.
-fn longest_array_path(v: &Value, path: &mut Vec<Step>, best: &mut Option<(usize, Vec<Step>)>) {
-    match v {
-        Value::Array(a) => {
-            if best.as_ref().is_none_or(|(n, _)| a.len() > *n) {
-                *best = Some((a.len(), path.clone()));
-            }
-            for (i, x) in a.iter().enumerate() {
-                path.push(Step::Index(i));
-                longest_array_path(x, path, best);
-                path.pop();
-            }
-        }
-        Value::Object(o) => {
-            for (k, x) in o {
-                path.push(Step::Key(k.clone()));
-                longest_array_path(x, path, best);
-                path.pop();
-            }
-        }
-        _ => {}
-    }
-}
-
-fn halve_longest_array(v: &mut Value) -> bool {
-    let mut best = None;
-    longest_array_path(v, &mut Vec::new(), &mut best);
-    let Some((n, path)) = best else {
-        return false;
-    };
-    if n <= 1 {
-        return false;
-    }
-    let mut cur = v;
-    for step in &path {
-        let next = match (step, cur) {
-            (Step::Key(k), Value::Object(o)) => o.get_mut(k),
-            (Step::Index(i), Value::Array(a)) => a.get_mut(*i),
-            _ => None,
-        };
-        match next {
-            Some(x) => cur = x,
-            None => return false,
-        }
-    }
-    match cur {
-        Value::Array(a) => {
-            a.truncate(n / 2);
-            true
-        }
-        _ => false,
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SessionArg {
-    #[serde(default)]
-    session: Option<String>,
-}
-
 fn summary_json(s: &Session) -> OpResult<Value> {
-    to_value(summarize(s, None, false, DEFAULT_TOPOLOGY_LIMIT)?)
-}
-
-fn to_value(v: impl serde::Serialize) -> OpResult<Value> {
-    serde_json::to_value(v).map_err(|e| OpError::new(OpErrorCode::Io, e.to_string()))
+    to_value(summarize(
+        s,
+        None,
+        false,
+        ducad_engine::inspect::DEFAULT_TOPOLOGY_LIMIT,
+    )?)
 }
 
 fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
+    // Tool yang hanya butuh state sesi dijalankan lewat implementasi
+    // bersama di `ducad_engine::tooling` — sama persis dengan yang dipakai
+    // jembatan live di GUI (P5).
+    if STATELESS_TOOLS.contains(&name) {
+        return call_stateless_tool(name, a);
+    }
+    if CORE_TOOLS.contains(&name) {
+        #[derive(Deserialize, Default)]
+        struct Pick {
+            #[serde(default)]
+            session: Option<String>,
+        }
+        let pick: Pick = serde_json::from_value(a.clone()).unwrap_or_default();
+        let paths = server.paths();
+        let (_, part) = server.pick(pick.session.as_deref())?;
+        return call_core_tool(&mut part.session.core(), name, a, &paths);
+    }
     match name {
         "new_part" => {
             #[derive(Deserialize)]
@@ -419,26 +324,6 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             server.sessions.remove(&id);
             Ok(ToolOut::ok(json!({ "closed": id })))
         }
-        "run_ops" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                ops: Vec<Op>,
-                #[serde(default)]
-                dry_run: bool,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let report = part.session.run(a.ops, a.dry_run);
-            let is_error = report.error.is_some();
-            Ok(ToolOut {
-                payload: to_value(report)?,
-                image_png: None,
-                is_error,
-            })
-        }
         "set_params" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -458,142 +343,6 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                 image_png: None,
                 is_error,
             })
-        }
-        "inspect" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                #[serde(default)]
-                body: Option<String>,
-                #[serde(default)]
-                topology: bool,
-                #[serde(default)]
-                limit: Option<usize>,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let limit = a.limit.unwrap_or(DEFAULT_TOPOLOGY_LIMIT).max(1);
-            let summary = summarize(&part.session, a.body.as_deref(), a.topology, limit)?;
-            Ok(ToolOut::ok(to_value(summary)?))
-        }
-        "query_geometry" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                body: String,
-                #[serde(default)]
-                faces: Option<String>,
-                #[serde(default)]
-                edges: Option<String>,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let (_, geo) = part.session.body(&a.body)?;
-            let (idx, items) = match (&a.faces, &a.edges) {
-                (Some(sel), None) => {
-                    let idx = select_faces(&geo.shape, sel)?;
-                    let all = ducad_kernel::enumerate_faces(&geo.shape);
-                    let items = idx
-                        .iter()
-                        .take(MAX_QUERY_ITEMS)
-                        .map(|&i| to_value(&all[i]))
-                        .collect::<OpResult<Vec<_>>>()?;
-                    (idx, items)
-                }
-                (None, Some(sel)) => {
-                    let idx = select_edges(&geo.shape, sel)?;
-                    let all = ducad_kernel::enumerate_edges(&geo.shape);
-                    let items = idx
-                        .iter()
-                        .take(MAX_QUERY_ITEMS)
-                        .map(|&i| to_value(&all[i]))
-                        .collect::<OpResult<Vec<_>>>()?;
-                    (idx, items)
-                }
-                _ => return Err(OpError::invalid("isi tepat satu dari 'faces' atau 'edges'")),
-            };
-            Ok(ToolOut::ok(
-                json!({ "count": idx.len(), "indices": idx, "items": items }),
-            ))
-        }
-        "measure" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                a: Value,
-                b: Value,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let ra = resolve_ref(&part.session, &a.a)?;
-            let rb = resolve_ref(&part.session, &a.b)?;
-            Ok(ToolOut::ok(measure(&ra, &rb)))
-        }
-        "render_view" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                #[serde(default)]
-                view: View,
-                #[serde(default)]
-                hidden_lines: bool,
-                #[serde(default)]
-                width: Option<u32>,
-                #[serde(default)]
-                height: Option<u32>,
-                #[serde(default)]
-                bodies: Option<Vec<String>>,
-                #[serde(default)]
-                save_svg: Option<String>,
-            }
-            let a: A = args(a)?;
-            let svg_path = a
-                .save_svg
-                .as_deref()
-                .map(|p| server.resolve(p))
-                .transpose()?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let (w, h) = (a.width.unwrap_or(800), a.height.unwrap_or(600));
-            let options = RenderOptions {
-                view: a.view,
-                width: w,
-                height: h,
-                hidden_lines: a.hidden_lines,
-                bodies: a.bodies,
-            };
-            let r = render_svg(&part.session, &options)?;
-            if let Some(p) = &svg_path {
-                std::fs::write(p, &r.svg).map_err(|e| {
-                    OpError::new(
-                        OpErrorCode::Io,
-                        format!("gagal menulis {}: {e}", p.display()),
-                    )
-                })?;
-            }
-            let png = svg_to_png(&r.svg, w, h)?;
-            Ok(ToolOut {
-                payload: json!({
-                    "visible_segments": r.visible_segments,
-                    "hidden_segments": r.hidden_segments,
-                    "svg_path": svg_path,
-                }),
-                image_png: Some(png),
-                is_error: false,
-            })
-        }
-        "get_oplog" => {
-            let a: SessionArg = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let d = part.session.design();
-            Ok(ToolOut::ok(json!({ "params": d.params, "ops": d.oplog })))
         }
         "undo" | "redo" => {
             let a: SessionArg = args(a)?;
@@ -622,40 +371,18 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             let bytes = export(&part.session, a.format, &path)?;
             Ok(ToolOut::ok(json!({ "path": path, "bytes": bytes })))
         }
-        "get_schema" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {}
-            let _: A = args(a)?;
-            let example: Value = serde_json::from_str(EXAMPLE_PLATE)
-                .map_err(|e| OpError::new(OpErrorCode::Io, e.to_string()))?;
-            Ok(ToolOut::ok(json!({
-                "op_schema": op_schema(),
-                "selector_cheatsheet": SELECTOR_CHEATSHEET,
-                "example": example,
-            })))
-        }
-        "set_checks" | "run_checks" => {
+        "set_checks" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct A {
                 #[serde(default)]
                 session: Option<String>,
-                #[serde(default)]
-                checks: Option<Vec<CheckItem>>,
+                checks: Vec<CheckItem>,
             }
             let a: A = args(a)?;
             let (_, part) = server.pick(a.session.as_deref())?;
-            let summary = if name == "set_checks" {
-                let checks = a
-                    .checks
-                    .ok_or_else(|| OpError::invalid("set_checks butuh 'checks'"))?;
-                part.session.set_checks(checks);
-                part.session.run_checks(None)
-            } else {
-                part.session.run_checks(a.checks.as_deref())
-            };
-            Ok(ToolOut::ok(to_value(summary)?))
+            part.session.set_checks(a.checks);
+            Ok(ToolOut::ok(to_value(part.session.run_checks(None))?))
         }
         "propose_ops" => {
             #[derive(Deserialize)]
@@ -706,89 +433,4 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
         }
         other => Err(OpError::invalid(format!("tool tidak dikenal: {other}"))),
     }
-}
-
-/// Rujukan terukur: titik wakil + arah opsional + info bidang.
-struct Ref {
-    point: [f64; 3],
-    dir: Option<[f64; 3]>,
-    /// (titik, normal) bila rujukan adalah face planar.
-    plane: Option<([f64; 3], [f64; 3])>,
-}
-
-fn resolve_ref(s: &Session, v: &Value) -> OpResult<Ref> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct R {
-        #[serde(default)]
-        point: Option<[f64; 3]>,
-        #[serde(default)]
-        body: Option<String>,
-        #[serde(default)]
-        face: Option<String>,
-        #[serde(default)]
-        edge: Option<String>,
-    }
-    let r: R = args(v.clone())?;
-    let exactly_one = |n: usize, sel: &str| -> OpResult<()> {
-        if n != 1 {
-            return Err(OpError::invalid(format!(
-                "selector \"{sel}\" harus menghasilkan tepat 1 elemen (cocok {n})"
-            ))
-            .with_context(json!({ "matched": n })));
-        }
-        Ok(())
-    };
-    match (r.point, r.body, r.face, r.edge) {
-        (Some(p), None, None, None) => Ok(Ref {
-            point: p,
-            dir: None,
-            plane: None,
-        }),
-        (None, Some(body), Some(sel), None) => {
-            let (_, geo) = s.body(&body)?;
-            let idx = select_faces(&geo.shape, &sel)?;
-            exactly_one(idx.len(), &sel)?;
-            let f = ducad_kernel::enumerate_faces(&geo.shape).swap_remove(idx[0]);
-            let planar = f.kind == SurfaceKind::Plane;
-            Ok(Ref {
-                point: f.centroid,
-                dir: Some(f.normal),
-                plane: planar.then_some((f.centroid, f.normal)),
-            })
-        }
-        (None, Some(body), None, Some(sel)) => {
-            let (_, geo) = s.body(&body)?;
-            let idx = select_edges(&geo.shape, &sel)?;
-            exactly_one(idx.len(), &sel)?;
-            let e = ducad_kernel::enumerate_edges(&geo.shape).swap_remove(idx[0]);
-            Ok(Ref {
-                point: e.mid,
-                dir: e.dir,
-                plane: None,
-            })
-        }
-        _ => Err(OpError::invalid(
-            "rujukan harus {point} atau {body, face} atau {body, edge}",
-        )),
-    }
-}
-
-fn measure(a: &Ref, b: &Ref) -> Value {
-    let sub = |p: [f64; 3], q: [f64; 3]| [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
-    let dot = |p: [f64; 3], q: [f64; 3]| p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
-    let d = sub(b.point, a.point);
-    let r4 = ducad_engine::inspect::round4;
-    let mut out = json!({ "distance": r4(dot(d, d).sqrt()) });
-    if let (Some(u), Some(v)) = (a.dir, b.dir) {
-        let c = (dot(u, v) / (dot(u, u).sqrt() * dot(v, v).sqrt())).clamp(-1.0, 1.0);
-        out["angle_deg"] = json!(r4(c.acos().to_degrees()));
-    }
-    if let (Some((pa, na)), Some((pb, nb))) = (a.plane, b.plane) {
-        let parallel = dot(na, nb).abs() >= ducad_engine::select::ANG_TOL_DEG.to_radians().cos();
-        if parallel {
-            out["plane_gap"] = json!(r4(dot(sub(pb, pa), na).abs()));
-        }
-    }
-    out
 }
