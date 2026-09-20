@@ -85,6 +85,53 @@
 * **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
 * **Multi-Language Support (i18n)**: 18+ languages with English as the default interface and developer-friendly notes.
 
+### 9. 🤖 Headless Engine, Agent Tooling & On-Device AI
+
+Everything below runs **without the GUI**, so scripts, CI and AI agents drive the
+same modeling code the application does.
+
+* **`ducad-engine` (headless modeling layer)**: pure `compute` functions over the
+  OCCT kernel plus an atomic, replayable **oplog** (`Op` + `params`). Bodies are
+  referenced by *name* (the id of the op that created them), never by an internal
+  id that shifts on undo/redo.
+* **Semantic selectors**: pick faces and edges by meaning instead of index —
+  `>Z`, `|Z`, `#Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`, combined with
+  `or` / `and` / `except`.
+* **`ducad-cli`**: `run`, `replay`, `inspect`, `check`, `oplog`, `diff`, `select`,
+  `render`, `export`, `build`, `assist`, `schema`.
+* **`ducad-mcp`**: a 20-tool **Model Context Protocol** server (JSON-RPC 2.0 over
+  stdio) so an AI agent can model, inspect, render and verify a part.
+* **Design unit tests (`Check`)**: requirements written as data — `volume`,
+  `bbox_size`, `hole_count`, `min_wall`, `mass`, `clearance`, `no_interference` —
+  evaluated after every batch and shown in a GUI panel with a top-bar summary.
+* **Design version control**: git-friendly one-op-per-line oplog, `*.ops.json` as
+  the source of truth with `.ducad` as the artifact, plus oplog *and* geometric
+  diffs (added/removed volume) rendered as a colored SVG.
+* **Explaining errors with verified fixes**: a failed operation reports a specific
+  code (`fillet_radius_too_large`, `shell_too_thick`, `hole_outside_face`,
+  `boolean_no_overlap`, `profile_open_gap`, …) with measured `context` and fix
+  candidates that were *dry-run verified* before being offered. Fixes are never
+  applied automatically.
+* **Hardware CI/CD**: `ducad-cli build` produces STEP/STL/PDF/PNG/BOM plus
+  `report.json`/`report.md` **deterministically**; failing checks stop the build
+  with exit code 3. A GitHub Actions template ships in `docs/ci/`.
+* **On-device AI assistant (`ducad-assist`)**: offline backends (Apple Foundation
+  Models, local GGUF) behind Cargo features that are **off by default**. Every
+  loop ends in a *proposal* — the model never commits a change by itself.
+* **Live agent bridge**: `ducad-mcp --attach` forwards tools to the running
+  application over a Unix socket, so the user watches the model being built. One
+  agent batch = one GUI undo step. Risky changes go through `propose_ops`, which
+  shows a green/red ghost preview and waits for the user to press Accept/Reject.
+* **Long-term memory (MNEMONIC)**: preferences, standards, lessons and session
+  logs live in a Markdown vault — reachable as an MCP server on desktop, or
+  linked directly into the app (feature `memory`) on iPadOS, which cannot spawn
+  child processes.
+* **Pencil freehand → constrained sketch**: deterministic shape recognition
+  (line, circle, arc, ellipse, rectangle, polyline, spline) followed by greedy
+  constraint inference, committed as a single undo step.
+* **Eval harness**: ten reference tasks with analytically computed expectations
+  in `evals/`, plus a stdlib-only Python runner to measure agent pass rates.
+
 ---
 
 ## 🏗️ Workspace Architecture Structure
@@ -93,18 +140,31 @@ DuCAD is built with a modular *multi-crate* architecture:
 
 ```
 DUCAD/
-├── crates/
-│   ├── ducad-core/      # Document data model, undo/redo history, assembly tree, mates, units
-│   ├── ducad-sketch/    # 2D sketch engine, geometry entities, constraint solver, snapping, region solver
-│   ├── ducad-kernel/    # OpenCASCADE (OCCT) B-Rep wrapper: boolean, fillet, hole, helix, section, mesh
-│   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
-│   ├── ducad-io/        # STEP, GLB/GLTF, SVG, PDF (drawing sheet), DXF, STL, OBJ import/export modules
-│   ├── ducad-ui/        # egui UI components: toolbar, context bar, HUD, drawing sheet canvas, drawers, popups
-│   ├── ducad-i18n/      # Localization system and 18+ language translation dictionaries
-│   └── ducad-app/       # Main application, winit/eframe event loop, window management, state integration
-├── docs/                # Operational guide documentation, CAD comparisons, and architecture blueprints
-└── Cargo.toml           # Workspace root manifest
+├── ducad-editor/            # Cargo workspace (run every `cargo` command from here)
+│   ├── crates/
+│   │   ├── ducad-core/      # Document data model, undo/redo history, assembly tree, mates, units, materials
+│   │   ├── ducad-sketch/    # 2D entities, constraint solver, snapping, regions, stroke recognition + inference
+│   │   ├── ducad-kernel/    # The ONLY OpenCASCADE (OCCT) wrapper: boolean, fillet, hole, helix, section, mesh
+│   │   ├── ducad-io/        # .ducad native format, STEP/STL/OBJ/GLB, SVG/PDF/DXF drawing sheets
+│   │   ├── ducad-engine/    # Headless modeling: compute, Op/oplog, selectors, Session, inspect, checks, diff
+│   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
+│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 20-tool MCP server over stdio (+ `--attach` live mode)
+│   │   ├── ducad-assist/    # On-device AI assistant: backend contract, prompts, proposal-only loop
+│   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
+│   │   ├── ducad-ui/        # egui components: toolbar, context bar, HUD, drawers, checks/error/proposal cards
+│   │   ├── ducad-i18n/      # Localization system and 18+ language translation dictionaries
+│   │   ├── ducad-cloud/     # Account and cloud sync
+│   │   └── ducad-app/       # Main application (binary `ducad`), eframe loop, agent bridge, state integration
+│   ├── evals/               # Agent eval harness: ten reference tasks + stdlib Python runner
+│   ├── docs/                # Guides, comparative analysis, architecture decision records (ADR), CI templates
+│   └── Cargo.toml           # Workspace root manifest
+├── scripts/                 # Agent memory vault bootstrap and helper scripts
+└── .mcp.json                # MCP server registration (ducad + mnemonic) for agent harnesses
 ```
+
+**Hard rule**: only `ducad-kernel` may `use opencascade::…`, and `ducad-engine`
+must never depend on egui/eframe/wgpu/`ducad-render`/`ducad-ui`/rfd — enforced by
+the `engine_has_no_gui_dependency` test.
 
 ---
 
@@ -139,13 +199,49 @@ cargo run -p ducad-app
 
 > **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
 
+### Running the Agent Tooling (CLI & MCP)
+
+```bash
+# Install `ducad-cli` and `ducad-mcp` (plus `mnemonic-cli` when the memory
+# vault repository is present next to this one)
+make install-agent-tools
+
+# Build a part from its oplog and emit manufacturing artifacts deterministically
+ducad-cli build parts/plate.ops.json --out dist/plate
+
+# Verify a part against its design checks (exit 3 = a check failed)
+ducad-cli check dist/plate/plate.ducad --json
+
+# Human-readable, git-diffable oplog (one op per line)
+ducad-cli oplog part.ducad --out part.ops.json
+
+# Start the MCP server for an AI agent (stdio); `--attach` instead forwards
+# every tool to the DUCAD application that is already open
+ducad-mcp --root .
+ducad-mcp --attach
+```
+
+Optional Cargo features of the application (all **off by default**):
+
+| Feature | What it enables |
+|---|---|
+| `apple-fm` | Apple Foundation Models backend for the on-device assistant |
+| `local-gguf` | Local GGUF model backend (candle) for the on-device assistant |
+| `memory` | Links the headless MNEMONIC library so the memory vault works on iPadOS |
+
+```bash
+cargo build -p ducad-app --features memory
+```
+
 ### Running Unit & Integration Tests
 
 Run workspace tests directly or via container:
 
 ```bash
-# Run all workspace unit and integration tests (from ducad-editor/)
+# The three CI gates (from ducad-editor/)
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo fmt --all -- --check          # advisory: new files only
 
 # Or run via Docker builder container (if cargo is not installed locally)
 docker run --rm --label visva_task_id=UI_iPAD_berantakan \
@@ -194,3 +290,28 @@ Execute the automated cURL test suite for DuCAD Cloud and touch configuration en
 * [Complete User Manual](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/PANDUAN.md) — In-depth guide on how to use every tool and feature, from modeling to engineering drawings.
 * [Comparative CAD Analysis](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/ANALISIS_KOMPARATIF_CAD.md) — Comparative study of DuCAD's technical features against AutoCAD, SolidWorks, Onshape, and Shapr3D.
 * [Roadmap & Phase Tracking](file:///Users/jayuda/Documents/PROJECT/DUCAD/implementation_plan.md) — Details on the technical implementation status of each phase and module.
+* [GUI Test Checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) — Manual QA checklist: every GUI feature that needs to be exercised by hand, with steps and expected results.
+* [Hardware CI Guide](ducad-editor/docs/ci/README.md) — Repository layout for `*.ops.json` parts, `.gitattributes` textconv, and posting `report.md` to a PR.
+* [Architecture Decision Records](ducad-editor/docs/adr/) — Why the CI gates are shaped the way they are (0001) and the on-device AI spike results (0002).
+
+---
+
+## 🆕 Recent Additions (2026-09-19 → 2026-09-20)
+
+The agent/automation layer above landed in one sweep, phase by phase:
+
+| Phase | What landed |
+|---|---|
+| P0–P1 | `ducad-engine` extracted from the app; `Op`/oplog with JSON Schema, params expressions, semantic selectors, `.ducad` v2 with a `design` field and stable body UUIDs |
+| P2–P3 | `ducad-cli` and the 20-tool `ducad-mcp` server |
+| P4 | MNEMONIC memory vault, `AGENTS.md` conventions, the `ducad-modeling` agent skill |
+| P6 | Eval harness: ten tasks with analytic expectations + Python runner |
+| P7 | `Check`/`CheckResult`, mesh-based minimum wall thickness, hole counting, GUI checks panel |
+| P8 | Git-friendly oplog, oplog + geometric diff, colored diff SVG, **proposal/ghost preview**, branching from history |
+| P9 | Diagnosed error codes with *verified* fix suggestions, plus the GUI error card |
+| P10 | Automatic drawing sheets, deterministic `ducad-cli build`, release workflow and CI template |
+| P11 | `ducad-assist` (proposal-only loop), Apple FM / GGUF backends, AI dialog, **memory linked in-process for iPadOS** |
+| P12 | Pencil freehand: stroke recognition → constraint inference → one-undo-step commit |
+| P5 | **Live bridge**: `ducad-mcp --attach` + in-app Agent Bridge, one batch = one undo step, proposals confirmed by the user |
+
+Handwritten dimension OCR (P12.4) is documented but intentionally not implemented yet.
