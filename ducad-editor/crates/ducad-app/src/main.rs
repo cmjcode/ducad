@@ -22,6 +22,7 @@ pub mod input;
 pub mod model;
 pub mod modeling;
 pub mod overlay;
+pub mod proposal_ui;
 pub mod types;
 pub mod ui;
 pub mod viewport;

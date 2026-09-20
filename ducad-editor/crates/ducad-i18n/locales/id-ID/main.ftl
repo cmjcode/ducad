@@ -1196,7 +1196,7 @@ freehand-committed = Coretan diubah menjadi entitas sketsa ber-constraint
 freehand-accept = Terima bentuk
 freehand-reject = Tolak bentuk
 
-## Jembatan agent live (P5)
+## Jembatan agent live (P5) dan kartu proposal (P8.4)
 bridge-title = Agent Bridge
 bridge-toggle = Agent Bridge (jembatan agent live)
 bridge-on = Agent Bridge aktif — agent bisa mengubah dokumen ini
@@ -1205,3 +1205,10 @@ bridge-failed = Agent Bridge gagal dinyalakan
 bridge-blocked-offline = Agent Bridge dimatikan oleh kebijakan privasi "Hanya di perangkat"
 bridge-chip = Agent: { $clients }
 bridge-activity = Agent: { $count } operasi
+proposal-title = Usulan agent
+proposal-accept = Terima
+proposal-reject = Tolak
+proposal-volume = +{ $added } mm³ / −{ $removed } mm³
+proposal-accepted = Usulan agent diterapkan
+proposal-rejected = Usulan agent ditolak
+proposal-timeout = Usulan agent kedaluwarsa

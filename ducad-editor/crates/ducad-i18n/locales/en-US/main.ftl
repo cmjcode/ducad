@@ -1196,7 +1196,7 @@ freehand-committed = Stroke turned into constrained sketch entities
 freehand-accept = Accept shape
 freehand-reject = Reject shape
 
-## Live agent bridge (P5)
+## Live agent bridge (P5) and proposal card (P8.4)
 bridge-title = Agent Bridge
 bridge-toggle = Agent Bridge (live agent bridge)
 bridge-on = Agent Bridge on — agents can change this document
@@ -1205,3 +1205,10 @@ bridge-failed = Agent Bridge failed to start
 bridge-blocked-offline = Agent Bridge is disabled by the "On device only" privacy setting
 bridge-chip = Agent: { $clients }
 bridge-activity = Agent: { $count } operations
+proposal-title = Agent proposal
+proposal-accept = Accept
+proposal-reject = Reject
+proposal-volume = +{ $added } mm³ / −{ $removed } mm³
+proposal-accepted = Agent proposal applied
+proposal-rejected = Agent proposal rejected
+proposal-timeout = Agent proposal timed out

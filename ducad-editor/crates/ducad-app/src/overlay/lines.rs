@@ -1806,6 +1806,29 @@ impl DuCADApp {
             }
         }
 
+        // Ghost proposal agent (P8.4): mesh `added` hijau tembus pandang,
+        // `removed` merah tembus pandang. Digambar lewat jalur mesh scene
+        // yang sama, hanya warnanya yang di-override.
+        if let Some(p) = &self.pending_proposal {
+            let mut push_ghost = |mesh: &ducad_kernel::KernelMesh, color: [f32; 4]| {
+                let base_index = positions.len() as u32;
+                positions.extend(mesh.positions.iter().copied());
+                normals.extend(mesh.normals.iter().copied());
+                colors.extend(std::iter::repeat_n(color, mesh.positions.len()));
+                materials.extend(std::iter::repeat_n(
+                    [0.40, 0.0, 0.0, 0.0],
+                    mesh.positions.len(),
+                ));
+                indices.extend(mesh.indices.iter().map(|i| i + base_index));
+            };
+            for m in &p.added {
+                push_ghost(m, crate::proposal_ui::GHOST_ADDED);
+            }
+            for m in &p.removed {
+                push_ghost(m, crate::proposal_ui::GHOST_REMOVED);
+            }
+        }
+
         // 3D Live Ghost Pattern Preview
         if self.tool == ToolKind::Pattern && !self.selected_bodies.is_empty() {
             const GHOST_CYAN: [f32; 4] = [0.0, 0.80, 1.0, 0.40];

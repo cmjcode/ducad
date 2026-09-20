@@ -124,6 +124,8 @@ pub struct DuCADApp {
     pub agent_meta: ducad_engine::SessionMeta,
     /// Jembatan agent live; mati secara default (P5.1).
     pub bridge: crate::agent_bridge::AgentBridge,
+    /// Proposal agent yang menunggu keputusan pengguna (P8.4).
+    pub pending_proposal: Option<crate::proposal_ui::ProposalView>,
     /// Hasil checks desain untuk panel & top bar (P7.5).
     pub checks: crate::checks_ui::ChecksState,
     /// Asisten AI lokal (P11.4).
@@ -484,6 +486,7 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             bridge: crate::agent_bridge::AgentBridge::default(),
+            pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
             freehand: crate::freehand::FreehandState::new(),
@@ -768,6 +771,7 @@ impl DuCADApp {
             design: None,
             agent_meta: ducad_engine::SessionMeta::default(),
             bridge: crate::agent_bridge::AgentBridge::default(),
+            pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
             freehand: crate::freehand::FreehandState::new(),
@@ -3702,6 +3706,7 @@ impl eframe::App for DuCADApp {
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
+        self.proposal_frame(&ctx);
         self.freehand_tick();
     }
 }

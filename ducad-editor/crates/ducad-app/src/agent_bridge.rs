@@ -265,7 +265,7 @@ use ducad_engine::{DesignDoc, OpError, OpErrorCode, OpResult, SessionCore};
 use crate::app::DuCADApp;
 
 /// Metode yang dijawab jembatan (selain tool tingkat-core).
-const BRIDGE_ONLY: &[&str] = &["set_params", "save_part"];
+const BRIDGE_ONLY: &[&str] = &["set_params", "save_part", "propose_ops"];
 
 /// Metode yang sengaja TIDAK tersedia lewat jembatan; alasannya menyusul
 /// di `hint` supaya agent tahu harus berbuat apa.
@@ -274,6 +274,7 @@ fn unsupported(method: &str) -> OpError {
         "new_part" | "open_part" | "close_part" => {
             "lakukan di aplikasi (menu Berkas); jembatan bekerja pada dokumen yang sedang terbuka"
         }
+        "accept_proposal" => "hanya pengguna yang bisa menerima proposal, lewat tombol di aplikasi",
         _ => "metode ini tidak tersedia pada sesi live",
     };
     OpError::new(
@@ -421,13 +422,25 @@ impl DuCADApp {
         }
     }
 
+    /// Jalankan satu metode jembatan langsung (dipakai tes proposal).
+    #[cfg(test)]
+    pub(crate) fn agent_call_for_test(
+        &mut self,
+        method: &str,
+        params: Value,
+        id: u64,
+        reply: &Sender<Value>,
+    ) -> Option<ToolOut> {
+        self.agent_call(method, params, id, reply)
+    }
+
     /// Jalankan satu metode jembatan. `None` = balasan ditunda.
     fn agent_call(
         &mut self,
         method: &str,
         params: Value,
-        _id: u64,
-        _reply: &Sender<Value>,
+        id: u64,
+        reply: &Sender<Value>,
     ) -> Option<ToolOut> {
         if ducad_engine::tooling::STATELESS_TOOLS.contains(&method) {
             return Some(call_stateless_tool(method, params).unwrap_or_else(ToolOut::err));
@@ -437,6 +450,10 @@ impl DuCADApp {
         }
         self.sync_agent_meta();
         match method {
+            "propose_ops" => match self.agent_propose(params, id, reply) {
+                Ok(()) => None,
+                Err(e) => Some(ToolOut::err(e)),
+            },
             "set_params" => Some(self.agent_set_params(params).unwrap_or_else(ToolOut::err)),
             "save_part" => Some(self.agent_save_part(params).unwrap_or_else(ToolOut::err)),
             _ => {

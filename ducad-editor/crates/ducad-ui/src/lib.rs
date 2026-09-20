@@ -22,6 +22,7 @@ pub mod context_bar;
 pub mod drawing_sheet_view;
 pub mod assist_dialog;
 pub mod error_card;
+pub mod proposal_card;
 pub mod feature_inspector;
 pub mod feature_tree_drawer;
 pub mod history_drawer;
@@ -56,6 +57,7 @@ pub use context_bar::{ContextAction, ContextActionBar};
 pub use drawing_sheet_view::{DrawingSheetEvent, DrawingSheetView, DrawingSheetViewState};
 pub use assist_dialog::{AssistDialog, AssistDialogEvent, AssistDialogState};
 pub use error_card::{ErrorCard, ErrorCardEvent, ErrorCardState};
+pub use proposal_card::{ProposalCard, ProposalCardEvent, ProposalCardState};
 pub use feature_inspector::{
     FeatureInspector, FeatureInspectorState, InspectorBooleanKind, InspectorConstraintAction,
     InspectorEvent, InspectorPickMode, InspectorRectAnchor, SelectedBodyData, SelectedEntityData,

@@ -286,6 +286,29 @@ impl SessionCore<'_> {
         summarize_state(self.model, self.sketches, self.meta, None, false, 0)
     }
 
+    /// Jalankan `ops` tanpa mengubah model (batch lalu rollback) dan
+    /// kembalikan diff body + geometri selisihnya. Inti `Session::propose`
+    /// (P8.4), dipakai juga jembatan live di GUI yang tidak memiliki
+    /// `Session` sendiri.
+    pub fn propose(
+        &mut self,
+        ops: Vec<Op>,
+    ) -> OpResult<(
+        BatchReport,
+        Vec<crate::diff::BodyDiff>,
+        crate::diff::DiffShapes,
+        String,
+    )> {
+        let before = crate::diff::snapshot_bodies(self.model);
+        let base_fingerprint = fingerprint(self.model);
+        let (report, after) = self.run_with(ops, true, crate::diff::snapshot_bodies);
+        if let Some(e) = report.error.clone() {
+            return Err(e);
+        }
+        let (diff, shapes, _) = crate::diff::diff_bodies(before, after.unwrap_or_default(), true);
+        Ok((report, diff, shapes, base_fingerprint))
+    }
+
     /// Jalankan `ops` secara atomik (algoritma P1.5).
     pub fn run(&mut self, ops: Vec<Op>, dry_run: bool) -> BatchReport {
         self.run_with(ops, dry_run, |_| ()).0
@@ -1326,15 +1349,7 @@ impl Session {
     /// Jalankan `ops` tanpa mengubah model (batch lalu rollback) dan
     /// kembalikan diff-nya sebagai proposal. Batch yang gagal → error-nya.
     pub fn propose(&mut self, ops: Vec<Op>) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
-        let before = crate::diff::snapshot_bodies(&self.model);
-        let base_fingerprint = fingerprint(&self.model);
-        let (report, after) = self
-            .core()
-            .run_with(ops.clone(), true, crate::diff::snapshot_bodies);
-        if let Some(e) = report.error.clone() {
-            return Err(e);
-        }
-        let (diff, shapes, _) = crate::diff::diff_bodies(before, after.unwrap_or_default(), true);
+        let (report, diff, shapes, base_fingerprint) = self.core().propose(ops.clone())?;
         let id = format!("p{}", self.next_proposal);
         self.next_proposal += 1;
         if self.proposals.len() >= MAX_PROPOSALS {
