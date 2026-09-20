@@ -15,6 +15,10 @@ default = []
 # dan build iOS tidak terpengaruh.
 apple-fm = ["ducad-assist/apple-fm"]
 local-gguf = ["ducad-assist/local-gguf"]
+# Memori MNEMONIC tertaut langsung (P11.5) — dipakai di iPad, tempat
+# server MCP tidak tersedia. Mati secara default: pustakanya berat
+# (indeks SQLite + model embedding) dan hanya relevan bila vault dipakai.
+memory = ["dep:mnemonic"]
 
 [dependencies]
 ducad-core = { workspace = true }
@@ -27,6 +31,9 @@ ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-assist = { workspace = true }
+# Pustaka MNEMONIC headless (fitur `gui` MATI): `VaultService` dipanggil
+# langsung, bukan lewat server MCP. Lihat fitur `memory` di atas.
+mnemonic = { path = "../../../../MNEMONIC", default-features = false, optional = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }

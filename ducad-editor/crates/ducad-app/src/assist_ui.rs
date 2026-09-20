@@ -97,6 +97,54 @@ fn edit_from(outcome: &AssistOutcome) -> Option<AssistEdit> {
 }
 
 impl DuCADApp {
+    /// Vault memori, dibuka saat pertama dipakai (P11.5). `None` = build
+    /// tanpa fitur `memory`, atau vault gagal dibuka.
+    #[cfg(feature = "memory")]
+    fn memory(&mut self) -> Option<std::sync::Arc<crate::memory::VaultMemory>> {
+        if self.memory.is_none() {
+            match crate::memory::VaultMemory::open(crate::memory::default_root()) {
+                Ok(m) => self.memory = Some(std::sync::Arc::new(m)),
+                Err(e) => {
+                    log::warn!("memori: vault tidak bisa dibuka: {e:#}");
+                    return None;
+                }
+            }
+        }
+        self.memory.clone()
+    }
+
+    /// Pelajaran relevan dari vault untuk diumpankan ke model (P11.2).
+    fn lessons_for(&mut self, instruction: &str) -> Vec<String> {
+        #[cfg(feature = "memory")]
+        {
+            match self.memory() {
+                Some(m) => m.recall(instruction, 5),
+                None => Vec::new(),
+            }
+        }
+        #[cfg(not(feature = "memory"))]
+        {
+            let _ = instruction;
+            Vec::new()
+        }
+    }
+
+    /// Catat satu baris ke log sesi vault; diam saja bila memori mati.
+    fn note_session(&mut self, text: &str) {
+        #[cfg(feature = "memory")]
+        {
+            if let Some(m) = self.memory() {
+                if let Err(e) = m.append_session(text) {
+                    log::warn!("memori: log sesi gagal ditulis: {e:#}");
+                }
+            }
+        }
+        #[cfg(not(feature = "memory"))]
+        {
+            let _ = text;
+        }
+    }
+
     fn design_for_assist(&self) -> Option<DesignDoc> {
         serde_json::from_value(self.design.clone()?).ok()
     }
@@ -122,6 +170,7 @@ impl DuCADApp {
             return;
         };
         let instruction = self.ai.dialog.instruction.trim().to_string();
+        let lessons = self.lessons_for(&instruction);
         let before = design.params.clone();
         let (tx, rx) = mpsc::channel();
         self.ai.rx = Some(rx);
@@ -144,7 +193,7 @@ impl DuCADApp {
                     &mut session,
                     backend.as_mut(),
                     &instruction,
-                    &[],
+                    &lessons,
                     DEFAULT_MAX_ITERS,
                 ) {
                     Err(e) => fail(e.message),
@@ -203,6 +252,8 @@ impl DuCADApp {
         self.adopt_session(session.into_model(), design);
         self.ai.dialog.has_proposal = false;
         self.ai.dialog.message = ducad_i18n::t!("assist-applied");
+        let instruction = self.ai.dialog.instruction.trim().to_string();
+        self.note_session(&format!("Usulan AI diterapkan: {instruction}"));
     }
 
     /// Ganti model GUI dengan hasil sesi engine (body + `design`).

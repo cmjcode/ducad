@@ -130,6 +130,10 @@ pub struct DuCADApp {
     pub checks: crate::checks_ui::ChecksState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
+    /// Memori MNEMONIC tertaut langsung (P11.5); dibuka saat pertama
+    /// dipakai supaya aplikasi tidak menunggu indeks vault saat start.
+    #[cfg(feature = "memory")]
+    pub memory: Option<std::sync::Arc<crate::memory::VaultMemory>>,
     /// Alat coretan bebas (P12.3).
     pub freehand: crate::freehand::FreehandState,
     /// Kartu error operasi + fix terverifikasi (P9.3).
@@ -489,6 +493,8 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            #[cfg(feature = "memory")]
+            memory: None,
             freehand: crate::freehand::FreehandState::new(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
@@ -774,6 +780,8 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            #[cfg(feature = "memory")]
+            memory: None,
             freehand: crate::freehand::FreehandState::new(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
