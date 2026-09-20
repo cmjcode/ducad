@@ -119,6 +119,11 @@ pub struct DuCADApp {
     /// GUI, sidik jarinya tidak lagi cocok dan engine masuk mode adopsi
     /// saat membuka berkas itu (P1.7).
     pub design: Option<serde_json::Value>,
+    /// Metadata sesi agent (oplog + bidang sketch) untuk jembatan live
+    /// (P5): `SessionCore` dibangun di atasnya + state GUI di atas.
+    pub agent_meta: ducad_engine::SessionMeta,
+    /// Jembatan agent live; mati secara default (P5.1).
+    pub bridge: crate::agent_bridge::AgentBridge,
     /// Hasil checks desain untuk panel & top bar (P7.5).
     pub checks: crate::checks_ui::ChecksState,
     /// Asisten AI lokal (P11.4).
@@ -477,6 +482,8 @@ impl DuCADApp {
 
             current_file_path: None,
             design: None,
+            agent_meta: ducad_engine::SessionMeta::default(),
+            bridge: crate::agent_bridge::AgentBridge::default(),
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
             freehand: crate::freehand::FreehandState::new(),
@@ -759,6 +766,8 @@ impl DuCADApp {
 
             current_file_path: None,
             design: None,
+            agent_meta: ducad_engine::SessionMeta::default(),
+            bridge: crate::agent_bridge::AgentBridge::default(),
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
             freehand: crate::freehand::FreehandState::new(),
@@ -1355,6 +1364,9 @@ pub fn calculate_grid_extent_for_params(
 impl eframe::App for DuCADApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Permintaan agent dilayani di awal frame, sebelum input pengguna
+        // diproses, supaya perubahan langsung ikut tergambar frame ini.
+        self.poll_agent_bridge(&ctx);
         self.poll_import_worker();
         if self.pending_imports > 0 {
             ctx.request_repaint();
@@ -1523,6 +1535,7 @@ impl eframe::App for DuCADApp {
             is_ipad,
             checks_summary,
             checks_panel_open: self.checks.panel_open,
+            bridge_clients: self.bridge.enabled.then(|| self.bridge.client_count()),
             ai_on_device: (!crate::assist_ui::backend_name().is_empty()).then_some(
                 self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly,
             ),

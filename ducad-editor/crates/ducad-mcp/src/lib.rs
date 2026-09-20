@@ -4,5 +4,6 @@
 // (lihat `ducad-engine/src/lib.rs`); jalur error di sini jarang dilalui.
 #![allow(clippy::result_large_err)]
 
+pub mod attach;
 pub mod server;
 pub mod tools;

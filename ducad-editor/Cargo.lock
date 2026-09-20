@@ -1350,6 +1350,7 @@ name = "ducad-app"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "block2 0.6.2",
  "chrono",
  "ducad-assist",
@@ -1377,6 +1378,7 @@ dependencies = [
  "resvg",
  "rfd",
  "rusqlite",
+ "serde",
  "serde_json",
  "slotmap",
  "usvg",

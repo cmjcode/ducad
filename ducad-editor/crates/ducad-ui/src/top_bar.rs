@@ -125,6 +125,8 @@ pub struct TopBarState {
     /// Status AI (P11.4): `Some(true)` = backend di perangkat aktif,
     /// `Some(false)` = backend eksternal diizinkan, `None` = tidak ada AI.
     pub ai_on_device: Option<bool>,
+    /// Jumlah klien jembatan agent (P5.1); `None` = jembatan mati.
+    pub bridge_clients: Option<usize>,
     pub checks_panel_open: bool,
 }
 
@@ -535,6 +537,18 @@ impl TopBar {
                     );
                     if assem_btn.clicked() {
                         event = Some(TopBarEvent::ToggleAssemblyDrawer);
+                    }
+
+                    // 8a2. Chip status jembatan agent (P5.1).
+                    if let Some(clients) = state.bridge_clients {
+                        let n = clients.to_string();
+                        let label = t!("bridge-chip", clients = n.as_str());
+                        ui.add(egui::Button::new(
+                            RichText::new(label)
+                                .size(11.0)
+                                .color(crate::theme::ACCENT_GREEN),
+                        ))
+                        .on_hover_text(t!("bridge-on"));
                     }
 
                     // 8b. Chip status AI (P11.4).
@@ -1071,6 +1085,7 @@ mod tests {
             is_ipad: false,
             checks_summary: None,
             ai_on_device: None,
+            bridge_clients: None,
             checks_panel_open: false,
         }
     }

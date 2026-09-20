@@ -251,6 +251,8 @@ pub enum PaletteAction {
     TogglePalmRejection,
     /// Buka dialog asisten AI lokal (P11.4).
     OpenAssist,
+    /// Nyalakan/matikan jembatan agent live (P5.1).
+    ToggleAgentBridge,
 }
 
 pub fn required_points(tool: ToolKind) -> usize {

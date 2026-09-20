@@ -16,6 +16,9 @@ const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
+/// Tambahan `instructions` khusus mode `--attach`.
+pub const ATTACH_INSTRUCTIONS: &str = " MODE LIVE: kamu terhubung ke aplikasi DUCAD yang sedang terbuka; semua perubahan langsung terlihat pengguna dan satu batch = satu langkah undo. `new_part`/`open_part`/`close_part` tidak tersedia (lakukan di aplikasi). `propose_ops` menampilkan pratinjau berwarna kepada pengguna dan baru dijawab setelah pengguna menekan Terima/Tolak; `accept_proposal` tidak tersedia bagi agent.";
+
 pub const INSTRUCTIONS: &str = "DUCAD adalah CAD B-rep parametrik. Satuan mm, sudut derajat. Alur kerja: (1) `get_schema` sekali untuk melihat format `Op` dan tata bahasa selector; (2) `new_part` atau `open_part`; (3) tulis checks dari persyaratan user dengan `set_checks` sebelum memodelkan; (4) `run_ops` dengan `dry_run: true` untuk memvalidasi, lalu tanpa `dry_run`; (5) `inspect`, `run_checks`, dan `render_view` untuk memverifikasi hasil terhadap spesifikasi; (6) `save_part`. Body dirujuk dengan `id` op pembuatnya. Face/tepi dirujuk dengan selector seperti `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; uji selector dengan `query_geometry` sebelum dipakai. Batch `run_ops` bersifat atomik: bila satu op gagal, seluruh batch dibatalkan dan `error` menjelaskan penyebab serta `hint`; bila `error.fixes` ada, kirim ulang batch dengan `patched_op` menggantikan op yang gagal. Ubah dimensi dengan `set_params`, bukan dengan menumpuk op baru.";
 
 /// Satu part terbuka.
@@ -31,6 +34,9 @@ pub struct Server {
     pub next_id: u32,
     /// Semua path tool harus berada di dalam direktori ini.
     pub root: PathBuf,
+    /// Mode `--attach` (P5.2): tool diteruskan ke aplikasi yang terbuka
+    /// dan server ini tidak memiliki sesi sendiri.
+    pub attach: Option<crate::attach::AttachClient>,
 }
 
 /// Pagar path berbasis satu direktori root.
@@ -85,7 +91,15 @@ impl Server {
             sessions: BTreeMap::new(),
             next_id: 1,
             root,
+            attach: None,
         })
+    }
+
+    /// Server mode attach: seluruh tool diteruskan ke soket jembatan.
+    pub fn attached(root: PathBuf, socket: PathBuf) -> anyhow::Result<Self> {
+        let mut s = Self::new(root)?;
+        s.attach = Some(crate::attach::AttachClient::new(socket));
+        Ok(s)
     }
 
     /// Resolusi path tool relatif ke `root`; hasil kanonik HARUS di dalam
@@ -208,12 +222,18 @@ fn error_reply(id: Value, code: i64, message: &str) -> Value {
 
 fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (i64, String)> {
     match method {
-        "initialize" => Ok(json!({
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": { "tools": {} },
-            "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-            "instructions": INSTRUCTIONS,
-        })),
+        "initialize" => {
+            let instructions = match server.attach {
+                Some(_) => format!("{INSTRUCTIONS}{ATTACH_INSTRUCTIONS}"),
+                None => INSTRUCTIONS.to_string(),
+            };
+            Ok(json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": { "tools": {} },
+                "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
+                "instructions": instructions,
+            }))
+        }
         m if m.starts_with("notifications/") => Ok(Value::Null),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": crate::tools::definitions() })),

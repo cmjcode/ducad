@@ -1195,3 +1195,13 @@ tool-freehand-desc = Gambar bebas dengan Pencil/mouse; bentuknya dirapikan dan d
 freehand-committed = Coretan diubah menjadi entitas sketsa ber-constraint
 freehand-accept = Terima bentuk
 freehand-reject = Tolak bentuk
+
+## Jembatan agent live (P5)
+bridge-title = Agent Bridge
+bridge-toggle = Agent Bridge (jembatan agent live)
+bridge-on = Agent Bridge aktif — agent bisa mengubah dokumen ini
+bridge-off = Agent Bridge nonaktif
+bridge-failed = Agent Bridge gagal dinyalakan
+bridge-blocked-offline = Agent Bridge dimatikan oleh kebijakan privasi "Hanya di perangkat"
+bridge-chip = Agent: { $clients }
+bridge-activity = Agent: { $count } operasi

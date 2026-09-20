@@ -25,14 +25,16 @@ ducad-io = { workspace = true }
 ducad-ui = { workspace = true }
 ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
-ducad-engine = { workspace = true }
+ducad-engine = { workspace = true, features = ["raster"] }
 ducad-assist = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }
 egui_icons = { workspace = true }
 glam = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = { workspace = true }
 slotmap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }

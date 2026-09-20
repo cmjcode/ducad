@@ -6,6 +6,7 @@ use eframe::egui::IconData;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
+pub mod agent_bridge;
 pub mod app;
 pub mod assist_ui;
 pub mod checks_ui;

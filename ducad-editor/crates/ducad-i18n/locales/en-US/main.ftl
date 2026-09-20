@@ -1195,3 +1195,13 @@ tool-freehand-desc = Draw freely with Pencil/mouse; the shape is cleaned up and 
 freehand-committed = Stroke turned into constrained sketch entities
 freehand-accept = Accept shape
 freehand-reject = Reject shape
+
+## Live agent bridge (P5)
+bridge-title = Agent Bridge
+bridge-toggle = Agent Bridge (live agent bridge)
+bridge-on = Agent Bridge on — agents can change this document
+bridge-off = Agent Bridge off
+bridge-failed = Agent Bridge failed to start
+bridge-blocked-offline = Agent Bridge is disabled by the "On device only" privacy setting
+bridge-chip = Agent: { $clients }
+bridge-activity = Agent: { $count } operations

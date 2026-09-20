@@ -14,6 +14,11 @@ impl DuCADApp {
                 PaletteAction::OpenAssist,
             ),
             (
+                ducad_i18n::t!("bridge-toggle"),
+                String::new(),
+                PaletteAction::ToggleAgentBridge,
+            ),
+            (
                 "Dokumen Baru".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::New),
@@ -400,6 +405,7 @@ impl DuCADApp {
                 self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
             }
             PaletteAction::OpenAssist => self.open_assist_dialog(),
+            PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };

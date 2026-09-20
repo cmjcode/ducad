@@ -218,6 +218,9 @@ pub fn definitions() -> Vec<Value> {
 
 /// Jalankan tool; error menjadi `isError: true` dengan payload `{"error": OpError}`.
 pub fn call(server: &mut Server, name: &str, arguments: Value) -> Value {
+    if let Some(attach) = server.attach.as_mut() {
+        return tool_result(attach.call(name, arguments));
+    }
     tool_result(call_inner(server, name, arguments).unwrap_or_else(ToolOut::err))
 }
 
