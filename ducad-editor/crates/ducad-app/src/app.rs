@@ -1374,6 +1374,13 @@ pub fn calculate_grid_extent_for_params(
 }
 
 impl eframe::App for DuCADApp {
+    /// Soket jembatan agent dihapus saat aplikasi ditutup; yang tersisa
+    /// karena proses berhenti mendadak dibuang saat jembatan dinyalakan
+    /// lagi (lihat `AgentBridge::start`).
+    fn on_exit(&mut self) {
+        self.bridge.shutdown();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Permintaan agent dilayani di awal frame, sebelum input pengguna
