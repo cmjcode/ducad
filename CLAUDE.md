@@ -39,6 +39,20 @@ cargo test --workspace                         # gerbang CI
 make install-agent-tools                       # pasang ducad-cli, ducad-mcp (+ mnemonic-cli bila ada)
 ```
 
+**Jembatan live (P5).** `ducad-mcp --attach [--socket PATH]` meneruskan
+semua tool ke aplikasi yang sedang terbuka lewat `$HOME/.ducad/agent.sock`
+(nyalakan di command palette → "Agent Bridge"; mati secara default, dan
+diblokir saat privasi AI `OfflineOnly`). Satu batch agent = satu langkah
+undo GUI; `propose_ops` menampilkan ghost hijau/merah dan baru dijawab
+setelah pengguna menekan Terima/Tolak. `accept_proposal` sengaja TIDAK
+tersedia bagi agent pada mode ini.
+
+**Memori di perangkat (P11.5).** `cargo build -p ducad-app --features memory`
+menautkan pustaka MNEMONIC headless (`default-features = false`) sehingga
+`VaultService` dipanggil di dalam proses — satu-satunya jalan di iPadOS,
+yang tidak bisa menjalankan server MCP. Mati secara default. Vault bawaan:
+`$HOME/DUCAD-Memory` (iOS: Documents/DUCAD-Memory).
+
 `ducad-cli build PART --out DIR` membuat artefak manufaktur (STEP/STL/PDF/
 PNG/BOM) + `report.json`/`report.md` secara deterministik; checks yang gagal
 menghentikan build dengan kode 3. Lihat `docs/ci/README.md`.
