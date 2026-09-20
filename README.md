@@ -4,6 +4,8 @@
 [![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-OpenCASCADE%20(OCCT)-blue.svg)](https://dev.opencascade.org)
 [![Graphics](https://img.shields.io/badge/Renderer-wgpu%20/%20WebGPU-green.svg)](https://wgpu.rs)
 [![UI](https://img.shields.io/badge/UI-egui%20/%20eframe-purple.svg)](https://github.com/emilk/egui)
+[![Agent](https://img.shields.io/badge/Agent-MCP%20%2B%20CLI%20headless-black.svg)](#9--headless-engine-agent-tooling--on-device-ai)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-lightgrey.svg)](LICENSE)
 
 **DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by the industry-grade solid modeling kernel **OpenCASCADE (OCCT)** via https://github.com/bschwind/opencascade-rs and modern **WebGPU (wgpu)** graphics acceleration.
 
@@ -18,6 +20,7 @@
 * **Smart Snapping System**: Tiered priority (*Endpoint* > *Midpoint* > *Center* > *Intersection* > *Grid*) with interactive visual glyphs.
 * **Geometric & Dimensional Constraint Solver**: Coincident, Fixed, Horizontal, Vertical, Parallel, Perpendicular, Equal Length/Radius, Distance, Radius, Tangent, Angle, and Symmetric.
 * **Sketch Curve Modification**: Interactive Trim with red highlighting, Extend curve to nearest boundary, parallel Offset (multi-tangent bi-arc), and symmetric Mirror reflection.
+* **Freehand (Apple Pencil / mouse)**: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
 
 ### 2. 🧊 Industry-Grade 3D B-Rep Solid Modeling (OpenCASCADE)
 * **Extrude & Revolve Operations**: Extrude (Blind, Symmetric, Up to Face), Revolve with custom 3D axis, multi-profile Loft, and Sweep along a guide curve.
@@ -55,18 +58,24 @@
 ### 6. 🕒 Parametric History Timeline (Feature Tree)
 * Recording of design steps in a dependency graph structure (*Directed Acyclic Graph* - DAG).
 * Modifying past feature parameters with automatic regeneration of all derived solid geometry.
+* **Activity history with snapshots**: jump back to any recorded step, or fork it
+  with "Buat cabang dari sini" (*branch from here*) and keep both lines of work —
+  the branch filter in the drawer switches between them. Automatic merging
+  between branches is out of scope.
 
 ### 7. 🔄 Broad File Format Interoperability
 * **Import**:
   * `STEP` (`.step`, `.stp`) — Import international standard B-Rep CAD models.
   * `DXF` (`.dxf`) — Import AutoCAD R12/2000+ 2D vector sketches.
-  * Native `.ducad` — JSON-based document format storing B-Rep geometry, sketches, and history.
+  * `STL` (`.stl`) — Import binary or ASCII meshes (large files are tessellated on a background thread so the UI never freezes).
+  * Native `.ducad` — JSON document holding B-Rep geometry, sketches and, since format v2, the parametric `design` (params + oplog + checks) with stable body UUIDs.
 * **Export**:
   * `STEP` (`.step`, `.stp`) — Export full B-Rep solids for CNC/CAM manufacturing.
   * `GLTF / GLB` (`.glb`) — Binary 3D format for Web & Augmented Reality (AR Quick Look on iOS/Android) with PBR materials.
-  * `SVG` (`.svg`) — 2D vector format for Laser Cutting machines, CNC Router, and graphics software.
-  * `PDF` (`.pdf`) — ISO 1.4 high-resolution vector technical drawing format with section hatch patterns.
-  * `STL` (`.stl` Binary), `OBJ`, `PLY`, `3MF` — Mesh formats for 3D Printing / Slicer.
+  * `SVG` (`.svg`) — 2D vector format for laser cutters, CNC routers, and graphics software (sketches, drawing sheets, and Vector Snapshot of the current viewport).
+  * `PDF` (`.pdf`) — Vector technical drawing sheet with section hatch patterns.
+  * `STL` (`.stl` Binary) and `OBJ` — Mesh formats for 3D printing / slicers.
+  * `DXF` (`.dxf`) — 2D sketches and full drawing sheets for CAM and CAD exchange.
 
 ### 8. 🎨 Modern UI/UX Workflow & Rendering Studio
 * **DuCAD Ergonomic Workflow Standard**:
@@ -83,7 +92,13 @@
   * *Hybrid Mode (`PencilAndFinger`)*: Seamlessly draw and design using both Apple Pencil and finger touch.
   * *Collision-Free iPad Layout*: Dynamic coordinate spacing eliminates overlap between TopBar and the 3D ViewCube; compact screen detection bundles secondary tools into an overflow menu ("⋯").
 * **Studio Lighting & Material (SSAO & PBR)**: Lighting environment settings (Warm Studio, Cool Tech, High Contrast, Sunset Gold, Cyberpunk Neon) with Screen Space Ambient Occlusion.
-* **Multi-Language Support (i18n)**: 18+ languages with English as the default interface and developer-friendly notes.
+* **New UI surfaces from the agent layer**: a **Checks panel** with a top-bar
+  pass/fail summary, an **error card** carrying verified fix buttons, a
+  **proposal card** with green/red ghost preview, the **Ask AI…** dialog, and an
+  **Agent Bridge** status chip.
+* **Multi-Language Support (i18n)**: Fluent-based localization, currently
+  shipping **English (`en-US`)** and **Indonesian (`id-ID`)**; adding a locale
+  means dropping in one `.ftl` file and a `Language` variant.
 
 ### 9. 🤖 Headless Engine, Agent Tooling & On-Device AI
 
@@ -171,9 +186,17 @@ the `engine_has_no_gui_dependency` test.
 ## 🚀 Getting Started
 
 ### System Prerequisites
-* **Rust Toolchain**: Latest Rust version (1.75+ stable recommended) via `rustup`.
+* **Rust Toolchain**: stable, installed by `rustup` from the pinned
+  `rust-toolchain.toml` (which also guarantees `rustfmt` and `clippy`, so the
+  quality gates run anywhere without extra setup).
 * **C/C++ Compiler & CMake**: CMake ≥ 3.16 and a C++17 compiler (Clang/GCC/MSVC) to compile the OpenCASCADE (OCCT) kernel.
-* **Operating System**: macOS (Apple Silicon & Intel), Linux (X11 / Wayland), Windows 10/11.
+* **Operating System**:
+  * **macOS** (Apple Silicon) and **iPadOS** — the primary targets; both are
+    packaged from `ducad-editor/apple/` and exercised by hand.
+  * **Linux** (X11 / Wayland) — built and tested on every CI run
+    (`ubuntu-latest`) alongside macOS.
+  * **Windows 10/11** — a `build-windows` target exists in the `Makefile` but is
+    not covered by CI; treat it as untested.
 
 ### Running DuCAD
 
@@ -243,10 +266,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo fmt --all -- --check          # advisory: new files only
 
-# Or run via Docker builder container (if cargo is not installed locally)
-docker run --rm --label visva_task_id=UI_iPAD_berantakan \
-  -v "$(pwd)":/workspace -w /workspace/ducad-editor ducad-builder:latest cargo test --workspace
+# A single crate while working on it (much faster than the whole workspace)
+cargo test -p ducad-engine
+
+# Or run via the Docker builder image (when cargo is not installed locally)
+docker run --rm -v "$(pwd)":/workspace -w /workspace/ducad-editor \
+  ducad-builder:latest cargo test --workspace
 ```
+
+> `cargo fmt` is advisory on purpose: the codebase predates the gate, so only new
+> files are formatted. `cargo clippy -D warnings` and `cargo test` **do** block.
+> Manual GUI verification is tracked separately in the
+> [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md).
 
 ### Running Backend & Cloud Sync API Tests
 
@@ -265,40 +296,56 @@ Execute the automated cURL test suite for DuCAD Cloud and touch configuration en
 | **3D Navigation** | `Middle-Click Drag` / `Left-Click Drag` (Select Tool) | Orbit 3D Camera |
 | | `Shift + Drag` / `Right-Click Drag` | Pan Camera |
 | | `Scroll Wheel` / `Trackpad Pinch` | Zoom In / Out |
-| **Sketch Tools** | `Esc` | Cancel / Return to Select Tool |
+| **Modes** | `S` (outside sketch mode) | Enter Sketch Mode on the active plane |
+| | `Ctrl/Cmd + Shift + 2` | Switch to Sketch Mode |
+| | `Ctrl/Cmd + Shift + 3` | Switch to 3D Mode |
+| **Sketch Tools** (only in sketch mode) | `Esc` | Cancel / Return to Select Tool |
 | | `L` | Line Tool |
 | | `R` | Rectangle Tool |
 | | `C` | Circle Tool |
 | | `A` | Arc Tool |
 | | `E` | Ellipse Tool |
+| | `Y` | Regular Polygon Tool |
 | | `T` | Trim Tool |
+| | `Shift + E` | Extend Tool |
 | | `O` | Offset Tool |
 | | `M` | Mirror Tool |
+| | `V` | Open the Revolve dialog |
 | | `X` | Toggle Construction Line |
-| **Application** | `Ctrl/Cmd + K` | Open Command Palette (Command Search) |
+| **Modeling** | `P` | Pattern / Array Tool (sketch and 3D) |
+| **Application** | `Ctrl/Cmd + K` or `Ctrl/Cmd + Shift + P` | Open Command Palette (Command Search) |
 | | `Space` | Open Radial Menu at Cursor |
-| | `Ctrl/Cmd + Z` | Undo Action |
+| | `Ctrl/Cmd + Z` | Undo Action (one agent batch = one step) |
 | | `Ctrl/Cmd + Shift + Z` / `Ctrl + Y` | Redo Action |
 | | `Ctrl/Cmd + S` | Save Document (`.ducad`) |
+| | `Ctrl/Cmd + Shift + S` | Save As… |
 | | `Ctrl/Cmd + O` | Open Document File |
 | | `Delete` / `Backspace` | Delete Selected Entity / Object |
+
+The Command Palette is also where the newer, less frequently used switches live:
+**Ask AI…** and **Agent Bridge (live agent bridge)**.
 
 ---
 
 ## 📚 Related Documentation
 
-* [Complete User Manual](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/PANDUAN.md) — In-depth guide on how to use every tool and feature, from modeling to engineering drawings.
-* [Comparative CAD Analysis](file:///Users/jayuda/Documents/PROJECT/DUCAD/docs/ANALISIS_KOMPARATIF_CAD.md) — Comparative study of DuCAD's technical features against AutoCAD, SolidWorks, Onshape, and Shapr3D.
-* [Roadmap & Phase Tracking](file:///Users/jayuda/Documents/PROJECT/DUCAD/implementation_plan.md) — Details on the technical implementation status of each phase and module.
+> Documents live under `ducad-editor/docs/`, and the notes in them are written in
+> Indonesian — the working language of this codebase.
+
+* [Complete User Manual](ducad-editor/docs/PANDUAN.md) — In-depth guide on how to use every tool and feature, from modeling to engineering drawings.
+* [Comparative CAD Analysis](ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md) — Comparative study of DuCAD's technical features against AutoCAD, SolidWorks, Onshape, and Shapr3D.
+* [Roadmap](ducad-editor/docs/PLAN.md) and [Phase Status](ducad-editor/docs/STATUS_FASE_A_B.md) — What is planned versus what has actually landed and been verified.
+* [Packaging Guide](ducad-editor/docs/PACKAGING.md) — Desktop bundling, and what is deliberately out of scope (signing, notarization, installers).
+* [Architecture Decision Records](ducad-editor/docs/adr/) — Why the CI gates are shaped the way they are (0001) and what the on-device AI spike actually measured (0002).
 * [GUI Test Checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) — Manual QA checklist: every GUI feature that needs to be exercised by hand, with steps and expected results.
 * [Hardware CI Guide](ducad-editor/docs/ci/README.md) — Repository layout for `*.ops.json` parts, `.gitattributes` textconv, and posting `report.md` to a PR.
-* [Architecture Decision Records](ducad-editor/docs/adr/) — Why the CI gates are shaped the way they are (0001) and the on-device AI spike results (0002).
 
 ---
 
-## 🆕 Recent Additions (2026-09-19 → 2026-09-20)
+## 🆕 Recent Additions (September 2026)
 
-The agent/automation layer above landed in one sweep, phase by phase:
+The agent/automation layer above landed in one sweep. Rows are in landing order,
+so P5 sits last: the live bridge builds on everything before it.
 
 | Phase | What landed |
 |---|---|
@@ -315,3 +362,58 @@ The agent/automation layer above landed in one sweep, phase by phase:
 | P5 | **Live bridge**: `ducad-mcp --attach` + in-app Agent Bridge, one batch = one undo step, proposals confirmed by the user |
 
 Handwritten dimension OCR (P12.4) is documented but intentionally not implemented yet.
+
+---
+
+## 🧭 Two Ways to Drive DuCAD
+
+**By hand**, in the application: sketch, constrain, extrude, fillet, drill, lay
+out a drawing sheet, export.
+
+**By oplog**, from a script, CI job or AI agent:
+
+```jsonc
+// plate.ops.json — the source of truth; the .ducad file is the artifact
+{ "params": { "w": 60, "h": 40, "t": 8, "r": 3 },
+  "ops": [
+    { "op": "sketch",  "id": "base",  "plane": "XY",
+      "entities": [ { "rect": { "center": [0, 0], "w": "$w", "h": "$h", "name": "outline" } } ] },
+    { "op": "extrude", "id": "plate", "sketch": "base", "distance": "$t" },
+    { "op": "fillet",  "id": "f1",    "body": "plate", "edges": "|Z", "radius": "$r" },
+    { "op": "hole",    "id": "h1",    "body": "plate", "face": ">Z",
+      "at": [[-20,-10],[20,-10],[-20,10],[20,10]], "spec": { "iso": "M5" } }
+  ],
+  "checks": [
+    { "check": "bbox_size",  "body": "*", "expect": [60, 40, 8], "tol": 0.05 },
+    { "check": "hole_count", "body": "*", "diameter": 5.5, "expect": 4 },
+    { "check": "min_wall",   "body": "*", "min": 2 }
+  ] }
+```
+
+Both paths run the *same* modeling code: the GUI's operations are thin adapters
+over `ducad_engine::compute`. Change a dimension by editing `params` and
+replaying — never by stacking new operations on top.
+
+---
+
+## 📄 License
+
+Licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+The OpenCASCADE kernel it links against is LGPL-2.1 with a linking exception,
+consumed through the pinned fork in `ducad-editor/vendors/opencascade-rs`.
+
+## 🤝 Contributing
+
+* Read [CLAUDE.md](CLAUDE.md) first — it holds the hard rules: only
+  `ducad-kernel` may touch OpenCASCADE, every public kernel function takes
+  `lock_kernel()` and must not call another public kernel function while holding
+  it, `ducad-engine` stays free of GUI dependencies, and comments plus
+  user-facing strings are written in Indonesian while identifiers stay English.
+* Do not touch `rust-toolchain.toml`, the `opencascade` version/features, or the
+  `[patch.crates-io]` block unless you intend to rebuild OCCT (10–15 minutes).
+* Before opening a PR: `cargo clippy --workspace --all-targets -- -D warnings`
+  and `cargo test --workspace` must be green, plus the relevant part of the
+  [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) for anything visual.
+* Adding a new modeling operation follows a fixed order: kernel function + test →
+  pure `compute` function → `Op` variant + JSON Schema → mapping in `Session` →
+  GUI adapter → skill documentation.
