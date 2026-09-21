@@ -607,10 +607,9 @@ pub fn to_entities(r: &Recognized) -> Vec<Entity> {
                 .map(|i| Entity::line(points[i], points[(i + 1) % n]))
                 .collect()
         }
-        Recognized::Spline { points } => vec![Entity::Spline {
-            points: points.clone(),
-            is_construction: false,
-        }],
+        // Coretan tangan tidak punya definisi kurva asli — yang ada hanya
+        // jejak titik yang ditangkap, jadi `exact` memang kosong.
+        Recognized::Spline { points } => vec![Entity::spline(points.clone())],
     }
 }
 

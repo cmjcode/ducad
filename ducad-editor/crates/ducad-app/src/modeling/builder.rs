@@ -125,6 +125,17 @@ impl DuCADApp {
                                 sum += DVec2::new(start.0, start.1) + DVec2::new(via.0, via.1) + DVec2::new(end.0, end.1);
                                 count += 3.0;
                             }
+                            // Titik kontrol Bézier ikut dirata-rata seperti
+                            // `via` pada Arc: ia menarik titik tengah ke arah
+                            // lengkungan, yang memang diharapkan pengguna saat
+                            // gizmo muncul di tengah bentuk melengkung.
+                            ducad_kernel::ProfileSegment::Bezier { start, c1, c2, end } => {
+                                sum += DVec2::new(start.0, start.1)
+                                    + DVec2::new(c1.0, c1.1)
+                                    + DVec2::new(c2.0, c2.1)
+                                    + DVec2::new(end.0, end.1);
+                                count += 4.0;
+                            }
                         }
                     }
                     if count > 0.0 {

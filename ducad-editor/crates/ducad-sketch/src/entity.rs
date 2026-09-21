@@ -43,9 +43,92 @@ pub enum Entity {
     /// Kurva Spline halus yang melalui deretan titik kontrol/fit (Catmull-Rom).
     Spline {
         points: Vec<DVec2>,
+        /// Bentuk kurva ASLI, bila entitas ini lahir dari sumber yang memang
+        /// punya definisi eksak — terutama outline glyph font.
+        ///
+        /// `points` selalu terisi sebagai hasil pencacahan (flatten) supaya
+        /// tampilan, snap, region, dan berkas lama tidak berubah sedikit pun.
+        /// `exact` cuma dipakai saat entitas ini jadi profil B-rep, agar
+        /// kurvanya masuk ke kernel sebagai kurva sungguhan, bukan puluhan
+        /// ruas lurus yang membuat dinding hasil extrude jadi patah-patah.
+        ///
+        /// `None` berarti kurva bebas biasa (mis. digambar tangan, atau hasil
+        /// offset) — perilakunya persis seperti sebelum field ini ada.
+        #[serde(default)]
+        exact: Option<Vec<PathSeg>>,
         #[serde(default)]
         is_construction: bool,
     },
+}
+
+/// Satu langkah kurva eksak pada [`Entity::Spline`].
+///
+/// Tiap langkah menyambung dari titik akhir langkah sebelumnya; titik awal
+/// langkah pertama adalah `points[0]`. Bentuk relatif ini dipilih supaya
+/// rantainya tidak bisa "robek" — ujung yang dipakai bersama hanya disimpan
+/// sekali, jadi mustahil ada celah antar segmen.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum PathSeg {
+    /// Ruas lurus menuju `end`.
+    Line { end: DVec2 },
+    /// Bézier KUBIK dengan dua titik kontrol menuju `end`.
+    ///
+    /// Bézier kuadratik (yang dipakai TrueType) dinaikkan derajatnya ke kubik
+    /// saat dibaca — eksak, tanpa kehilangan presisi — sehingga satu bentuk
+    /// ini cukup untuk semua jenis font.
+    Cubic { c1: DVec2, c2: DVec2, end: DVec2 },
+}
+
+impl PathSeg {
+    /// Naikkan derajat Bézier KUADRATIK (satu titik kontrol, bentuk yang
+    /// dipakai outline TrueType) menjadi kubik.
+    ///
+    /// Eksak, bukan aproksimasi — kurva hasilnya identik titik demi titik.
+    /// Rumus bakunya `c1 = p0 + 2/3 (ctrl − p0)` dan `c2 = p2 + 2/3 (ctrl − p2)`.
+    pub fn cubic_from_quadratic(start: DVec2, ctrl: DVec2, end: DVec2) -> Self {
+        const TWO_THIRDS: f64 = 2.0 / 3.0;
+        PathSeg::Cubic {
+            c1: start + (ctrl - start) * TWO_THIRDS,
+            c2: end + (ctrl - end) * TWO_THIRDS,
+            end,
+        }
+    }
+
+    /// Titik akhir langkah ini.
+    pub fn end(&self) -> DVec2 {
+        match self {
+            PathSeg::Line { end } | PathSeg::Cubic { end, .. } => *end,
+        }
+    }
+
+    /// Terapkan transformasi titik `f` ke seluruh titik langkah ini.
+    ///
+    /// Aman untuk translasi, rotasi, cermin, dan skala seragam: Bézier bersifat
+    /// invarian-affine, jadi mentransformasi titik kontrolnya sama saja dengan
+    /// mentransformasi kurvanya.
+    pub fn map_points(self, f: impl Fn(DVec2) -> DVec2) -> Self {
+        match self {
+            PathSeg::Line { end } => PathSeg::Line { end: f(end) },
+            PathSeg::Cubic { c1, c2, end } => PathSeg::Cubic {
+                c1: f(c1),
+                c2: f(c2),
+                end: f(end),
+            },
+        }
+    }
+}
+
+/// Terapkan `f` ke seluruh langkah kurva eksak, mempertahankan `None`.
+///
+/// Dipakai operasi transformasi sketch supaya kurva eksak ikut bergerak
+/// bersama `points`-nya; kalau tidak, keduanya akan saling bertentangan.
+pub fn map_exact(
+    exact: &Option<Vec<PathSeg>>,
+    f: impl Fn(DVec2) -> DVec2 + Copy,
+) -> Option<Vec<PathSeg>> {
+    exact
+        .as_ref()
+        .map(|segs| segs.iter().map(|s| s.map_points(f)).collect())
 }
 
 impl Entity {
@@ -88,11 +171,33 @@ impl Entity {
         }
     }
 
-    /// Konstruktor helper untuk Spline biasa.
+    /// Konstruktor helper untuk Spline biasa (tanpa kurva eksak).
     pub fn spline(points: Vec<DVec2>) -> Self {
         Self::Spline {
             points,
+            exact: None,
             is_construction: false,
+        }
+    }
+
+    /// Konstruktor Spline yang membawa definisi kurva eksaknya.
+    ///
+    /// `points` tetap wajib diisi hasil pencacahan `exact`, karena seluruh
+    /// bagian lain (snap, region, gambar layar, ekspor 2D) hanya membaca
+    /// `points`. Lihat dokumentasi field `exact`.
+    pub fn spline_exact(points: Vec<DVec2>, exact: Vec<PathSeg>) -> Self {
+        Self::Spline {
+            points,
+            exact: Some(exact),
+            is_construction: false,
+        }
+    }
+
+    /// Kurva eksak entitas ini, bila ada — `None` untuk entitas non-Spline.
+    pub fn exact_path(&self) -> Option<&[PathSeg]> {
+        match self {
+            Entity::Spline { exact, .. } => exact.as_deref(),
+            _ => None,
         }
     }
 

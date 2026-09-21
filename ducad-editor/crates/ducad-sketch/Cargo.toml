@@ -11,3 +11,8 @@ glam = { workspace = true }
 slotmap = { workspace = true }
 serde = { workspace = true }
 ttf-parser = { workspace = true }
+
+[dev-dependencies]
+# Hanya untuk tes kompatibilitas serde: memastikan berkas `.ducad` lama —
+# yang belum punya field `exact` pada Spline — tetap bisa dibaca.
+serde_json = { workspace = true }

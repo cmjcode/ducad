@@ -1,12 +1,21 @@
 //! Vektorisasi Font 2D (TTF / OTF) ke Kurva & Entitas Sketsa DuCAD.
 //!
 //! Mengurai outline glyph font TrueType/OpenType menggunakan `ttf-parser`,
-//! mendekomposisi kurva Bézier kuadratik/kubik menjadi segmen poliline halus,
-//! dan menghasilkan `Entity::Line` yang membentuk loop tertutup untuk pembuatan profil & region.
+//! lalu menghasilkan `Entity::Spline` tertutup per kontur glyph.
+//!
+//! Tiap kontur disimpan DUA KALI, sengaja:
+//!
+//! - `points` — hasil pencacahan (flatten) kurva jadi poliline halus. Inilah
+//!   yang dibaca tampilan layar, snap, deteksi region, dan ekspor 2D.
+//! - `exact` — kurva Bézier ASLI dari font, tanpa dicacah. Inilah yang dipakai
+//!   saat teks dijadikan profil lalu di-extrude, sehingga dindingnya menjadi
+//!   permukaan melengkung B-rep sungguhan. Sebelum ini hanya `points` yang ada,
+//!   dan tiap ruas lurusnya jadi satu face datar — itulah penyebab hasil
+//!   extrude teks terlihat patah-patah.
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use crate::entity::Entity;
+use crate::entity::{Entity, PathSeg};
 
 /// Berkas font default bawaan yang disematkan ke dalam biner.
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../fonts/default.ttf");
@@ -175,7 +184,11 @@ struct GlyphOutlineBuilder {
     offset: DVec2,
     scale: f64,
     current_pt: DVec2,
+    /// Titik awal kontur yang sedang digambar — tujuan garis penutupnya.
+    contour_start: DVec2,
     contour_points: Vec<DVec2>,
+    /// Kurva asli kontur yang sedang digambar, sejalan dengan `contour_points`.
+    contour_segs: Vec<PathSeg>,
     entities: Vec<Entity>,
     is_construction: bool,
 }
@@ -186,7 +199,9 @@ impl GlyphOutlineBuilder {
             offset,
             scale,
             current_pt: offset,
+            contour_start: offset,
             contour_points: Vec::new(),
+            contour_segs: Vec::new(),
             entities: Vec::new(),
             is_construction,
         }
@@ -205,6 +220,13 @@ impl GlyphOutlineBuilder {
         }
     }
 
+    /// Catat satu langkah kurva asli, melewati langkah yang tak punya panjang.
+    fn add_seg(&mut self, seg: PathSeg) {
+        if (seg.end() - self.current_pt).length_squared() > 1e-12 {
+            self.contour_segs.push(seg);
+        }
+    }
+
     fn finish_contour(&mut self) {
         if self.contour_points.len() >= 3 {
             let first = self.contour_points[0];
@@ -212,13 +234,25 @@ impl GlyphOutlineBuilder {
             if (first - last).length_squared() > 1e-8 {
                 self.contour_points.push(first);
             }
+            // Sebagian font menutup kontur dengan `line_to` eksplisit ke titik
+            // awal, sebagian lagi mengandalkan `close()` saja. Garis penutup
+            // hanya ditambahkan pada kasus kedua, supaya tidak ada segmen
+            // kembar tanpa panjang.
+            if (self.current_pt - self.contour_start).length_squared() > 1e-12 {
+                self.contour_segs.push(PathSeg::Line {
+                    end: self.contour_start,
+                });
+            }
             let pts = std::mem::take(&mut self.contour_points);
+            let segs = std::mem::take(&mut self.contour_segs);
             self.entities.push(Entity::Spline {
                 points: pts,
+                exact: (!segs.is_empty()).then_some(segs),
                 is_construction: self.is_construction,
             });
         } else {
             self.contour_points.clear();
+            self.contour_segs.clear();
         }
     }
 }
@@ -228,12 +262,14 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
         self.finish_contour();
         let pt = self.to_world(x, y);
         self.current_pt = pt;
+        self.contour_start = pt;
         self.contour_points.push(pt);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
         let pt = self.to_world(x, y);
         self.add_point(pt);
+        self.add_seg(PathSeg::Line { end: pt });
         self.current_pt = pt;
     }
 
@@ -241,6 +277,10 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
         let p0 = self.current_pt;
         let p1 = self.to_world(x1, y1);
         let p2 = self.to_world(x, y);
+
+        // Kurva ASLI direkam lebih dulu, sebelum dicacah — dinaikkan derajatnya
+        // ke kubik supaya sama bentuknya dengan `curve_to`, tanpa galat.
+        self.add_seg(PathSeg::cubic_from_quadratic(p0, p1, p2));
 
         // Subdivisi adaptif poliline kurva Bézier kuadratik
         let chord_len = (p2 - p0).length();
@@ -272,6 +312,13 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
         let p1 = self.to_world(x1, y1);
         let p2 = self.to_world(x2, y2);
         let p3 = self.to_world(x, y);
+
+        // Kurva ASLI direkam lebih dulu, sebelum dicacah.
+        self.add_seg(PathSeg::Cubic {
+            c1: p1,
+            c2: p2,
+            end: p3,
+        });
 
         // Subdivisi adaptif poliline kurva Bézier kubik
         let chord_len = (p3 - p0).length();

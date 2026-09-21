@@ -133,6 +133,30 @@ impl DuCADApp {
                                         verts.extend(sketch_render::preview_lines(&arc, profile_plane));
                                     }
                                 }
+                                // Preview digambar dengan garis, jadi kurvanya
+                                // dicacah di sini saja — cukup rapat agar mata
+                                // tak melihat sudut. Geometri B-rep-nya sendiri
+                                // tetap kurva sungguhan.
+                                ducad_kernel::ProfileSegment::Bezier { start, c1, c2, end } => {
+                                    const SAMPLES: usize = 16;
+                                    let p0 = glam::DVec2::new(start.0, start.1);
+                                    let p1 = glam::DVec2::new(c1.0, c1.1);
+                                    let p2 = glam::DVec2::new(c2.0, c2.1);
+                                    let p3 = glam::DVec2::new(end.0, end.1);
+                                    let at = |t: f64| {
+                                        let u = 1.0 - t;
+                                        p0 * (u * u * u)
+                                            + p1 * (3.0 * u * u * t)
+                                            + p2 * (3.0 * u * t * t)
+                                            + p3 * (t * t * t)
+                                    };
+                                    for i in 0..SAMPLES {
+                                        let a = profile_plane.to_world(at(i as f64 / SAMPLES as f64), 0.05);
+                                        let b = profile_plane.to_world(at((i + 1) as f64 / SAMPLES as f64), 0.05);
+                                        verts.push(LineVertex { position: [a.x, a.y, a.z], color: color_staged });
+                                        verts.push(LineVertex { position: [b.x, b.y, b.z], color: color_staged });
+                                    }
+                                }
                             }
                         }
                     }

@@ -3208,3 +3208,134 @@ fn ray_hit_distance_through_plate() {
     assert!((d - 7.999).abs() < 1e-3, "{d}");
     assert!(crate::ray_hit_distance(&mesh, [30.0, 20.0, 20.0], [0.0, 0.0, 1.0]).is_none());
 }
+
+/// Konstanta baku aproksimasi seperempat lingkaran dengan Bézier kubik:
+/// `4/3 · (√2 − 1)`. Galatnya ~0,027% dari radius — jauh di bawah toleransi
+/// manufaktur, dan itulah cara font sendiri menggambar bentuk bundar.
+const KAPPA: f64 = 0.552_284_749_830_793_4;
+
+/// Lingkaran radius `r` berpusat di origin, dirakit dari EMPAT Bézier kubik
+/// (satu per kuadran, berlawanan arah jarum jam).
+fn bezier_circle_loop(r: f64) -> Vec<ProfileSegment> {
+    let k = r * KAPPA;
+    vec![
+        ProfileSegment::Bezier {
+            start: (r, 0.0),
+            c1: (r, k),
+            c2: (k, r),
+            end: (0.0, r),
+        },
+        ProfileSegment::Bezier {
+            start: (0.0, r),
+            c1: (-k, r),
+            c2: (-r, k),
+            end: (-r, 0.0),
+        },
+        ProfileSegment::Bezier {
+            start: (-r, 0.0),
+            c1: (-r, -k),
+            c2: (-k, -r),
+            end: (0.0, -r),
+        },
+        ProfileSegment::Bezier {
+            start: (0.0, -r),
+            c1: (k, -r),
+            c2: (r, -k),
+            end: (r, 0.0),
+        },
+    ]
+}
+
+/// Lingkaran radius `r` sebagai poliline `segments` ruas lurus — pembanding
+/// yang mewakili perilaku LAMA (kurva font dicacah jadi garis).
+fn polyline_circle_loop(r: f64, segments: usize) -> Vec<ProfileSegment> {
+    (0..segments)
+        .map(|i| {
+            let a0 = std::f64::consts::TAU * (i as f64) / (segments as f64);
+            let a1 = std::f64::consts::TAU * ((i + 1) as f64) / (segments as f64);
+            ProfileSegment::Line {
+                start: (r * a0.cos(), r * a0.sin()),
+                end: (r * a1.cos(), r * a1.sin()),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn extrude_bezier_loop_is_valid_and_matches_circle_volume() {
+    let _guard = lock_test();
+    let (r, h) = (10.0, 5.0);
+    let shape = extrude_profile(&Profile::Loop(bezier_circle_loop(r)), h)
+        .expect("extrude loop Bézier harus berhasil");
+
+    assert!(shape.is_valid(), "solid hasil extrude Bézier harus valid");
+
+    let expected = std::f64::consts::PI * r * r * h;
+    let got = shape.volume();
+    assert!(
+        (got - expected).abs() / expected < 0.01,
+        "volume {got} menyimpang >1% dari lingkaran ideal {expected}"
+    );
+}
+
+/// Inti perbaikan "teks patah-patah": kurva yang masuk sebagai Bézier jadi
+/// SATU face melengkung per segmen, sementara kurva yang dicacah jadi garis
+/// menghasilkan satu face datar per ruas. Perbandingan langsung jumlah face
+/// di bawah ini yang membedakan dinding mulus dari dinding bersegi.
+#[test]
+fn bezier_wall_has_far_fewer_faces_than_polyline_wall() {
+    let _guard = lock_test();
+    let (r, h) = (10.0, 5.0);
+
+    let smooth = extrude_profile(&Profile::Loop(bezier_circle_loop(r)), h).unwrap();
+    let faceted = extrude_profile(&Profile::Loop(polyline_circle_loop(r, 40)), h).unwrap();
+
+    let smooth_faces = enumerate_faces(&smooth).len();
+    let faceted_faces = enumerate_faces(&faceted).len();
+
+    // 4 dinding Bézier + tutup atas + tutup bawah.
+    assert_eq!(smooth_faces, 6, "dinding Bézier harus 4 face + 2 tutup");
+    assert!(
+        faceted_faces > smooth_faces * 5,
+        "pembanding poliline seharusnya jauh lebih banyak face: {faceted_faces} vs {smooth_faces}"
+    );
+}
+
+/// Huruf berongga seperti "O" bergantung pada batas DALAM yang berorientasi
+/// terbalik. Bézier punya titik kontrol yang ikut harus bertukar saat dibalik,
+/// jadi jalur itu diuji terpisah dari Line/Arc.
+#[test]
+fn bezier_hole_removes_volume_from_plate() {
+    let _guard = lock_test();
+    let (w, h, t, r) = (40.0, 40.0, 10.0, 5.0);
+
+    let hole = Profile::Loop(
+        bezier_circle_loop(r)
+            .into_iter()
+            .map(|seg| match seg {
+                // Geser lubang ke tengah plat.
+                ProfileSegment::Bezier { start, c1, c2, end } => {
+                    let shift = |p: (f64, f64)| (p.0 + w / 2.0, p.1 + h / 2.0);
+                    ProfileSegment::Bezier {
+                        start: shift(start),
+                        c1: shift(c1),
+                        c2: shift(c2),
+                        end: shift(end),
+                    }
+                }
+                other => other,
+            })
+            .collect(),
+    );
+
+    let plate = rect_profile(w, h).with_holes(vec![hole]);
+    let shape = extrude_profile(&plate, t).expect("extrude plat berlubang Bézier harus berhasil");
+
+    assert!(shape.is_valid());
+    let expected = w * h * t - std::f64::consts::PI * r * r * t;
+    let got = shape.volume();
+    assert!(
+        (got - expected).abs() / expected < 0.01,
+        "volume {got} != plat berlubang {expected} — cek orientasi wire lubang"
+    );
+}

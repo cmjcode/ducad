@@ -189,6 +189,8 @@ bisa diuji di macOS.
 | B2.7 | Push-pull sisi lewat gizmo, termasuk pratinjau prisma saat diseret | ☐ |
 | B2.8 | Pattern linier & sirkular (2D dan 3D) dengan ghost pratinjau | ☐ |
 | B2.9 | Teks emboss/deboss di permukaan datar | ☐ |
+| B2.11 | Extrude teks: dinding huruf melengkung mulus, tanpa sisi bersegi. Putar model dan amati huruf bundar (C, O, S) — tidak boleh ada garis vertikal berjajar di sisinya | ☐ |
+| B2.12 | Extrude huruf berongga (O, A, D, R): rongga tengahnya benar-benar berlubang, tidak terisi material | ☐ |
 | B2.10 | Undo/redo model: body yang dihapus muncul lagi utuh, seleksi tidak menunjuk body hantu | ☐ |
 
 ### B3. Bidang, gambar kerja, perakitan

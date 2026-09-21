@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use ducad_kernel::{self, Profile, ProfileSegment};
-use ducad_sketch::{Entity, EntityId, Sketch};
+use ducad_sketch::{Entity, EntityId, PathSeg, Sketch};
 use glam::DVec2;
 
 use crate::model::BodyGeometry;
@@ -39,7 +39,93 @@ fn reverse_segment(seg: ProfileSegment) -> ProfileSegment {
             via,
             end: start,
         },
+        // Titik kontrol Bézier terikat pada ujung terdekatnya, jadi keduanya
+        // ikut bertukar saat arah segmen dibalik.
+        ProfileSegment::Bezier { start, c1, c2, end } => ProfileSegment::Bezier {
+            start: end,
+            c1: c2,
+            c2: c1,
+            end: start,
+        },
     }
+}
+
+/// Konversi satu `Entity::Spline` menjadi segmen-segmen profil kernel.
+///
+/// Bila entitas membawa kurva EKSAK (`exact`) — misalnya outline glyph font —
+/// kurvanya diteruskan apa adanya sebagai [`ProfileSegment::Bezier`], sehingga
+/// OCCT membangun satu permukaan melengkung per segmen. Inilah yang membuat
+/// teks hasil extrude berdinding mulus; sebelumnya kurva selalu dicacah jadi
+/// puluhan ruas lurus dan tiap ruas menjadi face datar tersendiri.
+///
+/// Tanpa kurva eksak (spline gambar tangan, hasil offset, berkas lama),
+/// jatuh ke pendekatan biarc/poliline lama lewat
+/// [`convert_spline_to_smooth_segments`] — perilakunya tidak berubah.
+pub fn convert_spline_to_profile_segments(
+    points: &[DVec2],
+    exact: Option<&[PathSeg]>,
+) -> Vec<(DVec2, DVec2, ProfileSegment)> {
+    match (exact, points.first()) {
+        (Some(path), Some(start)) if !path.is_empty() => exact_path_to_segments(*start, path),
+        _ => convert_spline_to_smooth_segments(points),
+    }
+}
+
+/// Rangkai langkah-langkah kurva eksak jadi segmen profil, mulai dari `start`.
+fn exact_path_to_segments(start: DVec2, path: &[PathSeg]) -> Vec<(DVec2, DVec2, ProfileSegment)> {
+    let mut out = Vec::with_capacity(path.len());
+    let mut cur = start;
+    for step in path {
+        let end = step.end();
+        let seg = match step {
+            PathSeg::Line { .. } => {
+                // Ruas tanpa panjang tidak bisa jadi edge; lewati saja.
+                if (end - cur).length() < 1e-9 {
+                    continue;
+                }
+                ProfileSegment::Line {
+                    start: (cur.x, cur.y),
+                    end: (end.x, end.y),
+                }
+            }
+            PathSeg::Cubic { c1, c2, .. } if cubic_is_straight(cur, *c1, *c2, end) => {
+                ProfileSegment::Line {
+                    start: (cur.x, cur.y),
+                    end: (end.x, end.y),
+                }
+            }
+            PathSeg::Cubic { c1, c2, .. } => ProfileSegment::Bezier {
+                start: (cur.x, cur.y),
+                c1: (c1.x, c1.y),
+                c2: (c2.x, c2.y),
+                end: (end.x, end.y),
+            },
+        };
+        out.push((cur, end, seg));
+        cur = end;
+    }
+    out
+}
+
+/// `true` bila kedua titik kontrol praktis berimpit dengan tali busurnya,
+/// sehingga Bézier itu sebenarnya ruas lurus.
+///
+/// Font kerap menyimpan sisi lurus huruf sebagai Bézier. Membiarkannya jadi
+/// `Bezier` akan mengubah bidang datar menjadi permukaan bebas — lebih berat
+/// bagi boolean dan fillet, dan menghilangkan ketegasan sudut huruf, tanpa
+/// menambah ketelitian sedikit pun.
+fn cubic_is_straight(p0: DVec2, c1: DVec2, c2: DVec2, p3: DVec2) -> bool {
+    let chord = p3 - p0;
+    let len = chord.length();
+    if len < 1e-9 {
+        // Ujung yang berimpit berarti kurva tertutup (tetes air), bukan garis.
+        return false;
+    }
+    // Toleransi sub-mikron: hanya kurva yang memang lurus yang lolos, kurva
+    // landai sungguhan tetap dipertahankan sebagai kurva.
+    const FLAT_TOL_MM: f64 = 1e-6;
+    let normal = DVec2::new(-chord.y, chord.x) / len;
+    (c1 - p0).dot(normal).abs() < FLAT_TOL_MM && (c2 - p0).dot(normal).abs() < FLAT_TOL_MM
 }
 
 /// Konversi Spline (Catmull-Rom) menjadi kurva-kurva Arc parametrik analitik halus (Bi-Arc / 3-point Arcs)
@@ -219,13 +305,13 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                 radius_y: *radius_y,
             });
         }
-        if let Some(Entity::Spline { points, .. }) = sketch.entities.get(id) {
+        if let Some(Entity::Spline { points, exact, .. }) = sketch.entities.get(id) {
             if points.len() >= 3 {
                 let first = points[0];
                 let last = *points.last().unwrap();
                 if (first - last).length() < 0.05 {
                     let smooth_segs: Vec<ProfileSegment> =
-                        convert_spline_to_smooth_segments(points)
+                        convert_spline_to_profile_segments(points, exact.as_deref())
                             .into_iter()
                             .map(|(_, _, s)| s)
                             .collect();
@@ -274,8 +360,10 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                     },
                 });
             }
-            Some(Entity::Spline { points, .. }) => {
-                for (start, end, seg) in convert_spline_to_smooth_segments(points) {
+            Some(Entity::Spline { points, exact, .. }) => {
+                for (start, end, seg) in
+                    convert_spline_to_profile_segments(points, exact.as_deref())
+                {
                     segs.push(Seg { start, end, seg });
                 }
             }
@@ -735,6 +823,28 @@ pub fn build_path_from_selection_on_plane(
                     end: plane.to_world_f64(end, 0.0),
                 });
             }
+            // Jalur sweep (`PathSegment`) belum mengenal Bézier, jadi kurvanya
+            // dicacah di sini. Segmen Bézier sebenarnya tidak pernah sampai ke
+            // sini hari ini — pembangun jalur di atas memakai jalur biarc —
+            // tapi mencacahnya tetap lebih jujur daripada diam-diam membuang
+            // segmen atau panic bila suatu saat jalurnya berubah.
+            ProfileSegment::Bezier { start, c1, c2, end } => {
+                const SAMPLES: usize = 16;
+                let (p0, p1) = (DVec2::new(start.0, start.1), DVec2::new(c1.0, c1.1));
+                let (p2, p3) = (DVec2::new(c2.0, c2.1), DVec2::new(end.0, end.1));
+                let pts = (0..=SAMPLES)
+                    .map(|i| {
+                        let t = i as f64 / SAMPLES as f64;
+                        let u = 1.0 - t;
+                        let p = p0 * (u * u * u)
+                            + p1 * (3.0 * u * u * t)
+                            + p2 * (3.0 * u * t * t)
+                            + p3 * (t * t * t);
+                        plane.to_world_f64((p.x, p.y), 0.0)
+                    })
+                    .collect();
+                path_3d.push(ducad_kernel::PathSegment::Polyline(pts));
+            }
         }
     }
 
@@ -1107,4 +1217,122 @@ mod tests {
         }
     }
 
+    /// Penjaga perbaikan "teks patah-patah": huruf yang di-extrude harus
+    /// berdinding kurva, bukan jajaran ruas lurus.
+    ///
+    /// Yang diuji adalah JUMLAH FACE. Kurva font yang dicacah jadi poliline
+    /// menghasilkan satu face datar per ruas — puluhan untuk satu huruf. Kurva
+    /// yang diteruskan apa adanya menghasilkan satu face melengkung per segmen
+    /// Bézier, hitungannya sedikit.
+    #[test]
+    fn extruded_letter_wall_is_curved_not_faceted() {
+        use ducad_sketch::{text_to_entities, FontPreset, TextAlign, TextOptions};
+
+        let options = TextOptions {
+            font_height_mm: 15.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            align: TextAlign::Left,
+            font_preset: FontPreset::DefaultSans,
+            is_construction: false,
+        };
+        // "C" — huruf pada tangkapan layar yang dilaporkan patah-patah.
+        let entities = text_to_entities("C", DVec2::new(0.0, 0.0), &options, None).unwrap();
+
+        let mut sketch = Sketch::default();
+        let mut ids = HashSet::new();
+        for e in entities {
+            ids.insert(sketch.entities.insert(e));
+        }
+
+        let profile = build_profile_from_selection(&sketch, &ids)
+            .expect("huruf C harus membentuk profil tertutup");
+        let Profile::Loop(segments) = &profile else {
+            panic!("huruf C harus jadi Profile::Loop, dapat {profile:?}");
+        };
+
+        let curved = segments
+            .iter()
+            .filter(|s| matches!(s, ProfileSegment::Bezier { .. }))
+            .count();
+        assert!(
+            curved > 0,
+            "dinding huruf harus punya segmen Bézier, bukan hanya garis"
+        );
+
+        let shape =
+            ducad_kernel::extrude_profile(&profile, 5.0).expect("extrude huruf C harus berhasil");
+        assert!(shape.is_valid(), "solid huruf C harus valid");
+
+        // Pembanding langsung: kontur yang SAMA, tapi lewat jalur pencacahan
+        // lama. Selisihnya persis sebesar perbaikan yang dicari — dinding
+        // mulus, bukan jajaran bidang datar.
+        let id = *ids.iter().next().unwrap();
+        let Some(Entity::Spline { points, .. }) = sketch.entities.get(id) else {
+            panic!("huruf harus tersimpan sebagai Spline");
+        };
+        let flattened = convert_spline_to_smooth_segments(points).len();
+
+        assert!(
+            segments.len() * 3 < flattened,
+            "profil kurva ({}) seharusnya jauh lebih ringkas dari hasil pencacahan ({flattened})",
+            segments.len()
+        );
+
+        // Sebelum perbaikan, satu "C" menghasilkan puluhan face dinding datar.
+        let faces = ducad_kernel::enumerate_faces(&shape).len();
+        assert!(
+            faces < 30,
+            "huruf C masih bersegi: {faces} face untuk {} segmen profil",
+            segments.len()
+        );
+    }
+
+    /// Jalur yang benar-benar dipakai GUI saat teks di-extrude: satu batas luar
+    /// plus lubang di dalamnya, lewat `extrude_selection_with_holes_on_plane`.
+    ///
+    /// Huruf berongga adalah kasus paling rawan, karena wire lubang harus
+    /// berorientasi terbalik — dan pada Bézier, titik kontrolnya ikut bertukar.
+    /// Kalau itu salah, rongga huruf justru terisi material.
+    #[test]
+    fn extrude_hollow_letter_through_gui_path() {
+        use ducad_sketch::{text_to_entities, FontPreset, TextAlign, TextOptions};
+
+        let options = TextOptions {
+            font_height_mm: 20.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            align: TextAlign::Left,
+            font_preset: FontPreset::DefaultSans,
+            is_construction: false,
+        };
+        let entities = text_to_entities("O", DVec2::new(0.0, 0.0), &options, None).unwrap();
+        assert_eq!(entities.len(), 2, "huruf O harus punya kontur luar + dalam");
+
+        let mut sketch = Sketch::default();
+        let mut ids = HashSet::new();
+        for e in entities {
+            ids.insert(sketch.entities.insert(e));
+        }
+
+        let plane = PlaneFrame::default();
+        let bodies = extrude_selection_with_holes_on_plane(&sketch, &ids, &plane, 4.0)
+            .expect("extrude huruf O harus berhasil");
+        assert_eq!(bodies.len(), 1, "huruf O harus jadi SATU solid berongga");
+
+        let shape = &bodies[0].1.shape;
+        assert!(shape.is_valid(), "solid huruf O harus valid");
+
+        // Cincin huruf O jelas lebih ringan daripada cakram penuh. Kalau
+        // rongganya gagal terbentuk, volumenya melonjak mendekati cakram utuh.
+        let bbox_area = {
+            let [x0, y0, x1, y1] = compute_profile_bbox(&sketch, &ids).unwrap();
+            (x1 - x0) * (y1 - y0)
+        };
+        let solid_volume = shape.volume();
+        assert!(
+            solid_volume < bbox_area * 4.0 * 0.75,
+            "rongga huruf O tidak terbentuk: volume {solid_volume} terlalu padat"
+        );
+    }
 }

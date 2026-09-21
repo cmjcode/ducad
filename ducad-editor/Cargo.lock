@@ -1718,6 +1718,7 @@ dependencies = [
  "ducad-core",
  "glam",
  "serde",
+ "serde_json",
  "slotmap",
  "ttf-parser",
 ]

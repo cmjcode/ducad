@@ -2,7 +2,9 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{PI, TAU};
 
-use crate::entity::{angle_in_range, distance_point_segment, sample_catmull_rom, Entity, EntityId};
+use crate::entity::{
+    angle_in_range, distance_point_segment, map_exact, sample_catmull_rom, Entity, EntityId,
+};
 use crate::sketch::Sketch;
 use crate::snap::line_intersection_params;
 
@@ -183,6 +185,11 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
             }
             Some(Entity::Spline {
                 points: new_points,
+                // Offset menggeser tiap titik sepanjang normalnya sendiri —
+                // itu BUKAN transformasi affine, jadi titik kontrol kurva asli
+                // tidak lagi menggambarkan bentuk hasilnya. Dibuang supaya
+                // tidak ada dua sumber kebenaran yang saling bertentangan.
+                exact: None,
                 is_construction,
             })
         }
@@ -246,8 +253,9 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
             radius_y: *radius_y,
             is_construction,
         },
-        Entity::Spline { points, .. } => Entity::Spline {
+        Entity::Spline { points, exact, .. } => Entity::Spline {
             points: points.iter().map(|p| reflect(*p)).collect(),
+            exact: map_exact(exact, reflect),
             is_construction,
         },
     })
@@ -291,8 +299,9 @@ pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
             radius_y: *radius_y,
             is_construction,
         },
-        Entity::Spline { points, .. } => Entity::Spline {
+        Entity::Spline { points, exact, .. } => Entity::Spline {
             points: points.iter().map(|p| *p + delta).collect(),
+            exact: map_exact(exact, |p| p + delta),
             is_construction,
         },
     }
@@ -874,11 +883,12 @@ pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
                 is_construction,
             }
         }
-        Entity::Spline { points, .. } => Entity::Spline {
+        Entity::Spline { points, exact, .. } => Entity::Spline {
             points: points
                 .iter()
                 .map(|p| rotate_point(*p, pivot, angle_rad))
                 .collect(),
+            exact: map_exact(exact, |p| rotate_point(p, pivot, angle_rad)),
             is_construction,
         },
     }

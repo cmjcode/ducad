@@ -1023,6 +1023,155 @@ fn test_text_vectorization() {
     assert!(regions.len() >= 5, "Teks DUCAD harus menghasilkan minimal 5 closed regions (got {})", regions.len());
 }
 
+/// Kenaikan derajat kuadratik → kubik harus EKSAK, bukan sekadar mirip: kalau
+/// meleset, huruf hasil extrude akan berbeda bentuk dari huruf di layar.
+#[test]
+fn cubic_from_quadratic_matches_quadratic_curve() {
+    let (p0, ctrl, p2) = (
+        DVec2::new(0.0, 0.0),
+        DVec2::new(10.0, 20.0),
+        DVec2::new(20.0, 0.0),
+    );
+    let PathSeg::Cubic { c1, c2, end } = PathSeg::cubic_from_quadratic(p0, ctrl, p2) else {
+        panic!("cubic_from_quadratic harus menghasilkan varian Cubic");
+    };
+    assert_eq!(end, p2);
+
+    for step in 0..=10 {
+        let t = step as f64 / 10.0;
+        let u = 1.0 - t;
+        let quad = p0 * (u * u) + ctrl * (2.0 * u * t) + p2 * (t * t);
+        let cubic =
+            p0 * (u * u * u) + c1 * (3.0 * u * u * t) + c2 * (3.0 * u * t * t) + end * (t * t * t);
+        assert!(
+            (quad - cubic).length() < 1e-12,
+            "t={t}: kuadratik {quad:?} != kubik {cubic:?}"
+        );
+    }
+}
+
+/// Teks yang divektorisasi harus membawa kurva ASLI-nya, bukan cuma poliline.
+/// Inilah yang kemudian dipakai extrude supaya dindingnya tidak patah-patah.
+#[test]
+fn text_entities_carry_exact_curves() {
+    use crate::text::{text_to_entities, FontPreset, TextAlign, TextOptions};
+
+    let options = TextOptions {
+        font_height_mm: 15.0,
+        letter_spacing: 1.0,
+        line_spacing: 1.2,
+        align: TextAlign::Left,
+        font_preset: FontPreset::DefaultSans,
+        is_construction: false,
+    };
+    // "O" dipilih karena seluruh konturnya melengkung — tidak ada ruas lurus
+    // yang bisa menyamarkan kurva yang hilang.
+    let entities = text_to_entities("O", DVec2::new(0.0, 0.0), &options, None).unwrap();
+    assert!(!entities.is_empty());
+
+    let mut total_cubics = 0;
+    for e in &entities {
+        let exact = e
+            .exact_path()
+            .expect("kontur huruf harus membawa kurva eksak");
+        assert!(!exact.is_empty());
+        total_cubics += exact
+            .iter()
+            .filter(|s| matches!(s, PathSeg::Cubic { .. }))
+            .count();
+
+        // Kurva eksak dan poliline wajib menggambarkan loop yang SAMA: langkah
+        // terakhir harus kembali ke titik awal `points`.
+        let Entity::Spline { points, .. } = e else {
+            panic!("teks harus jadi Entity::Spline");
+        };
+        let closing = exact.last().unwrap().end();
+        assert!(
+            (closing - points[0]).length() < 1e-6,
+            "kurva eksak tidak menutup: {closing:?} vs {:?}",
+            points[0]
+        );
+    }
+    assert!(
+        total_cubics >= 4,
+        "huruf O harus punya beberapa segmen Bézier, dapat {total_cubics}"
+    );
+}
+
+/// Transformasi affine harus menggeser kurva eksak bersama poliline-nya. Kalau
+/// hanya salah satu yang ikut, bentuk di layar dan bentuk hasil extrude akan
+/// berpisah diam-diam.
+#[test]
+fn exact_curves_follow_affine_transforms() {
+    let start = DVec2::new(0.0, 0.0);
+    let tip = DVec2::new(4.0, 0.0);
+    let entity = Entity::spline_exact(
+        vec![start, tip],
+        vec![PathSeg::Cubic {
+            c1: DVec2::new(1.0, 2.0),
+            c2: DVec2::new(3.0, 2.0),
+            end: tip,
+        }],
+    );
+
+    let delta = DVec2::new(10.0, -5.0);
+    let moved = crate::ops::translate_entity(&entity, delta);
+    let [PathSeg::Cubic { c1, c2, end }] = moved
+        .exact_path()
+        .expect("translate harus mempertahankan kurva eksak")
+    else {
+        panic!("harus tetap tepat satu segmen Cubic");
+    };
+    assert!((*c1 - DVec2::new(11.0, -3.0)).length() < 1e-12);
+    assert!((*c2 - DVec2::new(13.0, -3.0)).length() < 1e-12);
+    assert!((*end - DVec2::new(14.0, -5.0)).length() < 1e-12);
+
+    // Rotasi 90° terhadap origin: (x, y) → (−y, x).
+    let turned = crate::ops::rotate_entity(&entity, DVec2::ZERO, std::f64::consts::FRAC_PI_2);
+    let exact = turned
+        .exact_path()
+        .expect("rotate harus mempertahankan kurva eksak");
+    let PathSeg::Cubic { c1, .. } = exact[0] else {
+        panic!("harus tetap Cubic");
+    };
+    assert!((c1 - DVec2::new(-2.0, 1.0)).length() < 1e-9, "{c1:?}");
+
+    // Offset mengubah bentuk secara non-affine, jadi kurva eksaknya HARUS
+    // dilepas — bukan dibawa dalam keadaan yang sudah tidak berlaku.
+    if let Some(off) = crate::ops::offset_entity(&entity, DVec2::new(2.0, 3.0)) {
+        assert!(
+            off.exact_path().is_none(),
+            "offset tidak boleh mewariskan kurva eksak yang sudah tidak berlaku"
+        );
+    }
+}
+
+/// Berkas `.ducad` lama tidak punya field `exact`; ia harus tetap terbaca, dan
+/// entitas yang membawanya harus pulang-pergi tanpa kehilangan apa pun.
+#[test]
+fn spline_exact_survives_serde_and_old_files_still_load() {
+    // Bentuk persis seperti yang ditulis versi sebelum field `exact` ada
+    // (`DVec2` diserialisasi sebagai pasangan `[x, y]`).
+    let legacy = r#"{"Spline":{"points":[[0.0,0.0],[5.0,1.0]],"is_construction":false}}"#;
+    let parsed: Entity = serde_json::from_str(legacy).expect("berkas lama harus tetap terbaca");
+    assert!(
+        parsed.exact_path().is_none(),
+        "spline lama tidak punya kurva eksak"
+    );
+
+    let with_exact = Entity::spline_exact(
+        vec![DVec2::new(0.0, 0.0), DVec2::new(4.0, 0.0)],
+        vec![PathSeg::Cubic {
+            c1: DVec2::new(1.0, 2.0),
+            c2: DVec2::new(3.0, 2.0),
+            end: DVec2::new(4.0, 0.0),
+        }],
+    );
+    let json = serde_json::to_string(&with_exact).unwrap();
+    let back: Entity = serde_json::from_str(&json).unwrap();
+    assert_eq!(with_exact, back);
+}
+
 #[test]
 fn test_extend_segment_towards_line_circle_and_spline() {
     use crate::ops::{extend_preview, extend_segment, ray_intersect_entity};

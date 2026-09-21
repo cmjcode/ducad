@@ -15,6 +15,24 @@ pub enum ProfileSegment {
         via: (f64, f64),
         end: (f64, f64),
     },
+    /// Kurva Bézier KUBIK: dua titik ujung plus dua titik kontrol.
+    ///
+    /// Ada supaya bentuk yang memang lahir sebagai Bézier — terutama outline
+    /// glyph font (TrueType/OpenType) — bisa masuk ke B-rep apa adanya. Tanpa
+    /// varian ini satu-satunya jalan adalah mencacah kurva jadi puluhan
+    /// `Line`, dan tiap potongan lurus itu jadi face datar tersendiri saat
+    /// di-extrude — itulah dinding "patah-patah" pada teks yang di-extrude.
+    ///
+    /// Sengaja hanya kubik: Bézier KUADRATIK (yang dipakai TrueType) dinaikkan
+    /// derajatnya ke kubik tanpa kehilangan presisi sama sekali oleh
+    /// `ducad_sketch::PathSeg::cubic_from_quadratic` — di lapisan sketch,
+    /// tempat outline font sebenarnya dibaca — jadi satu varian cukup di sini.
+    Bezier {
+        start: (f64, f64),
+        c1: (f64, f64),
+        c2: (f64, f64),
+        end: (f64, f64),
+    },
 }
 
 /// Profil 2D tertutup di bidang XY, siap di-extrude/revolve. Dibangun
@@ -79,6 +97,18 @@ impl Profile {
             }
         }
     }
+}
+
+/// `true` bila keempat titik kendali Bézier menumpuk di satu tempat, sehingga
+/// kurvanya tak punya panjang dan OCCT akan menolak membuat edge untuknya.
+fn bezier_is_degenerate(
+    p0: glam::DVec3,
+    p1: glam::DVec3,
+    p2: glam::DVec3,
+    p3: glam::DVec3,
+) -> bool {
+    const EPS: f64 = 1e-4;
+    (p0 - p1).length() <= EPS && (p0 - p2).length() <= EPS && (p0 - p3).length() <= EPS
 }
 
 pub(crate) fn build_wire(profile: &Profile) -> Result<Wire> {
@@ -159,6 +189,22 @@ pub(crate) fn build_wire_on_plane(
                             Some(Edge::arc(p0, p1, p2))
                         } else {
                             None
+                        }
+                    }
+                    ProfileSegment::Bezier { start, c1, c2, end } => {
+                        let p0 = to_3d(*start);
+                        let p1 = to_3d(*c1);
+                        let p2 = to_3d(*c2);
+                        let p3 = to_3d(*end);
+                        // Ujung yang berimpit BELUM berarti degenerate — Bézier
+                        // boleh menutup jadi tetes air selama titik kontrolnya
+                        // menjauh. Yang ditolak hanya kurva yang keempat
+                        // titiknya menumpuk, karena OCCT tak bisa membuat edge
+                        // tanpa panjang.
+                        if bezier_is_degenerate(p0, p1, p2, p3) {
+                            None
+                        } else {
+                            Some(Edge::bezier([p0, p1, p2, p3]))
                         }
                     }
                 })
@@ -257,6 +303,14 @@ fn reverse_profile_segment(seg: ProfileSegment) -> ProfileSegment {
             via,
             end: start,
         },
+        // Titik kontrol Bézier terikat pada ujung terdekatnya, jadi keduanya
+        // ikut bertukar: `c1` milik `start`, `c2` milik `end`.
+        ProfileSegment::Bezier { start, c1, c2, end } => ProfileSegment::Bezier {
+            start: end,
+            c1: c2,
+            c2: c1,
+            end: start,
+        },
     }
 }
 
@@ -318,6 +372,17 @@ pub(crate) fn build_wire_at_z(profile: &Profile, z: f64) -> Result<Wire> {
                             Some(Edge::arc(p0, p1, p2))
                         } else {
                             None
+                        }
+                    }
+                    ProfileSegment::Bezier { start, c1, c2, end } => {
+                        let p0 = dvec3(start.0, start.1, z);
+                        let p1 = dvec3(c1.0, c1.1, z);
+                        let p2 = dvec3(c2.0, c2.1, z);
+                        let p3 = dvec3(end.0, end.1, z);
+                        if bezier_is_degenerate(p0, p1, p2, p3) {
+                            None
+                        } else {
+                            Some(Edge::bezier([p0, p1, p2, p3]))
                         }
                     }
                 })
