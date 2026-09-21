@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
@@ -82,7 +82,10 @@ rfd = "0.17"
 # 0.40 menyamakan `libsqlite3-sys` dengan yang dipakai pustaka MNEMONIC
 # (P11.5): hanya satu paket boleh menautkan pustaka native `sqlite3`.
 rusqlite = { version = "0.40", features = ["bundled"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
 
 # Modern Apple platform bridging (macOS & iOS) — https://github.com/madsmtm/objc2
 objc2 = "0.6"
@@ -158,4 +161,3 @@ debug = "line-tables-only"
 [patch.crates-io]
 opencascade = { path = "vendors/opencascade-rs/crates/opencascade" }
 opencascade-sys = { path = "vendors/opencascade-rs/crates/opencascade-sys" }
-

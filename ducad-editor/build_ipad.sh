@@ -82,7 +82,15 @@ print_error() {
 APP_NAME="DUCAD"
 BIN_NAME="ducad"
 PKG_NAME="ducad-app"
-VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+if [ -z "$VERSION" ]; then
+    if [ -f "$ROOT_DIR/VERSION" ]; then
+        VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
+    elif [ -f "$EDITOR_DIR/VERSION" ]; then
+        VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
+    else
+        VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+    fi
+fi
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
     GIT_COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "1")
@@ -229,12 +237,37 @@ ensure_occt_built() {
     local occt_target_dir="$EDITOR_DIR/target/$target/OCCT"
     local occt_lib_step="$occt_target_dir/lib/libTKDESTEP.a"
     local occt_src_dir="$HOME/.cargo/registry/src"
+    local occt_version
+    occt_version=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
     local occt_sys_dir
-    occt_sys_dir=$(find "$occt_src_dir" -name "OCCT" -type d 2>/dev/null | grep "occt-sys" | head -n1 || true)
+    occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -path "*/occt-sys-${occt_version}/OCCT" 2>/dev/null | head -n1 || true)
+    if [ -z "$occt_sys_dir" ] || [ ! -d "$occt_sys_dir" ]; then
+        occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
+    fi
     
     if [ ! -f "$occt_lib_step" ] && [ -n "$occt_sys_dir" ] && [ -d "$occt_sys_dir" ]; then
-        print_status "Pre-building OCCT for target $target (serial install to avoid CMake APFS race condition)..."
+        print_status "Pre-building OCCT for target $target (version: $occt_version, serial install to avoid CMake APFS race condition)..."
         local build_dir="$occt_target_dir/build"
+        
+        # Clean build directory if CMakeCache was generated with a different source directory
+        if [ -f "$build_dir/CMakeCache.txt" ]; then
+            local cache_src
+            cache_src=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$build_dir/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
+            if [ -n "$cache_src" ] && [ "$cache_src" != "$occt_sys_dir" ]; then
+                print_warning "CMake cache source mismatch ($cache_src != $occt_sys_dir). Resetting build directory..."
+                rm -rf "$build_dir"
+                rm -rf "$occt_target_dir/lib"
+                rm -rf "$occt_target_dir/include"
+            fi
+        fi
+
+        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
+        if [ -f "$occt_target_dir/lib/libTKSTEP.a" ] && [ ! -f "$occt_lib_step" ]; then
+            print_status "Removing legacy/incompatible OCCT libraries from $occt_target_dir/lib..."
+            rm -rf "$occt_target_dir/lib"
+            rm -rf "$occt_target_dir/include"
+        fi
+
         mkdir -p "$build_dir"
         local toolchain_flag=""
         if [ -f "$TOOLCHAIN_FILE" ]; then
@@ -281,6 +314,14 @@ setup_toolchain() {
         export SDK_SIMULATOR=$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || true)
     fi
 
+    # Unset Xcode target environment variables that interfere with host proc-macro compilation
+    unset SDKROOT
+    unset CFLAGS
+    unset CXXFLAGS
+    unset LDFLAGS
+    unset CC
+    unset CXX
+
     ensure_occt_built "$target"
 }
 
@@ -300,8 +341,9 @@ generate_info_plist() {
     if [ -f "$template_file" ]; then
         sed -e "s/com.ducad.app/$APPLE_BUNDLE_ID/g" \
             -e "s/<string>1<\/string>/<string>$BUILD_NUMBER<\/string>/g" \
-            -e "s/<string>0.1.0<\/string>/<string>$VERSION<\/string>/g" \
             "$template_file" > "$target_plist"
+        plutil -replace CFBundleShortVersionString -string "$VERSION" "$target_plist" 2>/dev/null || true
+        plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$target_plist" 2>/dev/null || true
     else
         cat <<EOF > "$target_plist"
 <?xml version="1.0" encoding="UTF-8"?>

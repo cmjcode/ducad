@@ -65,7 +65,15 @@ print_error() {
 }
 
 APP_NAME="DUCAD"
-VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+if [ -z "$VERSION" ]; then
+    if [ -f "$ROOT_DIR/VERSION" ]; then
+        VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
+    elif [ -f "$EDITOR_DIR/VERSION" ]; then
+        VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
+    else
+        VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+    fi
+fi
 
 show_help() {
     echo "Usage: ./publish_apple_all.sh [OPTIONS]"

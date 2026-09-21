@@ -33,8 +33,20 @@ fi
 cd "$EDITOR_DIR"
 
 APP_NAME="DUCAD"
-# Ambil versi dari Cargo.toml supaya sinkron
-VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+
+# Ambil versi dari VERSION file sebagai single source of truth
+if [ -f "$ROOT_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
+elif [ -f "$EDITOR_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
+elif [ -f "VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "VERSION")
+elif [ -n "$VERSION" ]; then
+    VERSION="$VERSION"
+else
+    VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
+fi
+export VERSION
 
 # Colors for output
 RED='\033[0;31m'
@@ -76,6 +88,122 @@ check_dependencies() {
     fi
     
     print_success "All dependencies are available!"
+}
+
+# Synchronize all related project files with VERSION
+sync_project_versions() {
+    print_status "Menyelaraskan seluruh versi terkait dengan VERSION ($VERSION)..."
+
+    # Pastikan file VERSION konsisten di root dan ducad-editor
+    if [ -d "$ROOT_DIR" ]; then
+        echo "$VERSION" > "$ROOT_DIR/VERSION"
+    fi
+    if [ -d "$EDITOR_DIR" ]; then
+        echo "$VERSION" > "$EDITOR_DIR/VERSION"
+    fi
+
+    # 1. Update ducad-editor/Cargo.toml ([workspace.package] version)
+    if [ -f "$EDITOR_DIR/Cargo.toml" ]; then
+        python3 -c "
+import re
+path = '$EDITOR_DIR/Cargo.toml'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+new_content = re.sub(
+    r'(\[workspace\.package\][\s\S]*?version\s*=\s*\")[^\"]+(\")',
+    r'\g<1>$VERSION\g<2>',
+    content,
+    count=1
+)
+if new_content != content:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print('  - Updated Cargo.toml [workspace.package] version to $VERSION')
+"
+    fi
+
+    # 2. Update ducad-editor/crates/ducad-app/Cargo.toml ([package.metadata.bundle] version)
+    local app_cargo="$EDITOR_DIR/crates/ducad-app/Cargo.toml"
+    if [ -f "$app_cargo" ]; then
+        python3 -c "
+import re
+path = '$app_cargo'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+new_content = re.sub(
+    r'(\[package\.metadata\.bundle\][\s\S]*?version\s*=\s*\")[^\"]+(\")',
+    r'\g<1>$VERSION\g<2>',
+    content,
+    count=1
+)
+if new_content != content:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print('  - Updated crates/ducad-app/Cargo.toml [package.metadata.bundle] version to $VERSION')
+"
+    fi
+
+    # 3. Update DUCAD.xcodeproj/project.pbxproj (MARKETING_VERSION)
+    local pbxproj="$EDITOR_DIR/DUCAD.xcodeproj/project.pbxproj"
+    if [ -f "$pbxproj" ]; then
+        python3 -c "
+import re
+path = '$pbxproj'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+new_content = re.sub(
+    r'MARKETING_VERSION\s*=\s*[^;]+;',
+    'MARKETING_VERSION = $VERSION;',
+    content
+)
+if new_content != content:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print('  - Updated DUCAD.xcodeproj MARKETING_VERSION to $VERSION')
+"
+    fi
+
+    # 4. Update apple/scripts/generate_project.py
+    local gen_proj="$EDITOR_DIR/apple/scripts/generate_project.py"
+    if [ -f "$gen_proj" ]; then
+        python3 -c "
+import re
+path = '$gen_proj'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+new_content = re.sub(
+    r'MARKETING_VERSION\s*=\s*[^;]+;',
+    'MARKETING_VERSION = {version};',
+    content
+)
+if new_content != content:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print('  - Updated apple/scripts/generate_project.py MARKETING_VERSION to {version}')
+"
+    fi
+
+    # 5. Update crates/ducad-app/ios/Info.plist.template
+    local ios_tpl="$EDITOR_DIR/crates/ducad-app/ios/Info.plist.template"
+    if [ -f "$ios_tpl" ]; then
+        python3 -c "
+import re
+path = '$ios_tpl'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+new_content = re.sub(
+    r'(<key>CFBundleShortVersionString</key>\s*<string>)[^<]+(</string>)',
+    r'\g<1>$VERSION\g<2>',
+    content
+)
+if new_content != content:
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    print('  - Updated crates/ducad-app/ios/Info.plist.template CFBundleShortVersionString to $VERSION')
+"
+    fi
+
+    print_success "Sinkronisasi versi selesai (v$VERSION)!"
 }
 
 # Show help
@@ -146,6 +274,9 @@ main() {
     print_status "Starting build for platform: $PLATFORM (Working Directory: $EDITOR_DIR)"
     
     check_dependencies
+    
+    # Sync all version references across the project
+    sync_project_versions
     
     # Install dependencies if requested
     if [ "$INSTALL_DEPS" = true ]; then

@@ -13,6 +13,31 @@ def main():
     schemes_dir = os.path.join(xcode_dir, "xcshareddata", "xcschemes")
     os.makedirs(schemes_dir, exist_ok=True)
 
+    # Determine Version from VERSION file or Cargo.toml
+    version = "0.1.0"
+    root_dir = os.path.dirname(editor_dir)
+    for v_file in [os.path.join(root_dir, "VERSION"), os.path.join(editor_dir, "VERSION")]:
+        if os.path.exists(v_file):
+            try:
+                with open(v_file, "r", encoding="utf-8") as vf:
+                    val = vf.read().strip()
+                    if val:
+                        version = val
+                        break
+            except Exception:
+                pass
+    if version == "0.1.0":
+        cargo_path = os.path.join(editor_dir, "Cargo.toml")
+        if os.path.exists(cargo_path):
+            try:
+                import re
+                with open(cargo_path, "r", encoding="utf-8") as cf:
+                    m = re.search(r'\[workspace\.package\][\s\S]*?version\s*=\s*"([^"]+)"', cf.read())
+                    if m:
+                        version = m.group(1)
+            except Exception:
+                pass
+
     # UUIDs
     # Project & Roots
     proj_uuid = "100000000000000000000001"
@@ -372,7 +397,7 @@ def main():
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = {version};
 				PRODUCT_BUNDLE_IDENTIFIER = id.ducad.studio;
 				PRODUCT_NAME = DUCAD;
 				SDKROOT = iphoneos;
@@ -398,7 +423,7 @@ def main():
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = {version};
 				PRODUCT_BUNDLE_IDENTIFIER = id.ducad.studio;
 				PRODUCT_NAME = DUCAD;
 				SDKROOT = iphoneos;
@@ -426,7 +451,7 @@ def main():
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = {version};
 				PRODUCT_BUNDLE_IDENTIFIER = id.ducad.studio;
 				PRODUCT_NAME = DUCAD;
 				SDKROOT = macosx;
@@ -451,7 +476,7 @@ def main():
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = {version};
 				PRODUCT_BUNDLE_IDENTIFIER = id.ducad.studio;
 				PRODUCT_NAME = DUCAD;
 				SDKROOT = macosx;

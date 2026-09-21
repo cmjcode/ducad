@@ -16,7 +16,7 @@ all: help
 APP_NAME = DUCAD
 BIN_NAME = ducad
 PKG_NAME = ducad-app
-VERSION  = $(shell grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2)
+VERSION ?= $(shell if [ -f ../VERSION ]; then tr -d ' \r\n' < ../VERSION; elif [ -f VERSION ]; then tr -d ' \r\n' < VERSION; else grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2; fi)
 RUST_VERSION = stable
 
 # Targets
@@ -98,7 +98,7 @@ build-macos: create-dirs
 
 bundle-macos: create-dirs
 	@echo "📱 Create macOS .app bundle"
-	cargo bundle --release --bin $(BIN_NAME)
+	TERM=xterm cargo bundle --release --bin $(BIN_NAME)
 	@mkdir -p $(MACOS_DIR)
 	@if [ -d "$(BUILD_DIR)/release/bundle/osx/$(APP_NAME).app" ]; then \
 		rm -rf "$(MACOS_DIR)/$(APP_NAME).app"; \
@@ -119,6 +119,8 @@ bundle-macos: create-dirs
 		plutil -replace CFBundleDisplayName -string "$(APP_NAME)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 		plutil -replace CFBundleIdentifier -string "$$BUNDLE_ID" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 		plutil -replace CFBundleIconFile -string "DUCAD.icns" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
+		plutil -replace CFBundleShortVersionString -string "$(VERSION)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
+		plutil -replace CFBundleVersion -string "$(VERSION)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 	fi
 	@if [ -f "assets/DUCAD.icns" ]; then \
 		mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"; \
@@ -148,9 +150,17 @@ bundle-macos: create-dirs
 	fi
 	@if command -v hdiutil >/dev/null 2>&1; then \
 		echo "💿 Create DMG"; \
+		sync; \
+		sleep 1; \
+		hdiutil detach "/Volumes/$(APP_NAME)" -force 2>/dev/null || true; \
 		rm -f "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg"; \
-		DMG_SIZE=$$(( $$(du -sm $(MACOS_DIR)/$(APP_NAME).app | cut -f1) + 100 )); \
-		hdiutil create -volname "$(APP_NAME)" -srcfolder "$(MACOS_DIR)/$(APP_NAME).app" -ov -format UDZO -size $${DMG_SIZE}m "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg"; \
+		sync; \
+		hdiutil create -volname "$(APP_NAME)" -srcfolder "$(MACOS_DIR)/$(APP_NAME).app" -ov -format UDZO "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg" || { \
+			echo "⚠️  hdiutil busy, retrying in 2 seconds..."; \
+			sleep 2; \
+			sync; \
+			hdiutil create -volname "$(APP_NAME)" -srcfolder "$(MACOS_DIR)/$(APP_NAME).app" -ov -format UDZO "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg"; \
+		}; \
 		if [ -n "$$APPLE_IDENTITY" ]; then \
 			echo "🔏 Sign DMG with Developer ID"; \
 			codesign --force --timestamp --keychain "$$HOME/Library/Keychains/login.keychain-db" --sign "$$APPLE_IDENTITY" "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg"; \

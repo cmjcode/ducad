@@ -67,6 +67,26 @@ if [[ "$RUST_TARGET" == *"apple-ios-sim"* ]] || [ "${PLATFORM_NAME:-}" = "iphone
     TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
 fi
 
+# Detect & export iOS SDK paths for toolchain files before unsetting Xcode variables
+export SDK_IPHONEOS="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "${SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk}")"
+export SDK_SIMULATOR="$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk")"
+
+# CRITICAL FIX for Xcode + Rust cross-compilation:
+# When Xcode builds an iOS scheme, it injects SDKROOT pointing to the iPhoneOS SDK
+# and sets target-specific CFLAGS/LDFLAGS. Procedural macro crates (such as bytemuck_derive,
+# serde_derive, thiserror-impl) and build scripts must compile for the macOS HOST architecture.
+# If SDKROOT remains set to an iOS SDK, clang tries to link host proc-macros against the iOS SDK,
+# leading to linker failures or dyld rejection (error[E0463]: can't find crate for `bytemuck_derive`).
+# Unsetting SDKROOT, CFLAGS, CXXFLAGS, LDFLAGS, CC, CXX allows cargo/rustc to compile host
+# tools against the macOS host SDK, while rustc's `--target` flag automatically supplies
+# the iOS SDK for the target binaries.
+unset SDKROOT
+unset CFLAGS
+unset CXXFLAGS
+unset LDFLAGS
+unset CC
+unset CXX
+
 if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
     export CMAKE_POLICY_VERSION_MINIMUM="3.5"
     if [ -f "$TOOLCHAIN_FILE" ]; then
@@ -79,11 +99,34 @@ if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
     OCCT_TARGET_DIR="$EDITOR_DIR/target/$RUST_TARGET/OCCT"
     OCCT_LIB_STEP="$OCCT_TARGET_DIR/lib/libTKDESTEP.a"
     OCCT_SRC_DIR="$HOME/.cargo/registry/src"
-    OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -name "OCCT" -type d 2>/dev/null | grep "occt-sys" | head -n1 || true)
+    OCCT_VERSION=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
+    OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -path "*/occt-sys-${OCCT_VERSION}/OCCT" 2>/dev/null | head -n1 || true)
+    if [ -z "$OCCT_SYS_DIR" ] || [ ! -d "$OCCT_SYS_DIR" ]; then
+        OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
+    fi
     
     if [ ! -f "$OCCT_LIB_STEP" ] && [ -n "$OCCT_SYS_DIR" ] && [ -d "$OCCT_SYS_DIR" ]; then
-        echo "⚙️ Pre-building OCCT for target $RUST_TARGET..."
+        echo "⚙️ Pre-building OCCT for target $RUST_TARGET (version: $OCCT_VERSION)..."
         BUILD_DIR="$OCCT_TARGET_DIR/build"
+        
+        # Clean build directory if CMakeCache was generated with a different source directory
+        if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+            CACHE_SRC=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
+            if [ -n "$CACHE_SRC" ] && [ "$CACHE_SRC" != "$OCCT_SYS_DIR" ]; then
+                echo "⚠️ CMake cache source mismatch ($CACHE_SRC != $OCCT_SYS_DIR). Resetting build directory..."
+                rm -rf "$BUILD_DIR"
+                rm -rf "$OCCT_TARGET_DIR/lib"
+                rm -rf "$OCCT_TARGET_DIR/include"
+            fi
+        fi
+
+        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
+        if [ -f "$OCCT_TARGET_DIR/lib/libTKSTEP.a" ] && [ ! -f "$OCCT_LIB_STEP" ]; then
+            echo "🧹 Removing legacy/incompatible OCCT libraries from $OCCT_TARGET_DIR/lib..."
+            rm -rf "$OCCT_TARGET_DIR/lib"
+            rm -rf "$OCCT_TARGET_DIR/include"
+        fi
+
         mkdir -p "$BUILD_DIR"
         TOOLCHAIN_FLAG=""
         if [ -f "$TOOLCHAIN_FILE" ]; then

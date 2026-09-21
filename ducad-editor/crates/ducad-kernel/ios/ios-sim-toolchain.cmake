@@ -4,7 +4,11 @@ set(CMAKE_SYSTEM_NAME iOS)
 set(CMAKE_SYSTEM_PROCESSOR arm64)
 
 # Path SDK iPhoneSimulator
-set(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk" CACHE PATH "iOS Simulator SDK sysroot" FORCE)
+if(DEFINED ENV{SDK_SIMULATOR} AND NOT "$ENV{SDK_SIMULATOR}" STREQUAL "")
+    set(CMAKE_OSX_SYSROOT "$ENV{SDK_SIMULATOR}" CACHE PATH "iOS Simulator SDK sysroot" FORCE)
+else()
+    set(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk" CACHE PATH "iOS Simulator SDK sysroot" FORCE)
+endif()
 set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "iOS arch" FORCE)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
 

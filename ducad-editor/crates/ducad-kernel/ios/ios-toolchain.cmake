@@ -33,12 +33,13 @@ set(CMAKE_SYSTEM_PROCESSOR arm64)
 #      dan `execute_process` di salah satu pass itu gagal diam-diam
 #      (lingkungan try_compile berbeda dari proses utama) lalu meng-
 #      CLOBBER cache yang tadinya sudah benar (dipaksa `FORCE`).
-# Diperbaiki dengan menghilangkan SEMUA proses eksternal saat konfigurasi
-# — path SDK di-hardcode literal (diambil sekali lewat
-# `xcrun --sdk iphoneos --show-sdk-path` saat menulis file ini). Kalau
-# Xcode di-upgrade dan versi SDK berubah, path ini perlu diperbarui manual
-# (jalankan ulang perintah yang sama).
-set(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk" CACHE PATH "iOS SDK sysroot" FORCE)
+# Diperbaiki dengan membaca ENV{SDK_IPHONEOS} jika tersedia, atau fallback ke
+# symlink resmi Xcode iPhoneOS.sdk (stabil lintas versi Xcode tanpa perlu update manual).
+if(DEFINED ENV{SDK_IPHONEOS} AND NOT "$ENV{SDK_IPHONEOS}" STREQUAL "")
+    set(CMAKE_OSX_SYSROOT "$ENV{SDK_IPHONEOS}" CACHE PATH "iOS SDK sysroot" FORCE)
+else()
+    set(CMAKE_OSX_SYSROOT "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk" CACHE PATH "iOS SDK sysroot" FORCE)
+endif()
 set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "iOS arch" FORCE)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 15.0)
 
