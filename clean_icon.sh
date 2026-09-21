@@ -3,6 +3,9 @@ magick ducad-editor/assets/icon.png -background "#1a1a1a" -alpha remove -alpha o
 
 # Sinkronkan juga ke ducad-app assets jika diperlukan
 cp ducad-editor/assets/icon.png ducad-editor/crates/ducad-app/assets/icon.png
+if [ -f "ducad-editor/assets/icon_ipad.png" ]; then
+    cp ducad-editor/assets/icon_ipad.png ducad-editor/crates/ducad-app/assets/icon_ipad.png
+fi
 
 # Regenerate asset catalog
 cd ducad-editor && make xcode-assets && cd ..

@@ -19,6 +19,14 @@ if [ ! -f "$SOURCE_ICON" ]; then
     exit 1
 fi
 
+IPAD_SOURCE_ICON="$EDITOR_DIR/assets/icon_ipad.png"
+if [ ! -f "$IPAD_SOURCE_ICON" ]; then
+    IPAD_SOURCE_ICON="$EDITOR_DIR/crates/ducad-app/assets/icon_ipad.png"
+fi
+if [ ! -f "$IPAD_SOURCE_ICON" ]; then
+    IPAD_SOURCE_ICON="$SOURCE_ICON"
+fi
+
 ASSETS_DIR="$APPLE_DIR/Assets.xcassets"
 APPICON_DIR="$ASSETS_DIR/AppIcon.appiconset"
 ACCENT_DIR="$ASSETS_DIR/AccentColor.colorset"
@@ -26,24 +34,24 @@ ACCENT_DIR="$ASSETS_DIR/AccentColor.colorset"
 mkdir -p "$APPICON_DIR"
 mkdir -p "$ACCENT_DIR"
 
-echo "[INFO] Generating AppIcon images from $SOURCE_ICON..."
+echo "[INFO] Generating AppIcon images (macOS: $SOURCE_ICON, iPad: $IPAD_SOURCE_ICON)..."
 
-# Generate iOS & macOS icon sizes
-sips -z 1024 1024 "$SOURCE_ICON" --out "$APPICON_DIR/icon-1024.png" &>/dev/null
-sips -z 167 167   "$SOURCE_ICON" --out "$APPICON_DIR/icon-83.5@2x.png" &>/dev/null
-sips -z 152 152   "$SOURCE_ICON" --out "$APPICON_DIR/icon-76@2x.png" &>/dev/null
-sips -z 76 76     "$SOURCE_ICON" --out "$APPICON_DIR/icon-76@1x.png" &>/dev/null
-sips -z 120 120   "$SOURCE_ICON" --out "$APPICON_DIR/icon-60@2x.png" &>/dev/null
-sips -z 180 180   "$SOURCE_ICON" --out "$APPICON_DIR/icon-60@3x.png" &>/dev/null
-sips -z 80 80     "$SOURCE_ICON" --out "$APPICON_DIR/icon-40@2x.png" &>/dev/null
-sips -z 120 120   "$SOURCE_ICON" --out "$APPICON_DIR/icon-40@3x.png" &>/dev/null
-sips -z 40 40     "$SOURCE_ICON" --out "$APPICON_DIR/icon-40@1x.png" &>/dev/null
-sips -z 58 58     "$SOURCE_ICON" --out "$APPICON_DIR/icon-29@2x.png" &>/dev/null
-sips -z 87 87     "$SOURCE_ICON" --out "$APPICON_DIR/icon-29@3x.png" &>/dev/null
-sips -z 29 29     "$SOURCE_ICON" --out "$APPICON_DIR/icon-29@1x.png" &>/dev/null
-sips -z 40 40     "$SOURCE_ICON" --out "$APPICON_DIR/icon-20@2x.png" &>/dev/null
-sips -z 60 60     "$SOURCE_ICON" --out "$APPICON_DIR/icon-20@3x.png" &>/dev/null
-sips -z 20 20     "$SOURCE_ICON" --out "$APPICON_DIR/icon-20@1x.png" &>/dev/null
+# Generate iOS icon sizes (from iPad source icon)
+sips -z 1024 1024 "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-1024.png" &>/dev/null
+sips -z 167 167   "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-83.5@2x.png" &>/dev/null
+sips -z 152 152   "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-76@2x.png" &>/dev/null
+sips -z 76 76     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-76@1x.png" &>/dev/null
+sips -z 120 120   "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-60@2x.png" &>/dev/null
+sips -z 180 180   "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-60@3x.png" &>/dev/null
+sips -z 80 80     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-40@2x.png" &>/dev/null
+sips -z 120 120   "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-40@3x.png" &>/dev/null
+sips -z 40 40     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-40@1x.png" &>/dev/null
+sips -z 58 58     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-29@2x.png" &>/dev/null
+sips -z 87 87     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-29@3x.png" &>/dev/null
+sips -z 29 29     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-29@1x.png" &>/dev/null
+sips -z 40 40     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-20@2x.png" &>/dev/null
+sips -z 60 60     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-20@3x.png" &>/dev/null
+sips -z 20 20     "$IPAD_SOURCE_ICON" --out "$APPICON_DIR/icon-20@1x.png" &>/dev/null
 
 # macOS specific sizes
 sips -z 16 16     "$SOURCE_ICON" --out "$APPICON_DIR/icon-16@1x.png" &>/dev/null

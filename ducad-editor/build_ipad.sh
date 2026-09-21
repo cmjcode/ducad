@@ -413,8 +413,13 @@ EOF
 # --- 7. Helper: Generate App Icons ---
 generate_app_icons() {
     local app_bundle_dir="$1"
-    local icon_src="$EDITOR_DIR/assets/icon.png"
-    
+    local icon_src="$EDITOR_DIR/assets/icon_ipad.png"
+    if [ ! -f "$icon_src" ]; then
+        icon_src="$EDITOR_DIR/crates/ducad-app/assets/icon_ipad.png"
+    fi
+    if [ ! -f "$icon_src" ]; then
+        icon_src="$EDITOR_DIR/assets/icon.png"
+    fi
     if [ ! -f "$icon_src" ]; then
         icon_src="$EDITOR_DIR/crates/ducad-app/assets/icon.png"
     fi
