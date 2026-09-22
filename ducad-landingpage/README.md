@@ -8,13 +8,14 @@ mudah di-deploy ke host statis mana pun.
 
 ```
 ducad-landingpage/
-├── index.html        # Seluruh markup halaman (satu halaman, section-based)
+├── index.html          # Seluruh markup halaman (satu halaman, section-based)
+├── PrivacyPolicy.html  # Halaman Kebijakan Privasi (syarat Apple App Store Connect)
 ├── css/
-│   └── styles.css    # Tema gelap + gradient brand DuCAD, layout responsif
+│   └── styles.css      # Tema gelap + gradient brand DuCAD, layout responsif
 ├── js/
-│   ├── i18n.js        # Dictionary Indonesia + logic toggle bahasa (default: English)
-│   └── main.js        # Toggle nav mobile, scroll-reveal, salin kode, tombol ke-atas
-└── images/           # Logo (SVG) & screenshot aplikasi (PNG) — sudah tersedia
+│   ├── i18n.js          # Dictionary Indonesia + logic toggle bahasa (default: English)
+│   └── main.js          # Toggle nav mobile, scroll-reveal, salin kode, tombol ke-atas
+└── images/             # Logo (SVG) & screenshot aplikasi (PNG) — sudah tersedia
 ```
 
 ## Bahasa (i18n)

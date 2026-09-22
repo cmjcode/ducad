@@ -84,7 +84,7 @@ objc2-ui-kit = { workspace = true }
 name = "DUCAD"
 identifier = "id.ducad.studio"
 icon = ["assets/icon.png"]
-version = "0.2.0"
+version = "0.2.1"
 copyright = "Copyright (c) 2026 Yulius Jayuda"
 category = "public.app-category.developer-tools"
 short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel OpenCASCADE"
