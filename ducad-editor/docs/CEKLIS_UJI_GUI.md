@@ -1,6 +1,6 @@
 # Ceklis Uji GUI DuCAD
 
-Diperbarui: 2026-09-20. Untuk penguji manual (QA) dan pengembang sebelum rilis.
+Diperbarui: 2026-09-22. Untuk penguji manual (QA) dan pengembang sebelum rilis.
 
 Tes otomatis (`cargo test --workspace`) menutup logika: kernel, engine, oplog,
 checks, diagnosis error, pengenal coretan, jembatan agent, dan proposal.
@@ -159,6 +159,38 @@ bisa diuji di macOS.
 | A8.3 | Lakukan operasi baru | Tercatat di cabang baru, entri lama tidak hilang | ☐ |
 | A8.4 | Pakai filter cabang di drawer | Bisa berpindah antara "Semua cabang" dan satu cabang tertentu | ☐ |
 | A8.5 | Tutup dan buka lagi aplikasi | Database histori lama tetap terbaca (migrasi kolom tidak menghapus data) | ☐ |
+
+### A9. Login akun DUCAD — Apple / Google / GitHub
+
+Butuh server auth DUCAD yang hidup. Siapkan dulu sesuai `docs/AUTH_SERVER.md`.
+**Sign in with Apple tidak bisa diuji lewat server lokal `http://`** — Apple
+menolak Return URL non-HTTPS, jadi butir A9.4 dan A9.5 butuh server staging
+ber-HTTPS.
+
+```bash
+# Menunjuk ke server lokal (hanya untuk uji Google/GitHub)
+DUCAD_SERVER_URL=http://127.0.0.1:3000 cargo run -p ducad-app
+```
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| A9.1 | Klik tombol akun di ujung kanan top bar | Tooltipnya "Akun DUCAD" (bukan "CMJCode"); drawer akun terbuka | ☐ |
+| A9.2 | Lihat drawer saat belum login | Tiga tombol selebar panel dengan tinggi sama, berurutan: **Masuk dengan Apple** (hitam, logo Apple) → Google (biru) → GitHub (gelap) | ☐ |
+| A9.3 | Baca teks pengantar drawer | Menyebut "Akun DUCAD"; tidak ada penyebutan CMJCode di mana pun | ☐ |
+| A9.4 | Klik **Masuk dengan Apple** | Browser terbuka ke `appleid.apple.com`; layar Apple menyebut **DUCAD** | ☐ |
+| A9.5 | Selesaikan login Apple, pilih "Sembunyikan Email Saya" | Halaman browser: "✨ Login DUCAD Berhasil!"; drawer berubah jadi akun terisi; email berupa `…@privaterelay.appleid.com` | ☐ |
+| A9.6 | Klik **Masuk dengan Google** | Layar consent Google menyebut **DUCAD**, bukan nama aplikasi lain | ☐ |
+| A9.7 | Klik **Masuk dengan GitHub** | Layar otorisasi GitHub menyebut **DUCAD** | ☐ |
+| A9.8 | Selama menunggu, lihat drawer | Pesan "Menunggu login via Apple/Google/GitHub…" + tombol **Batal** | ☐ |
+| A9.9 | Tekan **Batal**, lalu coba login lagi | Kembali ke daftar tombol; percobaan kedua tetap berfungsi (tidak ada port/ticket yang nyangkut) | ☐ |
+| A9.10 | Tutup tab browser tanpa menyelesaikan login, tunggu 3 menit | Status jadi galat "Proses login timeout setelah 3 menit", aplikasi tetap responsif | ☐ |
+| A9.11 | Matikan server auth, lalu klik salah satu tombol login | Aplikasi TIDAK hang; poll gagal berulang lalu berakhir timeout dengan pesan jelas | ☐ |
+| A9.12 | Login berhasil, lalu tutup dan buka lagi aplikasi | Masih login (`~/.ducad/session.json` terbaca); nama/inisial tampil di tombol akun | ☐ |
+| A9.13 | Tekan **Keluar dari Akun** | Status "Berhasil keluar dari akun DUCAD."; `~/.ducad/session.json` terhapus; drawer kembali ke tiga tombol | ☐ |
+| A9.14 | **Build sandbox macOS** (`./build_macos.sh`, bukan `cargo run`): ulangi A9.4/A9.6/A9.7 | Login tetap berhasil lewat ticket polling walau App Sandbox memblokir listener loopback. Log memuat "Listener loopback tidak tersedia" — itu normal, bukan galat | ☐ |
+| A9.15 | **Build iPad** (`./build_ipad.sh`): ketuk tombol login | Safari benar-benar terbuka (tidak diam di "Menunggu login…"), dan login selesai setelah kembali ke aplikasi | ☐ |
+| A9.16 | Di iPad, kembali ke DUCAD sebelum login selesai lalu tunggu | Token tetap masuk lewat polling tanpa perlu menyentuh apa pun | ☐ |
+| A9.17 | Server sengaja tanpa `APPLE_CLIENT_ID`, lalu klik Apple | Pesan galat dari server ditampilkan apa adanya ("Sign in with Apple is not configured…"), bukan timeout senyap | ☐ |
 
 ---
 

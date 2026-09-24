@@ -1,11 +1,13 @@
-//! Panel Popup & Pengaturan Akun CMJCode / Cloud Sync untuk Ducad.
+//! Panel Popup & Pengaturan Akun DUCAD / Cloud Sync untuk DUCAD.
 
 use ducad_cloud::{AuthStatus, DucadAccount, OAuthProvider};
 use egui::{
     Align, Align2, Area, Color32, CornerRadius, Frame, Layout, Margin, Order, Pos2, Rect,
     RichText, Sense, Stroke, Ui, Vec2,
 };
-use egui_icons::icons::{ICON_CLOSE, ICON_CLOUD, ICON_LOGOUT, ICON_SYNC};
+use egui_icons::icons::{
+    ICON_APPLE, ICON_CLOSE, ICON_CLOUD, ICON_GITHUB, ICON_GOOGLE, ICON_LOGOUT, ICON_SYNC,
+};
 
 use crate::theme::{
     ACCENT_BLUE, BG_CARD_DARK, BG_PANEL_DARK, BORDER_SUBTLE,
@@ -60,7 +62,7 @@ impl AccountDrawer {
                         // Header popup
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("{} Akun CMJCode", ICON_CLOUD.codepoint))
+                                RichText::new(format!("{} Akun DUCAD", ICON_CLOUD.codepoint))
                                     .size(15.0)
                                     .strong()
                                     .color(TEXT_PRIMARY),
@@ -201,54 +203,69 @@ impl AccountDrawer {
         }
     }
 
-    fn render_logged_out(
-        ui: &mut Ui,
-        event: &mut Option<AccountDrawerEvent>,
-    ) {
+    fn render_logged_out(ui: &mut Ui, event: &mut Option<AccountDrawerEvent>) {
         ui.label(
-            RichText::new("Masuk dengan Akun CMJCode untuk menikmati sinkronisasi proyek CAD cloud dan kolaborasi multi-user.")
+            RichText::new("Masuk dengan Akun DUCAD untuk menikmati sinkronisasi proyek CAD cloud dan kolaborasi multi-user.")
                 .size(12.0)
                 .color(TEXT_SECONDARY),
         );
 
         ui.add_space(14.0);
 
-        // Tombol Google
-        let google_btn = ui.add_sized(
-            [ui.available_width(), 34.0],
-            egui::Button::new(
-                RichText::new("Masuk dengan Google")
-                    .size(13.0)
-                    .strong()
-                    .color(Color32::WHITE),
-            )
-            .fill(Color32::from_rgb(37, 99, 235))
-            .corner_radius(CornerRadius::same(6)),
-        );
+        // Urutan tombol datang dari `OAuthProvider::all()`: Apple lebih dulu
+        // karena Human Interface Guidelines menuntut Sign in with Apple tidak
+        // kalah menonjol dari opsi login lain. Semua tombol setinggi 34 px
+        // dan selebar panel, jadi "sama menonjol" terpenuhi secara harfiah.
+        for (index, provider) in OAuthProvider::all().into_iter().enumerate() {
+            if index > 0 {
+                ui.add_space(6.0);
+            }
+            if Self::render_login_button(ui, provider).clicked() {
+                *event = Some(AccountDrawerEvent::Login(provider));
+            }
+        }
+    }
 
-        if google_btn.clicked() {
-            *event = Some(AccountDrawerEvent::Login(OAuthProvider::Google));
+    /// Satu tombol login. Warna per provider mengikuti pedoman merek
+    /// masing-masing: hitam pekat + logo putih untuk Apple (salah satu dari
+    /// tiga gaya yang diizinkan Apple), biru Google, dan permukaan gelap
+    /// DUCAD untuk GitHub.
+    fn render_login_button(ui: &mut Ui, provider: OAuthProvider) -> egui::Response {
+        let (icon, label, fill, stroke) = match provider {
+            OAuthProvider::Apple => (
+                ICON_APPLE.codepoint,
+                "Masuk dengan Apple",
+                Color32::BLACK,
+                Some(Stroke::new(1.0, BORDER_SUBTLE)),
+            ),
+            OAuthProvider::Google => (
+                ICON_GOOGLE.codepoint,
+                "Masuk dengan Google",
+                Color32::from_rgb(37, 99, 235),
+                None,
+            ),
+            OAuthProvider::GitHub => (
+                ICON_GITHUB.codepoint,
+                "Masuk dengan GitHub",
+                BG_CARD_DARK,
+                Some(Stroke::new(1.0, BORDER_SUBTLE)),
+            ),
+        };
+
+        let mut button = egui::Button::new(
+            RichText::new(format!("{}  {}", icon, label))
+                .size(13.0)
+                .strong()
+                .color(Color32::WHITE),
+        )
+        .fill(fill)
+        .corner_radius(CornerRadius::same(6));
+
+        if let Some(stroke) = stroke {
+            button = button.stroke(stroke);
         }
 
-        ui.add_space(6.0);
-
-        // Tombol GitHub
-        let github_btn = ui.add_sized(
-            [ui.available_width(), 34.0],
-            egui::Button::new(
-                RichText::new("Masuk dengan GitHub")
-                    .size(13.0)
-                    .strong()
-                    .color(Color32::WHITE),
-            )
-            .fill(BG_CARD_DARK)
-            .stroke(Stroke::new(1.0, BORDER_SUBTLE))
-            .corner_radius(CornerRadius::same(6)),
-        );
-
-        if github_btn.clicked() {
-            *event = Some(AccountDrawerEvent::Login(OAuthProvider::GitHub));
-        }
+        ui.add_sized([ui.available_width(), 34.0], button)
     }
 
     fn render_authenticating(

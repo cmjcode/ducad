@@ -2,5 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- SENGAJA KOSONG soal Sign in with Apple.
+
+	     DUCAD memakai Sign in with Apple lewat alur web (Services ID
+	     `id.ducad.studio.signin` + form_post ke callback server), bukan
+	     `ASAuthorizationAppleIDProvider` native. Entitlement
+	     `com.apple.developer.applesignin` HANYA dibutuhkan jalur native;
+	     menambahkannya di sini tidak memperbaiki apa pun dan menuntut
+	     capability provisioning profile yang tidak dipakai.
+
+	     Lihat docs/adr/0003-identitas-auth-ducad.md §2. -->
 </dict>
 </plist>

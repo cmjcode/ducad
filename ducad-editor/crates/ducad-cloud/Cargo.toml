@@ -13,3 +13,14 @@ log = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 dirs = { workspace = true }
+ureq = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+
+# Pembuka browser di iOS. Di iOS tidak ada proses anak untuk di-`spawn`
+# (tidak ada `open`/`xdg-open`), jadi satu-satunya jalur yang didukung
+# adalah `-[UIApplication openURL:options:completionHandler:]`.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-ui-kit = { workspace = true }

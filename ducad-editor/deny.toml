@@ -34,6 +34,12 @@ allow = [
     "CC0-1.0",
     "BSL-1.0",
     "OFL-1.1",
+    # Daftar akar CA Mozilla (`webpki-roots`), ditarik `ureq` untuk verifikasi
+    # TLS saat ticket polling OAuth. CDLA-Permissive-2.0 adalah lisensi DATA
+    # permisif (tanpa copyleft, tanpa kewajiban selain pemberitahuan) — crate
+    # itu memang berisi sertifikat, bukan kode. Ditambahkan sadar saat
+    # Sign in with Apple masuk; lihat docs/adr/0003-identitas-auth-ducad.md §5.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 

@@ -1,0 +1,14 @@
+target/
+.env
+.env.local
+
+# Kunci Sign in with Apple. JANGAN pernah masuk git: `.p8` hanya bisa diunduh
+# sekali dari portal Apple, dan siapa pun yang memegangnya bisa menerbitkan
+# client secret atas nama Services ID DUCAD.
+*.p8
+
+# Konfigurasi deploy berisi SSH private key
+DEPLOY_SERVERS.yaml
+
+.DS_Store
+**/.DS_Store

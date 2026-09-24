@@ -1,0 +1,63 @@
+name: CI ducad-server
+
+# Terpisah dari `ci.yml` (yang membangun ducad-editor beserta OCCT): server
+# tidak menyentuh kernel sama sekali, jadi lane-nya selesai dalam hitungan
+# menit dan tidak perlu submodule.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ducad-server/**'
+      - '.github/workflows/ducad-server-ci.yml'
+  pull_request:
+    paths:
+      - 'ducad-server/**'
+      - '.github/workflows/ducad-server-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-ducad-server-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+defaults:
+  run:
+    working-directory: ducad-server
+
+jobs:
+  check:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # sqlx memakai native-tls, yang menuntut OpenSSL saat build.
+      - name: Pasang dependensi sistem
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ducad-server
+
+      # Berbeda dari lane ducad-editor, gate ini MEMBLOKIR sejak awal:
+      # basis kode ini baru, jadi tidak ada backlog selisih format.
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Tes di sini tidak butuh MySQL: yang menyentuh basis data diuji lewat
+      # server sungguhan (README §2), bukan di CI.
+      - name: test
+        run: cargo test

@@ -214,7 +214,7 @@ pub struct DuCADApp {
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
 
-    // CMJCode Cloud & Auth
+    // DUCAD Cloud & Auth
     pub account: Option<ducad_cloud::DucadAccount>,
     pub auth_status: ducad_cloud::AuthStatus,
     pub auth_rx: Option<std::sync::mpsc::Receiver<Result<ducad_cloud::TokenResponse, String>>>,
@@ -2059,7 +2059,7 @@ impl eframe::App for DuCADApp {
             folder_top_y = Some(area_resp.response.rect.min.y);
         }
 
-        // Popup Akun CMJCode / Cloud Sync
+        // Popup Akun DUCAD / Cloud Sync
         if self.account_drawer_open {
             if let Some(acct_ev) = ducad_ui::AccountDrawer::show(
                 &ctx,
@@ -2078,7 +2078,7 @@ impl eframe::App for DuCADApp {
                         let _ = ducad_cloud::clear_account();
                         self.account = None;
                         self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
-                        self.model_status = Some("Berhasil keluar dari akun CMJCode.".to_string());
+                        self.model_status = Some("Berhasil keluar dari akun DUCAD.".to_string());
                     }
                     ducad_ui::AccountDrawerEvent::CancelLogin => {
                         self.auth_status = ducad_cloud::AuthStatus::LoggedOut;

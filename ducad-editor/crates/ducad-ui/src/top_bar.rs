@@ -108,7 +108,7 @@ pub struct TopBarState {
     /// Rect layar tombol Items setelah dirender frame ini — dipakai caller
     /// buat menempatkan popup Items Drawer tepat di bawah tombolnya.
     pub items_button_rect: egui::Rect,
-    /// Akun pengguna CMJCode / Ducad jika terotentikasi
+    /// Akun pengguna DUCAD jika terotentikasi
     pub account: Option<DucadAccount>,
     /// Status apakah sedang dalam proses otentikasi browser
     pub is_authenticating: bool,
@@ -629,7 +629,7 @@ impl TopBar {
 
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Sisi paling kanan: Tombol Akun CMJCode / Cloud
+                    // Sisi paling kanan: Tombol Akun DUCAD / Cloud
                     let acct_btn_resp = if let Some(acc) = &state.account {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
                         if resp.hovered() {
@@ -654,7 +654,7 @@ impl TopBar {
                             3.0,
                             Color32::from_rgb(74, 222, 128),
                         );
-                        resp.on_hover_text(format!("Akun CMJCode: {} ({})", acc.display_title(), acc.email))
+                        resp.on_hover_text(format!("Akun DUCAD: {} ({})", acc.display_title(), acc.email))
                     } else if state.is_authenticating {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
                         ui.painter().text(
@@ -671,7 +671,7 @@ impl TopBar {
                             ICON_PERSON.codepoint,
                             icon_sz,
                             state.account_drawer_open,
-                            "Akun CMJCode",
+                            "Akun DUCAD",
                             None,
                             Some("Masuk ke Cloud / SSO"),
                             None,

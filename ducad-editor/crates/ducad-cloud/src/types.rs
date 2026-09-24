@@ -1,11 +1,17 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-/// Provider OAuth yang didukung oleh CMJCode Auth Server
+/// Provider OAuth yang didukung oleh server auth DUCAD
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OAuthProvider {
     Google,
     GitHub,
+    /// Diwajibkan App Store Guideline 4.8: aplikasi yang menyediakan login
+    /// pihak ketiga (Google/GitHub di sini) HARUS juga menyediakan layanan
+    /// yang membatasi pengumpulan data ke nama + email dan mengizinkan
+    /// pengguna menyembunyikan alamat aslinya. Tanpa varian ini build iPad
+    /// DUCAD berisiko ditolak review.
+    Apple,
 }
 
 impl OAuthProvider {
@@ -13,14 +19,28 @@ impl OAuthProvider {
         match self {
             OAuthProvider::Google => "Google",
             OAuthProvider::GitHub => "GitHub",
+            OAuthProvider::Apple => "Apple",
         }
     }
 
+    /// Segmen path pada `/api/v1/auth/login/{path}` di server auth DUCAD.
     pub fn path(&self) -> &'static str {
         match self {
             OAuthProvider::Google => "google",
             OAuthProvider::GitHub => "github",
+            OAuthProvider::Apple => "apple",
         }
+    }
+
+    /// Semua provider dalam urutan tampil di UI. Apple lebih dulu karena
+    /// Human Interface Guidelines menuntut tombol Sign in with Apple tidak
+    /// kalah menonjol dari opsi login lain.
+    pub fn all() -> [OAuthProvider; 3] {
+        [
+            OAuthProvider::Apple,
+            OAuthProvider::Google,
+            OAuthProvider::GitHub,
+        ]
     }
 }
 
@@ -33,6 +53,14 @@ pub struct UserResponse {
     pub avatar_url: Option<String>,
     pub username: Option<String>,
     pub phone: Option<String>,
+    /// Tier lisensi menurut server. `ducad-server` mengirimkannya pada
+    /// setiap balasan token; `None` berarti server tidak menyebutkannya,
+    /// dan `token_to_account` memakai nilai bawaan.
+    ///
+    /// Field `Option` yang hilang dari JSON menjadi `None` tanpa perlu
+    /// `#[serde(default)]` — itu perilaku bawaan serde, dan alasan
+    /// penambahan field di sini tidak memutus sesi yang sudah ada.
+    pub license_tier: Option<String>,
 }
 
 /// Response payload otentikasi dari server
@@ -44,7 +72,7 @@ pub struct TokenResponse {
     pub user: UserResponse,
 }
 
-/// Akun pengguna Ducad yang tersimpan di sesi lokal
+/// Akun pengguna DUCAD yang tersimpan di sesi lokal
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DucadAccount {
     pub user_id: String,
@@ -110,6 +138,22 @@ pub enum AuthStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_provider_label_and_path() {
+        assert_eq!(OAuthProvider::Apple.label(), "Apple");
+        assert_eq!(OAuthProvider::Apple.path(), "apple");
+        assert_eq!(OAuthProvider::Google.path(), "google");
+        assert_eq!(OAuthProvider::GitHub.path(), "github");
+    }
+
+    #[test]
+    fn test_provider_order_puts_apple_first() {
+        // Human Interface Guidelines: Sign in with Apple tidak boleh kalah
+        // menonjol dari opsi lain, jadi urutannya dikunci oleh tes.
+        assert_eq!(OAuthProvider::all()[0], OAuthProvider::Apple);
+        assert_eq!(OAuthProvider::all().len(), 3);
+    }
 
     #[test]
     fn test_account_initials_and_display_title() {

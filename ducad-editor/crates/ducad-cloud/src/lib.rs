@@ -1,4 +1,4 @@
-//! `ducad-cloud`: Modul integrasi cloud, otentikasi SSO CMJCode, dan sinkronisasi untuk Ducad CAD.
+//! `ducad-cloud`: Modul integrasi cloud, otentikasi SSO DUCAD, dan sinkronisasi untuk DUCAD CAD.
 
 pub mod auth;
 pub mod client;

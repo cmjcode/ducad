@@ -75,6 +75,18 @@ slotmap = { version = "1", features = ["serde"] }
 image = "0.25"
 log = "0.4"
 env_logger = "0.11"
+# Klien HTTP untuk ticket polling OAuth (`ducad-cloud`). `ureq` DIPILIH
+# ketimbang `reqwest` yang dipakai tabular-client: alur poll-nya blocking
+# di thread sendiri, jadi runtime async tidak dibutuhkan — dan workspace
+# ini sama sekali belum menarik tokio/hyper, yang akan jadi penambahan
+# graf dependensi terbesar di repo hanya untuk satu POST per 1.5 detik.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+# Ticket OAuth 128-bit acak + encoding hex-nya (`ducad-cloud`). `getrandom`
+# langsung, bukan `rand`: yang dibutuhkan hanya mengisi 16 byte dari CSPRNG
+# sistem, dan versi ini sudah ada di pohon dependensi — menarik `rand` akan
+# menambah salinan ketiganya (0.9 dan 0.10 sudah masuk lewat dependensi lain).
+getrandom = "0.3"
+hex = "0.4"
 opencascade = "0.3"
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
@@ -97,6 +109,10 @@ objc2-foundation = { version = "0.3", features = [
     "NSURL",
     "NSBundle",
     "NSProcessInfo",
+    # `NSDictionary` dibutuhkan `ducad-cloud::auth::open_url` di iOS:
+    # `-[UIApplication openURL:options:completionHandler:]` menuntut
+    # dictionary opsi (boleh kosong), tidak ada overload tanpa itu.
+    "NSDictionary",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSApplication",

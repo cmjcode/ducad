@@ -17,5 +17,16 @@
 	<!-- Allow user-selected files read-only -->
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
+
+	<!-- CATATAN: `com.apple.security.network.server` SENGAJA tidak diminta.
+
+	     Entitlement itu akan memulihkan listener loopback untuk callback
+	     OAuth di dalam sandbox, tapi ia menyatakan "aplikasi ini menerima
+	     koneksi masuk" — hal yang ditanyai reviewer App Store. Login DUCAD
+	     tidak membutuhkannya: token dijemput lewat ticket polling HTTPS
+	     (`ducad-cloud::auth`), dan kegagalan bind loopback di sandbox
+	     ditangani sebagai kondisi normal, bukan galat.
+
+	     Lihat docs/adr/0003-identitas-auth-ducad.md §3 dan §4. -->
 </dict>
 </plist>
