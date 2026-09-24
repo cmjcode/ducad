@@ -133,6 +133,7 @@ pub struct AddSolidCommand {
     /// op pembuatnya). `None` = pakai `label`, perilaku GUI lama.
     body_name: Option<String>,
     pending: Option<BodyGeometry>,
+    material: Option<ducad_core::Material>,
     id: Option<BodyId>,
 }
 
@@ -142,6 +143,7 @@ impl AddSolidCommand {
             label: label.into(),
             body_name: None,
             pending: Some(geometry),
+            material: None,
             id: None,
         }
     }
@@ -149,6 +151,12 @@ impl AddSolidCommand {
     /// Beri body nama sendiri; `label` tetap menjadi nama command (undo).
     pub fn with_body_name(mut self, name: impl Into<String>) -> Self {
         self.body_name = Some(name.into());
+        self
+    }
+
+    /// Terapkan material tertentu pada body baru.
+    pub fn with_material(mut self, material: ducad_core::Material) -> Self {
+        self.material = Some(material);
         self
     }
 }
@@ -161,7 +169,11 @@ impl Command<ModelDoc> for AddSolidCommand {
     fn apply(&mut self, model: &mut ModelDoc) {
         if let Some(geo) = self.pending.take() {
             let name = self.body_name.clone().unwrap_or_else(|| self.label.clone());
-            let id = model.doc.add_body(name);
+            let id = if let Some(mat) = self.material {
+                model.doc.add_body_with_material(name, mat)
+            } else {
+                model.doc.add_body(name)
+            };
             model.geometry.insert(id, geo);
             self.id = Some(id);
         }
@@ -177,15 +189,27 @@ impl Command<ModelDoc> for AddSolidCommand {
     }
 }
 
-/// Tambah beberapa body baru sekaligus dalam 1 langkah undo/redo (dipakai oleh Pattern 3D).
+/// Tambah beberapa body baru sekaligus dalam 1 langkah undo/redo (dipakai oleh Pattern 3D dan per_object).
 pub struct AddMultipleSolidsCommand {
     label: String,
-    pending: Option<Vec<(String, BodyGeometry)>>,
+    pending: Option<Vec<(String, BodyGeometry, Option<ducad_core::Material>)>>,
     ids: Option<Vec<BodyId>>,
 }
 
 impl AddMultipleSolidsCommand {
     pub fn new(label: impl Into<String>, bodies: Vec<(String, BodyGeometry)>) -> Self {
+        let with_mats = bodies.into_iter().map(|(n, g)| (n, g, None)).collect();
+        Self {
+            label: label.into(),
+            pending: Some(with_mats),
+            ids: None,
+        }
+    }
+
+    pub fn with_materials(
+        label: impl Into<String>,
+        bodies: Vec<(String, BodyGeometry, Option<ducad_core::Material>)>,
+    ) -> Self {
         Self {
             label: label.into(),
             pending: Some(bodies),
@@ -206,8 +230,12 @@ impl Command<ModelDoc> for AddMultipleSolidsCommand {
     fn apply(&mut self, model: &mut ModelDoc) {
         if let Some(items) = self.pending.take() {
             let mut created = Vec::with_capacity(items.len());
-            for (name, geo) in items {
-                let id = model.doc.add_body(name);
+            for (name, geo, mat) in items {
+                let id = if let Some(m) = mat {
+                    model.doc.add_body_with_material(name, m)
+                } else {
+                    model.doc.add_body(name)
+                };
                 model.geometry.insert(id, geo);
                 created.push(id);
             }
@@ -221,7 +249,7 @@ impl Command<ModelDoc> for AddMultipleSolidsCommand {
             for id in ids {
                 if let Some(body) = model.doc.bodies.remove(id) {
                     if let Some(geo) = model.geometry.remove(id) {
-                        pending.push((body.name, geo));
+                        pending.push((body.name, geo, Some(body.material)));
                     }
                 }
             }

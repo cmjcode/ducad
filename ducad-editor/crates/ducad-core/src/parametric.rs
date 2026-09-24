@@ -64,6 +64,10 @@ pub enum FeaturePayload {
         distance: f64,
         plane_index: usize,
         is_cut: bool,
+        #[serde(default)]
+        source_entities: Vec<String>,
+        #[serde(default)]
+        material_from_style: bool,
     },
     /// Operasi Revolve Solid 3D memutari sumbu poros.
     Revolve {
@@ -515,6 +519,8 @@ mod tests {
                 distance: 25.0,
                 plane_index: 0,
                 is_cut: false,
+                source_entities: Vec::new(),
+                material_from_style: false,
             },
             vec![f_sketch],
         );
@@ -561,6 +567,8 @@ mod tests {
                 distance: 40.0,
                 plane_index: 0,
                 is_cut: false,
+                source_entities: Vec::new(),
+                material_from_style: false,
             },
             vec![f_sketch],
         );

@@ -1378,6 +1378,9 @@
         }
       ]
     },
+    "MaterialSel": {
+      "type": "string"
+    },
     "Num": {
       "anyOf": [
         {
@@ -1451,6 +1454,14 @@
             "id": {
               "type": "string"
             },
+            "material": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MaterialSel"
+                }
+              ],
+              "default": "default"
+            },
             "mode": {
               "allOf": [
                 {
@@ -1464,6 +1475,21 @@
                 "extrude"
               ],
               "type": "string"
+            },
+            "outline": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/OutlineSpec"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "per_object": {
+              "default": false,
+              "type": "boolean"
             },
             "profile": {
               "allOf": [
@@ -1875,6 +1901,24 @@
           "type": "object"
         }
       ]
+    },
+    "OutlineSpec": {
+      "additionalProperties": false,
+      "description": "Spesifikasi outline untuk mengekstrusi stroke garis saja (bukan isian).",
+      "properties": {
+        "width": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Num"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
     },
     "PatternKind": {
       "oneOf": [

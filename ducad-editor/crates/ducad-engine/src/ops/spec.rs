@@ -39,6 +39,12 @@ pub enum Op {
         mode: BodyMode,
         #[serde(default)]
         target: Option<String>,
+        #[serde(default)]
+        per_object: bool,
+        #[serde(default)]
+        material: MaterialSel,
+        #[serde(default)]
+        outline: Option<OutlineSpec>,
     },
     Revolve {
         id: String,
@@ -184,6 +190,97 @@ pub enum BodyMode {
     New,
     Add,
     Cut,
+}
+
+/// Pemilihan material solid untuk extrude: `"default"`, `"from_style"`,
+/// atau preset tertentu (misal `"matte_plastic"`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum MaterialSel {
+    #[default]
+    Default,
+    FromStyle,
+    Preset(String),
+}
+
+impl<'de> Deserialize<'de> for MaterialSel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+        struct MaterialSelVisitor;
+
+        impl<'de> de::Visitor<'de> for MaterialSelVisitor {
+            type Value = MaterialSel;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string (\"default\", \"from_style\", or preset name) or an object with preset")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<MaterialSel, E>
+            where
+                E: de::Error,
+            {
+                match value.to_ascii_lowercase().as_str() {
+                    "default" => Ok(MaterialSel::Default),
+                    "from_style" => Ok(MaterialSel::FromStyle),
+                    other => Ok(MaterialSel::Preset(other.to_string())),
+                }
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<MaterialSel, M::Error>
+            where
+                M: de::MapAccess<'de>,
+            {
+                let mut preset = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "preset" {
+                        preset = Some(map.next_value::<String>()?);
+                    } else {
+                        let _: serde_json::Value = map.next_value()?;
+                    }
+                }
+                if let Some(p) = preset {
+                    Ok(MaterialSel::Preset(p))
+                } else {
+                    Ok(MaterialSel::Default)
+                }
+            }
+        }
+
+        deserializer.deserialize_any(MaterialSelVisitor)
+    }
+}
+
+impl Serialize for MaterialSel {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            MaterialSel::Default => serializer.serialize_str("default"),
+            MaterialSel::FromStyle => serializer.serialize_str("from_style"),
+            MaterialSel::Preset(p) => serializer.serialize_str(p),
+        }
+    }
+}
+
+impl JsonSchema for MaterialSel {
+    fn schema_name() -> String {
+        "MaterialSel".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        String::json_schema(gen)
+    }
+}
+
+/// Spesifikasi outline untuk mengekstrusi stroke garis saja (bukan isian).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct OutlineSpec {
+    #[serde(default)]
+    pub width: Option<Num>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use ducad_core::{BodyId, UndoStack};
 use ducad_io::native::NativeBody;
 use ducad_kernel::{ExtrudeExtent, KernelShape, SurfaceKind};
-use ducad_sketch::{EntityId, PlaneRef, Sketch, SketchId, SketchSet};
+use ducad_sketch::{
+    Entity, EntityId, FillRule, PathSeg, PlaneRef, Sketch, SketchId, SketchSet, Subpath,
+};
 use glam::{DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 
@@ -21,9 +23,10 @@ use crate::model::{
 use crate::ops::sketch::{build_sketch, resolve_plane, ResolvedPlane};
 use crate::ops::{
     eval, eval_arr, is_valid_op_id, AxisSpec, BodyMode, BoolKind, ExtrudeDir, HoleKindSpec,
-    HoleSpecRef, Num, Op, Params, PatternKind, PrimitiveSpec, ProfileSel,
+    HoleSpecRef, MaterialSel, Num, Op, OutlineSpec, Params, PatternKind, PrimitiveSpec, ProfileSel,
 };
 use crate::plane::PlaneFrame;
+use crate::profile;
 
 /// Isi field `design` di file `.ducad`: sumber kebenaran part parametrik.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -500,17 +503,111 @@ impl SessionCore<'_> {
                 direction,
                 mode,
                 target,
+                per_object,
+                material,
+                outline,
             } => {
+                if *per_object && *mode != BodyMode::New {
+                    return Err(OpError::invalid("per_object hanya untuk body baru"));
+                }
                 let d = eval(distance, &params)?;
                 let extent = extent_for(*direction, d);
-                let solids = {
+                compute::validate_extent(extent)?;
+
+                if *per_object {
+                    let (sk, frame) = self.sketch(sketch)?;
+                    let ids: HashSet<EntityId> = match profile {
+                        ProfileSel::Names { .. } => profile_entities(sk, profile)?,
+                        ProfileSel::All(_) => sk
+                            .entities
+                            .iter()
+                            .filter(|(eid, e)| !e.is_construction() && !sk.is_hidden(*eid))
+                            .map(|(eid, _)| eid)
+                            .collect(),
+                        ProfileSel::At { at } => {
+                            let [u, v] = eval_arr(at, &params)?;
+                            let pt = DVec2::new(u, v);
+                            let reg = ducad_sketch::find_region_at_point(sk, pt);
+                            reg.map(|r| r.entity_ids.into_iter().collect()).unwrap_or_default()
+                        }
+                    };
+                    let draw_order = sk.draw_order();
+                    let mut ordered_eids: Vec<EntityId> = draw_order
+                        .iter()
+                        .filter(|id| ids.contains(id))
+                        .copied()
+                        .collect();
+                    for id_ref in &ids {
+                        if !ordered_eids.contains(id_ref) {
+                            ordered_eids.push(*id_ref);
+                        }
+                    }
+                    if ordered_eids.is_empty() {
+                        return Err(OpError::new(
+                            OpErrorCode::ProfileNotClosed,
+                            "Tidak ada entitas yang dipilih untuk diekstrusi",
+                        ));
+                    }
+                    let mut named_bodies = Vec::with_capacity(ordered_eids.len());
+                    for eid in ordered_eids {
+                        let bname = entity_body_name(id, eid, sk, &draw_order);
+                        let style = sk.styles.get(eid).cloned().unwrap_or_else(ducad_sketch::Style::cad_default);
+                        let mat = resolve_material(material, &style);
+                        let geo = extrude_single_entity(sk, eid, outline.as_ref(), frame, extent, &params)?;
+                        named_bodies.push((bname, geo, Some(mat)));
+                    }
+                    out.created.extend(named_bodies.iter().map(|(n, _, _)| n.clone()));
+                    if named_bodies.len() == 1 {
+                        out.detail = volume_detail(&named_bodies[0].1);
+                    } else {
+                        let total_vol: f64 = named_bodies.iter().map(|(_, g, _)| g.shape.volume().abs()).sum();
+                        out.detail = serde_json::json!({ "volume": total_vol });
+                    }
+                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials("Extrude", named_bodies)));
+                } else if outline.is_some() {
+                    let (sk, frame) = self.sketch(sketch)?;
+                    let ids: HashSet<EntityId> = match profile {
+                        ProfileSel::Names { .. } => profile_entities(sk, profile)?,
+                        ProfileSel::All(_) => sk
+                            .entities
+                            .iter()
+                            .filter(|(eid, e)| !e.is_construction() && !sk.is_hidden(*eid))
+                            .map(|(eid, _)| eid)
+                            .collect(),
+                        ProfileSel::At { at } => {
+                            let [u, v] = eval_arr(at, &params)?;
+                            let pt = DVec2::new(u, v);
+                            let reg = ducad_sketch::find_region_at_point(sk, pt);
+                            reg.map(|r| r.entity_ids.into_iter().collect()).unwrap_or_default()
+                        }
+                    };
+                    let draw_order = sk.draw_order();
+                    let mut ordered_eids: Vec<EntityId> = draw_order
+                        .iter()
+                        .filter(|id| ids.contains(id))
+                        .copied()
+                        .collect();
+                    for id_ref in &ids {
+                        if !ordered_eids.contains(id_ref) {
+                            ordered_eids.push(*id_ref);
+                        }
+                    }
+                    let mut geos = Vec::new();
+                    for eid in ordered_eids {
+                        let geo = extrude_single_entity(sk, eid, outline.as_ref(), frame, extent, &params)?;
+                        geos.push(geo);
+                    }
+                    let mat = resolve_material_for_selection(material, sk, &ids);
+                    self.place_solids_with_material(id, "Extrude", geos, *mode, target.as_deref(), Some(mat), &mut out)?;
+                } else {
                     let (sk, frame) = self.sketch(sketch)?;
                     let ids = profile_entities(sk, profile)?;
                     let pick = profile_pick(profile, &ids, &params)?;
-                    compute::extrude(sk, &pick, frame, extent)?
-                };
-                let geos = solids.into_iter().map(|(_, g)| g).collect();
-                self.place_solids(id, "Extrude", geos, *mode, target.as_deref(), &mut out)?;
+                    let solids = compute::extrude(sk, &pick, frame, extent)?;
+                    let geos = solids.into_iter().map(|(_, g)| g).collect();
+                    let mat = resolve_material_for_selection(material, sk, &ids);
+                    self.place_solids_with_material(id, "Extrude", geos, *mode, target.as_deref(), Some(mat), &mut out)?;
+                }
             }
             Op::Revolve {
                 id,
@@ -803,9 +900,23 @@ impl SessionCore<'_> {
         &mut self,
         id: &str,
         label: &'static str,
+        geos: Vec<BodyGeometry>,
+        mode: BodyMode,
+        target: Option<&str>,
+        out: &mut OpOutcome,
+    ) -> OpResult<()> {
+        self.place_solids_with_material(id, label, geos, mode, target, None, out)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn place_solids_with_material(
+        &mut self,
+        id: &str,
+        label: &'static str,
         mut geos: Vec<BodyGeometry>,
         mode: BodyMode,
         target: Option<&str>,
+        material: Option<ducad_core::Material>,
         out: &mut OpOutcome,
     ) -> OpResult<()> {
         match mode {
@@ -818,9 +929,11 @@ impl SessionCore<'_> {
                 if geos.len() == 1 {
                     let geo = geos.pop().expect("len == 1");
                     out.detail = volume_detail(&geo);
-                    self.exec(Box::new(
-                        AddSolidCommand::new(label, geo).with_body_name(id),
-                    ));
+                    let mut cmd = AddSolidCommand::new(label, geo).with_body_name(id);
+                    if let Some(m) = material {
+                        cmd = cmd.with_material(m);
+                    }
+                    self.exec(Box::new(cmd));
                     out.created.push(id.to_string());
                 } else {
                     // Urutan deterministik: centroid mesh (x, lalu y, lalu z).
@@ -831,7 +944,7 @@ impl SessionCore<'_> {
                         );
                         ca.partial_cmp(&cb).unwrap_or(std::cmp::Ordering::Equal)
                     });
-                    let named: Vec<(String, BodyGeometry)> = geos
+                    let named: Vec<(String, BodyGeometry, Option<ducad_core::Material>)> = geos
                         .into_iter()
                         .enumerate()
                         .map(|(k, g)| {
@@ -842,11 +955,12 @@ impl SessionCore<'_> {
                                     format!("{id}.{}", k + 1)
                                 },
                                 g,
+                                material,
                             )
                         })
                         .collect();
-                    out.created.extend(named.iter().map(|(n, _)| n.clone()));
-                    self.exec(Box::new(AddMultipleSolidsCommand::new(label, named)));
+                    out.created.extend(named.iter().map(|(n, _, _)| n.clone()));
+                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials(label, named)));
                 }
             }
             BodyMode::Add | BodyMode::Cut => {
@@ -875,6 +989,249 @@ impl SessionCore<'_> {
             }
         }
         Ok(())
+    }
+}
+
+fn resolve_material(sel: &MaterialSel, style: &ducad_sketch::Style) -> ducad_core::Material {
+    match sel {
+        MaterialSel::Default => ducad_core::Material::default(),
+        MaterialSel::Preset(name) => match name.to_ascii_lowercase().as_str() {
+            "matte_plastic" => ducad_core::Material::matte_plastic(None),
+            "glossy_plastic" => ducad_core::Material::glossy_plastic(None),
+            "anodized_aluminum" => ducad_core::Material::anodized_aluminum(None),
+            "polished_chrome" => ducad_core::Material::polished_chrome(None),
+            "translucent_glass" => ducad_core::Material::translucent_glass(None),
+            _ => ducad_core::Material::default(),
+        },
+        MaterialSel::FromStyle => {
+            let raw_color = if let Some(ref fill) = style.fill {
+                Some(fill.average_color().0)
+            } else {
+                style.stroke.as_ref().map(|stroke| stroke.paint.average_color().0)
+            };
+            match raw_color {
+                None => ducad_core::Material::default(),
+                Some(mut c) => {
+                    c[3] *= style.opacity;
+                    if c[3] < 0.99 {
+                        ducad_core::Material::translucent_glass(Some(c))
+                    } else {
+                        ducad_core::Material::matte_plastic(Some(c))
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
+    match entity {
+        Entity::Path { subpaths, .. } => subpaths.clone(),
+        Entity::Line { start, end, .. } => vec![Subpath {
+            start: *start,
+            segs: vec![PathSeg::Line { end: *end }],
+            closed: false,
+        }],
+        Entity::Circle { center, radius, .. } => {
+            vec![ducad_sketch::path_edit::shape_to_path_circle(*center, *radius)]
+        }
+        Entity::Ellipse { center, radius_x, radius_y, .. } => {
+            vec![ducad_sketch::path_edit::shape_to_path_ellipse(*center, *radius_x, *radius_y)]
+        }
+        Entity::Spline { points, exact, .. } => {
+            if let Some(path) = exact {
+                if !path.is_empty() && !points.is_empty() {
+                    let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                    return vec![Subpath {
+                        start: points[0],
+                        segs: path.to_vec(),
+                        closed,
+                    }];
+                }
+            }
+            if points.len() >= 2 {
+                let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                let segs = points[1..].iter().map(|&p| PathSeg::Line { end: p }).collect();
+                vec![Subpath {
+                    start: points[0],
+                    segs,
+                    closed,
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        Entity::Arc { center, radius, start_angle, end_angle, .. } => {
+            let tau = std::f64::consts::TAU;
+            let span = {
+                let s = end_angle - start_angle;
+                if s <= 0.0 { s + tau } else { s }
+            };
+            let arc = ducad_sketch::kurbo::Arc::new(
+                ducad_sketch::kurbo::Point::new(center.x, center.y),
+                ducad_sketch::kurbo::Vec2::new(*radius, *radius),
+                *start_angle,
+                span,
+                0.0,
+            );
+            let mut bez = ducad_sketch::kurbo::BezPath::new();
+            let start_pt = *center + DVec2::new(radius * start_angle.cos(), radius * start_angle.sin());
+            bez.move_to(ducad_sketch::kurbo::Point::new(start_pt.x, start_pt.y));
+            arc.to_cubic_beziers(0.01, |p1, p2, p3| {
+                bez.curve_to(p1, p2, p3);
+            });
+            Subpath::from_kurbo(&bez)
+        }
+    }
+}
+
+fn resolve_material_for_selection(
+    material: &MaterialSel,
+    sk: &Sketch,
+    ids: &HashSet<EntityId>,
+) -> ducad_core::Material {
+    match material {
+        MaterialSel::Default => ducad_core::Material::default(),
+        MaterialSel::Preset(_) => resolve_material(material, &ducad_sketch::Style::cad_default()),
+        MaterialSel::FromStyle => {
+            let style = ids
+                .iter()
+                .find_map(|id| sk.styles.get(*id))
+                .or_else(|| sk.draw_order().iter().find_map(|id| sk.styles.get(*id)))
+                .cloned()
+                .unwrap_or_else(ducad_sketch::Style::cad_default);
+            resolve_material(material, &style)
+        }
+    }
+}
+
+fn entity_body_name(id: &str, eid: EntityId, sketch: &Sketch, draw_order: &[EntityId]) -> String {
+    let raw_name = sketch.entity_names.get(&eid).map(String::as_str);
+    let is_unnamed = match raw_name {
+        None => true,
+        Some(name) => {
+            if let Some(rest) = name.strip_prefix('e') {
+                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        }
+    };
+    if is_unnamed {
+        let k = draw_order.iter().position(|&x| x == eid).map(|pos| pos + 1).unwrap_or(1);
+        format!("{id}.p{k}")
+    } else {
+        format!("{id}.{}", raw_name.unwrap())
+    }
+}
+
+fn extrude_single_entity(
+    sk: &Sketch,
+    eid: EntityId,
+    outline: Option<&OutlineSpec>,
+    frame: &PlaneFrame,
+    extent: ExtrudeExtent,
+    params: &Params,
+) -> OpResult<BodyGeometry> {
+    let entity = sk.entities.get(eid).ok_or_else(|| {
+        OpError::new(OpErrorCode::UnknownRef, format!("Entitas {eid:?} tidak ditemukan"))
+    })?;
+
+    if let Some(outline_spec) = outline {
+        let subs = entity_to_subpaths(entity);
+        if subs.is_empty() {
+            return Err(OpError::new(
+                OpErrorCode::ProfileNotClosed,
+                "Entitas tidak memiliki kurva untuk di-outline",
+            ));
+        }
+        let mut stroke_style = sk
+            .styles
+            .get(eid)
+            .and_then(|s| s.stroke.clone())
+            .unwrap_or_else(|| ducad_sketch::Style::cad_default().stroke.unwrap());
+        if let Some(ref w) = outline_spec.width {
+            let width = eval(w, params)?;
+            if width <= 0.0 {
+                return Err(OpError::invalid(format!(
+                    "lebar outline harus > 0, didapat {width}"
+                )));
+            }
+            stroke_style.width_mm = width;
+        }
+        let stroked_subs = ducad_sketch::path_ops::stroke_to_path(&subs, &stroke_style, 0.01)
+            .map_err(|e| {
+                OpError::new(
+                    OpErrorCode::ProfileNotClosed,
+                    format!("Gagal stroke entitas: {e}"),
+                )
+            })?;
+        let stroked_entity = Entity::Path {
+            subpaths: stroked_subs,
+            is_construction: false,
+        };
+        let regs = profile::path_regions(&stroked_entity, FillRule::NonZero)
+            .map_err(|e| OpError::new(OpErrorCode::ProfileNotClosed, e))?;
+        let mut shapes = Vec::new();
+        for reg in regs {
+            let prof = reg.outer.with_holes(reg.holes);
+            let s = compute::extrude_one(&prof, frame, extent)
+                .map_err(|e| OpError::kernel("Extrude", e))?;
+            shapes.push(s);
+        }
+        if shapes.is_empty() {
+            return Err(OpError::new(
+                OpErrorCode::EmptyResult,
+                "Hasil extrude outline kosong",
+            ));
+        }
+        let final_shape = if shapes.len() == 1 {
+            shapes.pop().unwrap()
+        } else {
+            let refs: Vec<&KernelShape> = shapes.iter().collect();
+            ducad_kernel::make_compound(&refs)
+                .map_err(|e| OpError::kernel("Extrude compound", e))?
+        };
+        compute::finish("Extrude", final_shape)
+    } else {
+        match entity {
+            Entity::Path { .. } => {
+                let style = sk.styles.get(eid);
+                let fill_rule = style.map(|s| s.fill_rule).unwrap_or(FillRule::NonZero);
+                let regs = profile::path_regions(entity, fill_rule)
+                    .map_err(|e| OpError::new(OpErrorCode::ProfileNotClosed, e))?;
+                let mut shapes = Vec::new();
+                for reg in regs {
+                    let prof = reg.outer.with_holes(reg.holes);
+                    let s = compute::extrude_one(&prof, frame, extent)
+                        .map_err(|e| OpError::kernel("Extrude", e))?;
+                    shapes.push(s);
+                }
+                if shapes.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::EmptyResult,
+                        "Hasil extrude path kosong",
+                    ));
+                }
+                let final_shape = if shapes.len() == 1 {
+                    shapes.pop().unwrap()
+                } else {
+                    let refs: Vec<&KernelShape> = shapes.iter().collect();
+                    ducad_kernel::make_compound(&refs)
+                        .map_err(|e| OpError::kernel("Extrude compound", e))?
+                };
+                compute::finish("Extrude", final_shape)
+            }
+            _ => {
+                let mut s = HashSet::new();
+                s.insert(eid);
+                let prof = profile::build_profile_from_selection(sk, &s)
+                    .map_err(|msg| OpError::new(OpErrorCode::ProfileNotClosed, msg))?;
+                let shape = compute::extrude_one(&prof, frame, extent)
+                    .map_err(|e| OpError::kernel("Extrude", e))?;
+                compute::finish("Extrude", shape)
+            }
+        }
     }
 }
 

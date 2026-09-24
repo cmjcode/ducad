@@ -22,6 +22,7 @@ pub use primitive::{primitive, PrimitiveShape};
 pub use round::{chamfer, fillet, shell, EdgePick, FacePick};
 pub use sketch::solve_with;
 pub use solid::{boolean, extrude, resolve_profiles, revolve, ProfilePick};
+pub(crate) use solid::{extrude_one, validate_extent};
 
 use ducad_kernel::KernelShape;
 

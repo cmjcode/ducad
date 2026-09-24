@@ -130,6 +130,8 @@ impl DuCADApp {
                 distance,
                 plane_index: plane_idx,
                 is_cut,
+                source_entities: Vec::new(),
+                material_from_style: false,
             },
             vec![sketch_id],
         )
@@ -278,12 +280,14 @@ impl DuCADApp {
         };
 
         let new_payload = match existing.payload {
-            FeaturePayload::Extrude { sketch_id, plane_index, is_cut, .. } => {
+            FeaturePayload::Extrude { sketch_id, plane_index, is_cut, source_entities, material_from_style, .. } => {
                 FeaturePayload::Extrude {
                     sketch_id,
                     distance: val1,
                     plane_index,
                     is_cut,
+                    source_entities,
+                    material_from_style,
                 }
             }
             FeaturePayload::Revolve { sketch_id, axis_origin, axis_dir, plane_index, .. } => {

@@ -181,7 +181,7 @@ fn extent_offset_length(extent: ExtrudeExtent) -> (f64, f64) {
     }
 }
 
-fn validate_extent(extent: ExtrudeExtent) -> OpResult<()> {
+pub(crate) fn validate_extent(extent: ExtrudeExtent) -> OpResult<()> {
     let (_, length) = extent_offset_length(extent);
     let bad = match extent {
         ExtrudeExtent::Blind(d) => !d.is_finite() || d.abs() < 1e-9,
@@ -198,7 +198,7 @@ fn validate_extent(extent: ExtrudeExtent) -> OpResult<()> {
     Ok(())
 }
 
-fn extrude_one(
+pub(crate) fn extrude_one(
     profile: &Profile,
     plane: &PlaneFrame,
     extent: ExtrudeExtent,

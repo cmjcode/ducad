@@ -201,3 +201,140 @@ fn extrude_modes_and_multi_solid_naming() {
     let (_, frame) = s.sketch("cut").unwrap();
     assert!((frame.origin[2] - 5.0).abs() < 1e-9);
 }
+
+#[test]
+fn per_object_creates_named_bodies_in_draw_order() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"circle":{"center":[0,0],"r":5,"name":"logo"}},
+             {"circle":{"center":[30,0],"r":5}}
+          ]},
+          {"op":"extrude","id":"logo3d","sketch":"sk","distance":3,"per_object":true}
+        ]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    assert_eq!(
+        r.outcomes[1].created,
+        vec!["logo3d.logo".to_string(), "logo3d.p2".to_string()]
+    );
+    assert!(s.body("logo3d.logo").is_ok());
+    assert!(s.body("logo3d.p2").is_ok());
+}
+
+#[test]
+fn from_style_sets_material_color() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r##"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"path":{
+                "subpaths":[{
+                   "start":[0,0],
+                   "segs":[
+                     {"line":{"to":[10,0]}},
+                     {"line":{"to":[10,10]}},
+                     {"line":{"to":[0,10]}},
+                     {"line":{"to":[0,0]}}
+                   ],
+                   "closed":true
+                }],
+                "style":{"fill":"#FF0000","opacity":1.0},
+                "name":"red_box"
+             }}
+          ]},
+          {"op":"extrude","id":"solid","sketch":"sk","distance":2,"material":"from_style"}
+        ]"##),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let (bid, _) = s.body("solid").unwrap();
+    let body = s.model().doc.bodies.get(bid).unwrap();
+    assert_eq!(body.material.preset, ducad_core::MaterialPreset::MattePlastic);
+    assert!((body.material.base_color[0] - 1.0).abs() < 1e-2);
+    assert!(body.material.base_color[1] < 1e-2);
+    assert!(body.material.base_color[2] < 1e-2);
+}
+
+#[test]
+fn translucent_fill_becomes_glass() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r##"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"path":{
+                "subpaths":[{
+                   "start":[0,0],
+                   "segs":[
+                     {"line":{"to":[10,0]}},
+                     {"line":{"to":[10,10]}},
+                     {"line":{"to":[0,10]}},
+                     {"line":{"to":[0,0]}}
+                   ],
+                   "closed":true
+                }],
+                "style":{"fill":"#0000FF","opacity":0.5},
+                "name":"glass_box"
+             }}
+          ]},
+          {"op":"extrude","id":"glass","sketch":"sk","distance":2,"material":"from_style"}
+        ]"##),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let (bid, _) = s.body("glass").unwrap();
+    let body = s.model().doc.bodies.get(bid).unwrap();
+    assert_eq!(body.material.preset, ducad_core::MaterialPreset::TranslucentGlass);
+    assert!(body.material.base_color[3] < 0.99);
+}
+
+#[test]
+fn per_object_with_cut_is_invalid_param() {
+    let mut s = session_with_plate();
+    let r = s.run(
+        ops(r#"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"circle":{"center":[0,0],"r":2,"name":"c1"}}
+          ]},
+          {"op":"extrude","id":"cut_obj","sketch":"sk","distance":5,"per_object":true,"mode":"cut","target":"plate"}
+        ]"#),
+        false,
+    );
+    assert!(!r.committed);
+    let err = r.error.unwrap();
+    assert_eq!(err.code, OpErrorCode::InvalidParam);
+    assert!(err.message.contains("per_object hanya untuk body baru"), "{}", err.message);
+}
+
+#[test]
+fn extrude_without_new_fields_is_unchanged() {
+    let s = session_with_plate();
+    let v = volume(&s, "plate");
+    let expected = plate_volume(8.0);
+    assert!((v - expected).abs() / expected < 1e-3, "{v} vs {expected}");
+}
+
+#[test]
+fn outline_extrude_uses_stroke_width() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"circle":{"center":[0,0],"r":10,"name":"c1"}}
+          ]},
+          {"op":"extrude","id":"ring","sketch":"sk","distance":5,"outline":{"width":2.0}}
+        ]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let v = volume(&s, "ring");
+    // Outer r = 11, inner r = 9 => Area = PI * (121 - 81) = 40 * PI
+    // Height = 5 => Volume = 200 * PI
+    let expected = 200.0 * PI;
+    assert!(
+        (v - expected).abs() / expected < 0.02,
+        "Volume outline extrude {v} vs {expected}"
+    );
+}
