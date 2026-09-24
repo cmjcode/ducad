@@ -13,6 +13,7 @@ pub mod measure;
 pub mod ops;
 pub mod recognize;
 pub mod path_edit;
+pub mod path_ops;
 pub mod region;
 pub mod sketch;
 pub mod snap;
@@ -22,6 +23,8 @@ pub mod text;
 #[cfg(test)]
 mod tests;
 
+pub use kurbo;
+pub use path_ops::{area, boolean, offset, simplify, stroke_to_path, BoolOp, PathOpError};
 pub use path_edit::{
     shape_to_path, shape_to_path_circle, shape_to_path_ellipse, shape_to_path_polygon,
     shape_to_path_rect, PenBuilder, VectorShape, KAPPA,

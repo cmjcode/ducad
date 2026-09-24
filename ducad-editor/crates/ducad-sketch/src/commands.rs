@@ -209,6 +209,8 @@ pub struct ReplaceEntities {
     remove_ids: Vec<EntityId>,
     removed_data: Vec<DeletedEntityData>,
     insert: Vec<Entity>,
+    insert_styles: Vec<Option<Style>>,
+    insert_layers: Vec<Option<LayerId>>,
     inserted_ids: Vec<EntityId>,
 }
 
@@ -219,8 +221,24 @@ impl ReplaceEntities {
             remove_ids,
             removed_data: Vec::new(),
             insert,
+            insert_styles: Vec::new(),
+            insert_layers: Vec::new(),
             inserted_ids: Vec::new(),
         }
+    }
+
+    pub fn with_styles(mut self, styles: Vec<Option<Style>>) -> Self {
+        self.insert_styles = styles;
+        self
+    }
+
+    pub fn with_layers(mut self, layers: Vec<Option<LayerId>>) -> Self {
+        self.insert_layers = layers;
+        self
+    }
+
+    pub fn inserted_ids(&self) -> &[EntityId] {
+        &self.inserted_ids
     }
 }
 
@@ -265,8 +283,15 @@ impl Command<Sketch> for ReplaceEntities {
             .insert
             .iter()
             .cloned()
-            .map(|e| {
+            .enumerate()
+            .map(|(i, e)| {
                 let id = sketch.entities.insert(e);
+                if let Some(Some(style)) = self.insert_styles.get(i) {
+                    sketch.styles.insert(id, style.clone());
+                }
+                if let Some(Some(layer)) = self.insert_layers.get(i) {
+                    sketch.entity_layer.insert(id, *layer);
+                }
                 sketch.touch(id);
                 id
             })
@@ -275,6 +300,8 @@ impl Command<Sketch> for ReplaceEntities {
     fn revert(&mut self, sketch: &mut Sketch) {
         for id in self.inserted_ids.drain(..) {
             sketch.entities.remove(id);
+            sketch.styles.remove(id);
+            sketch.entity_layer.remove(id);
             sketch.touch(id);
         }
         let mut restored = Vec::new();

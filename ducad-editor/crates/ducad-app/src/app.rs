@@ -3424,6 +3424,18 @@ impl eframe::App for DuCADApp {
                                     }
                                 }
                                 ContextAction::ClearSelection => self.selected.clear(),
+                                ContextAction::VectorUnion => {
+                                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union);
+                                }
+                                ContextAction::VectorDifference => {
+                                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Difference);
+                                }
+                                ContextAction::VectorIntersection => {
+                                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Intersection);
+                                }
+                                ContextAction::VectorXor => {
+                                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Xor);
+                                }
                                 ContextAction::Rename => {
                                     // Buka popup rename untuk grup 2D
                                     // Isi input dengan nama grup saat ini (jika semua entitas punya nama yang sama)
@@ -3912,6 +3924,20 @@ impl DuCADApp {
         }
         self.sketch_mut().touch(new_id);
         Some(new_id)
+    }
+
+    /// Menjalankan operasi boolean Shape Builder (M2.4) pada entitas sketch terpilih.
+    pub fn apply_shape_builder_boolean(&mut self, op: ducad_sketch::BoolOp) {
+        let selected_ids: Vec<ducad_sketch::EntityId> = self.selected.iter().copied().collect();
+        match crate::vector::ShapeBuilder::build_boolean_command(self.sketch(), &selected_ids, op, 0.01) {
+            Ok(cmd) => {
+                self.execute_sketch_command(Box::new(cmd));
+                self.selected.clear();
+            }
+            Err(e) => {
+                self.model_status = Some(format!("Gagal operasi boolean: {e}"));
+            }
+        }
     }
 }
 

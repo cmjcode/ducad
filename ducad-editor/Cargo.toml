@@ -31,6 +31,7 @@ lyon_tessellation = "1.0"
 lyon_path = "1.0"
 criterion = "0.5"
 proptest = "1"
+i_overlay = "9.0"
 
 glam = { version = "0.33", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1", features = ["derive"] }

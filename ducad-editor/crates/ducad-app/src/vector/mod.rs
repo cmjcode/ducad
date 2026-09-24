@@ -1,7 +1,9 @@
 pub mod node_edit;
 pub mod pen;
+pub mod shape_builder;
 pub use node_edit::NodeEditTool;
 pub use pen::PenTool;
+pub use shape_builder::ShapeBuilder;
 
 use std::collections::BTreeSet;
 pub use ducad_sketch::path_edit::HandleSide;

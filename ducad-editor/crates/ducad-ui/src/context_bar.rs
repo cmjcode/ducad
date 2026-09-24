@@ -44,6 +44,10 @@ pub enum ContextAction {
     MateAngle,
     OpenAssemblyTree,
     CheckClash,
+    VectorUnion,
+    VectorDifference,
+    VectorIntersection,
+    VectorXor,
 }
 
 #[derive(Default)]
@@ -118,6 +122,26 @@ impl ContextActionBar {
                 // 7. Helix / Coil
                 if context_action_btn(ui, egui_icons::icons::ICON_HEATING_COIL.codepoint, "Helix", TEXT_PRIMARY, icon_sz, "Buat pegas atau ulir spiral 3D (Helix / Coil)").clicked() {
                     action = Some(ContextAction::Helix);
+                }
+
+                if selected_count >= 2 {
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+
+                    // Operasi Boolean Vektor (Shape Builder M2.4)
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Gabung", TEXT_PRIMARY, icon_sz, "Gabungkan path terpilih (Union)").clicked() {
+                        action = Some(ContextAction::VectorUnion);
+                    }
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Potong", TEXT_PRIMARY, icon_sz, "Potong path bawah dengan path atas (Difference)").clicked() {
+                        action = Some(ContextAction::VectorDifference);
+                    }
+                    if context_action_btn(ui, ICON_CATEGORY.codepoint, "Iris", TEXT_PRIMARY, icon_sz, "Irisan path terpilih (Intersection)").clicked() {
+                        action = Some(ContextAction::VectorIntersection);
+                    }
+                    if context_action_btn(ui, ICON_FLIP.codepoint, "Kecualikan", TEXT_PRIMARY, icon_sz, "Kecualikan area tumpang tindih (Xor)").clicked() {
+                        action = Some(ContextAction::VectorXor);
+                    }
                 }
 
                 ui.add_space(2.0);
