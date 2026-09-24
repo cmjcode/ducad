@@ -56,6 +56,26 @@ pub enum ContextAction {
     Ungroup,
 }
 
+/// State kontrol ekstrusi vektor pada contextual action bar (M3.4).
+#[derive(Debug, Clone)]
+pub struct VectorExtrudeBarState {
+    pub depth_input: String,
+    pub per_object: bool,
+    pub material_from_style: bool,
+    pub outline_only: bool,
+}
+
+impl Default for VectorExtrudeBarState {
+    fn default() -> Self {
+        Self {
+            depth_input: "10.0".to_string(),
+            per_object: false,
+            material_from_style: true,
+            outline_only: false,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct ContextActionBar;
 
@@ -64,11 +84,12 @@ impl ContextActionBar {
         Self
     }
 
-    /// Render contextual action bar untuk seleksi 2D (Sketch Entities).
-    pub fn show_sketch_selection(
+    /// Render contextual action bar untuk seleksi vektor 2D dengan kontrol ekstrusi inline (M3.4).
+    pub fn show_vector_selection(
         ui: &mut Ui,
         selected_count: usize,
-        _has_closed_profile: bool,
+        has_closed_profile: bool,
+        state: &mut VectorExtrudeBarState,
         icon_size: f32,
     ) -> Option<ContextAction> {
         let mut action = None;
@@ -89,6 +110,154 @@ impl ContextActionBar {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
+
+                if has_closed_profile {
+                    // Tombol Ekstrusi Vektor
+                    if context_action_btn(
+                        ui,
+                        ICON_OPEN_IN_FULL.codepoint,
+                        "Ekstrusi",
+                        ACCENT_BLUE,
+                        icon_sz,
+                        "Ekstrusi vektor terpilih ke 3D (Enter)",
+                    )
+                    .clicked()
+                    {
+                        action = Some(ContextAction::Extrude);
+                    }
+
+                    // Ketik tebal (mm) langsung
+                    let depth_edit = ui.add_sized(
+                        Vec2::new(46.0, 20.0),
+                        egui::TextEdit::singleline(&mut state.depth_input),
+                    );
+                    if depth_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        action = Some(ContextAction::Extrude);
+                    }
+                    ui.label(RichText::new("mm").size(10.5).color(TEXT_SECONDARY));
+
+                    // Toggle "Per objek"
+                    ui.checkbox(&mut state.per_object, RichText::new("Per objek").size(10.5))
+                        .on_hover_text("Buat body terpisah untuk tiap path tertutup");
+
+                    // Toggle "Warna dari fill" (default on)
+                    ui.checkbox(&mut state.material_from_style, RichText::new("Warna fill").size(10.5))
+                        .on_hover_text("Gunakan warna fill vektor sebagai warna material solid 3D");
+
+                    // Toggle "Outline saja"
+                    ui.checkbox(&mut state.outline_only, RichText::new("Outline saja").size(10.5))
+                        .on_hover_text("Hanya ekstrusi garis luar (stroke) kurva");
+
+                    // Global enter bila ada fokus
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) && action.is_none() {
+                        action = Some(ContextAction::Extrude);
+                    }
+
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+                }
+
+                // 1. Offset
+                if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Offset", TEXT_PRIMARY, icon_sz, "Offset kurva / kontur terpilih (O)").clicked() {
+                    action = Some(ContextAction::Offset);
+                }
+
+                // 3. Mirror
+                if context_action_btn(ui, ICON_FLIP.codepoint, "Mirror", TEXT_PRIMARY, icon_sz, "Cerminkan elemen terpilih terhadap garis sumbu (M)").clicked() {
+                    action = Some(ContextAction::Mirror);
+                }
+
+                // 4. Trim
+                if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Trim", TEXT_PRIMARY, icon_sz, "Pangkas segmen garis yang bersilangan (T)").clicked() {
+                    action = Some(ContextAction::Trim);
+                }
+
+                if selected_count >= 2 {
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+
+                    // Operasi Boolean Vektor (Shape Builder M2.4)
+                    if context_action_btn(ui, ICON_CALL_MERGE.codepoint, "Gabung", TEXT_PRIMARY, icon_sz, "Gabungkan path terpilih (Union)").clicked() {
+                        action = Some(ContextAction::VectorUnion);
+                    }
+                    if context_action_btn(ui, ICON_CONTENT_CUT.codepoint, "Potong", TEXT_PRIMARY, icon_sz, "Potong path bawah dengan path atas (Difference)").clicked() {
+                        action = Some(ContextAction::VectorDifference);
+                    }
+                    if context_action_btn(ui, ICON_CATEGORY.codepoint, "Iris", TEXT_PRIMARY, icon_sz, "Irisan path terpilih (Intersection)").clicked() {
+                        action = Some(ContextAction::VectorIntersection);
+                    }
+                    if context_action_btn(ui, ICON_FLIP.codepoint, "Kecualikan", TEXT_PRIMARY, icon_sz, "Kecualikan area tumpang tindih (Xor)").clicked() {
+                        action = Some(ContextAction::VectorXor);
+                    }
+                }
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                // Rename
+                if context_action_btn(ui, ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, "Nama", ACCENT_BLUE, icon_sz, "Beri nama / kelompokkan entitas terpilih").clicked() {
+                    action = Some(ContextAction::Rename);
+                }
+
+                // Delete
+                if context_action_btn(ui, ICON_DELETE.codepoint, "Hapus", egui::Color32::from_rgb(255, 110, 110), icon_sz, "Hapus elemen terpilih (Delete)").clicked() {
+                    action = Some(ContextAction::Delete);
+                }
+
+                // Clear Selection
+                if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
+                    action = Some(ContextAction::ClearSelection);
+                }
+            });
+        });
+
+        action
+    }
+
+    /// Render contextual action bar untuk seleksi 2D (Sketch Entities).
+    pub fn show_sketch_selection(
+        ui: &mut Ui,
+        selected_count: usize,
+        has_closed_profile: bool,
+        icon_size: f32,
+    ) -> Option<ContextAction> {
+        let mut action = None;
+        let icon_sz = icon_size.clamp(12.0, 18.0);
+
+        pill_frame().show(ui, |ui| {
+            ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
+            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+            ui.horizontal(|ui| {
+                // Header ringkas info seleksi
+                ui.label(
+                    RichText::new(format!("{} terpilih", selected_count))
+                        .size(11.0)
+                        .strong()
+                        .color(ACCENT_BLUE),
+                );
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                if has_closed_profile {
+                    // Tombol Ekstrusi
+                    if context_action_btn(
+                        ui,
+                        ICON_OPEN_IN_FULL.codepoint,
+                        "Ekstrusi",
+                        ACCENT_BLUE,
+                        icon_sz,
+                        "Ekstrusi profil tertutup menjadi solid 3D (E)",
+                    )
+                    .clicked()
+                    {
+                        action = Some(ContextAction::Extrude);
+                    }
+                }
 
                 // 1. Offset
                 if context_action_btn(ui, ICON_OPEN_IN_FULL.codepoint, "Offset", TEXT_PRIMARY, icon_sz, "Offset kurva / kontur terpilih (O)").clicked() {

@@ -11,6 +11,8 @@ use egui::{RichText, Ui, Vec2};
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayersPanelEvent {
     SelectActive(LayerId),
+    SelectLayer(LayerId),
+    ExtrudeLayer(LayerId),
     ToggleVisibility(LayerId, bool),
     ToggleLocked(LayerId, bool),
     Rename(LayerId, String),
@@ -117,10 +119,19 @@ impl LayersPanelState {
                                         self.editing_layer = None;
                                     }
                                 } else {
-                                    render_layer_name(ui, layer, &mut self.editing_layer, lid);
+                                    if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
+                                        event = Some(ev);
+                                    }
                                 }
                             } else {
-                                render_layer_name(ui, layer, &mut self.editing_layer, lid);
+                                if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
+                                    event = Some(ev);
+                                }
+                            }
+
+                            // Tombol Ekstrusi Layer (M3.4)
+                            if ui.small_button("🚀").on_hover_text("Ekstrusi layer ini ke 3D (per objek)").clicked() {
+                                event = Some(LayersPanelEvent::ExtrudeLayer(lid));
                             }
 
                             // 6. Urutan: Naik / Turun
@@ -149,10 +160,15 @@ fn render_layer_name(
     layer: &Layer,
     editing_state: &mut Option<(LayerId, String)>,
     lid: LayerId,
-) {
-    let resp = ui.selectable_label(false, &layer.name);
+) -> Option<LayersPanelEvent> {
+    let resp = ui.selectable_label(false, &layer.name).on_hover_text("Klik untuk memilih semua objek di layer ini (klik dua kali untuk ubah nama)");
     if resp.double_clicked() {
         *editing_state = Some((lid, layer.name.clone()));
+        None
+    } else if resp.clicked() {
+        Some(LayersPanelEvent::SelectLayer(lid))
+    } else {
+        None
     }
 }
 

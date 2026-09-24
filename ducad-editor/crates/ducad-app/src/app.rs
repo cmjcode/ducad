@@ -214,6 +214,8 @@ pub struct DuCADApp {
     pub feature_source_revs: std::collections::HashMap<ducad_core::FeatureId, std::collections::HashMap<ducad_sketch::EntityId, u64>>,
     pub last_checked_global_rev: u64,
     pub auto_regenerate_on_mode_switch: bool,
+    pub vector_extrude_state: ducad_ui::context_bar::VectorExtrudeBarState,
+    pub camera_animation: Option<crate::types::CameraAnimation>,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -571,6 +573,8 @@ impl DuCADApp {
             feature_source_revs: std::collections::HashMap::new(),
             last_checked_global_rev: 0,
             auto_regenerate_on_mode_switch: true,
+            vector_extrude_state: ducad_ui::context_bar::VectorExtrudeBarState::default(),
+            camera_animation: None,
             history_db,
             activity_cache,
             plane_menu_open: false,
@@ -864,6 +868,8 @@ impl DuCADApp {
             feature_source_revs: std::collections::HashMap::new(),
             last_checked_global_rev: 0,
             auto_regenerate_on_mode_switch: true,
+            vector_extrude_state: ducad_ui::context_bar::VectorExtrudeBarState::default(),
+            camera_animation: None,
             history_db,
             activity_cache: Vec::new(),
             plane_menu_open: false,
@@ -1105,6 +1111,26 @@ impl DuCADApp {
                 let _ = self.regenerate_parametric_model();
             }
         }
+    }
+
+    /// Mulai animasi rotasi kamera menuju tampilan isometrik (M3.4).
+    pub fn start_camera_animation_to_isometric(&mut self, duration_ms: u64) {
+        let target_yaw = -45f32.to_radians();
+        let target_pitch = 35.264f32.to_radians();
+        if duration_ms == 0 {
+            self.camera.yaw = target_yaw;
+            self.camera.pitch = target_pitch;
+            self.camera_animation = None;
+            return;
+        }
+        self.camera_animation = Some(crate::types::CameraAnimation {
+            start_yaw: self.camera.yaw,
+            start_pitch: self.camera.pitch,
+            target_yaw,
+            target_pitch,
+            start_time: std::time::Instant::now(),
+            duration_ms,
+        });
     }
 
     pub fn viewport(&mut self, ui: &mut egui::Ui) {
@@ -1414,6 +1440,23 @@ impl eframe::App for DuCADApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Animasi orbit kamera isometrik (M3.4)
+        if let Some(ref anim) = self.camera_animation {
+            let elapsed = anim.start_time.elapsed().as_millis() as f32;
+            let t = (elapsed / anim.duration_ms.max(1) as f32).clamp(0.0, 1.0);
+            let s = t * t * (3.0 - 2.0 * t); // smoothstep
+            self.camera.yaw = anim.start_yaw + (anim.target_yaw - anim.start_yaw) * s;
+            self.camera.pitch = anim.start_pitch + (anim.target_pitch - anim.start_pitch) * s;
+            if t >= 1.0 {
+                self.camera.yaw = anim.target_yaw;
+                self.camera.pitch = anim.target_pitch;
+                self.camera_animation = None;
+            } else {
+                ctx.request_repaint();
+            }
+        }
+
         // Permintaan agent dilayani di awal frame, sebelum input pengguna
         // diproses, supaya perubahan langsung ikut tergambar frame ini.
         self.poll_agent_bridge(&ctx);
@@ -3008,6 +3051,33 @@ impl eframe::App for DuCADApp {
                                                 ducad_ui::LayersPanelEvent::SelectActive(lid) => {
                                                     self.vector_state.active_layer = Some(lid);
                                                 }
+                                                ducad_ui::LayersPanelEvent::SelectLayer(lid) => {
+                                                    let to_select: Vec<_> = self
+                                                        .sketch()
+                                                        .entities
+                                                        .iter()
+                                                        .filter(|(eid, entity)| {
+                                                            self.sketch().layer_of(*eid) == Some(lid)
+                                                                && !entity.is_construction()
+                                                                && !self.sketch().is_hidden(*eid)
+                                                        })
+                                                        .map(|(eid, _)| eid)
+                                                        .collect();
+                                                    self.selected.clear();
+                                                    for eid in to_select {
+                                                        self.selected.insert(eid);
+                                                    }
+                                                    self.vector_extrude_state.per_object = true;
+                                                }
+                                                ducad_ui::LayersPanelEvent::ExtrudeLayer(lid) => {
+                                                    let dist: f64 = self.vector_extrude_state.depth_input.trim().parse().unwrap_or(10.0);
+                                                    self.extrude_layer(
+                                                        lid,
+                                                        dist,
+                                                        self.vector_extrude_state.material_from_style,
+                                                        self.vector_extrude_state.outline_only,
+                                                    );
+                                                }
                                                 ducad_ui::LayersPanelEvent::ToggleVisibility(lid, vis) => {
                                                     self.execute_sketch_command(Box::new(ducad_sketch::commands::SetLayerFlags::new(lid, Some(vis), None)));
                                                 }
@@ -3243,9 +3313,18 @@ impl eframe::App for DuCADApp {
                 ToolPopupEvent::ApplyHelix { params, profile } => {
                     self.create_helix_coil_with_params(params, profile);
                 }
-                ToolPopupEvent::ApplyExtrude { distance } => {
+                ToolPopupEvent::ApplyExtrude {
+                    distance,
+                    per_object,
+                    material_from_style,
+                    outline_only,
+                } => {
                     self.extrude_distance_input = distance.to_string();
-                    self.extrude_selected();
+                    if self.app_mode == crate::mode::AppMode::Vector {
+                        self.extrude_vector_selection(distance, per_object, material_from_style, outline_only);
+                    } else {
+                        self.extrude_selected();
+                    }
                 }
                 ToolPopupEvent::ApplyFaceExtrude { distance } => {
                     self.face_extrude_distance_input = distance.to_string();
@@ -3560,10 +3639,50 @@ impl eframe::App for DuCADApp {
                 .show(&ctx, |ui| {
                     if has_sketch_sel {
                         let has_closed = self.selected_closed_region_centroid().is_some()
-                            || crate::model::build_profile_from_selection(self.sketch(), &self.selected).is_ok();
-                        if let Some(act) = ContextActionBar::show_sketch_selection(ui, self.selected.len(), has_closed, self.icon_size) {
+                            || crate::model::build_profile_from_selection(self.sketch(), &self.selected).is_ok()
+                            || self.selected.iter().any(|eid| {
+                                if let Some(ducad_sketch::Entity::Path { subpaths, .. }) = self.sketch().entities.get(*eid) {
+                                    subpaths.iter().any(|s| s.closed)
+                                } else {
+                                    false
+                                }
+                            });
+                        let maybe_act = if self.app_mode == crate::mode::AppMode::Vector {
+                            ContextActionBar::show_vector_selection(
+                                ui,
+                                self.selected.len(),
+                                has_closed,
+                                &mut self.vector_extrude_state,
+                                self.icon_size,
+                            )
+                        } else {
+                            ContextActionBar::show_sketch_selection(
+                                ui,
+                                self.selected.len(),
+                                has_closed,
+                                self.icon_size,
+                            )
+                        };
+                        if let Some(act) = maybe_act {
                             match act {
-                                ContextAction::Extrude => self.extrude_selected(),
+                                ContextAction::Extrude => {
+                                    if self.app_mode == crate::mode::AppMode::Vector {
+                                        let dist = self
+                                            .vector_extrude_state
+                                            .depth_input
+                                            .trim()
+                                            .parse::<f64>()
+                                            .unwrap_or(10.0);
+                                        self.extrude_vector_selection(
+                                            dist,
+                                            self.vector_extrude_state.per_object,
+                                            self.vector_extrude_state.material_from_style,
+                                            self.vector_extrude_state.outline_only,
+                                        );
+                                    } else {
+                                        self.extrude_selected();
+                                    }
+                                }
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),

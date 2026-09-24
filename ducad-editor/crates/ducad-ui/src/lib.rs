@@ -59,7 +59,7 @@ pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, 
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
-pub use context_bar::{ContextAction, ContextActionBar};
+pub use context_bar::{ContextAction, ContextActionBar, VectorExtrudeBarState};
 pub use drawing_sheet_view::{DrawingSheetEvent, DrawingSheetView, DrawingSheetViewState};
 pub use assist_dialog::{AssistDialog, AssistDialogEvent, AssistDialogState};
 pub use error_card::{ErrorCard, ErrorCardEvent, ErrorCardState};

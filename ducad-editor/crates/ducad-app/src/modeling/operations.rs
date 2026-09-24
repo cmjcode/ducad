@@ -67,6 +67,14 @@ impl DuCADApp {
             }
         };
 
+        if self.app_mode == crate::mode::AppMode::Vector {
+            let per_object = self.vector_extrude_state.per_object;
+            let material_from_style = self.vector_extrude_state.material_from_style;
+            let outline_only = self.vector_extrude_state.outline_only;
+            self.extrude_vector_selection(distance, per_object, material_from_style, outline_only);
+            return;
+        }
+
         // Kedua jalur lama (profil tunggal, lalu teks/multi-region) kini ada
         // di `compute::extrude` lewat `ProfilePick::Entities`.
         let plane = crate::document::plane_frame_from(&self.active_plane);
@@ -102,6 +110,111 @@ impl DuCADApp {
             }
             Err(e) => self.model_status = Some(op_status("Extrude", &e)),
         }
+    }
+
+    /// Extrude seleksi kurva/entitas vektor 2D dengan opsi per-objek, material dari fill, dan outline (M3.4).
+    pub fn extrude_vector_selection(
+        &mut self,
+        distance: f64,
+        per_object: bool,
+        material_from_style: bool,
+        outline_only: bool,
+    ) -> bool {
+        if distance.abs() < 1e-6 {
+            self.model_status = Some("Jarak extrude tidak boleh 0".to_string());
+            return false;
+        }
+
+        let plane = crate::document::plane_frame_from(&self.active_plane);
+        let extent = ExtrudeExtent::Blind(distance);
+        let opts = compute::VectorExtrudeOptions {
+            per_object,
+            outline_only,
+            custom_outline_width: None,
+        };
+
+        let result = compute::extrude_vector(self.sketch(), &self.selected, &plane, extent, opts);
+        match result {
+            Ok(solids) => {
+                if solids.is_empty() {
+                    self.model_status = Some("Hasil extrude kosong".to_string());
+                    return false;
+                }
+                let source_entities: Vec<String> = self
+                    .selected
+                    .iter()
+                    .filter_map(|eid| self.sketch().entity_names.get(eid).cloned())
+                    .collect();
+
+                let mut named_bodies = Vec::with_capacity(solids.len());
+                for (name, geo, style) in solids {
+                    let mat = if material_from_style {
+                        Some(ducad_engine::resolve_material(
+                            &ducad_engine::MaterialSel::FromStyle,
+                            &style,
+                        ))
+                    } else {
+                        None
+                    };
+                    named_bodies.push((name, geo, mat));
+                }
+
+                if named_bodies.len() == 1 {
+                    let (name, geo, mat) = named_bodies.into_iter().next().unwrap();
+                    let mut cmd = AddSolidCommand::new("Extrude", geo).with_body_name(name.clone());
+                    if let Some(m) = mat {
+                        cmd = cmd.with_material(m);
+                    }
+                    self.execute_model_command(
+                        Box::new(cmd),
+                        &format!("Membuat solid {name} setinggi {:.1} mm", distance),
+                    );
+                } else {
+                    let count = named_bodies.len();
+                    self.execute_model_command(
+                        Box::new(crate::model::AddMultipleSolidsCommand::with_materials("Extrude", named_bodies)),
+                        &format!("Membuat {} solid setinggi {:.1} mm", count, distance),
+                    );
+                }
+
+                self.record_extrude_feature_with_sources(distance, false, source_entities, material_from_style);
+                self.model_status = None;
+                self.set_app_mode(crate::mode::AppMode::Solid);
+                self.start_camera_animation_to_isometric(200);
+                true
+            }
+            Err(e) => {
+                self.model_status = Some(op_status("Extrude", &e));
+                false
+            }
+        }
+    }
+
+    /// Ekstrusi semua path tertutup pada sebuah layer dengan per_object = true (M3.4).
+    pub fn extrude_layer(
+        &mut self,
+        layer_id: ducad_sketch::layer::LayerId,
+        distance: f64,
+        material_from_style: bool,
+        outline_only: bool,
+    ) -> bool {
+        let to_select: Vec<_> = self
+            .sketch()
+            .entities
+            .iter()
+            .filter(|(eid, entity)| {
+                self.sketch().layer_of(*eid) == Some(layer_id)
+                    && !entity.is_construction()
+                    && !self.sketch().is_hidden(*eid)
+            })
+            .map(|(eid, _)| eid)
+            .collect();
+        self.selected.clear();
+        for eid in to_select {
+            self.selected.insert(eid);
+        }
+        self.vector_extrude_state.per_object = true;
+        self.extrude_vector_selection(distance, true, material_from_style, outline_only)
     }
 
     /// Revolve profil dari seleksi sketch dengan sumbu dan sudut tertentu.

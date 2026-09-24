@@ -21,8 +21,11 @@ pub use pattern::{circular_pattern, linear_pattern};
 pub use primitive::{primitive, PrimitiveShape};
 pub use round::{chamfer, fillet, shell, EdgePick, FacePick};
 pub use sketch::solve_with;
-pub use solid::{boolean, extrude, resolve_profiles, revolve, ProfilePick};
-pub(crate) use solid::{extrude_one, validate_extent};
+pub use solid::{
+    boolean, extrude, extrude_single_entity, extrude_vector, resolve_profiles, revolve,
+    ProfilePick, VectorExtrudeOptions,
+};
+pub(crate) use solid::validate_extent;
 
 use ducad_kernel::KernelShape;
 

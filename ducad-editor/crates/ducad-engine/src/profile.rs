@@ -1268,6 +1268,91 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
     }
 }
 
+/// Konversi entitas gambar 2D (Path, Line, Circle, Ellipse, Spline, Arc) menjadi daftar `Subpath`.
+pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
+    match entity {
+        Entity::Path { subpaths, .. } => subpaths.clone(),
+        Entity::Line { start, end, .. } => vec![Subpath {
+            start: *start,
+            segs: vec![PathSeg::Line { end: *end }],
+            closed: false,
+        }],
+        Entity::Circle { center, radius, .. } => {
+            vec![ducad_sketch::path_edit::shape_to_path_circle(*center, *radius)]
+        }
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            ..
+        } => {
+            vec![ducad_sketch::path_edit::shape_to_path_ellipse(
+                *center, *radius_x, *radius_y,
+            )]
+        }
+        Entity::Spline {
+            points, exact, ..
+        } => {
+            if let Some(path) = exact {
+                if !path.is_empty() && !points.is_empty() {
+                    let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                    return vec![Subpath {
+                        start: points[0],
+                        segs: path.to_vec(),
+                        closed,
+                    }];
+                }
+            }
+            if points.len() >= 2 {
+                let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                let segs = points[1..]
+                    .iter()
+                    .map(|&p| PathSeg::Line { end: p })
+                    .collect();
+                vec![Subpath {
+                    start: points[0],
+                    segs,
+                    closed,
+                }]
+            } else {
+                Vec::new()
+            }
+        }
+        Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            ..
+        } => {
+            let tau = std::f64::consts::TAU;
+            let span = {
+                let s = end_angle - start_angle;
+                if s <= 0.0 {
+                    s + tau
+                } else {
+                    s
+                }
+            };
+            let arc = ducad_sketch::kurbo::Arc::new(
+                ducad_sketch::kurbo::Point::new(center.x, center.y),
+                ducad_sketch::kurbo::Vec2::new(*radius, *radius),
+                *start_angle,
+                span,
+                0.0,
+            );
+            let mut bez = ducad_sketch::kurbo::BezPath::new();
+            let start_pt =
+                *center + DVec2::new(radius * start_angle.cos(), radius * start_angle.sin());
+            bez.move_to(ducad_sketch::kurbo::Point::new(start_pt.x, start_pt.y));
+            arc.to_cubic_beziers(0.01, |p1, p2, p3| {
+                bez.curve_to(p1, p2, p3);
+            });
+            Subpath::from_kurbo(&bez)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

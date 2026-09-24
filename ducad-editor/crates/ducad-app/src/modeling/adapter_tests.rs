@@ -407,3 +407,131 @@ fn regenerate_failure_keeps_old_body_and_reports() {
     assert_volume("preserved old body", total_volume(&app), 8000.0);
 }
 
+#[test]
+fn extrude_vector_selection_produces_bodies_with_fill_color() {
+    let mut app = DuCADApp::new_for_test();
+    app.set_app_mode(crate::mode::AppMode::Vector);
+
+    // Dua kurva tertutup dengan warna fill berbeda (merah dan biru)
+    let red_sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(10.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(10.0, 10.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 10.0) },
+        ],
+        closed: true,
+    };
+    let red_path = app.sketch_mut().entities.insert(Entity::path(vec![red_sub]));
+    app.sketch_mut().entity_names.insert(red_path, "red_box".to_string());
+    app.sketch_mut().styles.insert(
+        red_path,
+        ducad_sketch::Style {
+            fill: Some(ducad_sketch::Paint::Solid(ducad_sketch::Rgba([1.0, 0.0, 0.0, 1.0]))),
+            fill_rule: ducad_sketch::FillRule::NonZero,
+            stroke: None,
+            opacity: 1.0,
+            blend: ducad_sketch::BlendMode::Normal,
+        },
+    );
+
+    let blue_sub = ducad_sketch::Subpath {
+        start: DVec2::new(20.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(30.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(30.0, 10.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(20.0, 10.0) },
+        ],
+        closed: true,
+    };
+    let blue_path = app.sketch_mut().entities.insert(Entity::path(vec![blue_sub]));
+    app.sketch_mut().entity_names.insert(blue_path, "blue_box".to_string());
+    app.sketch_mut().styles.insert(
+        blue_path,
+        ducad_sketch::Style {
+            fill: Some(ducad_sketch::Paint::Solid(ducad_sketch::Rgba([0.0, 0.0, 1.0, 1.0]))),
+            fill_rule: ducad_sketch::FillRule::NonZero,
+            stroke: None,
+            opacity: 1.0,
+            blend: ducad_sketch::BlendMode::Normal,
+        },
+    );
+
+    app.selected.insert(red_path);
+    app.selected.insert(blue_path);
+
+    // Ekstrusi vektor seleksi: per_object = true, material_from_style = true
+    let ok = app.extrude_vector_selection(5.0, true, true, false);
+    assert!(ok, "{:?}", app.model_status);
+
+    assert_eq!(app.model.doc.bodies.len(), 2);
+    assert_eq!(app.app_mode, crate::mode::AppMode::Solid);
+
+    let red_body = app
+        .model
+        .doc
+        .bodies
+        .values()
+        .find(|b| b.name == "red_box")
+        .expect("body red_box harus ada");
+    let blue_body = app
+        .model
+        .doc
+        .bodies
+        .values()
+        .find(|b| b.name == "blue_box")
+        .expect("body blue_box harus ada");
+
+    assert_eq!(red_body.material.base_color, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(blue_body.material.base_color, [0.0, 0.0, 1.0, 1.0]);
+}
+
+#[test]
+fn extrude_layer_produces_per_object_bodies() {
+    let mut app = DuCADApp::new_for_test();
+    app.set_app_mode(crate::mode::AppMode::Vector);
+
+    let layer_id = app.sketch_mut().layers.insert(ducad_sketch::Layer::new(
+        "Artwork",
+        ducad_sketch::Rgba([1.0, 1.0, 1.0, 1.0]),
+    ));
+    app.sketch_mut().layer_order.push(layer_id);
+
+    let sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(15.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(15.0, 15.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 15.0) },
+        ],
+        closed: true,
+    };
+    let path_id = app.sketch_mut().entities.insert(Entity::path(vec![sub]));
+    app.sketch_mut().entity_names.insert(path_id, "art_shape".to_string());
+    app.sketch_mut().entity_layer.insert(path_id, layer_id);
+    app.sketch_mut().styles.insert(
+        path_id,
+        ducad_sketch::Style {
+            fill: Some(ducad_sketch::Paint::Solid(ducad_sketch::Rgba([0.0, 1.0, 0.0, 1.0]))),
+            fill_rule: ducad_sketch::FillRule::NonZero,
+            stroke: None,
+            opacity: 1.0,
+            blend: ducad_sketch::BlendMode::Normal,
+        },
+    );
+
+    let ok = app.extrude_layer(layer_id, 4.0, true, false);
+    assert!(ok, "{:?}", app.model_status);
+
+    assert_eq!(app.model.doc.bodies.len(), 1);
+    assert_eq!(app.app_mode, crate::mode::AppMode::Solid);
+    let body = app
+        .model
+        .doc
+        .bodies
+        .values()
+        .find(|b| b.name == "art_shape")
+        .expect("body art_shape harus ada");
+    assert_eq!(body.material.base_color, [0.0, 1.0, 0.0, 1.0]);
+}
+

@@ -14,6 +14,9 @@ pub struct ExtrudePopupState {
     pub face_extrude_input: String,
     pub has_2d_selection: bool,
     pub has_face_selection: bool,
+    pub per_object: bool,
+    pub material_from_style: bool,
+    pub outline_only: bool,
 }
 
 impl Default for ExtrudePopupState {
@@ -24,6 +27,9 @@ impl Default for ExtrudePopupState {
             face_extrude_input: "5.0".to_string(),
             has_2d_selection: false,
             has_face_selection: false,
+            per_object: false,
+            material_from_style: true,
+            outline_only: false,
         }
     }
 }
@@ -105,6 +111,14 @@ impl ExtrudePopup {
                     });
 
                     ui.add_space(3.0);
+                    ui.checkbox(&mut state.per_object, "Per objek")
+                        .on_hover_text("Buat body terpisah untuk tiap path tertutup");
+                    ui.checkbox(&mut state.material_from_style, "Warna dari fill")
+                        .on_hover_text("Gunakan warna fill vektor sebagai warna material solid 3D");
+                    ui.checkbox(&mut state.outline_only, "Outline saja")
+                        .on_hover_text("Hanya ekstrusi garis luar (stroke) kurva");
+
+                    ui.add_space(3.0);
                     if ui
                         .add(
                             egui::Button::new(
@@ -115,7 +129,12 @@ impl ExtrudePopup {
                         .clicked()
                     {
                         if let Ok(dist) = state.extrude_input.trim().parse::<f64>() {
-                            ev = Some(ToolPopupEvent::ApplyExtrude { distance: dist });
+                            ev = Some(ToolPopupEvent::ApplyExtrude {
+                                distance: dist,
+                                per_object: state.per_object,
+                                material_from_style: state.material_from_style,
+                                outline_only: state.outline_only,
+                            });
                         }
                     }
                 }

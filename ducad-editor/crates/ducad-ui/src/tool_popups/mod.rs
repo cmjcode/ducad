@@ -40,7 +40,12 @@ pub use text_popup::{TextPopup, TextPopupState};
 pub enum ToolPopupEvent {
     Close,
     // Extrude
-    ApplyExtrude { distance: f64 },
+    ApplyExtrude {
+        distance: f64,
+        per_object: bool,
+        material_from_style: bool,
+        outline_only: bool,
+    },
     ApplyFaceExtrude { distance: f64 },
     SketchOnFace,
     // Helix / Coil (Fase 10.2)

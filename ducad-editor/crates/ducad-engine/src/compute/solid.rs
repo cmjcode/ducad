@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use ducad_kernel::{ExtrudeExtent, KernelShape, Profile};
-use ducad_sketch::{Entity, EntityId, Sketch};
+use ducad_sketch::{Entity, EntityId, FillRule, Sketch};
 use glam::{DMat3, DQuat, DVec2};
 
 use super::{check_shape, finish, LIN_TOL};
@@ -12,7 +12,7 @@ use crate::model::{BodyGeometry, BooleanKind};
 use crate::plane::PlaneFrame;
 use crate::profile::{
     arc_endpoints_and_via, build_profile_from_selection, convert_region_to_exact_profile,
-    extrude_selection_with_holes_on_plane,
+    entity_to_subpaths, extrude_selection_with_holes_on_plane, path_regions,
 };
 
 /// Cara memilih profil dari sebuah sketch.
@@ -382,3 +382,227 @@ pub fn boolean(a: &KernelShape, b: &KernelShape, kind: BooleanKind) -> OpResult<
     })?;
     finish(label, shape)
 }
+
+/// Extrude satu entitas (Path, Circle, Spline, dll) dengan opsi outline atau region solid.
+pub fn extrude_single_entity(
+    sk: &Sketch,
+    eid: EntityId,
+    outline_width: Option<f64>,
+    frame: &PlaneFrame,
+    extent: ExtrudeExtent,
+) -> OpResult<BodyGeometry> {
+    let entity = sk.entities.get(eid).ok_or_else(|| {
+        OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("Entitas {eid:?} tidak ditemukan"),
+        )
+    })?;
+
+    if let Some(width) = outline_width {
+        let subs = entity_to_subpaths(entity);
+        if subs.is_empty() {
+            return Err(OpError::new(
+                OpErrorCode::ProfileNotClosed,
+                "Entitas tidak memiliki kurva untuk di-outline",
+            ));
+        }
+        let mut stroke_style = sk
+            .styles
+            .get(eid)
+            .and_then(|s| s.stroke.clone())
+            .unwrap_or_else(|| ducad_sketch::Style::cad_default().stroke.unwrap());
+        if width <= 0.0 {
+            return Err(OpError::invalid(format!(
+                "lebar outline harus > 0, didapat {width}"
+            )));
+        }
+        stroke_style.width_mm = width;
+        let stroked_subs = ducad_sketch::path_ops::stroke_to_path(&subs, &stroke_style, 0.01)
+            .map_err(|e| {
+                OpError::new(
+                    OpErrorCode::ProfileNotClosed,
+                    format!("Gagal stroke entitas: {e}"),
+                )
+            })?;
+        let stroked_entity = Entity::Path {
+            subpaths: stroked_subs,
+            is_construction: false,
+        };
+        let regs = path_regions(&stroked_entity, FillRule::NonZero)
+            .map_err(|e| OpError::new(OpErrorCode::ProfileNotClosed, e))?;
+        let mut shapes = Vec::new();
+        for reg in regs {
+            let prof = reg.outer.with_holes(reg.holes);
+            let s = extrude_one(&prof, frame, extent)
+                .map_err(|e| OpError::kernel("Extrude", e))?;
+            shapes.push(s);
+        }
+        if shapes.is_empty() {
+            return Err(OpError::new(
+                OpErrorCode::EmptyResult,
+                "Hasil extrude outline kosong",
+            ));
+        }
+        let final_shape = if shapes.len() == 1 {
+            shapes.pop().unwrap()
+        } else {
+            let refs: Vec<&KernelShape> = shapes.iter().collect();
+            ducad_kernel::make_compound(&refs)
+                .map_err(|e| OpError::kernel("Extrude compound", e))?
+        };
+        finish("Extrude", final_shape)
+    } else {
+        match entity {
+            Entity::Path { .. } => {
+                let style = sk.styles.get(eid);
+                let fill_rule = style.map(|s| s.fill_rule).unwrap_or(FillRule::NonZero);
+                let regs = path_regions(entity, fill_rule)
+                    .map_err(|e| OpError::new(OpErrorCode::ProfileNotClosed, e))?;
+                let mut shapes = Vec::new();
+                for reg in regs {
+                    let prof = reg.outer.with_holes(reg.holes);
+                    let s = extrude_one(&prof, frame, extent)
+                        .map_err(|e| OpError::kernel("Extrude", e))?;
+                    shapes.push(s);
+                }
+                if shapes.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::EmptyResult,
+                        "Hasil extrude path kosong",
+                    ));
+                }
+                let final_shape = if shapes.len() == 1 {
+                    shapes.pop().unwrap()
+                } else {
+                    let refs: Vec<&KernelShape> = shapes.iter().collect();
+                    ducad_kernel::make_compound(&refs)
+                        .map_err(|e| OpError::kernel("Extrude compound", e))?
+                };
+                finish("Extrude", final_shape)
+            }
+            _ => {
+                let mut s = HashSet::new();
+                s.insert(eid);
+                let prof = build_profile_from_selection(sk, &s)
+                    .map_err(|msg| OpError::new(OpErrorCode::ProfileNotClosed, msg))?;
+                let shape = extrude_one(&prof, frame, extent)
+                    .map_err(|e| OpError::kernel("Extrude", e))?;
+                finish("Extrude", shape)
+            }
+        }
+    }
+}
+
+/// Opsi konfigurasi untuk ekstrusi kurva / entitas vektor 2D.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct VectorExtrudeOptions {
+    /// Jika true, setiap entitas menghasilkan body 3D terpisah dengan nama dan materialnya sendiri.
+    pub per_object: bool,
+    /// Jika true, hanya garis tepi (outline/stroke) yang diekstrusi setebal stroke width.
+    pub outline_only: bool,
+    /// Opsional: menimpa lebar outline dalam milimeter (jika None, memakai stroke width dari style entitas).
+    pub custom_outline_width: Option<f64>,
+}
+
+/// Extrude seleksi entitas vektor. Mengembalikan `Vec<(String, BodyGeometry, Style)>`.
+pub fn extrude_vector(
+    sketch: &Sketch,
+    ids: &HashSet<EntityId>,
+    plane: &PlaneFrame,
+    extent: ExtrudeExtent,
+    options: VectorExtrudeOptions,
+) -> OpResult<Vec<(String, BodyGeometry, ducad_sketch::Style)>> {
+    validate_extent(extent)?;
+    if ids.is_empty() {
+        return Err(OpError::new(
+            OpErrorCode::ProfileNotClosed,
+            "Tidak ada entitas yang dipilih untuk diekstrusi",
+        ));
+    }
+
+    let draw_order = sketch.draw_order();
+    let mut ordered_eids: Vec<EntityId> = draw_order
+        .iter()
+        .filter(|id| ids.contains(id))
+        .copied()
+        .collect();
+    for id_ref in ids {
+        if !ordered_eids.contains(id_ref) {
+            ordered_eids.push(*id_ref);
+        }
+    }
+
+    if options.per_object {
+        let mut results = Vec::with_capacity(ordered_eids.len());
+        for eid in ordered_eids {
+            let style = sketch
+                .styles
+                .get(eid)
+                .cloned()
+                .unwrap_or_else(ducad_sketch::Style::cad_default);
+            let outline_width = if options.outline_only {
+                Some(options.custom_outline_width.unwrap_or_else(|| {
+                    style
+                        .stroke
+                        .as_ref()
+                        .map(|s| s.width_mm)
+                        .unwrap_or(1.0)
+                }))
+            } else {
+                None
+            };
+            let geo = extrude_single_entity(sketch, eid, outline_width, plane, extent)?;
+            let name = sketch
+                .entity_names
+                .get(&eid)
+                .cloned()
+                .unwrap_or_else(|| "Solid".to_string());
+            results.push((name, geo, style));
+        }
+        Ok(results)
+    } else if options.outline_only {
+        let mut shapes = Vec::new();
+        for eid in ordered_eids {
+            let style = sketch
+                .styles
+                .get(eid)
+                .cloned()
+                .unwrap_or_else(ducad_sketch::Style::cad_default);
+            let width = options.custom_outline_width.unwrap_or_else(|| {
+                style
+                    .stroke
+                    .as_ref()
+                    .map(|s| s.width_mm)
+                    .unwrap_or(1.0)
+            });
+            let geo = extrude_single_entity(sketch, eid, Some(width), plane, extent)?;
+            shapes.push(geo.shape);
+        }
+        let final_shape = if shapes.len() == 1 {
+            shapes.pop().unwrap()
+        } else {
+            let refs: Vec<&KernelShape> = shapes.iter().collect();
+            ducad_kernel::make_compound(&refs)
+                .map_err(|e| OpError::kernel("Extrude compound", e))?
+        };
+        let style = ids
+            .iter()
+            .find_map(|id| sketch.styles.get(*id))
+            .cloned()
+            .unwrap_or_else(ducad_sketch::Style::cad_default);
+        let geo = finish("Extrude", final_shape)?;
+        Ok(vec![("Extrude".to_string(), geo, style)])
+    } else {
+        let solids = extrude_entities(sketch, ids, plane, extent)?;
+        let style = ids
+            .iter()
+            .find_map(|id| sketch.styles.get(*id))
+            .cloned()
+            .unwrap_or_else(ducad_sketch::Style::cad_default);
+        Ok(solids
+            .into_iter()
+            .map(|(n, g)| (n, g, style.clone()))
+            .collect())
+    }
+}
+

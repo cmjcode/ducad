@@ -501,3 +501,14 @@ pub struct HoleHistory {
     pub base: ducad_kernel::KernelShape,
     pub features: Vec<HoleFeature>,
 }
+
+/// Animasi transisi orientasi kamera (yaw/pitch) bergaya CAD (M3.4).
+#[derive(Debug, Clone)]
+pub struct CameraAnimation {
+    pub start_yaw: f32,
+    pub start_pitch: f32,
+    pub target_yaw: f32,
+    pub target_pitch: f32,
+    pub start_time: std::time::Instant,
+    pub duration_ms: u64,
+}
