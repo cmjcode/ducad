@@ -2292,6 +2292,11 @@ impl DuCADApp {
             | ToolKind::ZebraInspection
             | ToolKind::DraftAnalysis
             | ToolKind::HoleWizard
+            | ToolKind::PenBezier
+            | ToolKind::NodeEdit
+            | ToolKind::ShapeBuilder
+            | ToolKind::Eyedropper
+            | ToolKind::Gradient
             | ToolKind::History => {
                 self.last_snap = None;
             }

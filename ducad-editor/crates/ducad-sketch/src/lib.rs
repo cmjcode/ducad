@@ -12,6 +12,7 @@ pub mod layer;
 pub mod measure;
 pub mod ops;
 pub mod recognize;
+pub mod path_edit;
 pub mod region;
 pub mod sketch;
 pub mod snap;
@@ -20,6 +21,11 @@ pub mod text;
 
 #[cfg(test)]
 mod tests;
+
+pub use path_edit::{
+    shape_to_path, shape_to_path_circle, shape_to_path_ellipse, shape_to_path_polygon,
+    shape_to_path_rect, PenBuilder, VectorShape, KAPPA,
+};
 
 pub use commands::{
     CreateLayer, DeleteEntities, DeleteLayer, DeleteText, GroupEntities, InsertEntities, InsertText,

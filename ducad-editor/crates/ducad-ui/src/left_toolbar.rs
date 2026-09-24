@@ -11,9 +11,10 @@ use crate::theme::{
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CIRCLE, ICON_CROP_16_9, ICON_ELLIPSE_OUTLINE,
-    ICON_GESTURE, ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE, ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE,
-    ICON_TITLE,
+    ICON_ADS_CLICK, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CIRCLE,
+    ICON_COLORIZE, ICON_CROP_16_9, ICON_EDIT, ICON_ELLIPSE_OUTLINE, ICON_FOUNTAIN_PEN_TIP,
+    ICON_GESTURE, ICON_GRADIENT, ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE,
+    ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE, ICON_TITLE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +42,12 @@ pub enum ToolbarTool {
     PointFixed,
     PointSymmetric,
     Pattern,
+    // Mode Vektor (M2.1)
+    PenBezier,
+    NodeEdit,
+    ShapeBuilder,
+    Eyedropper,
+    Gradient,
     // 3D Tools
     Extrude,
     Revolve,
@@ -69,6 +76,7 @@ pub enum ToolbarEvent {
 
 pub struct LeftToolbar {
     pub is_sketching: bool,
+    pub is_vector_mode: bool,
     pub point_menu_open: bool,
     pub icon_size: f32,
 }
@@ -77,6 +85,7 @@ impl Default for LeftToolbar {
     fn default() -> Self {
         Self {
             is_sketching: true,
+            is_vector_mode: false,
             point_menu_open: false,
             icon_size: crate::theme::ICON_SIZE_DEFAULT,
         }
@@ -127,7 +136,114 @@ impl LeftToolbar {
                 ui.add_space(1.0);
 
             // 2. Mode-Specific Tools
-            if self.is_sketching {
+            if self.is_vector_mode {
+                // ==================== MODE 2D VEKTOR (M2.1) ====================
+                // Urutan tetap: Select (di atas), NodeEdit, PenBezier, Line, Rectangle,
+                // Ellipse, Polygon, Text, ShapeBuilder, Eyedropper, Gradient.
+                let node_title = t!("tool-node-edit");
+                let node_desc = t!("tool-node-edit-desc");
+                let pen_title = t!("tool-pen-bezier");
+                let pen_desc = t!("tool-pen-bezier-desc");
+                let line_title = t!("tool-line");
+                let line_desc = t!("tool-line-desc");
+                let rect_title = t!("tool-rectangle");
+                let rect_desc = t!("tool-rectangle-desc");
+                let ellipse_title = t!("tool-ellipse");
+                let ellipse_desc = t!("tool-ellipse-desc");
+                let polygon_title = t!("tool-polygon");
+                let polygon_desc = t!("tool-polygon-desc");
+                let text_title = t!("tool-text");
+                let text_desc = t!("tool-text-desc");
+                let shape_title = t!("tool-shape-builder");
+                let shape_desc = t!("tool-shape-builder-desc");
+                let eyedropper_title = t!("tool-eyedropper");
+                let eyedropper_desc = t!("tool-eyedropper-desc");
+                let gradient_title = t!("tool-gradient");
+                let gradient_desc = t!("tool-gradient-desc");
+
+                let vector_tools: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
+                    (
+                        ToolbarTool::NodeEdit,
+                        ICON_EDIT.codepoint,
+                        &node_title,
+                        Some("N"),
+                        Some(&node_desc),
+                    ),
+                    (
+                        ToolbarTool::PenBezier,
+                        ICON_FOUNTAIN_PEN_TIP.codepoint,
+                        &pen_title,
+                        Some("P"),
+                        Some(&pen_desc),
+                    ),
+                    (
+                        ToolbarTool::Line,
+                        ICON_HORIZONTAL_RULE.codepoint,
+                        &line_title,
+                        Some("L"),
+                        Some(&line_desc),
+                    ),
+                    (
+                        ToolbarTool::Rectangle,
+                        ICON_CROP_16_9.codepoint,
+                        &rect_title,
+                        Some("R"),
+                        Some(&rect_desc),
+                    ),
+                    (
+                        ToolbarTool::Ellipse,
+                        ICON_ELLIPSE_OUTLINE.codepoint,
+                        &ellipse_title,
+                        Some("E"),
+                        Some(&ellipse_desc),
+                    ),
+                    (
+                        ToolbarTool::Polygon,
+                        ICON_HEXAGON.codepoint,
+                        &polygon_title,
+                        Some("Y"),
+                        Some(&polygon_desc),
+                    ),
+                    (
+                        ToolbarTool::Text,
+                        ICON_TITLE.codepoint,
+                        &text_title,
+                        Some("T"),
+                        Some(&text_desc),
+                    ),
+                    (
+                        ToolbarTool::ShapeBuilder,
+                        ICON_CALL_MERGE.codepoint,
+                        &shape_title,
+                        Some("Shift+M"),
+                        Some(&shape_desc),
+                    ),
+                    (
+                        ToolbarTool::Eyedropper,
+                        ICON_COLORIZE.codepoint,
+                        &eyedropper_title,
+                        Some("I"),
+                        Some(&eyedropper_desc),
+                    ),
+                    (
+                        ToolbarTool::Gradient,
+                        ICON_GRADIENT.codepoint,
+                        &gradient_title,
+                        Some("G"),
+                        Some(&gradient_desc),
+                    ),
+                ];
+
+                for (tool, icon, title, shortcut, subtitle) in vector_tools {
+                    let is_active = current_tool == *tool;
+                    let btn = square_btn(
+                        ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None,
+                    );
+                    if btn.clicked() {
+                        event = Some(ToolbarEvent::SelectTool(*tool));
+                    }
+                }
+            } else if self.is_sketching {
                 // ==================== MODE 2D SKETCH (CREATE OBJECTS) ====================
                 let line_title = t!("tool-line");
                 let line_desc = t!("tool-line-desc");
@@ -409,4 +525,35 @@ fn square_btn(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_left_toolbar_vector_mode_flag() {
+        let mut toolbar = LeftToolbar::default();
+        assert!(!toolbar.is_vector_mode);
+        toolbar.is_vector_mode = true;
+        assert!(toolbar.is_vector_mode);
+    }
+
+    #[test]
+    fn test_vector_toolbar_tools_variants() {
+        let tools = [
+            ToolbarTool::Select,
+            ToolbarTool::NodeEdit,
+            ToolbarTool::PenBezier,
+            ToolbarTool::Line,
+            ToolbarTool::Rectangle,
+            ToolbarTool::Ellipse,
+            ToolbarTool::Polygon,
+            ToolbarTool::Text,
+            ToolbarTool::ShapeBuilder,
+            ToolbarTool::Eyedropper,
+            ToolbarTool::Gradient,
+        ];
+        assert_eq!(tools.len(), 11);
+    }
 }

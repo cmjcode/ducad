@@ -550,6 +550,11 @@ impl DuCADApp {
             ToolKind::DraftAnalysis => ducad_i18n::t!("tool-draft-analysis-desc"),
             ToolKind::HoleWizard => ducad_i18n::t!("tool-hole-wizard-desc"),
             ToolKind::DatumPlane => ducad_i18n::t!("status-prompt-datum-plane"),
+            ToolKind::PenBezier => ducad_i18n::t!("tool-pen-bezier-desc"),
+            ToolKind::NodeEdit => ducad_i18n::t!("tool-node-edit-desc"),
+            ToolKind::ShapeBuilder => ducad_i18n::t!("tool-shape-builder-desc"),
+            ToolKind::Eyedropper => ducad_i18n::t!("tool-eyedropper-desc"),
+            ToolKind::Gradient => ducad_i18n::t!("tool-gradient-desc"),
             ToolKind::History => ducad_i18n::t!("status-prompt-history"),
         };
         match &self.last_snap {

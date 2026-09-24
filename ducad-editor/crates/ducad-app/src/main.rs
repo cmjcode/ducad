@@ -22,12 +22,14 @@ pub mod input;
 /// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
 #[cfg(feature = "memory")]
 pub mod memory;
+pub mod mode;
 pub mod model;
 pub mod modeling;
 pub mod overlay;
 pub mod proposal_ui;
 pub mod types;
 pub mod ui;
+pub mod vector;
 pub mod viewport;
 
 use app::DuCADApp;

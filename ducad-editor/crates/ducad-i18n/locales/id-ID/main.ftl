@@ -102,7 +102,17 @@ tool-coincident-desc = Gabung dua titik atau tempelkan titik ke kurva
 tool-fixed = Titik Tetap
 tool-fixed-desc = Kunci posisi titik di ruang
 tool-symmetric = Titik Simetris
-tool-symmetric-desc = Batasi dua titik simetris terhadap sumbu
+# Vector Tools
+tool-pen-bezier = Pen Bézier
+tool-pen-bezier-desc = Gambar kurva dan garis Bézier presisi
+tool-node-edit = Edit Node
+tool-node-edit-desc = Edit node sudut, halus, dan handle kurva
+tool-shape-builder = Pembentuk Bentuk
+tool-shape-builder-desc = Operasi boolean gabung, potong, iris bentuk vektor
+tool-eyedropper = Pipet Warna
+tool-eyedropper-desc = Ambil dan terapkan gaya warna objek
+tool-gradient = Gradien
+tool-gradient-desc = Atur gradien linier dan radial
 
 # 3D Tools
 tool-extrude = Ekstrusi

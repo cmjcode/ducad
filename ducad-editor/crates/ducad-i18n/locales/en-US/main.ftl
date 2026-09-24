@@ -102,7 +102,17 @@ tool-coincident-desc = Merge two points or attach point to curve
 tool-fixed = Fixed Point
 tool-fixed-desc = Lock point position in space
 tool-symmetric = Symmetric Point
-tool-symmetric-desc = Constrain two points symmetrically across axis
+# Vector Tools
+tool-pen-bezier = Bézier Pen
+tool-pen-bezier-desc = Draw precision Bézier curves and lines
+tool-node-edit = Node Edit
+tool-node-edit-desc = Edit corner nodes, smooth nodes, and curve handles
+tool-shape-builder = Shape Builder
+tool-shape-builder-desc = Boolean operations: union, difference, intersect vector shapes
+tool-eyedropper = Eyedropper
+tool-eyedropper-desc = Sample and apply object style and color
+tool-gradient = Gradient
+tool-gradient-desc = Adjust linear and radial gradients
 
 # 3D Tools
 tool-extrude = Extrude

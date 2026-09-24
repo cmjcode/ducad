@@ -44,6 +44,12 @@ pub enum ToolKind {
     SymmetricPick,
     /// Pattern / Array (Linier X/Y/Z & Sirkular putar).
     Pattern,
+    // Mode Vektor (M2.1)
+    PenBezier,
+    NodeEdit,
+    ShapeBuilder,
+    Eyedropper,
+    Gradient,
     // 3D Solid tools
     Extrude,
     /// Revolve 360° penuh atau sudut custom.
@@ -102,6 +108,11 @@ impl ToolKind {
             ToolKind::FixedPick => ToolbarTool::PointFixed,
             ToolKind::SymmetricPick => ToolbarTool::PointSymmetric,
             ToolKind::Pattern => ToolbarTool::Pattern,
+            ToolKind::PenBezier => ToolbarTool::PenBezier,
+            ToolKind::NodeEdit => ToolbarTool::NodeEdit,
+            ToolKind::ShapeBuilder => ToolbarTool::ShapeBuilder,
+            ToolKind::Eyedropper => ToolbarTool::Eyedropper,
+            ToolKind::Gradient => ToolbarTool::Gradient,
             ToolKind::Extrude => ToolbarTool::Extrude,
             ToolKind::Revolve => ToolbarTool::Revolve,
             ToolKind::Loft => ToolbarTool::Loft,
@@ -146,6 +157,11 @@ impl ToolKind {
             ToolbarTool::PointFixed => ToolKind::FixedPick,
             ToolbarTool::PointSymmetric => ToolKind::SymmetricPick,
             ToolbarTool::Pattern => ToolKind::Pattern,
+            ToolbarTool::PenBezier => ToolKind::PenBezier,
+            ToolbarTool::NodeEdit => ToolKind::NodeEdit,
+            ToolbarTool::ShapeBuilder => ToolKind::ShapeBuilder,
+            ToolbarTool::Eyedropper => ToolKind::Eyedropper,
+            ToolbarTool::Gradient => ToolKind::Gradient,
             ToolbarTool::Extrude => ToolKind::Extrude,
             ToolbarTool::Revolve => ToolKind::Revolve,
             ToolbarTool::Loft => ToolKind::Loft,
@@ -294,6 +310,11 @@ pub fn required_points(tool: ToolKind) -> usize {
         | ToolKind::DraftAnalysis
         | ToolKind::HoleWizard
         | ToolKind::DatumPlane
+        | ToolKind::PenBezier
+        | ToolKind::NodeEdit
+        | ToolKind::ShapeBuilder
+        | ToolKind::Eyedropper
+        | ToolKind::Gradient
         | ToolKind::History => 0,
     }
 }

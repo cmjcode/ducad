@@ -244,6 +244,8 @@ pub struct DuCADApp {
     pub editing_edge_dim_input: String,
 
     pub is_sketching: bool,
+    pub app_mode: crate::mode::AppMode,
+    pub vector_state: crate::vector::VectorState,
     pub construction_mode: bool,
     pub active_plane: SketchPlane,
     pub unit: LengthUnit,
@@ -584,6 +586,8 @@ impl DuCADApp {
             editing_edge_dim_input: String::new(),
 
             is_sketching: true,
+            app_mode: crate::mode::AppMode::Sketch,
+            vector_state: crate::vector::VectorState::default(),
             active_plane: SketchPlane::top(),
             unit: LengthUnit::Millimeters,
 
@@ -871,6 +875,8 @@ impl DuCADApp {
             editing_edge_dim_input: String::new(),
 
             is_sketching: true,
+            app_mode: crate::mode::AppMode::Sketch,
+            vector_state: crate::vector::VectorState::default(),
             active_plane: SketchPlane::top(),
             unit: LengthUnit::Millimeters,
 
@@ -1717,6 +1723,7 @@ impl eframe::App for DuCADApp {
             self.account_button_rect = topbar_state.account_button_rect;
 
             self.left_toolbar.is_sketching = self.is_sketching;
+            self.left_toolbar.is_vector_mode = self.app_mode == crate::mode::AppMode::Vector;
             self.left_toolbar.icon_size = self.icon_size;
             let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
             self.left_toolbar_content_sig = Some(self.is_sketching);
