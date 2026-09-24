@@ -2,10 +2,14 @@
 
 pub mod brush;
 pub mod document;
+pub mod filter;
+pub mod predict;
 pub mod stroke;
 
 pub use brush::{Brush, BrushId, BrushKind, PressureCurve};
 pub use document::InkDoc;
+pub use filter::OneEuro;
+pub use predict::StrokeBuilder;
 pub use stroke::{InkPoint, Stroke};
 
 #[cfg(test)]
@@ -178,6 +182,138 @@ mod tests {
         doc.add_stroke(Stroke::new(0, pts, bid, Rgba([1.0, 1.0, 1.0, 1.0]), lid));
 
         assert!(doc.memory_bytes() > initial_bytes);
+    }
+
+    #[test]
+    fn one_euro_passes_constant_signal() {
+        let mut filter = OneEuro::new(1.0, 0.01, 1.0);
+        let constant = 42.5;
+        for i in 0..100 {
+            let t = i as f32 * 0.01;
+            let out = filter.filter(constant, t);
+            assert!((out - constant).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn one_euro_reduces_jitter_variance() {
+        let mut filter = OneEuro::from_smoothing(0.5);
+        let n = 200;
+        let mut raw_samples = Vec::with_capacity(n);
+        let mut filtered_samples = Vec::with_capacity(n);
+
+        // Pseudo-random noise with fixed seed: LCG
+        let mut state: u64 = 123456789;
+        let base_signal = 10.0;
+
+        for i in 0..n {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let noise = ((state >> 33) as f32 / (1u64 << 31) as f32 - 0.5) * 2.0; // [-1.0, 1.0]
+            let val = base_signal + noise;
+            let t = i as f32 * 0.01; // 100 Hz
+            let out = filter.filter(val, t);
+
+            if i >= 20 {
+                raw_samples.push(val);
+                filtered_samples.push(out);
+            }
+        }
+
+        let mean_raw = raw_samples.iter().sum::<f32>() / raw_samples.len() as f32;
+        let var_raw = raw_samples.iter().map(|x| (x - mean_raw).powi(2)).sum::<f32>() / raw_samples.len() as f32;
+
+        let mean_filt = filtered_samples.iter().sum::<f32>() / filtered_samples.len() as f32;
+        let var_filt = filtered_samples.iter().map(|x| (x - mean_filt).powi(2)).sum::<f32>() / filtered_samples.len() as f32;
+
+        assert!(
+            var_filt < 0.30 * var_raw,
+            "variance ratio was {}, expected < 0.30",
+            var_filt / var_raw
+        );
+    }
+
+    #[test]
+    fn builder_drops_points_closer_than_min_dist() {
+        let brush = Brush::presets().pop().unwrap();
+        let mut builder = StrokeBuilder::new(&brush);
+
+        let p1 = builder.push(InkPoint::new(10.0, 10.0, 0.5, 0.0, 0));
+        assert!(p1.is_some());
+
+        // Point closer than 0.05 mm and delta_pressure <= 0.1 should be dropped
+        let p2 = builder.push(InkPoint::new(10.02, 10.02, 0.52, 0.0, 10)); // dist ≈ 0.028 mm < 0.05
+        assert!(p2.is_none());
+
+        // Point further than 0.05 mm should be accepted
+        let p3 = builder.push(InkPoint::new(10.1, 10.0, 0.5, 0.0, 20)); // dist = 0.08 mm > 0.05
+        assert!(p3.is_some());
+
+        let pts = builder.finish();
+        assert_eq!(pts.len(), 2);
+    }
+
+    #[test]
+    fn predict_extrapolates_along_velocity() {
+        let brush = Brush::presets().pop().unwrap();
+        let mut builder = StrokeBuilder::new(&brush);
+
+        // Moving horizontally at 10 mm per 100 ms = 0.1 mm/ms
+        builder.push(InkPoint::new(0.0, 5.0, 0.5, 0.0, 0));
+        builder.push(InkPoint::new(1.0, 5.0, 0.5, 0.0, 10));
+        let p3 = builder
+            .push(InkPoint::new(2.0, 5.0, 0.5, 0.0, 20))
+            .expect("Third point pushed");
+
+        let pred = builder.predict(25).expect("Prediction should be available for >= 3 points");
+        assert!(pred.x > p3.x, "expected pred.x ({}) > p3.x ({})", pred.x, p3.x);
+        assert!((pred.y - p3.y).abs() < 1e-3);
+        assert_eq!(pred.t_ms, 25);
+    }
+
+    #[test]
+    fn predict_is_bounded() {
+        let brush = Brush::presets().pop().unwrap();
+        let mut builder = StrokeBuilder::new(&brush);
+
+        // Ultra high speed points
+        builder.push(InkPoint::new(0.0, 0.0, 0.5, 0.0, 0));
+        builder.push(InkPoint::new(100.0, 0.0, 0.5, 0.0, 10));
+        let p3 = builder
+            .push(InkPoint::new(200.0, 0.0, 0.5, 0.0, 20))
+            .expect("Point pushed");
+
+        let pred = builder.predict(1000).expect("Prediction available");
+        // Time bounded to at most +8 ms
+        assert!(pred.t_ms <= p3.t_ms + 8);
+        // Distance displacement bounded to at most 2.0 mm
+        let disp = Vec2::new(pred.x - p3.x, pred.y - p3.y);
+        assert!(disp.length() <= 2.0001);
+    }
+
+    #[test]
+    fn builder_is_deterministic() {
+        let brush = Brush::presets().pop().unwrap();
+        let mut b1 = StrokeBuilder::new(&brush);
+        let mut b2 = StrokeBuilder::new(&brush);
+
+        let inputs = vec![
+            InkPoint::new(0.0, 0.0, 0.2, 0.0, 0),
+            InkPoint::new(0.02, 0.02, 0.21, 0.0, 5),
+            InkPoint::new(1.0, 2.0, 0.5, 0.1, 15),
+            InkPoint::new(2.5, 4.0, 0.8, 0.2, 30),
+            InkPoint::new(2.52, 4.01, 0.81, 0.2, 35),
+            InkPoint::new(5.0, 8.0, 0.9, 0.3, 50),
+        ];
+
+        for &pt in &inputs {
+            b1.push(pt);
+            b2.push(pt);
+        }
+
+        let res1 = b1.finish();
+        let res2 = b2.finish();
+
+        assert_eq!(res1, res2);
     }
 
     #[test]
