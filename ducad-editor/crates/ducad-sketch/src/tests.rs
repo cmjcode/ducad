@@ -1507,6 +1507,142 @@ fn apply_then_revert_restores_state_all_new_commands() {
     assert!(sketch.entity_group.get(e1).is_some());
 }
 
+#[test]
+fn text_regenerate_is_deterministic() {
+    let mut sketch = Sketch::default();
+    let spec = TextSpec {
+        content: "DUCAD CAD 2026".into(),
+        size_mm: 12.0,
+        align: TextAlign::Center,
+        origin: DVec2::new(10.0, 20.0),
+        rotation_rad: 0.15,
+        ..TextSpec::default()
+    };
+    let mut insert_cmd = InsertText::new(spec);
+    insert_cmd.apply(&mut sketch);
+    let tid = insert_cmd.text_id().unwrap();
+
+    let initial_glyphs: Vec<Entity> = sketch.texts[tid]
+        .glyph_entities
+        .iter()
+        .map(|&gid| sketch.entities[gid].clone())
+        .collect();
+    assert!(!initial_glyphs.is_empty());
+
+    let regen_ids = regenerate_text(&mut sketch, tid);
+    assert_eq!(regen_ids.len(), initial_glyphs.len());
+
+    let regenerated_glyphs: Vec<Entity> = regen_ids
+        .iter()
+        .map(|&gid| sketch.entities[gid].clone())
+        .collect();
+
+    for (a, b) in initial_glyphs.iter().zip(&regenerated_glyphs) {
+        match (a, b) {
+            (Entity::Path { subpaths: sp_a, .. }, Entity::Path { subpaths: sp_b, .. }) => {
+                assert_eq!(sp_a.len(), sp_b.len());
+                for (sa, sb) in sp_a.iter().zip(sp_b) {
+                    assert!((sa.start - sb.start).length() < 1e-6);
+                    assert_eq!(sa.node_count(), sb.node_count());
+                    for i in 0..sa.node_count() {
+                        assert!((sa.node(i) - sb.node(i)).length() < 1e-6);
+                    }
+                }
+            }
+            _ => panic!("Expected Entity::Path"),
+        }
+    }
+}
+
+#[test]
+fn update_text_revert_restores_old_glyphs() {
+    let mut sketch = Sketch::default();
+    let spec1 = TextSpec {
+        content: "HELLO".into(),
+        size_mm: 15.0,
+        ..TextSpec::default()
+    };
+    let mut insert_cmd = InsertText::new(spec1);
+    insert_cmd.apply(&mut sketch);
+    let tid = insert_cmd.text_id().unwrap();
+    let initial_glyph_count = sketch.texts[tid].glyph_entities.len();
+
+    let spec2 = TextSpec {
+        content: "WORLD OF VECTORS".into(),
+        size_mm: 18.0,
+        ..TextSpec::default()
+    };
+    let mut update_cmd = UpdateText::new(tid, spec2);
+    update_cmd.apply(&mut sketch);
+    assert_eq!(sketch.texts[tid].spec.content, "WORLD OF VECTORS");
+    let updated_count = sketch.texts[tid].glyph_entities.len();
+    assert_ne!(initial_glyph_count, updated_count);
+
+    update_cmd.revert(&mut sketch);
+    assert_eq!(sketch.texts[tid].spec.content, "HELLO");
+    assert_eq!(sketch.texts[tid].glyph_entities.len(), initial_glyph_count);
+    for &gid in &sketch.texts[tid].glyph_entities {
+        assert!(sketch.entities.contains_key(gid));
+    }
+}
+
+#[test]
+fn glyph_o_has_two_subpaths_opposite_winding() {
+    let spec = TextSpec {
+        content: "O".into(),
+        size_mm: 20.0,
+        ..TextSpec::default()
+    };
+    let entities = spec_to_path_entities(&spec, None).expect("vectorization succeeds");
+    assert_eq!(entities.len(), 1, "Huruf O harus menghasilkan satu Entity::Path");
+
+    let Entity::Path { subpaths, .. } = &entities[0] else {
+        panic!("Expected Entity::Path");
+    };
+    assert_eq!(subpaths.len(), 2, "Huruf O harus memiliki 2 subpath (luar dan lubang)");
+
+    let area0 = subpaths[0].signed_area();
+    let area1 = subpaths[1].signed_area();
+
+    assert!(area0.abs() > 0.0, "Area subpath 0 tidak boleh nol");
+    assert!(area1.abs() > 0.0, "Area subpath 1 tidak boleh nol");
+    assert!(
+        area0 * area1 < 0.0,
+        "Winding luar dan lubang harus berlawanan arah (area0 = {area0}, area1 = {area1})"
+    );
+}
+
+#[test]
+fn text_glyphs_inherit_layer_of_text() {
+    let mut sketch = Sketch::default();
+    let layer_id = sketch.layers.insert(Layer::new("TextLayer", Rgba([0.0, 1.0, 0.0, 1.0])));
+    sketch.layer_order.push(layer_id);
+
+    let spec = TextSpec {
+        content: "CAD".into(),
+        size_mm: 10.0,
+        ..TextSpec::default()
+    };
+    let mut cmd = InsertText::new(spec).with_layer(layer_id);
+    cmd.apply(&mut sketch);
+    let tid = cmd.text_id().unwrap();
+
+    let glyphs = &sketch.texts[tid].glyph_entities;
+    assert!(!glyphs.is_empty());
+    for &gid in glyphs {
+        assert_eq!(sketch.layer_of(gid), Some(layer_id));
+        assert_eq!(sketch.origin.get(gid), Some(&Origin::Text { text: tid }));
+    }
+
+    // Regenerate text, glyphs baru tetap harus mewarisi layer
+    let new_glyphs = regenerate_text(&mut sketch, tid);
+    assert!(!new_glyphs.is_empty());
+    for &gid in &new_glyphs {
+        assert_eq!(sketch.layer_of(gid), Some(layer_id));
+        assert_eq!(sketch.origin.get(gid), Some(&Origin::Text { text: tid }));
+    }
+}
+
 
 
 

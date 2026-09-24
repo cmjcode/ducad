@@ -22,10 +22,10 @@ pub mod text;
 mod tests;
 
 pub use commands::{
-    CreateLayer, DeleteEntities, DeleteLayer, GroupEntities, InsertEntities, MoveToLayer,
-    RenameEntities, RenameLayer, ReorderLayers, ReplaceEntities, ResizeRectangle, SetLayerFlags,
-    SetStyle, SetStyleField, SetZOrder, StyleField, ToggleConstruction, TranslateEntities,
-    UndoStack, Ungroup, UpdateEntity, ZOrderAction,
+    CreateLayer, DeleteEntities, DeleteLayer, DeleteText, GroupEntities, InsertEntities, InsertText,
+    MoveToLayer, RenameEntities, RenameLayer, ReorderLayers, ReplaceEntities, ResizeRectangle,
+    SetLayerFlags, SetStyle, SetStyleField, SetZOrder, StyleField, ToggleConstruction,
+    TranslateEntities, UndoStack, Ungroup, UpdateEntity, UpdateText, ZOrderAction,
 };
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};
@@ -57,6 +57,9 @@ pub use snap::{
     all_snap_candidate_points, all_snap_candidate_points_with_exclude_set, find_intersections,
     find_snap, find_snap_with_exclude_set, find_snap_with_extra, SnapHit, SnapKind,
 };
-pub use text::{text_to_entities, FontPreset, TextAlign, TextOptions, DEFAULT_FONT_BYTES};
+pub use text::{
+    regenerate_text, spec_to_path_entities, text_to_entities, FontPreset, TextAlign, TextObject,
+    TextOptions, TextSpec, DEFAULT_FONT_BYTES,
+};
 
 

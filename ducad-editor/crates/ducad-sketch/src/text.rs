@@ -15,7 +15,10 @@
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use crate::entity::{Entity, PathSeg};
+use crate::entity::{Entity, EntityId, PathSeg, Subpath};
+use crate::layer::{LayerId, TextId};
+use crate::sketch::Sketch;
+use crate::style::{BlendMode, FillRule, Paint, Rgba, Style};
 
 /// Berkas font default bawaan yang disematkan ke dalam biner.
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("../fonts/default.ttf");
@@ -425,4 +428,299 @@ pub fn text_to_entities(
     }
 
     Ok(all_entities)
+}
+
+fn default_text_size() -> f64 {
+    10.0
+}
+fn one_f64() -> f64 {
+    1.0
+}
+fn default_line_spacing() -> f64 {
+    1.2
+}
+
+/// Spesifikasi teks parametrik (konten, font, ukuran, tata letak, rotasi).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextSpec {
+    pub content: String,
+    #[serde(default)]
+    pub font_preset: FontPreset,
+    #[serde(default)]
+    pub custom_font_name: Option<String>,
+    #[serde(default = "default_text_size")]
+    pub size_mm: f64,
+    #[serde(default)]
+    pub align: TextAlign,
+    #[serde(default)]
+    pub origin: DVec2,
+    #[serde(default)]
+    pub rotation_rad: f64,
+    #[serde(default = "one_f64")]
+    pub letter_spacing: f64,
+    #[serde(default = "default_line_spacing")]
+    pub line_spacing: f64,
+    #[serde(default)]
+    pub is_construction: bool,
+}
+
+impl Default for TextSpec {
+    fn default() -> Self {
+        Self {
+            content: String::new(),
+            font_preset: FontPreset::Arial,
+            custom_font_name: None,
+            size_mm: 10.0,
+            align: TextAlign::Left,
+            origin: DVec2::ZERO,
+            rotation_rad: 0.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            is_construction: false,
+        }
+    }
+}
+
+/// Objek teks parametrik pada sketch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextObject {
+    pub spec: TextSpec,
+    pub glyph_entities: Vec<EntityId>,
+    #[serde(default = "TextObject::default_style")]
+    pub style: Style,
+    #[serde(default)]
+    pub layer: Option<LayerId>,
+}
+
+impl TextObject {
+    pub fn default_style() -> Style {
+        Style {
+            fill: Some(Paint::Solid(Rgba([0.0, 0.0, 0.0, 1.0]))),
+            fill_rule: FillRule::NonZero,
+            stroke: None,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    pub fn new(spec: TextSpec) -> Self {
+        Self {
+            spec,
+            glyph_entities: Vec::new(),
+            style: Self::default_style(),
+            layer: None,
+        }
+    }
+}
+
+impl Default for TextObject {
+    fn default() -> Self {
+        Self::new(TextSpec::default())
+    }
+}
+
+struct KurboOutlineBuilder {
+    path: kurbo::BezPath,
+    offset: DVec2,
+    scale: f64,
+}
+
+impl ttf_parser::OutlineBuilder for KurboOutlineBuilder {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.path.move_to(kurbo::Point::new(
+            self.offset.x + (x as f64) * self.scale,
+            self.offset.y + (y as f64) * self.scale,
+        ));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.path.line_to(kurbo::Point::new(
+            self.offset.x + (x as f64) * self.scale,
+            self.offset.y + (y as f64) * self.scale,
+        ));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.path.quad_to(
+            kurbo::Point::new(
+                self.offset.x + (x1 as f64) * self.scale,
+                self.offset.y + (y1 as f64) * self.scale,
+            ),
+            kurbo::Point::new(
+                self.offset.x + (x as f64) * self.scale,
+                self.offset.y + (y as f64) * self.scale,
+            ),
+        );
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.path.curve_to(
+            kurbo::Point::new(
+                self.offset.x + (x1 as f64) * self.scale,
+                self.offset.y + (y1 as f64) * self.scale,
+            ),
+            kurbo::Point::new(
+                self.offset.x + (x2 as f64) * self.scale,
+                self.offset.y + (y2 as f64) * self.scale,
+            ),
+            kurbo::Point::new(
+                self.offset.x + (x as f64) * self.scale,
+                self.offset.y + (y as f64) * self.scale,
+            ),
+        );
+    }
+    fn close(&mut self) {
+        self.path.close_path();
+    }
+}
+
+/// Vektorisasi `TextSpec` menjadi daftar `Entity::Path` tertutup.
+pub fn spec_to_path_entities(
+    spec: &TextSpec,
+    custom_font_bytes: Option<&[u8]>,
+) -> Result<Vec<Entity>, String> {
+    if spec.content.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let font_buf;
+    let font_data: &[u8] = if let Some(custom) = custom_font_bytes {
+        custom
+    } else {
+        font_buf = spec.font_preset.load_font_bytes();
+        &font_buf
+    };
+
+    let face = ttf_parser::Face::parse(font_data, 0)
+        .map_err(|e| format!("Gagal mem-parsing berkas font TTF/OTF: {e}"))?;
+
+    let upem = face.units_per_em() as f64;
+    let ascender = face.ascender() as f64;
+    let descender = face.descender() as f64;
+    let em_height = (ascender - descender).max(upem);
+    let scale = (spec.size_mm / em_height).max(1e-6);
+
+    let lines: Vec<&str> = spec.content.lines().collect();
+    let line_height_mm = spec.size_mm * spec.line_spacing;
+
+    let rot = glam::DMat2::from_angle(spec.rotation_rad);
+    let has_rot = spec.rotation_rad.abs() > 1e-9;
+
+    let mut entities = Vec::new();
+
+    for (line_idx, line_str) in lines.iter().enumerate() {
+        let mut line_width = 0.0;
+        for c in line_str.chars() {
+            if let Some(glyph_id) = face.glyph_index(c) {
+                let advance = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64 * scale;
+                line_width += advance * spec.letter_spacing;
+            }
+        }
+
+        let align_offset_x = match spec.align {
+            TextAlign::Left => 0.0,
+            TextAlign::Center => -line_width * 0.5,
+            TextAlign::Right => -line_width,
+        };
+
+        let mut current_x = spec.origin.x + align_offset_x;
+        let current_y = spec.origin.y - (line_idx as f64) * line_height_mm;
+
+        for c in line_str.chars() {
+            if let Some(glyph_id) = face.glyph_index(c) {
+                let mut builder = KurboOutlineBuilder {
+                    path: kurbo::BezPath::new(),
+                    offset: DVec2::new(current_x, current_y),
+                    scale,
+                };
+
+                if let Some(_bbox) = face.outline_glyph(glyph_id, &mut builder) {
+                    let mut subpaths = Subpath::from_kurbo(&builder.path);
+                    if has_rot {
+                        subpaths = subpaths
+                            .into_iter()
+                            .map(|sp| {
+                                sp.map_points(|p| spec.origin + rot.mul_vec2(p - spec.origin))
+                            })
+                            .collect();
+                    }
+                    if !subpaths.is_empty() {
+                        entities.push(Entity::Path {
+                            subpaths,
+                            is_construction: spec.is_construction,
+                        });
+                    }
+                }
+
+                let advance = face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64 * scale;
+                current_x += advance * spec.letter_spacing;
+            }
+        }
+    }
+
+    Ok(entities)
+}
+
+/// Regenerasi: hapus glyph lama, buat glyph baru dari spec, pertahankan
+/// layer/grup/style; kembalikan id baru. Deterministik.
+pub fn regenerate_text(sketch: &mut Sketch, id: TextId) -> Vec<EntityId> {
+    let Some(text_obj) = sketch.texts.get(id).cloned() else {
+        return Vec::new();
+    };
+
+    let inherited_layer = text_obj.layer.or_else(|| {
+        text_obj
+            .glyph_entities
+            .iter()
+            .find_map(|&gid| sketch.entity_layer.get(gid).copied())
+    });
+
+    let inherited_group = text_obj
+        .glyph_entities
+        .iter()
+        .find_map(|&gid| sketch.entity_group.get(gid).copied());
+
+    // Hapus glyph lama
+    for &gid in &text_obj.glyph_entities {
+        sketch.entities.remove(gid);
+        sketch.entity_names.remove(&gid);
+        sketch.styles.remove(gid);
+        sketch.entity_layer.remove(gid);
+        sketch.entity_group.remove(gid);
+        sketch.origin.remove(gid);
+        sketch.z_order.retain(|&z| z != gid);
+        if let Some(grp_id) = inherited_group {
+            if let Some(grp) = sketch.groups.get_mut(grp_id) {
+                grp.members.retain(|&m| m != gid);
+            }
+        }
+        sketch.touch(gid);
+    }
+
+    let new_entities = spec_to_path_entities(&text_obj.spec, None).unwrap_or_default();
+    let mut new_ids = Vec::with_capacity(new_entities.len());
+
+    for ent in new_entities {
+        let new_id = sketch.entities.insert(ent);
+        sketch.origin.insert(new_id, crate::layer::Origin::Text { text: id });
+        sketch.styles.insert(new_id, text_obj.style.clone());
+        if let Some(lay) = inherited_layer {
+            sketch.entity_layer.insert(new_id, lay);
+        }
+        if let Some(grp_id) = inherited_group {
+            sketch.entity_group.insert(new_id, grp_id);
+            if let Some(grp) = sketch.groups.get_mut(grp_id) {
+                grp.members.push(new_id);
+            }
+        }
+        sketch.z_order.push(new_id);
+        sketch.touch(new_id);
+        new_ids.push(new_id);
+    }
+
+    if let Some(obj) = sketch.texts.get_mut(id) {
+        obj.glyph_entities = new_ids.clone();
+        if let Some(lay) = inherited_layer {
+            obj.layer = Some(lay);
+        }
+    }
+
+    new_ids
 }

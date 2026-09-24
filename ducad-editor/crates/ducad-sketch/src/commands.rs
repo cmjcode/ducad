@@ -3,10 +3,11 @@ use ducad_core::Command;
 use glam::DVec2;
 
 use crate::entity::{Entity, EntityId};
-use crate::layer::{Group, GroupId, Layer, LayerId, Origin};
+use crate::layer::{Group, GroupId, Layer, LayerId, Origin, TextId};
 use crate::ops::translate_entity;
 use crate::sketch::Sketch;
 use crate::style::{Paint, StrokeStyle, Style};
+use crate::text::{regenerate_text, TextObject, TextSpec};
 
 /// Alias nyaman: tumpukan undo/redo khusus operasi sketch.
 pub type UndoStack = ducad_core::UndoStack<Sketch>;
@@ -84,6 +85,80 @@ struct DeletedEntityData {
     group_member_indices: Vec<(GroupId, usize)>,
 }
 
+fn remove_single_entity_data(sketch: &mut Sketch, id: EntityId) -> Option<DeletedEntityData> {
+    let entity = sketch.entities.remove(id)?;
+    let name = sketch.entity_names.remove(&id);
+    let style = sketch.styles.remove(id);
+    let layer = sketch.entity_layer.remove(id);
+    let group = sketch.entity_group.remove(id);
+    let origin = sketch.origin.remove(id);
+    let z_index = sketch.z_order.iter().position(|&z| z == id);
+    if let Some(idx) = z_index {
+        sketch.z_order.remove(idx);
+    }
+    let mut group_member_indices = Vec::new();
+    for (gid, grp) in &mut sketch.groups {
+        if let Some(pos) = grp.members.iter().position(|&m| m == id) {
+            grp.members.remove(pos);
+            group_member_indices.push((gid, pos));
+        }
+    }
+    for (_, txt) in &mut sketch.texts {
+        txt.glyph_entities.retain(|&g| g != id);
+    }
+    sketch.touch(id);
+    Some(DeletedEntityData {
+        entity,
+        name,
+        style,
+        layer,
+        group,
+        origin,
+        z_index,
+        group_member_indices,
+    })
+}
+
+fn restore_single_entity_data(sketch: &mut Sketch, data: DeletedEntityData) -> EntityId {
+    let new_id = sketch.entities.insert(data.entity);
+    if let Some(name) = data.name {
+        sketch.entity_names.insert(new_id, name);
+    }
+    if let Some(style) = data.style {
+        sketch.styles.insert(new_id, style);
+    }
+    if let Some(layer) = data.layer {
+        sketch.entity_layer.insert(new_id, layer);
+    }
+    if let Some(group) = data.group {
+        sketch.entity_group.insert(new_id, group);
+    }
+    if let Some(origin) = data.origin {
+        if let Origin::Text { text } = origin {
+            if let Some(txt) = sketch.texts.get_mut(text) {
+                if !txt.glyph_entities.contains(&new_id) {
+                    txt.glyph_entities.push(new_id);
+                }
+            }
+        }
+        sketch.origin.insert(new_id, origin);
+    }
+    if let Some(idx) = data.z_index {
+        let idx = idx.min(sketch.z_order.len());
+        sketch.z_order.insert(idx, new_id);
+    } else {
+        sketch.z_order.push(new_id);
+    }
+    for (gid, pos) in data.group_member_indices {
+        if let Some(grp) = sketch.groups.get_mut(gid) {
+            let pos = pos.min(grp.members.len());
+            grp.members.insert(pos, new_id);
+        }
+    }
+    sketch.touch(new_id);
+    new_id
+}
+
 /// Hapus entitas terpilih.
 pub struct DeleteEntities {
     ids: Vec<EntityId>,
@@ -112,67 +187,15 @@ impl Command<Sketch> for DeleteEntities {
     fn apply(&mut self, sketch: &mut Sketch) {
         self.removed_data.clear();
         for &id in &self.ids {
-            if let Some(entity) = sketch.entities.remove(id) {
-                let name = sketch.entity_names.remove(&id);
-                let style = sketch.styles.remove(id);
-                let layer = sketch.entity_layer.remove(id);
-                let group = sketch.entity_group.remove(id);
-                let origin = sketch.origin.remove(id);
-                let z_index = sketch.z_order.iter().position(|&z| z == id);
-                if let Some(idx) = z_index {
-                    sketch.z_order.remove(idx);
-                }
-                let mut group_member_indices = Vec::new();
-                for (gid, grp) in &mut sketch.groups {
-                    if let Some(pos) = grp.members.iter().position(|&m| m == id) {
-                        grp.members.remove(pos);
-                        group_member_indices.push((gid, pos));
-                    }
-                }
-                sketch.touch(id);
-                self.removed_data.push(DeletedEntityData {
-                    entity,
-                    name,
-                    style,
-                    layer,
-                    group,
-                    origin,
-                    z_index,
-                    group_member_indices,
-                });
+            if let Some(data) = remove_single_entity_data(sketch, id) {
+                self.removed_data.push(data);
             }
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         self.restored_ids.clear();
         for data in self.removed_data.drain(..) {
-            let new_id = sketch.entities.insert(data.entity);
-            if let Some(name) = data.name {
-                sketch.entity_names.insert(new_id, name);
-            }
-            if let Some(style) = data.style {
-                sketch.styles.insert(new_id, style);
-            }
-            if let Some(layer) = data.layer {
-                sketch.entity_layer.insert(new_id, layer);
-            }
-            if let Some(group) = data.group {
-                sketch.entity_group.insert(new_id, group);
-            }
-            if let Some(origin) = data.origin {
-                sketch.origin.insert(new_id, origin);
-            }
-            if let Some(idx) = data.z_index {
-                let idx = idx.min(sketch.z_order.len());
-                sketch.z_order.insert(idx, new_id);
-            }
-            for (gid, pos) in data.group_member_indices {
-                if let Some(grp) = sketch.groups.get_mut(gid) {
-                    let pos = pos.min(grp.members.len());
-                    grp.members.insert(pos, new_id);
-                }
-            }
-            sketch.touch(new_id);
+            let new_id = restore_single_entity_data(sketch, data);
             self.restored_ids.push(new_id);
         }
         self.ids = self.restored_ids.clone();
@@ -1096,6 +1119,189 @@ impl Command<Sketch> for Ungroup {
                 sketch.touch(mid);
             }
             self.group = restored_gid;
+        }
+    }
+}
+
+/// Sisipkan teks parametrik baru ke dalam sketch.
+pub struct InsertText {
+    spec: TextSpec,
+    style: Option<Style>,
+    layer: Option<LayerId>,
+    text_id: Option<TextId>,
+    created_glyphs: Vec<EntityId>,
+}
+
+impl InsertText {
+    pub fn new(spec: TextSpec) -> Self {
+        Self {
+            spec,
+            style: None,
+            layer: None,
+            text_id: None,
+            created_glyphs: Vec::new(),
+        }
+    }
+
+    pub fn with_style(mut self, style: Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn with_layer(mut self, layer: LayerId) -> Self {
+        self.layer = Some(layer);
+        self
+    }
+
+    pub fn text_id(&self) -> Option<TextId> {
+        self.text_id
+    }
+
+    pub fn created_glyphs(&self) -> &[EntityId] {
+        &self.created_glyphs
+    }
+}
+
+impl Command<Sketch> for InsertText {
+    fn name(&self) -> &str {
+        "Sisipkan Teks"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        let text_obj = TextObject {
+            spec: self.spec.clone(),
+            glyph_entities: Vec::new(),
+            style: self.style.clone().unwrap_or_else(TextObject::default_style),
+            layer: self.layer,
+        };
+        let tid = sketch.texts.insert(text_obj);
+        self.text_id = Some(tid);
+        self.created_glyphs = regenerate_text(sketch, tid);
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        if let Some(tid) = self.text_id.take() {
+            if let Some(obj) = sketch.texts.remove(tid) {
+                for gid in obj.glyph_entities {
+                    remove_single_entity_data(sketch, gid);
+                }
+            }
+            self.created_glyphs.clear();
+        }
+    }
+}
+
+/// Perbarui spesifikasi teks parametrik (konten, font, ukuran, tata letak).
+pub struct UpdateText {
+    id: TextId,
+    new_spec: TextSpec,
+    old_spec: Option<TextSpec>,
+    removed_glyphs: Vec<DeletedEntityData>,
+    created_glyphs: Vec<EntityId>,
+}
+
+impl UpdateText {
+    pub fn new(id: TextId, new_spec: TextSpec) -> Self {
+        Self {
+            id,
+            new_spec,
+            old_spec: None,
+            removed_glyphs: Vec::new(),
+            created_glyphs: Vec::new(),
+        }
+    }
+
+    pub fn text_id(&self) -> TextId {
+        self.id
+    }
+}
+
+impl Command<Sketch> for UpdateText {
+    fn name(&self) -> &str {
+        "Perbarui Teks"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        if let Some(obj) = sketch.texts.get_mut(self.id) {
+            self.old_spec = Some(obj.spec.clone());
+            self.removed_glyphs.clear();
+            let old_glyphs = std::mem::take(&mut obj.glyph_entities);
+            for gid in old_glyphs {
+                if let Some(data) = remove_single_entity_data(sketch, gid) {
+                    self.removed_glyphs.push(data);
+                }
+            }
+            if let Some(obj) = sketch.texts.get_mut(self.id) {
+                obj.spec = self.new_spec.clone();
+            }
+            self.created_glyphs = regenerate_text(sketch, self.id);
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        if let Some(old_spec) = self.old_spec.take() {
+            for gid in self.created_glyphs.drain(..) {
+                remove_single_entity_data(sketch, gid);
+            }
+            let mut restored_ids = Vec::with_capacity(self.removed_glyphs.len());
+            for data in self.removed_glyphs.drain(..) {
+                let nid = restore_single_entity_data(sketch, data);
+                sketch.origin.insert(nid, Origin::Text { text: self.id });
+                restored_ids.push(nid);
+            }
+            if let Some(obj) = sketch.texts.get_mut(self.id) {
+                obj.spec = old_spec;
+                obj.glyph_entities = restored_ids;
+            }
+        }
+    }
+}
+
+/// Hapus objek teks parametrik beserta seluruh glyph turunannya.
+pub struct DeleteText {
+    id: TextId,
+    removed_text: Option<TextObject>,
+    removed_glyphs: Vec<DeletedEntityData>,
+}
+
+impl DeleteText {
+    pub fn new(id: TextId) -> Self {
+        Self {
+            id,
+            removed_text: None,
+            removed_glyphs: Vec::new(),
+        }
+    }
+
+    pub fn text_id(&self) -> TextId {
+        self.id
+    }
+}
+
+impl Command<Sketch> for DeleteText {
+    fn name(&self) -> &str {
+        "Hapus Teks"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        if let Some(mut obj) = sketch.texts.remove(self.id) {
+            self.removed_glyphs.clear();
+            for gid in obj.glyph_entities.drain(..) {
+                if let Some(data) = remove_single_entity_data(sketch, gid) {
+                    self.removed_glyphs.push(data);
+                }
+            }
+            self.removed_text = Some(obj);
+        }
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        if let Some(mut obj) = self.removed_text.take() {
+            let mut restored_ids = Vec::with_capacity(self.removed_glyphs.len());
+            for data in self.removed_glyphs.drain(..) {
+                let nid = restore_single_entity_data(sketch, data);
+                restored_ids.push(nid);
+            }
+            obj.glyph_entities = restored_ids.clone();
+            let new_tid = sketch.texts.insert(obj);
+            self.id = new_tid;
+            for &nid in &restored_ids {
+                sketch.origin.insert(nid, Origin::Text { text: new_tid });
+            }
         }
     }
 }

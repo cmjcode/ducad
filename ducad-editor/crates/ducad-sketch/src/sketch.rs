@@ -5,8 +5,9 @@ use std::collections::{HashMap, HashSet};
 use crate::constraint::Constraint;
 use crate::entity::{Entity, EntityId};
 use crate::index::SpatialIndex;
-use crate::layer::{Group, GroupId, Layer, LayerId, Origin};
+use crate::layer::{Group, GroupId, Layer, LayerId, Origin, TextId};
 use crate::style::{Rgba, Style};
+use crate::text::TextObject;
 
 /// Cache indeks spasial internal untuk Sketch.
 #[derive(Debug, Default)]
@@ -60,6 +61,9 @@ pub struct Sketch {
     /// Asal usul entitas (tinta coretan, impor SVG, teks).
     #[serde(default)]
     pub origin: slotmap::SecondaryMap<EntityId, Origin>,
+    /// Objek teks parametrik pada sketch.
+    #[serde(default)]
+    pub texts: slotmap::SlotMap<TextId, TextObject>,
 
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]

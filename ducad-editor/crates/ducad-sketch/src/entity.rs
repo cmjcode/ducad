@@ -189,6 +189,20 @@ impl Subpath {
         (min, max)
     }
 
+    /// Luas bertanda (signed area) dari subpath tertutup.
+    /// Positif jika CCW (berlawanan jarum jam), negatif jika CW (searah jarum jam).
+    pub fn signed_area(&self) -> f64 {
+        let pts = self.flatten(0.01);
+        if pts.len() < 3 {
+            return 0.0;
+        }
+        let mut sum = 0.0;
+        for i in 0..(pts.len() - 1) {
+            sum += pts[i].x * pts[i + 1].y - pts[i + 1].x * pts[i].y;
+        }
+        sum * 0.5
+    }
+
     /// Jumlah node kontrol: 1 + segs.len() (closed: tanpa duplikat).
     pub fn node_count(&self) -> usize {
         1 + self.segs.len()
