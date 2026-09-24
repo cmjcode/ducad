@@ -1,4 +1,5 @@
 use super::*;
+use ducad_core::Command;
 use glam::DVec2;
 
 #[test]
@@ -1269,6 +1270,243 @@ fn test_biarc_and_multi_arc_offset() {
     let decomposed_sp = offset_entity_multi_arc(&spline, DVec2::new(15.0, 15.0), 6).expect("Harus menghasilkan multi-arc");
     assert!(!decomposed_sp.is_empty());
 }
+
+#[test]
+fn draw_order_respects_layers_then_z() {
+    let mut sketch = Sketch::default();
+    let l1 = sketch.layers.insert(Layer::new("Bawah", Rgba::WHITE));
+    let l2 = sketch.layers.insert(Layer::new("Atas", Rgba::WHITE));
+    sketch.layer_order = vec![l1, l2];
+
+    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let e2 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(20.0, 0.0)));
+    let e3 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
+    let e4 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
+
+    sketch.entity_layer.insert(e1, l1);
+    sketch.entity_layer.insert(e2, l1);
+    sketch.entity_layer.insert(e3, l2);
+    sketch.entity_layer.insert(e4, l2);
+
+    // Dalam layer 1: e2 sebelum e1
+    // Dalam layer 2: e4 sebelum e3
+    sketch.z_order = vec![e2, e1, e4, e3];
+
+    let order = sketch.draw_order();
+    assert_eq!(order, vec![e2, e1, e4, e3]);
+}
+
+#[test]
+fn draw_order_is_deterministic() {
+    let mut sketch = Sketch::default();
+    let l1 = sketch.layers.insert(Layer::new("L1", Rgba::WHITE));
+    let l2 = sketch.layers.insert(Layer::new("L2", Rgba::WHITE));
+    sketch.layer_order = vec![l1, l2];
+
+    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(1.0, 0.0)));
+    let e2 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(2.0, 0.0)));
+    let e3 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(3.0, 0.0)));
+
+    sketch.entity_layer.insert(e1, l1);
+    sketch.entity_layer.insert(e2, l1);
+    sketch.entity_layer.insert(e3, l2);
+
+    let order1 = sketch.draw_order();
+    let order2 = sketch.draw_order();
+    assert_eq!(order1, order2);
+}
+
+#[test]
+fn delete_entities_revert_restores_style_layer_group_origin() {
+    let mut sketch = Sketch::default();
+    let l1 = sketch.layers.insert(Layer::new("Layer 1", Rgba::WHITE));
+    sketch.layer_order.push(l1);
+
+    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let style = Style {
+        opacity: 0.75,
+        ..Style::cad_default()
+    };
+    sketch.styles.insert(e1, style.clone());
+    sketch.entity_layer.insert(e1, l1);
+
+    let gid = sketch.groups.insert(Group {
+        name: "TestGroup".into(),
+        members: vec![e1],
+        parent: None,
+    });
+    sketch.entity_group.insert(e1, gid);
+
+    let origin = Origin::Import {
+        source: "svg:icon.svg".into(),
+    };
+    sketch.origin.insert(e1, origin.clone());
+    sketch.z_order.push(e1);
+
+    // Hapus
+    let mut cmd = DeleteEntities::new(vec![e1]);
+    cmd.apply(&mut sketch);
+
+    assert_eq!(sketch.entities.len(), 0);
+    assert_eq!(sketch.styles.get(e1), None);
+    assert_eq!(sketch.entity_layer.get(e1), None);
+    assert_eq!(sketch.entity_group.get(e1), None);
+    assert_eq!(sketch.origin.get(e1), None);
+    assert!(sketch.z_order.is_empty());
+    assert!(sketch.groups[gid].members.is_empty());
+
+    // Revert
+    cmd.revert(&mut sketch);
+
+    assert_eq!(sketch.entities.len(), 1);
+    let restored_id = sketch.entities.keys().next().unwrap();
+    assert_eq!(sketch.styles.get(restored_id), Some(&style));
+    assert_eq!(sketch.entity_layer.get(restored_id), Some(&l1));
+    assert_eq!(sketch.entity_group.get(restored_id), Some(&gid));
+    assert_eq!(sketch.origin.get(restored_id), Some(&origin));
+    assert_eq!(sketch.z_order, vec![restored_id]);
+    assert_eq!(sketch.groups[gid].members, vec![restored_id]);
+}
+
+#[test]
+fn delete_layer_moves_entities_to_default() {
+    let mut sketch = Sketch::default();
+    let def_lid = sketch.ensure_default_layer();
+
+    let custom_lid = sketch.layers.insert(Layer::new("Custom", Rgba::WHITE));
+    sketch.layer_order.push(custom_lid);
+
+    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    sketch.entity_layer.insert(e1, custom_lid);
+
+    let mut cmd = DeleteLayer::new(custom_lid);
+    cmd.apply(&mut sketch);
+
+    // Entitas harus dipindahkan ke layer default
+    assert_eq!(sketch.entity_layer.get(e1), Some(&def_lid));
+    assert!(!sketch.layers.contains_key(custom_lid));
+    assert!(!sketch.layer_order.contains(&custom_lid));
+
+    // Revert
+    cmd.revert(&mut sketch);
+
+    let restored_lid = sketch.entity_layer.get(e1).copied().unwrap();
+    assert_ne!(restored_lid, def_lid);
+    assert!(sketch.layers.contains_key(restored_lid));
+    assert!(sketch.layer_order.contains(&restored_lid));
+}
+
+#[test]
+fn old_json_without_styles_and_layers_parses() {
+    let legacy_json = r#"{"entities":[{"value":null,"version":0}],"constraints":[],"entity_names":{},"hidden_entities":[]}"#;
+    let sketch: Sketch = serde_json::from_str(legacy_json).expect("Old JSON must parse");
+    assert!(sketch.styles.is_empty());
+    assert!(sketch.layers.is_empty());
+    assert!(sketch.layer_order.is_empty());
+    assert!(sketch.entity_layer.is_empty());
+    assert!(sketch.z_order.is_empty());
+    assert!(sketch.groups.is_empty());
+    assert!(sketch.entity_group.is_empty());
+    assert!(sketch.origin.is_empty());
+}
+
+#[test]
+fn apply_then_revert_restores_state_all_new_commands() {
+    let mut sketch = Sketch::default();
+    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+
+    // 1. SetStyle
+    let mut cmd_style = SetStyle::new(
+        vec![e1],
+        Style {
+            opacity: 0.5,
+            ..Style::cad_default()
+        },
+    );
+    cmd_style.apply(&mut sketch);
+    assert_eq!(sketch.style_of(e1).opacity, 0.5);
+    cmd_style.revert(&mut sketch);
+    assert_eq!(sketch.style_of(e1).opacity, 1.0);
+
+    // 2. SetStyleField
+    let mut cmd_field = SetStyleField::new(vec![e1], StyleField::Opacity(0.3));
+    cmd_field.apply(&mut sketch);
+    assert_eq!(sketch.style_of(e1).opacity, 0.3);
+    cmd_field.revert(&mut sketch);
+    assert_eq!(sketch.style_of(e1).opacity, 1.0);
+
+    // 3. CreateLayer
+    let mut cmd_create_layer = CreateLayer::new(Layer::new("Layer A", Rgba::WHITE));
+    cmd_create_layer.apply(&mut sketch);
+    let lid = cmd_create_layer.created_id().unwrap();
+    assert!(sketch.layers.contains_key(lid));
+    cmd_create_layer.revert(&mut sketch);
+    assert!(!sketch.layers.contains_key(lid));
+
+    // 4. RenameLayer
+    let lid2 = sketch.layers.insert(Layer::new("OldName", Rgba::WHITE));
+    let mut cmd_rename = RenameLayer::new(lid2, "NewName");
+    cmd_rename.apply(&mut sketch);
+    assert_eq!(sketch.layers[lid2].name, "NewName");
+    cmd_rename.revert(&mut sketch);
+    assert_eq!(sketch.layers[lid2].name, "OldName");
+
+    // 5. ReorderLayers
+    let lid3 = sketch.layers.insert(Layer::new("L3", Rgba::WHITE));
+    sketch.layer_order = vec![lid2, lid3];
+    let mut cmd_reorder = ReorderLayers::new(vec![lid3, lid2]);
+    cmd_reorder.apply(&mut sketch);
+    assert_eq!(sketch.layer_order, vec![lid3, lid2]);
+    cmd_reorder.revert(&mut sketch);
+    assert_eq!(sketch.layer_order, vec![lid2, lid3]);
+
+    // 6. SetLayerFlags
+    let mut cmd_flags = SetLayerFlags::new(lid2, Some(false), Some(true));
+    cmd_flags.apply(&mut sketch);
+    assert!(!sketch.layers[lid2].visible);
+    assert!(sketch.layers[lid2].locked);
+    cmd_flags.revert(&mut sketch);
+    assert!(sketch.layers[lid2].visible);
+    assert!(!sketch.layers[lid2].locked);
+
+    // 7. MoveToLayer
+    let mut cmd_move = MoveToLayer::new(vec![e1], lid3);
+    cmd_move.apply(&mut sketch);
+    assert_eq!(sketch.layer_of(e1), Some(lid3));
+    cmd_move.revert(&mut sketch);
+    assert_eq!(sketch.layer_of(e1), None);
+
+    // 8. SetZOrder
+    let e2 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
+    sketch.z_order = vec![e1, e2];
+    let mut cmd_z = SetZOrder::new(vec![e1], ZOrderAction::BringFront);
+    cmd_z.apply(&mut sketch);
+    assert_eq!(sketch.z_order, vec![e2, e1]);
+    cmd_z.revert(&mut sketch);
+    assert_eq!(sketch.z_order, vec![e1, e2]);
+
+    // 9. GroupEntities
+    let mut cmd_group = GroupEntities::new(vec![e1, e2], "MyGroup");
+    cmd_group.apply(&mut sketch);
+    let gid = cmd_group.created_group_id().unwrap();
+    assert_eq!(sketch.top_group(e1), Some(gid));
+    cmd_group.revert(&mut sketch);
+    assert_eq!(sketch.top_group(e1), None);
+
+    // 10. Ungroup
+    let gid2 = sketch.groups.insert(Group {
+        name: "G2".into(),
+        members: vec![e1],
+        parent: None,
+    });
+    sketch.entity_group.insert(e1, gid2);
+    let mut cmd_ungroup = Ungroup::new(gid2);
+    cmd_ungroup.apply(&mut sketch);
+    assert_eq!(sketch.entity_group.get(e1), None);
+    cmd_ungroup.revert(&mut sketch);
+    assert!(sketch.entity_group.get(e1).is_some());
+}
+
 
 
 

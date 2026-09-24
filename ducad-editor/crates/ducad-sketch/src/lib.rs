@@ -8,24 +8,32 @@ pub mod document;
 pub mod entity;
 pub mod index;
 pub mod infer;
+pub mod layer;
 pub mod measure;
 pub mod ops;
 pub mod recognize;
 pub mod region;
 pub mod sketch;
 pub mod snap;
+pub mod style;
 pub mod text;
 
 #[cfg(test)]
 mod tests;
 
 pub use commands::{
-    DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
-    ToggleConstruction, TranslateEntities, UndoStack, UpdateEntity,
+    CreateLayer, DeleteEntities, DeleteLayer, GroupEntities, InsertEntities, MoveToLayer,
+    RenameEntities, RenameLayer, ReorderLayers, ReplaceEntities, ResizeRectangle, SetLayerFlags,
+    SetStyle, SetStyleField, SetZOrder, StyleField, ToggleConstruction, TranslateEntities,
+    UndoStack, Ungroup, UpdateEntity, ZOrderAction,
 };
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};
 pub use index::{IndexedBox, SpatialIndex};
+pub use layer::{Group, GroupId, Layer, LayerId, LayerKind, Origin, TextId};
+pub use style::{
+    BlendMode, FillRule, LineCap, LineJoin, Paint, Rgba, StrokeStyle, Style,
+};
 pub use ops::{
     arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
     compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, extend_preview,

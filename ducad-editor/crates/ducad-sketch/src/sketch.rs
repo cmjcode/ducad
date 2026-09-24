@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use crate::constraint::Constraint;
 use crate::entity::{Entity, EntityId};
 use crate::index::SpatialIndex;
+use crate::layer::{Group, GroupId, Layer, LayerId, Origin};
+use crate::style::{Rgba, Style};
 
 /// Cache indeks spasial internal untuk Sketch.
 #[derive(Debug, Default)]
@@ -33,6 +35,31 @@ pub struct Sketch {
     /// ID entitas yang disembunyikan (hidden).
     #[serde(default)]
     pub hidden_entities: HashSet<EntityId>,
+
+    /// Gaya visual per entitas (fill, stroke, opacity, blend).
+    #[serde(default)]
+    pub styles: slotmap::SecondaryMap<EntityId, Style>,
+    /// Definisi layer pada sketch.
+    #[serde(default)]
+    pub layers: slotmap::SlotMap<LayerId, Layer>,
+    /// Urutan gambar layer dari bawah ke atas.
+    #[serde(default)]
+    pub layer_order: Vec<LayerId>,
+    /// Asosiasi entitas ke layer-nya.
+    #[serde(default)]
+    pub entity_layer: slotmap::SecondaryMap<EntityId, LayerId>,
+    /// Urutan gambar entitas dalam layer (z-order).
+    #[serde(default)]
+    pub z_order: Vec<EntityId>,
+    /// Grup entitas hierarkis.
+    #[serde(default)]
+    pub groups: slotmap::SlotMap<GroupId, Group>,
+    /// Asosiasi entitas ke grupnya.
+    #[serde(default)]
+    pub entity_group: slotmap::SecondaryMap<EntityId, GroupId>,
+    /// Asal usul entitas (tinta coretan, impor SVG, teks).
+    #[serde(default)]
+    pub origin: slotmap::SecondaryMap<EntityId, Origin>,
 
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]
@@ -247,6 +274,147 @@ impl Sketch {
         } else {
             None
         }
+    }
+
+    /// Gaya visual entitas `id`, atau `Style::cad_default()` jika tidak memiliki style eksplisit.
+    pub fn style_of(&self, id: EntityId) -> Style {
+        self.styles.get(id).cloned().unwrap_or_else(Style::cad_default)
+    }
+
+    /// Mengambil LayerId dari entitas `id` jika ada.
+    pub fn layer_of(&self, id: EntityId) -> Option<LayerId> {
+        self.entity_layer.get(id).copied()
+    }
+
+    /// Mengecek apakah entitas dapat diedit (terlihat dan layer-nya tidak dikunci).
+    pub fn is_editable(&self, id: EntityId) -> bool {
+        if self.is_hidden(id) {
+            return false;
+        }
+        if let Some(lid) = self.entity_layer.get(id) {
+            if let Some(layer) = self.layers.get(*lid) {
+                if !layer.visible || layer.locked {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Mengembalikan urutan gambar seluruh entitas secara deterministik berdasarkan layer_order dan z_order.
+    pub fn draw_order(&self) -> Vec<EntityId> {
+        let mut result = Vec::with_capacity(self.entities.len());
+        let mut visited = HashSet::with_capacity(self.entities.len());
+
+        let sort_layer_entities = |eids: Vec<EntityId>| -> Vec<EntityId> {
+            let mut unz = Vec::new();
+            let mut in_z = Vec::new();
+
+            for id in eids {
+                if let Some(pos) = self.z_order.iter().position(|&z| z == id) {
+                    in_z.push((pos, id));
+                } else {
+                    unz.push(id);
+                }
+            }
+            // Entitas tanpa entri z_order digambar lebih dulu, urutan id deterministik
+            unz.sort();
+            // Entitas dengan entri z_order digambar mengikuti urutan z_order
+            in_z.sort_by_key(|&(pos, _)| pos);
+
+            let mut out = unz;
+            out.extend(in_z.into_iter().map(|(_, id)| id));
+            out
+        };
+
+        // 1. Entitas tanpa layer (atau layer tidak terdaftar di layers)
+        let unlayered: Vec<EntityId> = self
+            .entities
+            .keys()
+            .filter(|&id| match self.entity_layer.get(id) {
+                None => true,
+                Some(lid) => !self.layers.contains_key(*lid),
+            })
+            .collect();
+        for id in sort_layer_entities(unlayered) {
+            visited.insert(id);
+            result.push(id);
+        }
+
+        // 2. Entitas per layer sesuai urutan layer_order (bawah -> atas)
+        for &lid in &self.layer_order {
+            if !self.layers.contains_key(lid) {
+                continue;
+            }
+            let layer_entities: Vec<EntityId> = self
+                .entities
+                .keys()
+                .filter(|&id| self.entity_layer.get(id) == Some(&lid))
+                .collect();
+            for id in sort_layer_entities(layer_entities) {
+                if visited.insert(id) {
+                    result.push(id);
+                }
+            }
+        }
+
+        // 3. Fallback: layer yang ada di layers tapi tidak ada di layer_order
+        let mut missing_layers: Vec<LayerId> = self
+            .layers
+            .keys()
+            .filter(|lid| !self.layer_order.contains(lid))
+            .collect();
+        missing_layers.sort();
+        for lid in missing_layers {
+            let layer_entities: Vec<EntityId> = self
+                .entities
+                .keys()
+                .filter(|&id| self.entity_layer.get(id) == Some(&lid))
+                .collect();
+            for id in sort_layer_entities(layer_entities) {
+                if visited.insert(id) {
+                    result.push(id);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Memastikan setidaknya ada satu layer default ("Layer 1") dan mengembalikan LayerId-nya.
+    pub fn ensure_default_layer(&mut self) -> LayerId {
+        for &lid in &self.layer_order {
+            if self.layers.contains_key(lid) {
+                return lid;
+            }
+        }
+        if let Some(lid) = self.layers.keys().next() {
+            if !self.layer_order.contains(&lid) {
+                self.layer_order.push(lid);
+            }
+            return lid;
+        }
+        let layer = Layer::new("Layer 1", Rgba([1.0, 1.0, 1.0, 1.0]));
+        let lid = self.layers.insert(layer);
+        self.layer_order.push(lid);
+        lid
+    }
+
+    /// Mengambil grup terluar (top group) dari entitas `id`, untuk seleksi klik.
+    pub fn top_group(&self, id: EntityId) -> Option<GroupId> {
+        let mut curr = self.entity_group.get(id).copied()?;
+        while let Some(grp) = self.groups.get(curr) {
+            if let Some(parent) = grp.parent {
+                if self.groups.contains_key(parent) {
+                    curr = parent;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        Some(curr)
     }
 }
 
