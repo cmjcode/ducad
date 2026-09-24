@@ -32,10 +32,42 @@ use std::path::Path;
 /// Versi 2 menambah field `design` (oplog parametrik `ducad-engine`).
 /// Penulis memakai 2 HANYA bila `design` terisi, supaya build lama tetap
 /// bisa membuka berkas tanpa oplog.
-pub const FORMAT_VERSION: u32 = 2;
+///
+/// Versi 3 menambah fitur vektor lanjutan (`Entity::Path`, `styles`, `layers`,
+/// `groups`, `texts`, `origin`). Penulis memakai 3 HANYA bila dokumen
+/// memakai salah satu fitur vektor baru tersebut.
+pub const FORMAT_VERSION: u32 = 3;
 
-/// Versi yang ditulis untuk berkas tanpa `design`.
-const FORMAT_VERSION_NO_DESIGN: u32 = 1;
+/// Versi format berkas dengan oplog parametrik (`design`) tanpa fitur vektor v3.
+pub const FORMAT_VERSION_DESIGN: u32 = 2;
+
+/// Versi yang ditulis untuk berkas tanpa `design` dan tanpa fitur vektor v3.
+pub const FORMAT_VERSION_MINIMAL: u32 = 1;
+const FORMAT_VERSION_NO_DESIGN: u32 = FORMAT_VERSION_MINIMAL;
+
+/// Mengembalikan true bila sketch menggunakan salah satu fitur vektor baru (v3):
+/// - Memiliki entitas `Entity::Path`
+/// - Memiliki style visual (`styles` tidak kosong)
+/// - Memiliki layer (`layers` atau `entity_layer` tidak kosong)
+/// - Memiliki urutan layer atau z-order yang disetel
+/// - Memiliki grup (`groups` atau `entity_group` tidak kosong)
+/// - Memiliki objek teks parametrik (`texts` tidak kosong)
+/// - Memiliki asal-usul selain default (`origin` tidak kosong)
+pub fn needs_v3(sketch: &Sketch) -> bool {
+    sketch
+        .entities
+        .values()
+        .any(|e| matches!(e, ducad_sketch::Entity::Path { .. }))
+        || !sketch.styles.is_empty()
+        || !sketch.layers.is_empty()
+        || !sketch.layer_order.is_empty()
+        || !sketch.entity_layer.is_empty()
+        || !sketch.z_order.is_empty()
+        || !sketch.groups.is_empty()
+        || !sketch.entity_group.is_empty()
+        || !sketch.texts.is_empty()
+        || !sketch.origin.is_empty()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NativeRoundKind {
@@ -198,12 +230,16 @@ pub fn serialize_detailed_to_json_with_design(
         })
         .collect::<Result<Vec<_>>>()?;
 
+    let format_version = if sketches.iter().any(|s| needs_v3(s)) {
+        FORMAT_VERSION
+    } else if design.is_some() {
+        FORMAT_VERSION_DESIGN
+    } else {
+        FORMAT_VERSION_NO_DESIGN
+    };
+
     let file = DuCADFile {
-        format_version: if design.is_some() {
-            FORMAT_VERSION
-        } else {
-            FORMAT_VERSION_NO_DESIGN
-        },
+        format_version,
         sketch: sketches.first().map(|s| (*s).clone()).unwrap_or_default(),
         front_sketch: sketches.get(1).map(|s| (*s).clone()),
         right_sketch: sketches.get(2).map(|s| (*s).clone()),

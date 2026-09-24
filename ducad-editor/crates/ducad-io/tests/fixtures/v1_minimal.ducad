@@ -1,0 +1,32 @@
+{
+  "format_version": 1,
+  "sketch": {
+    "entities": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "Line": {
+            "start": [
+              0.0,
+              0.0
+            ],
+            "end": [
+              10.0,
+              0.0
+            ]
+          }
+        },
+        "version": 1
+      }
+    ],
+    "constraints": [],
+    "entity_names": {},
+    "hidden_entities": []
+  },
+  "front_sketch": null,
+  "right_sketch": null,
+  "bodies": []
+}

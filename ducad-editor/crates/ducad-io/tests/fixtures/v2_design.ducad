@@ -1,0 +1,33 @@
+{
+  "format_version": 2,
+  "sketch": {
+    "entities": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "Circle": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "radius": 5.0
+          }
+        },
+        "version": 1
+      }
+    ],
+    "constraints": [],
+    "entity_names": {},
+    "hidden_entities": []
+  },
+  "front_sketch": null,
+  "right_sketch": null,
+  "bodies": [],
+  "design": {
+    "version": 1,
+    "ops": []
+  }
+}

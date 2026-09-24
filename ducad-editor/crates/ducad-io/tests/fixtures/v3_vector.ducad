@@ -1,0 +1,177 @@
+{
+  "format_version": 3,
+  "sketch": {
+    "entities": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "Path": {
+            "subpaths": [
+              {
+                "start": [
+                  0.0,
+                  0.0
+                ],
+                "segs": [
+                  {
+                    "Line": {
+                      "end": [
+                        10.0,
+                        0.0
+                      ]
+                    }
+                  },
+                  {
+                    "Cubic": {
+                      "c1": [
+                        10.0,
+                        5.0
+                      ],
+                      "c2": [
+                        5.0,
+                        10.0
+                      ],
+                      "end": [
+                        0.0,
+                        10.0
+                      ]
+                    }
+                  },
+                  {
+                    "Line": {
+                      "end": [
+                        0.0,
+                        0.0
+                      ]
+                    }
+                  }
+                ],
+                "closed": true
+              }
+            ],
+            "is_construction": false
+          }
+        },
+        "version": 1
+      }
+    ],
+    "constraints": [],
+    "entity_names": {},
+    "hidden_entities": [],
+    "styles": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "fill": {
+            "Solid": [
+              1.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "fill_rule": "NonZero",
+          "stroke": {
+            "paint": {
+              "Solid": [
+                0.0,
+                0.0,
+                0.0,
+                1.0
+              ]
+            },
+            "width_mm": 1.0,
+            "dash": [],
+            "cap": "Butt",
+            "join": "Miter"
+          },
+          "opacity": 1.0,
+          "blend": "Normal"
+        },
+        "version": 1
+      }
+    ],
+    "layers": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "name": "VectorLayer",
+          "visible": true,
+          "locked": false,
+          "color": [
+            0.0,
+            1.0,
+            0.0,
+            1.0
+          ],
+          "kind": "Vector"
+        },
+        "version": 1
+      }
+    ],
+    "layer_order": [
+      {
+        "idx": 1,
+        "version": 1
+      }
+    ],
+    "entity_layer": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "idx": 1,
+          "version": 1
+        },
+        "version": 1
+      }
+    ],
+    "z_order": [],
+    "groups": [
+      {
+        "value": null,
+        "version": 0
+      }
+    ],
+    "entity_group": [
+      {
+        "value": null,
+        "version": 0
+      }
+    ],
+    "origin": [
+      {
+        "value": null,
+        "version": 0
+      },
+      {
+        "value": {
+          "Import": {
+            "source": "svg:test.svg"
+          }
+        },
+        "version": 1
+      }
+    ],
+    "texts": [
+      {
+        "value": null,
+        "version": 0
+      }
+    ]
+  },
+  "front_sketch": null,
+  "right_sketch": null,
+  "bodies": []
+}

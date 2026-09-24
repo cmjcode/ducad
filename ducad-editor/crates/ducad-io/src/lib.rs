@@ -34,6 +34,7 @@ pub use svg::{
     export_vector_snapshot_svg_with_options, SvgSketchOptions,
     SvgSnapshotOptions,
 };
+pub use native::needs_v3;
 
 /// Lock test SATU-SATUNYA untuk seluruh binary test crate ini — dipakai
 /// `native`/`step_io`, dua modul yang sama-sama menyentuh jalur transfer
