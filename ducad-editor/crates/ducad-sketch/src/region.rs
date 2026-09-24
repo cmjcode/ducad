@@ -61,7 +61,7 @@ impl ClosedRegion {
 }
 
 /// Hitung centroid dan luas dari deretan titik poligon 2D.
-fn polygon_centroid_and_area(pts: &[DVec2]) -> (DVec2, f64) {
+pub fn polygon_centroid_and_area(pts: &[DVec2]) -> (DVec2, f64) {
     let n = pts.len();
     if n < 3 {
         let c = if n == 0 { DVec2::ZERO } else { pts.iter().copied().sum::<DVec2>() / (n as f64) };
@@ -272,6 +272,26 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
                             centroid,
                             area,
                         });
+                    }
+                }
+            }
+        } else if let Entity::Path { subpaths, .. } = entity {
+            for sub in subpaths {
+                if sub.closed && sub.node_count() >= 3 {
+                    let boundary = sub.flatten(0.05);
+                    if boundary.len() >= 3 {
+                        let (centroid, area) = polygon_centroid_and_area(&boundary);
+                        let area = area.abs();
+                        if area > 1e-4 {
+                            let mut ids = HashSet::new();
+                            ids.insert(id);
+                            regions.push(ClosedRegion {
+                                entity_ids: ids,
+                                boundary_points: boundary,
+                                centroid,
+                                area,
+                            });
+                        }
                     }
                 }
             }
@@ -509,7 +529,7 @@ impl RegionWithHoles {
 /// loop-nya sendiri, sehingga uji centroid tunggal akan salah menyimpulkan.
 /// Luas dipakai sebagai penyaring awal — sesuatu yang lebih besar tidak
 /// mungkin berada di dalam yang lebih kecil.
-fn region_contains(outer: &ClosedRegion, inner: &ClosedRegion) -> bool {
+pub fn region_contains(outer: &ClosedRegion, inner: &ClosedRegion) -> bool {
     if inner.area >= outer.area {
         return false;
     }

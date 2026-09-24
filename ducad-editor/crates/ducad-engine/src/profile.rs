@@ -6,7 +6,8 @@
 use std::collections::HashSet;
 
 use ducad_kernel::{self, Profile, ProfileSegment};
-use ducad_sketch::{Entity, EntityId, PathSeg, Sketch};
+use ducad_sketch::region::{polygon_centroid_and_area, region_contains, ClosedRegion};
+use ducad_sketch::{Entity, EntityId, FillRule, PathSeg, Sketch, Subpath};
 use glam::DVec2;
 
 use crate::model::BodyGeometry;
@@ -215,6 +216,301 @@ pub fn convert_spline_to_smooth_segments(points: &[DVec2]) -> Vec<(DVec2, DVec2,
     result
 }
 
+/// Region berlubang dari SATU entitas Path: subpath terluar = outer, subpath di dalamnya = lubang
+/// (hierarki lewat containment, sesuai `fill_rule`: EvenOdd = ganjil-genap; NonZero = winding).
+#[derive(Debug, Clone)]
+pub struct RegionWithHolesProfile {
+    pub outer: Profile,
+    pub holes: Vec<Profile>,
+}
+
+fn segments_intersect_or_touch(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
+    let cross = |p: DVec2, q: DVec2, r: DVec2| -> f64 {
+        (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+    };
+    let d1 = cross(c, d, a);
+    let d2 = cross(c, d, b);
+    let d3 = cross(a, b, c);
+    let d4 = cross(a, b, d);
+
+    if ((d1 > 1e-7 && d2 < -1e-7) || (d1 < -1e-7 && d2 > 1e-7))
+        && ((d3 > 1e-7 && d4 < -1e-7) || (d3 < -1e-7 && d4 > 1e-7))
+    {
+        return true;
+    }
+
+    let on_segment = |p: DVec2, q: DVec2, r: DVec2| -> bool {
+        let cr = cross(p, q, r);
+        if cr.abs() > 1e-6 {
+            return false;
+        }
+        let min_x = p.x.min(q.x) - 1e-6;
+        let max_x = p.x.max(q.x) + 1e-6;
+        let min_y = p.y.min(q.y) - 1e-6;
+        let max_y = p.y.max(q.y) + 1e-6;
+        r.x >= min_x && r.x <= max_x && r.y >= min_y && r.y <= max_y
+    };
+
+    if on_segment(c, d, a) || on_segment(c, d, b) || on_segment(a, b, c) || on_segment(a, b, d) {
+        return true;
+    }
+
+    false
+}
+
+fn polyline_self_intersects(pts: &[DVec2]) -> bool {
+    let mut clean_pts = Vec::with_capacity(pts.len());
+    for p in pts {
+        if clean_pts
+            .last()
+            .is_none_or(|&last: &DVec2| (last - *p).length() > 1e-6)
+        {
+            clean_pts.push(*p);
+        }
+    }
+
+    let n = if clean_pts.len() >= 2 && clean_pts.first() == clean_pts.last() {
+        clean_pts.len() - 1
+    } else {
+        clean_pts.len()
+    };
+    if n < 4 {
+        return false;
+    }
+
+    let mut bboxes = Vec::with_capacity(n);
+    for i in 0..n {
+        let p1 = clean_pts[i];
+        let p2 = clean_pts[(i + 1) % n];
+        bboxes.push((p1.min(p2), p1.max(p2)));
+    }
+
+    for i in 0..n {
+        let a = clean_pts[i];
+        let b = clean_pts[(i + 1) % n];
+        let (min_ab, max_ab) = bboxes[i];
+
+        for j in (i + 2)..n {
+            if i == 0 && j == n - 1 {
+                continue;
+            }
+            let (min_cd, max_cd) = bboxes[j];
+            if max_ab.x < min_cd.x - 1e-7
+                || min_ab.x > max_cd.x + 1e-7
+                || max_ab.y < min_cd.y - 1e-7
+                || min_ab.y > max_cd.y + 1e-7
+            {
+                continue;
+            }
+
+            let c = clean_pts[j];
+            let d = clean_pts[(j + 1) % n];
+
+            if segments_intersect_or_touch(a, b, c, d) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Satu subpath tertutup → wire kernel. Line → ProfileSegment::Line; Cubic → varian Bézier
+/// yang sudah dipakai `convert_spline_to_profile_segments` (V10) — bukan pencacahan.
+pub fn subpath_to_profile(sub: &Subpath) -> Result<Profile, String> {
+    if !sub.closed {
+        return Err("ProfileNotClosed: subpath tidak tertutup".to_string());
+    }
+    if sub.node_count() < 3 {
+        return Err("Subpath memiliki kurang dari 3 node".to_string());
+    }
+
+    let pts = sub.flatten(0.05);
+    if polyline_self_intersects(&pts) {
+        return Err("Subpath berpotongan sendiri (self-intersect)".to_string());
+    }
+
+    let mut segs: Vec<ProfileSegment> = Vec::with_capacity(sub.segs.len() + 1);
+    let mut cur = sub.start;
+    for step in &sub.segs {
+        let end = step.end();
+        match step {
+            PathSeg::Line { .. } => {
+                if (end - cur).length() > 1e-6 {
+                    segs.push(ProfileSegment::Line {
+                        start: (cur.x, cur.y),
+                        end: (end.x, end.y),
+                    });
+                }
+            }
+            PathSeg::Cubic { c1, c2, .. } => {
+                if (end - cur).length() < 1e-6
+                    && (*c1 - cur).length() < 1e-6
+                    && (*c2 - cur).length() < 1e-6
+                {
+                    // Titik degenerate diabaikan
+                } else if cubic_is_straight(cur, *c1, *c2, end) {
+                    if (end - cur).length() > 1e-6 {
+                        segs.push(ProfileSegment::Line {
+                            start: (cur.x, cur.y),
+                            end: (end.x, end.y),
+                        });
+                    }
+                } else {
+                    segs.push(ProfileSegment::Bezier {
+                        start: (cur.x, cur.y),
+                        c1: (c1.x, c1.y),
+                        c2: (c2.x, c2.y),
+                        end: (end.x, end.y),
+                    });
+                }
+            }
+        }
+        cur = end;
+    }
+
+    if (cur - sub.start).length() > 1e-5 {
+        segs.push(ProfileSegment::Line {
+            start: (cur.x, cur.y),
+            end: (sub.start.x, sub.start.y),
+        });
+    }
+
+    if segs.is_empty() {
+        return Err("Subpath tidak memiliki segmen valid".to_string());
+    }
+
+    Ok(Profile::Loop(segs))
+}
+
+/// Region berlubang dari SATU entitas Path: subpath terluar = outer, subpath di dalamnya = lubang
+/// (hierarki lewat containment, sesuai `fill_rule`: EvenOdd = ganjil-genap; NonZero = winding).
+pub fn path_regions(entity: &Entity, rule: FillRule) -> Result<Vec<RegionWithHolesProfile>, String> {
+    let Entity::Path { subpaths, .. } = entity else {
+        return Err("Entitas bukan Path".to_string());
+    };
+
+    if subpaths.is_empty() {
+        return Err("ProfileNotClosed: path tidak memiliki subpath".to_string());
+    }
+
+    let mut profiles = Vec::with_capacity(subpaths.len());
+    let mut regions = Vec::with_capacity(subpaths.len());
+    let mut windings = Vec::with_capacity(subpaths.len());
+
+    for sub in subpaths {
+        let s_area = sub.signed_area();
+        let winding = if s_area >= 0.0 { 1i32 } else { -1i32 };
+
+        // Normalisasi arah profil ke CCW (positif) agar konsisten dengan konvensi OCCT/ducad-kernel.
+        // Pada ducad-kernel `build_face_on_plane`, wire lubang selalu dibalik otomatis dari arah profil.
+        let normalized_sub;
+        let sub_ref = if s_area < 0.0 {
+            normalized_sub = ducad_sketch::path_edit::reverse(sub);
+            &normalized_sub
+        } else {
+            sub
+        };
+
+        let prof = subpath_to_profile(sub_ref)?;
+        let boundary = sub_ref.flatten(0.05);
+        let (centroid, area) = polygon_centroid_and_area(&boundary);
+        let region = ClosedRegion {
+            entity_ids: HashSet::new(),
+            boundary_points: boundary,
+            centroid,
+            area: area.abs(),
+        };
+
+        profiles.push(prof);
+        regions.push(region);
+        windings.push(winding);
+    }
+
+    let n = subpaths.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| {
+        regions[b]
+            .area
+            .partial_cmp(&regions[a].area)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut ancestors: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for &i in &order {
+        for &j in &order {
+            if i == j {
+                continue;
+            }
+            if region_contains(&regions[j], &regions[i]) {
+                ancestors[i].push(j);
+            }
+        }
+    }
+
+    let mut out: Vec<RegionWithHolesProfile> = Vec::new();
+    let mut outer_slot: Vec<Option<usize>> = vec![None; n];
+
+    match rule {
+        FillRule::EvenOdd => {
+            for &i in &order {
+                let depth = ancestors[i].len();
+                if depth.is_multiple_of(2) {
+                    outer_slot[i] = Some(out.len());
+                    out.push(RegionWithHolesProfile {
+                        outer: profiles[i].clone(),
+                        holes: Vec::new(),
+                    });
+                }
+            }
+            for &i in &order {
+                let depth = ancestors[i].len();
+                if !depth.is_multiple_of(2) {
+                    if let Some(&p) = ancestors[i].last() {
+                        if let Some(slot) = outer_slot[p] {
+                            out[slot].holes.push(profiles[i].clone());
+                        }
+                    }
+                }
+            }
+        }
+        FillRule::NonZero => {
+            for &i in &order {
+                let w_outside: i32 = ancestors[i].iter().map(|&a| windings[a]).sum();
+                let w_inside: i32 = w_outside + windings[i];
+
+                if w_outside == 0 && w_inside != 0 {
+                    outer_slot[i] = Some(out.len());
+                    out.push(RegionWithHolesProfile {
+                        outer: profiles[i].clone(),
+                        holes: Vec::new(),
+                    });
+                }
+            }
+
+            for &i in &order {
+                let w_outside: i32 = ancestors[i].iter().map(|&a| windings[a]).sum();
+                let w_inside: i32 = w_outside + windings[i];
+
+                if w_outside != 0 && w_inside == 0 {
+                    let target_outer = ancestors[i]
+                        .iter()
+                        .rev()
+                        .find_map(|&a| outer_slot[a]);
+                    if let Some(slot) = target_outer {
+                        out[slot].holes.push(profiles[i].clone());
+                    }
+                }
+            }
+        }
+    }
+
+    if out.is_empty() {
+        return Err("ProfileNotClosed: path tidak menghasilkan region padat".to_string());
+    }
+
+    Ok(out)
+}
+
 /// Bangun `Profile` kernel (siap Extrude) dari seleksi entitas sketch.
 ///
 /// Kasus didukung:
@@ -304,6 +600,15 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                 radius_x: *radius_x,
                 radius_y: *radius_y,
             });
+        }
+        if let Some(ent @ Entity::Path { .. }) = sketch.entities.get(id) {
+            let style = sketch.style_of(id);
+            let regs = path_regions(ent, style.fill_rule)?;
+            if let Some(r) = regs.into_iter().next() {
+                return Ok(r.outer.with_holes(r.holes));
+            } else {
+                return Err("ProfileNotClosed: path tidak memiliki region tertutup".to_string());
+            }
         }
         if let Some(Entity::Spline { points, exact, .. }) = sketch.entities.get(id) {
             if points.len() >= 3 {
@@ -1372,6 +1677,177 @@ mod tests {
         assert!(
             solid_volume < bbox_area * 4.0 * 0.75,
             "rongga huruf O tidak terbentuk: volume {solid_volume} terlalu padat"
+        );
+    }
+
+    #[test]
+    fn subpath_with_cubics_becomes_profile_with_bezier_segments() {
+        let sub = Subpath {
+            start: DVec2::new(10.0, 0.0),
+            segs: vec![
+                PathSeg::Cubic {
+                    c1: DVec2::new(10.0, 5.52),
+                    c2: DVec2::new(5.52, 10.0),
+                    end: DVec2::new(0.0, 10.0),
+                },
+                PathSeg::Cubic {
+                    c1: DVec2::new(-5.52, 10.0),
+                    c2: DVec2::new(-10.0, 5.52),
+                    end: DVec2::new(-10.0, 0.0),
+                },
+                PathSeg::Cubic {
+                    c1: DVec2::new(-10.0, -5.52),
+                    c2: DVec2::new(-5.52, -10.0),
+                    end: DVec2::new(0.0, -10.0),
+                },
+                PathSeg::Cubic {
+                    c1: DVec2::new(5.52, -10.0),
+                    c2: DVec2::new(10.0, -5.52),
+                    end: DVec2::new(10.0, 0.0),
+                },
+            ],
+            closed: true,
+        };
+
+        let profile = subpath_to_profile(&sub).expect("subpath circle must be valid profile");
+        let Profile::Loop(segs) = profile else {
+            panic!("Expected Profile::Loop, got {profile:?}");
+        };
+        let bezier_count = segs
+            .iter()
+            .filter(|s| matches!(s, ProfileSegment::Bezier { .. }))
+            .count();
+        assert_eq!(bezier_count, 4, "all 4 cubics should become Bezier segments");
+    }
+
+    #[test]
+    fn open_subpath_is_profile_not_closed() {
+        let sub = Subpath {
+            start: DVec2::new(0.0, 0.0),
+            segs: vec![
+                PathSeg::Line { end: DVec2::new(10.0, 0.0) },
+                PathSeg::Line { end: DVec2::new(10.0, 10.0) },
+            ],
+            closed: false,
+        };
+
+        let err = subpath_to_profile(&sub).unwrap_err();
+        assert!(
+            err.contains("ProfileNotClosed"),
+            "Error message must contain 'ProfileNotClosed', got: {err}"
+        );
+    }
+
+    #[test]
+    fn evenodd_path_with_inner_subpath_yields_one_hole() {
+        use ducad_sketch::path_edit::shape_to_path_rect;
+        let outer = shape_to_path_rect(DVec2::new(-20.0, -20.0), DVec2::new(20.0, 20.0));
+        let inner = shape_to_path_rect(DVec2::new(-5.0, -5.0), DVec2::new(5.0, 5.0));
+
+        let entity = Entity::Path {
+            subpaths: vec![outer, inner],
+            is_construction: false,
+        };
+
+        let regions = path_regions(&entity, FillRule::EvenOdd).expect("evenodd path regions must succeed");
+        assert_eq!(regions.len(), 1, "Should have 1 solid region");
+        assert_eq!(regions[0].holes.len(), 1, "Should have 1 hole");
+    }
+
+    #[test]
+    fn nonzero_same_winding_inner_subpath_is_not_hole() {
+        use ducad_sketch::path_edit::shape_to_path_circle;
+        let outer = shape_to_path_circle(DVec2::ZERO, 20.0);
+        let inner = shape_to_path_circle(DVec2::ZERO, 10.0);
+        assert!(outer.signed_area() > 0.0, "outer should be CCW");
+        assert!(inner.signed_area() > 0.0, "inner should be CCW");
+
+        let entity = Entity::Path {
+            subpaths: vec![outer, inner],
+            is_construction: false,
+        };
+
+        let regions = path_regions(&entity, FillRule::NonZero).expect("nonzero path regions must succeed");
+        assert_eq!(regions.len(), 1, "Should have 1 solid region");
+        assert_eq!(
+            regions[0].holes.len(),
+            0,
+            "Inner contour with same winding should NOT be a hole under NonZero"
+        );
+    }
+
+    #[test]
+    fn extrude_ring_path_volume_matches_area_times_height() {
+        use ducad_sketch::path_edit::{reverse, shape_to_path_circle};
+        use ducad_sketch::path_ops::area;
+
+        let outer = shape_to_path_circle(DVec2::ZERO, 20.0);
+        let inner = reverse(&shape_to_path_circle(DVec2::ZERO, 10.0));
+        assert!(outer.signed_area() > 0.0);
+        assert!(inner.signed_area() < 0.0);
+
+        let subs = vec![outer.clone(), inner.clone()];
+        let expected_area = area(&subs, FillRule::NonZero);
+        assert!(expected_area > 0.0);
+
+        let entity = Entity::Path {
+            subpaths: subs,
+            is_construction: false,
+        };
+
+        let regs = path_regions(&entity, FillRule::NonZero).unwrap();
+        assert_eq!(regs.len(), 1);
+        assert_eq!(regs[0].holes.len(), 1);
+
+        let profile = regs[0].outer.clone().with_holes(regs[0].holes.clone());
+        let height = 8.0;
+        let shape = ducad_kernel::extrude_profile(&profile, height).expect("Extrude ring path must succeed");
+        assert!(shape.is_valid(), "Ring solid must be valid");
+
+        let volume = shape.volume();
+        let expected_volume = expected_area * height;
+        let rel_diff = (volume - expected_volume).abs() / expected_volume;
+        assert!(
+            rel_diff < 0.005,
+            "Volume difference ({volume} vs {expected_volume}, diff: {rel_diff:.4}) must be within 0.5%"
+        );
+    }
+
+    #[test]
+    fn extrude_text_o_has_hole() {
+        use ducad_sketch::text::{spec_to_path_entities, FontPreset, TextAlign, TextSpec};
+
+        let spec = TextSpec {
+            content: "O".to_string(),
+            font_preset: FontPreset::DefaultSans,
+            custom_font_name: None,
+            size_mm: 20.0,
+            align: TextAlign::Left,
+            origin: DVec2::ZERO,
+            rotation_rad: 0.0,
+            letter_spacing: 1.0,
+            line_spacing: 1.2,
+            is_construction: false,
+        };
+
+        let entities = spec_to_path_entities(&spec, None).expect("TextSpec to path entities must succeed");
+        assert_eq!(entities.len(), 1, "Huruf O harus menghasilkan 1 entitas Path");
+
+        let entity = &entities[0];
+        let regs = path_regions(entity, FillRule::NonZero).expect("path_regions for O must succeed");
+        assert_eq!(regs.len(), 1, "Harus menghasilkan 1 region");
+        assert_eq!(regs[0].holes.len(), 1, "Huruf O harus memiliki 1 lubang");
+
+        let profile = regs[0].outer.clone().with_holes(regs[0].holes.clone());
+        let height = 4.0;
+        let shape = ducad_kernel::extrude_profile(&profile, height).expect("Extrude huruf O harus berhasil");
+        assert!(shape.is_valid(), "Solid huruf O harus valid");
+
+        let outer_profile = regs[0].outer.clone();
+        let outer_solid = ducad_kernel::extrude_profile(&outer_profile, height).expect("Extrude outer solid");
+        assert!(
+            shape.volume() < outer_solid.volume() * 0.9,
+            "Solid dengan lubang harus memiliki volume lebih kecil dari solid utuh"
         );
     }
 }
