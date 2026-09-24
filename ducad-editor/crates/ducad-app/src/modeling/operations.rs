@@ -78,20 +78,25 @@ impl DuCADApp {
         );
         match result {
             Ok(solids) => {
+                let source_entities: Vec<String> = self
+                    .selected
+                    .iter()
+                    .filter_map(|eid| self.sketch().entity_names.get(eid).cloned())
+                    .collect();
                 if solids.len() == 1 {
                     let (name, geo) = solids.into_iter().next().unwrap();
                     self.execute_model_command(
                         Box::new(AddSolidCommand::new("Extrude", geo)),
                         &format!("Membuat solid {name} setinggi {:.1} mm", distance),
                     );
-                    self.record_extrude_feature(distance, false);
+                    self.record_extrude_feature_with_sources(distance, false, source_entities, false);
                 } else if !solids.is_empty() {
                     let count = solids.len();
                     self.execute_model_command(
                         Box::new(crate::model::AddMultipleSolidsCommand::new("Teks 3D", solids)),
                         &format!("Membuat {} solid 3D setinggi {:.1} mm", count, distance),
                     );
-                    self.record_extrude_feature(distance, false);
+                    self.record_extrude_feature_with_sources(distance, false, source_entities, false);
                 }
                 self.model_status = None;
             }

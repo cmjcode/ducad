@@ -992,7 +992,7 @@ impl SessionCore<'_> {
     }
 }
 
-fn resolve_material(sel: &MaterialSel, style: &ducad_sketch::Style) -> ducad_core::Material {
+pub fn resolve_material(sel: &MaterialSel, style: &ducad_sketch::Style) -> ducad_core::Material {
     match sel {
         MaterialSel::Default => ducad_core::Material::default(),
         MaterialSel::Preset(name) => match name.to_ascii_lowercase().as_str() {

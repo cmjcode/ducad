@@ -211,6 +211,9 @@ pub struct DuCADApp {
     pub active_clash_shapes: Vec<ducad_kernel::BodyClash>,
     pub selected_clash_id: Option<u32>,
     pub parametric_dag: ducad_core::ParametricDag,
+    pub feature_source_revs: std::collections::HashMap<ducad_core::FeatureId, std::collections::HashMap<ducad_sketch::EntityId, u64>>,
+    pub last_checked_global_rev: u64,
+    pub auto_regenerate_on_mode_switch: bool,
     pub history_db: crate::history_db::HistoryDb,
     pub activity_cache: Vec<ActivityItemInfo>,
     pub plane_menu_open: bool,
@@ -565,6 +568,9 @@ impl DuCADApp {
             active_clash_shapes: Vec::new(),
             selected_clash_id: None,
             parametric_dag: ducad_core::ParametricDag::new(),
+            feature_source_revs: std::collections::HashMap::new(),
+            last_checked_global_rev: 0,
+            auto_regenerate_on_mode_switch: true,
             history_db,
             activity_cache,
             plane_menu_open: false,
@@ -855,6 +861,9 @@ impl DuCADApp {
             active_clash_shapes: Vec::new(),
             selected_clash_id: None,
             parametric_dag: ducad_core::ParametricDag::new(),
+            feature_source_revs: std::collections::HashMap::new(),
+            last_checked_global_rev: 0,
+            auto_regenerate_on_mode_switch: true,
             history_db,
             activity_cache: Vec::new(),
             plane_menu_open: false,
@@ -1082,6 +1091,19 @@ impl DuCADApp {
             self.is_sketching = false;
             self.left_toolbar.is_sketching = false;
             self.set_tool(ToolKind::Select);
+        }
+    }
+
+    /// Ubah mode aplikasi aktif (Sketch 2D, Vector 2D, Solid 3D).
+    /// Jika berpindah dari Vector ke Solid dan terdapat fitur stale, otomatis lakukan regenerasi jika opsi aktif.
+    pub fn set_app_mode(&mut self, new_mode: crate::mode::AppMode) {
+        let old_mode = self.app_mode;
+        self.app_mode = new_mode;
+        if old_mode == crate::mode::AppMode::Vector && new_mode == crate::mode::AppMode::Solid {
+            self.check_stale_features();
+            if self.auto_regenerate_on_mode_switch && self.parametric_dag.needs_regeneration() {
+                let _ = self.regenerate_parametric_model();
+            }
         }
     }
 

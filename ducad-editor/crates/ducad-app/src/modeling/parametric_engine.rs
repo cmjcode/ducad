@@ -3,9 +3,11 @@
 //! Mengatur evaluasi topologis, pembaharuan geometri solid body 3D secara otomatis
 //! saat dimensi sketsa atau parameter fitur masa lalu diedit.
 
-use ducad_core::parametric::{FeatureId, FeaturePayload, SketchPlaneRef};
+use ducad_core::parametric::{FeatureId, FeaturePayload, FeatureStatus, SketchPlaneRef};
 use ducad_core::BodyId;
-use ducad_kernel::KernelShape;
+use ducad_engine::compute::{self, ProfilePick};
+use ducad_engine::{resolve_material, MaterialSel};
+use ducad_kernel::{ExtrudeExtent, KernelShape};
 use ducad_sketch::Entity;
 use std::collections::HashMap;
 
@@ -104,18 +106,30 @@ impl DuCADApp {
         )
     }
 
-    /// Catat langkah Extrude ke dalam DAG.
-    pub fn record_extrude_feature(&mut self, distance: f64, is_cut: bool) -> FeatureId {
+    /// Catat langkah Extrude ke dalam DAG dengan sumber entitas spesifik dan opsi warna dari style.
+    pub fn record_extrude_feature_with_sources(
+        &mut self,
+        distance: f64,
+        is_cut: bool,
+        source_entities: Vec<String>,
+        material_from_style: bool,
+    ) -> FeatureId {
         let plane_idx = self.active_plane_index();
         // Cari sketch feature terakhir di plane ini atau buat baru
-        let sketch_id = self.parametric_dag.nodes.iter().rev().find_map(|n| {
-            if let FeaturePayload::Sketch { plane_index, .. } = n.payload {
-                if plane_index == plane_idx {
-                    return Some(n.id);
+        let sketch_id = self
+            .parametric_dag
+            .nodes
+            .iter()
+            .rev()
+            .find_map(|n| {
+                if let FeaturePayload::Sketch { plane_index, .. } = n.payload {
+                    if plane_index == plane_idx {
+                        return Some(n.id);
+                    }
                 }
-            }
-            None
-        }).unwrap_or_else(|| self.record_sketch_feature(plane_idx, "Sketch"));
+                None
+            })
+            .unwrap_or_else(|| self.record_sketch_feature(plane_idx, "Sketch"));
 
         let name = if is_cut {
             format!("Cut Extrude {}", self.parametric_dag.nodes.len() + 1)
@@ -123,18 +137,106 @@ impl DuCADApp {
             format!("Extrude Boss {}", self.parametric_dag.nodes.len() + 1)
         };
 
-        self.parametric_dag.add_feature(
+        let feature_id = self.parametric_dag.add_feature(
             name,
             FeaturePayload::Extrude {
                 sketch_id,
                 distance,
                 plane_index: plane_idx,
                 is_cut,
-                source_entities: Vec::new(),
-                material_from_style: false,
+                source_entities: source_entities.clone(),
+                material_from_style,
             },
             vec![sketch_id],
-        )
+        );
+
+        // Rekam revisi awal untuk entitas sumber
+        let sk = self.sketch_at_index(plane_idx);
+        let mut rev_map = HashMap::new();
+        if !source_entities.is_empty() {
+            for (eid, _) in &sk.entities {
+                if let Some(name) = sk.entity_names.get(&eid) {
+                    if source_entities.contains(name) {
+                        let r = sk.rev.get(eid).copied().unwrap_or(0);
+                        rev_map.insert(eid, r);
+                    }
+                }
+            }
+        }
+        self.feature_source_revs.insert(feature_id, rev_map);
+
+        feature_id
+    }
+
+    /// Catat langkah Extrude ke dalam DAG.
+    pub fn record_extrude_feature(&mut self, distance: f64, is_cut: bool) -> FeatureId {
+        self.record_extrude_feature_with_sources(distance, is_cut, Vec::new(), false)
+    }
+
+    /// Periksa apakah ada entitas sumber sketsa yang berubah (stale) untuk fitur parametrik.
+    pub fn check_stale_features(&mut self) {
+        let total_global_rev: u64 = self
+            .sketch_set
+            .iter()
+            .map(|(_, slot)| slot.sketch.global_rev)
+            .fold(0u64, |acc, r| acc.wrapping_add(r));
+
+        if total_global_rev == self.last_checked_global_rev {
+            return;
+        }
+        self.last_checked_global_rev = total_global_rev;
+        self.check_stale_features_force();
+    }
+
+    /// Periksa status stale untuk semua fitur berbasis entitas sumber tanpa membandingkan global_rev.
+    pub fn check_stale_features_force(&mut self) {
+        let mut stale_node_ids = Vec::new();
+        for node in &self.parametric_dag.nodes {
+            if let FeaturePayload::Extrude {
+                plane_index,
+                ref source_entities,
+                ..
+            } = node.payload
+            {
+                if source_entities.is_empty() || node.is_suppressed {
+                    continue;
+                }
+                let sk = self.sketch_at_index(plane_index);
+                let recorded_revs = self.feature_source_revs.get(&node.id);
+
+                let mut is_stale = false;
+                if let Some(rev_map) = recorded_revs {
+                    let mut matching_count = 0;
+                    for (eid, _) in &sk.entities {
+                        if let Some(name) = sk.entity_names.get(&eid) {
+                            if source_entities.contains(name) {
+                                matching_count += 1;
+                                let curr_rev = sk.rev.get(eid).copied().unwrap_or(0);
+                                if rev_map.get(&eid).copied() != Some(curr_rev) {
+                                    is_stale = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if matching_count != rev_map.len() {
+                        is_stale = true;
+                    }
+                } else {
+                    is_stale = true;
+                }
+
+                if is_stale {
+                    stale_node_ids.push(node.id);
+                }
+            }
+        }
+
+        for node_id in stale_node_ids {
+            if let Some(node) = self.parametric_dag.get_feature_mut(node_id) {
+                node.status = FeatureStatus::Stale;
+            }
+        }
     }
 
     /// Catat langkah Revolve ke dalam DAG.
@@ -483,28 +585,85 @@ impl DuCADApp {
                     // Pastikan sketsa siap dievaluasi
                     let _ = plane_index;
                 }
-                FeaturePayload::Extrude { distance, plane_index, .. } => {
+                FeaturePayload::Extrude {
+                    distance,
+                    plane_index,
+                    is_cut: _,
+                    ref source_entities,
+                    material_from_style,
+                    ..
+                } => {
                     let plane = self.plane_for_index(plane_index);
-                    let sketch = self.sketch_at_index(plane_index);
+                    let (extrude_res, maybe_style, rev_map) = {
+                        let sketch = self.sketch_at_index(plane_index);
 
-                    let all_ids: std::collections::HashSet<_> = sketch
-                        .entities
-                        .iter()
-                        .filter(|(_, e)| !e.is_construction())
-                        .map(|(eid, _)| eid)
-                        .collect();
+                        let target_ids: std::collections::HashSet<_> = if source_entities.is_empty() {
+                            sketch
+                                .entities
+                                .iter()
+                                .filter(|(_, e)| !e.is_construction())
+                                .map(|(eid, _)| eid)
+                                .collect()
+                        } else {
+                            sketch
+                                .entities
+                                .iter()
+                                .filter(|(eid, e)| {
+                                    !e.is_construction()
+                                        && sketch
+                                            .entity_names
+                                            .get(eid)
+                                            .is_some_and(|name| source_entities.contains(name))
+                                })
+                                .map(|(eid, _)| eid)
+                                .collect()
+                        };
 
-                    if let Ok(profile) = crate::model::build_profile_from_selection(sketch, &all_ids) {
-                        let origin = [plane.origin.x as f64, plane.origin.y as f64, plane.origin.z as f64];
-                        let u_axis = [plane.u_axis.x as f64, plane.u_axis.y as f64, plane.u_axis.z as f64];
-                        let v_axis = [plane.v_axis.x as f64, plane.v_axis.y as f64, plane.v_axis.z as f64];
-                        let normal = [plane.normal.x as f64, plane.normal.y as f64, plane.normal.z as f64];
+                        if !source_entities.is_empty() && target_ids.is_empty() {
+                            (
+                                Err("Entitas sumber tidak ditemukan dalam sketsa".to_string()),
+                                None,
+                                HashMap::new(),
+                            )
+                        } else {
+                            let plane_frame = crate::document::plane_frame_from(&plane);
+                            let pick = ProfilePick::Entities(&target_ids);
+                            let res = compute::extrude(
+                                sketch,
+                                &pick,
+                                &plane_frame,
+                                ExtrudeExtent::Blind(distance),
+                            )
+                            .map_err(|e| format!("Ekstrusi gagal: {}", e.message));
 
-                        if let Ok(shape) = ducad_kernel::extrude_profile_on_plane(
-                            &profile, origin, u_axis, v_axis, normal, distance,
-                        ) {
-                            if let Ok(cloned_shape) = ducad_kernel::clone_shape(&shape) {
-                                feature_shapes.insert(id, cloned_shape);
+                            let style = if material_from_style {
+                                target_ids
+                                    .iter()
+                                    .find_map(|id| sketch.styles.get(*id))
+                                    .or_else(|| sketch.draw_order().iter().find_map(|id| sketch.styles.get(*id)))
+                                    .cloned()
+                            } else {
+                                None
+                            };
+
+                            let mut revs = HashMap::new();
+                            for eid in &target_ids {
+                                let r = sketch.rev.get(*eid).copied().unwrap_or(0);
+                                revs.insert(*eid, r);
+                            }
+
+                            (res, style, revs)
+                        }
+                    };
+
+                    match extrude_res {
+                        Ok(mut solids) => {
+                            if solids.is_empty() {
+                                let err_msg = "Tidak ada geometri yang dihasilkan dari ekstrusi".to_string();
+                                if let Some(n) = self.parametric_dag.get_feature_mut(id) {
+                                    n.status = FeatureStatus::Error(err_msg.clone());
+                                }
+                                return Err(err_msg);
                             }
 
                             // Pasangkan ke BodyId
@@ -516,8 +675,35 @@ impl DuCADApp {
                             body_idx += 1;
                             body_map.insert(id, target_body_id);
 
-                            let geo = BodyGeometry::from_shape(shape);
+                            let (_, geo) = solids.swap_remove(0);
+                            if let Ok(cloned_shape) = ducad_kernel::clone_shape(&geo.shape) {
+                                feature_shapes.insert(id, cloned_shape);
+                            }
                             self.model.geometry.insert(target_body_id, geo);
+
+                            if material_from_style {
+                                let style = maybe_style.unwrap_or_else(ducad_sketch::Style::cad_default);
+                                let mat = resolve_material(
+                                    &MaterialSel::FromStyle,
+                                    &style,
+                                );
+                                if let Some(body) = self.model.doc.bodies.get_mut(target_body_id) {
+                                    body.material = mat;
+                                }
+                            }
+
+                            self.feature_source_revs.insert(id, rev_map);
+
+                            if let Some(n) = self.parametric_dag.get_feature_mut(id) {
+                                n.status = FeatureStatus::Valid;
+                            }
+                        }
+                        Err(err_msg) => {
+                            if let Some(n) = self.parametric_dag.get_feature_mut(id) {
+                                n.status = FeatureStatus::Error(err_msg.clone());
+                            }
+                            // Body lama tetap dipertahankan
+                            return Err(err_msg);
                         }
                     }
                 }

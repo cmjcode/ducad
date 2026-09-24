@@ -20,10 +20,26 @@ pub enum FeatureStatus {
     Valid,
     /// Parameter fitur (atau parent-nya) baru diubah dan perlu diregenerasi.
     NeedsRegeneration,
+    /// Entitas sumber sketsa berubah (stale) dan perlu diregenerasi.
+    Stale,
     /// Terjadi error saat evaluasi / pembuatan geometri kernel.
     Error(String),
     /// Fitur dinonaktifkan sementara oleh pengguna (Suppressed).
     Suppressed,
+}
+
+impl FeatureStatus {
+    pub fn is_stale(&self) -> bool {
+        matches!(self, FeatureStatus::Stale)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        matches!(self, FeatureStatus::Valid)
+    }
+
+    pub fn is_error(&self) -> bool {
+        matches!(self, FeatureStatus::Error(_))
+    }
 }
 
 /// Jenis bidang acuan sketsa.
@@ -388,7 +404,10 @@ impl ParametricDag {
 
     /// Periksa apakah ada fitur yang memerlukan regenerasi.
     pub fn needs_regeneration(&self) -> bool {
-        self.nodes.iter().any(|n| n.status == FeatureStatus::NeedsRegeneration && !n.is_suppressed)
+        self.nodes.iter().any(|n| {
+            (n.status == FeatureStatus::NeedsRegeneration || n.status == FeatureStatus::Stale)
+                && !n.is_suppressed
+        })
     }
 
     /// Hitung urutan evaluasi topologis (*Topological Sort* via Kahn's Algorithm)
@@ -628,5 +647,21 @@ mod tests {
         dag.remove_feature(f1);
         assert_eq!(dag.nodes.len(), 1);
         assert!(dag.get_feature(f2).unwrap().dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_dag_stale_status() {
+        let mut dag = ParametricDag::new();
+        let f1 = dag.add_feature("Feature 1", FeaturePayload::Custom { kind_name: "Base".into(), description: "Base".into() }, vec![]);
+        assert!(!dag.needs_regeneration());
+
+        let node = dag.get_feature_mut(f1).unwrap();
+        node.status = FeatureStatus::Stale;
+        assert!(node.status.is_stale());
+        assert!(dag.needs_regeneration());
+
+        dag.mark_all_valid();
+        assert!(!dag.needs_regeneration());
+        assert!(dag.get_feature(f1).unwrap().status.is_valid());
     }
 }

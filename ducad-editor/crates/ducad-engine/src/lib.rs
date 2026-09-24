@@ -30,9 +30,11 @@ pub mod session;
 pub mod tooling;
 
 pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedFix};
+pub use ops::MaterialSel;
 pub use plane::PlaneFrame;
 pub use session::{
-    BatchReport, DesignDoc, OpOutcome, Proposal, ReplaceOp, Session, SessionCore, SessionMeta,
+    resolve_material, BatchReport, DesignDoc, OpOutcome, Proposal, ReplaceOp, Session,
+    SessionCore, SessionMeta,
 };
 
 #[test]

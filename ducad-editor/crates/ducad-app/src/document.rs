@@ -337,6 +337,7 @@ impl DuCADApp {
             &detail_desc,
         );
         self.record_sketch_feature(idx, action_title);
+        self.check_stale_features();
     }
 
     #[inline]
@@ -376,6 +377,7 @@ impl DuCADApp {
         let id = self.active_sketch_id();
         self.sketch_set.set_active(id);
         self.sketch_set.undo();
+        self.check_stale_features();
     }
 
     #[inline]
@@ -383,6 +385,7 @@ impl DuCADApp {
         let id = self.active_sketch_id();
         self.sketch_set.set_active(id);
         self.sketch_set.redo();
+        self.check_stale_features();
     }
 
     #[inline]

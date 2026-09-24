@@ -387,7 +387,7 @@ impl FeatureTreeDrawer {
                                     let mut delete_clicked = false;
 
                                     let is_editing = self.editing_feature_id == Some(node.id);
-                                    let is_dirty = node.status == FeatureStatus::NeedsRegeneration;
+                                    let is_dirty = node.status == FeatureStatus::NeedsRegeneration || node.status == FeatureStatus::Stale;
                                     let is_err = matches!(node.status, FeatureStatus::Error(_));
 
                                     let border_color = if is_editing {
@@ -444,6 +444,11 @@ impl FeatureTreeDrawer {
                                                     Color32::from_rgb(255, 149, 0),
                                                     ICON_REFRESH.codepoint,
                                                     "Perlu regenerasi".to_string(),
+                                                ),
+                                                FeatureStatus::Stale => (
+                                                    Color32::from_rgb(255, 149, 0),
+                                                    ICON_REFRESH.codepoint,
+                                                    "Entitas sumber berubah (stale) - perlu regenerasi".to_string(),
                                                 ),
                                                 FeatureStatus::Error(err_msg) => (
                                                     Color32::from_rgb(255, 69, 58),

@@ -267,3 +267,143 @@ fn adding_conflicting_constraint_shows_error_and_leaves_sketch_unchanged() {
     );
 }
 
+#[test]
+fn editing_source_path_marks_extrude_stale() {
+    let mut app = DuCADApp::new_for_test();
+    let sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(50.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(50.0, 30.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 30.0) },
+        ],
+        closed: true,
+    };
+    let eid = app.sketch_mut().entities.insert(Entity::path(vec![sub]));
+    app.sketch_mut().entity_names.insert(eid, "logo".to_string());
+    app.sketch_mut().touch(eid);
+
+    let f_extrude = app.record_extrude_feature_with_sources(10.0, false, vec!["logo".to_string()], true);
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Valid
+    );
+
+    // Edit source path melalui command sketch
+    let cmd = ducad_sketch::commands::TranslateEntities::new("Geser", vec![eid], DVec2::new(5.0, 5.0));
+    app.execute_sketch_command(Box::new(cmd));
+
+    // Feature harus berstatus Stale dan DAG needs_regeneration() == true
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Stale
+    );
+    assert!(app.parametric_dag.needs_regeneration());
+}
+
+#[test]
+fn regenerate_updates_body_volume() {
+    let mut app = DuCADApp::new_for_test();
+    let sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 20.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 20.0) },
+        ],
+        closed: true,
+    };
+    let eid = app.sketch_mut().entities.insert(Entity::path(vec![sub]));
+    app.sketch_mut().entity_names.insert(eid, "rect".to_string());
+    app.sketch_mut().touch(eid);
+
+    let f_extrude = app.record_extrude_feature_with_sources(10.0, false, vec!["rect".to_string()], false);
+    assert!(app.regenerate_parametric_model().is_ok());
+    assert_volume("initial", total_volume(&app), 8000.0);
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Valid
+    );
+
+    // Edit sketch: perbesar lebar dari 40 menjadi 80 (volume jadi 80 * 20 * 10 = 16000)
+    let new_sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(80.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(80.0, 20.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 20.0) },
+        ],
+        closed: true,
+    };
+    let cmd = ducad_sketch::commands::UpdateEntity::new("Ubah Profil", eid, Entity::path(vec![new_sub]));
+    app.execute_sketch_command(Box::new(cmd));
+
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Stale
+    );
+    assert!(app.parametric_dag.needs_regeneration());
+
+    // Jalankan regenerasi
+    assert!(app.regenerate_parametric_model().is_ok());
+    assert_volume("regenerated", total_volume(&app), 16000.0);
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Valid
+    );
+    assert!(!app.parametric_dag.needs_regeneration());
+}
+
+#[test]
+fn regenerate_failure_keeps_old_body_and_reports() {
+    let mut app = DuCADApp::new_for_test();
+    let sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 20.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(0.0, 20.0) },
+        ],
+        closed: true,
+    };
+    let eid = app.sketch_mut().entities.insert(Entity::path(vec![sub]));
+    app.sketch_mut().entity_names.insert(eid, "box_profile".to_string());
+    app.sketch_mut().touch(eid);
+
+    let f_extrude = app.record_extrude_feature_with_sources(10.0, false, vec!["box_profile".to_string()], false);
+    assert!(app.regenerate_parametric_model().is_ok());
+    assert_volume("initial", total_volume(&app), 8000.0);
+    assert_eq!(app.model.doc.bodies.len(), 1);
+
+    // Rusak profil: buka kurva tertutup menjadi kurva terbuka sehingga tidak bisa diekstrusi
+    let broken_sub = ducad_sketch::Subpath {
+        start: DVec2::new(0.0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(40.0, 20.0) },
+        ],
+        closed: false,
+    };
+    let cmd = ducad_sketch::commands::UpdateEntity::new("Rusak Profil", eid, Entity::path(vec![broken_sub]));
+    app.execute_sketch_command(Box::new(cmd));
+
+    assert_eq!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Stale
+    );
+
+    // Jalankan regenerasi — harus gagal dan melaporkan error
+    let res = app.regenerate_parametric_model();
+    assert!(res.is_err());
+
+    // Fitur harus berstatus Error
+    assert!(matches!(
+        app.parametric_dag.get_feature(f_extrude).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Error(_)
+    ));
+
+    // Body lama harus TETAP DIPERTAHANKAN (tidak hilang dan volumenya tetap sama)
+    assert_eq!(app.model.doc.bodies.len(), 1);
+    assert_volume("preserved old body", total_volume(&app), 8000.0);
+}
+
