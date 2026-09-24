@@ -13,6 +13,7 @@ fn entity_dof(entity: &Entity) -> usize {
         Entity::Arc { .. } => 5,
         Entity::Ellipse { .. } => 4,
         Entity::Spline { points, .. } => points.len() * 2,
+        Entity::Path { subpaths, .. } => subpaths.iter().map(|s| s.node_count() * 2).sum(),
     }
 }
 
@@ -36,6 +37,14 @@ fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
         Entity::Spline { points, .. } => {
             for p in points {
                 out.extend([p.x, p.y]);
+            }
+        }
+        Entity::Path { subpaths, .. } => {
+            for sub in subpaths {
+                for i in 0..sub.node_count() {
+                    let n = sub.node(i);
+                    out.extend([n.x, n.y]);
+                }
             }
         }
     }
@@ -77,6 +86,18 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
             for (i, p) in points.iter_mut().enumerate() {
                 if 2 * i + 1 < params.len() {
                     *p = DVec2::new(params[2 * i], params[2 * i + 1]);
+                }
+            }
+        }
+        Entity::Path { subpaths, .. } => {
+            let mut offset = 0;
+            for sub in subpaths {
+                for i in 0..sub.node_count() {
+                    if offset + 1 < params.len() {
+                        let new_node = DVec2::new(params[offset], params[offset + 1]);
+                        sub.set_node(i, new_node);
+                        offset += 2;
+                    }
                 }
             }
         }
@@ -144,7 +165,8 @@ fn entity_kind(entity: &Entity) -> EntityKind {
         Entity::Circle { .. }
         | Entity::Arc { .. }
         | Entity::Ellipse { .. }
-        | Entity::Spline { .. } => EntityKind::Radial,
+        | Entity::Spline { .. }
+        | Entity::Path { .. } => EntityKind::Radial,
     }
 }
 

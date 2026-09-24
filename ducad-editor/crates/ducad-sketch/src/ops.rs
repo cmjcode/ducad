@@ -193,6 +193,19 @@ pub fn offset_entity(entity: &Entity, reference_point: DVec2) -> Option<Entity> 
                 is_construction,
             })
         }
+        Entity::Path { subpaths, .. } => {
+            let dist = entity.distance_to(reference_point);
+            if dist < 1e-9 {
+                return Some(entity.clone());
+            }
+            let center = entity.center().unwrap_or(DVec2::ZERO);
+            let dir = (reference_point - center).normalize_or_zero();
+            let delta = dir * dist;
+            Some(Entity::Path {
+                subpaths: subpaths.iter().map(|s| s.map_points(|p| p + delta)).collect(),
+                is_construction,
+            })
+        }
     }
 }
 
@@ -258,6 +271,10 @@ pub fn mirror_entity(entity: &Entity, axis_a: DVec2, axis_b: DVec2) -> Option<En
             exact: map_exact(exact, reflect),
             is_construction,
         },
+        Entity::Path { subpaths, .. } => Entity::Path {
+            subpaths: subpaths.iter().map(|s| s.map_points(reflect)).collect(),
+            is_construction,
+        },
     })
 }
 
@@ -302,6 +319,10 @@ pub fn translate_entity(entity: &Entity, delta: DVec2) -> Entity {
         Entity::Spline { points, exact, .. } => Entity::Spline {
             points: points.iter().map(|p| *p + delta).collect(),
             exact: map_exact(exact, |p| p + delta),
+            is_construction,
+        },
+        Entity::Path { subpaths, .. } => Entity::Path {
+            subpaths: subpaths.iter().map(|s| s.map_points(|p| p + delta)).collect(),
             is_construction,
         },
     }
@@ -889,6 +910,13 @@ pub fn rotate_entity(entity: &Entity, pivot: DVec2, angle_rad: f64) -> Entity {
                 .map(|p| rotate_point(*p, pivot, angle_rad))
                 .collect(),
             exact: map_exact(exact, |p| rotate_point(p, pivot, angle_rad)),
+            is_construction,
+        },
+        Entity::Path { subpaths, .. } => Entity::Path {
+            subpaths: subpaths
+                .iter()
+                .map(|s| s.map_points(|p| rotate_point(p, pivot, angle_rad)))
+                .collect(),
             is_construction,
         },
     }
@@ -1566,6 +1594,20 @@ pub fn ray_intersect_entity(origin: DVec2, dir: DVec2, entity: &Entity) -> Vec<f
                 ts.extend(seg_ts);
             }
             ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+            ts
+        }
+        Entity::Path { subpaths, .. } => {
+            let mut ts = Vec::new();
+            for sub in subpaths {
+                let pts = sub.flatten(0.05);
+                for w in pts.windows(2) {
+                    let seg = Entity::line(w[0], w[1]);
+                    let seg_ts = ray_intersect_entity(origin, dir, &seg);
+                    ts.extend(seg_ts);
+                }
+            }
+            ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
             ts
         }

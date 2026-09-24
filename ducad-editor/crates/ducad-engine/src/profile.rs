@@ -367,6 +367,21 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
                     segs.push(Seg { start, end, seg });
                 }
             }
+            Some(Entity::Path { subpaths, .. }) => {
+                for sub in subpaths {
+                    let pts = sub.flatten(0.05);
+                    for w in pts.windows(2) {
+                        segs.push(Seg {
+                            start: w[0],
+                            end: w[1],
+                            seg: ProfileSegment::Line {
+                                start: (w[0].x, w[0].y),
+                                end: (w[1].x, w[1].y),
+                            },
+                        });
+                    }
+                }
+            }
             Some(Entity::Circle { .. }) => {
                 return Err(
                     "Tidak bisa campur Lingkaran dengan entitas lain — pilih Lingkaran sendirian, atau Line/Arc/Spline yang membentuk loop tertutup"
@@ -740,6 +755,21 @@ pub fn build_path_from_selection_on_plane(
                     segs.push(PathSeg2D { start, end, seg });
                 }
             }
+            Some(Entity::Path { subpaths, .. }) => {
+                for sub in subpaths {
+                    let pts = sub.flatten(0.05);
+                    for w in pts.windows(2) {
+                        segs.push(PathSeg2D {
+                            start: w[0],
+                            end: w[1],
+                            seg: ProfileSegment::Line {
+                                start: (w[0].x, w[0].y),
+                                end: (w[1].x, w[1].y),
+                            },
+                        });
+                    }
+                }
+            }
             Some(Entity::Circle { center, radius, .. }) => {
                 let (cx, cy, r) = (center.x, center.y, *radius);
                 let p1 = DVec2::new(cx + r, cy);
@@ -911,6 +941,15 @@ pub fn compute_profile_bbox(sketch: &Sketch, ids: &HashSet<EntityId>) -> Option<
                         max_x = max_x.max(p.x);
                         min_y = min_y.min(p.y);
                         max_y = max_y.max(p.y);
+                    }
+                }
+                Entity::Path { subpaths, .. } => {
+                    for sub in subpaths {
+                        let (b_min, b_max) = sub.bbox();
+                        min_x = min_x.min(b_min.x);
+                        max_x = max_x.max(b_max.x);
+                        min_y = min_y.min(b_min.y);
+                        max_y = max_y.max(b_max.y);
                     }
                 }
             }

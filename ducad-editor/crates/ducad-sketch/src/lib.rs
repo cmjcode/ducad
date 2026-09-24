@@ -23,7 +23,7 @@ pub use commands::{
     ToggleConstruction, TranslateEntities, UndoStack, UpdateEntity,
 };
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
-pub use entity::{map_exact, Entity, EntityId, PathSeg};
+pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};
 pub use ops::{
     arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
     compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, extend_preview,

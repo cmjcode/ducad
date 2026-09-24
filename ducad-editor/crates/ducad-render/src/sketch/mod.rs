@@ -139,6 +139,21 @@ pub(crate) fn push_entity(
             ..
         } => push_ellipse(verts, *center, *radius_x, *radius_y, color, plane),
         Entity::Spline { points, .. } => push_spline(verts, points, color, plane),
+        Entity::Path { subpaths, .. } => {
+            for sub in subpaths {
+                let pts = sub.flatten(0.05);
+                for w in pts.windows(2) {
+                    verts.push(LineVertex {
+                        position: to3(plane, w[0]),
+                        color,
+                    });
+                    verts.push(LineVertex {
+                        position: to3(plane, w[1]),
+                        color,
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -209,6 +224,12 @@ pub(crate) fn push_construction_entity(
             if points.len() >= 2 {
                 let sampled = ducad_sketch::entity::sample_catmull_rom(points, 16);
                 push_dashed_polyline(verts, &sampled, DASH_LEN, color, plane);
+            }
+        }
+        Entity::Path { subpaths, .. } => {
+            for sub in subpaths {
+                let pts = sub.flatten(0.05);
+                push_dashed_polyline(verts, &pts, DASH_LEN, color, plane);
             }
         }
     }

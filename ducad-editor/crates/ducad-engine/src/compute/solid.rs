@@ -69,6 +69,17 @@ fn dangling_endpoints(sketch: &Sketch) -> Vec<DVec2> {
                     }
                 }
             }
+            Entity::Path { subpaths, .. } => {
+                for sub in subpaths {
+                    if !sub.closed && !sub.segs.is_empty() {
+                        let first = sub.node(0);
+                        let last = sub.node(sub.node_count() - 1);
+                        if (first - last).length() > LIN_TOL {
+                            ends.extend([first, last]);
+                        }
+                    }
+                }
+            }
             Entity::Circle { .. } | Entity::Ellipse { .. } => {}
         }
     }

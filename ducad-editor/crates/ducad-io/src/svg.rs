@@ -91,13 +91,7 @@ pub fn export_sketch_svg_string(
     let mut has_entities = false;
 
     for (_, entity) in &sketch.entities {
-        let is_const = match entity {
-            Entity::Line { is_construction, .. } => *is_construction,
-            Entity::Circle { is_construction, .. } => *is_construction,
-            Entity::Arc { is_construction, .. } => *is_construction,
-            Entity::Ellipse { is_construction, .. } => *is_construction,
-            Entity::Spline { is_construction, .. } => *is_construction,
-        };
+        let is_const = entity.is_construction();
 
         if is_const && !options.include_construction {
             continue;
@@ -136,6 +130,15 @@ pub fn export_sketch_svg_string(
                     min_y = min_y.min(p.y);
                     max_x = max_x.max(p.x);
                     max_y = max_y.max(p.y);
+                }
+            }
+            Entity::Path { subpaths, .. } => {
+                for sub in subpaths {
+                    let (b_min, b_max) = sub.bbox();
+                    min_x = min_x.min(b_min.x);
+                    min_y = min_y.min(b_min.y);
+                    max_x = max_x.max(b_max.x);
+                    max_y = max_y.max(b_max.y);
                 }
             }
         }
@@ -183,13 +186,7 @@ pub fn export_sketch_svg_string(
         out.push_str(r##"  <g id="construction_layer" fill="none" stroke-dasharray="2 1">"##);
         out.push('\n');
         for (_, entity) in &sketch.entities {
-            let is_const = match entity {
-                Entity::Line { is_construction, .. } => *is_construction,
-                Entity::Circle { is_construction, .. } => *is_construction,
-                Entity::Arc { is_construction, .. } => *is_construction,
-                Entity::Ellipse { is_construction, .. } => *is_construction,
-                Entity::Spline { is_construction, .. } => *is_construction,
-            };
+            let is_const = entity.is_construction();
             if is_const {
                 render_sketch_entity(
                     &mut out,
@@ -207,13 +204,7 @@ pub fn export_sketch_svg_string(
     out.push_str(r##"  <g id="geometry_layer" fill="none">"##);
     out.push('\n');
     for (_, entity) in &sketch.entities {
-        let is_const = match entity {
-            Entity::Line { is_construction, .. } => *is_construction,
-            Entity::Circle { is_construction, .. } => *is_construction,
-            Entity::Arc { is_construction, .. } => *is_construction,
-            Entity::Ellipse { is_construction, .. } => *is_construction,
-            Entity::Spline { is_construction, .. } => *is_construction,
-        };
+        let is_const = entity.is_construction();
         if !is_const {
             render_sketch_entity(
                 &mut out,
@@ -303,6 +294,26 @@ fn render_sketch_entity<F>(
                     r##"    <path d="{path_d}" stroke="{color}" stroke-width="{stroke_w:.3}" stroke-linecap="round" stroke-linejoin="round" fill="none" />
 "##
                 ));
+            }
+        }
+        Entity::Path { subpaths, .. } => {
+            for sub in subpaths {
+                let pts = sub.flatten(0.05);
+                if pts.len() >= 2 {
+                    let (first_x, first_y) = to_svg(pts[0]);
+                    let mut path_d = format!("M {first_x:.4} {first_y:.4}");
+                    for pt in &pts[1..] {
+                        let (px, py) = to_svg(*pt);
+                        path_d.push_str(&format!(" L {px:.4} {py:.4}"));
+                    }
+                    if sub.closed {
+                        path_d.push_str(" Z");
+                    }
+                    out.push_str(&format!(
+                        r##"    <path d="{path_d}" stroke="{color}" stroke-width="{stroke_w:.3}" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+"##
+                    ));
+                }
             }
         }
     }

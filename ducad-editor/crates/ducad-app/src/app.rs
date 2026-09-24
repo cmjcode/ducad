@@ -1821,6 +1821,18 @@ impl eframe::App for DuCADApp {
                             egui_icons::icons::ICON_TIMELINE.codepoint,
                         )
                     }
+                    Entity::Path { subpaths, .. } => {
+                        let total_nodes: usize = subpaths.iter().map(|s| s.node_count()).sum();
+                        let label = if entity.is_construction() {
+                            format!("Path [Konstruksi] ({} node)", total_nodes)
+                        } else {
+                            format!("Path ({} node)", total_nodes)
+                        };
+                        (
+                            label,
+                            egui_icons::icons::ICON_TIMELINE.codepoint,
+                        )
+                    }
                 };
                 let group_name = self.sketch().entity_names.get(&id).cloned().or_else(|| {
                     if let Entity::Spline { points, .. } = entity {

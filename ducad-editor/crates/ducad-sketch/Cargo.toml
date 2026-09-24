@@ -11,6 +11,7 @@ glam = { workspace = true }
 slotmap = { workspace = true }
 serde = { workspace = true }
 ttf-parser = { workspace = true }
+kurbo = { workspace = true }
 
 [dev-dependencies]
 # Hanya untuk tes kompatibilitas serde: memastikan berkas `.ducad` lama —

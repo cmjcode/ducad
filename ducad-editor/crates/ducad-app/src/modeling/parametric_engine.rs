@@ -434,6 +434,17 @@ impl DuCADApp {
                             pt.y = center.y + (pt.y - center.y) * scale_y;
                         }
                     }
+                    Entity::Path { subpaths, .. } => {
+                        let scale_point = |p: glam::DVec2| -> glam::DVec2 {
+                            glam::DVec2::new(
+                                center.x + (p.x - center.x) * scale_x,
+                                center.y + (p.y - center.y) * scale_y,
+                            )
+                        };
+                        for sub in subpaths.iter_mut() {
+                            *sub = sub.map_points(scale_point);
+                        }
+                    }
                 }
             }
         }

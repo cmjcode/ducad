@@ -290,7 +290,7 @@ impl DuCADApp {
                                 verts.extend(sketch_render::preview_lines(&arc, &self.active_plane));
                             }
                         }
-                        Entity::Ellipse { .. } | Entity::Spline { .. } => {
+                        Entity::Ellipse { .. } | Entity::Spline { .. } | Entity::Path { .. } => {
                             verts.extend(sketch_render::preview_lines(&entity, &self.active_plane));
                         }
                     }

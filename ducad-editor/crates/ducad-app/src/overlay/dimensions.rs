@@ -112,7 +112,7 @@ impl DuCADApp {
             }
             // Ellipse punya 2 angka (Rx/Ry) sekaligus — popup 1-angka tidak pas, jadi
             // sengaja tetap pill statis (non-interaktif), lihat loop render di bawah.
-            Entity::Ellipse { .. } | Entity::Spline { .. } => {}
+            Entity::Ellipse { .. } | Entity::Spline { .. } | Entity::Path { .. } => {}
         }
     }
 
@@ -477,7 +477,7 @@ impl DuCADApp {
                         CanvasHud::render_dimension_pill(ui, pos_2d, &text, false);
                     }
                 }
-                Entity::Spline { .. } => {}
+                Entity::Spline { .. } | Entity::Path { .. } => {}
             }
         }
 

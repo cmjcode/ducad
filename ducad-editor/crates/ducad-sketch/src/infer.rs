@@ -315,6 +315,13 @@ fn new_positions(sketch: &Sketch, new_ids: &[EntityId]) -> Vec<DVec2> {
             | Some(Entity::Arc { center, .. })
             | Some(Entity::Ellipse { center, .. }) => out.push(*center),
             Some(Entity::Spline { points, .. }) => out.extend(points.iter().copied()),
+            Some(Entity::Path { subpaths, .. }) => {
+                for sub in subpaths {
+                    for i in 0..sub.node_count() {
+                        out.push(sub.node(i));
+                    }
+                }
+            }
             None => {}
         }
     }

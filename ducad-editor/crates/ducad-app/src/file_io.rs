@@ -537,6 +537,16 @@ impl DuCADApp {
                         prev = pt;
                     }
                 }
+                ducad_sketch::Entity::Path { subpaths, .. } => {
+                    for sub in subpaths {
+                        let pts = sub.flatten(0.05);
+                        for w in pts.windows(2) {
+                            let p1 = plane.to_world(w[0], 0.0);
+                            let p2 = plane.to_world(w[1], 0.0);
+                            sketch_segments.push((p1, p2));
+                        }
+                    }
+                }
             }
         }
 

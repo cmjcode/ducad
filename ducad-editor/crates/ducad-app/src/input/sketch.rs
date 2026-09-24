@@ -1865,6 +1865,14 @@ impl DuCADApp {
                                                 pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y
                                             })
                                         }
+                                        Entity::Path { subpaths, .. } => {
+                                            subpaths.iter().any(|sub| {
+                                                (0..sub.node_count()).any(|i| {
+                                                    let pt = sub.node(i);
+                                                    pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y
+                                                })
+                                            })
+                                        }
                                     };
                                     if inside {
                                         Some(id)
