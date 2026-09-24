@@ -17,8 +17,8 @@ pub use scene::{
     StudioConfig, StudioPreset, ZebraConfig,
 };
 pub use vector::{
-    tessellate_entity, tessellate_fill, tessellate_stroke, TessError, TessOptions, Tessellated,
-    VectorVertex,
+    tessellate_entity, tessellate_fill, tessellate_stroke, LayerBatch, TessError, TessOptions,
+    Tessellated, VectorCache, VectorVertex,
 };
 
 // Re-export wgpu milik egui_wgpu supaya seluruh workspace memakai versi

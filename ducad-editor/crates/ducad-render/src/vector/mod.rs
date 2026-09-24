@@ -1,10 +1,13 @@
-//! Modul render vektor 2D untuk DUCAD (`ducad-render`).
-
+pub mod cache;
 pub mod tessellate;
 
 #[cfg(test)]
 mod tests;
 
+pub use cache::{
+    extract_gradient, GradientStop, GradientUniform, LayerBatch, VectorCache,
+    MAX_GRADIENTS_PER_BATCH,
+};
 pub use tessellate::{
     entity_to_subpaths, subpaths_to_stroked_polylines, tessellate_entity, tessellate_fill,
     tessellate_stroke, validate_subpaths_finite, TessError, TessOptions, Tessellated, VectorVertex,

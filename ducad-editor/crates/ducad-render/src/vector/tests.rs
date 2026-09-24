@@ -1,8 +1,10 @@
 use ducad_sketch::{
-    Entity, FillRule, LineCap, LineJoin, Paint, PathSeg, Rgba, StrokeStyle, Style, Subpath,
+    Entity, FillRule, Layer, LineCap, LineJoin, Paint, PathSeg, Rgba, Sketch, StrokeStyle, Style,
+    Subpath,
 };
 use glam::DVec2;
 
+use super::cache::VectorCache;
 use super::tessellate::{
     subpaths_to_stroked_polylines, tessellate_entity, tessellate_fill, tessellate_stroke,
     TessError, TessOptions, Tessellated,
@@ -290,3 +292,298 @@ fn degenerate_path_does_not_panic() {
         "Koordinat NaN harus mengembalikan TessError::NonFiniteCoordinate"
     );
 }
+
+#[test]
+fn sync_skips_unchanged_entities() {
+    let mut sketch = Sketch::default();
+    let sub1 = Subpath {
+        start: DVec2::ZERO,
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(10.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(10.0, 10.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(0.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id1 = sketch.entities.insert(Entity::path(vec![sub1]));
+    sketch.styles.insert(
+        id1,
+        Style {
+            fill: Some(Paint::Solid(Rgba::BLACK)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id1);
+
+    let sub2 = Subpath {
+        start: DVec2::new(20.0, 0.0),
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(30.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(30.0, 10.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(20.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id2 = sketch.entities.insert(Entity::path(vec![sub2]));
+    sketch.styles.insert(
+        id2,
+        Style {
+            fill: Some(Paint::Solid(Rgba::WHITE)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id2);
+
+    let mut cache = VectorCache::new(64 * 1024 * 1024);
+    let plane = SketchPlane::top();
+    let opts = TessOptions::default();
+
+    // First sync: both are tessellated
+    let changed = cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+    assert!(changed, "Sync pertama harus mengembalikan true");
+    assert_eq!(
+        cache.tessellate_count, 2,
+        "Dua entitas baru harus ditesselasi"
+    );
+
+    // Second sync without changes: nothing tessellated, returns false
+    let changed2 = cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+    assert!(
+        !changed2,
+        "Sync kedua tanpa perubahan harus mengembalikan false"
+    );
+    assert_eq!(
+        cache.tessellate_count, 2,
+        "Jumlah panggilan tesselasi tidak boleh bertambah"
+    );
+}
+
+#[test]
+fn sync_retessellates_when_rev_changes() {
+    let mut sketch = Sketch::default();
+    let sub1 = Subpath {
+        start: DVec2::ZERO,
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(10.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(10.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id1 = sketch.entities.insert(Entity::path(vec![sub1]));
+    sketch.styles.insert(
+        id1,
+        Style {
+            fill: Some(Paint::Solid(Rgba::BLACK)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id1);
+
+    let sub2 = Subpath {
+        start: DVec2::new(20.0, 0.0),
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(30.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(30.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id2 = sketch.entities.insert(Entity::path(vec![sub2]));
+    sketch.styles.insert(
+        id2,
+        Style {
+            fill: Some(Paint::Solid(Rgba::WHITE)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id2);
+
+    let mut cache = VectorCache::new(64 * 1024 * 1024);
+    let plane = SketchPlane::top();
+    let opts = TessOptions::default();
+
+    cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+    assert_eq!(cache.tessellate_count, 2);
+
+    // Touch id1 so rev increases
+    sketch.touch(id1);
+
+    let changed = cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+    assert!(changed, "Sync harus melaporkan perubahan ketika rev naik");
+    assert_eq!(
+        cache.tessellate_count, 3,
+        "Hanya id1 yang ditesselasi ulang, id2 harus dilewati"
+    );
+}
+
+#[test]
+fn cache_evicts_over_budget() {
+    let mut sketch = Sketch::default();
+    let sub1 = Subpath {
+        start: DVec2::ZERO,
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(10.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(10.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id1 = sketch.entities.insert(Entity::path(vec![sub1]));
+    sketch.styles.insert(
+        id1,
+        Style {
+            fill: Some(Paint::Solid(Rgba::BLACK)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id1);
+
+    let sub2 = Subpath {
+        start: DVec2::new(20.0, 0.0),
+        segs: vec![
+            PathSeg::Line {
+                end: DVec2::new(30.0, 0.0),
+            },
+            PathSeg::Line {
+                end: DVec2::new(30.0, 10.0),
+            },
+        ],
+        closed: true,
+    };
+    let id2 = sketch.entities.insert(Entity::path(vec![sub2]));
+    sketch.styles.insert(
+        id2,
+        Style {
+            fill: Some(Paint::Solid(Rgba::WHITE)),
+            ..Style::default()
+        },
+    );
+    sketch.touch(id2);
+
+    let plane = SketchPlane::top();
+    let opts = TessOptions::default();
+
+    // Hitung ukuran satu entri
+    let mut probe_cache = VectorCache::new(1024 * 1024);
+    probe_cache.sync(&sketch, &plane, &opts, &[id1]);
+    let single_entry_bytes = probe_cache.current_bytes();
+    assert!(single_entry_bytes > 0);
+
+    // Atur budget tepat untuk memuat hanya 1 entri
+    let mut tight_cache = VectorCache::new(single_entry_bytes + 10);
+    tight_cache.sync(&sketch, &plane, &opts, &[id1]);
+    assert!(tight_cache.entries.contains_key(&id1));
+
+    // Sync id2: id1 harus digusur karena LRU
+    tight_cache.sync(&sketch, &plane, &opts, &[id2]);
+    assert!(tight_cache.current_bytes() <= tight_cache.budget_bytes());
+    assert!(tight_cache.entries.contains_key(&id2));
+    assert!(
+        !tight_cache.entries.contains_key(&id1),
+        "id1 yang lebih lama harus digusur"
+    );
+}
+
+#[test]
+fn batches_follow_draw_order() {
+    let mut sketch = Sketch::default();
+    let l1 = sketch.layers.insert(Layer::new("Layer 1", Rgba::BLACK));
+    let l2 = sketch.layers.insert(Layer::new("Layer 2", Rgba::WHITE));
+    sketch.layer_order = vec![l1, l2];
+
+    let id1 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
+    sketch.styles.insert(
+        id1,
+        Style {
+            fill: Some(Paint::Solid(Rgba::BLACK)),
+            ..Style::default()
+        },
+    );
+    sketch.entity_layer.insert(id1, l1);
+
+    let id2 = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(10.0, 0.0), 5.0));
+    sketch.styles.insert(
+        id2,
+        Style {
+            fill: Some(Paint::Solid(Rgba::WHITE)),
+            ..Style::default()
+        },
+    );
+    sketch.entity_layer.insert(id2, l2);
+
+    let mut cache = VectorCache::new(64 * 1024 * 1024);
+    let plane = SketchPlane::top();
+    let opts = TessOptions::default();
+    cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+
+    let batches = cache.batches(&sketch);
+    assert_eq!(batches.len(), 2, "Harus menghasilkan 2 layer batch");
+    assert_eq!(batches[0].layer, l1, "Batch pertama harus Layer 1");
+    assert_eq!(batches[1].layer, l2, "Batch kedua harus Layer 2");
+}
+
+#[test]
+fn hidden_entity_not_in_batch() {
+    let mut sketch = Sketch::default();
+    let id1 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
+    sketch.styles.insert(
+        id1,
+        Style {
+            fill: Some(Paint::Solid(Rgba::BLACK)),
+            ..Style::default()
+        },
+    );
+
+    let id2 = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(10.0, 0.0), 5.0));
+    sketch.styles.insert(
+        id2,
+        Style {
+            fill: Some(Paint::Solid(Rgba::WHITE)),
+            ..Style::default()
+        },
+    );
+
+    // Sembunyikan id1
+    sketch.hidden_entities.insert(id1);
+
+    let mut cache = VectorCache::new(64 * 1024 * 1024);
+    let plane = SketchPlane::top();
+    let opts = TessOptions::default();
+    cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+
+    let batches = cache.batches(&sketch);
+    assert_eq!(batches.len(), 1);
+    let expected_count = cache.entries[&id2].tess.vertices.len();
+    assert_eq!(
+        batches[0].vertices.len(),
+        expected_count,
+        "Entitas tersembunyi tidak boleh masuk ke dalam batch"
+    );
+}
+
