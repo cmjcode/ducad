@@ -19,6 +19,7 @@ rstar = { workspace = true }
 # yang belum punya field `exact` pada Spline — tetap bisa dibaca.
 serde_json = { workspace = true }
 criterion = { workspace = true }
+proptest = { workspace = true }
 
 [[bench]]
 name = "index"

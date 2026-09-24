@@ -235,8 +235,19 @@ impl Subpath {
                 *c1 += delta;
             }
             if self.closed && !self.segs.is_empty() {
-                if let Some(PathSeg::Cubic { ref mut c2, .. }) = self.segs.last_mut() {
-                    *c2 += delta;
+                match self.segs.last_mut() {
+                    Some(PathSeg::Cubic { ref mut c2, ref mut end, .. }) => {
+                        *c2 += delta;
+                        if (*end - old_pos).length_squared() < 1e-10 {
+                            *end = p;
+                        }
+                    }
+                    Some(PathSeg::Line { ref mut end })
+                        if (*end - old_pos).length_squared() < 1e-10 =>
+                    {
+                        *end = p;
+                    }
+                    _ => {}
                 }
             }
         } else {
@@ -250,6 +261,11 @@ impl Subpath {
             }
             if seg_idx + 1 < self.segs.len() {
                 if let PathSeg::Cubic { ref mut c1, .. } = &mut self.segs[seg_idx + 1] {
+                    *c1 += delta;
+                }
+            } else if self.closed && (self.start - old_pos).length_squared() < 1e-10 {
+                self.start = p;
+                if let Some(PathSeg::Cubic { ref mut c1, .. }) = self.segs.first_mut() {
                     *c1 += delta;
                 }
             }

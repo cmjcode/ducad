@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use ducad_core::Command;
 use glam::DVec2;
+use slotmap::Key;
 
 use crate::entity::{Entity, EntityId};
 use crate::layer::{Group, GroupId, Layer, LayerId, Origin, TextId};
@@ -317,6 +318,7 @@ pub struct UpdateEntity {
     id: EntityId,
     old_entity: Option<Entity>,
     new_entity: Entity,
+    coalesce_key: Option<(&'static str, u64)>,
 }
 
 impl UpdateEntity {
@@ -326,8 +328,22 @@ impl UpdateEntity {
             id,
             old_entity: None,
             new_entity,
+            coalesce_key: None,
         }
     }
+
+    /// Pasang kunci coalescing untuk penggabungan aksi kontinu (drag node/handle, slider, dll).
+    pub fn with_coalesce_key(mut self, tag: &'static str, target_id: u64) -> Self {
+        self.coalesce_key = Some((tag, target_id));
+        self
+    }
+}
+
+/// Helper pembentuk kunci coalescing untuk drag node atau handle vektor kontinu.
+pub fn node_coalesce_key(id: EntityId, subpath: u16, node: u32) -> (&'static str, u64) {
+    let raw = id.data().as_ffi();
+    let packed = raw ^ ((subpath as u64) << 32) ^ (node as u64);
+    ("node-drag", packed)
 }
 
 impl Command<Sketch> for UpdateEntity {
@@ -348,6 +364,9 @@ impl Command<Sketch> for UpdateEntity {
                 sketch.touch(self.id);
             }
         }
+    }
+    fn coalesce_key(&self) -> Option<(&'static str, u64)> {
+        self.coalesce_key
     }
 }
 

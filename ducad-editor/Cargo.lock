@@ -1807,6 +1807,7 @@ dependencies = [
  "ducad-core",
  "glam",
  "kurbo",
+ "proptest",
  "rstar",
  "serde",
  "serde_json",
