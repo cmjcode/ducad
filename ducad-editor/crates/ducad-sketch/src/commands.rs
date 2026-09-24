@@ -629,8 +629,10 @@ impl Command<Sketch> for SetStyle {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StyleField {
     Fill(Option<Paint>),
+    FillRule(crate::style::FillRule),
     Stroke(Option<StrokeStyle>),
     Opacity(f32),
+    Blend(crate::style::BlendMode),
 }
 
 /// Command untuk memodifikasi satu field style secara kontinu dengan coalesce_key.
@@ -654,15 +656,19 @@ impl Command<Sketch> for SetStyleField {
     fn name(&self) -> &str {
         match self.field {
             StyleField::Fill(_) => "Ubah Fill",
+            StyleField::FillRule(_) => "Ubah Fill Rule",
             StyleField::Stroke(_) => "Ubah Stroke",
             StyleField::Opacity(_) => "Ubah Opacity",
+            StyleField::Blend(_) => "Ubah Blend Mode",
         }
     }
     fn coalesce_key(&self) -> Option<(&'static str, u64)> {
         let tag = match self.field {
             StyleField::Fill(_) => "set_style_field_fill",
+            StyleField::FillRule(_) => "set_style_field_fill_rule",
             StyleField::Stroke(_) => "set_style_field_stroke",
             StyleField::Opacity(_) => "set_style_field_opacity",
+            StyleField::Blend(_) => "set_style_field_blend",
         };
         let target = self.ids.len() as u64;
         Some((tag, target))
@@ -675,13 +681,16 @@ impl Command<Sketch> for SetStyleField {
             let mut style = sketch.style_of(id);
             match &self.field {
                 StyleField::Fill(fill) => style.fill = fill.clone(),
+                StyleField::FillRule(rule) => style.fill_rule = *rule,
                 StyleField::Stroke(stroke) => style.stroke = stroke.clone(),
                 StyleField::Opacity(opacity) => style.opacity = *opacity,
+                StyleField::Blend(blend) => style.blend = *blend,
             }
             sketch.styles.insert(id, style);
             sketch.touch(id);
         }
     }
+
     fn revert(&mut self, sketch: &mut Sketch) {
         for (&id, old_opt) in &self.old_styles {
             match old_opt {

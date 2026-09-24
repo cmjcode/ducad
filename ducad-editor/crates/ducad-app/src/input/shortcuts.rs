@@ -435,13 +435,38 @@ impl DuCADApp {
 
     pub fn handle_radial_menu(&mut self, ui: &egui::Ui, _response: &egui::Response) {
         if self.radial_menu.is_open() {
-            let items: Vec<&str> = RADIAL_TOOLS.iter().map(|(_, label)| *label).collect();
-            if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
-                self.set_tool(RADIAL_TOOLS[idx].0);
+            if !self.selected.is_empty() {
+                let items = vec![
+                    "Gabung",
+                    "Potong",
+                    "Grup",
+                    "Ungroup",
+                    "Bawa ke Depan",
+                    "Kirim ke Belakang",
+                    "Ekstrusi",
+                ];
+                if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
+                    match idx {
+                        0 => self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union),
+                        1 => self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Difference),
+                        2 => self.group_selected_entities(),
+                        3 => self.ungroup_selected_entities(),
+                        4 => self.apply_context_action(ducad_ui::ContextAction::BringToFront),
+                        5 => self.apply_context_action(ducad_ui::ContextAction::SendToBack),
+                        6 => self.extrude_selected(),
+                        _ => {}
+                    }
+                }
+            } else {
+                let items: Vec<&str> = RADIAL_TOOLS.iter().map(|(_, label)| *label).collect();
+                if let Some(idx) = self.radial_menu.show(ui.ctx(), &items) {
+                    self.set_tool(RADIAL_TOOLS[idx].0);
+                }
             }
         }
         self.radial_press = None;
     }
+
 
     pub fn status_text(&self) -> String {
         let hint = match self.tool {

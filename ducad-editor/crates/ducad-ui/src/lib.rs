@@ -37,7 +37,13 @@ pub mod tool_guides;
 pub mod tool_popups;
 pub mod touch;
 pub mod top_bar;
+pub mod vector;
 pub mod viewcube;
+
+pub use vector::{
+    ColorPickerAction, ColorPickerState, LayersPanelEvent, LayersPanelState,
+    PropertiesPanelEvent, PropertiesPanelState, PropertyVal, StyleDiff, SwatchManager,
+};
 
 pub use account_drawer::{AccountDrawer, AccountDrawerEvent};
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};

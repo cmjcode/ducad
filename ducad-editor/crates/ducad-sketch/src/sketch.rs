@@ -64,6 +64,10 @@ pub struct Sketch {
     /// Objek teks parametrik pada sketch.
     #[serde(default)]
     pub texts: slotmap::SlotMap<TextId, TextObject>,
+    /// Palet swatch warna tersimpan pada sketch/dokumen.
+    #[serde(default)]
+    pub swatches: Vec<Rgba>,
+
 
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]

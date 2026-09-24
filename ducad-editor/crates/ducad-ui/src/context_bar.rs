@@ -48,6 +48,12 @@ pub enum ContextAction {
     VectorDifference,
     VectorIntersection,
     VectorXor,
+    BringToFront,
+    SendToBack,
+    BringForward,
+    SendBackward,
+    Group,
+    Ungroup,
 }
 
 #[derive(Default)]

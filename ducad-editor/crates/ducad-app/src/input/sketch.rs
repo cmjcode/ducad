@@ -1029,7 +1029,31 @@ impl DuCADApp {
                     self.set_tool(ToolKind::Trim);
                 }
                 if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::P)) {
-                    self.set_tool(ToolKind::Pattern);
+                    self.set_tool(ToolKind::PenBezier);
+                }
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::N)) {
+                    self.set_tool(ToolKind::NodeEdit);
+                }
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::I)) {
+                    self.set_tool(ToolKind::Eyedropper);
+                }
+                if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::G)) {
+                    self.group_selected_entities();
+                }
+                if ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::G)) {
+                    self.ungroup_selected_entities();
+                }
+                if ui.input(|i| i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::L)) {
+                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union);
+                }
+                if ui.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::L)) {
+                    self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Difference);
+                }
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::CloseBracket)) {
+                    self.apply_context_action(ducad_ui::ContextAction::BringForward);
+                }
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::OpenBracket)) {
+                    self.apply_context_action(ducad_ui::ContextAction::SendBackward);
                 }
                 if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::V)) {
                     self.open_revolve_dialog();
@@ -2295,12 +2319,40 @@ impl DuCADApp {
             | ToolKind::PenBezier
             | ToolKind::NodeEdit
             | ToolKind::ShapeBuilder
-            | ToolKind::Eyedropper
             | ToolKind::Gradient
             | ToolKind::History => {
                 self.last_snap = None;
             }
+            ToolKind::Eyedropper => {
+                self.last_snap = None;
+                if response.clicked() {
+                    let tol = pixel_tolerance_to_world(&self.camera, rect);
+                    let click_pos = response.interact_pointer_pos().unwrap_or_default();
+                    if let Some((_plane_idx, hit_id)) = hit_test_multi_plane(
+                        &self.camera,
+                        rect,
+                        &self.plane_ordered_sketches(),
+                        click_pos,
+                        tol,
+                        0,
+                    ) {
+                        let hit_style = self.sketch().style_of(hit_id);
+                        self.vector_state.last_style = hit_style.clone();
+                        if let Some(st) = &hit_style.stroke {
+                            self.vector_state.swatches.push_recent(st.paint.average_color());
+                        } else if let Some(fill) = &hit_style.fill {
+                            self.vector_state.swatches.push_recent(fill.average_color());
+                        }
+                        if !self.selected.is_empty() {
+                            let ids: Vec<EntityId> = self.selected.iter().copied().collect();
+                            self.execute_sketch_command(Box::new(ducad_sketch::commands::SetStyle::new(ids, hit_style)));
+                        }
+                        self.set_tool(ToolKind::Select);
+                    }
+                }
+            }
         }
+
     }
 }
 

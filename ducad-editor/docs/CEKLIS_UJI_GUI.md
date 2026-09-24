@@ -192,6 +192,19 @@ DUCAD_SERVER_URL=http://127.0.0.1:3000 cargo run -p ducad-app
 | A9.16 | Di iPad, kembali ke DUCAD sebelum login selesai lalu tunggu | Token tetap masuk lewat polling tanpa perlu menyentuh apa pun | ☐ |
 | A9.17 | Server sengaja tanpa `APPLE_CLIENT_ID`, lalu klik Apple | Pesan galat dari server ditampilkan apa adanya ("Sign in with Apple is not configured…"), bukan timeout senyap | ☐ |
 
+### A10. Mode Vektor & Desain Grafis (M2)
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| A10.1 | Tekan `Cmd+Shift+2` untuk masuk mode sketsa 2D / Vektor | Toolbar vektor aktif (Pen Bézier, Node Edit, Shape Builder, Eyedropper, dll.), panel Properti & Layer mengambang di kanan | ☐ |
+| A10.2 | Gambar logo gabungan: buat Persegi (`R`), Lingkaran (`C`), dan Teks (`T`) saling bertumpuk | Ketiga objek ter-render dengan fill & stroke presisi pada kanvas | ☐ |
+| A10.3 | Pilih Persegi dan Lingkaran, lalu tekan `Cmd+L` (atau tombol "Gabung" di context bar) | Kedua kurva melebur jadi satu bentuk gabungan utuh via Operasi Boolean (Union) | ☐ |
+| A10.4 | Buka tab **Properti** di panel samping: pilih bentuk baru, ubah fill ke Gradien (Linear/Radial) atau Solid, atur Opacity dan Blend Mode | Tampilan objek langsung ter-update halus; slider drag menggabungkan riwayat undo (coalesce) | ☐ |
+| A10.5 | Buat Layer baru di tab **Layer** (`+`), ganti nama (dobel-klik), pindahkan objek ke layer baru, uji toggle Mata (visibilitas) dan Gembok (kunci) | Objek pada layer terkunci tidak dapat diedit/dipilih; toggle visibilitas menyembunyikan/menampilkan dengan benar | ☐ |
+| A10.6 | Uji pintasan produktivitas: `P` (Pen), `N` (Node Edit), `I` (Eyedropper), `Cmd+G` (Grup), `Cmd+Shift+G` (Ungroup), `Cmd+]`/`[` (Z-Order) | Tool dan aksi merespons seketika sesuai shortcut | ☐ |
+| A10.7 | Tekan `Cmd+Z` berulang kali (hingga 20 langkah undo), lalu `Cmd+Shift+Z` (redo) | Semua operasi vektor (pembuatan bentuk, boolean, perubahan properti warna, layer, grouping) kembali secara konsisten tanpa artefak | ☐ |
+| A10.8 | Simpan berkas (`Cmd+S`), tutup dokumen / aplikasi, lalu buka kembali berkas `.ducad` yang disimpan | Tampilan vektor, struktur layer, palet warna swatches dokumen, dan geometri identik dengan kondisi saat disimpan | ☐ |
+
 ---
 
 ## Bagian B — Regresi inti (sebelum rilis)

@@ -61,7 +61,27 @@ pub struct VectorState {
     pub last_style: Style,
     /// Grup yang sedang diisolasi (dobel-klik masuk grup, Escape keluar).
     pub isolated_group: Option<GroupId>,
+    /// Panel properti gaya grafis.
+    pub properties_panel: ducad_ui::vector::PropertiesPanelState,
+    /// Panel manajemen layer.
+    pub layers_panel: ducad_ui::vector::LayersPanelState,
+    /// Manajer swatch warna terakhir dipakai (recent).
+    pub swatches: ducad_ui::vector::SwatchManager,
+    /// Layer aktif saat ini untuk membuat entitas baru.
+    pub active_layer: Option<ducad_sketch::layer::LayerId>,
+    /// Tab aktif pada panel samping vektor.
+    pub active_tab: VectorPanelTab,
+    /// Status ciut/tutup panel samping vektor.
+    pub panel_collapsed: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VectorPanelTab {
+    #[default]
+    Properties,
+    Layers,
+}
+
 
 impl VectorState {
     pub fn new() -> Self {
