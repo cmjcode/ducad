@@ -10,7 +10,7 @@ pub mod scene;
 pub mod sketch;
 pub mod vector;
 
-pub use camera::{OrbitCamera, ViewPreset};
+pub use camera::{CameraMode, OrbitCamera, ViewPreset};
 pub use grid::LineVertex;
 pub use ink::{
     append_stroke_vertices, build_stroke_vertices, InkBrushKind, InkBrushRef, InkLayerBatch,

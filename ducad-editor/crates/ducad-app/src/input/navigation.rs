@@ -39,14 +39,20 @@ impl DuCADApp {
         }
 
         if response.hovered() {
+            let cursor_pos = response.hover_pos().unwrap_or(rect.center());
+            let ndc_x = ((cursor_pos.x - rect.min.x) / rect.width().max(1.0)) * 2.0 - 1.0;
+            let ndc_y = 1.0 - ((cursor_pos.y - rect.min.y) / rect.height().max(1.0)) * 2.0;
+            let aspect = rect.width() / rect.height().max(1.0);
+            let cursor_ndc = glam::Vec2::new(ndc_x, ndc_y);
+
             let pinch = ui.input(|i| i.zoom_delta());
             if pinch != 1.0 {
-                self.camera.zoom(pinch);
+                self.camera.zoom_at(pinch, cursor_ndc, aspect);
             }
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let factor = 1.0 - scroll * 0.0015;
-                self.camera.zoom(factor);
+                self.camera.zoom_at(factor, cursor_ndc, aspect);
             }
         }
 
@@ -58,7 +64,10 @@ impl DuCADApp {
                 self.camera
                     .orbit(touch.translation_delta.x, touch.translation_delta.y);
             }
-            self.camera.zoom(touch.zoom_delta);
+            let ndc_x = ((touch.center_pos.x - rect.min.x) / rect.width().max(1.0)) * 2.0 - 1.0;
+            let ndc_y = 1.0 - ((touch.center_pos.y - rect.min.y) / rect.height().max(1.0)) * 2.0;
+            let aspect = rect.width() / rect.height().max(1.0);
+            self.camera.zoom_at(touch.zoom_delta, glam::Vec2::new(ndc_x, ndc_y), aspect);
         }
     }
 
