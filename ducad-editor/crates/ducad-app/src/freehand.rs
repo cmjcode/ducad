@@ -210,6 +210,11 @@ fn remap(c: &Constraint, map: &impl Fn(EntityId) -> Option<EntityId>) -> Option<
             PointRef::LineStart(_) => PointRef::LineStart(id),
             PointRef::LineEnd(_) => PointRef::LineEnd(id),
             PointRef::Center(_) => PointRef::Center(id),
+            PointRef::PathNode { sub, node, .. } => PointRef::PathNode {
+                id,
+                sub: *sub,
+                node: *node,
+            },
         })
     };
     Some(match c {
@@ -219,6 +224,14 @@ fn remap(c: &Constraint, map: &impl Fn(EntityId) -> Option<EntityId>) -> Option<
         },
         Constraint::Horizontal { line } => Constraint::Horizontal { line: map(*line)? },
         Constraint::Vertical { line } => Constraint::Vertical { line: map(*line)? },
+        Constraint::HorizontalPoints { a, b } => Constraint::HorizontalPoints {
+            a: pt(a)?,
+            b: pt(b)?,
+        },
+        Constraint::VerticalPoints { a, b } => Constraint::VerticalPoints {
+            a: pt(a)?,
+            b: pt(b)?,
+        },
         Constraint::Parallel { a, b } => Constraint::Parallel {
             a: map(*a)?,
             b: map(*b)?,
@@ -254,7 +267,9 @@ fn remap(c: &Constraint, map: &impl Fn(EntityId) -> Option<EntityId>) -> Option<
 /// Id entitas yang dirujuk sebuah constraint.
 fn constraint_entities(c: &Constraint) -> Vec<EntityId> {
     match c {
-        Constraint::Coincident { a, b } => vec![a.entity_id(), b.entity_id()],
+        Constraint::Coincident { a, b }
+        | Constraint::HorizontalPoints { a, b }
+        | Constraint::VerticalPoints { a, b } => vec![a.entity_id(), b.entity_id()],
         Constraint::Horizontal { line } | Constraint::Vertical { line } => vec![*line],
         Constraint::Parallel { a, b }
         | Constraint::Perpendicular { a, b }

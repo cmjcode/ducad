@@ -547,4 +547,302 @@ mod p1_2 {
         assert!(start.y.abs() < 1e-6, "start.y = {}", start.y);
         assert!(end.y.abs() < 1e-6, "end.y = {}", end.y);
     }
+
+    #[test]
+    fn coincident_path_node_to_line_end_solves() {
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(0.0, 0.0),
+                segs: vec![PathSeg::Line {
+                    end: DVec2::new(10.0, 5.0),
+                }],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+        let l = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(20.0, 0.0), DVec2::new(25.0, 20.0)));
+
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::LineEnd(l),
+                    target: DVec2::new(25.0, 20.0),
+                },
+                Constraint::Coincident {
+                    a: PointRef::PathNode {
+                        id: p,
+                        sub: 0,
+                        node: 1,
+                    },
+                    b: PointRef::LineEnd(l),
+                },
+            ],
+        );
+        assert!(res.converged, "residual: {}", res.final_residual_norm);
+        let node_pos = point_ref_position(
+            &sketch,
+            &PointRef::PathNode {
+                id: p,
+                sub: 0,
+                node: 1,
+            },
+        )
+        .unwrap();
+        let line_end = point_ref_position(&sketch, &PointRef::LineEnd(l)).unwrap();
+        assert!((node_pos - line_end).length() < 1e-6);
+        assert!((node_pos - DVec2::new(25.0, 20.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn fixed_path_node_keeps_position_after_solve() {
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        let target = DVec2::new(15.0, 30.0);
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(0.0, 0.0),
+                segs: vec![PathSeg::Line {
+                    end: DVec2::new(10.0, 0.0),
+                }],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+        let res = solve(
+            &mut sketch,
+            &[
+                Constraint::Fixed {
+                    point: PointRef::PathNode {
+                        id: p,
+                        sub: 0,
+                        node: 0,
+                    },
+                    target,
+                },
+                Constraint::Distance {
+                    a: PointRef::PathNode {
+                        id: p,
+                        sub: 0,
+                        node: 0,
+                    },
+                    b: PointRef::PathNode {
+                        id: p,
+                        sub: 0,
+                        node: 1,
+                    },
+                    value: 20.0,
+                },
+            ],
+        );
+        assert!(res.converged, "residual: {}", res.final_residual_norm);
+        let node0 = point_ref_position(
+            &sketch,
+            &PointRef::PathNode {
+                id: p,
+                sub: 0,
+                node: 0,
+            },
+        )
+        .unwrap();
+        let node1 = point_ref_position(
+            &sketch,
+            &PointRef::PathNode {
+                id: p,
+                sub: 0,
+                node: 1,
+            },
+        )
+        .unwrap();
+        assert!((node0 - target).length() < 1e-6);
+        assert!(((node1 - node0).length() - 20.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn distance_between_two_path_nodes_converges() {
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(0.0, 0.0),
+                segs: vec![
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 0.0),
+                    },
+                    PathSeg::Line {
+                        end: DVec2::new(20.0, 5.0),
+                    },
+                ],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+        let res = solve(
+            &mut sketch,
+            &[Constraint::Distance {
+                a: PointRef::PathNode {
+                    id: p,
+                    sub: 0,
+                    node: 0,
+                },
+                b: PointRef::PathNode {
+                    id: p,
+                    sub: 0,
+                    node: 2,
+                },
+                value: 35.0,
+            }],
+        );
+        assert!(res.converged, "residual: {}", res.final_residual_norm);
+        let n0 = point_ref_position(
+            &sketch,
+            &PointRef::PathNode {
+                id: p,
+                sub: 0,
+                node: 0,
+            },
+        )
+        .unwrap();
+        let n2 = point_ref_position(
+            &sketch,
+            &PointRef::PathNode {
+                id: p,
+                sub: 0,
+                node: 2,
+            },
+        )
+        .unwrap();
+        assert!(((n2 - n0).length() - 35.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn solve_moves_handles_rigidly_with_node() {
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        let start = DVec2::new(0.0, 0.0);
+        let c1 = DVec2::new(2.0, 4.0);
+        let c2 = DVec2::new(8.0, 6.0);
+        let end = DVec2::new(10.0, 0.0);
+
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start,
+                segs: vec![PathSeg::Cubic { c1, c2, end }],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+
+        let old_c1_minus_node = c1 - start;
+        let old_c2_minus_node = c2 - end;
+
+        let target_node0 = DVec2::new(5.0, 10.0);
+        let res = solve(
+            &mut sketch,
+            &[Constraint::Fixed {
+                point: PointRef::PathNode {
+                    id: p,
+                    sub: 0,
+                    node: 0,
+                },
+                target: target_node0,
+            }],
+        );
+        assert!(res.converged);
+
+        let Entity::Path { subpaths, .. } = &sketch.entities[p] else {
+            unreachable!()
+        };
+        let sp = &subpaths[0];
+        let new_node0 = sp.node(0);
+        let new_node1 = sp.node(1);
+        let PathSeg::Cubic {
+            c1: new_c1,
+            c2: new_c2,
+            ..
+        } = sp.segs[0]
+        else {
+            unreachable!()
+        };
+
+        let new_c1_minus_node = new_c1 - new_node0;
+        let new_c2_minus_node = new_c2 - new_node1;
+
+        assert!((new_c1_minus_node - old_c1_minus_node).length() < 1e-6);
+        assert!((new_c2_minus_node - old_c2_minus_node).length() < 1e-6);
+        assert!((new_node0 - target_node0).length() < 1e-6);
+    }
+
+    #[test]
+    fn dof_counts_two_per_path_node() {
+        use crate::constraint::{analyze_dof, ConstraintState};
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        // Path dengan 1 subpath dan 2 segmen -> node_count = 3 -> 6 unknowns.
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(0.0, 0.0),
+                segs: vec![
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 0.0),
+                    },
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 10.0),
+                    },
+                ],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+
+        // Kunci 1 node (2 persamaan: x dan y).
+        let report = analyze_dof(
+            &sketch,
+            &[Constraint::Fixed {
+                point: PointRef::PathNode {
+                    id: p,
+                    sub: 0,
+                    node: 0,
+                },
+                target: DVec2::ZERO,
+            }],
+        );
+        assert_eq!(report.unknowns, 6);
+        assert_eq!(report.rank, 2);
+        assert_eq!(report.dof, 4);
+        assert_eq!(report.state, ConstraintState::Under);
+
+        // Ubah is_construction = true, DoF harus tetap sama (2 DoF per node).
+        let Entity::Path {
+            ref mut is_construction,
+            ..
+        } = sketch.entities[p]
+        else {
+            unreachable!()
+        };
+        *is_construction = true;
+        let report_constr = analyze_dof(
+            &sketch,
+            &[Constraint::Fixed {
+                point: PointRef::PathNode {
+                    id: p,
+                    sub: 0,
+                    node: 0,
+                },
+                target: DVec2::ZERO,
+            }],
+        );
+        assert_eq!(report_constr.unknowns, 6);
+        assert_eq!(report_constr.rank, 2);
+        assert_eq!(report_constr.dof, 4);
+    }
 }

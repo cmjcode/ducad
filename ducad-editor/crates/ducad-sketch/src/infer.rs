@@ -90,6 +90,19 @@ fn endpoints(sketch: &Sketch, id: EntityId) -> Vec<PointRef> {
         Some(Entity::Circle { .. }) | Some(Entity::Arc { .. }) | Some(Entity::Ellipse { .. }) => {
             vec![PointRef::Center(id)]
         }
+        Some(Entity::Path { subpaths, .. }) => {
+            let mut pts = Vec::new();
+            for (sub_idx, sub) in subpaths.iter().enumerate() {
+                for node_idx in 0..sub.node_count() {
+                    pts.push(PointRef::PathNode {
+                        id,
+                        sub: sub_idx as u16,
+                        node: node_idx as u32,
+                    });
+                }
+            }
+            pts
+        }
         _ => Vec::new(),
     }
 }
@@ -543,5 +556,44 @@ mod tests {
             .rejected
             .iter()
             .all(|(_, r)| *r != RejectReason::Conflict));
+    }
+
+    #[test]
+    fn infer_accepts_coincident_between_path_and_line() {
+        use crate::entity::{PathSeg, Subpath};
+
+        let mut sketch = Sketch::default();
+        let path_id = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(0.0, 0.0),
+                segs: vec![PathSeg::Line {
+                    end: DVec2::new(10.0, 0.0),
+                }],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+
+        let line_id = sketch.entities.insert(Entity::line(
+            DVec2::new(10.05, 0.05),
+            DVec2::new(20.0, 0.0),
+        ));
+
+        let opt = InferOptions {
+            snap_dist: 0.5,
+            ..InferOptions::default()
+        };
+        let out = infer_constraints(&sketch, &[line_id], &opt);
+
+        let has_coincident = out.accepted.iter().any(|c| match c {
+            Constraint::Coincident { a, b } => {
+                (matches!(a, PointRef::PathNode { id, node: 1, .. } if *id == path_id)
+                    && matches!(b, PointRef::LineStart(l) if *l == line_id))
+                    || (matches!(b, PointRef::PathNode { id, node: 1, .. } if *id == path_id)
+                        && matches!(a, PointRef::LineStart(l) if *l == line_id))
+            }
+            _ => false,
+        });
+        assert!(has_coincident, "accepted: {:?}", out.accepted);
     }
 }

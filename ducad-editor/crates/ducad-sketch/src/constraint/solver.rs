@@ -113,7 +113,10 @@ pub(crate) fn involved_entities(constraints: &[Constraint]) -> Vec<EntityId> {
     };
     for c in constraints {
         match c {
-            Constraint::Coincident { a, b } | Constraint::Distance { a, b, .. } => {
+            Constraint::Coincident { a, b }
+            | Constraint::Distance { a, b, .. }
+            | Constraint::HorizontalPoints { a, b }
+            | Constraint::VerticalPoints { a, b } => {
                 push_unique(a.entity_id(), &mut ids);
                 push_unique(b.entity_id(), &mut ids);
             }
@@ -177,75 +180,95 @@ fn build_kinds(entity_ids: &[EntityId], sketch: &Sketch) -> HashMap<EntityId, En
         .collect()
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct SolverOffsets {
+    pub entity: HashMap<EntityId, usize>,
+    pub path_sub: HashMap<(EntityId, u16), usize>,
+}
+
+impl SolverOffsets {
+    pub fn read_point_ref(&self, pr: &PointRef, x: &[f64]) -> DVec2 {
+        let off = self.entity[&pr.entity_id()];
+        match pr {
+            PointRef::LineStart(_) => DVec2::new(x[off], x[off + 1]),
+            PointRef::LineEnd(_) => DVec2::new(x[off + 2], x[off + 3]),
+            PointRef::Center(_) => DVec2::new(x[off], x[off + 1]),
+            PointRef::PathNode { id, sub, node } => {
+                let cum = self.path_sub.get(&(*id, *sub)).copied().unwrap_or(0);
+                let node_off = off + 2 * (cum + *node as usize);
+                DVec2::new(x[node_off], x[node_off + 1])
+            }
+        }
+    }
+
+    pub fn read_line(&self, id: EntityId, x: &[f64]) -> (DVec2, DVec2) {
+        let off = self.entity[&id];
+        (
+            DVec2::new(x[off], x[off + 1]),
+            DVec2::new(x[off + 2], x[off + 3]),
+        )
+    }
+
+    pub fn line_dir(&self, id: EntityId, x: &[f64]) -> DVec2 {
+        let (s, e) = self.read_line(id, x);
+        let d = e - s;
+        let len = d.length();
+        if len < 1e-9 {
+            d
+        } else {
+            d / len
+        }
+    }
+
+    pub fn read_radius_param(&self, id: EntityId, x: &[f64]) -> f64 {
+        x[self.entity[&id] + 2]
+    }
+
+    pub fn read_center(&self, id: EntityId, x: &[f64]) -> DVec2 {
+        let off = self.entity[&id];
+        DVec2::new(x[off], x[off + 1])
+    }
+}
+
 fn build_offsets_and_x0(
     entity_ids: &[EntityId],
     sketch: &Sketch,
-) -> (HashMap<EntityId, usize>, Vec<f64>) {
-    let mut offsets = HashMap::new();
+) -> (SolverOffsets, Vec<f64>) {
+    let mut entity = HashMap::new();
+    let mut path_sub = HashMap::new();
     let mut x = Vec::new();
     for id in entity_ids {
-        offsets.insert(*id, x.len());
-        pack_entity(
-            sketch
-                .entities
-                .get(*id)
-                .expect("entitas constraint hilang dari sketch"),
-            &mut x,
-        );
+        entity.insert(*id, x.len());
+        let e = sketch
+            .entities
+            .get(*id)
+            .expect("entitas constraint hilang dari sketch");
+        if let Entity::Path { subpaths, .. } = e {
+            let mut cum = 0;
+            for (s_idx, s) in subpaths.iter().enumerate() {
+                path_sub.insert((*id, s_idx as u16), cum);
+                cum += s.node_count();
+            }
+        }
+        pack_entity(e, &mut x);
     }
-    (offsets, x)
+    (SolverOffsets { entity, path_sub }, x)
 }
 
 fn write_back(
     entity_ids: &[EntityId],
-    offsets: &HashMap<EntityId, usize>,
+    offsets: &SolverOffsets,
     x: &[f64],
     sketch: &mut Sketch,
 ) {
     for id in entity_ids {
-        let off = offsets[id];
+        let off = offsets.entity[id];
         if let Some(entity) = sketch.entities.get_mut(*id) {
             let dof = entity_dof(entity);
             unpack_entity(entity, &x[off..off + dof]);
+            sketch.touch(*id);
         }
     }
-}
-
-fn read_point_ref(pr: &PointRef, x: &[f64], offsets: &HashMap<EntityId, usize>) -> DVec2 {
-    let off = offsets[&pr.entity_id()];
-    match pr {
-        PointRef::LineStart(_) => DVec2::new(x[off], x[off + 1]),
-        PointRef::LineEnd(_) => DVec2::new(x[off + 2], x[off + 3]),
-        PointRef::Center(_) => DVec2::new(x[off], x[off + 1]),
-    }
-}
-
-fn read_line(id: EntityId, x: &[f64], offsets: &HashMap<EntityId, usize>) -> (DVec2, DVec2) {
-    let off = offsets[&id];
-    (
-        DVec2::new(x[off], x[off + 1]),
-        DVec2::new(x[off + 2], x[off + 3]),
-    )
-}
-
-fn line_dir(id: EntityId, x: &[f64], offsets: &HashMap<EntityId, usize>) -> DVec2 {
-    let (s, e) = read_line(id, x, offsets);
-    let d = e - s;
-    let len = d.length();
-    if len < 1e-9 {
-        d
-    } else {
-        d / len
-    }
-}
-
-fn read_radius_param(id: EntityId, x: &[f64], offsets: &HashMap<EntityId, usize>) -> f64 {
-    x[offsets[&id] + 2]
-}
-
-fn read_center(id: EntityId, x: &[f64], offsets: &HashMap<EntityId, usize>) -> DVec2 {
-    let off = offsets[&id];
-    DVec2::new(x[off], x[off + 1])
 }
 
 pub(crate) fn distance_point_to_infinite_line(p: DVec2, a: DVec2, b: DVec2) -> f64 {
@@ -260,51 +283,59 @@ pub(crate) fn distance_point_to_infinite_line(p: DVec2, a: DVec2, b: DVec2) -> f
 fn constraint_residuals(
     c: &Constraint,
     x: &[f64],
-    offsets: &HashMap<EntityId, usize>,
+    offsets: &SolverOffsets,
     kinds: &HashMap<EntityId, EntityKind>,
 ) -> Vec<f64> {
     match c {
         Constraint::Coincident { a, b } => {
-            let (pa, pb) = (read_point_ref(a, x, offsets), read_point_ref(b, x, offsets));
+            let (pa, pb) = (offsets.read_point_ref(a, x), offsets.read_point_ref(b, x));
             vec![pa.x - pb.x, pa.y - pb.y]
         }
         Constraint::Horizontal { line } => {
-            let (s, e) = read_line(*line, x, offsets);
+            let (s, e) = offsets.read_line(*line, x);
             vec![e.y - s.y]
         }
         Constraint::Vertical { line } => {
-            let (s, e) = read_line(*line, x, offsets);
+            let (s, e) = offsets.read_line(*line, x);
             vec![e.x - s.x]
         }
+        Constraint::HorizontalPoints { a, b } => {
+            let (pa, pb) = (offsets.read_point_ref(a, x), offsets.read_point_ref(b, x));
+            vec![pa.y - pb.y]
+        }
+        Constraint::VerticalPoints { a, b } => {
+            let (pa, pb) = (offsets.read_point_ref(a, x), offsets.read_point_ref(b, x));
+            vec![pa.x - pb.x]
+        }
         Constraint::Parallel { a, b } => {
-            let (da, db) = (line_dir(*a, x, offsets), line_dir(*b, x, offsets));
+            let (da, db) = (offsets.line_dir(*a, x), offsets.line_dir(*b, x));
             vec![da.x * db.y - da.y * db.x]
         }
         Constraint::Perpendicular { a, b } => {
-            let (da, db) = (line_dir(*a, x, offsets), line_dir(*b, x, offsets));
+            let (da, db) = (offsets.line_dir(*a, x), offsets.line_dir(*b, x));
             vec![da.dot(db)]
         }
         Constraint::EqualLength { a, b } => {
-            let (sa, ea) = read_line(*a, x, offsets);
-            let (sb, eb) = read_line(*b, x, offsets);
+            let (sa, ea) = offsets.read_line(*a, x);
+            let (sb, eb) = offsets.read_line(*b, x);
             vec![(ea - sa).length() - (eb - sb).length()]
         }
         Constraint::EqualRadius { a, b } => {
-            vec![read_radius_param(*a, x, offsets) - read_radius_param(*b, x, offsets)]
+            vec![offsets.read_radius_param(*a, x) - offsets.read_radius_param(*b, x)]
         }
         Constraint::Fixed { point, target } => {
-            let p = read_point_ref(point, x, offsets);
+            let p = offsets.read_point_ref(point, x);
             vec![p.x - target.x, p.y - target.y]
         }
         Constraint::Distance { a, b, value } => {
-            let (pa, pb) = (read_point_ref(a, x, offsets), read_point_ref(b, x, offsets));
+            let (pa, pb) = (offsets.read_point_ref(a, x), offsets.read_point_ref(b, x));
             vec![(pb - pa).length() - value]
         }
         Constraint::Radius { entity, value } => {
-            vec![read_radius_param(*entity, x, offsets) - value]
+            vec![offsets.read_radius_param(*entity, x) - value]
         }
         Constraint::Angle { a, b, value } => {
-            let (da, db) = (line_dir(*a, x, offsets), line_dir(*b, x, offsets));
+            let (da, db) = (offsets.line_dir(*a, x), offsets.line_dir(*b, x));
             let cross = da.x * db.y - da.y * db.x;
             let dot = da.dot(db);
             vec![cross.atan2(dot) - value]
@@ -312,39 +343,35 @@ fn constraint_residuals(
         Constraint::Tangent { a, b } => {
             match (kinds.get(a), kinds.get(b)) {
                 (Some(EntityKind::Radial), Some(EntityKind::Radial)) => {
-                    let (ca, ra) = (read_center(*a, x, offsets), read_radius_param(*a, x, offsets));
-                    let (cb, rb) = (read_center(*b, x, offsets), read_radius_param(*b, x, offsets));
+                    let (ca, ra) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
+                    let (cb, rb) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
                     vec![(cb - ca).length() - (ra + rb)]
                 }
                 (Some(EntityKind::Line), Some(EntityKind::Radial)) => {
-                    let (s, e) = read_line(*a, x, offsets);
-                    let (c, r) = (read_center(*b, x, offsets), read_radius_param(*b, x, offsets));
+                    let (s, e) = offsets.read_line(*a, x);
+                    let (c, r) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
                     vec![distance_point_to_infinite_line(c, s, e) - r]
                 }
                 (Some(EntityKind::Radial), Some(EntityKind::Line)) => {
-                    let (s, e) = read_line(*b, x, offsets);
-                    let (c, r) = (read_center(*a, x, offsets), read_radius_param(*a, x, offsets));
+                    let (s, e) = offsets.read_line(*b, x);
+                    let (c, r) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
                     vec![distance_point_to_infinite_line(c, s, e) - r]
                 }
                 _ => vec![],
             }
         }
         Constraint::Symmetric { a, b, axis } => {
-            let (axis_s, axis_e) = read_line(*axis, x, offsets);
-            let pa = read_point_ref(a, x, offsets);
-            let pb = read_point_ref(b, x, offsets);
+            let (axis_s, axis_e) = offsets.read_line(*axis, x);
+            let pa = offsets.read_point_ref(a, x);
+            let pb = offsets.read_point_ref(b, x);
             let reflected = crate::ops::reflect_point(pa, axis_s, axis_e);
             vec![reflected.x - pb.x, reflected.y - pb.y]
         }
         Constraint::PointOnCurve { point, curve } => {
-            let p = read_point_ref(point, x, offsets);
+            let p = offsets.read_point_ref(point, x);
             match kinds.get(curve) {
                 Some(EntityKind::Line) => {
-                    let (s, e) = read_line(*curve, x, offsets);
-                    // Jarak BERTANDA (cross product), bukan `.abs()`: nilai
-                    // mutlak punya kink di nol sehingga turunannya tidak
-                    // terdefinisi persis di solusi yang dicari — solver
-                    // Newton/LM akan berosilasi di sana.
+                    let (s, e) = offsets.read_line(*curve, x);
                     let d = e - s;
                     let len = d.length();
                     if len < 1e-9 {
@@ -354,34 +381,31 @@ fn constraint_residuals(
                     }
                 }
                 Some(EntityKind::Radial) => {
-                    let c = read_center(*curve, x, offsets);
-                    let r = read_radius_param(*curve, x, offsets);
+                    let c = offsets.read_center(*curve, x);
+                    let r = offsets.read_radius_param(*curve, x);
                     vec![(p - c).length() - r]
                 }
                 None => vec![],
             }
         }
         Constraint::Midpoint { point, line } => {
-            let p = read_point_ref(point, x, offsets);
-            let (s, e) = read_line(*line, x, offsets);
+            let p = offsets.read_point_ref(point, x);
+            let (s, e) = offsets.read_line(*line, x);
             let mid = (s + e) * 0.5;
             vec![p.x - mid.x, p.y - mid.y]
         }
         Constraint::Concentric { a, b } => {
-            let (ca, cb) = (read_center(*a, x, offsets), read_center(*b, x, offsets));
+            let (ca, cb) = (offsets.read_center(*a, x), offsets.read_center(*b, x));
             vec![ca.x - cb.x, ca.y - cb.y]
         }
         Constraint::Collinear { a, b } => {
-            let (sa, ea) = read_line(*a, x, offsets);
-            let (sb, eb) = read_line(*b, x, offsets);
+            let (sa, ea) = offsets.read_line(*a, x);
+            let (sb, eb) = offsets.read_line(*b, x);
             let da = ea - sa;
             let len = da.length();
             if len < 1e-9 {
                 return vec![0.0, 0.0];
             }
-            // Sejajar DAN kedua ujung `b` berada di garis tak hingga `a`.
-            // Dua residual jarak-bertanda sudah mencakup kesejajaran, jadi
-            // tidak perlu persamaan cross terpisah yang akan redundan.
             let signed = |p: glam::DVec2| (da.x * (p.y - sa.y) - da.y * (p.x - sa.x)) / len;
             vec![signed(sb), signed(eb)]
         }

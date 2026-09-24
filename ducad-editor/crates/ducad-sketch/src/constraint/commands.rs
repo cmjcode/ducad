@@ -38,6 +38,7 @@ impl Command<Sketch> for AddConstraint {
         for (id, entity) in &self.prior_geometry {
             if let Some(slot) = sketch.entities.get_mut(*id) {
                 *slot = entity.clone();
+                sketch.touch(*id);
             }
         }
     }
@@ -84,6 +85,7 @@ impl Command<Sketch> for RemoveConstraint {
         for (id, entity) in &self.prior_geometry {
             if let Some(slot) = sketch.entities.get_mut(*id) {
                 *slot = entity.clone();
+                sketch.touch(*id);
             }
         }
     }

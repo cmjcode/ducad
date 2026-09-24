@@ -6,18 +6,21 @@ use crate::sketch::Sketch;
 
 /// Rujukan ke satu titik pada entitas — dipakai constraint yang butuh
 /// titik spesifik (Coincident, Fixed, Distance), bukan seluruh entitas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PointRef {
     LineStart(EntityId),
     LineEnd(EntityId),
     /// Center Circle/Arc/Ellipse.
     Center(EntityId),
+    /// Node ke-`node` pada subpath ke-`sub` dari `Entity::Path`.
+    PathNode { id: EntityId, sub: u16, node: u32 },
 }
 
 impl PointRef {
     pub fn entity_id(&self) -> EntityId {
         match self {
             PointRef::LineStart(id) | PointRef::LineEnd(id) | PointRef::Center(id) => *id,
+            PointRef::PathNode { id, .. } => *id,
         }
     }
 }
@@ -43,6 +46,14 @@ pub fn point_ref_position(sketch: &Sketch, pr: &PointRef) -> Option<DVec2> {
                 Some(points.iter().copied().sum::<DVec2>() / (points.len() as f64))
             }
         }
+        (Entity::Path { subpaths, .. }, PointRef::PathNode { sub, node, .. }) => {
+            let sp = subpaths.get(*sub as usize)?;
+            if (*node as usize) < sp.node_count() {
+                Some(sp.node(*node as usize))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -53,6 +64,8 @@ pub enum Constraint {
     Coincident { a: PointRef, b: PointRef },
     Horizontal { line: EntityId },
     Vertical { line: EntityId },
+    HorizontalPoints { a: PointRef, b: PointRef },
+    VerticalPoints { a: PointRef, b: PointRef },
     Parallel { a: EntityId, b: EntityId },
     Perpendicular { a: EntityId, b: EntityId },
     EqualLength { a: EntityId, b: EntityId },
