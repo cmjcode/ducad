@@ -1742,6 +1742,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ducad-ink"
+version = "0.2.1"
+dependencies = [
+ "ducad-core",
+ "ducad-sketch",
+ "glam",
+ "kurbo",
+ "proptest",
+ "rstar",
+ "serde",
+ "serde_json",
+ "slotmap",
+]
+
+[[package]]
 name = "ducad-io"
 version = "0.2.1"
 dependencies = [
