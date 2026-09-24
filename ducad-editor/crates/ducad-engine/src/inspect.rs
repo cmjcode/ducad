@@ -66,6 +66,8 @@ pub struct SketchReport {
     /// `"XY"`, `"XZ"`, `"YZ"`, atau `"datum:<n>"`.
     pub plane: String,
     pub entities: usize,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub entity_kinds: BTreeMap<String, usize>,
     pub closed_regions: usize,
     pub dof: i64,
     /// Nama entitas, terurut.
@@ -180,12 +182,25 @@ pub(crate) fn summarize_state(
             let slot = sketches.get(*sid)?;
             let mut names: Vec<String> = slot.sketch.entity_names.values().cloned().collect();
             names.sort();
+            let mut entity_kinds = BTreeMap::new();
+            for (_, ent) in &slot.sketch.entities {
+                let kind = match ent {
+                    ducad_sketch::Entity::Line { .. } => "line",
+                    ducad_sketch::Entity::Circle { .. } => "circle",
+                    ducad_sketch::Entity::Arc { .. } => "arc",
+                    ducad_sketch::Entity::Ellipse { .. } => "ellipse",
+                    ducad_sketch::Entity::Spline { .. } => "spline",
+                    ducad_sketch::Entity::Path { .. } => "path",
+                };
+                *entity_kinds.entry(kind.to_string()).or_default() += 1;
+            }
             let dof =
                 ducad_sketch::constraint::analyze_dof(&slot.sketch, &slot.sketch.constraints).dof;
             Some(SketchReport {
                 id: id.clone(),
                 plane: plane_label(slot.plane),
                 entities: slot.sketch.entities.len(),
+                entity_kinds,
                 closed_regions: ducad_sketch::find_closed_regions(&slot.sketch).len(),
                 dof: dof as i64,
                 names,

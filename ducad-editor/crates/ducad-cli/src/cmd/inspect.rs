@@ -40,6 +40,18 @@ pub fn exec(a: Args) -> CliResult {
             "sketch {:<14} bidang {:<8} entitas {}  region {}  dof {}",
             sk.id, sk.plane, sk.entities, sk.closed_regions, sk.dof
         );
+        if !sk.entity_kinds.is_empty() {
+            let kinds = sk
+                .entity_kinds
+                .iter()
+                .map(|(k, v)| format!("{k}: {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  entitas: {kinds}");
+        }
+        if !sk.names.is_empty() {
+            println!("  nama: {}", sk.names.join(", "));
+        }
     }
     for w in &sum.warnings {
         println!("peringatan: {w}");

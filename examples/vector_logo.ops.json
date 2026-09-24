@@ -1,0 +1,36 @@
+{
+  "params": {},
+  "ops": [
+    {
+      "op": "sketch",
+      "id": "vector_sketch",
+      "plane": "XY",
+      "entities": [
+        {
+          "path": {
+            "name": "logo",
+            "subpaths": [
+              {
+                "start": [0, 0],
+                "closed": true,
+                "segs": [
+                  { "line": { "to": [40, 0] } },
+                  { "cubic": { "c1": [50, 0], "c2": [50, 20], "to": [40, 20] } },
+                  { "line": { "to": [0, 20] } }
+                ]
+              }
+            ],
+            "style": {
+              "fill": "#ff8800",
+              "stroke": "#000000",
+              "stroke_width": 0.5,
+              "opacity": 1.0
+            },
+            "layer": "Layer 1",
+            "construction": false
+          }
+        }
+      ]
+    }
+  ]
+}

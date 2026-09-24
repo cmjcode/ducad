@@ -2858,6 +2858,50 @@ scope yang sama (`/ecc:plan` dulu, 4 fase, semua dikonfirmasi via
 - [x] Workspace hijau -- `cargo build --workspace` bersih, `cargo clippy`
       nol warning baru, 186 test tetap lulus, smoke-run app tanpa crash.
 
+## Status Fase M0 — Model Vektor dalam Sketch (dikerjakan)
+
+Fondasi model grafis vektor 2D di dalam `ducad-sketch` untuk mendukung integrasi
+CAD dan desain grafis vektor multi-alat (M0.1–M0.8):
+
+- [x] **M0.1 — `Entity::Path` & `Subpath` dengan kurbo.** Integrasi tipe `Subpath`
+      dan `Entity::Path` di `ducad-sketch` berbasis pustaka `kurbo`. Mendukung segmen
+      garis lurus, busur kuadratik, dan busur kubik Bézier, konversi ke `kurbo::BezPath`,
+      perhitungan panjang busur, titik terdekat (`closest_point`), dan bounding box.
+      6 unit test kurbo lulus.
+- [x] **M0.2 — Entity revisions & spatial index `rstar`.** Menambahkan `rev: u64`
+      pada setiap entitas dengan metode `touch(id)` dan `touch_many(&[id])` untuk
+      invalidation tracking. Indeks spasial `rstar::RTree` di `ducad-sketch`
+      meng-cache AABB entitas berbasis revisi untuk hit-test dan viewport culling O(1).
+      Semua command sketsa (`InsertEntities`, `DeleteEntities`, `UpdateEntity`, dst.)
+      terhubung ke `touch`. 6 unit test lulus.
+- [x] **M0.3 — Style, Paint, layers, groups, dan provenance.** Tipe `Style`,
+      `Paint::Solid(Color)`, `Stroke`, `FillRule`, sistem `Layer` (nama, visibilitas,
+      opasitas, kind), `Group`, dan metadata `Provenance::Freehand`. Mendukung
+      pewarnaan kurva vektor dan pengorganisasian elemen. 6 unit test lulus.
+- [x] **M0.4 — Constraint solver untuk node path.** Solver non-linear mendukung
+      `PointRef::PathNode { id, sub, node }`. Relasi Coincident, Horizontal, Vertical,
+      Distance, dan Fixed dapat diikatkan ke node path simpul kurva, dengan integrasi
+      translasi, rotasi, dan evaluasi derajat kebebasan (DoF). 6 unit test solver lulus.
+- [x] **M0.5 — TextObject parametrik & commands.** Tipe `TextObject` dengan `TextSpec`,
+      `TextAlign`, dan preset font default disematkan. Konversi glyph font menjadi
+      `Entity::Path` tertutup. Command `InsertText` dan `UpdateText` terintegrasi
+      dengan sistem undo/redo. 6 unit test teks lulus.
+- [x] **M0.6 — Format native versi 3.** `FORMAT_VERSION` ditingkatkan ke 3 dengan fungsi
+      deteksi `needs_v3(&Sketch) -> bool` agar berkas CAD standar tetap tersimpan dalam
+      format v1/v2 yang kompak. Serialisasi lossless `Style`, `Layer`, `Group`, dan `Path`.
+      Backward compatibility diuji dengan fixture v1, v2, v3, serta proptest roundtrip.
+      6 tes native format lulus.
+- [x] **M0.7 — `EntitySpec::Path`, `StyleSpec`, dan selector path node.** Penurunan
+      deklaratif `EntitySpec::Path` di `ducad-engine`, parsing warna hex, pembuatan layer
+      vektor otomatis, dan sintaks selector `name.s<subpath>.n<node>` untuk constraint
+      referensi titik. Skema `ops.schema.json` diperbarui dan terdokumentasi di
+      `SKILL.md`. 6 tes engine lulus deterministik.
+- [x] **M0.8 — Audit GUI & dokumentasi.** Audit mutasi langsung di `ducad-app`
+      (semua manipulasi entitas dibungkus command undo-able dan `sketch.touch`),
+      ADR 0004 (`docs/adr/0004-model-vektor-dalam-sketch.md`) mencatat keputusan
+      arsitektur vektor vs tinta vs node constraint, dan berkas contoh
+      `examples/vector_logo.ops.json` terverifikasi lewat `ducad-cli run` dan `inspect`.
+
 
 ## Menjalankan
 
