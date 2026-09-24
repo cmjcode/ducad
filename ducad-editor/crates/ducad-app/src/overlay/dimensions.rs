@@ -486,7 +486,77 @@ impl DuCADApp {
             self.editing_dimension_entity = None;
         }
 
+        // 2b. Render dimensi constraint (misal Constraint::Distance pada titik/node path)
+        let constraints = self.sketch().constraints.clone();
+        let mut constraint_commit: Option<(usize, ducad_sketch::constraint::Constraint)> = None;
+
+        for (c_idx, c) in constraints.iter().enumerate() {
+            if let ducad_sketch::constraint::Constraint::Distance { a, b, value } = c {
+                let pos_a = ducad_sketch::constraint::point_ref_position(self.sketch(), a);
+                let pos_b = ducad_sketch::constraint::point_ref_position(self.sketch(), b);
+                if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
+                    let mid = (pa + pb) * 0.5;
+                    let label_3d = self.active_plane.to_world(mid, 0.0);
+                    if let Some(pos_2d) = world_to_screen_pos(&self.camera, rect, label_3d) {
+                        let text = self.unit.format_precise(*value);
+                        let is_editing = self.editing_constraint_idx == Some(c_idx);
+                        let resp = ui
+                            .push_id(("ducad-dim-pill-constraint", c_idx), |ui| {
+                                CanvasHud::render_interactive_dimension_pill(
+                                    ui, pos_2d, &text, is_editing,
+                                )
+                            })
+                            .inner;
+                        if resp.clicked() && !is_editing {
+                            self.editing_constraint_idx = Some(c_idx);
+                            self.editing_dimension_input =
+                                format!("{:.2}", self.unit.to_display_val(*value));
+                        }
+                        if is_editing {
+                            let popup_rect = egui::Rect::from_center_size(
+                                pos_2d + egui::vec2(0.0, 28.0),
+                                egui::vec2(100.0, 32.0),
+                            );
+                            egui::Area::new(egui::Id::new(("ducad-constraint-dim-popup", c_idx)))
+                                .fixed_pos(popup_rect.min)
+                                .order(egui::Order::Foreground)
+                                .show(ui.ctx(), |ui| {
+                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                        let r = ui.text_edit_singleline(&mut self.editing_dimension_input);
+                                        r.request_focus();
+                                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                            self.editing_constraint_idx = None;
+                                        } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                            if let Ok(val) = self.editing_dimension_input.trim().parse::<f64>() {
+                                                let new_val_mm = self.unit.to_internal_mm(val);
+                                                constraint_commit = Some((
+                                                    c_idx,
+                                                    ducad_sketch::constraint::Constraint::Distance {
+                                                        a: *a,
+                                                        b: *b,
+                                                        value: new_val_mm,
+                                                    },
+                                                ));
+                                            }
+                                            self.editing_constraint_idx = None;
+                                        } else if r.lost_focus() {
+                                            self.editing_constraint_idx = None;
+                                        }
+                                    });
+                                });
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some((c_idx, new_c)) = constraint_commit {
+            self.update_constraint(c_idx, new_c);
+            self.editing_constraint_idx = None;
+        }
+
         // 3. Jika di mode sketch (`is_sketching`), render dimensi rusuk 3D yang TIDAK berhimpit dengan sketch
+
         if self.is_sketching {
             for (id, geo) in self.model.geometry.iter() {
                 let visible = self.model.doc.bodies.get(id).is_some_and(|b| b.visible);

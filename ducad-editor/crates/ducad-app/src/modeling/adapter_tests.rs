@@ -220,3 +220,50 @@ fn adapter_apply_constraint_commits_or_reports_residual() {
     );
     assert_eq!(app.sketch().constraints.len(), 1);
 }
+
+#[test]
+fn adding_conflicting_constraint_shows_error_and_leaves_sketch_unchanged() {
+    use ducad_sketch::constraint::PointRef;
+    use ducad_sketch::entity::{PathSeg, Subpath};
+
+    let mut app = DuCADApp::new_for_test();
+    let p = app.sketch_mut().entities.insert(Entity::Path {
+        subpaths: vec![Subpath {
+            start: DVec2::new(0.0, 0.0),
+            segs: vec![PathSeg::Line {
+                end: DVec2::new(10.0, 0.0),
+            }],
+            closed: false,
+        }],
+        is_construction: false,
+    });
+    let n0 = PointRef::PathNode {
+        id: p,
+        sub: 0,
+        node: 0,
+    };
+    let n1 = PointRef::PathNode {
+        id: p,
+        sub: 0,
+        node: 1,
+    };
+
+    // Tambah constraint HorizontalPoints pada dua node
+    app.apply_constraint(Constraint::HorizontalPoints { a: n0, b: n1 });
+    assert!(app.constraint_status.is_none(), "{:?}", app.constraint_status);
+    assert_eq!(app.sketch().constraints.len(), 1);
+
+    // Tambah constraint VerticalPoints yang bertentangan pada dua node yang sama
+    app.apply_constraint(Constraint::VerticalPoints { a: n0, b: n1 });
+    let status = app.constraint_status.clone().expect("harus menghasilkan pesan error");
+    assert!(
+        status.contains("dibatalkan, sketch tidak berubah"),
+        "Pesan status harus mengindikasikan pembatalan: {status}"
+    );
+    assert_eq!(
+        app.sketch().constraints.len(),
+        1,
+        "Jumlah constraint sketch harus tidak berubah setelah constraint yang bertentangan ditolak"
+    );
+}
+

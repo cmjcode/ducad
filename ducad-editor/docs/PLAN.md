@@ -289,9 +289,11 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       constraint pada titik ujung Arc (`PointRef` belum mencakupnya),
       point-on-entity (coincident ke kurva, bukan cuma titik-ke-titik),
       tangensial internal, Tangent Line-Line, dynamic input untuk tool
-      pemilihan titik. Jacobian numerik (bukan analitik) — cukup cepat
+      pemilihan titik. Tangency path↔path dan Parallel pada path: Belum (di luar M2).
+      Jacobian numerik (bukan analitik) — cukup cepat
       untuk skala sketch, dipertimbangkan ulang di Fase 7 kalau profiling
       menunjukkan perlu.
+
 - [ ] Verifikasi visual & UX panel Constraint + tool pemilihan titik di
       device sungguhan — sama seperti sebelumnya, belum bisa dicek dari
       sandbox agent.

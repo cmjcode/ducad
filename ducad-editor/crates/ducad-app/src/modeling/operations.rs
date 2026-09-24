@@ -1,7 +1,7 @@
 use ducad_core::BodyId;
 use ducad_kernel::PickRay;
 use ducad_render::SketchPlane;
-use ducad_sketch::constraint::{AddConstraint, Constraint};
+use ducad_sketch::constraint::{AddConstraint, Constraint, UpdateConstraint};
 use glam::{DVec2, Vec3};
 use slotmap::Key;
 
@@ -20,17 +20,15 @@ impl DuCADApp {
     /// Terapkan constraint pada entitas terpilih di sketch aktif.
     pub fn apply_constraint(&mut self, new_constraint: Constraint) {
         match compute::solve_with(self.sketch(), std::slice::from_ref(&new_constraint)) {
-            // `OverConstrained` berarti solver KONVERGEN tetapi constraint baru
-            // redundan/meruntuhkan geometri. GUI sejak dulu hanya memeriksa
-            // konvergensi, jadi perilaku itu dipertahankan di sini (P0.8:
-            // tanpa perubahan UX); penolakan ketat berlaku di Session.
             Ok(_) => {
                 self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
                 self.constraint_status = None;
             }
             Err(e) if e.code == OpErrorCode::OverConstrained => {
-                self.execute_sketch_command(Box::new(AddConstraint::new(new_constraint)));
-                self.constraint_status = None;
+                self.constraint_status = Some(format!(
+                    "{} — dibatalkan, sketch tidak berubah",
+                    e.message
+                ));
             }
             Err(e) => {
                 let residual = e.context.get("residual").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
@@ -41,6 +39,23 @@ impl DuCADApp {
             }
         }
     }
+
+    /// Perbarui constraint pada indeks tertentu dan solve ulang sistem.
+    pub fn update_constraint(&mut self, index: usize, new_constraint: Constraint) {
+        let mut trial = self.sketch().clone();
+        if index < trial.constraints.len() {
+            trial.constraints[index] = new_constraint.clone();
+            let snapshot = trial.constraints.clone();
+            let res = ducad_sketch::constraint::solve(&mut trial, &snapshot);
+            if res.converged {
+                self.execute_sketch_command(Box::new(UpdateConstraint::new(index, new_constraint)));
+                self.constraint_status = None;
+                return;
+            }
+        }
+        self.constraint_status = Some("Gagal memperbarui nilai constraint — dibatalkan, sketch tidak berubah".to_string());
+    }
+
 
     /// Extrude profil dari seleksi entitas sketch saat ini.
     pub fn extrude_selected(&mut self) {

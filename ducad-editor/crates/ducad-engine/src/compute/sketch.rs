@@ -6,14 +6,33 @@ use ducad_sketch::{Entity, EntityId, Sketch};
 use super::LIN_TOL;
 use crate::error::{OpError, OpErrorCode, OpResult};
 
-/// Ukuran karakteristik entitas: panjang garis, atau radius lingkaran/busur.
+/// Ukuran karakteristik entitas: panjang garis, radius lingkaran/busur, atau panjang path.
 fn entity_size(e: &Entity) -> Option<f64> {
     match e {
         Entity::Line { start, end, .. } => Some((*end - *start).length()),
         Entity::Circle { radius, .. } | Entity::Arc { radius, .. } => Some(*radius),
+        Entity::Path { subpaths, .. } => {
+            let mut total = 0.0;
+            for sp in subpaths {
+                let mut prev = sp.start;
+                for seg in &sp.segs {
+                    let end = match seg {
+                        ducad_sketch::entity::PathSeg::Line { end } => *end,
+                        ducad_sketch::entity::PathSeg::Cubic { end, .. } => *end,
+                    };
+                    total += (end - prev).length();
+                    prev = end;
+                }
+                if sp.closed {
+                    total += (sp.start - prev).length();
+                }
+            }
+            Some(total)
+        }
         _ => None,
     }
 }
+
 
 /// Entitas yang sebelum solve berukuran nyata tetapi sesudahnya runtuh
 /// (garis jadi titik, radius jadi nol). Solver kuadrat-terkecil bisa

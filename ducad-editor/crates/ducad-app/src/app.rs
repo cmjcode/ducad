@@ -177,6 +177,7 @@ pub struct DuCADApp {
     /// klik pill saat "Tampilkan Semua Ukuran" aktif). `None` = tidak ada popup.
     pub editing_dimension_entity: Option<EntityId>,
     pub editing_dimension_input: String,
+    pub editing_constraint_idx: Option<usize>,
 
     pub import_worker: ImportWorker,
     pub pending_imports: u32,
@@ -530,6 +531,7 @@ impl DuCADApp {
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
+            editing_constraint_idx: None,
 
             import_worker: ImportWorker::spawn(),
             pending_imports: 0,
@@ -819,6 +821,7 @@ impl DuCADApp {
             show_all_dimensions: false,
             editing_dimension_entity: None,
             editing_dimension_input: String::new(),
+            editing_constraint_idx: None,
 
             import_worker: ImportWorker::spawn(),
             pending_imports: 0,

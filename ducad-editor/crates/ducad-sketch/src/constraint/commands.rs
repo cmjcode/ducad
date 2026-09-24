@@ -90,3 +90,55 @@ impl Command<Sketch> for RemoveConstraint {
         }
     }
 }
+
+/// Perbarui satu constraint (misal nilai dimensi) pada indeks tertentu dan solve ulang.
+pub struct UpdateConstraint {
+    index: usize,
+    new_constraint: Constraint,
+    old_constraint: Option<Constraint>,
+    prior_geometry: Vec<(EntityId, Entity)>,
+}
+
+impl UpdateConstraint {
+    pub fn new(index: usize, new_constraint: Constraint) -> Self {
+        Self {
+            index,
+            new_constraint,
+            old_constraint: None,
+            prior_geometry: Vec::new(),
+        }
+    }
+}
+
+impl Command<Sketch> for UpdateConstraint {
+    fn name(&self) -> &str {
+        "Ubah Nilai Constraint"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        if self.index >= sketch.constraints.len() {
+            return;
+        }
+        self.prior_geometry = involved_entities(&sketch.constraints)
+            .into_iter()
+            .filter_map(|id| sketch.entities.get(id).map(|e| (id, e.clone())))
+            .collect();
+        self.old_constraint = Some(sketch.constraints[self.index].clone());
+        sketch.constraints[self.index] = self.new_constraint.clone();
+        let snapshot = sketch.constraints.clone();
+        solve(sketch, &snapshot);
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        if let Some(old) = self.old_constraint.take() {
+            if self.index < sketch.constraints.len() {
+                sketch.constraints[self.index] = old;
+            }
+        }
+        for (id, entity) in &self.prior_geometry {
+            if let Some(slot) = sketch.entities.get_mut(*id) {
+                *slot = entity.clone();
+                sketch.touch(*id);
+            }
+        }
+    }
+}
+

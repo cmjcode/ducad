@@ -20,6 +20,7 @@ pub enum ConstraintAction {
     ApplyCoincident,
     ApplyFixed,
     ApplySymmetric,
+    ApplyDistance,
 }
 
 pub struct ConstraintStrip {
@@ -39,6 +40,16 @@ impl ConstraintStrip {
 
     /// Render strip ikon constraint vertikal. Mengembalikan `Option<ConstraintAction>`.
     pub fn show(&mut self, ui: &mut Ui, selected_count: usize) -> Option<ConstraintAction> {
+        self.show_with_valid(ui, selected_count, None)
+    }
+
+    /// Render strip ikon constraint vertikal dengan daftar constraint yang valid/diaktifkan.
+    pub fn show_with_valid(
+        &mut self,
+        ui: &mut Ui,
+        selected_count: usize,
+        valid_actions: Option<&[ConstraintAction]>,
+    ) -> Option<ConstraintAction> {
         let mut action = None;
 
         glass_frame().show(ui, |ui| {
@@ -58,12 +69,10 @@ impl ConstraintStrip {
 
             ui.separator();
 
-            // 2. Constraint Icons (aktif jika ada entitas terpilih)
-            let enabled = selected_count > 0;
-
+            // 2. Constraint Icons
             let constraints = [
-                (ConstraintAction::ApplyHorizontal, "—", "Horizontal (1 Garis)"),
-                (ConstraintAction::ApplyVertical, "|", "Vertical (1 Garis)"),
+                (ConstraintAction::ApplyHorizontal, "—", "Horizontal (1 Garis / 2 Titik)"),
+                (ConstraintAction::ApplyVertical, "|", "Vertical (1 Garis / 2 Titik)"),
                 (ConstraintAction::ApplyParallel, "//", "Parallel / Sejajar (2 Garis)"),
                 (ConstraintAction::ApplyPerpendicular, "⊥", "Perpendicular / Tegak Lurus (2 Garis)"),
                 (ConstraintAction::ApplyEqualLength, "==", "Equal Length / Sama Panjang (2 Garis)"),
@@ -71,10 +80,17 @@ impl ConstraintStrip {
                 (ConstraintAction::ApplyTangent, "tan", "Tangent / Bersinggungan"),
                 (ConstraintAction::ApplyCoincident, "><", "Coincident / Berimpit (Titik)"),
                 (ConstraintAction::ApplyFixed, ICON_LOCK.codepoint, "Lock / Fixed (Titik)"),
+                (ConstraintAction::ApplyDistance, "dim", "Distance / Jarak (2 Titik)"),
                 (ConstraintAction::ApplySymmetric, "sym", "Symmetric / Simetris"),
             ];
 
             for (act, icon, tooltip) in constraints {
+                let enabled = if let Some(valid) = valid_actions {
+                    valid.contains(&act)
+                } else {
+                    selected_count > 0
+                };
+
                 let btn = ui.add_sized(
                     Vec2::new(28.0, 24.0),
                     egui::Button::new(RichText::new(icon).size(11.0).strong().color(if enabled { TEXT_PRIMARY } else { TEXT_SECONDARY })),
@@ -88,3 +104,4 @@ impl ConstraintStrip {
         action
     }
 }
+

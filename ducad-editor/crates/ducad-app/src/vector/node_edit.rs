@@ -349,8 +349,99 @@ fn add_handle_marker(lines: &mut Vec<LineVertex>, p: DVec2, radius: f64, color: 
     add_line(lines, p3, p0, color);
 }
 
+use ducad_sketch::constraint::{point_ref_position, Constraint, PointRef};
+use ducad_sketch::entity::EntityId;
+use ducad_sketch::sketch::Sketch;
+use ducad_ui::ConstraintAction;
+
+/// Menghitung constraint yang valid berdasarkan jumlah node yang dipilih.
+pub fn valid_constraints_for_node_count(count: usize) -> Vec<ConstraintAction> {
+    match count {
+        1 => vec![ConstraintAction::ApplyFixed],
+        2 => vec![
+            ConstraintAction::ApplyCoincident,
+            ConstraintAction::ApplyFixed,
+            ConstraintAction::ApplyHorizontal,
+            ConstraintAction::ApplyVertical,
+            ConstraintAction::ApplyDistance,
+            ConstraintAction::ApplySymmetric,
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// Membangun constraint dari sekumpulan node path terpilih dan aksi yang diminta.
+pub fn build_node_constraint(
+    sketch: &Sketch,
+    nodes: &[(EntityId, u16, u32)],
+    action: ConstraintAction,
+) -> Option<Constraint> {
+    match action {
+        ConstraintAction::ApplyFixed => {
+            let (id, sub, node) = nodes.first().copied()?;
+            let pr = PointRef::PathNode { id, sub, node };
+            let pos = point_ref_position(sketch, &pr)?;
+            Some(Constraint::Fixed { point: pr, target: pos })
+        }
+        ConstraintAction::ApplyCoincident => {
+            if nodes.len() < 2 {
+                return None;
+            }
+            let a = PointRef::PathNode { id: nodes[0].0, sub: nodes[0].1, node: nodes[0].2 };
+            let b = PointRef::PathNode { id: nodes[1].0, sub: nodes[1].1, node: nodes[1].2 };
+            Some(Constraint::Coincident { a, b })
+        }
+        ConstraintAction::ApplyHorizontal => {
+            if nodes.len() < 2 {
+                return None;
+            }
+            let a = PointRef::PathNode { id: nodes[0].0, sub: nodes[0].1, node: nodes[0].2 };
+            let b = PointRef::PathNode { id: nodes[1].0, sub: nodes[1].1, node: nodes[1].2 };
+            Some(Constraint::HorizontalPoints { a, b })
+        }
+        ConstraintAction::ApplyVertical => {
+            if nodes.len() < 2 {
+                return None;
+            }
+            let a = PointRef::PathNode { id: nodes[0].0, sub: nodes[0].1, node: nodes[0].2 };
+            let b = PointRef::PathNode { id: nodes[1].0, sub: nodes[1].1, node: nodes[1].2 };
+            Some(Constraint::VerticalPoints { a, b })
+        }
+        ConstraintAction::ApplyDistance => {
+            if nodes.len() < 2 {
+                return None;
+            }
+            let a = PointRef::PathNode { id: nodes[0].0, sub: nodes[0].1, node: nodes[0].2 };
+            let b = PointRef::PathNode { id: nodes[1].0, sub: nodes[1].1, node: nodes[1].2 };
+            let pa = point_ref_position(sketch, &a)?;
+            let pb = point_ref_position(sketch, &b)?;
+            let dist = (pb - pa).length();
+            Some(Constraint::Distance { a, b, value: dist })
+        }
+        ConstraintAction::ApplySymmetric => {
+            if nodes.len() < 2 {
+                return None;
+            }
+            let a = PointRef::PathNode { id: nodes[0].0, sub: nodes[0].1, node: nodes[0].2 };
+            let b = PointRef::PathNode { id: nodes[1].0, sub: nodes[1].1, node: nodes[1].2 };
+            let axis = sketch.entities.iter().find_map(|(id, e)| match e {
+                Entity::Line { is_construction: true, .. } => Some(id),
+                _ => None,
+            }).or_else(|| {
+                sketch.entities.iter().find_map(|(id, e)| match e {
+                    Entity::Line { .. } => Some(id),
+                    _ => None,
+                })
+            })?;
+            Some(Constraint::Symmetric { a, b, axis })
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use ducad_sketch::entity::PathSeg;
 
@@ -430,4 +521,53 @@ mod tests {
         );
         assert!(!lines.is_empty(), "Overlay lines should not be empty");
     }
+
+    #[test]
+    fn test_valid_constraints_and_build_node_constraint() {
+        assert_eq!(valid_constraints_for_node_count(0), vec![]);
+        assert_eq!(valid_constraints_for_node_count(1), vec![ConstraintAction::ApplyFixed]);
+        let c2 = valid_constraints_for_node_count(2);
+        assert!(c2.contains(&ConstraintAction::ApplyCoincident));
+        assert!(c2.contains(&ConstraintAction::ApplyDistance));
+        assert!(c2.contains(&ConstraintAction::ApplyHorizontal));
+        assert!(c2.contains(&ConstraintAction::ApplyVertical));
+
+        let mut sketch = Sketch::default();
+        let p = sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::new(10.0, 20.0),
+                segs: vec![PathSeg::Line { end: DVec2::new(30.0, 20.0) }],
+                closed: false,
+            }],
+            is_construction: false,
+        });
+
+        let n0 = (p, 0, 0);
+        let n1 = (p, 0, 1);
+
+        // Fixed
+        let fixed = build_node_constraint(&sketch, &[n0], ConstraintAction::ApplyFixed);
+        assert!(matches!(fixed, Some(Constraint::Fixed { .. })));
+
+        // Coincident
+        let coinc = build_node_constraint(&sketch, &[n0, n1], ConstraintAction::ApplyCoincident);
+        assert!(matches!(coinc, Some(Constraint::Coincident { .. })));
+
+        // Horizontal
+        let horiz = build_node_constraint(&sketch, &[n0, n1], ConstraintAction::ApplyHorizontal);
+        assert!(matches!(horiz, Some(Constraint::HorizontalPoints { .. })));
+
+        // Vertical
+        let vert = build_node_constraint(&sketch, &[n0, n1], ConstraintAction::ApplyVertical);
+        assert!(matches!(vert, Some(Constraint::VerticalPoints { .. })));
+
+        // Distance
+        let dist = build_node_constraint(&sketch, &[n0, n1], ConstraintAction::ApplyDistance);
+        if let Some(Constraint::Distance { value, .. }) = dist {
+            assert!((value - 20.0).abs() < 1e-6);
+        } else {
+            panic!("Expected Constraint::Distance");
+        }
+    }
 }
+
