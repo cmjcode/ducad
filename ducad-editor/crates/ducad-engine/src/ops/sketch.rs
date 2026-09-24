@@ -5,11 +5,18 @@ use std::collections::{BTreeSet, HashMap};
 
 use ducad_kernel::{KernelShape, SurfaceKind};
 use ducad_sketch::constraint::{Constraint, DofReport, PointRef};
+use ducad_sketch::entity::{PathSeg, Subpath};
+use ducad_sketch::layer::Layer;
+use ducad_sketch::style::{
+    BlendMode, FillRule, LineCap, LineJoin, Paint, Rgba, StrokeStyle, Style,
+};
 use ducad_sketch::{Entity, EntityId, PlaneRef, Sketch};
 use glam::DVec2;
 
 use super::num::{eval, eval_arr, Num, Params};
-use super::spec::{ConstraintSpec, EntitySpec, PlaneSpec};
+use super::spec::{
+    ConstraintSpec, EntitySpec, PlaneSpec, SegSpec, StyleSpec,
+};
 use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::plane::PlaneFrame;
 
@@ -100,11 +107,19 @@ fn positive(what: &str, v: f64) -> OpResult<f64> {
 }
 
 /// `(anak (sufiks nama, entitas), nama induk, konstruksi?)`.
-type Expanded = (Vec<(Option<String>, Entity)>, Option<String>, bool);
+type ExpandedGeom = (Vec<(Option<String>, Entity)>, Option<String>, bool);
 
-/// Satu `EntitySpec` → daftar `(sufiks nama anak, Entity)`. Sufiks `None`
-/// berarti entitas tunggal yang memakai nama induk apa adanya.
-fn expand(spec: &EntitySpec, params: &Params) -> OpResult<Expanded> {
+/// `(anak (sufiks nama, entitas), nama induk, konstruksi?, style?, layer?)`.
+type Expanded = (
+    Vec<(Option<String>, Entity)>,
+    Option<String>,
+    bool,
+    Option<Style>,
+    Option<String>,
+);
+
+/// Satu `EntitySpec` geometris → daftar `(sufiks nama anak, Entity)`.
+fn expand_geom(spec: &EntitySpec, params: &Params) -> OpResult<ExpandedGeom> {
     let single = |e: Entity| vec![(None, e)];
     let numbered = |es: Vec<Entity>| {
         es.into_iter()
@@ -306,11 +321,148 @@ fn expand(spec: &EntitySpec, params: &Params) -> OpResult<Expanded> {
                 .collect::<OpResult<Vec<_>>>()?;
             (single(Entity::spline(pts)), name, *construction)
         }
+        EntitySpec::Path { .. } => unreachable!("Path ditangani oleh expand"),
     };
     Ok((items, name.clone(), construction))
 }
 
+fn lower_style(st: &StyleSpec, params: &Params) -> OpResult<Style> {
+    let fill = if let Some(hex) = &st.fill {
+        let rgba = Rgba::from_hex(hex).ok_or_else(|| {
+            OpError::invalid(format!("style.fill: warna hex tidak valid: {hex}"))
+        })?;
+        Some(Paint::Solid(rgba))
+    } else {
+        None
+    };
+
+    let stroke = if let Some(hex) = &st.stroke {
+        let rgba = Rgba::from_hex(hex).ok_or_else(|| {
+            OpError::invalid(format!("style.stroke: warna hex tidak valid: {hex}"))
+        })?;
+        let width_mm = if let Some(sw) = &st.stroke_width {
+            let val = eval(sw, params)?;
+            if val <= 0.0 {
+                return Err(OpError::invalid(format!(
+                    "style.stroke_width harus lebih besar dari nol, didapat {val}"
+                )));
+            }
+            val
+        } else {
+            0.5
+        };
+        Some(StrokeStyle {
+            paint: Paint::Solid(rgba),
+            width_mm,
+            dash: vec![],
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+        })
+    } else {
+        if let Some(sw) = &st.stroke_width {
+            let val = eval(sw, params)?;
+            if val <= 0.0 {
+                return Err(OpError::invalid(format!(
+                    "style.stroke_width harus lebih besar dari nol, didapat {val}"
+                )));
+            }
+        }
+        None
+    };
+
+    let op_val = eval(&st.opacity, params)?;
+    let opacity = op_val.clamp(0.0, 1.0) as f32;
+
+    let fill_rule = if let Some(rule) = &st.fill_rule {
+        match rule.to_lowercase().as_str() {
+            "nonzero" => FillRule::NonZero,
+            "evenodd" => FillRule::EvenOdd,
+            _ => return Err(OpError::invalid(format!("style.fill_rule tidak dikenal: {rule}"))),
+        }
+    } else {
+        FillRule::NonZero
+    };
+
+    Ok(Style {
+        fill,
+        fill_rule,
+        stroke,
+        opacity,
+        blend: BlendMode::Normal,
+    })
+}
+
+fn expand(spec: &EntitySpec, params: &Params) -> OpResult<Expanded> {
+    match spec {
+        EntitySpec::Path {
+            subpaths,
+            style,
+            layer,
+            name,
+            construction,
+        } => {
+            if subpaths.is_empty() {
+                return Err(OpError::invalid("path harus memiliki minimal satu subpath"));
+            }
+            let mut built_subpaths = Vec::with_capacity(subpaths.len());
+            for (sp_idx, sp) in subpaths.iter().enumerate() {
+                if sp.segs.is_empty() {
+                    return Err(OpError::invalid(format!(
+                        "subpath {sp_idx} tidak boleh kosong"
+                    )));
+                }
+                let start = p2(&sp.start, params)?;
+                let mut segs = Vec::with_capacity(sp.segs.len());
+                for seg in &sp.segs {
+                    match seg {
+                        SegSpec::Line { to } => {
+                            segs.push(PathSeg::Line {
+                                end: p2(to, params)?,
+                            });
+                        }
+                        SegSpec::Cubic { c1, c2, to } => {
+                            segs.push(PathSeg::Cubic {
+                                c1: p2(c1, params)?,
+                                c2: p2(c2, params)?,
+                                end: p2(to, params)?,
+                            });
+                        }
+                    }
+                }
+                built_subpaths.push(Subpath {
+                    start,
+                    segs,
+                    closed: sp.closed,
+                });
+            }
+
+            let lowered_style = if let Some(st) = style {
+                Some(lower_style(st, params)?)
+            } else {
+                None
+            };
+
+            let single = |e: Entity| vec![(None, e)];
+            Ok((
+                single(Entity::Path {
+                    subpaths: built_subpaths,
+                    is_construction: *construction,
+                }),
+                name.clone(),
+                *construction,
+                lowered_style,
+                layer.clone(),
+            ))
+        }
+        other => {
+            let (items, name, construction) = expand_geom(other, params)?;
+            Ok((items, name, construction, None, None))
+        }
+    }
+}
+
 /// Hasil `build_sketch`.
+#[derive(Debug)]
 pub(crate) struct SketchBuild {
     pub sketch: Sketch,
     pub dof: DofReport,
@@ -328,7 +480,7 @@ pub(crate) fn build_sketch(
     let mut sketch = Sketch::default();
     let mut names: HashMap<String, EntityId> = HashMap::new();
     for (i, spec) in entities.iter().enumerate() {
-        let (items, name, construction) = expand(spec, params)
+        let (items, name, construction, style, layer) = expand(spec, params)
             .map_err(|e| e.with_context(serde_json::json!({ "entity_index": i })))?;
         let base = name.unwrap_or_else(|| format!("e{}", i + 1));
         for (suffix, entity) in items {
@@ -347,6 +499,22 @@ pub(crate) fn build_sketch(
                 .insert(entity.with_construction(construction));
             sketch.entity_names.insert(id, full.clone());
             names.insert(full, id);
+
+            if let Some(st) = &style {
+                sketch.styles.insert(id, st.clone());
+            }
+            if let Some(layer_name) = &layer {
+                let layer_id = if let Some((lid, _)) =
+                    sketch.layers.iter().find(|(_, l)| l.name == *layer_name)
+                {
+                    lid
+                } else {
+                    let lid = sketch.layers.insert(Layer::new(layer_name.clone(), Rgba::WHITE));
+                    sketch.layer_order.push(lid);
+                    lid
+                };
+                sketch.entity_layer.insert(id, layer_id);
+            }
         }
     }
 
@@ -380,12 +548,46 @@ fn entity(name: &str, names: &HashMap<String, EntityId>) -> OpResult<EntityId> {
         .ok_or_else(|| unknown_name(name, names))
 }
 
-/// `"<nama>.start|.end|.center"` — sufiks diuraikan dari KANAN karena nama
-/// entitas sendiri bisa mengandung titik (`outline.top.end`).
+/// `"<nama>.start|.end|.center"` atau `"<nama>.s<subpath>.n<node>"` (untuk path).
 fn point(r: &str, names: &HashMap<String, EntityId>, sketch: &Sketch) -> OpResult<PointRef> {
+    if let Some((rest, n_str)) = r.rsplit_once('.') {
+        if let Some(n_digits) = n_str.strip_prefix('n') {
+            if let Ok(node) = n_digits.parse::<u32>() {
+                if let Some((base, s_str)) = rest.rsplit_once('.') {
+                    if let Some(s_digits) = s_str.strip_prefix('s') {
+                        if let Ok(sub) = s_digits.parse::<u16>() {
+                            let id = entity(base, names)?;
+                            if let Some(Entity::Path { subpaths, .. }) = sketch.entities.get(id) {
+                                if let Some(sp) = subpaths.get(sub as usize) {
+                                    if (node as usize) < sp.node_count() {
+                                        return Ok(PointRef::PathNode { id, sub, node });
+                                    } else {
+                                        return Err(OpError::invalid(format!(
+                                            "rujukan node index {node} melebihi jumlah node ({}) pada '{base}.s{sub}'",
+                                            sp.node_count()
+                                        )));
+                                    }
+                                } else {
+                                    return Err(OpError::invalid(format!(
+                                        "rujukan subpath index {sub} melebihi jumlah subpath ({}) pada '{base}'",
+                                        subpaths.len()
+                                    )));
+                                }
+                            } else {
+                                return Err(OpError::invalid(format!(
+                                    "entitas '{base}' bukan sebuah Path"
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let Some((base, suffix)) = r.rsplit_once('.') else {
         return Err(OpError::invalid(format!(
-            "rujukan titik '{r}' harus berakhiran .start, .end, atau .center"
+            "rujukan titik '{r}' harus berakhiran .start, .end, .center, atau .s<subpath>.n<node>"
         )));
     };
     let id = entity(base, names)?;
@@ -643,4 +845,193 @@ mod tests {
             [0.0, -5.0, 0.0]
         );
     }
+
+    #[test]
+    fn path_spec_lowers_to_entity_with_style() {
+        let json = r##"{
+            "entities": [{
+                "path": {
+                    "name": "logo",
+                    "subpaths": [{
+                        "start": [0, 0],
+                        "closed": true,
+                        "segs": [
+                            {"line": {"to": [40, 0]}},
+                            {"cubic": {"c1": [50, 0], "c2": [50, 20], "to": [40, 20]}},
+                            {"line": {"to": [0, 20]}}
+                        ]
+                    }],
+                    "style": {
+                        "fill": "#ff8800",
+                        "stroke": "#000000",
+                        "stroke_width": 0.5,
+                        "opacity": 1.0,
+                        "fill_rule": "nonzero"
+                    },
+                    "layer": "Layer 1",
+                    "construction": false
+                }
+            }]
+        }"##;
+        let (entities, constraints) = specs(json);
+        let build = build_sketch(&entities, &constraints, &Params::new()).unwrap();
+        assert!(build.names.contains_key("logo"));
+        let id = build.names["logo"];
+        match &build.sketch.entities[id] {
+            Entity::Path {
+                subpaths,
+                is_construction,
+            } => {
+                assert!(!is_construction);
+                assert_eq!(subpaths.len(), 1);
+                assert_eq!(subpaths[0].start, DVec2::new(0.0, 0.0));
+                assert!(subpaths[0].closed);
+                assert_eq!(subpaths[0].segs.len(), 3);
+            }
+            _ => panic!("Expected Entity::Path"),
+        }
+        let style = build.sketch.styles.get(id).expect("style should be present");
+        assert_eq!(
+            style.fill,
+            Some(Paint::Solid(Rgba::from_hex("#ff8800").unwrap()))
+        );
+        assert_eq!(style.fill_rule, FillRule::NonZero);
+        let stroke = style.stroke.as_ref().expect("stroke should be present");
+        assert_eq!(stroke.paint, Paint::Solid(Rgba::BLACK));
+        assert_eq!(stroke.width_mm, 0.5);
+        assert_eq!(style.opacity, 1.0);
+    }
+
+    #[test]
+    fn invalid_hex_is_invalid_param() {
+        let json = r#"{
+            "entities": [{
+                "path": {
+                    "subpaths": [{
+                        "start": [0, 0],
+                        "closed": true,
+                        "segs": [{"line": {"to": [10, 0]}}]
+                    }],
+                    "style": {
+                        "fill": "not-a-hex"
+                    }
+                }
+            }]
+        }"#;
+        let (entities, constraints) = specs(json);
+        let err = build_sketch(&entities, &constraints, &Params::new()).unwrap_err();
+        assert_eq!(err.code, OpErrorCode::InvalidParam);
+        assert!(err.message.contains("style.fill: warna hex tidak valid"));
+
+        // Test stroke_width <= 0
+        let json2 = r##"{
+            "entities": [{
+                "path": {
+                    "subpaths": [{
+                        "start": [0, 0],
+                        "closed": true,
+                        "segs": [{"line": {"to": [10, 0]}}]
+                    }],
+                    "style": {
+                        "stroke": "#000000",
+                        "stroke_width": 0.0
+                    }
+                }
+            }]
+        }"##;
+        let (entities2, constraints2) = specs(json2);
+        let err2 = build_sketch(&entities2, &constraints2, &Params::new()).unwrap_err();
+        assert_eq!(err2.code, OpErrorCode::InvalidParam);
+
+        // Test subpath kosong
+        let json3 = r#"{
+            "entities": [{
+                "path": {
+                    "subpaths": []
+                }
+            }]
+        }"#;
+        let (entities3, constraints3) = specs(json3);
+        let err3 = build_sketch(&entities3, &constraints3, &Params::new()).unwrap_err();
+        assert_eq!(err3.code, OpErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn unknown_layer_is_created() {
+        let json = r#"{
+            "entities": [{
+                "path": {
+                    "subpaths": [{
+                        "start": [0, 0],
+                        "closed": true,
+                        "segs": [{"line": {"to": [10, 0]}}]
+                    }],
+                    "layer": "BrandNewLayer"
+                }
+            }]
+        }"#;
+        let (entities, constraints) = specs(json);
+        let build = build_sketch(&entities, &constraints, &Params::new()).unwrap();
+        let (layer_id, layer) = build
+            .sketch
+            .layers
+            .iter()
+            .find(|(_, l)| l.name == "BrandNewLayer")
+            .expect("layer should exist");
+        assert_eq!(layer.kind, ducad_sketch::layer::LayerKind::Vector);
+        assert!(build.sketch.layer_order.contains(&layer_id));
+        let ent_id = build.sketch.entities.keys().next().unwrap();
+        assert_eq!(build.sketch.entity_layer.get(ent_id), Some(&layer_id));
+    }
+
+    #[test]
+    fn constraint_on_path_node_by_name() {
+        let json = r#"{
+            "entities": [
+                {
+                    "path": {
+                        "name": "logo",
+                        "subpaths": [{
+                            "start": [0, 0],
+                            "closed": false,
+                            "segs": [
+                                {"line": {"to": [10, 0]}},
+                                {"line": {"to": [10, 10]}}
+                            ]
+                        }]
+                    }
+                },
+                {
+                    "line": {
+                        "from": [10, 10],
+                        "to": [20, 20],
+                        "name": "l1"
+                    }
+                }
+            ],
+            "constraints": [
+                {"coincident": ["logo.s0.n2", "l1.start"]}
+            ]
+        }"#;
+        let (entities, constraints) = specs(json);
+        let build = build_sketch(&entities, &constraints, &Params::new()).unwrap();
+        assert_eq!(build.sketch.constraints.len(), 1);
+        match &build.sketch.constraints[0] {
+            Constraint::Coincident { a, b } => {
+                let logo_id = build.names["logo"];
+                let l1_id = build.names["l1"];
+                assert_eq!(
+                    *a,
+                    PointRef::PathNode {
+                        id: logo_id,
+                        sub: 0,
+                        node: 2
+                    }
+                );
+                assert_eq!(*b, PointRef::LineStart(l1_id));
+            }
+            _ => panic!("Expected Constraint::Coincident"),
+        }
+    }
+
 }

@@ -12,6 +12,10 @@ fn yes() -> bool {
     true
 }
 
+fn one() -> Num {
+    Num::Value(1.0)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
@@ -400,7 +404,59 @@ pub enum EntitySpec {
         #[serde(default)]
         construction: bool,
     },
+    Path {
+        subpaths: Vec<SubpathSpec>,
+        #[serde(default)]
+        style: Option<StyleSpec>,
+        #[serde(default)]
+        layer: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        construction: bool,
+    },
 }
+
+/// Rangkaian kurva tertutup atau terbuka untuk `EntitySpec::Path`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SubpathSpec {
+    pub start: [Num; 2],
+    pub segs: Vec<SegSpec>,
+    #[serde(default)]
+    pub closed: bool,
+}
+
+/// Ruas segmen pada `SubpathSpec` (garis lurus atau kurva Bézier kubik).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum SegSpec {
+    Line {
+        to: [Num; 2],
+    },
+    Cubic {
+        c1: [Num; 2],
+        c2: [Num; 2],
+        to: [Num; 2],
+    },
+}
+
+/// Spesifikasi gaya visual untuk `EntitySpec::Path`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StyleSpec {
+    #[serde(default)]
+    pub fill: Option<String>, // hex; null = tanpa fill
+    #[serde(default)]
+    pub stroke: Option<String>,
+    #[serde(default)]
+    pub stroke_width: Option<Num>, // mm
+    #[serde(default = "one")]
+    pub opacity: Num,
+    #[serde(default)]
+    pub fill_rule: Option<String>, // "nonzero" | "evenodd"
+}
+
 
 /// Constraint sketch. Entitas dirujuk dengan nama; titik dengan
 /// `"<nama>.start" | ".end" | ".center"`.

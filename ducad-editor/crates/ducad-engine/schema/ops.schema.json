@@ -1246,6 +1246,59 @@
             "spline"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "additionalProperties": false,
+              "properties": {
+                "construction": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "layer": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "style": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/StyleSpec"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "subpaths": {
+                  "items": {
+                    "$ref": "#/definitions/SubpathSpec"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "subpaths"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2126,6 +2179,157 @@
         "angle_deg",
         "axis",
         "pivot"
+      ],
+      "type": "object"
+    },
+    "SegSpec": {
+      "description": "Ruas segmen pada `SubpathSpec` (garis lurus atau kurva Bézier kubik).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "line": {
+              "additionalProperties": false,
+              "properties": {
+                "to": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "to"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "line"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cubic": {
+              "additionalProperties": false,
+              "properties": {
+                "c1": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "c2": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                "to": {
+                  "items": {
+                    "$ref": "#/definitions/Num"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "c1",
+                "c2",
+                "to"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "cubic"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StyleSpec": {
+      "additionalProperties": false,
+      "description": "Spesifikasi gaya visual untuk `EntitySpec::Path`.",
+      "properties": {
+        "fill": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fill_rule": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "opacity": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Num"
+            }
+          ],
+          "default": 1.0
+        },
+        "stroke": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stroke_width": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Num"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "SubpathSpec": {
+      "additionalProperties": false,
+      "description": "Rangkaian kurva tertutup atau terbuka untuk `EntitySpec::Path`.",
+      "properties": {
+        "closed": {
+          "default": false,
+          "type": "boolean"
+        },
+        "segs": {
+          "items": {
+            "$ref": "#/definitions/SegSpec"
+          },
+          "type": "array"
+        },
+        "start": {
+          "items": {
+            "$ref": "#/definitions/Num"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "segs",
+        "start"
       ],
       "type": "object"
     }

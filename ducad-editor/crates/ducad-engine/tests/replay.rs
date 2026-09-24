@@ -105,3 +105,59 @@ fn bracket_ops_reproduce_p09_fixture() {
         "{v}"
     );
 }
+
+#[test]
+fn replay_oplog_with_path_is_deterministic() {
+    let json = r##"{
+        "params": { "w": 40 },
+        "ops": [
+            {
+                "op": "sketch",
+                "id": "sk1",
+                "plane": "XY",
+                "entities": [
+                    {
+                        "path": {
+                            "name": "profile",
+                            "subpaths": [{
+                                "start": [0, 0],
+                                "closed": true,
+                                "segs": [
+                                    {"line": {"to": ["$w", 0]}},
+                                    {"cubic": {"c1": ["$w + 10", 0], "c2": ["$w + 10", 20], "to": ["$w", 20]}},
+                                    {"line": {"to": [0, 20]}}
+                                ]
+                            }],
+                            "style": {
+                                "fill": "#00ff88",
+                                "stroke": "#112233",
+                                "stroke_width": 1.5,
+                                "opacity": 0.8
+                            },
+                            "layer": "Vectors"
+                        }
+                    }
+                ],
+                "constraints": []
+            }
+        ]
+    }"##;
+    let s1 = load(json);
+    let s2 = load(json);
+
+    let (sk1, _) = s1.sketch("sk1").unwrap();
+    let (sk2, _) = s2.sketch("sk1").unwrap();
+
+    assert_eq!(sk1.entities.len(), sk2.entities.len());
+    assert_eq!(sk1.styles.len(), sk2.styles.len());
+    assert_eq!(sk1.layers.len(), sk2.layers.len());
+
+    let path1 = sk1.entities.values().next().unwrap();
+    let path2 = sk2.entities.values().next().unwrap();
+    assert_eq!(path1, path2);
+
+    let style1 = sk1.styles.values().next().unwrap();
+    let style2 = sk2.styles.values().next().unwrap();
+    assert_eq!(style1, style2);
+}
+
