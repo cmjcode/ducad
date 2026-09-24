@@ -16,3 +16,10 @@ thiserror = { workspace = true }
 log = { workspace = true }
 lyon_tessellation = { workspace = true }
 lyon_path = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "ink"
+harness = false

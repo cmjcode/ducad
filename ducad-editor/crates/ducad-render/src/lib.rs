@@ -4,6 +4,7 @@
 
 pub mod camera;
 pub mod grid;
+pub mod ink;
 pub mod plane;
 pub mod scene;
 pub mod sketch;
@@ -11,6 +12,10 @@ pub mod vector;
 
 pub use camera::{OrbitCamera, ViewPreset};
 pub use grid::LineVertex;
+pub use ink::{
+    append_stroke_vertices, build_stroke_vertices, InkBrushKind, InkBrushRef, InkLayerBatch,
+    InkPointRef, InkVertex,
+};
 pub use plane::{PlaneKind, SketchPlane};
 pub use scene::{
     BodyInstance, BodyVertex, DraftConfig, InstanceRaw, MeshSource, MeshVertex, SceneRenderer,

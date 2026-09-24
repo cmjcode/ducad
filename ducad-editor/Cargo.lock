@@ -1787,6 +1787,7 @@ name = "ducad-render"
 version = "0.2.1"
 dependencies = [
  "bytemuck",
+ "criterion",
  "ducad-sketch",
  "egui-wgpu",
  "glam",

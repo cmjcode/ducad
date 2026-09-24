@@ -3,6 +3,7 @@ use egui_wgpu::wgpu;
 use glam::{Mat4, Vec3};
 
 use crate::grid;
+use crate::ink::{self, GpuInkLayer, InkLayerBatch, InkVertex};
 use crate::vector::{self, GpuVectorBatch, LayerBatch};
 
 /// Bidang potong "tidak aktif" — normal nol vektor + offset sangat besar,
@@ -314,6 +315,12 @@ pub struct SceneRenderer {
     vector_batches: Vec<GpuVectorBatch>,
     vector_enabled: bool,
     is_2d_mode: bool,
+    ink_pipeline_2d: wgpu::RenderPipeline,
+    ink_pipeline_3d: wgpu::RenderPipeline,
+    ink_layers: Vec<GpuInkLayer>,
+    active_ink_vertices: Vec<InkVertex>,
+    active_ink_vbuf: Option<wgpu::Buffer>,
+    active_ink_capacity: usize,
 }
 
 impl SceneRenderer {
@@ -360,6 +367,13 @@ impl SceneRenderer {
         });
 
         let vector_pipelines = vector::create_vector_pipelines(
+            device,
+            color_format,
+            depth_format,
+            &globals_layout,
+        );
+
+        let ink_pipelines = ink::create_ink_pipelines(
             device,
             color_format,
             depth_format,
@@ -691,6 +705,12 @@ impl SceneRenderer {
             vector_batches: Vec::new(),
             vector_enabled: true,
             is_2d_mode: false,
+            ink_pipeline_2d: ink_pipelines.pipeline_2d,
+            ink_pipeline_3d: ink_pipelines.pipeline_3d,
+            ink_layers: Vec::new(),
+            active_ink_vertices: Vec::new(),
+            active_ink_vbuf: None,
+            active_ink_capacity: 0,
         }
     }
 
@@ -773,6 +793,67 @@ impl SceneRenderer {
     /// Apakah viewport sedang dalam mode 2D.
     pub fn is_2d_mode(&self) -> bool {
         self.is_2d_mode
+    }
+
+    /// Coretan selesai: satu VB besar per layer tinta, dibangun ulang hanya saat ada perubahan (rev layer).
+    pub fn set_ink_layers(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layers: &[InkLayerBatch],
+    ) {
+        self.ink_layers.clear();
+        for layer in layers {
+            if let Some(gpu_layer) = ink::upload_ink_layer_batch(device, queue, layer) {
+                self.ink_layers.push(gpu_layer);
+            }
+        }
+    }
+
+    /// Coretan aktif: buffer bertumbuh (kapasitas ×2), `queue.write_buffer` hanya rentang baru.
+    pub fn push_active_ink(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        new_vertices: &[InkVertex],
+    ) {
+        if new_vertices.is_empty() {
+            return;
+        }
+
+        let start_idx = self.active_ink_vertices.len();
+        self.active_ink_vertices.extend_from_slice(new_vertices);
+        let total_verts = self.active_ink_vertices.len();
+
+        if total_verts > self.active_ink_capacity || self.active_ink_vbuf.is_none() {
+            let new_cap = (total_verts * 2).max(256);
+            let buf = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("active-ink-vbuf"),
+                size: (new_cap * std::mem::size_of::<InkVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            queue.write_buffer(
+                &buf,
+                0,
+                bytemuck::cast_slice(&self.active_ink_vertices),
+            );
+            self.active_ink_vbuf = Some(buf);
+            self.active_ink_capacity = new_cap;
+        } else if let Some(buf) = &self.active_ink_vbuf {
+            let offset = (start_idx * std::mem::size_of::<InkVertex>()) as u64;
+            queue.write_buffer(buf, offset, bytemuck::cast_slice(new_vertices));
+        }
+    }
+
+    /// Buang titik prediksi dari coretan aktif.
+    pub fn truncate_active_ink(&mut self, vertex_count: usize) {
+        self.active_ink_vertices.truncate(vertex_count);
+    }
+
+    /// Kosongkan coretan aktif.
+    pub fn clear_active_ink(&mut self) {
+        self.active_ink_vertices.clear();
     }
 
     /// Upload garis overlay 2D (sketch) untuk frame ini.
@@ -1260,6 +1341,33 @@ impl SceneRenderer {
             }
         }
 
+        // 3c. Gambar Goresan Tinta (completed layers & active ink)
+        let has_ink = !self.ink_layers.is_empty() || !self.active_ink_vertices.is_empty();
+        if self.vector_enabled && has_ink {
+            let ink_pipeline = if self.is_2d_mode {
+                &self.ink_pipeline_2d
+            } else {
+                &self.ink_pipeline_3d
+            };
+            rpass.set_pipeline(ink_pipeline);
+            rpass.set_bind_group(0, &self.globals_bind, &[]);
+
+            for layer in &self.ink_layers {
+                if layer.vertex_count > 0 {
+                    rpass.set_vertex_buffer(0, layer.vertex_buf.slice(..));
+                    rpass.draw(0..layer.vertex_count, 0..1);
+                }
+            }
+
+            if let Some(buf) = &self.active_ink_vbuf {
+                let count = self.active_ink_vertices.len() as u32;
+                if count > 0 {
+                    rpass.set_vertex_buffer(0, buf.slice(..));
+                    rpass.draw(0..count, 0..1);
+                }
+            }
+        }
+
         // 4. Gambar Overlay Garis 2D (Sketch)
         if let Some(buf) = &self.overlay_vbuf {
             rpass.set_pipeline(&self.overlay_pipeline);
@@ -1351,6 +1459,13 @@ mod tests {
     #[test]
     fn test_shader_vector_wgsl_validity() {
         let shader_str = include_str!("vector/shader_vector.wgsl");
+        let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
+        assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
+    }
+
+    #[test]
+    fn test_shader_ink_wgsl_validity() {
+        let shader_str = include_str!("ink/shader_ink.wgsl");
         let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
         assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
     }
