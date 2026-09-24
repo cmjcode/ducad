@@ -23,7 +23,20 @@
 //!    command modeling yang menyimpan snapshot B-rep, itu kebocoran
 //!    memori yang nyata, bukan teoretis.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+/// Jam logis bersama untuk SEMUA tumpukan undo di proses ini. Tiap kali
+/// transaksi didorong, di-undo, atau di-redo, ia diberi stempel baru;
+/// aplikasi dengan beberapa tumpukan (sketch, model, tinta) menurunkan
+/// urutan undo global dari stempel puncak tiap tumpukan — tidak ada daftar
+/// urutan terpisah yang bisa tidak sinkron akibat coalescing, transaksi
+/// `begin/commit`, atau pengusiran `max_depth`.
+static CLOCK: AtomicU64 = AtomicU64::new(1);
+
+fn next_stamp() -> u64 {
+    CLOCK.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Operasi yang bisa di-undo terhadap target `T` — mis. `Document` (body
 /// 3D) atau `Sketch` di ducad-sketch (entitas 2D). Generik sejak awal
@@ -57,6 +70,8 @@ pub struct Transaction<T> {
     label: String,
     commands: Vec<Box<dyn Command<T>>>,
     coalesce_key: Option<(&'static str, u64)>,
+    /// Stempel jam logis terakhir (lihat [`UndoStack::top_undo_stamp`]).
+    stamp: u64,
 }
 
 impl<T> Transaction<T> {
@@ -65,6 +80,7 @@ impl<T> Transaction<T> {
             label: label.into(),
             commands: Vec::new(),
             coalesce_key: None,
+            stamp: 0,
         }
     }
 
@@ -75,6 +91,7 @@ impl<T> Transaction<T> {
             label: cmd.name().to_string(),
             coalesce_key: cmd.coalesce_key(),
             commands: vec![cmd],
+            stamp: 0,
         }
     }
 
@@ -241,11 +258,13 @@ impl<T> UndoStack<T> {
             return Some(cmd);
         }
         top.push_applied(cmd);
+        top.stamp = next_stamp();
         self.last_push = Some(now);
         None
     }
 
-    fn push_transaction(&mut self, tx: Transaction<T>, now: Instant) {
+    fn push_transaction(&mut self, mut tx: Transaction<T>, now: Instant) {
+        tx.stamp = next_stamp();
         self.undo.push(tx);
         self.redo.clear();
         self.last_push = Some(now);
@@ -311,6 +330,7 @@ impl<T> UndoStack<T> {
         let mut tx = self.undo.pop()?;
         tx.revert(target);
         let label = tx.label().to_string();
+        tx.stamp = next_stamp();
         self.redo.push(tx);
         // Langkah berikutnya memulai gugus baru: tanpa ini, command yang
         // datang sesudah undo bisa tergabung ke transaksi yang sekarang
@@ -323,6 +343,7 @@ impl<T> UndoStack<T> {
         let mut tx = self.redo.pop()?;
         tx.apply(target);
         let label = tx.label().to_string();
+        tx.stamp = next_stamp();
         self.undo.push(tx);
         self.last_push = None;
         Some(label)
@@ -338,6 +359,25 @@ impl<T> UndoStack<T> {
 
     pub fn undo_count(&self) -> usize {
         self.undo.len()
+    }
+
+    /// Stempel jam logis langkah undo teratas: kapan ia terakhir didorong,
+    /// digabung, atau di-redo. Di antara beberapa tumpukan, yang stempelnya
+    /// terbesar memegang aksi pengguna paling baru.
+    pub fn top_undo_stamp(&self) -> Option<u64> {
+        self.undo.last().map(|tx| tx.stamp)
+    }
+
+    /// Stempel langkah redo teratas: kapan ia di-undo. Yang terbesar di
+    /// antara beberapa tumpukan adalah yang terakhir dibatalkan.
+    pub fn top_redo_stamp(&self) -> Option<u64> {
+        self.redo.last().map(|tx| tx.stamp)
+    }
+
+    /// Buang seluruh riwayat redo — dipakai aplikasi multi-tumpukan saat aksi
+    /// baru di tumpukan LAIN membuat redo tumpukan ini tidak lagi berlaku.
+    pub fn clear_redo(&mut self) {
+        self.redo.clear();
     }
 
     pub fn redo_count(&self) -> usize {
@@ -542,7 +582,11 @@ mod tests {
         let mut stack = UndoStack::default();
         let t0 = Instant::now();
 
-        stack.execute_at(AddCmd::coalescing("geser A", 1, ("move_body", 1)), &mut t, t0);
+        stack.execute_at(
+            AddCmd::coalescing("geser A", 1, ("move_body", 1)),
+            &mut t,
+            t0,
+        );
         stack.execute_at(
             AddCmd::coalescing("geser B", 1, ("move_body", 2)),
             &mut t,
@@ -560,7 +604,11 @@ mod tests {
         let mut stack = UndoStack::default();
         let t0 = Instant::now();
         for i in 0..5 {
-            stack.execute_at(AddCmd::new("aksi", 1), &mut t, t0 + Duration::from_millis(i));
+            stack.execute_at(
+                AddCmd::new("aksi", 1),
+                &mut t,
+                t0 + Duration::from_millis(i),
+            );
         }
         assert_eq!(stack.undo_count(), 5);
     }

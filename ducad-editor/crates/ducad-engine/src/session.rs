@@ -103,6 +103,10 @@ pub struct SessionMeta {
     pub batches: Vec<usize>,
     /// Peringatan tingkat sesi (mis. `"oplog_stale"`).
     pub warnings: Vec<String>,
+    /// Id sketch → entitas yang namanya dibuat otomatis oleh `build_sketch`.
+    /// Dipakai penamaan body per-objek: menebak dari pola `e<n>` salah untuk
+    /// nama eksplisit seperti `"e5"`.
+    pub auto_named: BTreeMap<String, std::collections::BTreeSet<EntityId>>,
 }
 
 /// Pinjaman state sesi — logika `run`/`body`/`sketch` ditulis di sini agar
@@ -477,17 +481,19 @@ impl SessionCore<'_> {
                 };
                 let sid = self.sketches.add(id.clone(), plane_ref);
                 new_sketches.push(sid);
+                let entity_count = built.names.len();
                 if let Some(slot) = self.sketches.sketch_mut(sid) {
                     *slot = built.sketch;
                 }
                 self.meta.sketch_ids.insert(id.clone(), sid);
                 self.meta.frames.insert(id.clone(), frame);
+                self.meta.auto_named.insert(id.clone(), built.auto_named);
                 if built.closed_regions == 0 {
                     out.warnings
                         .push(format!("sketch '{id}' tidak punya region tertutup"));
                 }
                 out.detail = serde_json::json!({
-                    "entities": built.names.len(),
+                    "entities": entity_count,
                     "closed_regions": built.closed_regions,
                     "dof": built.dof.dof,
                 });
@@ -507,103 +513,103 @@ impl SessionCore<'_> {
                 if *per_object && *mode != BodyMode::New {
                     return Err(OpError::invalid("per_object hanya untuk body baru"));
                 }
+                validate_material(material)?;
                 let d = eval(distance, &params)?;
                 let extent = extent_for(*direction, d);
                 compute::validate_extent(extent)?;
 
                 if *per_object {
                     let (sk, frame) = self.sketch(sketch)?;
-                    let ids: HashSet<EntityId> = match profile {
-                        ProfileSel::Names { .. } => profile_entities(sk, profile)?,
-                        ProfileSel::All(_) => sk
-                            .entities
-                            .iter()
-                            .filter(|(eid, e)| !e.is_construction() && !sk.is_hidden(*eid))
-                            .map(|(eid, _)| eid)
-                            .collect(),
-                        ProfileSel::At { at } => {
-                            let [u, v] = eval_arr(at, &params)?;
-                            let pt = DVec2::new(u, v);
-                            let reg = ducad_sketch::find_region_at_point(sk, pt);
-                            reg.map(|r| r.entity_ids.into_iter().collect()).unwrap_or_default()
-                        }
-                    };
+                    let ids: HashSet<EntityId> = selection_entities(sk, profile, &params)?;
                     let draw_order = sk.draw_order();
-                    let mut ordered_eids: Vec<EntityId> = draw_order
-                        .iter()
-                        .filter(|id| ids.contains(id))
-                        .copied()
-                        .collect();
-                    for id_ref in &ids {
-                        if !ordered_eids.contains(id_ref) {
-                            ordered_eids.push(*id_ref);
-                        }
-                    }
+                    let ordered_eids = crate::compute::solid::selection_in_draw_order(sk, &ids);
                     if ordered_eids.is_empty() {
                         return Err(OpError::new(
                             OpErrorCode::ProfileNotClosed,
                             "Tidak ada entitas yang dipilih untuk diekstrusi",
                         ));
                     }
+                    let auto_named = self.meta.auto_named.get(sketch.as_str());
                     let mut named_bodies = Vec::with_capacity(ordered_eids.len());
                     for eid in ordered_eids {
-                        let bname = entity_body_name(id, eid, sk, &draw_order);
-                        let style = sk.styles.get(eid).cloned().unwrap_or_else(ducad_sketch::Style::cad_default);
+                        let is_auto = auto_named.is_some_and(|set| set.contains(&eid));
+                        let bname = entity_body_name(id, eid, sk, &draw_order, is_auto);
+                        let style = sk
+                            .styles
+                            .get(eid)
+                            .cloned()
+                            .unwrap_or_else(ducad_sketch::Style::cad_default);
                         let mat = resolve_material(material, &style);
-                        let geo = extrude_single_entity(sk, eid, outline.as_ref(), frame, extent, &params)?;
+                        let geo = extrude_single_entity(
+                            sk,
+                            eid,
+                            outline.as_ref(),
+                            frame,
+                            extent,
+                            &params,
+                        )?;
                         named_bodies.push((bname, geo, Some(mat)));
                     }
-                    out.created.extend(named_bodies.iter().map(|(n, _, _)| n.clone()));
+                    out.created
+                        .extend(named_bodies.iter().map(|(n, _, _)| n.clone()));
                     if named_bodies.len() == 1 {
                         out.detail = volume_detail(&named_bodies[0].1);
                     } else {
-                        let total_vol: f64 = named_bodies.iter().map(|(_, g, _)| g.shape.volume().abs()).sum();
+                        let total_vol: f64 = named_bodies
+                            .iter()
+                            .map(|(_, g, _)| g.shape.volume().abs())
+                            .sum();
                         out.detail = serde_json::json!({ "volume": total_vol });
                     }
-                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials("Extrude", named_bodies)));
+                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials(
+                        "Extrude",
+                        named_bodies,
+                    )));
                 } else if outline.is_some() {
                     let (sk, frame) = self.sketch(sketch)?;
-                    let ids: HashSet<EntityId> = match profile {
-                        ProfileSel::Names { .. } => profile_entities(sk, profile)?,
-                        ProfileSel::All(_) => sk
-                            .entities
-                            .iter()
-                            .filter(|(eid, e)| !e.is_construction() && !sk.is_hidden(*eid))
-                            .map(|(eid, _)| eid)
-                            .collect(),
-                        ProfileSel::At { at } => {
-                            let [u, v] = eval_arr(at, &params)?;
-                            let pt = DVec2::new(u, v);
-                            let reg = ducad_sketch::find_region_at_point(sk, pt);
-                            reg.map(|r| r.entity_ids.into_iter().collect()).unwrap_or_default()
-                        }
-                    };
-                    let draw_order = sk.draw_order();
-                    let mut ordered_eids: Vec<EntityId> = draw_order
-                        .iter()
-                        .filter(|id| ids.contains(id))
-                        .copied()
-                        .collect();
-                    for id_ref in &ids {
-                        if !ordered_eids.contains(id_ref) {
-                            ordered_eids.push(*id_ref);
-                        }
-                    }
+                    let ids: HashSet<EntityId> = selection_entities(sk, profile, &params)?;
+                    let ordered_eids = crate::compute::solid::selection_in_draw_order(sk, &ids);
                     let mut geos = Vec::new();
                     for eid in ordered_eids {
-                        let geo = extrude_single_entity(sk, eid, outline.as_ref(), frame, extent, &params)?;
+                        let geo = extrude_single_entity(
+                            sk,
+                            eid,
+                            outline.as_ref(),
+                            frame,
+                            extent,
+                            &params,
+                        )?;
                         geos.push(geo);
                     }
                     let mat = resolve_material_for_selection(material, sk, &ids);
-                    self.place_solids_with_material(id, "Extrude", geos, *mode, target.as_deref(), Some(mat), &mut out)?;
+                    self.place_solids_with_material(
+                        id,
+                        "Extrude",
+                        geos,
+                        *mode,
+                        target.as_deref(),
+                        Some(mat),
+                        &mut out,
+                    )?;
                 } else {
                     let (sk, frame) = self.sketch(sketch)?;
                     let ids = profile_entities(sk, profile)?;
                     let pick = profile_pick(profile, &ids, &params)?;
                     let solids = compute::extrude(sk, &pick, frame, extent)?;
                     let geos = solids.into_iter().map(|(_, g)| g).collect();
-                    let mat = resolve_material_for_selection(material, sk, &ids);
-                    self.place_solids_with_material(id, "Extrude", geos, *mode, target.as_deref(), Some(mat), &mut out)?;
+                    // Material dari entitas yang benar-benar membentuk profil
+                    // (untuk `All`/`At`, `ids` di atas kosong).
+                    let style_ids = selection_entities(sk, profile, &params)?;
+                    let mat = resolve_material_for_selection(material, sk, &style_ids);
+                    self.place_solids_with_material(
+                        id,
+                        "Extrude",
+                        geos,
+                        *mode,
+                        target.as_deref(),
+                        Some(mat),
+                        &mut out,
+                    )?;
                 }
             }
             Op::Revolve {
@@ -957,7 +963,9 @@ impl SessionCore<'_> {
                         })
                         .collect();
                     out.created.extend(named.iter().map(|(n, _, _)| n.clone()));
-                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials(label, named)));
+                    self.exec(Box::new(AddMultipleSolidsCommand::with_materials(
+                        label, named,
+                    )));
                 }
             }
             BodyMode::Add | BodyMode::Cut => {
@@ -989,6 +997,31 @@ impl SessionCore<'_> {
     }
 }
 
+/// Nama preset material yang dikenal [`resolve_material`].
+pub const MATERIAL_PRESETS: &[&str] = &[
+    "matte_plastic",
+    "glossy_plastic",
+    "anodized_aluminum",
+    "polished_chrome",
+    "translucent_glass",
+];
+
+/// Tolak preset tak dikenal — sebelumnya jatuh diam-diam ke material default.
+fn validate_material(sel: &MaterialSel) -> OpResult<()> {
+    match sel {
+        MaterialSel::Preset(name)
+            if !MATERIAL_PRESETS.contains(&name.to_ascii_lowercase().as_str()) =>
+        {
+            Err(OpError::invalid(format!(
+                "preset material '{name}' tidak dikenal (pilihan: default, from_style, {})",
+                MATERIAL_PRESETS.join(", ")
+            ))
+            .with_context(serde_json::json!({ "material": name, "presets": MATERIAL_PRESETS })))
+        }
+        _ => Ok(()),
+    }
+}
+
 pub fn resolve_material(sel: &MaterialSel, style: &ducad_sketch::Style) -> ducad_core::Material {
     match sel {
         MaterialSel::Default => ducad_core::Material::default(),
@@ -1004,7 +1037,10 @@ pub fn resolve_material(sel: &MaterialSel, style: &ducad_sketch::Style) -> ducad
             let raw_color = if let Some(ref fill) = style.fill {
                 Some(fill.average_color().0)
             } else {
-                style.stroke.as_ref().map(|stroke| stroke.paint.average_color().0)
+                style
+                    .stroke
+                    .as_ref()
+                    .map(|stroke| stroke.paint.average_color().0)
             };
             match raw_color {
                 None => ducad_core::Material::default(),
@@ -1030,34 +1066,31 @@ fn resolve_material_for_selection(
         MaterialSel::Default => ducad_core::Material::default(),
         MaterialSel::Preset(_) => resolve_material(material, &ducad_sketch::Style::cad_default()),
         MaterialSel::FromStyle => {
-            let style = ids
-                .iter()
-                .find_map(|id| sk.styles.get(*id))
-                .or_else(|| sk.draw_order().iter().find_map(|id| sk.styles.get(*id)))
-                .cloned()
-                .unwrap_or_else(ducad_sketch::Style::cad_default);
+            let style = crate::compute::solid::selection_style(sk, ids);
             resolve_material(material, &style)
         }
     }
 }
 
-fn entity_body_name(id: &str, eid: EntityId, sketch: &Sketch, draw_order: &[EntityId]) -> String {
-    let raw_name = sketch.entity_names.get(&eid).map(String::as_str);
-    let is_unnamed = match raw_name {
-        None => true,
-        Some(name) => {
-            if let Some(rest) = name.strip_prefix('e') {
-                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
-            } else {
-                false
-            }
+/// Nama body per-objek: `<op>.<nama entitas>`, atau `<op>.p<k>` (posisi di
+/// draw order) bila entitas tidak bernama atau namanya dibuat otomatis oleh
+/// `build_sketch` (`auto_named`).
+fn entity_body_name(
+    id: &str,
+    eid: EntityId,
+    sketch: &Sketch,
+    draw_order: &[EntityId],
+    auto_named: bool,
+) -> String {
+    match sketch.entity_names.get(&eid) {
+        Some(name) if !auto_named => format!("{id}.{name}"),
+        _ => {
+            let k = draw_order
+                .iter()
+                .position(|&x| x == eid)
+                .map_or(1, |pos| pos + 1);
+            format!("{id}.p{k}")
         }
-    };
-    if is_unnamed {
-        let k = draw_order.iter().position(|&x| x == eid).map(|pos| pos + 1).unwrap_or(1);
-        format!("{id}.p{k}")
-    } else {
-        format!("{id}.{}", raw_name.unwrap())
     }
 }
 
@@ -1106,6 +1139,31 @@ pub(crate) fn extent_for(direction: ExtrudeDir, d: f64) -> ExtrudeExtent {
         ExtrudeDir::Reverse => ExtrudeExtent::Blind(-d),
         ExtrudeDir::Symmetric => ExtrudeExtent::Symmetric(d),
     }
+}
+
+/// Entitas yang tercakup pilihan profil: nama → entitas bernama itu;
+/// `All` → semua entitas non-konstruksi yang terlihat; `At` → batas region
+/// di titik itu.
+fn selection_entities(
+    sk: &Sketch,
+    profile: &ProfileSel,
+    params: &Params,
+) -> OpResult<HashSet<EntityId>> {
+    Ok(match profile {
+        ProfileSel::Names { .. } => profile_entities(sk, profile)?,
+        ProfileSel::All(_) => sk
+            .entities
+            .iter()
+            .filter(|(eid, e)| !e.is_construction() && !sk.is_hidden(*eid))
+            .map(|(eid, _)| eid)
+            .collect(),
+        ProfileSel::At { at } => {
+            let [u, v] = eval_arr(at, params)?;
+            ducad_sketch::find_region_at_point(sk, DVec2::new(u, v))
+                .map(|r| r.entity_ids.into_iter().collect())
+                .unwrap_or_default()
+        }
+    })
 }
 
 pub(crate) fn profile_entities(sketch: &Sketch, sel: &ProfileSel) -> OpResult<HashSet<EntityId>> {
@@ -1179,7 +1237,10 @@ fn hole_positions(
     }
 }
 
-pub(crate) fn hole_spec(spec: &HoleSpecRef, params: &Params) -> OpResult<ducad_core::hole::HoleSpec> {
+pub(crate) fn hole_spec(
+    spec: &HoleSpecRef,
+    params: &Params,
+) -> OpResult<ducad_core::hole::HoleSpec> {
     use ducad_core::hole::{HoleKind, HoleSpec, IsoMetricThread};
     const THROUGH_DEFAULT_DEPTH: f64 = 20.0;
     let depth = |d: &Option<Num>| -> OpResult<Option<f64>> {

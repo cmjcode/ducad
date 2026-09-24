@@ -2904,17 +2904,23 @@ CAD dan desain grafis vektor multi-alat (M0.1–M0.8):
       arsitektur vektor vs tinta vs node constraint, dan berkas contoh
       `examples/vector_logo.ops.json` terverifikasi lewat `ducad-cli run` dan `inspect`.
 
-## Status Fase M1 — Render Vektor 2D (selesai)
+## Status Fase M1 — Render Vektor 2D (dikerjakan, terbuka)
 
 Pipeline rendering kurva vektor 2D di `ducad-render` berbasis tessellator lyon, caching mesh berbasis revisi entitas, dan integrasi kamera 2D pan/zoom:
-- [x] **M1.1–M1.5** — Lyon tessellation fill & stroke, mesh caching per-entitas, render antialiased, dan integrasi viewport 2D.
+- [x] **M1.1–M1.5 (lapisan murni)** — Lyon tessellation fill & stroke, mesh caching per-entitas, AA tinta, kamera 2D.
+- [ ] **Terbuka (review 2026-09-24):** `VectorCache`/`set_vector_batches` belum dipanggil dari `ducad-app` (fill/gradien vektor tidak tampil di GUI); `tessellate_path_200_segments` 563 µs > budget 300 µs; MSAA 4× dan blend multiply Marker ditunda (lihat `M1-render.md`). Diperbaiki: #14 eviction deterministik, #18 cap 1→2 titik, #19 indeks gradien fill/stroke, bench `vector.rs`.
 
-## Status Fase M2 — Mode Vektor & Tooling (selesai)
+## Status Fase M2 — Mode Vektor & Tooling (dikerjakan, terbuka)
 
 Antarmuka interaktif mode Vektor di `ducad-ui` dan `ducad-app`:
-- [x] **M2.1–M2.8** — Tool Pen, Node Editor, Shape Builder boolean 2D, panel Layers & Properties, penyelarasan Align/Distribute, transformasi objek, dan constraint solver node path.
+- [x] **M2.1–M2.8 (lapisan murni)** — PenBuilder, node edit, boolean 2D, layer/style command, align/transform, constraint node path — semua teruji.
+- [x] **GUI:** Shape Builder, panel Layers & Properties.
+- [x] **GUI (review 2026-09-24):** jalan masuk mode (palet + ⌘⇧4 Vektor, ⌘⇧5 Tinta), Pen Bézier & Node Edit tersambung ke input + overlay node/handle (`vector/input.rs`), Align/Distribute/Transform presisi di context bar, constraint strip untuk seleksi node — semua dengan tes adapter tanpa GUI. Diperbaiki juga: #10 snap ke node path, #21 undo hapus layer default, #22 toleransi `delete_node` kembali 0,1 mm (rekonstruksi eksak), #24 normalisasi node penutup, bench `path_ops.rs`.
+- [ ] **Terbuka:** ceklis manual A10 di GUI (belum diverifikasi visual), klik-dobel segmen untuk sisip node, pratinjau Pen dengan Shift 45°.
 
-## Status Fase M3 — Vektor → 3D Parametrik (selesai)
+## Status Fase M3 — Vektor → 3D Parametrik (dikerjakan, terbuka)
+
+Diperbaiki (review 2026-09-24): #13 regenerasi per varian — fitur gagal tidak menghentikan fitur independen, turunan ikut error, Hole/Helix/Boolean/Custom tidak lagi ditandai valid; #6 edit dimensi Feature Tree lewat command (undo + `rev`), #12 material `from_style` deterministik, #25 nama body per-objek & validasi preset.
 
 Jalur konversi kurva vektor bergaya menjadi solid 3D B-rep parametrik (`ducad-engine`, `ducad-app`, `ducad-cli`, `ducad-mcp`):
 - [x] **M3.1 — Profil dari `Entity::Path`.** Penanganan subpath tertutup dan kurva Bézier kubik eksak, hierarki region luar dan lubang bersarang (`evenodd` dan `nonzero`).

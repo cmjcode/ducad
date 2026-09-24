@@ -5,10 +5,9 @@ use glam::DVec2;
 #[test]
 fn hit_test_finds_nearest_line() {
     let mut sketch = Sketch::default();
-    sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, 0.0),
-        DVec2::new(10.0, 0.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)));
     assert!(sketch.hit_test(DVec2::new(5.0, 0.3), 0.5).is_some());
     assert!(sketch.hit_test(DVec2::new(5.0, 5.0), 0.5).is_none());
 }
@@ -16,27 +15,27 @@ fn hit_test_finds_nearest_line() {
 #[test]
 fn snap_prefers_endpoint_over_grid() {
     let mut sketch = Sketch::default();
-    sketch.entities.insert(Entity::line(
-        DVec2::new(10.2, 0.1),
-        DVec2::new(20.0, 0.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(10.2, 0.1), DVec2::new(20.0, 0.0)));
     let hit = find_snap(&sketch, DVec2::new(10.0, 0.0), 2.0, 10.0, None).unwrap();
     assert_eq!(hit.kind, SnapKind::Endpoint);
     assert!((hit.point - DVec2::new(10.2, 0.1)).length() < 1e-9);
-    assert!(hit.source.is_some(), "snap Endpoint harus bawa PointRef sumber");
+    assert!(
+        hit.source.is_some(),
+        "snap Endpoint harus bawa PointRef sumber"
+    );
 }
 
 #[test]
 fn snap_source_is_none_for_derived_points() {
     let mut sketch = Sketch::default();
-    sketch.entities.insert(Entity::line(
-        DVec2::new(-5.0, 0.0),
-        DVec2::new(15.0, 0.0),
-    ));
-    sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, -5.0),
-        DVec2::new(0.0, 15.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(-5.0, 0.0), DVec2::new(15.0, 0.0)));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, -5.0), DVec2::new(0.0, 15.0)));
     let hit = find_snap(&sketch, DVec2::new(0.3, 0.3), 1.0, 1000.0, None).unwrap();
     assert_eq!(hit.kind, SnapKind::Intersection);
     assert!(hit.source.is_none());
@@ -50,10 +49,9 @@ fn snap_source_is_none_for_derived_points() {
 #[test]
 fn snap_center_carries_point_ref() {
     let mut sketch = Sketch::default();
-    let c = sketch.entities.insert(Entity::circle(
-        DVec2::new(5.0, 5.0),
-        3.0,
-    ));
+    let c = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(5.0, 5.0), 3.0));
     let hit = find_snap(&sketch, DVec2::new(5.1, 5.1), 1.0, 1000.0, None).unwrap();
     assert_eq!(hit.kind, SnapKind::Center);
     assert_eq!(hit.source, Some(constraint::PointRef::Center(c)));
@@ -70,14 +68,12 @@ fn snap_falls_back_to_grid() {
 #[test]
 fn snap_finds_line_intersection() {
     let mut sketch = Sketch::default();
-    sketch.entities.insert(Entity::line(
-        DVec2::new(-5.0, 0.0),
-        DVec2::new(15.0, 0.0),
-    ));
-    sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, -5.0),
-        DVec2::new(0.0, 15.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(-5.0, 0.0), DVec2::new(15.0, 0.0)));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, -5.0), DVec2::new(0.0, 15.0)));
     let hit = find_snap(&sketch, DVec2::new(0.3, 0.3), 1.0, 1000.0, None).unwrap();
     assert_eq!(hit.kind, SnapKind::Intersection);
     assert!(hit.point.length() < 1e-9);
@@ -91,10 +87,7 @@ fn insert_and_delete_undo_roundtrip() {
     undo.execute(
         Box::new(InsertEntities::new(
             "Garis",
-            vec![Entity::line(
-                DVec2::ZERO,
-                DVec2::new(1.0, 0.0),
-            )],
+            vec![Entity::line(DVec2::ZERO, DVec2::new(1.0, 0.0))],
         )),
         &mut sketch,
     );
@@ -134,7 +127,11 @@ fn arc_from_three_points_passes_through_all_three() {
         assert!(((p - center).length() - radius).abs() < 1e-9);
     }
     let angle_p2 = (p2 - center).y.atan2((p2 - center).x);
-    assert!(crate::entity::angle_in_range(angle_p2, start_angle, end_angle));
+    assert!(crate::entity::angle_in_range(
+        angle_p2,
+        start_angle,
+        end_angle
+    ));
 }
 
 #[test]
@@ -149,45 +146,32 @@ fn arc_from_three_points_none_when_collinear() {
 
 #[test]
 fn offset_line_moves_perpendicular_toward_reference() {
-    let line = Entity::line(
-        DVec2::new(0.0, 0.0),
-        DVec2::new(10.0, 0.0),
-    );
+    let line = Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
     let offset = offset_entity(&line, DVec2::new(5.0, 3.0)).unwrap();
     assert_eq!(
         offset,
-        Entity::line(
-            DVec2::new(0.0, 3.0),
-            DVec2::new(10.0, 3.0),
-        )
+        Entity::line(DVec2::new(0.0, 3.0), DVec2::new(10.0, 3.0),)
     );
 }
 
 #[test]
 fn offset_circle_uses_reference_distance_as_new_radius() {
-    let circle = Entity::circle(
-        DVec2::ZERO,
-        5.0,
-    );
+    let circle = Entity::circle(DVec2::ZERO, 5.0);
     let offset = offset_entity(&circle, DVec2::new(8.0, 0.0)).unwrap();
-    assert_eq!(
-        offset,
-        Entity::circle(
-            DVec2::ZERO,
-            8.0,
-        )
-    );
+    assert_eq!(offset, Entity::circle(DVec2::ZERO, 8.0,));
 }
 
 #[test]
 fn offset_ellipse_and_spline_are_supported() {
-    let ellipse = Entity::ellipse(
-        DVec2::ZERO,
-        5.0,
-        3.0,
-    );
+    let ellipse = Entity::ellipse(DVec2::ZERO, 5.0, 3.0);
     let offset_ell = offset_entity(&ellipse, DVec2::new(7.0, 0.0)).unwrap();
-    if let Entity::Ellipse { center, radius_x, radius_y, .. } = offset_ell {
+    if let Entity::Ellipse {
+        center,
+        radius_x,
+        radius_y,
+        ..
+    } = offset_ell
+    {
         assert_eq!(center, DVec2::ZERO);
         assert!((radius_x - 7.0).abs() < 1e-4);
         assert!((radius_y - 5.0).abs() < 1e-4);
@@ -211,26 +195,17 @@ fn offset_ellipse_and_spline_are_supported() {
 
 #[test]
 fn mirror_line_across_vertical_axis() {
-    let line = Entity::line(
-        DVec2::new(1.0, 0.0),
-        DVec2::new(3.0, 4.0),
-    );
+    let line = Entity::line(DVec2::new(1.0, 0.0), DVec2::new(3.0, 4.0));
     let mirrored = mirror_entity(&line, DVec2::new(0.0, 0.0), DVec2::new(0.0, 1.0)).unwrap();
     assert_eq!(
         mirrored,
-        Entity::line(
-            DVec2::new(-1.0, 0.0),
-            DVec2::new(-3.0, 4.0),
-        )
+        Entity::line(DVec2::new(-1.0, 0.0), DVec2::new(-3.0, 4.0),)
     );
 }
 
 #[test]
 fn mirror_none_when_axis_degenerate() {
-    let line = Entity::line(
-        DVec2::ZERO,
-        DVec2::new(1.0, 1.0),
-    );
+    let line = Entity::line(DVec2::ZERO, DVec2::new(1.0, 1.0));
     assert!(mirror_entity(&line, DVec2::ZERO, DVec2::ZERO).is_none());
 }
 
@@ -262,19 +237,15 @@ fn trim_with_no_cuts_removes_whole_line() {
 fn replace_entities_undo_roundtrip() {
     let mut sketch = Sketch::default();
     let mut undo = UndoStack::default();
-    let id = sketch.entities.insert(Entity::line(
-        DVec2::ZERO,
-        DVec2::new(10.0, 0.0),
-    ));
+    let id = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
 
     undo.execute(
         Box::new(ReplaceEntities::new(
             "Trim",
             vec![id],
-            vec![Entity::line(
-                DVec2::ZERO,
-                DVec2::new(3.0, 0.0),
-            )],
+            vec![Entity::line(DVec2::ZERO, DVec2::new(3.0, 0.0))],
         )),
         &mut sketch,
     );
@@ -285,10 +256,7 @@ fn replace_entities_undo_roundtrip() {
     assert_eq!(sketch.entities.len(), 1);
     assert_eq!(
         sketch.entities.values().next().unwrap(),
-        &Entity::line(
-            DVec2::ZERO,
-            DVec2::new(10.0, 0.0),
-        )
+        &Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0),)
     );
 }
 
@@ -296,19 +264,13 @@ fn replace_entities_undo_roundtrip() {
 fn update_entity_preserves_id_and_undo_roundtrip() {
     let mut sketch = Sketch::default();
     let mut undo = UndoStack::default();
-    let id = sketch.entities.insert(Entity::circle(
-        DVec2::ZERO,
-        10.0,
-    ));
+    let id = sketch.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
 
     undo.execute(
         Box::new(UpdateEntity::new(
             "Ubah Radius",
             id,
-            Entity::circle(
-                DVec2::ZERO,
-                25.0,
-            ),
+            Entity::circle(DVec2::ZERO, 25.0),
         )),
         &mut sketch,
     );
@@ -317,56 +279,35 @@ fn update_entity_preserves_id_and_undo_roundtrip() {
     assert!(sketch.entities.contains_key(id));
     assert_eq!(
         sketch.entities.get(id).unwrap(),
-        &Entity::circle(
-            DVec2::ZERO,
-            25.0,
-        )
+        &Entity::circle(DVec2::ZERO, 25.0,)
     );
 
     undo.undo(&mut sketch);
     assert_eq!(
         sketch.entities.get(id).unwrap(),
-        &Entity::circle(
-            DVec2::ZERO,
-            10.0,
-        )
+        &Entity::circle(DVec2::ZERO, 10.0,)
     );
 
     undo.redo(&mut sketch);
     assert_eq!(
         sketch.entities.get(id).unwrap(),
-        &Entity::circle(
-            DVec2::ZERO,
-            25.0,
-        )
+        &Entity::circle(DVec2::ZERO, 25.0,)
     );
 }
 
 #[test]
 fn translate_entity_shifts_all_variants() {
     let delta = DVec2::new(5.0, -2.0);
-    let line = Entity::line(
-        DVec2::ZERO,
-        DVec2::new(10.0, 0.0),
-    );
+    let line = Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0));
     assert_eq!(
         translate_entity(&line, delta),
-        Entity::line(
-            delta,
-            DVec2::new(15.0, -2.0),
-        )
+        Entity::line(delta, DVec2::new(15.0, -2.0),)
     );
 
-    let circle = Entity::circle(
-        DVec2::new(1.0, 1.0),
-        3.0,
-    );
+    let circle = Entity::circle(DVec2::new(1.0, 1.0), 3.0);
     assert_eq!(
         translate_entity(&circle, delta),
-        Entity::circle(
-            DVec2::new(6.0, -1.0),
-            3.0,
-        )
+        Entity::circle(DVec2::new(6.0, -1.0), 3.0,)
     );
 }
 
@@ -374,40 +315,34 @@ fn translate_entity_shifts_all_variants() {
 fn translate_entities_undo_roundtrip_preserves_id() {
     let mut sketch = Sketch::default();
     let mut undo = UndoStack::default();
-    let id = sketch.entities.insert(Entity::circle(
-        DVec2::ZERO,
-        5.0,
-    ));
+    let id = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
 
     undo.execute(
-        Box::new(TranslateEntities::new("Geser X", vec![id], DVec2::new(12.0, 0.0))),
+        Box::new(TranslateEntities::new(
+            "Geser X",
+            vec![id],
+            DVec2::new(12.0, 0.0),
+        )),
         &mut sketch,
     );
     assert_eq!(
         sketch.entities.get(id).unwrap(),
-        &Entity::circle(
-            DVec2::new(12.0, 0.0),
-            5.0,
-        )
+        &Entity::circle(DVec2::new(12.0, 0.0), 5.0,)
     );
 
     undo.undo(&mut sketch);
     assert_eq!(
         sketch.entities.get(id).unwrap(),
-        &Entity::circle(
-            DVec2::ZERO,
-            5.0,
-        )
+        &Entity::circle(DVec2::ZERO, 5.0,)
     );
 }
 
 #[test]
 fn test_entity_visibility_toggle_and_hit_test() {
     let mut sketch = Sketch::default();
-    let id = sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, 0.0),
-        DVec2::new(10.0, 0.0),
-    ));
+    let id = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)));
 
     assert!(sketch.is_visible(id));
     assert!(!sketch.is_hidden(id));
@@ -471,7 +406,8 @@ fn test_spline_endpoints_hit_test_and_transform() {
 
     // Test snap with extra/pending points (e.g. while drawing)
     let pending = vec![DVec2::new(50.0, 50.0)];
-    let snap_extra = find_snap_with_extra(&sketch, DVec2::new(50.1, 49.9), 0.5, 100.0, None, &pending).unwrap();
+    let snap_extra =
+        find_snap_with_extra(&sketch, DVec2::new(50.1, 49.9), 0.5, 100.0, None, &pending).unwrap();
     assert_eq!(snap_extra.kind, SnapKind::Endpoint);
     assert_eq!(snap_extra.point, DVec2::new(50.0, 50.0));
 
@@ -485,7 +421,12 @@ fn test_spline_endpoints_hit_test_and_transform() {
     }
 
     // Mirror across Y axis (axis along X=0, from (0,0) to (0,1))
-    let mirrored = mirror_entity(sketch.entities.get(id).unwrap(), DVec2::ZERO, DVec2::new(0.0, 1.0)).unwrap();
+    let mirrored = mirror_entity(
+        sketch.entities.get(id).unwrap(),
+        DVec2::ZERO,
+        DVec2::new(0.0, 1.0),
+    )
+    .unwrap();
     if let Entity::Spline { points, .. } = mirrored {
         assert_eq!(points[0], DVec2::new(0.0, 0.0));
         assert_eq!(points[1], DVec2::new(-10.0, 5.0));
@@ -506,20 +447,18 @@ fn test_spline_closed_region() {
         DVec2::new(30.0, 0.0),
     ]));
     // Line 1: (30, 0) to (30, -10)
-    sketch.entities.insert(Entity::line(
-        DVec2::new(30.0, 0.0),
-        DVec2::new(30.0, -10.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(30.0, 0.0), DVec2::new(30.0, -10.0)));
     // Line 2: (30, -10) to (0, -10)
     sketch.entities.insert(Entity::line(
         DVec2::new(30.0, -10.0),
         DVec2::new(0.0, -10.0),
     ));
     // Line 3: (0, -10) to (0, 0)
-    sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, -10.0),
-        DVec2::new(0.0, 0.0),
-    ));
+    sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, -10.0), DVec2::new(0.0, 0.0)));
 
     let regions = crate::region::find_closed_regions(&sketch);
     assert_eq!(regions.len(), 1);
@@ -611,14 +550,12 @@ fn test_find_corner_lines_at_point() {
     use crate::ops::find_corner_lines_at_point;
 
     let mut sketch = Sketch::default();
-    let id1 = sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, 0.0),
-        DVec2::new(10.0, 0.0),
-    ));
-    let id2 = sketch.entities.insert(Entity::line(
-        DVec2::new(10.0, 0.0),
-        DVec2::new(10.0, 10.0),
-    ));
+    let id1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)));
+    let id2 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(10.0, 0.0), DVec2::new(10.0, 10.0)));
 
     let found = find_corner_lines_at_point(&sketch, DVec2::new(10.0, 0.0), 0.5);
     assert!(found.is_some());
@@ -632,10 +569,7 @@ fn test_rotate_entity() {
     use crate::ops::rotate_entity;
 
     // Line from (10, 0) to (20, 0) rotated 90 deg around (0, 0) -> (0, 10) to (0, 20)
-    let line = Entity::line(
-        DVec2::new(10.0, 0.0),
-        DVec2::new(20.0, 0.0),
-    );
+    let line = Entity::line(DVec2::new(10.0, 0.0), DVec2::new(20.0, 0.0));
     let rotated = rotate_entity(&line, DVec2::ZERO, std::f64::consts::FRAC_PI_2);
     if let Entity::Line { start, end, .. } = rotated {
         assert!((start.x - 0.0).abs() < 1e-5);
@@ -647,10 +581,7 @@ fn test_rotate_entity() {
     }
 
     // Circle centered at (10, 0) radius 5 rotated 180 deg around (0, 0) -> center (-10, 0)
-    let circle = Entity::circle(
-        DVec2::new(10.0, 0.0),
-        5.0,
-    );
+    let circle = Entity::circle(DVec2::new(10.0, 0.0), 5.0);
     let rot_c = rotate_entity(&circle, DVec2::ZERO, std::f64::consts::PI);
     if let Entity::Circle { center, radius, .. } = rot_c {
         assert!((center.x - (-10.0)).abs() < 1e-5);
@@ -665,10 +596,7 @@ fn test_rotate_entity() {
 fn test_linear_pattern_entities() {
     use crate::ops::linear_pattern_entities;
 
-    let circle = Entity::circle(
-        DVec2::new(0.0, 0.0),
-        4.0,
-    );
+    let circle = Entity::circle(DVec2::new(0.0, 0.0), 4.0);
     // 3 x 2 grid with pitch X = 20, pitch Y = 30
     // Total copies generated = 3*2 - 1 = 5 new entities
     let pattern = linear_pattern_entities(&[circle], 3, 20.0, 2, 30.0);
@@ -688,10 +616,7 @@ fn test_linear_pattern_entities() {
 fn test_circular_pattern_entities() {
     use crate::ops::circular_pattern_entities;
 
-    let circle = Entity::circle(
-        DVec2::new(10.0, 0.0),
-        2.0,
-    );
+    let circle = Entity::circle(DVec2::new(10.0, 0.0), 2.0);
     // 4 items around origin, 360 degrees (TAU) -> step 90 deg (PI/2)
     // Expect 3 new items at (0, 10), (-10, 0), (0, -10)
     let pattern = circular_pattern_entities(&[circle], DVec2::ZERO, 4, std::f64::consts::TAU);
@@ -715,10 +640,7 @@ fn test_circular_pattern_entities() {
 fn test_circular_pattern_entities_with_radius() {
     use crate::ops::circular_pattern_entities_with_radius;
 
-    let circle_at_origin = Entity::circle(
-        DVec2::ZERO,
-        3.0,
-    );
+    let circle_at_origin = Entity::circle(DVec2::ZERO, 3.0);
     // 4 items with custom radius = 25.0 mm around origin -> template at origin (dist 0 != 25)
     // Jadi semua 4 posisi (0°, 90°, 180°, 270°) dibuatkan salinan di lingkaran orbit
     let pattern = circular_pattern_entities_with_radius(
@@ -745,10 +667,7 @@ fn test_circular_pattern_entities_with_radius() {
     assert!((centers[3].x - 0.0).abs() < 1e-4 && (centers[3].y - (-25.0)).abs() < 1e-4);
 
     // Kasus objek asli sudah berada di radius 25.0 (mis. di (25, 0)) -> hanya 3 salinan tambahan
-    let circle_at_25 = Entity::circle(
-        DVec2::new(25.0, 0.0),
-        3.0,
-    );
+    let circle_at_25 = Entity::circle(DVec2::new(25.0, 0.0), 3.0);
     let pattern_on_orbit = circular_pattern_entities_with_radius(
         &[circle_at_25],
         DVec2::ZERO,
@@ -766,33 +685,31 @@ fn test_snap_to_closed_region_centroid() {
 
     let mut sketch = Sketch::default();
     // Buat persegi panjang dari 4 garis: (0,0) ke (20,10), centroid = (10, 5)
-    let _id1 = sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, 0.0),
-        DVec2::new(20.0, 0.0),
-    ));
-    let _id2 = sketch.entities.insert(Entity::line(
-        DVec2::new(20.0, 0.0),
-        DVec2::new(20.0, 10.0),
-    ));
-    let _id3 = sketch.entities.insert(Entity::line(
-        DVec2::new(20.0, 10.0),
-        DVec2::new(0.0, 10.0),
-    ));
-    let _id4 = sketch.entities.insert(Entity::line(
-        DVec2::new(0.0, 10.0),
-        DVec2::new(0.0, 0.0),
-    ));
+    let _id1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(20.0, 0.0)));
+    let _id2 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(20.0, 0.0), DVec2::new(20.0, 10.0)));
+    let _id3 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(20.0, 10.0), DVec2::new(0.0, 10.0)));
+    let _id4 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 10.0), DVec2::new(0.0, 0.0)));
 
     // Lingkaran di (50, 50) dengan radius 10
-    let id_circle = sketch.entities.insert(Entity::circle(
-        DVec2::new(50.0, 50.0),
-        10.0,
-    ));
+    let id_circle = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(50.0, 50.0), 10.0));
 
     // Snap ke centroid persegi panjang di (10, 5)
     let hit_rect_center = find_snap(&sketch, DVec2::new(10.2, 4.9), 1.0, 100.0, None).unwrap();
     assert_eq!(hit_rect_center.kind, SnapKind::Center);
-    assert!((hit_rect_center.point.x - 10.0).abs() < 1e-4 && (hit_rect_center.point.y - 5.0).abs() < 1e-4);
+    assert!(
+        (hit_rect_center.point.x - 10.0).abs() < 1e-4
+            && (hit_rect_center.point.y - 5.0).abs() < 1e-4
+    );
 
     // Snap ke pusat lingkaran di (50, 50)
     let hit_circle_center = find_snap(&sketch, DVec2::new(49.8, 50.1), 1.0, 100.0, None).unwrap();
@@ -802,7 +719,14 @@ fn test_snap_to_closed_region_centroid() {
     // Test exclude set: jika id_circle di-exclude, tidak boleh snap ke lingkaran
     let mut exclude_circle = HashSet::new();
     exclude_circle.insert(id_circle);
-    let hit_excluded = find_snap_with_exclude_set(&sketch, DVec2::new(49.8, 50.1), 1.0, 100.0, Some(&exclude_circle), &[]);
+    let hit_excluded = find_snap_with_exclude_set(
+        &sketch,
+        DVec2::new(49.8, 50.1),
+        1.0,
+        100.0,
+        Some(&exclude_circle),
+        &[],
+    );
     assert!(hit_excluded.is_none());
 
     // Test all_snap_candidate_points
@@ -814,8 +738,12 @@ fn test_snap_to_closed_region_centroid() {
         .collect();
 
     // Harus ada center lingkaran (50,50) dan center persegi panjang (10,5)
-    assert!(center_candidates.iter().any(|p| (p.x - 50.0).abs() < 1e-4 && (p.y - 50.0).abs() < 1e-4));
-    assert!(center_candidates.iter().any(|p| (p.x - 10.0).abs() < 1e-4 && (p.y - 5.0).abs() < 1e-4));
+    assert!(center_candidates
+        .iter()
+        .any(|p| (p.x - 50.0).abs() < 1e-4 && (p.y - 50.0).abs() < 1e-4));
+    assert!(center_candidates
+        .iter()
+        .any(|p| (p.x - 10.0).abs() < 1e-4 && (p.y - 5.0).abs() < 1e-4));
 }
 
 #[test]
@@ -834,10 +762,9 @@ fn test_bounding_box_entities_and_sketch() {
     assert_eq!(max, DVec2::new(200.0, 300.0));
 
     // Circle at (600, 0) with radius 150 -> x in [450, 750], y in [-150, 150]
-    let id2 = sketch.entities.insert(Entity::circle(
-        DVec2::new(600.0, 0.0),
-        150.0,
-    ));
+    let id2 = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(600.0, 0.0), 150.0));
 
     let (min, max) = sketch.bounding_box().unwrap();
     assert_eq!(min, DVec2::new(-100.0, -150.0));
@@ -866,7 +793,11 @@ fn test_construction_entities_and_closed_regions() {
     // 2. Garis konstruksi lingkaran tidak dihitung sebagai ClosedRegion
     let c_id = sketch.entities.insert(construction_circle);
     let regions = crate::region::find_closed_regions(&sketch);
-    assert_eq!(regions.len(), 0, "Garis konstruksi lingkaran tidak boleh membentuk closed region");
+    assert_eq!(
+        regions.len(),
+        0,
+        "Garis konstruksi lingkaran tidak boleh membentuk closed region"
+    );
 
     // 3. Toggle construction command
     let mut undo = UndoStack::default();
@@ -876,22 +807,40 @@ fn test_construction_entities_and_closed_regions() {
     );
     assert!(!sketch.entities[c_id].is_construction());
     let regions_after = crate::region::find_closed_regions(&sketch);
-    assert_eq!(regions_after.len(), 1, "Setelah di-toggle ke normal, lingkaran harus membentuk closed region");
+    assert_eq!(
+        regions_after.len(),
+        1,
+        "Setelah di-toggle ke normal, lingkaran harus membentuk closed region"
+    );
 
     undo.undo(&mut sketch);
     assert!(sketch.entities[c_id].is_construction());
     assert_eq!(crate::region::find_closed_regions(&sketch).len(), 0);
 
     // 4. Garis konstruksi yang membelah persegi panjang tidak merusak/memecah closed region
-    let _l1 = sketch.entities.insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(20.0, 0.0)));
-    let _l2 = sketch.entities.insert(Entity::line(DVec2::new(20.0, 0.0), DVec2::new(20.0, 20.0)));
-    let _l3 = sketch.entities.insert(Entity::line(DVec2::new(20.0, 20.0), DVec2::new(0.0, 20.0)));
-    let _l4 = sketch.entities.insert(Entity::line(DVec2::new(0.0, 20.0), DVec2::new(0.0, 0.0)));
+    let _l1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(20.0, 0.0)));
+    let _l2 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(20.0, 0.0), DVec2::new(20.0, 20.0)));
+    let _l3 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(20.0, 20.0), DVec2::new(0.0, 20.0)));
+    let _l4 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 20.0), DVec2::new(0.0, 0.0)));
     // Center reference line
-    let _centerline = sketch.entities.insert(Entity::line(DVec2::new(10.0, 0.0), DVec2::new(10.0, 20.0)).with_construction(true));
+    let _centerline = sketch.entities.insert(
+        Entity::line(DVec2::new(10.0, 0.0), DVec2::new(10.0, 20.0)).with_construction(true),
+    );
 
     let rect_regions = crate::region::find_closed_regions(&sketch);
-    assert_eq!(rect_regions.len(), 1, "Persegi panjang dengan garis konstruksi di tengah harus tetap 1 closed region");
+    assert_eq!(
+        rect_regions.len(),
+        1,
+        "Persegi panjang dengan garis konstruksi di tengah harus tetap 1 closed region"
+    );
     assert_eq!(rect_regions[0].entity_ids.len(), 4);
     assert!((rect_regions[0].area - 400.0).abs() < 1e-4);
 }
@@ -914,11 +863,15 @@ fn test_regular_polygon_inscribed_and_circumscribed() {
     }
 
     // 2. Circumscribed Hexagon (N=6)
-    let verts_circumscribed = regular_polygon_vertices(center, p2, 6, PolygonMode::Circumscribed).unwrap();
+    let verts_circumscribed =
+        regular_polygon_vertices(center, p2, 6, PolygonMode::Circumscribed).unwrap();
     assert_eq!(verts_circumscribed.len(), 6);
     // Midpoint of first edge (v0 to v1) must equal p2 (tangent to circle at p2)
     let mid01 = (verts_circumscribed[0] + verts_circumscribed[1]) * 0.5;
-    assert!((mid01 - p2).length() < 1e-6, "Titik tengah sisi pertama harus berada tepat di p2");
+    assert!(
+        (mid01 - p2).length() < 1e-6,
+        "Titik tengah sisi pertama harus berada tepat di p2"
+    );
     // Circumradius = 10.0 / cos(30 deg) = 20 / sqrt(3) ~= 11.547
     let expected_r_v = 10.0 / (std::f64::consts::PI / 6.0).cos();
     for v in &verts_circumscribed {
@@ -958,14 +911,22 @@ fn test_slot_center_to_center_and_overall() {
 
     // 1. Center-to-Center Slot
     let c2c_entities = slot_from_radius(p1, p2, radius, SlotMode::CenterToCenter, false).unwrap();
-    assert_eq!(c2c_entities.len(), 4, "Slot harus terdiri dari 4 entitas (2 Line, 2 Arc)");
+    assert_eq!(
+        c2c_entities.len(),
+        4,
+        "Slot harus terdiri dari 4 entitas (2 Line, 2 Arc)"
+    );
 
     let mut sketch_c2c = Sketch::default();
     for e in c2c_entities {
         sketch_c2c.entities.insert(e);
     }
     let regions_c2c = crate::region::find_closed_regions(&sketch_c2c);
-    assert_eq!(regions_c2c.len(), 1, "Center-to-Center slot harus membentuk 1 closed region");
+    assert_eq!(
+        regions_c2c.len(),
+        1,
+        "Center-to-Center slot harus membentuk 1 closed region"
+    );
     // Expected area: rectangle (50 * 20 = 1000) + circle (pi * 10^2 = 314.159) = 1314.159
     let expected_c2c_area = 50.0 * 20.0 + std::f64::consts::PI * 100.0;
     assert!(
@@ -984,7 +945,11 @@ fn test_slot_center_to_center_and_overall() {
         sketch_ov.entities.insert(e);
     }
     let regions_ov = crate::region::find_closed_regions(&sketch_ov);
-    assert_eq!(regions_ov.len(), 1, "Overall slot harus membentuk 1 closed region");
+    assert_eq!(
+        regions_ov.len(),
+        1,
+        "Overall slot harus membentuk 1 closed region"
+    );
     // Expected area: rectangle (30 * 20 = 600) + circle (pi * 10^2 = 314.159) = 914.159
     let expected_ov_area = 30.0 * 20.0 + std::f64::consts::PI * 100.0;
     assert!(
@@ -1021,7 +986,11 @@ fn test_text_vectorization() {
 
     let regions = crate::region::find_closed_regions(&sketch);
     // DUCAD memiliki closed regions untuk D, U, C, A, D
-    assert!(regions.len() >= 5, "Teks DUCAD harus menghasilkan minimal 5 closed regions (got {})", regions.len());
+    assert!(
+        regions.len() >= 5,
+        "Teks DUCAD harus menghasilkan minimal 5 closed regions (got {})",
+        regions.len()
+    );
 }
 
 /// Kenaikan derajat kuadratik → kubik harus EKSAK, bukan sekadar mirip: kalau
@@ -1179,12 +1148,18 @@ fn test_extend_segment_towards_line_circle_and_spline() {
 
     let mut sketch = Sketch::default();
     // Line 1 to extend: (0, 0) -> (5, 0)
-    let line1 = sketch.entities.insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)));
+    let line1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(5.0, 0.0)));
     // Boundary line at x = 10, y from -10 to 10
-    let bound_line = sketch.entities.insert(Entity::line(DVec2::new(10.0, -10.0), DVec2::new(10.0, 10.0)));
+    let bound_line = sketch.entities.insert(Entity::line(
+        DVec2::new(10.0, -10.0),
+        DVec2::new(10.0, 10.0),
+    ));
 
     // 1. Extend line1 forward (click near end at (4.0, 0.0))
-    let ext_line = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0)).expect("Harus bisa di-extend ke garis batas x=10");
+    let ext_line = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0))
+        .expect("Harus bisa di-extend ke garis batas x=10");
     if let Entity::Line { start, end, .. } = ext_line {
         assert_eq!(start, DVec2::new(0.0, 0.0));
         assert_eq!(end, DVec2::new(10.0, 0.0));
@@ -1199,9 +1174,12 @@ fn test_extend_segment_towards_line_circle_and_spline() {
 
     // 3. Extend towards Circle: remove boundary line and insert circle at (15, 0) radius 3
     sketch.entities.remove(bound_line);
-    let _bound_circle = sketch.entities.insert(Entity::circle(DVec2::new(15.0, 0.0), 3.0));
+    let _bound_circle = sketch
+        .entities
+        .insert(Entity::circle(DVec2::new(15.0, 0.0), 3.0));
     // Sinar dari (5,0) ke arah +X akan menyentuh lingkaran di x = 15 - 3 = 12
-    let ext_circle = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0)).expect("Harus bisa di-extend ke lingkaran");
+    let ext_circle = extend_segment(&sketch, line1, DVec2::new(4.0, 0.0))
+        .expect("Harus bisa di-extend ke lingkaran");
     if let Entity::Line { start, end, .. } = ext_circle {
         assert_eq!(start, DVec2::new(0.0, 0.0));
         assert_eq!(end, DVec2::new(12.0, 0.0));
@@ -1210,9 +1188,12 @@ fn test_extend_segment_towards_line_circle_and_spline() {
     }
 
     // 4. Extend backwards (click near start at (1.0, 0.0)) towards an ellipse at (-10, 0) rx=2, ry=4
-    let _bound_ellipse = sketch.entities.insert(Entity::ellipse(DVec2::new(-10.0, 0.0), 2.0, 4.0));
+    let _bound_ellipse = sketch
+        .entities
+        .insert(Entity::ellipse(DVec2::new(-10.0, 0.0), 2.0, 4.0));
     // Sinar dari (0,0) ke arah -X akan menyentuh elips di x = -10 + 2 = -8
-    let ext_ellipse = extend_segment(&sketch, line1, DVec2::new(1.0, 0.0)).expect("Harus bisa di-extend ke elips");
+    let ext_ellipse = extend_segment(&sketch, line1, DVec2::new(1.0, 0.0))
+        .expect("Harus bisa di-extend ke elips");
     if let Entity::Line { start, end, .. } = ext_ellipse {
         assert_eq!(start, DVec2::new(-8.0, 0.0));
         assert_eq!(end, DVec2::new(5.0, 0.0));
@@ -1228,7 +1209,12 @@ fn test_extend_segment_towards_line_circle_and_spline() {
     assert!((ts_top[0] - 15.0).abs() < 1e-4);
 
     // Bottom half arc (PI..2*PI) will be hit at y=5 (t=5.0)
-    let arc_bottom = Entity::arc(DVec2::new(0.0, 10.0), 5.0, std::f64::consts::PI, std::f64::consts::TAU);
+    let arc_bottom = Entity::arc(
+        DVec2::new(0.0, 10.0),
+        5.0,
+        std::f64::consts::PI,
+        std::f64::consts::TAU,
+    );
     let ts_bottom = ray_intersect_entity(DVec2::new(0.0, 0.0), DVec2::new(0.0, 1.0), &arc_bottom);
     assert_eq!(ts_bottom.len(), 1);
     assert!((ts_bottom[0] - 5.0).abs() < 1e-4);
@@ -1236,7 +1222,10 @@ fn test_extend_segment_towards_line_circle_and_spline() {
 
 #[test]
 fn test_biarc_and_multi_arc_offset() {
-    use crate::ops::{biarc_fit, multi_arc_parallel_offset_ellipse, multi_arc_parallel_offset_spline, offset_entity_multi_arc};
+    use crate::ops::{
+        biarc_fit, multi_arc_parallel_offset_ellipse, multi_arc_parallel_offset_spline,
+        offset_entity_multi_arc,
+    };
 
     // 1. Bi-Arc Fitting between two points with tangents
     let p0 = DVec2::new(0.0, 0.0);
@@ -1250,7 +1239,11 @@ fn test_biarc_and_multi_arc_offset() {
     // 2. Multi-arc parallel offset of Ellipse
     let ellipse = Entity::ellipse(DVec2::ZERO, 20.0, 10.0);
     let multi_arcs = multi_arc_parallel_offset_ellipse(DVec2::ZERO, 20.0, 10.0, 5.0, 8, false);
-    assert_eq!(multi_arcs.len(), 16, "8 spans bi-arc harus menghasilkan 16 busur tangensial");
+    assert_eq!(
+        multi_arcs.len(),
+        16,
+        "8 spans bi-arc harus menghasilkan 16 busur tangensial"
+    );
 
     // 3. Multi-arc parallel offset of Spline
     let spline_pts = vec![
@@ -1261,13 +1254,18 @@ fn test_biarc_and_multi_arc_offset() {
     ];
     let spline = Entity::spline(spline_pts.clone());
     let spline_arcs = multi_arc_parallel_offset_spline(&spline_pts, 3.0, 6, false);
-    assert!(!spline_arcs.is_empty(), "Multi-arc spline offset harus menghasilkan busur");
+    assert!(
+        !spline_arcs.is_empty(),
+        "Multi-arc spline offset harus menghasilkan busur"
+    );
 
     // 4. offset_entity_multi_arc helper
-    let decomposed = offset_entity_multi_arc(&ellipse, DVec2::new(25.0, 0.0), 8).expect("Harus menghasilkan multi-arc");
+    let decomposed = offset_entity_multi_arc(&ellipse, DVec2::new(25.0, 0.0), 8)
+        .expect("Harus menghasilkan multi-arc");
     assert_eq!(decomposed.len(), 16);
 
-    let decomposed_sp = offset_entity_multi_arc(&spline, DVec2::new(15.0, 15.0), 6).expect("Harus menghasilkan multi-arc");
+    let decomposed_sp = offset_entity_multi_arc(&spline, DVec2::new(15.0, 15.0), 6)
+        .expect("Harus menghasilkan multi-arc");
     assert!(!decomposed_sp.is_empty());
 }
 
@@ -1278,8 +1276,12 @@ fn draw_order_respects_layers_then_z() {
     let l2 = sketch.layers.insert(Layer::new("Atas", Rgba::WHITE));
     sketch.layer_order = vec![l1, l2];
 
-    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
-    let e2 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(20.0, 0.0)));
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let e2 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(20.0, 0.0)));
     let e3 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
     let e4 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
 
@@ -1303,9 +1305,15 @@ fn draw_order_is_deterministic() {
     let l2 = sketch.layers.insert(Layer::new("L2", Rgba::WHITE));
     sketch.layer_order = vec![l1, l2];
 
-    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(1.0, 0.0)));
-    let e2 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(2.0, 0.0)));
-    let e3 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(3.0, 0.0)));
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(1.0, 0.0)));
+    let e2 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(2.0, 0.0)));
+    let e3 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(3.0, 0.0)));
 
     sketch.entity_layer.insert(e1, l1);
     sketch.entity_layer.insert(e2, l1);
@@ -1322,7 +1330,9 @@ fn delete_entities_revert_restores_style_layer_group_origin() {
     let l1 = sketch.layers.insert(Layer::new("Layer 1", Rgba::WHITE));
     sketch.layer_order.push(l1);
 
-    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
     let style = Style {
         opacity: 0.75,
         ..Style::cad_default()
@@ -1376,7 +1386,9 @@ fn delete_layer_moves_entities_to_default() {
     let custom_lid = sketch.layers.insert(Layer::new("Custom", Rgba::WHITE));
     sketch.layer_order.push(custom_lid);
 
-    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
     sketch.entity_layer.insert(e1, custom_lid);
 
     let mut cmd = DeleteLayer::new(custom_lid);
@@ -1396,6 +1408,30 @@ fn delete_layer_moves_entities_to_default() {
     assert!(sketch.layer_order.contains(&restored_lid));
 }
 
+/// Regresi REVIEW-2026-09-24 #21: menghapus layer default membuat layer
+/// pengganti; undo harus membuangnya lagi, bukan meninggalkannya.
+#[test]
+fn delete_default_layer_revert_removes_created_replacement() {
+    let mut sketch = Sketch::default();
+    let def_lid = sketch.ensure_default_layer();
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    sketch.entity_layer.insert(e1, def_lid);
+
+    let mut cmd = DeleteLayer::new(def_lid);
+    cmd.apply(&mut sketch);
+    assert_eq!(sketch.layers.len(), 1, "layer pengganti dibuat");
+    assert_eq!(sketch.layer_order.len(), 1);
+
+    cmd.revert(&mut sketch);
+    assert_eq!(sketch.layers.len(), 1, "tidak ada layer bocor setelah undo");
+    assert_eq!(sketch.layer_order.len(), 1);
+    let restored = sketch.entity_layer.get(e1).copied().unwrap();
+    assert_eq!(sketch.layers[restored].name, "Layer 1");
+    assert_eq!(sketch.layer_order, vec![restored]);
+}
+
 #[test]
 fn old_json_without_styles_and_layers_parses() {
     let legacy_json = r#"{"entities":[{"value":null,"version":0}],"constraints":[],"entity_names":{},"hidden_entities":[]}"#;
@@ -1410,100 +1446,135 @@ fn old_json_without_styles_and_layers_parses() {
     assert!(sketch.origin.is_empty());
 }
 
-#[test]
-fn apply_then_revert_restores_state_all_new_commands() {
+/// Sketch dengan satu garis; dipakai tes apply→revert per command.
+fn sketch_with_line() -> (Sketch, EntityId) {
     let mut sketch = Sketch::default();
-    let e1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    let e1 = sketch
+        .entities
+        .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+    (sketch, e1)
+}
 
-    // 1. SetStyle
-    let mut cmd_style = SetStyle::new(
-        vec![e1],
-        Style {
-            opacity: 0.5,
-            ..Style::cad_default()
-        },
-    );
-    cmd_style.apply(&mut sketch);
+#[test]
+fn set_style_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
+    let style = Style {
+        opacity: 0.5,
+        ..Style::cad_default()
+    };
+    let mut cmd = SetStyle::new(vec![e1], style);
+    cmd.apply(&mut sketch);
     assert_eq!(sketch.style_of(e1).opacity, 0.5);
-    cmd_style.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert_eq!(sketch.style_of(e1).opacity, 1.0);
+}
 
-    // 2. SetStyleField
-    let mut cmd_field = SetStyleField::new(vec![e1], StyleField::Opacity(0.3));
-    cmd_field.apply(&mut sketch);
+#[test]
+fn set_style_field_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
+    let mut cmd = SetStyleField::new(vec![e1], StyleField::Opacity(0.3));
+    cmd.apply(&mut sketch);
     assert_eq!(sketch.style_of(e1).opacity, 0.3);
-    cmd_field.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert_eq!(sketch.style_of(e1).opacity, 1.0);
+}
 
-    // 3. CreateLayer
-    let mut cmd_create_layer = CreateLayer::new(Layer::new("Layer A", Rgba::WHITE));
-    cmd_create_layer.apply(&mut sketch);
-    let lid = cmd_create_layer.created_id().unwrap();
+#[test]
+fn create_layer_apply_then_revert_restores_state() {
+    let (mut sketch, _) = sketch_with_line();
+    let mut cmd = CreateLayer::new(Layer::new("Layer A", Rgba::WHITE));
+    cmd.apply(&mut sketch);
+    let lid = cmd.created_id().unwrap();
     assert!(sketch.layers.contains_key(lid));
-    cmd_create_layer.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert!(!sketch.layers.contains_key(lid));
+}
 
-    // 4. RenameLayer
-    let lid2 = sketch.layers.insert(Layer::new("OldName", Rgba::WHITE));
-    let mut cmd_rename = RenameLayer::new(lid2, "NewName");
-    cmd_rename.apply(&mut sketch);
-    assert_eq!(sketch.layers[lid2].name, "NewName");
-    cmd_rename.revert(&mut sketch);
-    assert_eq!(sketch.layers[lid2].name, "OldName");
+#[test]
+fn rename_layer_apply_then_revert_restores_state() {
+    let (mut sketch, _) = sketch_with_line();
+    let lid = sketch.layers.insert(Layer::new("OldName", Rgba::WHITE));
+    let mut cmd = RenameLayer::new(lid, "NewName");
+    cmd.apply(&mut sketch);
+    assert_eq!(sketch.layers[lid].name, "NewName");
+    cmd.revert(&mut sketch);
+    assert_eq!(sketch.layers[lid].name, "OldName");
+}
 
-    // 5. ReorderLayers
-    let lid3 = sketch.layers.insert(Layer::new("L3", Rgba::WHITE));
-    sketch.layer_order = vec![lid2, lid3];
-    let mut cmd_reorder = ReorderLayers::new(vec![lid3, lid2]);
-    cmd_reorder.apply(&mut sketch);
-    assert_eq!(sketch.layer_order, vec![lid3, lid2]);
-    cmd_reorder.revert(&mut sketch);
-    assert_eq!(sketch.layer_order, vec![lid2, lid3]);
+#[test]
+fn reorder_layers_apply_then_revert_restores_state() {
+    let (mut sketch, _) = sketch_with_line();
+    let a = sketch.layers.insert(Layer::new("A", Rgba::WHITE));
+    let b = sketch.layers.insert(Layer::new("B", Rgba::WHITE));
+    sketch.layer_order = vec![a, b];
+    let mut cmd = ReorderLayers::new(vec![b, a]);
+    cmd.apply(&mut sketch);
+    assert_eq!(sketch.layer_order, vec![b, a]);
+    cmd.revert(&mut sketch);
+    assert_eq!(sketch.layer_order, vec![a, b]);
+}
 
-    // 6. SetLayerFlags
-    let mut cmd_flags = SetLayerFlags::new(lid2, Some(false), Some(true));
-    cmd_flags.apply(&mut sketch);
-    assert!(!sketch.layers[lid2].visible);
-    assert!(sketch.layers[lid2].locked);
-    cmd_flags.revert(&mut sketch);
-    assert!(sketch.layers[lid2].visible);
-    assert!(!sketch.layers[lid2].locked);
+#[test]
+fn set_layer_flags_apply_then_revert_restores_state() {
+    let (mut sketch, _) = sketch_with_line();
+    let lid = sketch.layers.insert(Layer::new("A", Rgba::WHITE));
+    let mut cmd = SetLayerFlags::new(lid, Some(false), Some(true));
+    cmd.apply(&mut sketch);
+    assert!(!sketch.layers[lid].visible);
+    assert!(sketch.layers[lid].locked);
+    cmd.revert(&mut sketch);
+    assert!(sketch.layers[lid].visible);
+    assert!(!sketch.layers[lid].locked);
+}
 
-    // 7. MoveToLayer
-    let mut cmd_move = MoveToLayer::new(vec![e1], lid3);
-    cmd_move.apply(&mut sketch);
-    assert_eq!(sketch.layer_of(e1), Some(lid3));
-    cmd_move.revert(&mut sketch);
+#[test]
+fn move_to_layer_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
+    let lid = sketch.layers.insert(Layer::new("A", Rgba::WHITE));
+    let mut cmd = MoveToLayer::new(vec![e1], lid);
+    cmd.apply(&mut sketch);
+    assert_eq!(sketch.layer_of(e1), Some(lid));
+    cmd.revert(&mut sketch);
     assert_eq!(sketch.layer_of(e1), None);
+}
 
-    // 8. SetZOrder
+#[test]
+fn set_z_order_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
     let e2 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
     sketch.z_order = vec![e1, e2];
-    let mut cmd_z = SetZOrder::new(vec![e1], ZOrderAction::BringFront);
-    cmd_z.apply(&mut sketch);
+    let mut cmd = SetZOrder::new(vec![e1], ZOrderAction::BringFront);
+    cmd.apply(&mut sketch);
     assert_eq!(sketch.z_order, vec![e2, e1]);
-    cmd_z.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert_eq!(sketch.z_order, vec![e1, e2]);
+}
 
-    // 9. GroupEntities
-    let mut cmd_group = GroupEntities::new(vec![e1, e2], "MyGroup");
-    cmd_group.apply(&mut sketch);
-    let gid = cmd_group.created_group_id().unwrap();
+#[test]
+fn group_entities_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
+    let e2 = sketch.entities.insert(Entity::circle(DVec2::ZERO, 5.0));
+    let mut cmd = GroupEntities::new(vec![e1, e2], "MyGroup");
+    cmd.apply(&mut sketch);
+    let gid = cmd.created_group_id().unwrap();
     assert_eq!(sketch.top_group(e1), Some(gid));
-    cmd_group.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert_eq!(sketch.top_group(e1), None);
+}
 
-    // 10. Ungroup
-    let gid2 = sketch.groups.insert(Group {
+#[test]
+fn ungroup_apply_then_revert_restores_state() {
+    let (mut sketch, e1) = sketch_with_line();
+    let gid = sketch.groups.insert(Group {
         name: "G2".into(),
         members: vec![e1],
         parent: None,
     });
-    sketch.entity_group.insert(e1, gid2);
-    let mut cmd_ungroup = Ungroup::new(gid2);
-    cmd_ungroup.apply(&mut sketch);
+    sketch.entity_group.insert(e1, gid);
+    let mut cmd = Ungroup::new(gid);
+    cmd.apply(&mut sketch);
     assert_eq!(sketch.entity_group.get(e1), None);
-    cmd_ungroup.revert(&mut sketch);
+    cmd.revert(&mut sketch);
     assert!(sketch.entity_group.get(e1).is_some());
 }
 
@@ -1545,7 +1616,7 @@ fn text_regenerate_is_deterministic() {
                     assert!((sa.start - sb.start).length() < 1e-6);
                     assert_eq!(sa.node_count(), sb.node_count());
                     for i in 0..sa.node_count() {
-                        assert!((sa.node(i) - sb.node(i)).length() < 1e-6);
+                        assert!((sa.node(i).unwrap() - sb.node(i).unwrap()).length() < 1e-6);
                     }
                 }
             }
@@ -1594,12 +1665,20 @@ fn glyph_o_has_two_subpaths_opposite_winding() {
         ..TextSpec::default()
     };
     let entities = spec_to_path_entities(&spec, None).expect("vectorization succeeds");
-    assert_eq!(entities.len(), 1, "Huruf O harus menghasilkan satu Entity::Path");
+    assert_eq!(
+        entities.len(),
+        1,
+        "Huruf O harus menghasilkan satu Entity::Path"
+    );
 
     let Entity::Path { subpaths, .. } = &entities[0] else {
         panic!("Expected Entity::Path");
     };
-    assert_eq!(subpaths.len(), 2, "Huruf O harus memiliki 2 subpath (luar dan lubang)");
+    assert_eq!(
+        subpaths.len(),
+        2,
+        "Huruf O harus memiliki 2 subpath (luar dan lubang)"
+    );
 
     let area0 = subpaths[0].signed_area();
     let area1 = subpaths[1].signed_area();
@@ -1615,7 +1694,9 @@ fn glyph_o_has_two_subpaths_opposite_winding() {
 #[test]
 fn text_glyphs_inherit_layer_of_text() {
     let mut sketch = Sketch::default();
-    let layer_id = sketch.layers.insert(Layer::new("TextLayer", Rgba([0.0, 1.0, 0.0, 1.0])));
+    let layer_id = sketch
+        .layers
+        .insert(Layer::new("TextLayer", Rgba([0.0, 1.0, 0.0, 1.0])));
     sketch.layer_order.push(layer_id);
 
     let spec = TextSpec {
@@ -1642,7 +1723,3 @@ fn text_glyphs_inherit_layer_of_text() {
         assert_eq!(sketch.origin.get(gid), Some(&Origin::Text { text: tid }));
     }
 }
-
-
-
-

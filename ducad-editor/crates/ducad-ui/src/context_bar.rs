@@ -5,6 +5,7 @@
 //! Menggantikan radial menu acak dengan aksi kontekstual yang presisi.
 
 use ducad_i18n::t;
+use egui_icons::icons;
 use egui::{Button, RichText, Ui, Vec2};
 use egui_icons::icons::{
     ICON_ADJUST, ICON_ARCHITECTURE, ICON_ARROWS_OUTWARD, ICON_CALL_MERGE, ICON_CATEGORY,
@@ -54,6 +55,16 @@ pub enum ContextAction {
     SendBackward,
     Group,
     Ungroup,
+    // Align/Distribute/Transform presisi Mode Vektor (M2.5).
+    AlignLeft,
+    AlignCenterHorizontal,
+    AlignRight,
+    AlignTop,
+    AlignCenterVertical,
+    AlignBottom,
+    DistributeHorizontal,
+    DistributeVertical,
+    TransformPrecise,
 }
 
 /// State kontrol ekstrusi vektor pada contextual action bar (M3.4).
@@ -191,6 +202,40 @@ impl ContextActionBar {
                     if context_action_btn(ui, ICON_FLIP.codepoint, "Kecualikan", TEXT_PRIMARY, icon_sz, "Kecualikan area tumpang tindih (Xor)").clicked() {
                         action = Some(ContextAction::VectorXor);
                     }
+                }
+
+                if selected_count >= 2 {
+                    ui.add_space(2.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+
+                    // Align (M2.5) — acuan: kotak batas seleksi.
+                    let aligns = [
+                        (icons::ICON_ALIGN_HORIZONTAL_LEFT.codepoint, "Rata kiri", ContextAction::AlignLeft),
+                        (icons::ICON_ALIGN_HORIZONTAL_CENTER.codepoint, "Rata tengah horizontal", ContextAction::AlignCenterHorizontal),
+                        (icons::ICON_ALIGN_HORIZONTAL_RIGHT.codepoint, "Rata kanan", ContextAction::AlignRight),
+                        (icons::ICON_ALIGN_VERTICAL_TOP.codepoint, "Rata atas", ContextAction::AlignTop),
+                        (icons::ICON_ALIGN_VERTICAL_CENTER.codepoint, "Rata tengah vertikal", ContextAction::AlignCenterVertical),
+                        (icons::ICON_ALIGN_VERTICAL_BOTTOM.codepoint, "Rata bawah", ContextAction::AlignBottom),
+                    ];
+                    for (icon, tip, act) in aligns {
+                        if context_action_btn(ui, icon, "", TEXT_PRIMARY, icon_sz, tip).clicked() {
+                            action = Some(act);
+                        }
+                    }
+                    if selected_count >= 3 {
+                        if context_action_btn(ui, icons::ICON_ALIGN_HORIZONTAL_DISTRIBUTE.codepoint, "", TEXT_PRIMARY, icon_sz, "Sebar merata horizontal (pusat)").clicked() {
+                            action = Some(ContextAction::DistributeHorizontal);
+                        }
+                        if context_action_btn(ui, icons::ICON_ALIGN_VERTICAL_DISTRIBUTE.codepoint, "", TEXT_PRIMARY, icon_sz, "Sebar merata vertikal (pusat)").clicked() {
+                            action = Some(ContextAction::DistributeVertical);
+                        }
+                    }
+                }
+
+                // Transform presisi (posisi, ukuran, rotasi dalam mm/derajat).
+                if context_action_btn(ui, icons::ICON_TRANSFORM.codepoint, "Transform", TEXT_PRIMARY, icon_sz, "Transformasi presisi: X/Y, lebar/tinggi, rotasi").clicked() {
+                    action = Some(ContextAction::TransformPrecise);
                 }
 
                 ui.add_space(2.0);

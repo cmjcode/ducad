@@ -36,7 +36,12 @@ impl InkPoint {
 }
 
 /// Satu coretan tinta kontinu yang sudah difilter.
+///
+/// Deserialisasi lewat [`StrokeData`] supaya `bbox` (tidak ikut disimpan)
+/// selalu dihitung ulang saat berkas dimuat — tanpa ini hit-test, culling,
+/// dan indeks spasial memakai kotak nol untuk semua coretan hasil load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "StrokeData")]
 pub struct Stroke {
     /// ID stabil dan monoton dalam dokumen.
     pub id: u64,
@@ -56,8 +61,34 @@ pub struct Stroke {
     pub bbox: (Vec2, Vec2),
 }
 
+/// Bentuk tersimpan [`Stroke`] (tanpa `bbox`).
+#[derive(Deserialize)]
+struct StrokeData {
+    id: u64,
+    points: Vec<InkPoint>,
+    brush: BrushId,
+    color: Rgba,
+    layer: LayerId,
+    #[serde(default)]
+    hidden: bool,
+}
+
+impl From<StrokeData> for Stroke {
+    fn from(d: StrokeData) -> Self {
+        let mut stroke = Stroke::new(d.id, d.points, d.brush, d.color, d.layer);
+        stroke.hidden = d.hidden;
+        stroke
+    }
+}
+
 impl Stroke {
-    pub fn new(id: u64, points: Vec<InkPoint>, brush: BrushId, color: Rgba, layer: LayerId) -> Self {
+    pub fn new(
+        id: u64,
+        points: Vec<InkPoint>,
+        brush: BrushId,
+        color: Rgba,
+        layer: LayerId,
+    ) -> Self {
         let mut stroke = Self {
             id,
             points,

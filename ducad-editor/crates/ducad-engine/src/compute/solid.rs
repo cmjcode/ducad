@@ -72,8 +72,8 @@ fn dangling_endpoints(sketch: &Sketch) -> Vec<DVec2> {
             Entity::Path { subpaths, .. } => {
                 for sub in subpaths {
                     if !sub.closed && !sub.segs.is_empty() {
-                        let first = sub.node(0);
-                        let last = sub.node(sub.node_count() - 1);
+                        let first = sub.start;
+                        let last = sub.nodes().last().unwrap_or(first);
                         if (first - last).length() > LIN_TOL {
                             ends.extend([first, last]);
                         }
@@ -433,8 +433,7 @@ pub fn extrude_single_entity(
         let mut shapes = Vec::new();
         for reg in regs {
             let prof = reg.outer.with_holes(reg.holes);
-            let s = extrude_one(&prof, frame, extent)
-                .map_err(|e| OpError::kernel("Extrude", e))?;
+            let s = extrude_one(&prof, frame, extent).map_err(|e| OpError::kernel("Extrude", e))?;
             shapes.push(s);
         }
         if shapes.is_empty() {
@@ -485,8 +484,8 @@ pub fn extrude_single_entity(
                 s.insert(eid);
                 let prof = build_profile_from_selection(sk, &s)
                     .map_err(|msg| OpError::new(OpErrorCode::ProfileNotClosed, msg))?;
-                let shape = extrude_one(&prof, frame, extent)
-                    .map_err(|e| OpError::kernel("Extrude", e))?;
+                let shape =
+                    extrude_one(&prof, frame, extent).map_err(|e| OpError::kernel("Extrude", e))?;
                 finish("Extrude", shape)
             }
         }
@@ -502,6 +501,34 @@ pub struct VectorExtrudeOptions {
     pub outline_only: bool,
     /// Opsional: menimpa lebar outline dalam milimeter (jika None, memakai stroke width dari style entitas).
     pub custom_outline_width: Option<f64>,
+}
+
+/// `ids` terurut mengikuti `draw_order()`; id yang tidak ada di draw order
+/// menyusul terurut menurut id. Iterasi `HashSet` langsung tidak deterministik.
+pub fn selection_in_draw_order(sketch: &Sketch, ids: &HashSet<EntityId>) -> Vec<EntityId> {
+    let mut ordered: Vec<EntityId> = sketch
+        .draw_order()
+        .into_iter()
+        .filter(|id| ids.contains(id))
+        .collect();
+    let mut rest: Vec<EntityId> = ids
+        .iter()
+        .copied()
+        .filter(|id| !ordered.contains(id))
+        .collect();
+    rest.sort();
+    ordered.extend(rest);
+    ordered
+}
+
+/// Style entitas PERTAMA (menurut draw order) dalam seleksi yang punya
+/// style; `cad_default` bila tidak ada. Tidak mencari ke luar seleksi.
+pub fn selection_style(sketch: &Sketch, ids: &HashSet<EntityId>) -> ducad_sketch::Style {
+    selection_in_draw_order(sketch, ids)
+        .into_iter()
+        .find_map(|id| sketch.styles.get(id))
+        .cloned()
+        .unwrap_or_else(ducad_sketch::Style::cad_default)
 }
 
 /// Extrude seleksi entitas vektor. Mengembalikan `Vec<(String, BodyGeometry, Style)>`.
@@ -520,17 +547,7 @@ pub fn extrude_vector(
         ));
     }
 
-    let draw_order = sketch.draw_order();
-    let mut ordered_eids: Vec<EntityId> = draw_order
-        .iter()
-        .filter(|id| ids.contains(id))
-        .copied()
-        .collect();
-    for id_ref in ids {
-        if !ordered_eids.contains(id_ref) {
-            ordered_eids.push(*id_ref);
-        }
-    }
+    let ordered_eids = selection_in_draw_order(sketch, ids);
 
     if options.per_object {
         let mut results = Vec::with_capacity(ordered_eids.len());
@@ -540,17 +557,14 @@ pub fn extrude_vector(
                 .get(eid)
                 .cloned()
                 .unwrap_or_else(ducad_sketch::Style::cad_default);
-            let outline_width = if options.outline_only {
-                Some(options.custom_outline_width.unwrap_or_else(|| {
-                    style
-                        .stroke
-                        .as_ref()
-                        .map(|s| s.width_mm)
-                        .unwrap_or(1.0)
-                }))
-            } else {
-                None
-            };
+            let outline_width =
+                if options.outline_only {
+                    Some(options.custom_outline_width.unwrap_or_else(|| {
+                        style.stroke.as_ref().map(|s| s.width_mm).unwrap_or(1.0)
+                    }))
+                } else {
+                    None
+                };
             let geo = extrude_single_entity(sketch, eid, outline_width, plane, extent)?;
             let name = sketch
                 .entity_names
@@ -568,13 +582,9 @@ pub fn extrude_vector(
                 .get(eid)
                 .cloned()
                 .unwrap_or_else(ducad_sketch::Style::cad_default);
-            let width = options.custom_outline_width.unwrap_or_else(|| {
-                style
-                    .stroke
-                    .as_ref()
-                    .map(|s| s.width_mm)
-                    .unwrap_or(1.0)
-            });
+            let width = options
+                .custom_outline_width
+                .unwrap_or_else(|| style.stroke.as_ref().map(|s| s.width_mm).unwrap_or(1.0));
             let geo = extrude_single_entity(sketch, eid, Some(width), plane, extent)?;
             shapes.push(geo.shape);
         }
@@ -585,24 +595,15 @@ pub fn extrude_vector(
             ducad_kernel::make_compound(&refs)
                 .map_err(|e| OpError::kernel("Extrude compound", e))?
         };
-        let style = ids
-            .iter()
-            .find_map(|id| sketch.styles.get(*id))
-            .cloned()
-            .unwrap_or_else(ducad_sketch::Style::cad_default);
+        let style = selection_style(sketch, ids);
         let geo = finish("Extrude", final_shape)?;
         Ok(vec![("Extrude".to_string(), geo, style)])
     } else {
         let solids = extrude_entities(sketch, ids, plane, extent)?;
-        let style = ids
-            .iter()
-            .find_map(|id| sketch.styles.get(*id))
-            .cloned()
-            .unwrap_or_else(ducad_sketch::Style::cad_default);
+        let style = selection_style(sketch, ids);
         Ok(solids
             .into_iter()
             .map(|(n, g)| (n, g, style.clone()))
             .collect())
     }
 }
-

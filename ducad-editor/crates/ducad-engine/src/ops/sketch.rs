@@ -14,9 +14,7 @@ use ducad_sketch::{Entity, EntityId, PlaneRef, Sketch};
 use glam::DVec2;
 
 use super::num::{eval, eval_arr, Num, Params};
-use super::spec::{
-    ConstraintSpec, EntitySpec, PlaneSpec, SegSpec, StyleSpec,
-};
+use super::spec::{ConstraintSpec, EntitySpec, PlaneSpec, SegSpec, StyleSpec};
 use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::plane::PlaneFrame;
 
@@ -328,9 +326,8 @@ fn expand_geom(spec: &EntitySpec, params: &Params) -> OpResult<ExpandedGeom> {
 
 fn lower_style(st: &StyleSpec, params: &Params) -> OpResult<Style> {
     let fill = if let Some(hex) = &st.fill {
-        let rgba = Rgba::from_hex(hex).ok_or_else(|| {
-            OpError::invalid(format!("style.fill: warna hex tidak valid: {hex}"))
-        })?;
+        let rgba = Rgba::from_hex(hex)
+            .ok_or_else(|| OpError::invalid(format!("style.fill: warna hex tidak valid: {hex}")))?;
         Some(Paint::Solid(rgba))
     } else {
         None
@@ -377,7 +374,11 @@ fn lower_style(st: &StyleSpec, params: &Params) -> OpResult<Style> {
         match rule.to_lowercase().as_str() {
             "nonzero" => FillRule::NonZero,
             "evenodd" => FillRule::EvenOdd,
-            _ => return Err(OpError::invalid(format!("style.fill_rule tidak dikenal: {rule}"))),
+            _ => {
+                return Err(OpError::invalid(format!(
+                    "style.fill_rule tidak dikenal: {rule}"
+                )))
+            }
         }
     } else {
         FillRule::NonZero
@@ -469,6 +470,9 @@ pub(crate) struct SketchBuild {
     pub closed_regions: usize,
     /// Nama → EntityId (juga tersimpan di `sketch.entity_names`).
     pub names: HashMap<String, EntityId>,
+    /// Entitas yang namanya dibuat otomatis (`e<n>`) karena spesifikasinya
+    /// tidak memberi `name` — nama eksplisit `"e5"` TIDAK termasuk.
+    pub auto_named: BTreeSet<EntityId>,
 }
 
 /// Langkah 2–4 P1.3: bangun sketch, beri nama, terjemahkan constraint, solve.
@@ -479,9 +483,11 @@ pub(crate) fn build_sketch(
 ) -> OpResult<SketchBuild> {
     let mut sketch = Sketch::default();
     let mut names: HashMap<String, EntityId> = HashMap::new();
+    let mut auto_named = BTreeSet::new();
     for (i, spec) in entities.iter().enumerate() {
         let (items, name, construction, style, layer) = expand(spec, params)
             .map_err(|e| e.with_context(serde_json::json!({ "entity_index": i })))?;
+        let is_auto = name.is_none();
         let base = name.unwrap_or_else(|| format!("e{}", i + 1));
         for (suffix, entity) in items {
             let full = match suffix {
@@ -499,6 +505,9 @@ pub(crate) fn build_sketch(
                 .insert(entity.with_construction(construction));
             sketch.entity_names.insert(id, full.clone());
             names.insert(full, id);
+            if is_auto {
+                auto_named.insert(id);
+            }
 
             if let Some(st) = &style {
                 sketch.styles.insert(id, st.clone());
@@ -509,7 +518,9 @@ pub(crate) fn build_sketch(
                 {
                     lid
                 } else {
-                    let lid = sketch.layers.insert(Layer::new(layer_name.clone(), Rgba::WHITE));
+                    let lid = sketch
+                        .layers
+                        .insert(Layer::new(layer_name.clone(), Rgba::WHITE));
                     sketch.layer_order.push(lid);
                     lid
                 };
@@ -529,6 +540,7 @@ pub(crate) fn build_sketch(
         dof,
         closed_regions,
         names,
+        auto_named,
     })
 }
 
@@ -890,7 +902,11 @@ mod tests {
             }
             _ => panic!("Expected Entity::Path"),
         }
-        let style = build.sketch.styles.get(id).expect("style should be present");
+        let style = build
+            .sketch
+            .styles
+            .get(id)
+            .expect("style should be present");
         assert_eq!(
             style.fill,
             Some(Paint::Solid(Rgba::from_hex("#ff8800").unwrap()))
@@ -1033,5 +1049,4 @@ mod tests {
             _ => panic!("Expected Constraint::Coincident"),
         }
     }
-
 }

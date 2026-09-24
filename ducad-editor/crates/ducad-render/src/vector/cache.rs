@@ -189,7 +189,6 @@ impl VectorCache {
         opts: &TessOptions,
         visible: &[EntityId],
     ) -> bool {
-        self.clock = self.clock.wrapping_add(1);
         let mut changed = false;
 
         // 1. Buang entitas dari cache yang sudah dihapus dari sketch
@@ -218,6 +217,7 @@ impl VectorCache {
             if let Some(entry) = self.entries.get_mut(&id) {
                 if entry.rev == cur_rev {
                     // Entitas tidak berubah: perbarui stempel LRU saja
+                    self.clock += 1;
                     entry.last_used = self.clock;
                     continue;
                 }
@@ -227,7 +227,11 @@ impl VectorCache {
             self.tessellate_count += 1;
             changed = true;
 
-            let style = sketch.styles.get(id).cloned().unwrap_or_else(Style::cad_default);
+            let style = sketch
+                .styles
+                .get(id)
+                .cloned()
+                .unwrap_or_else(Style::cad_default);
 
             // Tentukan layer_index untuk penataan Z_OFFSET
             let layer_id = sketch.entity_layer.get(id).copied();
@@ -261,6 +265,10 @@ impl VectorCache {
                 }
             };
 
+            // Stempel monoton PER entitas (bukan per frame): entitas yang baru
+            // saja ditesselasi selalu lebih "baru" dari yang lain, sehingga
+            // tidak tergusur di frame yang sama.
+            self.clock += 1;
             let new_entry = CacheEntry::new(cur_rev, tess, gradients, self.clock);
             let old_bytes = self.entries.get(&id).map_or(0, |e| e.bytes);
             self.current_bytes = self
@@ -288,8 +296,10 @@ impl VectorCache {
             .map(|(&id, entry)| (id, entry.last_used, entry.bytes))
             .collect();
 
-        // Urutkan dari last_used paling kecil (paling jarang dipakai)
-        sorted_entries.sort_by_key(|&(_, last_used, _)| last_used);
+        // Urutkan dari last_used paling kecil (paling lama tak dipakai);
+        // `EntityId` sebagai pemecah seri agar urutan tidak bergantung pada
+        // iterasi `HashMap`.
+        sorted_entries.sort_by_key(|&(id, last_used, _)| (last_used, id));
 
         for (id, _, bytes) in sorted_entries {
             if self.current_bytes <= self.budget_bytes {
@@ -345,7 +355,9 @@ impl VectorCache {
                 active_batch = Some(LayerBatch::new(layer_id));
             }
 
-            let mut batch = active_batch.take().unwrap_or_else(|| LayerBatch::new(layer_id));
+            let mut batch = active_batch
+                .take()
+                .unwrap_or_else(|| LayerBatch::new(layer_id));
 
             // Periksa kapasitas gradien (maksimal 64 per batch)
             if batch.gradients.len() + entry.gradients.len() > MAX_GRADIENTS_PER_BATCH

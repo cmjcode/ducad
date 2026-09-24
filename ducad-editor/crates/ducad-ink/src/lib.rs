@@ -14,8 +14,8 @@ pub mod stroke;
 
 pub use brush::{Brush, BrushId, BrushKind, PressureCurve};
 pub use commands::{
-    AddStroke, DeleteStrokes, MoveStrokesToLayer, ReplacePoints, SetStrokeColor,
-    SetStrokesHidden, SplitStroke, TransformStrokes,
+    AddStroke, DeleteStrokes, MoveStrokesToLayer, ReplacePoints, SetStrokeColor, SetStrokesHidden,
+    SplitStroke, TransformStrokes,
 };
 pub use document::InkDoc;
 pub use eraser::{erase, EraseMode, EraseResult};
@@ -133,7 +133,10 @@ mod tests {
 
         let s1 = Stroke::new(
             0,
-            vec![InkPoint::new(0.0, 0.0, 0.5, 0.0, 0), InkPoint::new(10.0, 10.0, 0.5, 0.0, 10)],
+            vec![
+                InkPoint::new(0.0, 0.0, 0.5, 0.0, 0),
+                InkPoint::new(10.0, 10.0, 0.5, 0.0, 10),
+            ],
             bid,
             Rgba([0.0, 0.0, 0.0, 1.0]),
             l1,
@@ -142,7 +145,10 @@ mod tests {
 
         let s2 = Stroke::new(
             0,
-            vec![InkPoint::new(50.0, 50.0, 0.5, 0.0, 0), InkPoint::new(60.0, 60.0, 0.5, 0.0, 10)],
+            vec![
+                InkPoint::new(50.0, 50.0, 0.5, 0.0, 0),
+                InkPoint::new(60.0, 60.0, 0.5, 0.0, 10),
+            ],
             bid,
             Rgba([0.0, 0.0, 0.0, 1.0]),
             l2,
@@ -150,7 +156,9 @@ mod tests {
         let id2 = doc.add_stroke(s2);
 
         // Viewport mencakup keduanya, tapi layer l2 disembunyikan
-        let visible = doc.visible_in(Vec2::new(-10.0, -10.0), Vec2::new(100.0, 100.0), &|lid| lid == l1);
+        let visible = doc.visible_in(Vec2::new(-10.0, -10.0), Vec2::new(100.0, 100.0), &|lid| {
+            lid == l1
+        });
         assert_eq!(visible, vec![id1]);
 
         // Viewport hanya di area stroke 2
@@ -223,7 +231,9 @@ mod tests {
         let base_signal = 10.0;
 
         for i in 0..n {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let noise = ((state >> 33) as f32 / (1u64 << 31) as f32 - 0.5) * 2.0; // [-1.0, 1.0]
             let val = base_signal + noise;
             let t = i as f32 * 0.01; // 100 Hz
@@ -236,10 +246,18 @@ mod tests {
         }
 
         let mean_raw = raw_samples.iter().sum::<f32>() / raw_samples.len() as f32;
-        let var_raw = raw_samples.iter().map(|x| (x - mean_raw).powi(2)).sum::<f32>() / raw_samples.len() as f32;
+        let var_raw = raw_samples
+            .iter()
+            .map(|x| (x - mean_raw).powi(2))
+            .sum::<f32>()
+            / raw_samples.len() as f32;
 
         let mean_filt = filtered_samples.iter().sum::<f32>() / filtered_samples.len() as f32;
-        let var_filt = filtered_samples.iter().map(|x| (x - mean_filt).powi(2)).sum::<f32>() / filtered_samples.len() as f32;
+        let var_filt = filtered_samples
+            .iter()
+            .map(|x| (x - mean_filt).powi(2))
+            .sum::<f32>()
+            / filtered_samples.len() as f32;
 
         assert!(
             var_filt < 0.30 * var_raw,
@@ -280,8 +298,15 @@ mod tests {
             .push(InkPoint::new(2.0, 5.0, 0.5, 0.0, 20))
             .expect("Third point pushed");
 
-        let pred = builder.predict(25).expect("Prediction should be available for >= 3 points");
-        assert!(pred.x > p3.x, "expected pred.x ({}) > p3.x ({})", pred.x, p3.x);
+        let pred = builder
+            .predict(25)
+            .expect("Prediction should be available for >= 3 points");
+        assert!(
+            pred.x > p3.x,
+            "expected pred.x ({}) > p3.x ({})",
+            pred.x,
+            p3.x
+        );
         assert!((pred.y - p3.y).abs() < 1e-3);
         assert_eq!(pred.t_ms, 25);
     }
@@ -332,17 +357,14 @@ mod tests {
         assert_eq!(res1, res2);
     }
 
-    #[test]
-    fn apply_then_revert_restores_state() {
+    /// Dokumen dengan satu coretan di layer `l1`; mengembalikan `(doc, id, l2)`.
+    fn doc_with_one_stroke() -> (InkDoc, u64, LayerId) {
         let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
         let l1 = lm.insert(());
         let l2 = lm.insert(());
-
         let mut doc = InkDoc::default();
         let bid = doc.brushes.keys().next().unwrap();
-
-        // 1. AddStroke
-        let s = Stroke::new(
+        let id = doc.add_stroke(Stroke::new(
             0,
             vec![
                 InkPoint::new(0.0, 0.0, 0.5, 0.0, 0),
@@ -351,58 +373,72 @@ mod tests {
             bid,
             Rgba([0.0, 0.0, 0.0, 1.0]),
             l1,
-        );
-        let mut add_cmd = AddStroke::new(s);
-        let base_doc = doc.clone();
-        add_cmd.apply(&mut doc);
-        assert_eq!(doc.strokes.len(), 1);
-        add_cmd.revert(&mut doc);
-        assert_eq!(doc, base_doc);
+        ));
+        (doc, id, l2)
+    }
 
-        // Apply it again so we have a stroke to work with
-        add_cmd.apply(&mut doc);
-        let stroke_id = add_cmd.stroke_id().unwrap();
+    /// Terapkan `cmd`, jalankan `check`, lalu pastikan `revert` memulihkan persis.
+    fn assert_roundtrip(
+        doc: &mut InkDoc,
+        mut cmd: impl Command<InkDoc>,
+        check: impl FnOnce(&InkDoc),
+    ) {
+        let before = doc.clone();
+        cmd.apply(doc);
+        check(doc);
+        cmd.revert(doc);
+        assert_eq!(*doc, before);
+    }
 
-        // 2. SetStrokesHidden
-        let before_hidden = doc.clone();
-        let mut hide_cmd = SetStrokesHidden::new(vec![stroke_id], true);
-        hide_cmd.apply(&mut doc);
-        assert!(doc.stroke(stroke_id).unwrap().hidden);
-        hide_cmd.revert(&mut doc);
-        assert_eq!(doc, before_hidden);
+    #[test]
+    fn add_stroke_apply_then_revert_restores_state() {
+        let (mut doc, _, _) = doc_with_one_stroke();
+        let template = doc.strokes[0].clone();
+        assert_roundtrip(&mut doc, AddStroke::new(template), |d| {
+            assert_eq!(d.strokes.len(), 2)
+        });
+    }
 
-        // 3. SetStrokeColor
-        let before_color = doc.clone();
-        let mut color_cmd = SetStrokeColor::new(vec![stroke_id], Rgba([1.0, 0.0, 0.0, 1.0]));
-        color_cmd.apply(&mut doc);
-        assert_eq!(doc.stroke(stroke_id).unwrap().color, Rgba([1.0, 0.0, 0.0, 1.0]));
-        color_cmd.revert(&mut doc);
-        assert_eq!(doc, before_color);
+    #[test]
+    fn set_strokes_hidden_apply_then_revert_restores_state() {
+        let (mut doc, id, _) = doc_with_one_stroke();
+        assert_roundtrip(&mut doc, SetStrokesHidden::new(vec![id], true), |d| {
+            assert!(d.stroke(id).unwrap().hidden)
+        });
+    }
 
-        // 4. MoveStrokesToLayer
-        let before_layer = doc.clone();
-        let mut layer_cmd = MoveStrokesToLayer::new(vec![stroke_id], l2);
-        layer_cmd.apply(&mut doc);
-        assert_eq!(doc.stroke(stroke_id).unwrap().layer, l2);
-        layer_cmd.revert(&mut doc);
-        assert_eq!(doc, before_layer);
+    #[test]
+    fn set_stroke_color_apply_then_revert_restores_state() {
+        let (mut doc, id, _) = doc_with_one_stroke();
+        let red = Rgba([1.0, 0.0, 0.0, 1.0]);
+        assert_roundtrip(&mut doc, SetStrokeColor::new(vec![id], red), |d| {
+            assert_eq!(d.stroke(id).unwrap().color, red)
+        });
+    }
 
-        // 5. TransformStrokes
-        let before_xform = doc.clone();
-        let mut xform_cmd =
-            TransformStrokes::new(vec![stroke_id], kurbo::Affine::translate((5.0, 5.0)));
-        xform_cmd.apply(&mut doc);
-        assert!((doc.stroke(stroke_id).unwrap().points[0].x - 5.0).abs() < 1e-4);
-        xform_cmd.revert(&mut doc);
-        assert_eq!(doc, before_xform);
+    #[test]
+    fn move_strokes_to_layer_apply_then_revert_restores_state() {
+        let (mut doc, id, l2) = doc_with_one_stroke();
+        assert_roundtrip(&mut doc, MoveStrokesToLayer::new(vec![id], l2), |d| {
+            assert_eq!(d.stroke(id).unwrap().layer, l2)
+        });
+    }
 
-        // 6. DeleteStrokes
-        let before_del = doc.clone();
-        let mut del_cmd = DeleteStrokes::new(vec![stroke_id]);
-        del_cmd.apply(&mut doc);
-        assert_eq!(doc.strokes.len(), 0);
-        del_cmd.revert(&mut doc);
-        assert_eq!(doc, before_del);
+    #[test]
+    fn transform_strokes_apply_then_revert_restores_state() {
+        let (mut doc, id, _) = doc_with_one_stroke();
+        let shift = kurbo::Affine::translate((5.0, 5.0));
+        assert_roundtrip(&mut doc, TransformStrokes::new(vec![id], shift), |d| {
+            assert!((d.stroke(id).unwrap().points[0].x - 5.0).abs() < 1e-4)
+        });
+    }
+
+    #[test]
+    fn delete_strokes_apply_then_revert_restores_state() {
+        let (mut doc, id, _) = doc_with_one_stroke();
+        assert_roundtrip(&mut doc, DeleteStrokes::new(vec![id]), |d| {
+            assert!(d.strokes.is_empty())
+        });
     }
 
     #[test]
@@ -682,6 +718,7 @@ mod tests {
             "egui",
             "eframe",
             "wgpu",
+            "ducad-render",
             "ducad-app",
             "ducad-ui",
             "ducad-engine",

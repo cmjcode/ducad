@@ -1,5 +1,7 @@
 //! Indeks spasial R-Tree untuk query coretan tinta cepat dan pre-filtering.
 
+use std::collections::HashMap;
+
 use glam::Vec2;
 use rstar::{RTree, RTreeObject, AABB};
 
@@ -26,6 +28,8 @@ impl RTreeObject for IndexedStroke {
 pub struct SpatialIndex {
     pub(crate) tree: RTree<IndexedStroke>,
     pub(crate) built_rev: u64,
+    /// Id coretan → posisinya di `InkDoc::strokes` (z-order) saat dibangun.
+    pub(crate) z_pos: HashMap<u64, usize>,
 }
 
 impl SpatialIndex {
@@ -41,11 +45,31 @@ impl SpatialIndex {
                 max: [s.bbox.1.x, s.bbox.1.y],
             })
             .collect();
+        let z_pos = doc
+            .strokes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.id, i))
+            .collect();
 
         Self {
             tree: RTree::bulk_load(items),
             built_rev: doc.rev,
+            z_pos,
         }
+    }
+
+    /// Posisi z-order kandidat (coretan non-tersembunyi) yang beririsan
+    /// dengan kotak, terurut dari bawah ke atas.
+    pub(crate) fn candidates_z_ordered(&self, min: Vec2, max: Vec2) -> Vec<usize> {
+        let envelope = AABB::from_corners([min.x, min.y], [max.x, max.y]);
+        let mut pos: Vec<usize> = self
+            .tree
+            .locate_in_envelope_intersecting(&envelope)
+            .filter_map(|item| self.z_pos.get(&item.id).copied())
+            .collect();
+        pos.sort_unstable();
+        pos
     }
 
     pub fn tree(&self) -> &RTree<IndexedStroke> {

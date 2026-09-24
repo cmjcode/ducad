@@ -48,10 +48,11 @@ fn bench_rebuild_strokes(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("rebuild_strokes");
     group.sample_size(10);
-    group.bench_function("rebuild_100_strokes_100pts", |b| {
+    // Kontrak M1.3: 20k coretan × 100 titik (rebuild penuh saat undo/rotasi).
+    group.bench_function("rebuild_20k_strokes_100pts", |b| {
         b.iter(|| {
             let mut out = Vec::new();
-            for _ in 0..100 {
+            for _ in 0..20_000 {
                 build_stroke_vertices(
                     black_box(&stroke),
                     black_box(&brush),

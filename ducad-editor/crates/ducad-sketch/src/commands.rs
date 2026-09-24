@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
 use ducad_core::Command;
 use glam::DVec2;
 use slotmap::Key;
+use std::collections::{HashMap, HashSet};
 
+use crate::constraint::{constraint_is_resolvable, Constraint};
 use crate::entity::{Entity, EntityId};
 use crate::layer::{Group, GroupId, Layer, LayerId, Origin, TextId};
 use crate::ops::translate_entity;
@@ -73,9 +74,48 @@ impl Command<Sketch> for InsertEntities {
     }
 }
 
+/// Constraint yang dilepas dari sketch karena rujukannya tidak lagi valid
+/// (entitas dihapus, node path hilang), beserta indeks aslinya supaya
+/// `revert` bisa memasangnya kembali di posisi semula.
+#[derive(Default)]
+struct DetachedConstraints(Vec<(usize, Constraint)>);
+
+impl DetachedConstraints {
+    /// Lepas semua constraint yang tidak lagi bisa diselesaikan. Dipanggil
+    /// SETELAH entitas dihapus/diganti — tanpa ini solver akan membaca
+    /// entitas yang sudah tidak ada.
+    fn detach_unresolvable(sketch: &mut Sketch) -> Self {
+        let mut detached = Vec::new();
+        let mut kept = Vec::with_capacity(sketch.constraints.len());
+        for (i, c) in std::mem::take(&mut sketch.constraints)
+            .into_iter()
+            .enumerate()
+        {
+            if constraint_is_resolvable(sketch, &c) {
+                kept.push(c);
+            } else {
+                detached.push((i, c));
+            }
+        }
+        sketch.constraints = kept;
+        Self(detached)
+    }
+
+    /// Pasang kembali constraint yang dilepas; id entitas lama dipetakan ke
+    /// id baru hasil pemulihan (`remap`).
+    fn restore(&mut self, sketch: &mut Sketch, remap: &HashMap<EntityId, EntityId>) {
+        for (idx, mut c) in self.0.drain(..) {
+            c.map_entity_ids(|id| remap.get(&id).copied().unwrap_or(id));
+            let idx = idx.min(sketch.constraints.len());
+            sketch.constraints.insert(idx, c);
+        }
+    }
+}
+
 /// Snapshot data entitas yang dihapus untuk mengembalikan style, layer, group, origin, dan z-order saat revert.
 #[derive(Clone)]
 struct DeletedEntityData {
+    old_id: EntityId,
     entity: Entity,
     name: Option<String>,
     style: Option<Style>,
@@ -109,6 +149,7 @@ fn remove_single_entity_data(sketch: &mut Sketch, id: EntityId) -> Option<Delete
     }
     sketch.touch(id);
     Some(DeletedEntityData {
+        old_id: id,
         entity,
         name,
         style,
@@ -164,6 +205,7 @@ fn restore_single_entity_data(sketch: &mut Sketch, data: DeletedEntityData) -> E
 pub struct DeleteEntities {
     ids: Vec<EntityId>,
     removed_data: Vec<DeletedEntityData>,
+    detached: DetachedConstraints,
     restored_ids: Vec<EntityId>,
 }
 
@@ -172,6 +214,7 @@ impl DeleteEntities {
         Self {
             ids,
             removed_data: Vec::new(),
+            detached: DetachedConstraints::default(),
             restored_ids: Vec::new(),
         }
     }
@@ -192,13 +235,18 @@ impl Command<Sketch> for DeleteEntities {
                 self.removed_data.push(data);
             }
         }
+        self.detached = DetachedConstraints::detach_unresolvable(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         self.restored_ids.clear();
+        let mut remap = HashMap::new();
         for data in self.removed_data.drain(..) {
+            let old_id = data.old_id;
             let new_id = restore_single_entity_data(sketch, data);
+            remap.insert(old_id, new_id);
             self.restored_ids.push(new_id);
         }
+        self.detached.restore(sketch, &remap);
         self.ids = self.restored_ids.clone();
     }
 }
@@ -208,6 +256,7 @@ pub struct ReplaceEntities {
     label: &'static str,
     remove_ids: Vec<EntityId>,
     removed_data: Vec<DeletedEntityData>,
+    detached: DetachedConstraints,
     insert: Vec<Entity>,
     insert_styles: Vec<Option<Style>>,
     insert_layers: Vec<Option<LayerId>>,
@@ -220,6 +269,7 @@ impl ReplaceEntities {
             label,
             remove_ids,
             removed_data: Vec::new(),
+            detached: DetachedConstraints::default(),
             insert,
             insert_styles: Vec::new(),
             insert_layers: Vec::new(),
@@ -268,6 +318,7 @@ impl Command<Sketch> for ReplaceEntities {
                 }
                 sketch.touch(id);
                 self.removed_data.push(DeletedEntityData {
+                    old_id: id,
                     entity,
                     name,
                     style,
@@ -296,6 +347,7 @@ impl Command<Sketch> for ReplaceEntities {
                 id
             })
             .collect();
+        self.detached = DetachedConstraints::detach_unresolvable(sketch);
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         for id in self.inserted_ids.drain(..) {
@@ -305,8 +357,10 @@ impl Command<Sketch> for ReplaceEntities {
             sketch.touch(id);
         }
         let mut restored = Vec::new();
+        let mut remap = HashMap::new();
         for data in self.removed_data.drain(..) {
             let new_id = sketch.entities.insert(data.entity);
+            remap.insert(data.old_id, new_id);
             if let Some(name) = data.name {
                 sketch.entity_names.insert(new_id, name);
             }
@@ -335,6 +389,7 @@ impl Command<Sketch> for ReplaceEntities {
             sketch.touch(new_id);
             restored.push(new_id);
         }
+        self.detached.restore(sketch, &remap);
         self.remove_ids = restored;
     }
 }
@@ -345,6 +400,7 @@ pub struct UpdateEntity {
     id: EntityId,
     old_entity: Option<Entity>,
     new_entity: Entity,
+    detached: DetachedConstraints,
     coalesce_key: Option<(&'static str, u64)>,
 }
 
@@ -355,6 +411,7 @@ impl UpdateEntity {
             id,
             old_entity: None,
             new_entity,
+            detached: DetachedConstraints::default(),
             coalesce_key: None,
         }
     }
@@ -382,6 +439,9 @@ impl Command<Sketch> for UpdateEntity {
             self.old_entity = Some(e.clone());
             *e = self.new_entity.clone();
             sketch.touch(self.id);
+            // Path yang kehilangan node/subpath (atau entitas yang berganti
+            // jenis) membuat constraint yang menunjuknya basi.
+            self.detached = DetachedConstraints::detach_unresolvable(sketch);
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
@@ -391,6 +451,7 @@ impl Command<Sketch> for UpdateEntity {
                 sketch.touch(self.id);
             }
         }
+        self.detached.restore(sketch, &HashMap::new());
     }
     fn coalesce_key(&self) -> Option<(&'static str, u64)> {
         self.coalesce_key
@@ -750,6 +811,9 @@ pub struct DeleteLayer {
     removed_layer: Option<Layer>,
     removed_order_idx: Option<usize>,
     moved_entities: Vec<EntityId>,
+    /// Layer pengganti yang DIBUAT `apply` karena yang dihapus adalah layer
+    /// default; dibuang lagi saat `revert`.
+    created_default: Option<LayerId>,
 }
 
 impl DeleteLayer {
@@ -759,6 +823,7 @@ impl DeleteLayer {
             removed_layer: None,
             removed_order_idx: None,
             moved_entities: Vec::new(),
+            created_default: None,
         }
     }
 }
@@ -772,11 +837,13 @@ impl Command<Sketch> for DeleteLayer {
             return;
         }
         let def = sketch.ensure_default_layer();
+        self.created_default = None;
         let target_def = if def == self.layer {
             let new_def = sketch
                 .layers
                 .insert(Layer::new("Layer 1", crate::style::Rgba::WHITE));
             sketch.layer_order.push(new_def);
+            self.created_default = Some(new_def);
             new_def
         } else {
             def
@@ -812,6 +879,10 @@ impl Command<Sketch> for DeleteLayer {
             for &id in &self.moved_entities {
                 sketch.entity_layer.insert(id, restored_lid);
                 sketch.touch(id);
+            }
+            if let Some(created) = self.created_default.take() {
+                sketch.layers.remove(created);
+                sketch.layer_order.retain(|&l| l != created);
             }
             self.layer = restored_lid;
             sketch.touch_all();
@@ -1321,6 +1392,7 @@ pub struct DeleteText {
     id: TextId,
     removed_text: Option<TextObject>,
     removed_glyphs: Vec<DeletedEntityData>,
+    detached: DetachedConstraints,
 }
 
 impl DeleteText {
@@ -1329,6 +1401,7 @@ impl DeleteText {
             id,
             removed_text: None,
             removed_glyphs: Vec::new(),
+            detached: DetachedConstraints::default(),
         }
     }
 
@@ -1350,15 +1423,20 @@ impl Command<Sketch> for DeleteText {
                 }
             }
             self.removed_text = Some(obj);
+            self.detached = DetachedConstraints::detach_unresolvable(sketch);
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(mut obj) = self.removed_text.take() {
             let mut restored_ids = Vec::with_capacity(self.removed_glyphs.len());
+            let mut remap = HashMap::new();
             for data in self.removed_glyphs.drain(..) {
+                let old_id = data.old_id;
                 let nid = restore_single_entity_data(sketch, data);
+                remap.insert(old_id, nid);
                 restored_ids.push(nid);
             }
+            self.detached.restore(sketch, &remap);
             obj.glyph_entities = restored_ids.clone();
             let new_tid = sketch.texts.insert(obj);
             self.id = new_tid;

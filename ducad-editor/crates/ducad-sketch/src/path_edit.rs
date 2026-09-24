@@ -2,8 +2,8 @@
 //!
 //! Logika murni tanpa ketergantungan GUI.
 
-use glam::DVec2;
 use crate::entity::{Entity, PathSeg, Subpath};
+use glam::DVec2;
 
 /// Konstanta kappa baku untuk aproksimasi lingkaran dengan 4 busur Bézier kubik:
 /// kappa = 4/3 * (sqrt(2) - 1) ≈ 0.5522847498307936
@@ -12,11 +12,28 @@ pub const KAPPA: f64 = 0.5522847498307936;
 /// Jenis bentuk dasar untuk dikonversi menjadi [`Subpath`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum VectorShape {
-    Rect { min: DVec2, max: DVec2 },
-    Circle { center: DVec2, radius: f64 },
-    Ellipse { center: DVec2, rx: f64, ry: f64 },
-    Polygon { center: DVec2, radius: f64, sides: usize },
-    Line { start: DVec2, end: DVec2 },
+    Rect {
+        min: DVec2,
+        max: DVec2,
+    },
+    Circle {
+        center: DVec2,
+        radius: f64,
+    },
+    Ellipse {
+        center: DVec2,
+        rx: f64,
+        ry: f64,
+    },
+    Polygon {
+        center: DVec2,
+        radius: f64,
+        sides: usize,
+    },
+    Line {
+        start: DVec2,
+        end: DVec2,
+    },
 }
 
 /// Mengubah persegi/persegi panjang (didefinisikan oleh dua titik berlawanan)
@@ -167,9 +184,10 @@ impl PenBuilder {
             self.start = Some(p);
             self.last_handle = Some(h_out);
         } else {
-            let prev_h = self.last_handle.take().unwrap_or_else(|| {
-                self.last_point().unwrap_or(p)
-            });
+            let prev_h = self
+                .last_handle
+                .take()
+                .unwrap_or_else(|| self.last_point().unwrap_or(p));
             self.segs.push(PathSeg::Cubic {
                 c1: prev_h,
                 c2: h_in,
@@ -204,30 +222,19 @@ impl PenBuilder {
     }
 
     /// Menyelesaikan pembuatan subpath. Mengembalikan None jika jumlah node < 2.
-    pub fn finish(mut self, close: bool) -> Option<Subpath> {
+    pub fn finish(self, close: bool) -> Option<Subpath> {
         let start = self.start?;
         if self.segs.is_empty() {
             return None;
         }
 
-        if close {
-            // Jika segmen terakhir berakhir persis di start, jatuhkan segmen duplikat tersebut
-            // karena closed = true sudah menyiratkan ruas kembali ke start secara implisit.
-            if let Some(last) = self.segs.last() {
-                if (last.end() - start).length() <= 1e-6 {
-                    self.segs.pop();
-                }
-            }
-            if self.segs.is_empty() {
-                return None;
-            }
-        }
-
-        Some(Subpath {
+        let mut sub = Subpath {
             start,
             segs: self.segs,
             closed: close,
-        })
+        };
+        sub.normalize_closing();
+        Some(sub)
     }
 }
 
@@ -332,10 +339,9 @@ fn set_outgoing_handle(sub: &mut Subpath, i: usize, h: DVec2) {
 
 /// Mengetahui jenis kelengkungan node ke-`i` (Corner, Smooth, Symmetric).
 pub fn node_kind(sub: &Subpath, i: usize) -> NodeKind {
-    if sub.node_count() == 0 || i >= sub.node_count() {
+    let Some(p) = sub.node(i) else {
         return NodeKind::Corner;
-    }
-    let p = sub.node(i);
+    };
     let (h_in, h_out) = get_node_handles(sub, i);
     let (Some(hi), Some(ho)) = (h_in, h_out) else {
         return NodeKind::Corner;
@@ -388,7 +394,9 @@ pub fn set_node_kind(sub: &Subpath, i: usize, kind: NodeKind) -> Subpath {
         return res;
     }
 
-    let p = res.node(i);
+    let Some(p) = res.node(i) else {
+        return res;
+    };
     let (h_in, h_out) = get_node_handles(&res, i);
     let (Some(hi), Some(ho)) = (h_in, h_out) else {
         return res;
@@ -399,8 +407,16 @@ pub fn set_node_kind(sub: &Subpath, i: usize, kind: NodeKind) -> Subpath {
     let li = vi.length().max(1.0);
     let lo = vo.length().max(1.0);
 
-    let di = if vi.length_squared() > 1e-9 { vi.normalize() } else { DVec2::new(-1.0, 0.0) };
-    let do_dir = if vo.length_squared() > 1e-9 { vo.normalize() } else { DVec2::new(1.0, 0.0) };
+    let di = if vi.length_squared() > 1e-9 {
+        vi.normalize()
+    } else {
+        DVec2::new(-1.0, 0.0)
+    };
+    let do_dir = if vo.length_squared() > 1e-9 {
+        vo.normalize()
+    } else {
+        DVec2::new(1.0, 0.0)
+    };
 
     // Tangen terusan kurva: arah rata-rata dari vi menjauh menuju vo
     let avg_tangent = (do_dir - di).normalize_or_zero();
@@ -430,21 +446,27 @@ pub fn set_node_kind(sub: &Subpath, i: usize, kind: NodeKind) -> Subpath {
 /// Menggeser posisi node ke-`i` secara murni, handle bergerak kaku bersamanya.
 pub fn move_node(sub: &Subpath, i: usize, to: DVec2) -> Subpath {
     let mut res = sub.clone();
-    res.set_node(i, to);
+    // Indeks di luar rentang: subpath dikembalikan apa adanya.
+    let _ = res.set_node(i, to);
     res
 }
 
 /// Menggeser posisi handle kontrol Bézier pada node ke-`i`.
-pub fn move_handle(sub: &Subpath, i: usize, side: HandleSide, to: DVec2, keep_smooth: bool) -> Subpath {
-    if sub.node_count() == 0 || i >= sub.node_count() {
+pub fn move_handle(
+    sub: &Subpath,
+    i: usize,
+    side: HandleSide,
+    to: DVec2,
+    keep_smooth: bool,
+) -> Subpath {
+    let Some(p) = sub.node(i) else {
         return sub.clone();
-    }
+    };
     let mut res = sub.clone();
     let n = res.segs.len();
     if n == 0 {
         return res;
     }
-    let p = res.node(i);
 
     match side {
         HandleSide::In => {
@@ -585,7 +607,11 @@ pub fn delete_node(sub: &Subpath, i: usize) -> Option<Subpath> {
         }
         let seg_a = sub.segs[i - 1];
         let seg_b = sub.segs[i];
-        let p0 = if i == 1 { sub.start } else { sub.segs[i - 2].end() };
+        let p0 = if i == 1 {
+            sub.start
+        } else {
+            sub.segs[i - 2].end()
+        };
 
         let merged = merge_two_segments(p0, seg_a, seg_b);
         let mut new_segs = sub.segs.clone();
@@ -603,7 +629,7 @@ pub fn delete_node(sub: &Subpath, i: usize) -> Option<Subpath> {
         if i == 0 || i == n {
             let seg_a = sub.segs[n - 1];
             let seg_b = sub.segs[0];
-            let p0 = sub.node(n - 1);
+            let p0 = sub.node(n - 1)?;
             let merged = merge_two_segments(p0, seg_a, seg_b);
             let mut new_segs = sub.segs.clone();
             new_segs.remove(0);
@@ -616,7 +642,11 @@ pub fn delete_node(sub: &Subpath, i: usize) -> Option<Subpath> {
         } else {
             let seg_a = sub.segs[i - 1];
             let seg_b = sub.segs[i];
-            let p0 = if i == 1 { sub.start } else { sub.segs[i - 2].end() };
+            let p0 = if i == 1 {
+                sub.start
+            } else {
+                sub.segs[i - 2].end()
+            };
             let merged = merge_two_segments(p0, seg_a, seg_b);
             let mut new_segs = sub.segs.clone();
             new_segs[i - 1] = merged;
@@ -628,6 +658,44 @@ pub fn delete_node(sub: &Subpath, i: usize) -> Option<Subpath> {
             })
         }
     }
+}
+
+/// Kebalikan subdivisi de Casteljau: bila kubik kiri `p0,l1,l2,m` dan kanan
+/// `m,r1,r2,p3` adalah potongan satu kubik di parameter `t`, kembalikan
+/// kubik aslinya. `t` diperoleh dari rasio `|m-l2| : |r1-m|` (handle di
+/// node hasil split kolinear dengan perbandingan `t : 1-t`), lalu hasilnya
+/// diverifikasi dengan membelah ulang di `t`.
+fn unsplit_cubic(
+    p0: DVec2,
+    l1: DVec2,
+    l2: DVec2,
+    m: DVec2,
+    r1: DVec2,
+    r2: DVec2,
+    p3: DVec2,
+) -> Option<PathSeg> {
+    let (a, b) = ((m - l2).length(), (r1 - m).length());
+    if a + b < 1e-12 {
+        return None;
+    }
+    let t = a / (a + b);
+    if !(1e-6..=1.0 - 1e-6).contains(&t) {
+        return None;
+    }
+    let c1 = p0 + (l1 - p0) / t;
+    let c2 = p3 + (r2 - p3) / (1.0 - t);
+
+    // Verifikasi: belah ulang kubik rekonstruksi di `t`.
+    let lerp = |a: DVec2, b: DVec2| a + (b - a) * t;
+    let (q1, q2, q3) = (lerp(p0, c1), lerp(c1, c2), lerp(c2, p3));
+    let (s1, s2) = (lerp(q1, q2), lerp(q2, q3));
+    let mid = lerp(s1, s2);
+    let scale = (p3 - p0).length().max((c1 - p0).length()).max(1.0);
+    let tol = 1e-7 * scale;
+    let ok = [(q1, l1), (s1, l2), (mid, m), (s2, r1), (q3, r2)]
+        .iter()
+        .all(|(x, y)| (*x - *y).length() <= tol);
+    ok.then_some(PathSeg::Cubic { c1, c2, end: p3 })
 }
 
 fn merge_two_segments(p0: DVec2, seg_a: PathSeg, seg_b: PathSeg) -> PathSeg {
@@ -655,12 +723,26 @@ fn merge_two_segments(p0: DVec2, seg_a: PathSeg, seg_b: PathSeg) -> PathSeg {
         ),
     }
 
-    let chord = (p3 - p0).length();
-    let accuracy = (chord * 0.01).clamp(1e-4, 0.5);
-    let s = kurbo::simplify::SimplifyBezPath::new(&kpath);
-    if let Some((cubic, _)) = kurbo::fit_to_cubic(&s, 0.0..1.0, accuracy)
-        .or_else(|| kurbo::fit_to_cubic(&s, 0.0..1.0, 1.0))
+    // Dua kubik yang merupakan hasil subdivisi satu kubik (mis. sesudah
+    // `insert_node_at`) direkonstruksi EKSAK — fitting hanya untuk kasus umum.
+    if let (
+        PathSeg::Cubic {
+            c1: l1,
+            c2: l2,
+            end: m,
+        },
+        PathSeg::Cubic { c1: r1, c2: r2, .. },
+    ) = (seg_a, seg_b)
     {
+        if let Some(seg) = unsplit_cubic(p0, l1, l2, m, r1, r2, p3) {
+            return seg;
+        }
+    }
+
+    let chord = (p3 - p0).length();
+    let accuracy = (chord * 0.01).clamp(1e-4, 0.1);
+    let s = kurbo::simplify::SimplifyBezPath::new(&kpath);
+    if let Some((cubic, _)) = kurbo::fit_to_cubic(&s, 0.0..1.0, accuracy) {
         PathSeg::Cubic {
             c1: DVec2::new(cubic.p1.x, cubic.p1.y),
             c2: DVec2::new(cubic.p2.x, cubic.p2.y),
@@ -718,7 +800,7 @@ pub fn break_at_node(sub: &Subpath, i: usize) -> (Subpath, Subpath) {
         return (
             sub.clone(),
             Subpath {
-                start: sub.node(i.min(sub.segs.len())),
+                start: sub.node(i.min(sub.segs.len())).unwrap_or(sub.start),
                 segs: Vec::new(),
                 closed: false,
             },
@@ -843,11 +925,8 @@ pub fn closest_point(sub: &Subpath, p: DVec2) -> (usize, f64, DVec2, f64) {
                     kurbo::Point::new(c2.x, c2.y),
                     kurbo::Point::new(end.x, end.y),
                 );
-                let nearest = kurbo::ParamCurveNearest::nearest(
-                    &k_cubic,
-                    kurbo::Point::new(p.x, p.y),
-                    1e-4,
-                );
+                let nearest =
+                    kurbo::ParamCurveNearest::nearest(&k_cubic, kurbo::Point::new(p.x, p.y), 1e-4);
                 let pt = kurbo::ParamCurve::eval(&k_cubic, nearest.t);
                 let pt_dvec = DVec2::new(pt.x, pt.y);
                 let dist = nearest.distance_sq.sqrt();
@@ -1068,7 +1147,10 @@ mod tests {
         assert!(sub.closed, "Rectangle subpath must be closed");
         assert_eq!(sub.segs.len(), 4, "Rectangle must have exactly 4 segments");
         for seg in &sub.segs {
-            assert!(matches!(seg, PathSeg::Line { .. }), "Each segment must be a Line");
+            assert!(
+                matches!(seg, PathSeg::Line { .. }),
+                "Each segment must be a Line"
+            );
         }
         assert_eq!(sub.start, DVec2::new(10.0, 20.0));
         assert_eq!(sub.segs[0].end(), DVec2::new(60.0, 20.0));
@@ -1127,7 +1209,12 @@ mod tests {
         let sub = b.finish(false).expect("should produce subpath");
         assert_eq!(sub.start, DVec2::new(0.0, 0.0));
         assert_eq!(sub.segs.len(), 1);
-        assert_eq!(sub.segs[0], PathSeg::Line { end: DVec2::new(10.0, 0.0) });
+        assert_eq!(
+            sub.segs[0],
+            PathSeg::Line {
+                end: DVec2::new(10.0, 0.0)
+            }
+        );
         assert!(!sub.closed);
     }
 
@@ -1220,18 +1307,22 @@ mod tests {
             let pt_split = if u <= split_t {
                 let local_t = u / split_t;
                 match split.segs[0] {
-                    PathSeg::Cubic { c1: s_c1, c2: s_c2, end: s_end } => {
-                        eval_cubic(split.start, s_c1, s_c2, s_end, local_t)
-                    }
+                    PathSeg::Cubic {
+                        c1: s_c1,
+                        c2: s_c2,
+                        end: s_end,
+                    } => eval_cubic(split.start, s_c1, s_c2, s_end, local_t),
                     _ => panic!("Expected cubic"),
                 }
             } else {
                 let local_t = (u - split_t) / (1.0 - split_t);
                 let p_mid = split.segs[0].end();
                 match split.segs[1] {
-                    PathSeg::Cubic { c1: s_c1, c2: s_c2, end: s_end } => {
-                        eval_cubic(p_mid, s_c1, s_c2, s_end, local_t)
-                    }
+                    PathSeg::Cubic {
+                        c1: s_c1,
+                        c2: s_c2,
+                        end: s_end,
+                    } => eval_cubic(p_mid, s_c1, s_c2, s_end, local_t),
                     _ => panic!("Expected cubic"),
                 }
             };
@@ -1263,9 +1354,11 @@ mod tests {
             let u = i as f64 / 100.0;
             let pt_orig = eval_cubic(p0, c1, c2, p3, u);
             let pt_rest = match restored.segs[0] {
-                PathSeg::Cubic { c1: rc1, c2: rc2, end: rend } => {
-                    eval_cubic(restored.start, rc1, rc2, rend, u)
-                }
+                PathSeg::Cubic {
+                    c1: rc1,
+                    c2: rc2,
+                    end: rend,
+                } => eval_cubic(restored.start, rc1, rc2, rend, u),
                 PathSeg::Line { end } => restored.start.lerp(end, u),
             };
             let err = (pt_orig - pt_rest).length();
@@ -1300,12 +1393,16 @@ mod tests {
         let kind = node_kind(&sub, 1);
         assert!(matches!(kind, NodeKind::Smooth | NodeKind::Symmetric));
 
-        let p = sub.node(1);
+        let p = sub.node(1).unwrap();
         let (h_in, h_out) = get_node_handles(&sub, 1);
         let vi = (h_in.unwrap() - p).normalize();
         let vo = (h_out.unwrap() - p).normalize();
         let dot = vi.dot(vo);
-        assert!(dot < -0.999, "Handles must be collinear and opposite (dot = {})", dot);
+        assert!(
+            dot < -0.999,
+            "Handles must be collinear and opposite (dot = {})",
+            dot
+        );
     }
 
     #[test]
@@ -1313,13 +1410,17 @@ mod tests {
         let sub = Subpath {
             start: DVec2::new(0.0, 0.0),
             segs: vec![
-                PathSeg::Line { end: DVec2::new(10.0, 5.0) },
+                PathSeg::Line {
+                    end: DVec2::new(10.0, 5.0),
+                },
                 PathSeg::Cubic {
                     c1: DVec2::new(15.0, 10.0),
                     c2: DVec2::new(20.0, 0.0),
                     end: DVec2::new(30.0, 5.0),
                 },
-                PathSeg::Line { end: DVec2::new(40.0, 20.0) },
+                PathSeg::Line {
+                    end: DVec2::new(40.0, 20.0),
+                },
             ],
             closed: false,
         };
@@ -1334,7 +1435,9 @@ mod tests {
     fn closest_point_on_line_seg_is_projection() {
         let sub = Subpath {
             start: DVec2::new(0.0, 0.0),
-            segs: vec![PathSeg::Line { end: DVec2::new(10.0, 0.0) }],
+            segs: vec![PathSeg::Line {
+                end: DVec2::new(10.0, 0.0),
+            }],
             closed: false,
         };
         let p = DVec2::new(6.0, 4.0);
@@ -1350,13 +1453,17 @@ mod tests {
         let sub = Subpath {
             start: DVec2::new(1.0, 2.0),
             segs: vec![
-                PathSeg::Line { end: DVec2::new(5.0, 10.0) },
+                PathSeg::Line {
+                    end: DVec2::new(5.0, 10.0),
+                },
                 PathSeg::Cubic {
                     c1: DVec2::new(12.0, 8.0),
                     c2: DVec2::new(15.0, 20.0),
                     end: DVec2::new(25.0, 10.0),
                 },
-                PathSeg::Line { end: DVec2::new(30.0, 0.0) },
+                PathSeg::Line {
+                    end: DVec2::new(30.0, 0.0),
+                },
             ],
             closed: false,
         };
@@ -1396,7 +1503,7 @@ mod tests {
                     PathSeg::Line { end } => restored.start.lerp(end, u),
                 };
                 let err = (pt_orig - pt_rest).length();
-                proptest::prop_assert!(err <= 0.35, "max error {} exceeded 0.35 mm at u={}", err, u);
+                proptest::prop_assert!(err <= 0.1, "max error {} exceeded 0.1 mm at u={}", err, u);
             }
         }
     }
@@ -1423,10 +1530,7 @@ mod tests {
         let p2 = DVec2::new(10.0, 10.0);
         let sub = Subpath {
             start: p0,
-            segs: vec![
-                PathSeg::Line { end: p1 },
-                PathSeg::Line { end: p2 },
-            ],
+            segs: vec![PathSeg::Line { end: p1 }, PathSeg::Line { end: p2 }],
             closed: false,
         };
         let ent = Entity::Path {

@@ -1254,6 +1254,8 @@ impl DuCADApp {
             }
         }
 
+        // Pratinjau Pen & node/handle Node Edit (Mode Vektor).
+        verts.extend(self.vector_overlay_lines(raw_cursor, world_scale));
         verts
     }
 

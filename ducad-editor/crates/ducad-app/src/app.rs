@@ -74,8 +74,11 @@ pub struct DuCADApp {
     pub ink: ducad_ink::InkDoc,
     pub ink_undo: ducad_core::UndoStack<ducad_ink::InkDoc>,
     pub ink_state: crate::ink::tools::InkToolState,
-    pub global_undo_order: Vec<crate::types::UndoTarget>,
-    pub global_redo_order: Vec<crate::types::UndoTarget>,
+    /// Tool terakhir per mode (indeks `AppMode::index`), dipulihkan saat
+    /// kembali ke mode itu.
+    pub mode_last_tool: [Option<ToolKind>; 4],
+    /// Cache render tinta (batch layer per revisi + coretan aktif inkremental).
+    pub ink_render: crate::ink::canvas::InkRenderCache,
     pub selected_bodies: HashSet<BodyId>,
     pub model_status: Option<String>,
     pub extrude_distance_input: String,
@@ -465,8 +468,8 @@ impl DuCADApp {
             ink: ducad_ink::InkDoc::default(),
             ink_undo: ducad_core::UndoStack::default(),
             ink_state: crate::ink::tools::InkToolState::default(),
-            global_undo_order: Vec::new(),
-            global_redo_order: Vec::new(),
+            mode_last_tool: [None; 4],
+            ink_render: Default::default(),
             selected_bodies: HashSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
@@ -765,8 +768,8 @@ impl DuCADApp {
             ink: ducad_ink::InkDoc::default(),
             ink_undo: ducad_core::UndoStack::default(),
             ink_state: crate::ink::tools::InkToolState::default(),
-            global_undo_order: Vec::new(),
-            global_redo_order: Vec::new(),
+            mode_last_tool: [None; 4],
+            ink_render: Default::default(),
             selected_bodies: HashSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
@@ -1117,10 +1120,37 @@ impl DuCADApp {
 
     /// Ubah mode aplikasi aktif (Sketch 2D, Vector 2D, Solid 3D).
     /// Jika berpindah dari Vector ke Solid dan terdapat fitur stale, otomatis lakukan regenerasi jika opsi aktif.
+    /// Pindah mode aplikasi (M6.1, bagian minimal): simpan tool terakhir
+    /// mode lama dan pulihkan milik mode baru; Vektor/Tinta memakai kamera
+    /// `Ortho2D` bidang aktif, 3D Solid kembali ke `Orbit`. Mode Sketsa CAD
+    /// tidak mengubah kamera (ia juga dipakai untuk tampilan 3D biasa).
     pub fn set_app_mode(&mut self, new_mode: crate::mode::AppMode) {
+        use crate::mode::AppMode;
         let old_mode = self.app_mode;
+        if old_mode == new_mode {
+            return;
+        }
+        self.mode_last_tool[old_mode.index()] = Some(self.tool);
         self.app_mode = new_mode;
-        if old_mode == crate::mode::AppMode::Vector && new_mode == crate::mode::AppMode::Solid {
+
+        match new_mode {
+            AppMode::Vector | AppMode::Ink => {
+                self.camera.set_mode(ducad_render::CameraMode::Ortho2D {
+                    plane: self.active_plane,
+                });
+                // Tool vektor hanya aktif saat sketching.
+                self.is_sketching = true;
+                self.left_toolbar.is_sketching = true;
+            }
+            AppMode::Solid => self.camera.set_mode(ducad_render::CameraMode::Orbit),
+            AppMode::Sketch => {}
+        }
+        let tool = self.mode_last_tool[new_mode.index()].unwrap_or(ToolKind::Select);
+        if tool != self.tool {
+            self.set_tool(tool);
+        }
+
+        if old_mode == AppMode::Vector && new_mode == AppMode::Solid {
             self.check_stale_features();
             if self.auto_regenerate_on_mode_switch && self.parametric_dag.needs_regeneration() {
                 let _ = self.regenerate_parametric_model();
@@ -1354,9 +1384,17 @@ impl DuCADApp {
         let (gizmo_positions, gizmo_normals, gizmo_colors, gizmo_indices) =
             self.build_gizmo_mesh(world_scale);
         let grid_extent = self.calculate_grid_extent(raw_cursor);
+        let ink_layers = self.ink_layers_for_frame();
+        let active_ink = self.active_ink_for_frame();
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
+                ink_layers,
+                active_ink,
+                is_2d_canvas: matches!(
+                    self.app_mode,
+                    crate::mode::AppMode::Vector | crate::mode::AppMode::Ink
+                ),
                 view_proj: self.camera.view_proj(aspect),
                 eye: self.camera.eye(),
                 sketch_plane: self.active_plane,
@@ -1516,6 +1554,22 @@ impl eframe::App for DuCADApp {
         let mode_3d_pressed = ctx.input(|i| {
             i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num3)
         });
+        // Jalan masuk mode Vektor & Tinta (sebelumnya hanya bisa dicapai dari tes).
+        let mode_vector_pressed = ctx.input(|i| {
+            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num4)
+        });
+        let mode_ink_pressed = ctx.input(|i| {
+            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num5)
+        });
+        if mode_vector_pressed {
+            self.set_app_mode(crate::mode::AppMode::Vector);
+        }
+        if mode_ink_pressed {
+            self.set_app_mode(crate::mode::AppMode::Ink);
+        }
+        if mode_sketch_pressed && self.app_mode != crate::mode::AppMode::Sketch {
+            self.set_app_mode(crate::mode::AppMode::Sketch);
+        }
         if mode_sketch_pressed && !self.is_sketching {
             self.is_sketching = true;
             self.left_toolbar.is_sketching = true;
@@ -3639,6 +3693,26 @@ impl eframe::App for DuCADApp {
             }
         }
 
+        self.show_transform_dialog(&ctx);
+
+        // Constraint strip untuk seleksi node path (M2.6): muncul di tool
+        // Node Edit, hanya aksi yang berlaku untuk jumlah node terpilih aktif.
+        if self.tool == ToolKind::NodeEdit && !self.vector_state.node_selection.is_empty() {
+            let valid = self.node_constraint_actions();
+            let count = self.vector_state.node_selection.len();
+            let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-strip"))
+                .fixed_pos(egui::pos2(screen_rect.max.x - 56.0, screen_rect.center().y))
+                .pivot(egui::Align2::RIGHT_CENTER)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    ducad_ui::ConstraintStrip::default().show_with_valid(ui, count, Some(&valid))
+                })
+                .inner;
+            if let Some(action) = picked.filter(|a| *a != ducad_ui::ConstraintAction::ToggleSnap) {
+                self.apply_node_constraint(action);
+            }
+        }
+
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
         let has_face_sel = self.active_face.is_some()
@@ -3746,7 +3820,16 @@ impl eframe::App for DuCADApp {
                                 | ContextAction::BringForward
                                 | ContextAction::SendBackward
                                 | ContextAction::Group
-                                | ContextAction::Ungroup => {
+                                | ContextAction::Ungroup
+                                | ContextAction::AlignLeft
+                                | ContextAction::AlignCenterHorizontal
+                                | ContextAction::AlignRight
+                                | ContextAction::AlignTop
+                                | ContextAction::AlignCenterVertical
+                                | ContextAction::AlignBottom
+                                | ContextAction::DistributeHorizontal
+                                | ContextAction::DistributeVertical
+                                | ContextAction::TransformPrecise => {
                                     self.apply_context_action(act);
                                 }
                                 ContextAction::Rename => {
@@ -4323,6 +4406,23 @@ impl DuCADApp {
             ducad_ui::ContextAction::Ungroup => {
                 self.ungroup_selected_entities();
             }
+            ducad_ui::ContextAction::AlignLeft => self.align_selection(crate::vector::AlignMode::Left),
+            ducad_ui::ContextAction::AlignCenterHorizontal => {
+                self.align_selection(crate::vector::AlignMode::CenterHorizontal)
+            }
+            ducad_ui::ContextAction::AlignRight => self.align_selection(crate::vector::AlignMode::Right),
+            ducad_ui::ContextAction::AlignTop => self.align_selection(crate::vector::AlignMode::Top),
+            ducad_ui::ContextAction::AlignCenterVertical => {
+                self.align_selection(crate::vector::AlignMode::CenterVertical)
+            }
+            ducad_ui::ContextAction::AlignBottom => self.align_selection(crate::vector::AlignMode::Bottom),
+            ducad_ui::ContextAction::DistributeHorizontal => {
+                self.distribute_selection(crate::vector::DistributeMode::HorizontalCenters)
+            }
+            ducad_ui::ContextAction::DistributeVertical => {
+                self.distribute_selection(crate::vector::DistributeMode::VerticalCenters)
+            }
+            ducad_ui::ContextAction::TransformPrecise => self.open_transform_dialog(),
             _ => {}
         }
     }

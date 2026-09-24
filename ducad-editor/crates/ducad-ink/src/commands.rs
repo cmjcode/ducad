@@ -3,6 +3,8 @@
 //! Setiap modifikasi coretan tinta diatur melalui trait `ducad_core::undo::Command`
 //! agar mendukung undo/redo deterministik dan penggabungan aksi kontinu.
 
+use std::collections::HashSet;
+
 use ducad_core::undo::Command;
 use ducad_sketch::layer::LayerId;
 use ducad_sketch::style::Rgba;
@@ -45,7 +47,10 @@ impl Command<InkDoc> for AddStroke {
             // Redo: pasang kembali coretan dengan ID aslinya
             self.stroke.id = id;
             self.stroke.recompute_bbox();
-            let idx = self.index.unwrap_or(doc.strokes.len()).min(doc.strokes.len());
+            let idx = self
+                .index
+                .unwrap_or(doc.strokes.len())
+                .min(doc.strokes.len());
             doc.strokes.insert(idx, self.stroke.clone());
         } else {
             // Penerapan pertama: alokasikan next_id dari dokumen
@@ -99,10 +104,12 @@ impl Command<InkDoc> for DeleteStrokes {
     }
 
     fn apply(&mut self, doc: &mut InkDoc) {
+        // Uji keanggotaan O(1); iterasi tetap atas `strokes` (deterministik).
+        let wanted: HashSet<u64> = self.ids.iter().copied().collect();
         self.saved.clear();
         let mut remaining = Vec::with_capacity(doc.strokes.len());
         for (idx, stroke) in doc.strokes.drain(..).enumerate() {
-            if self.ids.contains(&stroke.id) {
+            if wanted.contains(&stroke.id) {
                 self.saved.push((idx, stroke));
             } else {
                 remaining.push(stroke);
@@ -149,9 +156,11 @@ impl Command<InkDoc> for TransformStrokes {
     }
 
     fn apply(&mut self, doc: &mut InkDoc) {
+        // Uji keanggotaan O(1); iterasi tetap atas `strokes` (deterministik).
+        let wanted: HashSet<u64> = self.ids.iter().copied().collect();
         let is_first = self.saved.is_empty();
         for s in &mut doc.strokes {
-            if self.ids.contains(&s.id) {
+            if wanted.contains(&s.id) {
                 if is_first {
                     self.saved.push((s.id, s.points.clone()));
                 }
@@ -200,9 +209,11 @@ impl Command<InkDoc> for SetStrokesHidden {
     }
 
     fn apply(&mut self, doc: &mut InkDoc) {
+        // Uji keanggotaan O(1); iterasi tetap atas `strokes` (deterministik).
+        let wanted: HashSet<u64> = self.ids.iter().copied().collect();
         self.saved.clear();
         for s in &mut doc.strokes {
-            if self.ids.contains(&s.id) {
+            if wanted.contains(&s.id) {
                 self.saved.push((s.id, s.hidden));
                 s.hidden = self.hidden;
             }
@@ -244,9 +255,11 @@ impl Command<InkDoc> for SetStrokeColor {
     }
 
     fn apply(&mut self, doc: &mut InkDoc) {
+        // Uji keanggotaan O(1); iterasi tetap atas `strokes` (deterministik).
+        let wanted: HashSet<u64> = self.ids.iter().copied().collect();
         self.saved.clear();
         for s in &mut doc.strokes {
-            if self.ids.contains(&s.id) {
+            if wanted.contains(&s.id) {
                 self.saved.push((s.id, s.color));
                 s.color = self.color;
             }
@@ -438,9 +451,11 @@ impl Command<InkDoc> for MoveStrokesToLayer {
     }
 
     fn apply(&mut self, doc: &mut InkDoc) {
+        // Uji keanggotaan O(1); iterasi tetap atas `strokes` (deterministik).
+        let wanted: HashSet<u64> = self.ids.iter().copied().collect();
         self.saved.clear();
         for s in &mut doc.strokes {
-            if self.ids.contains(&s.id) {
+            if wanted.contains(&s.id) {
                 self.saved.push((s.id, s.layer));
                 s.layer = self.layer;
             }

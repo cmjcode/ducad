@@ -189,10 +189,7 @@ impl LoadedDocument {
 }
 
 /// Serialize dokumen multi-bidang langsung ke String JSON dengan fitur lengkap.
-pub fn serialize_detailed_to_json(
-    sketches: &[&Sketch],
-    bodies: &[ExportBody],
-) -> Result<String> {
+pub fn serialize_detailed_to_json(sketches: &[&Sketch], bodies: &[ExportBody]) -> Result<String> {
     serialize_detailed_to_json_with_design(sketches, bodies, None)
 }
 
@@ -231,13 +228,11 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
                 // Body yang belum punya UUID mendapatkannya SEKARANG, saat
                 // disimpan — sejak itu ia stabil lintas penyimpanan
                 // berikutnya dan bisa dirujuk dari berkas perakitan lain.
-                uuid: b
-                    .uuid
-                    .clone()
-                    .unwrap_or_else(ducad_core::new_part_uuid),
+                uuid: b.uuid.clone().unwrap_or_else(ducad_core::new_part_uuid),
                 visible: b.visible,
                 material: b.material,
-                step: b.shape
+                step: b
+                    .shape
                     .to_step_string()
                     .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
                 round_history,
@@ -286,8 +281,7 @@ pub fn serialize_to_json(
 
 /// Deserialize dokumen dari String JSON (untuk restore snapshot database).
 pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
-    let file: DuCADFile =
-        serde_json::from_str(json).context("gagal parse snapshot file .ducad")?;
+    let file: DuCADFile = serde_json::from_str(json).context("gagal parse snapshot file .ducad")?;
     if file.format_version > FORMAT_VERSION {
         bail!(
             "snapshot dibuat versi format {} — build DUCAD cuma mengenal sampai versi {FORMAT_VERSION}",
@@ -299,8 +293,9 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         .bodies
         .into_iter()
         .map(|b| {
-            let shape = KernelShape::from_step_string(&b.step)
-                .with_context(|| format!("gagal baca geometri body '{}' dari STEP snapshot", b.name))?;
+            let shape = KernelShape::from_step_string(&b.step).with_context(|| {
+                format!("gagal baca geometri body '{}' dari STEP snapshot", b.name)
+            })?;
             let round_history = if let Some(rh) = b.round_history {
                 match KernelShape::from_step_string(&rh.base_step) {
                     Ok(base_shape) => Some((base_shape, rh.features)),
@@ -389,7 +384,11 @@ pub fn save_multi_plane(
 }
 
 /// Simpan dokumen (single sketch Top XY) ke `path` sebagai JSON.
-pub fn save(path: impl AsRef<Path>, sketch: &Sketch, bodies: &[(&str, bool, ducad_core::Material, &KernelShape)]) -> Result<()> {
+pub fn save(
+    path: impl AsRef<Path>,
+    sketch: &Sketch,
+    bodies: &[(&str, bool, ducad_core::Material, &KernelShape)],
+) -> Result<()> {
     save_multi_plane(
         path,
         &[sketch, &Sketch::default(), &Sketch::default()],
@@ -431,10 +430,22 @@ mod tests {
 
     fn rect_profile(w: f64, h: f64) -> Profile {
         Profile::Loop(vec![
-            ProfileSegment::Line { start: (0.0, 0.0), end: (w, 0.0) },
-            ProfileSegment::Line { start: (w, 0.0), end: (w, h) },
-            ProfileSegment::Line { start: (w, h), end: (0.0, h) },
-            ProfileSegment::Line { start: (0.0, h), end: (0.0, 0.0) },
+            ProfileSegment::Line {
+                start: (0.0, 0.0),
+                end: (w, 0.0),
+            },
+            ProfileSegment::Line {
+                start: (w, 0.0),
+                end: (w, h),
+            },
+            ProfileSegment::Line {
+                start: (w, h),
+                end: (0.0, h),
+            },
+            ProfileSegment::Line {
+                start: (0.0, h),
+                end: (0.0, 0.0),
+            },
         ])
     }
 
@@ -450,10 +461,9 @@ mod tests {
     fn save_load_roundtrip_preserves_sketch_and_body() {
         let _guard = TEST_LOCK.lock().unwrap();
         let mut sketch = Sketch::default();
-        let line_id = sketch.entities.insert(Entity::line(
-            DVec2::new(0.0, 0.0),
-            DVec2::new(10.0, 0.0),
-        ));
+        let line_id = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0)));
         sketch
             .constraints
             .push(ducad_sketch::constraint::Constraint::Horizontal { line: line_id });
@@ -475,7 +485,10 @@ mod tests {
         assert_eq!(loaded.bodies.len(), 1);
         assert_eq!(loaded.bodies[0].name, "Body 1");
         assert!(loaded.bodies[0].visible);
-        assert_eq!(loaded.bodies[0].material.preset, ducad_core::MaterialPreset::AnodizedAluminum);
+        assert_eq!(
+            loaded.bodies[0].material.preset,
+            ducad_core::MaterialPreset::AnodizedAluminum
+        );
         assert_eq!(
             loaded.bodies[0].shape.tessellate().positions.len(),
             shape.tessellate().positions.len()
@@ -501,7 +514,8 @@ mod tests {
     fn v1_file_without_uuid_or_design_still_loads() {
         let _guard = TEST_LOCK.lock().unwrap();
         let shape = box_shape();
-        let json = serialize_detailed_to_json(&[&Sketch::default()], &[export(&shape, None)]).unwrap();
+        let json =
+            serialize_detailed_to_json(&[&Sketch::default()], &[export(&shape, None)]).unwrap();
         // Simulasikan berkas v1 lama: tanpa field `uuid` pada body dan tanpa `design`.
         let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["format_version"], 1);
@@ -517,11 +531,14 @@ mod tests {
     fn format_version_depends_on_design() {
         let _guard = TEST_LOCK.lock().unwrap();
         let shape = box_shape();
-        let without = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], None).unwrap();
+        let without =
+            serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&without).unwrap();
         assert_eq!(v["format_version"], 1);
         let design = serde_json::json!({"schema": 1, "oplog": []});
-        let with = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], Some(&design)).unwrap();
+        let with =
+            serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], Some(&design))
+                .unwrap();
         let v: serde_json::Value = serde_json::from_str(&with).unwrap();
         assert_eq!(v["format_version"], 2);
         let loaded = deserialize_from_json(&with).unwrap();
@@ -535,7 +552,9 @@ mod tests {
         let first = serialize_detailed_to_json(&[], &[export(&shape, None)]).unwrap();
         let loaded = deserialize_from_json(&first).unwrap();
         let uuid = loaded.bodies[0].uuid.clone();
-        let second = serialize_detailed_to_json(&[], &[export(&loaded.bodies[0].shape, Some(uuid.clone()))]).unwrap();
+        let second =
+            serialize_detailed_to_json(&[], &[export(&loaded.bodies[0].shape, Some(uuid.clone()))])
+                .unwrap();
         let again = deserialize_from_json(&second).unwrap();
         assert_eq!(again.bodies[0].uuid, uuid);
     }
@@ -582,7 +601,10 @@ mod tests {
         let bumped = json
             .replacen("\"format_version\": 1", "\"format_version\": 999999", 1)
             .replacen("\"format_version\":1", "\"format_version\": 999999", 1);
-        assert_ne!(json, bumped, "replace format_version harus benar-benar kena");
+        assert_ne!(
+            json, bumped,
+            "replace format_version harus benar-benar kena"
+        );
         std::fs::write(&path, bumped).unwrap();
 
         let result = load(&path);
@@ -609,9 +631,13 @@ mod tests {
         let mut top = Sketch::default();
         top.entities.insert(Entity::circle(DVec2::ZERO, 10.0));
         let mut front = Sketch::default();
-        front.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 20.0)));
+        front
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 20.0)));
         let mut right = Sketch::default();
-        right.entities.insert(Entity::circle(DVec2::new(5.0, 5.0), 3.0));
+        right
+            .entities
+            .insert(Entity::circle(DVec2::new(5.0, 5.0), 3.0));
 
         let sketches = [top, front, right];
         let path = temp_path("multi_plane");
@@ -664,11 +690,57 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(loaded.bodies.len(), 1);
-        let rh = loaded.bodies[0].round_history.as_ref().expect("round history must exist");
+        let rh = loaded.bodies[0]
+            .round_history
+            .as_ref()
+            .expect("round history must exist");
         assert_eq!(rh.1.len(), 1);
         assert_eq!(rh.1[0].kind, NativeRoundKind::Vertex);
         assert_eq!(rh.1[0].style, NativeRoundStyle::Fillet);
         assert_eq!(rh.1[0].radius, 10.0);
         assert_eq!(rh.1[0].anchor, (20.0, 10.0, 5.0));
+    }
+
+    /// Regresi REVIEW-2026-09-24 #3: `bbox` tidak disimpan, jadi harus
+    /// dihitung ulang saat load — kalau tidak, hit-test/culling rusak.
+    #[test]
+    fn loaded_ink_has_valid_bbox() {
+        use ducad_ink::{InkDoc, InkPoint, Stroke};
+        use glam::Vec2;
+
+        let mut ink = InkDoc::default();
+        let brush = ink.brushes.keys().next().unwrap();
+        let layer = ducad_sketch::layer::LayerId::default();
+        let points = vec![
+            InkPoint::new(10.0, 5.0, 0.5, 0.0, 0),
+            InkPoint::new(30.0, 25.0, 0.5, 0.0, 10),
+        ];
+        let id = ink.add_stroke(Stroke::new(
+            0,
+            points,
+            brush,
+            ducad_sketch::style::Rgba([0.0, 0.0, 0.0, 1.0]),
+            layer,
+        ));
+
+        let json =
+            serialize_detailed_to_json_with_design_and_ink(&[], &[], None, Some(&ink)).unwrap();
+        let loaded = deserialize_from_json(&json).unwrap();
+        let mut ink = loaded.ink.expect("dokumen tinta ikut tersimpan");
+
+        let stroke = ink.stroke(id).unwrap();
+        assert_eq!(stroke.bbox.0, Vec2::new(10.0, 5.0));
+        assert_eq!(stroke.bbox.1, Vec2::new(30.0, 25.0));
+        assert_eq!(ink.hit(Vec2::new(20.0, 15.0), 0.5), Some(id));
+        assert_eq!(
+            ink.visible_in(Vec2::new(0.0, 0.0), Vec2::new(12.0, 8.0), &|_| true),
+            vec![id]
+        );
+        ink.ensure_index();
+        let hits = ink
+            .index()
+            .unwrap()
+            .query_aabb(Vec2::new(25.0, 20.0), Vec2::new(26.0, 21.0));
+        assert_eq!(hits, vec![id]);
     }
 }

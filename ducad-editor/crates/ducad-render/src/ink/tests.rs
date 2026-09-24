@@ -1,7 +1,7 @@
-use crate::plane::SketchPlane;
 use super::stroke::{
     append_stroke_vertices, build_stroke_vertices, InkBrushKind, InkBrushRef, InkPointRef,
 };
+use crate::plane::SketchPlane;
 
 #[test]
 fn stroke_vertex_count_is_two_per_point_plus_caps() {
@@ -66,25 +66,27 @@ fn append_equals_full_rebuild() {
     let mut full = Vec::new();
     build_stroke_vertices(&points, &brush, &plane, &mut full);
 
-    // 2. Parsial k=7 lalu append
-    let k = 7;
-    let mut incremental = Vec::new();
-    build_stroke_vertices(&points[..k], &brush, &plane, &mut incremental);
-    append_stroke_vertices(&points, k, &brush, &plane, &mut incremental);
+    // 2. Parsial k titik lalu append — termasuk k=1 (transisi 1→2 titik
+    //    yang mengubah arah start cap; REVIEW-2026-09-24 #18).
+    for k in 1..points.len() {
+        let mut incremental = Vec::new();
+        build_stroke_vertices(&points[..k], &brush, &plane, &mut incremental);
+        append_stroke_vertices(&points, k, &brush, &plane, &mut incremental);
 
-    assert_eq!(full.len(), incremental.len());
-    for (i, (vf, vi)) in full.iter().zip(incremental.iter()).enumerate() {
-        assert!(
-            (vf.pos[0] - vi.pos[0]).abs() < 1e-4
-                && (vf.pos[1] - vi.pos[1]).abs() < 1e-4
-                && (vf.pos[2] - vi.pos[2]).abs() < 1e-4,
-            "Vertex pos mismatch pada index {i}: full={:?}, inc={:?}",
-            vf.pos,
-            vi.pos
-        );
-        assert_eq!(vf.side, vi.side, "Side mismatch pada index {i}");
-        assert_eq!(vf.color, vi.color, "Color mismatch pada index {i}");
-        assert_eq!(vf.soft, vi.soft, "Soft mismatch pada index {i}");
+        assert_eq!(full.len(), incremental.len(), "k={k}");
+        for (i, (vf, vi)) in full.iter().zip(incremental.iter()).enumerate() {
+            assert!(
+                (vf.pos[0] - vi.pos[0]).abs() < 1e-4
+                    && (vf.pos[1] - vi.pos[1]).abs() < 1e-4
+                    && (vf.pos[2] - vi.pos[2]).abs() < 1e-4,
+                "k={k}: vertex pos mismatch pada index {i}: full={:?}, inc={:?}",
+                vf.pos,
+                vi.pos
+            );
+            assert_eq!(vf.side, vi.side, "k={k}: side mismatch pada index {i}");
+            assert_eq!(vf.color, vi.color, "k={k}: color mismatch pada index {i}");
+            assert_eq!(vf.soft, vi.soft, "k={k}: soft mismatch pada index {i}");
+        }
     }
 }
 

@@ -316,8 +316,7 @@ impl DuCADApp {
         let sketch_id = self.active_sketch_id();
         self.sketch_set.set_active(sketch_id);
         self.sketch_set.execute(cmd);
-        self.global_undo_order.push(crate::types::UndoTarget::Sketch);
-        self.global_redo_order.clear();
+        self.clear_redo_except(crate::types::UndoTarget::Sketch);
 
         let (action_title, detail_desc) = match name.as_str() {
             "Line" => ("Sketsa Garis 2D", format!("Menggambar segmen garis di Bidang {}", plane_label)),
@@ -367,8 +366,7 @@ impl DuCADApp {
         };
 
         self.model_undo.execute(cmd, &mut self.model);
-        self.global_undo_order.push(crate::types::UndoTarget::Model);
-        self.global_redo_order.clear();
+        self.clear_redo_except(crate::types::UndoTarget::Model);
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
             action_title,
@@ -380,8 +378,7 @@ impl DuCADApp {
     pub fn execute_ink_command(&mut self, cmd: Box<dyn Command<ducad_ink::InkDoc>>, details: &str) {
         let name = cmd.name().to_string();
         self.ink_undo.execute(cmd, &mut self.ink);
-        self.global_undo_order.push(crate::types::UndoTarget::Ink);
-        self.global_redo_order.clear();
+        self.clear_redo_except(crate::types::UndoTarget::Ink);
         self.record_activity(
             ducad_ui::ActivityKindUi::Sketch2D,
             &name,
@@ -409,76 +406,87 @@ impl DuCADApp {
         self.ink_undo.can_redo()
     }
 
+    /// Aksi baru di satu domain membatalkan redo domain lain — sama seperti
+    /// satu tumpukan undo biasa.
+    pub(crate) fn clear_redo_except(&mut self, keep: crate::types::UndoTarget) {
+        use crate::types::UndoTarget;
+        if keep != UndoTarget::Sketch {
+            self.sketch_set.active_mut().undo.clear_redo();
+        }
+        if keep != UndoTarget::Model {
+            self.model_undo.clear_redo();
+        }
+        if keep != UndoTarget::Ink {
+            self.ink_undo.clear_redo();
+        }
+    }
+
+    /// Tumpukan yang memegang langkah undo paling baru, diturunkan dari
+    /// stempel jam logis tiap tumpukan (lihat `UndoStack::top_undo_stamp`).
+    /// Tidak ada daftar urutan terpisah yang bisa tidak sinkron akibat
+    /// coalescing, transaksi `begin/commit`, atau pengusiran `max_depth`.
+    pub fn next_undo_target(&self) -> Option<crate::types::UndoTarget> {
+        use crate::types::UndoTarget;
+        [
+            (UndoTarget::Sketch, self.sketch_set.active().undo.top_undo_stamp()),
+            (UndoTarget::Model, self.model_undo.top_undo_stamp()),
+            (UndoTarget::Ink, self.ink_undo.top_undo_stamp()),
+        ]
+        .into_iter()
+        .filter_map(|(target, stamp)| stamp.map(|s| (s, target)))
+        .max_by_key(|(s, _)| *s)
+        .map(|(_, target)| target)
+    }
+
+    /// Pasangan redo dari [`Self::next_undo_target`]: tumpukan yang langkahnya
+    /// paling akhir di-undo.
+    pub fn next_redo_target(&self) -> Option<crate::types::UndoTarget> {
+        use crate::types::UndoTarget;
+        [
+            (UndoTarget::Sketch, self.sketch_set.active().undo.top_redo_stamp()),
+            (UndoTarget::Model, self.model_undo.top_redo_stamp()),
+            (UndoTarget::Ink, self.ink_undo.top_redo_stamp()),
+        ]
+        .into_iter()
+        .filter_map(|(target, stamp)| stamp.map(|s| (s, target)))
+        .max_by_key(|(s, _)| *s)
+        .map(|(_, target)| target)
+    }
+
     #[inline]
     pub fn undo(&mut self) {
-        if let Some(target) = self.global_undo_order.pop() {
-            match target {
-                crate::types::UndoTarget::Sketch => {
-                    self.undo_active_sketch();
-                    self.global_redo_order.push(crate::types::UndoTarget::Sketch);
-                }
-                crate::types::UndoTarget::Model => {
-                    self.model_undo.undo(&mut self.model);
-                    self.selected_bodies.clear();
-                    self.global_redo_order.push(crate::types::UndoTarget::Model);
-                }
-                crate::types::UndoTarget::Ink => {
-                    self.undo_active_ink();
-                    self.global_redo_order.push(crate::types::UndoTarget::Ink);
-                }
+        match self.next_undo_target() {
+            Some(crate::types::UndoTarget::Sketch) => self.undo_active_sketch(),
+            Some(crate::types::UndoTarget::Model) => {
+                self.model_undo.undo(&mut self.model);
+                self.selected_bodies.clear();
             }
-        } else if self.can_undo_active_sketch() {
-            self.undo_active_sketch();
-        } else if self.model_undo.can_undo() {
-            self.model_undo.undo(&mut self.model);
-            self.selected_bodies.clear();
-        } else if self.ink_undo.can_undo() {
-            self.undo_active_ink();
+            Some(crate::types::UndoTarget::Ink) => self.undo_active_ink(),
+            None => {}
         }
     }
 
     #[inline]
     pub fn redo(&mut self) {
-        if let Some(target) = self.global_redo_order.pop() {
-            match target {
-                crate::types::UndoTarget::Sketch => {
-                    self.redo_active_sketch();
-                    self.global_undo_order.push(crate::types::UndoTarget::Sketch);
-                }
-                crate::types::UndoTarget::Model => {
-                    self.model_undo.redo(&mut self.model);
-                    self.selected_bodies.clear();
-                    self.global_undo_order.push(crate::types::UndoTarget::Model);
-                }
-                crate::types::UndoTarget::Ink => {
-                    self.redo_active_ink();
-                    self.global_undo_order.push(crate::types::UndoTarget::Ink);
-                }
+        match self.next_redo_target() {
+            Some(crate::types::UndoTarget::Sketch) => self.redo_active_sketch(),
+            Some(crate::types::UndoTarget::Model) => {
+                self.model_undo.redo(&mut self.model);
+                self.selected_bodies.clear();
             }
-        } else if self.can_redo_active_sketch() {
-            self.redo_active_sketch();
-        } else if self.model_undo.can_redo() {
-            self.model_undo.redo(&mut self.model);
-            self.selected_bodies.clear();
-        } else if self.ink_undo.can_redo() {
-            self.redo_active_ink();
+            Some(crate::types::UndoTarget::Ink) => self.redo_active_ink(),
+            None => {}
         }
     }
 
     #[inline]
     pub fn can_undo(&self) -> bool {
-        !self.global_undo_order.is_empty()
-            || self.can_undo_active_sketch()
-            || self.model_undo.can_undo()
-            || self.ink_undo.can_undo()
+        self.next_undo_target().is_some()
     }
 
     #[inline]
     pub fn can_redo(&self) -> bool {
-        !self.global_redo_order.is_empty()
-            || self.can_redo_active_sketch()
-            || self.model_undo.can_redo()
-            || self.ink_undo.can_redo()
+        self.next_redo_target().is_some()
     }
 
     #[inline]
@@ -571,8 +579,6 @@ impl DuCADApp {
         self.model_undo = ducad_core::UndoStack::default();
         self.ink = ducad_ink::InkDoc::default();
         self.ink_undo = ducad_core::UndoStack::default();
-        self.global_undo_order.clear();
-        self.global_redo_order.clear();
         self.selected_bodies.clear();
         self.current_file_path = None;
         self.design = None;
@@ -863,15 +869,8 @@ mod tests {
         );
         assert_eq!(app.ink.strokes.len(), 1);
 
-        // Verify global undo order: [Sketch, Model, Ink]
-        assert_eq!(
-            app.global_undo_order,
-            vec![
-                crate::types::UndoTarget::Sketch,
-                crate::types::UndoTarget::Model,
-                crate::types::UndoTarget::Ink
-            ]
-        );
+        // Urutan global diturunkan dari stempel: aksi terakhir (Ink) di puncak.
+        assert_eq!(app.next_undo_target(), Some(crate::types::UndoTarget::Ink));
 
         // Undo 1: pops Ink
         app.undo();
@@ -908,6 +907,92 @@ mod tests {
         assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
         assert_eq!(app.model.doc.bodies.len(), 1);
         assert_eq!(app.ink.strokes.len(), 1);
+    }
+
+    fn test_stroke(app: &DuCADApp, x: f32) -> ducad_ink::Stroke {
+        let bid = app.ink.brushes.keys().next().unwrap();
+        ducad_ink::Stroke::new(
+            0,
+            vec![ducad_ink::InkPoint::new(x, 0.0, 0.5, 0.0, 0)],
+            bid,
+            ducad_sketch::style::Rgba([0.0, 0.0, 0.0, 1.0]),
+            ducad_sketch::layer::LayerId::default(),
+        )
+    }
+
+    fn insert_test_line(app: &mut DuCADApp) {
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Line",
+            vec![ducad_sketch::Entity::line(
+                glam::DVec2::ZERO,
+                glam::DVec2::new(10.0, 0.0),
+            )],
+        )));
+    }
+
+    /// Regresi REVIEW-2026-09-24 #5: lebih dari `max_depth` aksi satu domain
+    /// tidak boleh membuat undo berikutnya jadi no-op senyap.
+    #[test]
+    fn global_undo_stays_consistent_after_eviction() {
+        let mut app = DuCADApp::new_for_test();
+        insert_test_line(&mut app);
+        let n = ducad_core::undo::DEFAULT_MAX_DEPTH + 5;
+        for i in 0..n {
+            let s = test_stroke(&app, i as f32);
+            app.execute_ink_command(Box::new(ducad_ink::commands::AddStroke::new(s)), "t");
+        }
+        for _ in 0..ducad_core::undo::DEFAULT_MAX_DEPTH {
+            app.undo();
+        }
+        assert_eq!(app.ink.strokes.len(), 5, "lima langkah terlama sudah terusir");
+        assert_eq!(app.next_undo_target(), Some(crate::types::UndoTarget::Sketch));
+        app.undo();
+        assert!(app.sketch_set.active_sketch().entities.is_empty());
+        assert!(!app.can_undo());
+    }
+
+    /// Beberapa `execute_sketch_command` dalam satu transaksi `begin/commit`
+    /// (pola Freehand/Pen) = satu langkah undo global.
+    #[test]
+    fn global_undo_treats_sketch_transaction_as_one_step() {
+        let mut app = DuCADApp::new_for_test();
+        let s = test_stroke(&app, 0.0);
+        app.execute_ink_command(Box::new(ducad_ink::commands::AddStroke::new(s)), "t");
+        app.sketch_set.active_mut().undo.begin("Freehand");
+        insert_test_line(&mut app);
+        insert_test_line(&mut app);
+        app.sketch_set.active_mut().undo.commit();
+
+        app.undo();
+        assert!(app.sketch_set.active_sketch().entities.is_empty());
+        assert_eq!(app.ink.strokes.len(), 1, "undo kedua baru menyentuh tinta");
+        app.undo();
+        assert!(app.ink.strokes.is_empty());
+    }
+
+    /// Regresi REVIEW-2026-09-24 #4: undo sesudah membuka berkas tidak boleh
+    /// menjangkau riwayat dokumen sebelumnya.
+    #[test]
+    fn open_native_resets_global_undo() {
+        let mut app = DuCADApp::new_for_test();
+        insert_test_line(&mut app);
+        let path = std::env::temp_dir().join(format!(
+            "ducad-app-open-reset-{}.ducad",
+            std::process::id()
+        ));
+        app.save_native_to(path.clone());
+        let s = test_stroke(&app, 0.0);
+        app.execute_ink_command(Box::new(ducad_ink::commands::AddStroke::new(s)), "t");
+        assert!(app.can_undo());
+
+        app.open_native_path(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+        assert!(!app.can_undo(), "riwayat dokumen lama harus hilang");
+        assert!(!app.can_redo());
+        app.undo();
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
     }
 }
 

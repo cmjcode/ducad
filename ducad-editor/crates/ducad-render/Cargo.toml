@@ -23,3 +23,7 @@ criterion = { workspace = true }
 [[bench]]
 name = "ink"
 harness = false
+
+[[bench]]
+name = "vector"
+harness = false

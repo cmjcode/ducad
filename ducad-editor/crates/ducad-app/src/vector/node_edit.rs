@@ -17,12 +17,10 @@ pub struct NodeEditTool;
 impl NodeEditTool {
     /// Hit-test node kontrol pada subpath.
     pub fn hit_test_node(sub: &Subpath, cursor: DVec2, hit_radius: f64) -> Option<usize> {
-        let count = sub.node_count();
         let mut best = None;
         let mut min_dist = hit_radius;
 
-        for i in 0..count {
-            let p = sub.node(i);
+        for (i, p) in sub.nodes().enumerate() {
             let d = (p - cursor).length();
             if d <= min_dist {
                 min_dist = d;
@@ -274,11 +272,9 @@ impl NodeEditTool {
         color_handle: [f32; 4],
     ) -> Vec<LineVertex> {
         let mut lines = Vec::new();
-        let count = sub.node_count();
         let half = marker_size * 0.5;
 
-        for i in 0..count {
-            let p = sub.node(i);
+        for (i, p) in sub.nodes().enumerate() {
             let is_selected = selected_nodes.contains(&i);
             let col = if is_selected { color_selected } else { color_node };
             let kind = node_kind(sub, i);
@@ -490,7 +486,7 @@ mod tests {
         let split_ent = NodeEditTool::insert_node_on_entity(&ent, 0, 0, 0.5).expect("insert should succeed");
         if let Entity::Path { subpaths, .. } = &split_ent {
             assert_eq!(subpaths[0].segs.len(), 2);
-            assert_eq!(subpaths[0].node(1), DVec2::new(50.0, 0.0));
+            assert_eq!(subpaths[0].node(1), Some(DVec2::new(50.0, 0.0)));
         } else {
             panic!("Expected Entity::Path");
         }
@@ -498,7 +494,7 @@ mod tests {
         let del_ent = NodeEditTool::delete_node_on_entity(&split_ent, 0, 1).expect("delete should succeed");
         if let Entity::Path { subpaths, .. } = &del_ent {
             assert_eq!(subpaths[0].segs.len(), 1);
-            assert_eq!(subpaths[0].node(1), DVec2::new(100.0, 0.0));
+            assert_eq!(subpaths[0].node(1), Some(DVec2::new(100.0, 0.0)));
         } else {
             panic!("Expected Entity::Path");
         }

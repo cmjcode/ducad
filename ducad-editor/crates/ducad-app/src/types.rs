@@ -204,7 +204,10 @@ pub const RADIAL_TOOLS: [(ToolKind, &str); 8] = [
 
 #[allow(dead_code)]
 pub const KEYBOARD_SHORTCUTS: [(&str, &str); 24] = [
-    ("Cmd+Shift+P / Cmd+K", "Buka Command Palette (Pencarian Perintah)"),
+    (
+        "Cmd+Shift+P / Cmd+K",
+        "Buka Command Palette (Pencarian Perintah)",
+    ),
     ("L", "Tool Garis"),
     ("R", "Tool Persegi"),
     ("C", "Tool Lingkaran"),
@@ -277,6 +280,8 @@ pub enum PaletteAction {
     OpenAssist,
     /// Nyalakan/matikan jembatan agent live (P5.1).
     ToggleAgentBridge,
+    /// Pindah mode aplikasi (Sketsa CAD / Vektor / Tinta / 3D).
+    SetAppMode(crate::mode::AppMode),
 }
 
 pub fn required_points(tool: ToolKind) -> usize {
@@ -363,8 +368,10 @@ impl Measurement {
             Measurement::Distance { a, b } => {
                 Some(unit.format_precise(ducad_sketch::measure::distance(*a, *b)))
             }
-            Measurement::Angle { a, vertex, b } => ducad_sketch::measure::angle_degrees(*a, *vertex, *b)
-                .map(|deg| format!("{deg:.1}°")),
+            Measurement::Angle { a, vertex, b } => {
+                ducad_sketch::measure::angle_degrees(*a, *vertex, *b)
+                    .map(|deg| format!("{deg:.1}°"))
+            }
         }
     }
 }

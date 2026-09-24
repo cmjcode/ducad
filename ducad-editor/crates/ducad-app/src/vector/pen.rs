@@ -20,11 +20,14 @@ pub struct PenTool;
 
 impl PenTool {
     /// Menangani penekanan pointer (mouse down / touch tap).
+    ///
+    /// `close_tol` = jarak (mm) ke node awal yang dianggap "klik node awal".
     pub fn handle_pointer_down(
         builder: &mut PenBuilder,
         pos: DVec2,
         shift: bool,
         snap_pos: Option<DVec2>,
+        close_tol: f64,
     ) -> Option<Subpath> {
         let raw_pos = snap_pos.unwrap_or(pos);
         let final_pos = if shift {
@@ -39,7 +42,7 @@ impl PenTool {
 
         // Jika kursor mengklik kembali titik awal (node penutup):
         if let Some(start) = builder.start {
-            if builder.segs.len() >= 2 && (final_pos - start).length() <= 1e-4 {
+            if builder.segs.len() >= 2 && (final_pos - start).length() <= close_tol.max(1e-4) {
                 return std::mem::take(builder).finish(true);
             }
         }
@@ -48,19 +51,23 @@ impl PenTool {
         None
     }
 
-    /// Menangani drag pointer saat membuat node halus dengan handle kontrol.
+    /// Menangani drag pointer sesudah `handle_pointer_down`: node yang baru
+    /// ditekan (`node`) diganti menjadi node halus dengan handle keluar di
+    /// `current_pos`. `before` = keadaan builder SEBELUM node itu ditambahkan,
+    /// sehingga setiap frame drag menghitung ulang node yang sama — bukan
+    /// menambah node baru per frame. Alt = handle patah (masuk tetap di node).
     pub fn handle_pointer_drag(
         builder: &mut PenBuilder,
+        before: &PenBuilder,
+        node: DVec2,
         current_pos: DVec2,
         alt: bool,
     ) {
-        if let Some(last_p) = builder.last_point() {
-            let handle_out = current_pos;
-            if alt {
-                builder.smooth_broken(last_p, last_p, handle_out);
-            } else {
-                builder.smooth(last_p, handle_out);
-            }
+        *builder = before.clone();
+        if alt {
+            builder.smooth_broken(node, node, current_pos);
+        } else {
+            builder.smooth(node, current_pos);
         }
     }
 
@@ -138,12 +145,12 @@ mod tests {
         let p1 = DVec2::new(10.0, 0.0);
         let p2 = DVec2::new(10.0, 10.0);
 
-        assert!(PenTool::handle_pointer_down(&mut builder, p0, false, None).is_none());
-        assert!(PenTool::handle_pointer_down(&mut builder, p1, false, None).is_none());
-        assert!(PenTool::handle_pointer_down(&mut builder, p2, false, None).is_none());
+        assert!(PenTool::handle_pointer_down(&mut builder, p0, false, None, 1e-4).is_none());
+        assert!(PenTool::handle_pointer_down(&mut builder, p1, false, None, 1e-4).is_none());
+        assert!(PenTool::handle_pointer_down(&mut builder, p2, false, None, 1e-4).is_none());
 
         // Klik titik awal p0 untuk menutup
-        let finished = PenTool::handle_pointer_down(&mut builder, p0, false, None);
+        let finished = PenTool::handle_pointer_down(&mut builder, p0, false, None, 1e-4);
         assert!(finished.is_some());
         let sub = finished.unwrap();
         assert!(sub.closed);

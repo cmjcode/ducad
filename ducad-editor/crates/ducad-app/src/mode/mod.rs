@@ -29,4 +29,80 @@ impl AppMode {
     pub fn is_ink(self) -> bool {
         matches!(self, AppMode::Ink)
     }
+
+    /// Indeks stabil untuk tabel per mode (mis. tool terakhir).
+    pub fn index(self) -> usize {
+        match self {
+            AppMode::Sketch => 0,
+            AppMode::Vector => 1,
+            AppMode::Solid => 2,
+            AppMode::Ink => 3,
+        }
+    }
+
+    /// Label mode untuk UI.
+    pub fn label(self) -> &'static str {
+        match self {
+            AppMode::Sketch => "Mode Sketsa CAD",
+            AppMode::Vector => "Mode Vektor",
+            AppMode::Solid => "Mode 3D Solid",
+            AppMode::Ink => "Mode Sketsa Tinta",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppMode;
+    use crate::app::DuCADApp;
+    use crate::types::ToolKind;
+    use ducad_render::CameraMode;
+
+    #[test]
+    fn set_mode_restores_last_tool_per_mode() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_app_mode(AppMode::Vector);
+        app.set_tool(ToolKind::PenBezier);
+        app.set_app_mode(AppMode::Solid);
+        assert_eq!(
+            app.tool,
+            ToolKind::Select,
+            "mode baru tanpa riwayat → Select"
+        );
+        app.set_tool(ToolKind::Extrude);
+        app.set_app_mode(AppMode::Vector);
+        assert_eq!(app.tool, ToolKind::PenBezier);
+        app.set_app_mode(AppMode::Solid);
+        assert_eq!(app.tool, ToolKind::Extrude);
+    }
+
+    #[test]
+    fn set_mode_switches_camera_mode() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_app_mode(AppMode::Vector);
+        assert!(matches!(app.camera.mode(), CameraMode::Ortho2D { .. }));
+        assert!(app.is_sketching, "tool vektor butuh mode sketching");
+        app.set_app_mode(AppMode::Solid);
+        assert!(matches!(app.camera.mode(), CameraMode::Orbit));
+        app.set_app_mode(AppMode::Ink);
+        assert!(matches!(app.camera.mode(), CameraMode::Ortho2D { .. }));
+    }
+
+    #[test]
+    fn set_mode_is_reachable_from_palette() {
+        let app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        for mode in [
+            AppMode::Vector,
+            AppMode::Ink,
+            AppMode::Sketch,
+            AppMode::Solid,
+        ] {
+            assert!(
+                actions.iter().any(|(label, _, _)| label == mode.label()),
+                "{} harus ada di command palette",
+                mode.label()
+            );
+        }
+    }
 }

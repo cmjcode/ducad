@@ -22,11 +22,31 @@ cargo bench -p ducad-render
 | Benchmark | Waktu Pengukuran (Rata-rata) | Target / Budget | Status |
 | :--- | :--- | :--- | :--- |
 | `append_one_point` | **1.045 µs** | ≤ 50.000 µs (50 µs) | **LULUS** (~48× lebih cepat) |
-| `rebuild_100_strokes_100pts` | **248.19 µs** (~2.48 µs / stroke) | N/A | **LULUS** |
+| `rebuild_20k_strokes_100pts` (kontrak M1.4; menggantikan `rebuild_100_strokes_100pts`) | **120.7 ms** (~6.0 µs / stroke) | N/A (dibangun ulang hanya saat layer berubah) | dicatat |
 
 ### Analisis:
 - `append_one_point` mengupdate buffer vertex goresan yang sedang aktif dengan hanya membuang 2 vertex cap lama dan menambahkan 2 vertex baru + 2 vertex cap baru. Eksekusi ~1.05 µs jauh berada di bawah budget 50 µs, menjamin latensi input stylus/Apple Pencil 120 Hz / 240 Hz bebas jeda (frame budget 8.3 ms).
-- Pembangunan ulang 100 goresan (masing-masing 100 titik sampel) memakan waktu ~248 µs, memungkinkan rekonstruksi layer tinta instan saat rotasi bidang atau pembatalan (undo/redo).
+- Pembangunan ulang 20.000 goresan (masing-masing 100 titik sampel) memakan ~121 ms — terlalu lama untuk satu frame, jadi layer tinta harus dibangun ulang per layer yang berubah (kontrak `set_ink_layers`), bukan seluruh dokumen.
+
+---
+
+## 2a. Hasil Benchmark Vektor, Path, Indeks (review 2026-09-24)
+
+Commit basis `5e82dab` + perbaikan review (belum di-commit), mesin sama.
+
+| Benchmark | Hasil | Budget §7 | Status |
+| :--- | :--- | :--- | :--- |
+| `ducad-render` `tessellate_path_200_segments` | **563 µs** | ≤ 300 µs | **GAGAL** (terbuka) |
+| `ducad-render` `vector_frame/frame_5000_filled_paths_unchanged` (`sync` → `false`) | **88 µs** | ≤ 4 ms | **LULUS** |
+| `ducad-render` `vector_frame/batches_5000_filled_paths` (hanya saat berubah) | **15.0 ms** | — | dicatat |
+| `ducad-sketch` `boolean_{union,difference,intersection}_2x100` | **52–54 µs** | ≤ 5 ms | **LULUS** |
+| `ducad-sketch` `hit_test_20k` | **0.53 µs** | ≤ 1 ms | **LULUS** |
+| `ducad-ink` `hit_20k_indexed` / `hit_20k_linear` | **0.30 µs** / 83 µs | — | jalur indeks ±277× |
+| `ducad-ink` `visible_in_20k_indexed` / `visible_in_20k_linear` | **8.8 µs** / 171 µs | — | jalur indeks ±19× |
+
+Catatan:
+- `tessellate_path_200_segments` melebihi budget ±1,9×. Kandidat: toleransi flatten 0,02 mm terlalu halus untuk path berukuran 100 mm, atau alokasi `VertexBuffers` per panggilan. Perlu profil sebelum optimasi (aturan §1.8).
+- `VectorCache` belum dipanggil dari `ducad-app` (render fill/gradien vektor belum tersambung ke GUI), sehingga angka frame di atas adalah biaya CPU yang *akan* dibayar, bukan yang sekarang terjadi.
 
 ---
 

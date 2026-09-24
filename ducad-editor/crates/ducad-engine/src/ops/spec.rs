@@ -554,7 +554,6 @@ pub struct StyleSpec {
     pub fill_rule: Option<String>, // "nonzero" | "evenodd"
 }
 
-
 /// Constraint sketch. Entitas dirujuk dengan nama; titik dengan
 /// `"<nama>.start" | ".end" | ".center"`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

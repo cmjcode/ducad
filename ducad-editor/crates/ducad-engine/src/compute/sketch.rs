@@ -33,7 +33,6 @@ fn entity_size(e: &Entity) -> Option<f64> {
     }
 }
 
-
 /// Entitas yang sebelum solve berukuran nyata tetapi sesudahnya runtuh
 /// (garis jadi titik, radius jadi nol). Solver kuadrat-terkecil bisa
 /// "memenuhi" constraint yang saling bertentangan — mis. Horizontal +
@@ -72,14 +71,15 @@ pub fn solve_with(
         return Err(OpError::new(
             OpErrorCode::ConstraintUnsolved,
             format!(
-                "Constraint gagal diselesaikan (sisa residual {:.4})",
-                result.final_residual_norm
+                "Constraint gagal diselesaikan (sisa residual {:.4}, {} constraint merujuk entitas/titik yang tidak ada)",
+                result.final_residual_norm, result.skipped
             ),
         )
-        .with_hint("hapus constraint yang saling bertentangan atau ubah nilai dimensinya")
+        .with_hint("hapus constraint yang saling bertentangan, merujuk entitas terhapus, atau ubah nilai dimensinya")
         .with_context(serde_json::json!({
             "residual": result.final_residual_norm,
             "iterations": result.iterations,
+            "skipped": result.skipped,
         })));
     }
     let collapsed = collapsed_entities(sketch, &trial);

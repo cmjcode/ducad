@@ -535,3 +535,65 @@ fn extrude_layer_produces_per_object_bodies() {
     assert_eq!(body.material.base_color, [0.0, 1.0, 0.0, 1.0]);
 }
 
+
+fn rect_path(app: &mut DuCADApp, name: &str, x0: f64) -> ducad_sketch::EntityId {
+    let sub = ducad_sketch::Subpath {
+        start: DVec2::new(x0, 0.0),
+        segs: vec![
+            ducad_sketch::PathSeg::Line { end: DVec2::new(x0 + 10.0, 0.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(x0 + 10.0, 10.0) },
+            ducad_sketch::PathSeg::Line { end: DVec2::new(x0, 10.0) },
+        ],
+        closed: true,
+    };
+    let eid = app.sketch_mut().entities.insert(Entity::path(vec![sub]));
+    app.sketch_mut().entity_names.insert(eid, name.to_string());
+    app.sketch_mut().touch(eid);
+    eid
+}
+
+/// Regresi REVIEW-2026-09-24 #13: satu fitur gagal tidak menghentikan
+/// regenerasi fitur independen sesudahnya.
+#[test]
+fn regenerate_continues_past_failed_independent_feature() {
+    let mut app = DuCADApp::new_for_test();
+    rect_path(&mut app, "ada", 0.0);
+    let f_bad =
+        app.record_extrude_feature_with_sources(5.0, false, vec!["hilang".to_string()], false);
+    let f_ok = app.record_extrude_feature_with_sources(5.0, false, vec!["ada".to_string()], false);
+
+    let res = app.regenerate_parametric_model();
+    let err = res.expect_err("fitur gagal harus dilaporkan");
+    assert!(err.contains("tidak ditemukan"), "{err}");
+    assert!(matches!(
+        app.parametric_dag.get_feature(f_bad).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Error(_)
+    ));
+    assert_eq!(
+        app.parametric_dag.get_feature(f_ok).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Valid,
+        "fitur independen tetap diregenerasi"
+    );
+    assert_volume("fitur valid", total_volume(&app), 500.0);
+}
+
+/// Regresi REVIEW-2026-09-24 #13: varian tanpa jalur regenerasi (Hole) tidak
+/// boleh ditandai `Valid` begitu saja.
+#[test]
+fn regenerate_does_not_mark_unsupported_feature_valid() {
+    let mut app = DuCADApp::new_for_test();
+    rect_path(&mut app, "blok", 0.0);
+    app.record_extrude_feature_with_sources(5.0, false, vec!["blok".to_string()], false);
+    let spec = ducad_core::hole::HoleSpec::for_iso(
+        ducad_core::hole::IsoMetricThread::default(),
+        ducad_core::hole::HoleKind::Simple,
+        3.0,
+    );
+    let f_hole = app.record_hole_feature(spec, (5.0, 5.0, 5.0), (0.0, 0.0, -1.0));
+
+    assert!(app.regenerate_parametric_model().is_err());
+    assert!(matches!(
+        app.parametric_dag.get_feature(f_hole).unwrap().status,
+        ducad_core::parametric::FeatureStatus::Error(_)
+    ));
+}

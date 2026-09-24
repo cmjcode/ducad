@@ -165,8 +165,13 @@ fn compute_point_pair(
     let left_2d = p + normal * hw;
     let right_2d = p - normal * hw;
 
-    let left_3d = ctx.plane.to_world(DVec2::new(left_2d.x as f64, left_2d.y as f64), ctx.z_offset);
-    let right_3d = ctx.plane.to_world(DVec2::new(right_2d.x as f64, right_2d.y as f64), ctx.z_offset);
+    let left_3d = ctx
+        .plane
+        .to_world(DVec2::new(left_2d.x as f64, left_2d.y as f64), ctx.z_offset);
+    let right_3d = ctx.plane.to_world(
+        DVec2::new(right_2d.x as f64, right_2d.y as f64),
+        ctx.z_offset,
+    );
 
     (
         InkVertex {
@@ -205,8 +210,12 @@ fn compute_start_cap(
     let cap_l = cap_center + n0 * (hw * 0.5);
     let cap_r = cap_center - n0 * (hw * 0.5);
 
-    let l3d = ctx.plane.to_world(DVec2::new(cap_l.x as f64, cap_l.y as f64), ctx.z_offset);
-    let r3d = ctx.plane.to_world(DVec2::new(cap_r.x as f64, cap_r.y as f64), ctx.z_offset);
+    let l3d = ctx
+        .plane
+        .to_world(DVec2::new(cap_l.x as f64, cap_l.y as f64), ctx.z_offset);
+    let r3d = ctx
+        .plane
+        .to_world(DVec2::new(cap_r.x as f64, cap_r.y as f64), ctx.z_offset);
 
     (
         InkVertex {
@@ -246,8 +255,12 @@ fn compute_end_cap(
     let cap_l = cap_center + nn * (hw * 0.5);
     let cap_r = cap_center - nn * (hw * 0.5);
 
-    let l3d = ctx.plane.to_world(DVec2::new(cap_l.x as f64, cap_l.y as f64), ctx.z_offset);
-    let r3d = ctx.plane.to_world(DVec2::new(cap_r.x as f64, cap_r.y as f64), ctx.z_offset);
+    let l3d = ctx
+        .plane
+        .to_world(DVec2::new(cap_l.x as f64, cap_l.y as f64), ctx.z_offset);
+    let r3d = ctx
+        .plane
+        .to_world(DVec2::new(cap_r.x as f64, cap_r.y as f64), ctx.z_offset);
 
     (
         InkVertex {
@@ -357,6 +370,14 @@ pub fn append_stroke_vertices(
         color,
         soft,
     };
+
+    // Tangen titik 0 bergantung pada titik 1: pada transisi 1→2 titik arah
+    // start cap berubah (sebelumnya tangen bawaan untuk titik tunggal).
+    if from == 1 {
+        let (cap_sl, cap_sr) = compute_start_cap(points, &tangents, &ctx);
+        out[0] = cap_sl;
+        out[1] = cap_sr;
+    }
 
     // Perbarui titik `from - 1` karena sekarang ia menghubungkan ke titik baru
     let (vl_prev, vr_prev) = compute_point_pair(points, from - 1, &tangents, &ctx);

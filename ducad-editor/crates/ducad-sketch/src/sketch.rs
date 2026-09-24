@@ -1,6 +1,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::constraint::Constraint;
 use crate::entity::{Entity, EntityId};
@@ -9,15 +10,39 @@ use crate::layer::{Group, GroupId, Layer, LayerId, Origin, TextId};
 use crate::style::{Rgba, Style};
 use crate::text::TextObject;
 
+/// Isi cache indeks spasial: indeks (bila sudah dibangun) dan entitas yang
+/// geometrinya berubah sejak pembaruan terakhir.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SpatialState {
+    pub(crate) index: Option<SpatialIndex>,
+    /// Dikonsumsi (`drain`) saat indeks diperbarui; dibatasi agar tidak
+    /// tumbuh tanpa batas bila indeks tidak pernah di-query.
+    pub(crate) dirty: Vec<EntityId>,
+}
+
 /// Cache indeks spasial internal untuk Sketch.
 #[derive(Debug, Default)]
-pub struct SpatialCache(pub(crate) std::sync::RwLock<Option<SpatialIndex>>);
+pub struct SpatialCache(pub(crate) RwLock<SpatialState>);
+
+impl SpatialCache {
+    /// Lock yang ter-poison (panic di thread lain saat memegang lock) tetap
+    /// dipakai: isinya hanya cache yang bisa dibangun ulang.
+    pub(crate) fn read(&self) -> RwLockReadGuard<'_, SpatialState> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, SpatialState> {
+        self.0.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn get_mut(&mut self) -> &mut SpatialState {
+        self.0.get_mut().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 impl Clone for SpatialCache {
     fn clone(&self) -> Self {
-        let guard = self.0.read().ok();
-        let val = guard.and_then(|g| g.clone());
-        Self(std::sync::RwLock::new(val))
+        Self(RwLock::new(self.read().clone()))
     }
 }
 
@@ -68,15 +93,16 @@ pub struct Sketch {
     #[serde(default)]
     pub swatches: Vec<Rgba>,
 
-
     /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
     #[serde(skip)]
     pub rev: slotmap::SecondaryMap<EntityId, u64>,
     #[serde(skip)]
     pub global_rev: u64,
-
+    /// Revisi GEOMETRI: hanya naik lewat [`Sketch::touch`], tidak oleh
+    /// perubahan layer ([`Sketch::touch_all`]). Dasar kesegaran indeks spasial.
     #[serde(skip)]
-    pub(crate) dirty_entities: Vec<EntityId>,
+    pub geom_rev: u64,
+
     #[serde(skip)]
     pub(crate) spatial_cache: SpatialCache,
 }
@@ -87,75 +113,81 @@ impl Sketch {
         self.global_rev = self.global_rev.wrapping_add(1);
         let next_rev = self.rev.get(id).copied().unwrap_or(0).wrapping_add(1);
         self.rev.insert(id, next_rev);
-        self.dirty_entities.push(id);
+        self.geom_rev = self.geom_rev.wrapping_add(1);
+        let limit = self.entities.len().max(64);
+        let state = self.spatial_cache.get_mut();
+        if state.dirty.len() >= limit {
+            // Terlalu banyak perubahan tertunda: bangun ulang penuh lebih murah.
+            state.dirty.clear();
+            state.index = None;
+        } else {
+            state.dirty.push(id);
+        }
     }
 
+    /// Tandai SEMUA entitas berubah secara visual (mis. urutan layer yang
+    /// memengaruhi Z-offset tesselasi). Geometri tidak berubah, jadi indeks
+    /// spasial tidak ikut dibangun ulang.
     pub fn touch_all(&mut self) {
         self.global_rev = self.global_rev.wrapping_add(1);
         for id in self.entities.keys() {
             let next_rev = self.rev.get(id).copied().unwrap_or(0).wrapping_add(1);
             self.rev.insert(id, next_rev);
         }
-        self.dirty_entities.clear();
-        if let Ok(mut guard) = self.spatial_cache.0.write() {
-            *guard = None;
-        }
     }
 
     /// Bangun/perbarui indeks bbox. O(k log n) untuk k entitas yang berubah sejak `built_rev`.
     pub fn spatial(&mut self) -> &SpatialIndex {
         self.ensure_spatial_index();
-        let cache = self.spatial_cache.0.get_mut().unwrap();
-        cache.as_ref().unwrap()
+        self.spatial_cache
+            .get_mut()
+            .index
+            .get_or_insert_with(SpatialIndex::default)
     }
 
     /// Query semua EntityId yang bounding box-nya beririsan dengan titik `p` yang diperluas `tol`.
     pub fn query_spatial_point(&self, p: DVec2, tol: f64) -> Vec<EntityId> {
         self.ensure_spatial_index();
-        let guard = self.spatial_cache.0.read().unwrap();
-        if let Some(index) = guard.as_ref() {
-            index.query_point(p, tol)
-        } else {
-            Vec::new()
-        }
+        let state = self.spatial_cache.read();
+        state
+            .index
+            .as_ref()
+            .map(|index| index.query_point(p, tol))
+            .unwrap_or_default()
     }
 
     /// Query semua EntityId yang bounding box-nya beririsan dengan kotak `[min, max]`.
     pub fn query_spatial_rect(&self, min: DVec2, max: DVec2) -> Vec<EntityId> {
         self.ensure_spatial_index();
-        let guard = self.spatial_cache.0.read().unwrap();
-        if let Some(index) = guard.as_ref() {
-            index.query_rect(min, max)
-        } else {
-            Vec::new()
-        }
+        let state = self.spatial_cache.read();
+        state
+            .index
+            .as_ref()
+            .map(|index| index.query_rect(min, max))
+            .unwrap_or_default()
     }
 
-    fn ensure_spatial_index(&self) {
-        let needs_update = {
-            let guard = self.spatial_cache.0.read().unwrap();
-            match guard.as_ref() {
-                None => true,
-                Some(idx) => {
-                    idx.built_rev() != self.global_rev || idx.entity_count != self.entities.len()
-                }
-            }
-        };
+    fn index_is_fresh(&self, state: &SpatialState) -> bool {
+        state.index.as_ref().is_some_and(|idx| {
+            idx.built_rev() == self.geom_rev && idx.entity_count == self.entities.len()
+        })
+    }
 
-        if needs_update {
-            let mut guard = self.spatial_cache.0.write().unwrap();
-            let still_needs = match guard.as_ref() {
-                None => true,
-                Some(idx) => {
-                    idx.built_rev() != self.global_rev || idx.entity_count != self.entities.len()
-                }
-            };
-            if still_needs {
-                let mut index = guard.take().unwrap_or_default();
-                index.update_from_sketch(self, None);
-                *guard = Some(index);
-            }
+    /// Perbarui indeks: inkremental O(k log n) atas entitas kotor bila
+    /// indeks ada, bangun ulang penuh bila belum ada atau jumlah entitas
+    /// berubah tanpa `touch` (mutasi langsung di luar command).
+    fn ensure_spatial_index(&self) {
+        if self.index_is_fresh(&self.spatial_cache.read()) {
+            return;
         }
+        let mut state = self.spatial_cache.write();
+        if self.index_is_fresh(&state) {
+            return;
+        }
+        let dirty: Vec<EntityId> = state.dirty.drain(..).collect();
+        let mut index = state.index.take().unwrap_or_default();
+        index.update_from_sketch(self, Some(&dirty));
+        state.index = Some(index);
     }
 
     /// Mengecek apakah entitas sedang disembunyikan.
@@ -286,7 +318,10 @@ impl Sketch {
 
     /// Gaya visual entitas `id`, atau `Style::cad_default()` jika tidak memiliki style eksplisit.
     pub fn style_of(&self, id: EntityId) -> Style {
-        self.styles.get(id).cloned().unwrap_or_else(Style::cad_default)
+        self.styles
+            .get(id)
+            .cloned()
+            .unwrap_or_else(Style::cad_default)
     }
 
     /// Mengambil LayerId dari entitas `id` jika ada.
@@ -425,4 +460,3 @@ impl Sketch {
         Some(curr)
     }
 }
-

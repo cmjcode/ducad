@@ -80,10 +80,7 @@ impl SpatialIndex {
     /// Query semua EntityId yang bounding box-nya beririsan dengan titik `p` yang diperluas `tol`.
     pub fn query_point(&self, p: DVec2, tol: f64) -> Vec<EntityId> {
         let tol = tol.abs();
-        let query_env = AABB::from_corners(
-            [p.x - tol, p.y - tol],
-            [p.x + tol, p.y + tol],
-        );
+        let query_env = AABB::from_corners([p.x - tol, p.y - tol], [p.x + tol, p.y + tol]);
         self.tree
             .locate_in_envelope_intersecting(&query_env)
             .map(|b| b.id)
@@ -120,7 +117,7 @@ impl SpatialIndex {
         self.tree = RTree::bulk_load(rtree_boxes);
         self.boxes = new_boxes;
         self.last_rev = new_last_rev;
-        self.built_rev = sketch.global_rev;
+        self.built_rev = sketch.geom_rev;
         self.entity_count = sketch.entities.len();
     }
 
@@ -131,9 +128,31 @@ impl SpatialIndex {
             return;
         }
 
-        // Jika ada daftar entitas yang kotor, lakukan pembaruan O(k log n)
+        // Daftar kotor hanya dipakai bila ia menjelaskan seluruh perubahan
+        // jumlah entitas; mutasi langsung di luar command (tanpa `touch`)
+        // jatuh ke pemindaian penuh di bawah.
+        let dirty: Option<Vec<EntityId>> = dirty.map(|d| {
+            let mut seen = std::collections::HashSet::with_capacity(d.len());
+            d.iter().copied().filter(|id| seen.insert(*id)).collect()
+        });
+        let dirty = dirty.filter(|d| {
+            let removed = d
+                .iter()
+                .filter(|id| {
+                    self.last_rev.contains_key(**id) && !sketch.entities.contains_key(**id)
+                })
+                .count();
+            let added = d
+                .iter()
+                .filter(|id| {
+                    sketch.entities.contains_key(**id) && !self.last_rev.contains_key(**id)
+                })
+                .count();
+            self.entity_count + added == sketch.entities.len() + removed
+        });
+
         if let Some(dirty_ids) = dirty {
-            for &id in dirty_ids {
+            for &id in &dirty_ids {
                 let current_rev = sketch.rev.get(id).copied().unwrap_or(0);
                 if let Some(entity) = sketch.entities.get(id) {
                     if let Some(old_box) = self.boxes.remove(id) {
@@ -151,7 +170,7 @@ impl SpatialIndex {
                     self.last_rev.remove(id);
                 }
             }
-            self.built_rev = sketch.global_rev;
+            self.built_rev = sketch.geom_rev;
             self.entity_count = sketch.entities.len();
             return;
         }
@@ -183,7 +202,7 @@ impl SpatialIndex {
             self.last_rev.insert(id, rev);
         }
 
-        self.built_rev = sketch.global_rev;
+        self.built_rev = sketch.geom_rev;
         self.entity_count = sketch.entities.len();
     }
 }
@@ -191,18 +210,22 @@ impl SpatialIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ducad_core::Command;
     use crate::commands::{
         DeleteEntities, InsertEntities, RenameEntities, ReplaceEntities, ResizeRectangle,
         ToggleConstruction, TranslateEntities, UpdateEntity,
     };
     use crate::entity::{PathSeg, Subpath};
+    use ducad_core::Command;
 
     #[test]
     fn touch_increments_entity_and_global_rev() {
         let mut sketch = Sketch::default();
-        let id1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
-        let id2 = sketch.entities.insert(Entity::circle(DVec2::new(20.0, 20.0), 5.0));
+        let id1 = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let id2 = sketch
+            .entities
+            .insert(Entity::circle(DVec2::new(20.0, 20.0), 5.0));
 
         assert_eq!(sketch.global_rev, 0);
         assert_eq!(sketch.rev.get(id1), None);
@@ -272,14 +295,21 @@ mod tests {
 
         // 5. ResizeRectangle
         let mut sketch = Sketch::default();
-        let l1 = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
-        let l2 = sketch.entities.insert(Entity::line(DVec2::new(10.0, 0.0), DVec2::new(10.0, 5.0)));
+        let l1 = sketch
+            .entities
+            .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 0.0)));
+        let l2 = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(10.0, 0.0), DVec2::new(10.0, 5.0)));
         let rev0 = sketch.global_rev;
         let mut cmd_resize = ResizeRectangle::new(
             "resize",
             vec![
                 (l1, Entity::line(DVec2::ZERO, DVec2::new(20.0, 0.0))),
-                (l2, Entity::line(DVec2::new(20.0, 0.0), DVec2::new(20.0, 5.0))),
+                (
+                    l2,
+                    Entity::line(DVec2::new(20.0, 0.0), DVec2::new(20.0, 5.0)),
+                ),
             ],
         );
         cmd_resize.apply(&mut sketch);
@@ -318,7 +348,10 @@ mod tests {
     struct SimpleRng(u64);
     impl SimpleRng {
         fn next_u32(&mut self) -> u32 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (self.0 >> 32) as u32
         }
         fn next_f64(&mut self, min: f64, max: f64) -> f64 {
@@ -341,14 +374,8 @@ mod tests {
             for _ in 0..count {
                 let kind = rng.next_u32() % 5;
                 let entity = match kind {
-                    0 => Entity::line(
-                        rng.next_dvec2(-100.0, 100.0),
-                        rng.next_dvec2(-100.0, 100.0),
-                    ),
-                    1 => Entity::circle(
-                        rng.next_dvec2(-100.0, 100.0),
-                        rng.next_f64(1.0, 30.0),
-                    ),
+                    0 => Entity::line(rng.next_dvec2(-100.0, 100.0), rng.next_dvec2(-100.0, 100.0)),
+                    1 => Entity::circle(rng.next_dvec2(-100.0, 100.0), rng.next_f64(1.0, 30.0)),
                     2 => Entity::Arc {
                         center: rng.next_dvec2(-100.0, 100.0),
                         radius: rng.next_f64(5.0, 40.0),
@@ -412,5 +439,68 @@ mod tests {
             }
         }
     }
-}
 
+    /// Regresi REVIEW-2026-09-24 #15: operasi layer (visual) tidak boleh
+    /// membangun ulang indeks spasial; perubahan geometri tetap terlihat.
+    #[test]
+    fn layer_rename_keeps_spatial_index_and_dirty_is_drained() {
+        use crate::commands::RenameLayer;
+        use crate::layer::Layer;
+
+        let mut sketch = Sketch::default();
+        let lid = sketch
+            .layers
+            .insert(Layer::new("A", crate::style::Rgba::WHITE));
+        sketch.layer_order.push(lid);
+        let mut ins = InsertEntities::new(
+            "Line",
+            (0..10)
+                .map(|i| {
+                    Entity::line(
+                        DVec2::new(i as f64 * 10.0, 0.0),
+                        DVec2::new(i as f64 * 10.0 + 5.0, 0.0),
+                    )
+                })
+                .collect(),
+        );
+        ins.apply(&mut sketch);
+        let geom_before = sketch.spatial().built_rev();
+
+        let mut rename = RenameLayer::new(lid, "B");
+        rename.apply(&mut sketch);
+        assert_eq!(
+            sketch.geom_rev, geom_before,
+            "ganti nama layer bukan perubahan geometri"
+        );
+        assert!(
+            sketch.spatial_cache.read().index.is_some(),
+            "indeks tidak dibuang"
+        );
+
+        let id = sketch.entities.keys().next().unwrap();
+        let mut mv = TranslateEntities::new("Move", vec![id], DVec2::new(0.0, 100.0));
+        mv.apply(&mut sketch);
+        assert_eq!(sketch.spatial_cache.read().dirty.len(), 1);
+        let hits = sketch.query_spatial_point(DVec2::new(2.0, 100.0), 0.5);
+        assert_eq!(hits, vec![id]);
+        assert!(
+            sketch.spatial_cache.read().dirty.is_empty(),
+            "daftar kotor dikonsumsi"
+        );
+    }
+
+    /// Daftar kotor dibatasi walau indeks tidak pernah di-query.
+    #[test]
+    fn dirty_list_is_bounded_without_queries() {
+        let mut sketch = Sketch::default();
+        let id = sketch.entities.insert(Entity::line(DVec2::ZERO, DVec2::X));
+        for _ in 0..1000 {
+            sketch.touch(id);
+        }
+        assert!(sketch.spatial_cache.read().dirty.len() <= 64);
+        assert_eq!(
+            sketch.query_spatial_point(DVec2::new(0.5, 0.0), 0.1),
+            vec![id]
+        );
+    }
+}

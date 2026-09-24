@@ -25,3 +25,7 @@ proptest = { workspace = true }
 [[bench]]
 name = "index"
 harness = false
+
+[[bench]]
+name = "path_ops"
+harness = false

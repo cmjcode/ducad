@@ -17,7 +17,9 @@ fn horizontal_levels_a_tilted_line() {
     let l = line(&mut sketch, DVec2::new(0.0, 0.0), DVec2::new(10.0, 3.0));
     let result = solve(&mut sketch, &[Constraint::Horizontal { line: l }]);
     assert!(result.converged);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((end.y - start.y).abs() < 1e-6);
 }
 
@@ -27,7 +29,9 @@ fn vertical_straightens_a_line() {
     let l = line(&mut sketch, DVec2::new(0.0, 0.0), DVec2::new(4.0, 10.0));
     let result = solve(&mut sketch, &[Constraint::Vertical { line: l }]);
     assert!(result.converged);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((end.x - start.x).abs() < 1e-6);
 }
 
@@ -38,8 +42,14 @@ fn parallel_aligns_two_line_directions() {
     let b = line(&mut sketch, DVec2::new(0.0, 5.0), DVec2::new(8.0, 7.0));
     let result = solve(&mut sketch, &[Constraint::Parallel { a, b }]);
     assert!(result.converged);
-    let (Entity::Line { start: sa, end: ea, .. }, Entity::Line { start: sb, end: eb, .. }) =
-        (sketch.entities[a].clone(), sketch.entities[b].clone())
+    let (
+        Entity::Line {
+            start: sa, end: ea, ..
+        },
+        Entity::Line {
+            start: sb, end: eb, ..
+        },
+    ) = (sketch.entities[a].clone(), sketch.entities[b].clone())
     else {
         unreachable!()
     };
@@ -54,8 +64,14 @@ fn perpendicular_makes_directions_orthogonal() {
     let b = line(&mut sketch, DVec2::new(0.0, 0.0), DVec2::new(8.0, 2.0));
     let result = solve(&mut sketch, &[Constraint::Perpendicular { a, b }]);
     assert!(result.converged);
-    let (Entity::Line { start: sa, end: ea, .. }, Entity::Line { start: sb, end: eb, .. }) =
-        (sketch.entities[a].clone(), sketch.entities[b].clone())
+    let (
+        Entity::Line {
+            start: sa, end: ea, ..
+        },
+        Entity::Line {
+            start: sb, end: eb, ..
+        },
+    ) = (sketch.entities[a].clone(), sketch.entities[b].clone())
     else {
         unreachable!()
     };
@@ -76,7 +92,9 @@ fn distance_sets_exact_length_between_two_points() {
         }],
     );
     assert!(result.converged);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!(((end - start).length() - 25.0).abs() < 1e-5);
 }
 
@@ -84,9 +102,17 @@ fn distance_sets_exact_length_between_two_points() {
 fn radius_sets_exact_circle_radius() {
     let mut sketch = Sketch::default();
     let c = circle(&mut sketch, DVec2::ZERO, 5.0);
-    let result = solve(&mut sketch, &[Constraint::Radius { entity: c, value: 12.5 }]);
+    let result = solve(
+        &mut sketch,
+        &[Constraint::Radius {
+            entity: c,
+            value: 12.5,
+        }],
+    );
     assert!(result.converged);
-    let Entity::Circle { radius, .. } = sketch.entities[c] else { unreachable!() };
+    let Entity::Circle { radius, .. } = sketch.entities[c] else {
+        unreachable!()
+    };
     assert!((radius - 12.5).abs() < 1e-6);
 }
 
@@ -118,8 +144,14 @@ fn equal_length_matches_two_lines() {
     let b = line(&mut sketch, DVec2::new(0.0, 5.0), DVec2::new(3.0, 5.0));
     let result = solve(&mut sketch, &[Constraint::EqualLength { a, b }]);
     assert!(result.converged);
-    let (Entity::Line { start: sa, end: ea, .. }, Entity::Line { start: sb, end: eb, .. }) =
-        (sketch.entities[a].clone(), sketch.entities[b].clone())
+    let (
+        Entity::Line {
+            start: sa, end: ea, ..
+        },
+        Entity::Line {
+            start: sb, end: eb, ..
+        },
+    ) = (sketch.entities[a].clone(), sketch.entities[b].clone())
     else {
         unreachable!()
     };
@@ -147,10 +179,23 @@ fn angle_sets_angle_between_two_lines() {
     let a = line(&mut sketch, DVec2::new(0.0, 0.0), DVec2::new(10.0, 0.0));
     let b = line(&mut sketch, DVec2::new(0.0, 0.0), DVec2::new(10.0, 1.0));
     let target = std::f64::consts::FRAC_PI_4;
-    let result = solve(&mut sketch, &[Constraint::Angle { a, b, value: target }]);
+    let result = solve(
+        &mut sketch,
+        &[Constraint::Angle {
+            a,
+            b,
+            value: target,
+        }],
+    );
     assert!(result.converged);
-    let (Entity::Line { start: sa, end: ea, .. }, Entity::Line { start: sb, end: eb, .. }) =
-        (sketch.entities[a].clone(), sketch.entities[b].clone())
+    let (
+        Entity::Line {
+            start: sa, end: ea, ..
+        },
+        Entity::Line {
+            start: sb, end: eb, ..
+        },
+    ) = (sketch.entities[a].clone(), sketch.entities[b].clone())
     else {
         unreachable!()
     };
@@ -175,7 +220,9 @@ fn fixed_pins_a_point_while_other_constraint_is_satisfied() {
         ],
     );
     assert!(result.converged);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((start - target).length() < 1e-5);
     assert!((end.y - start.y).abs() < 1e-5);
 }
@@ -207,8 +254,18 @@ fn tangent_external_sets_center_distance_to_sum_of_radii() {
     let b = circle(&mut sketch, DVec2::new(9.0, 0.0), 3.0);
     let result = solve(&mut sketch, &[Constraint::Tangent { a, b }]);
     assert!(result.converged);
-    let (Entity::Circle { center: ca, radius: ra, .. }, Entity::Circle { center: cb, radius: rb, .. }) =
-        (sketch.entities[a].clone(), sketch.entities[b].clone())
+    let (
+        Entity::Circle {
+            center: ca,
+            radius: ra,
+            ..
+        },
+        Entity::Circle {
+            center: cb,
+            radius: rb,
+            ..
+        },
+    ) = (sketch.entities[a].clone(), sketch.entities[b].clone())
     else {
         unreachable!()
     };
@@ -233,17 +290,24 @@ fn tangent_line_circle_sets_distance_to_radius() {
 #[test]
 fn tangent_works_with_arc_too() {
     let mut sketch = Sketch::default();
-    let arc = sketch.entities.insert(Entity::arc(
-        DVec2::ZERO,
-        5.0,
-        0.0,
-        std::f64::consts::PI,
-    ));
+    let arc = sketch
+        .entities
+        .insert(Entity::arc(DVec2::ZERO, 5.0, 0.0, std::f64::consts::PI));
     let c = circle(&mut sketch, DVec2::new(9.0, 0.0), 3.0);
     let result = solve(&mut sketch, &[Constraint::Tangent { a: arc, b: c }]);
     assert!(result.converged);
-    let (Entity::Arc { center: ca, radius: ra, .. }, Entity::Circle { center: cb, radius: rb, .. }) =
-        (sketch.entities[arc].clone(), sketch.entities[c].clone())
+    let (
+        Entity::Arc {
+            center: ca,
+            radius: ra,
+            ..
+        },
+        Entity::Circle {
+            center: cb,
+            radius: rb,
+            ..
+        },
+    ) = (sketch.entities[arc].clone(), sketch.entities[c].clone())
     else {
         unreachable!()
     };
@@ -268,7 +332,11 @@ fn symmetric_mirrors_point_b_to_match_reflection_of_a() {
     let (
         Entity::Line { start: pa, .. },
         Entity::Line { start: pb, .. },
-        Entity::Line { start: axis_s, end: axis_e, .. },
+        Entity::Line {
+            start: axis_s,
+            end: axis_e,
+            ..
+        },
     ) = (
         sketch.entities[a].clone(),
         sketch.entities[b].clone(),
@@ -307,17 +375,23 @@ fn add_constraint_undo_restores_geometry_and_constraint_list() {
         &mut sketch,
     );
     assert_eq!(sketch.constraints.len(), 1);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((end.y - start.y).abs() < 1e-6);
 
     undo.undo(&mut sketch);
     assert_eq!(sketch.constraints.len(), 0);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((end.y - start.y - 4.0).abs() < 1e-9);
 
     undo.redo(&mut sketch);
     assert_eq!(sketch.constraints.len(), 1);
-    let Entity::Line { start, end, .. } = sketch.entities[l] else { unreachable!() };
+    let Entity::Line { start, end, .. } = sketch.entities[l] else {
+        unreachable!()
+    };
     assert!((end.y - start.y).abs() < 1e-6);
 }
 
@@ -395,10 +469,9 @@ mod p1_2 {
         let a = sketch
             .entities
             .insert(Entity::line(DVec2::ZERO, DVec2::new(10.0, 3.0)));
-        let b = sketch.entities.insert(Entity::line(
-            DVec2::new(100.0, 0.0),
-            DVec2::new(110.0, 4.0),
-        ));
+        let b = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(100.0, 0.0), DVec2::new(110.0, 4.0)));
 
         let res = solve(
             &mut sketch,
@@ -762,8 +835,8 @@ mod p1_2 {
             unreachable!()
         };
         let sp = &subpaths[0];
-        let new_node0 = sp.node(0);
-        let new_node1 = sp.node(1);
+        let new_node0 = sp.node(0).unwrap();
+        let new_node1 = sp.node(1).unwrap();
         let PathSeg::Cubic {
             c1: new_c1,
             c2: new_c2,
@@ -844,5 +917,148 @@ mod p1_2 {
         assert_eq!(report_constr.unknowns, 6);
         assert_eq!(report_constr.rank, 2);
         assert_eq!(report_constr.dof, 4);
+    }
+}
+
+/// Regresi REVIEW-2026-09-24 #1–#2: constraint yatim/basi tidak boleh membuat
+/// solver panic, dan undo harus memulihkannya.
+mod stale_references {
+    use super::*;
+    use crate::commands::{DeleteEntities, UpdateEntity};
+    use crate::entity::{PathSeg, Subpath};
+    use ducad_core::Command;
+
+    fn two_node_path(sketch: &mut Sketch) -> EntityId {
+        sketch.entities.insert(Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::ZERO,
+                segs: vec![
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 0.0),
+                    },
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 10.0),
+                    },
+                ],
+                closed: false,
+            }],
+            is_construction: false,
+        })
+    }
+
+    #[test]
+    fn delete_entity_removes_its_constraints_and_solve_does_not_panic() {
+        let mut sketch = Sketch::default();
+        let a = line(&mut sketch, DVec2::ZERO, DVec2::new(10.0, 1.0));
+        let b = line(&mut sketch, DVec2::new(0.0, 5.0), DVec2::new(10.0, 7.0));
+        sketch.constraints.push(Constraint::Horizontal { line: a });
+        sketch.constraints.push(Constraint::Parallel { a, b });
+        sketch.constraints.push(Constraint::Horizontal { line: b });
+
+        let mut cmd = DeleteEntities::new(vec![a]);
+        cmd.apply(&mut sketch);
+
+        assert_eq!(
+            sketch.constraints.len(),
+            1,
+            "hanya constraint milik b tersisa"
+        );
+        let snapshot = sketch.constraints.clone();
+        let res = solve(&mut sketch, &snapshot);
+        assert!(res.converged);
+        assert_eq!(res.skipped, 0);
+    }
+
+    #[test]
+    fn solve_skips_orphan_constraint_without_panicking() {
+        let mut sketch = Sketch::default();
+        let a = line(&mut sketch, DVec2::ZERO, DVec2::new(10.0, 1.0));
+        let orphan = Constraint::Horizontal { line: a };
+        sketch.entities.remove(a);
+        let res = solve(&mut sketch, std::slice::from_ref(&orphan));
+        assert!(!res.converged, "constraint yatim harus dilaporkan gagal");
+        assert_eq!(res.skipped, 1);
+        let report = analyze_dof(&sketch, &[orphan]);
+        assert_eq!(report.unknowns, 0);
+    }
+
+    #[test]
+    fn revert_restores_removed_constraints() {
+        let mut sketch = Sketch::default();
+        let a = line(&mut sketch, DVec2::ZERO, DVec2::new(10.0, 1.0));
+        let b = line(&mut sketch, DVec2::new(0.0, 5.0), DVec2::new(10.0, 7.0));
+        sketch.constraints.push(Constraint::Horizontal { line: b });
+        sketch.constraints.push(Constraint::Parallel { a, b });
+
+        let mut cmd = DeleteEntities::new(vec![a]);
+        cmd.apply(&mut sketch);
+        assert_eq!(sketch.constraints.len(), 1);
+        cmd.revert(&mut sketch);
+
+        assert_eq!(sketch.constraints.len(), 2);
+        let restored_a = cmd.restored_ids()[0];
+        match &sketch.constraints[1] {
+            Constraint::Parallel { a: ra, b: rb } => {
+                assert_eq!(*ra, restored_a, "id dipetakan ke entitas hasil pemulihan");
+                assert_eq!(*rb, b);
+            }
+            other => panic!("urutan constraint berubah: {other:?}"),
+        }
+        let snapshot = sketch.constraints.clone();
+        assert!(solve(&mut sketch, &snapshot).converged);
+    }
+
+    #[test]
+    fn stale_path_node_constraint_is_dropped_not_panicking() {
+        let mut sketch = Sketch::default();
+        let p = two_node_path(&mut sketch);
+        let node2 = PointRef::PathNode {
+            id: p,
+            sub: 0,
+            node: 2,
+        };
+        sketch.constraints.push(Constraint::Fixed {
+            point: node2,
+            target: DVec2::new(10.0, 12.0),
+        });
+
+        // Path dipendekkan: node 2 hilang.
+        let shorter = Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::ZERO,
+                segs: vec![PathSeg::Line {
+                    end: DVec2::new(10.0, 0.0),
+                }],
+                closed: false,
+            }],
+            is_construction: false,
+        };
+        let mut cmd = UpdateEntity::new("Edit Node", p, shorter);
+        cmd.apply(&mut sketch);
+        assert!(
+            sketch.constraints.is_empty(),
+            "constraint ke node hilang dilepas"
+        );
+
+        // Solver dengan rujukan basi (sub & node di luar rentang) tidak panic.
+        let stale = [
+            Constraint::Fixed {
+                point: node2,
+                target: DVec2::ZERO,
+            },
+            Constraint::Fixed {
+                point: PointRef::PathNode {
+                    id: p,
+                    sub: 3,
+                    node: 0,
+                },
+                target: DVec2::ZERO,
+            },
+        ];
+        let res = solve(&mut sketch, &stale);
+        assert_eq!(res.skipped, 2);
+
+        cmd.revert(&mut sketch);
+        assert_eq!(sketch.constraints.len(), 1, "undo memulihkan constraint");
     }
 }

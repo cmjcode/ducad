@@ -6,6 +6,7 @@ pub mod types;
 mod tests;
 
 pub use commands::{AddConstraint, RemoveConstraint, UpdateConstraint};
-pub use solver::{analyze_dof, solve, ConstraintState, DofReport, SolveResult};
+pub use solver::{
+    analyze_dof, constraint_is_resolvable, solve, ConstraintState, DofReport, SolveResult,
+};
 pub use types::{point_ref_position, Constraint, PointRef};
-

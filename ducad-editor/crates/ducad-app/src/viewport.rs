@@ -1,5 +1,6 @@
 use ducad_render::{
-    DraftConfig, LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, StudioConfig, ZebraConfig,
+    DraftConfig, LineVertex, OrbitCamera, PlaneKind, SceneRenderer, SketchPlane, StudioConfig,
+    ZebraConfig,
 };
 use ducad_sketch::{EntityId, Sketch};
 use eframe::egui;
@@ -8,6 +9,12 @@ use glam::{DVec2, Mat4, Vec3};
 
 /// Callback render wgpu di viewport egui.
 pub struct ViewportCallback {
+    /// Batch layer tinta baru — `None` = tidak berubah, pakai buffer GPU lama.
+    pub ink_layers: Option<Vec<ducad_render::InkLayerBatch>>,
+    /// Pembaruan inkremental buffer coretan aktif.
+    pub active_ink: crate::ink::canvas::ActiveInkUpdate,
+    /// Mode kanvas 2D (Vektor/Tinta): tinta tanpa depth test.
+    pub is_2d_canvas: bool,
     pub view_proj: Mat4,
     pub eye: Vec3,
     pub sketch_plane: SketchPlane,
@@ -43,6 +50,12 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
             scene.set_grid_plane_with_extent(device, &self.sketch_plane, self.grid_extent, 10.0);
             scene.set_overlay_lines(device, &self.overlay_lines);
+            scene.set_2d_mode(self.is_2d_canvas);
+            if let Some(layers) = &self.ink_layers {
+                scene.set_ink_layers(device, queue, layers);
+            }
+            scene.truncate_active_ink(self.active_ink.keep);
+            scene.push_active_ink(device, queue, &self.active_ink.tail);
             scene.set_body_edges(device, &self.body_edge_lines);
             scene.set_mesh(
                 device,
@@ -95,7 +108,12 @@ pub fn screen_to_ray(camera: &OrbitCamera, rect: egui::Rect, pos: egui::Pos2) ->
 }
 
 /// Cari entitas sketch yang di-hit di titik 2D `p` dengan selection cycling.
-pub fn hit_test_cycled(sketch: &Sketch, p: DVec2, tolerance: f64, cycle: usize) -> Option<EntityId> {
+pub fn hit_test_cycled(
+    sketch: &Sketch,
+    p: DVec2,
+    tolerance: f64,
+    cycle: usize,
+) -> Option<EntityId> {
     let mut candidates: Vec<(EntityId, f64)> = sketch
         .entities
         .iter()

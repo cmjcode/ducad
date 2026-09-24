@@ -119,6 +119,12 @@ impl DuCADApp {
         let Some(path) = self.pick_open_path(&filter_name, &["ducad"]) else {
             return;
         };
+        self.open_native_path(path);
+    }
+
+    /// Buka berkas `.ducad` pada `path` — seluruh tumpukan undo diganti baru,
+    /// sehingga urutan undo global (turunan stempel tiap tumpukan) ikut bersih.
+    pub fn open_native_path(&mut self, path: PathBuf) {
         match ducad_io::native::load(&path) {
             Ok(loaded) => {
                 self.load_standard_plane_sketches(

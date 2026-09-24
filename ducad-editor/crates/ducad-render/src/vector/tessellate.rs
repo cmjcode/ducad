@@ -10,8 +10,8 @@ use glam::DVec2;
 use lyon_path::Path;
 use lyon_tessellation::{
     BuffersBuilder, FillOptions, FillRule as LyonFillRule, FillTessellator, FillVertex,
-    LineCap as LyonLineCap, LineJoin as LyonLineJoin, StrokeOptions, StrokeTessellator, StrokeVertex,
-    VertexBuffers,
+    LineCap as LyonLineCap, LineJoin as LyonLineJoin, StrokeOptions, StrokeTessellator,
+    StrokeVertex, VertexBuffers,
 };
 
 use crate::plane::SketchPlane;
@@ -256,7 +256,9 @@ pub fn entity_to_subpaths(entity: &Entity) -> Result<Vec<Subpath>, TessError> {
             }
             // Cacah busur sudut ke segmen kurbo
             let sweep = end_angle - start_angle;
-            let n_steps = (sweep.abs() / (std::f64::consts::PI / 16.0)).ceil().max(4.0) as usize;
+            let n_steps = (sweep.abs() / (std::f64::consts::PI / 16.0))
+                .ceil()
+                .max(4.0) as usize;
             let mut segs = Vec::with_capacity(n_steps);
             let start = DVec2::new(
                 center.x + radius * start_angle.cos(),
@@ -350,7 +352,10 @@ pub fn tessellate_fill(
         if sub.segs.is_empty() && !sub.closed {
             continue;
         }
-        builder.begin(lyon_path::geom::point(sub.start.x as f32, sub.start.y as f32));
+        builder.begin(lyon_path::geom::point(
+            sub.start.x as f32,
+            sub.start.y as f32,
+        ));
         for seg in &sub.segs {
             has_segments = true;
             match seg {
@@ -370,7 +375,9 @@ pub fn tessellate_fill(
     }
 
     if !has_segments {
-        return Err(TessError::Degenerate("tidak ada segmen untuk di-fill".into()));
+        return Err(TessError::Degenerate(
+            "tidak ada segmen untuk di-fill".into(),
+        ));
     }
 
     let path = builder.build();
@@ -538,8 +545,7 @@ pub fn tessellate_stroke(
         for p in &poly[1..] {
             builder.line_to(lyon_path::geom::point(p.x as f32, p.y as f32));
         }
-        let is_closed =
-            (poly.first().unwrap() - poly.last().unwrap()).length_squared() < 1e-12;
+        let is_closed = (poly.first().unwrap() - poly.last().unwrap()).length_squared() < 1e-12;
         builder.end(is_closed);
     }
 
@@ -636,7 +642,21 @@ pub fn tessellate_entity(
                 ..*opts
             };
             let polylines = subpaths_to_stroked_polylines(&subpaths, &stroke.dash, opts.tol_mm);
-            let stroke_tess = tessellate_stroke(&polylines, stroke, plane, &stroke_opts);
+            let mut stroke_tess = tessellate_stroke(&polylines, stroke, plane, &stroke_opts);
+            // Indeks gradien per entitas mengikuti urutan cache: gradien fill
+            // (bila ada) di slot 1, gradien stroke sesudahnya. Tanpa geseran
+            // ini stroke bergradien memakai gradien fill.
+            let fill_gradients = u32::from(
+                style
+                    .fill
+                    .as_ref()
+                    .is_some_and(|f| !matches!(f, Paint::Solid(_))),
+            );
+            if fill_gradients > 0 {
+                for v in stroke_tess.vertices.iter_mut().filter(|v| v.paint > 0) {
+                    v.paint += fill_gradients;
+                }
+            }
             result.append(stroke_tess);
         }
     }

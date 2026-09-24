@@ -29,7 +29,10 @@ impl PartialEq for InkDoc {
         self.strokes == other.strokes
             && self.next_id == other.next_id
             && self.brushes.len() == other.brushes.len()
-            && self.brushes.iter().all(|(k, v)| other.brushes.get(k) == Some(v))
+            && self
+                .brushes
+                .iter()
+                .all(|(k, v)| other.brushes.get(k) == Some(v))
     }
 }
 
@@ -90,65 +93,62 @@ impl InkDoc {
         self.index.as_ref()
     }
 
+    /// Indeks spasial bila masih sesuai revisi dokumen saat ini.
+    fn fresh_index(&self) -> Option<&SpatialIndex> {
+        self.index.as_ref().filter(|i| i.built_rev == self.rev)
+    }
+
     /// Mengembalikan ID coretan yang terlihat di dalam viewport kotak (min..max)
     /// dan layer-nya aktif terlihat, terurut berdasarkan z-order.
+    ///
+    /// Memakai indeks spasial bila segar (O(log n + k)); selain itu linear.
+    /// Hasil keduanya identik.
     pub fn visible_in(
         &self,
         min: Vec2,
         max: Vec2,
         layers_visible: &dyn Fn(LayerId) -> bool,
     ) -> Vec<u64> {
-        let mut out = Vec::new();
-        for s in &self.strokes {
-            if s.hidden {
-                continue;
-            }
-            if !layers_visible(s.layer) {
-                continue;
-            }
-            let overlaps = s.bbox.0.x <= max.x
-                && s.bbox.1.x >= min.x
-                && s.bbox.0.y <= max.y
-                && s.bbox.1.y >= min.y;
-            if overlaps {
-                out.push(s.id);
-            }
+        let overlaps = |s: &Stroke| {
+            s.bbox.0.x <= max.x && s.bbox.1.x >= min.x && s.bbox.0.y <= max.y && s.bbox.1.y >= min.y
+        };
+        let keep = |s: &Stroke| !s.hidden && layers_visible(s.layer) && overlaps(s);
+        match self.fresh_index() {
+            Some(index) => index
+                .candidates_z_ordered(min, max)
+                .into_iter()
+                .filter_map(|i| self.strokes.get(i))
+                .filter(|s| keep(s))
+                .map(|s| s.id)
+                .collect(),
+            None => self
+                .strokes
+                .iter()
+                .filter(|s| keep(s))
+                .map(|s| s.id)
+                .collect(),
         }
-        out
     }
 
     /// Hit-test: mengembalikan ID coretan teratas dalam toleransi jarak `tol` (mm).
+    ///
+    /// Memakai indeks spasial bila segar; selain itu linear. Hasil identik.
     pub fn hit(&self, p: Vec2, tol: f32) -> Option<u64> {
-        for s in self.strokes.iter().rev() {
-            if s.hidden {
-                continue;
-            }
-            // Pemeriksaan awal AABB dengan toleransi
-            if p.x < s.bbox.0.x - tol
-                || p.x > s.bbox.1.x + tol
-                || p.y < s.bbox.0.y - tol
-                || p.y > s.bbox.1.y + tol
-            {
-                continue;
-            }
-            if s.points.is_empty() {
-                continue;
-            }
-            if s.points.len() == 1 {
-                if (p - s.points[0].pos()).length() <= tol {
-                    return Some(s.id);
-                }
-                continue;
-            }
-            for i in 1..s.points.len() {
-                let p0 = s.points[i - 1].pos();
-                let p1 = s.points[i].pos();
-                if dist_to_segment(p, p0, p1) <= tol {
-                    return Some(s.id);
-                }
-            }
+        match self.fresh_index() {
+            Some(index) => index
+                .candidates_z_ordered(p - Vec2::splat(tol), p + Vec2::splat(tol))
+                .into_iter()
+                .rev()
+                .filter_map(|i| self.strokes.get(i))
+                .find(|s| stroke_hit(s, p, tol))
+                .map(|s| s.id),
+            None => self
+                .strokes
+                .iter()
+                .rev()
+                .find(|s| stroke_hit(s, p, tol))
+                .map(|s| s.id),
         }
-        None
     }
 
     /// Perkiraan total penggunaan memori dokumen dalam byte (heap + stack).
@@ -163,6 +163,25 @@ impl InkDoc {
     }
 }
 
+/// Apakah `p` berada dalam jarak `tol` dari coretan `s` (tersembunyi = tidak).
+fn stroke_hit(s: &Stroke, p: Vec2, tol: f32) -> bool {
+    if s.hidden
+        || p.x < s.bbox.0.x - tol
+        || p.x > s.bbox.1.x + tol
+        || p.y < s.bbox.0.y - tol
+        || p.y > s.bbox.1.y + tol
+    {
+        return false;
+    }
+    match s.points.as_slice() {
+        [] => false,
+        [only] => (p - only.pos()).length() <= tol,
+        pts => pts
+            .windows(2)
+            .any(|w| dist_to_segment(p, w[0].pos(), w[1].pos()) <= tol),
+    }
+}
+
 /// Jarak tegak lurus dari titik `p` ke ruas garis `a..b`.
 fn dist_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let ab = b - a;
@@ -174,4 +193,57 @@ fn dist_to_segment(p: Vec2, a: Vec2, b: Vec2) -> f32 {
     let t = (ap.dot(ab) / ab_len_sq).clamp(0.0, 1.0);
     let proj = a + ab * t;
     (p - proj).length()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stroke::InkPoint;
+
+    fn doc_with_grid(n: usize) -> InkDoc {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        for i in 0..n {
+            let (x, y) = ((i % 20) as f32 * 7.0, (i / 20) as f32 * 7.0);
+            let mut s = Stroke::new(
+                0,
+                vec![
+                    InkPoint::new(x, y, 0.5, 0.0, 0),
+                    InkPoint::new(x + 9.0, y + 4.0, 0.5, 0.0, 10),
+                ],
+                bid,
+                ducad_sketch::style::Rgba([0.0, 0.0, 0.0, 1.0]),
+                LayerId::default(),
+            );
+            s.hidden = i.is_multiple_of(7);
+            doc.add_stroke(s);
+        }
+        doc
+    }
+
+    /// Regresi REVIEW-2026-09-24 #16: jalur indeks dan jalur linear memberi
+    /// hasil identik (termasuk urutan z dan coretan tersembunyi).
+    #[test]
+    fn indexed_queries_match_linear() {
+        let linear = doc_with_grid(200);
+        let mut indexed = linear.clone();
+        indexed.ensure_index();
+        assert!(indexed.fresh_index().is_some());
+        assert!(linear.fresh_index().is_none());
+
+        for (min, max) in [
+            (Vec2::new(0.0, 0.0), Vec2::new(30.0, 30.0)),
+            (Vec2::new(50.0, 20.0), Vec2::new(51.0, 60.0)),
+            (Vec2::new(-10.0, -10.0), Vec2::new(500.0, 500.0)),
+        ] {
+            assert_eq!(
+                indexed.visible_in(min, max, &|_| true),
+                linear.visible_in(min, max, &|_| true)
+            );
+        }
+        for i in 0..60 {
+            let p = Vec2::new(i as f32 * 2.3, i as f32 * 1.1);
+            assert_eq!(indexed.hit(p, 1.5), linear.hit(p, 1.5), "p = {p:?}");
+        }
+    }
 }

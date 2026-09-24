@@ -252,10 +252,45 @@ fn from_style_sets_material_color() {
     assert!(r.committed, "{:?}", r.error);
     let (bid, _) = s.body("solid").unwrap();
     let body = s.model().doc.bodies.get(bid).unwrap();
-    assert_eq!(body.material.preset, ducad_core::MaterialPreset::MattePlastic);
+    assert_eq!(
+        body.material.preset,
+        ducad_core::MaterialPreset::MattePlastic
+    );
     assert!((body.material.base_color[0] - 1.0).abs() < 1e-2);
     assert!(body.material.base_color[1] < 1e-2);
     assert!(body.material.base_color[2] < 1e-2);
+}
+
+/// Regresi REVIEW-2026-09-24 #12: dua entitas berstyle beda → warna dari
+/// entitas pertama menurut draw order, sama di setiap run.
+#[test]
+fn from_style_multi_entity_is_deterministic() {
+    let square = |x0: i32, color: &str, name: &str| {
+        format!(
+            r##"{{"path":{{"subpaths":[{{"start":[{x0},0],"segs":[
+                {{"line":{{"to":[{x1},0]}}}},{{"line":{{"to":[{x1},10]}}}},
+                {{"line":{{"to":[{x0},10]}}}},{{"line":{{"to":[{x0},0]}}}}],
+                "closed":true}}],"style":{{"fill":"{color}","opacity":1.0}},"name":"{name}"}}}}"##,
+            x1 = x0 + 10
+        )
+    };
+    let json = format!(
+        r#"[{{"op":"sketch","id":"sk","plane":"XY","entities":[{},{}]}},
+            {{"op":"extrude","id":"solid","sketch":"sk","distance":2,"material":"from_style"}}]"#,
+        square(0, "#FF0000", "red"),
+        square(20, "#0000FF", "blue")
+    );
+    for _ in 0..8 {
+        let mut s = Session::new();
+        let r = s.run(ops(&json), false);
+        assert!(r.committed, "{:?}", r.error);
+        let (bid, _) = s.body("solid").unwrap();
+        let c = s.model().doc.bodies.get(bid).unwrap().material.base_color;
+        assert!(
+            (c[0] - 1.0).abs() < 1e-2 && c[2] < 1e-2,
+            "warna harus merah: {c:?}"
+        );
+    }
 }
 
 #[test]
@@ -286,7 +321,10 @@ fn translucent_fill_becomes_glass() {
     assert!(r.committed, "{:?}", r.error);
     let (bid, _) = s.body("glass").unwrap();
     let body = s.model().doc.bodies.get(bid).unwrap();
-    assert_eq!(body.material.preset, ducad_core::MaterialPreset::TranslucentGlass);
+    assert_eq!(
+        body.material.preset,
+        ducad_core::MaterialPreset::TranslucentGlass
+    );
     assert!(body.material.base_color[3] < 0.99);
 }
 
@@ -305,7 +343,11 @@ fn per_object_with_cut_is_invalid_param() {
     assert!(!r.committed);
     let err = r.error.unwrap();
     assert_eq!(err.code, OpErrorCode::InvalidParam);
-    assert!(err.message.contains("per_object hanya untuk body baru"), "{}", err.message);
+    assert!(
+        err.message.contains("per_object hanya untuk body baru"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -336,5 +378,43 @@ fn outline_extrude_uses_stroke_width() {
     assert!(
         (v - expected).abs() / expected < 0.02,
         "Volume outline extrude {v} vs {expected}"
+    );
+}
+
+/// Regresi REVIEW-2026-09-24 #25: preset tak dikenal → `InvalidParam`.
+#[test]
+fn unknown_material_preset_is_invalid_param() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[{"circle":{"center":[0,0],"r":5}}]},
+          {"op":"extrude","id":"x","sketch":"sk","distance":2,"material":"unobtainium"}
+        ]"#),
+        false,
+    );
+    assert!(!r.committed);
+    let err = r.error.expect("harus gagal");
+    assert_eq!(err.code, OpErrorCode::InvalidParam);
+}
+
+/// Regresi REVIEW-2026-09-24 #25: nama eksplisit berpola `e<n>` tetap
+/// dipakai sebagai nama body per-objek.
+#[test]
+fn explicit_e_digit_name_is_kept_for_per_object_body() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[
+          {"op":"sketch","id":"sk","plane":"XY","entities":[
+             {"circle":{"center":[0,0],"r":5,"name":"e5"}},
+             {"circle":{"center":[20,0],"r":5}}
+          ]},
+          {"op":"extrude","id":"x","sketch":"sk","distance":2,"per_object":true}
+        ]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    assert_eq!(
+        r.outcomes[1].created,
+        vec!["x.e5".to_string(), "x.p2".to_string()]
     );
 }

@@ -886,7 +886,12 @@ impl DuCADApp {
         let text_focused = ui.ctx().memory(|m| m.focused().is_some());
 
         if !text_focused {
+            // Di Node Edit dengan node terpilih, Delete menghapus NODE (lihat
+            // `vector/input.rs`), bukan seluruh entitas.
+            let node_edit_owns_delete = self.tool == ToolKind::NodeEdit
+                && !self.vector_state.node_selection.is_empty();
             if !self.selected.is_empty()
+                && !node_edit_owns_delete
                 && ui.input(|i| {
                     i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)
                 })
@@ -1896,8 +1901,7 @@ impl DuCADApp {
                                         }
                                         Entity::Path { subpaths, .. } => {
                                             subpaths.iter().any(|sub| {
-                                                (0..sub.node_count()).any(|i| {
-                                                    let pt = sub.node(i);
+                                                sub.nodes().any(|pt| {
                                                     pt.x >= min.x && pt.x <= max.x && pt.y >= min.y && pt.y <= max.y
                                                 })
                                             })
@@ -2321,12 +2325,14 @@ impl DuCADApp {
             | ToolKind::ZebraInspection
             | ToolKind::DraftAnalysis
             | ToolKind::HoleWizard
-            | ToolKind::PenBezier
-            | ToolKind::NodeEdit
             | ToolKind::ShapeBuilder
             | ToolKind::Gradient
             | ToolKind::History => {
                 self.last_snap = None;
+            }
+            ToolKind::PenBezier | ToolKind::NodeEdit => {
+                self.last_snap = None;
+                self.handle_vector_tool_input(ui, response, rect, raw, tol);
             }
             ToolKind::Eyedropper => {
                 self.last_snap = None;

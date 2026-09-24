@@ -18,8 +18,7 @@ fn total_area(tess: &Tessellated) -> f64 {
         let v1 = tess.vertices[chunk[1] as usize].uv;
         let v2 = tess.vertices[chunk[2] as usize].uv;
         let tri_area = 0.5
-            * ((v1[0] - v0[0]) * (v2[1] - v0[1]) - (v2[0] - v0[0]) * (v1[1] - v0[1])).abs()
-                as f64;
+            * ((v1[0] - v0[0]) * (v2[1] - v0[1]) - (v2[0] - v0[0]) * (v1[1] - v0[1])).abs() as f64;
         area += tri_area;
     }
     area
@@ -92,8 +91,7 @@ fn even_odd_ring_has_hole() {
     let plane = SketchPlane::top();
     let opts = TessOptions::default();
 
-    let tess =
-        tessellate_fill(&[outer, inner], &fill, FillRule::EvenOdd, &plane, &opts).unwrap();
+    let tess = tessellate_fill(&[outer, inner], &fill, FillRule::EvenOdd, &plane, &opts).unwrap();
     let area = total_area(&tess);
     assert!(
         (area - 84.0).abs() < 1e-3,
@@ -139,8 +137,7 @@ fn nonzero_same_winding_ring_is_filled() {
     let plane = SketchPlane::top();
     let opts = TessOptions::default();
 
-    let tess =
-        tessellate_fill(&[outer, inner], &fill, FillRule::NonZero, &plane, &opts).unwrap();
+    let tess = tessellate_fill(&[outer, inner], &fill, FillRule::NonZero, &plane, &opts).unwrap();
     let area = total_area(&tess);
     assert!(
         (area - 100.0).abs() < 1e-3,
@@ -168,6 +165,52 @@ fn stroke_width_produces_expected_area() {
         (area - 20.0).abs() < 0.05,
         "Luas stroke butt cap ({area}) harus mendekati 20.0 mm² (10 mm × 2 mm)"
     );
+}
+
+/// Regresi REVIEW-2026-09-24 #19: fill DAN stroke sama-sama gradien →
+/// fill memakai slot gradien 1, stroke slot 2 (bukan ikut slot fill).
+#[test]
+fn fill_and_stroke_gradients_get_distinct_indices() {
+    let grad = |a: Rgba, b: Rgba| Paint::Linear {
+        from: DVec2::ZERO,
+        to: DVec2::new(10.0, 0.0),
+        stops: vec![(0.0, a), (1.0, b)],
+    };
+    let style = Style {
+        fill: Some(grad(Rgba::BLACK, Rgba::WHITE)),
+        stroke: Some(StrokeStyle {
+            paint: grad(Rgba::WHITE, Rgba::BLACK),
+            width_mm: 1.0,
+            dash: vec![],
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+        }),
+        ..Style::cad_default()
+    };
+    let rect = Entity::Path {
+        subpaths: vec![Subpath {
+            start: DVec2::ZERO,
+            segs: vec![
+                PathSeg::Line {
+                    end: DVec2::new(10.0, 0.0),
+                },
+                PathSeg::Line {
+                    end: DVec2::new(10.0, 10.0),
+                },
+                PathSeg::Line {
+                    end: DVec2::new(0.0, 10.0),
+                },
+            ],
+            closed: true,
+        }],
+        is_construction: false,
+    };
+    let tess =
+        tessellate_entity(&rect, &style, &SketchPlane::top(), &TessOptions::default()).unwrap();
+    let mut paints: Vec<u32> = tess.vertices.iter().map(|v| v.paint).collect();
+    paints.sort_unstable();
+    paints.dedup();
+    assert_eq!(paints, vec![1, 2]);
 }
 
 #[test]
@@ -504,6 +547,19 @@ fn cache_evicts_over_budget() {
         !tight_cache.entries.contains_key(&id1),
         "id1 yang lebih lama harus digusur"
     );
+
+    // Regresi REVIEW-2026-09-24 #14: dalam SATU frame yang memuat keduanya,
+    // entitas yang ditesselasi terakhir (urutan `visible`) yang dipertahankan,
+    // konsisten di setiap run — bukan bergantung pada iterasi HashMap.
+    for _ in 0..8 {
+        let mut cache = VectorCache::new(single_entry_bytes + 10);
+        cache.sync(&sketch, &plane, &opts, &[id1, id2]);
+        assert!(
+            cache.entries.contains_key(&id2),
+            "entri terbaru tidak boleh tergusur"
+        );
+        assert!(!cache.entries.contains_key(&id1));
+    }
 }
 
 #[test]
@@ -589,9 +645,9 @@ fn hidden_entity_not_in_batch() {
 
 #[test]
 fn vertex_layout_matches_shader() {
-    use std::mem::{offset_of, size_of};
     use super::cache::{GradientStop, GradientUniform};
     use super::tessellate::VectorVertex;
+    use std::mem::{offset_of, size_of};
 
     // Ukuran VectorVertex harus tepat 48 byte
     assert_eq!(size_of::<VectorVertex>(), 48);
@@ -618,4 +674,3 @@ fn wgsl_vector_shader_compiles() {
     let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
     assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
 }
-

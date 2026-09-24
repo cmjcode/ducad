@@ -134,6 +134,25 @@ impl PathSeg {
     }
 }
 
+/// Indeks node di luar rentang subpath.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeIndexError {
+    pub index: usize,
+    pub count: usize,
+}
+
+impl std::fmt::Display for NodeIndexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "indeks node {} di luar rentang (jumlah node {})",
+            self.index, self.count
+        )
+    }
+}
+
+impl std::error::Error for NodeIndexError {}
+
 impl Subpath {
     /// Cacah ke poliline dengan toleransi `tol` mm (kurbo `flatten`).
     /// Untuk `closed`, titik terakhir == `start` (disalin, bukan implisit).
@@ -203,30 +222,50 @@ impl Subpath {
         sum * 0.5
     }
 
+    /// Normalisasi subpath tertutup: segmen GARIS terakhir yang berakhir tepat
+    /// di `start` dibuang karena `closed` sudah menyiratkan ruas lurus kembali
+    /// ke start — tanpa ini node penutup terhitung dua kali (DoF semu di
+    /// solver). Segmen KUBIK penutup dipertahankan karena lengkungnya tidak
+    /// bisa diwakili penutupan implisit. Satu-satunya tempat aturan ini.
+    pub fn normalize_closing(&mut self) {
+        if !self.closed || self.segs.len() < 2 {
+            return;
+        }
+        if let Some(PathSeg::Line { end }) = self.segs.last() {
+            if (*end - self.start).length() <= 1e-6 {
+                self.segs.pop();
+            }
+        }
+    }
+
     /// Jumlah node kontrol: 1 + segs.len() (closed: tanpa duplikat).
     pub fn node_count(&self) -> usize {
         1 + self.segs.len()
     }
 
-    /// Mengambil posisi node ke-`i` (0 = start).
-    pub fn node(&self, i: usize) -> DVec2 {
+    /// Mengambil posisi node ke-`i` (0 = start); `None` bila di luar rentang.
+    pub fn node(&self, i: usize) -> Option<DVec2> {
         if i == 0 {
-            self.start
-        } else if i <= self.segs.len() {
-            self.segs[i - 1].end()
+            Some(self.start)
         } else {
-            panic!("Node index {i} out of bounds (node_count = {})", self.node_count());
+            self.segs.get(i - 1).map(PathSeg::end)
         }
     }
 
+    /// Posisi seluruh node berurutan (start lalu ujung tiap segmen).
+    pub fn nodes(&self) -> impl Iterator<Item = DVec2> + '_ {
+        std::iter::once(self.start).chain(self.segs.iter().map(PathSeg::end))
+    }
+
     /// Geser node ke-`i`, handle ikut kaku (delta sama).
-    pub fn set_node(&mut self, i: usize, p: DVec2) {
-        let count = self.node_count();
-        assert!(i < count, "Node index {i} out of bounds (node_count = {count})");
-        let old_pos = self.node(i);
+    pub fn set_node(&mut self, i: usize, p: DVec2) -> Result<(), NodeIndexError> {
+        let old_pos = self.node(i).ok_or(NodeIndexError {
+            index: i,
+            count: self.node_count(),
+        })?;
         let delta = p - old_pos;
         if delta.length_squared() == 0.0 {
-            return;
+            return Ok(());
         }
 
         if i == 0 {
@@ -236,7 +275,11 @@ impl Subpath {
             }
             if self.closed && !self.segs.is_empty() {
                 match self.segs.last_mut() {
-                    Some(PathSeg::Cubic { ref mut c2, ref mut end, .. }) => {
+                    Some(PathSeg::Cubic {
+                        ref mut c2,
+                        ref mut end,
+                        ..
+                    }) => {
                         *c2 += delta;
                         if (*end - old_pos).length_squared() < 1e-10 {
                             *end = p;
@@ -254,7 +297,11 @@ impl Subpath {
             let seg_idx = i - 1;
             match &mut self.segs[seg_idx] {
                 PathSeg::Line { ref mut end } => *end = p,
-                PathSeg::Cubic { ref mut c2, ref mut end, .. } => {
+                PathSeg::Cubic {
+                    ref mut c2,
+                    ref mut end,
+                    ..
+                } => {
                     *c2 += delta;
                     *end = p;
                 }
@@ -270,6 +317,7 @@ impl Subpath {
                 }
             }
         }
+        Ok(())
     }
 
     /// Konversi ke kurbo::BezPath. Invarian: Cubic dengan c1 == start && c2 == end
@@ -285,7 +333,8 @@ impl Subpath {
                     cur = *end;
                 }
                 PathSeg::Cubic { c1, c2, end } => {
-                    if (*c1 - cur).length_squared() < 1e-12 && (*c2 - *end).length_squared() < 1e-12 {
+                    if (*c1 - cur).length_squared() < 1e-12 && (*c2 - *end).length_squared() < 1e-12
+                    {
                         path.line_to(kurbo::Point::new(end.x, end.y));
                     } else {
                         path.curve_to(
@@ -350,6 +399,7 @@ impl Subpath {
                 kurbo::PathEl::ClosePath => {
                     if let Some(ref mut sub) = current {
                         sub.closed = true;
+                        sub.normalize_closing();
                     }
                 }
             }
@@ -410,9 +460,7 @@ impl Entity {
     /// (fungsi pencacah yang sudah dipakai render/region). `FLATTEN_TOL = 0.01` mm.
     pub fn flatten_all(&self, tol: f64) -> Vec<Vec<DVec2>> {
         match self {
-            Entity::Path { subpaths, .. } => {
-                subpaths.iter().map(|sub| sub.flatten(tol)).collect()
-            }
+            Entity::Path { subpaths, .. } => subpaths.iter().map(|sub| sub.flatten(tol)).collect(),
             Entity::Line { start, end, .. } => {
                 vec![vec![*start, *end]]
             }
@@ -431,11 +479,21 @@ impl Entity {
                 }
                 vec![pts]
             }
-            Entity::Arc { center, radius, start_angle, end_angle, .. } => {
+            Entity::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                ..
+            } => {
                 let r = radius.abs();
                 let span = {
                     let s = end_angle - start_angle;
-                    if s <= 0.0 { s + std::f64::consts::TAU } else { s }
+                    if s <= 0.0 {
+                        s + std::f64::consts::TAU
+                    } else {
+                        s
+                    }
                 };
                 let n = if r > 0.0 && tol > 0.0 && tol < r {
                     let theta = 2.0 * (1.0 - tol / r).acos();
@@ -450,7 +508,12 @@ impl Entity {
                 }
                 vec![pts]
             }
-            Entity::Ellipse { center, radius_x, radius_y, .. } => {
+            Entity::Ellipse {
+                center,
+                radius_x,
+                radius_y,
+                ..
+            } => {
                 let rx = radius_x.abs();
                 let ry = radius_y.abs();
                 let max_r = rx.max(ry);
@@ -552,24 +615,48 @@ impl Entity {
     /// Mengecek apakah entitas adalah garis konstruksi / referensi.
     pub fn is_construction(&self) -> bool {
         match self {
-            Entity::Line { is_construction, .. }
-            | Entity::Circle { is_construction, .. }
-            | Entity::Arc { is_construction, .. }
-            | Entity::Ellipse { is_construction, .. }
-            | Entity::Spline { is_construction, .. }
-            | Entity::Path { is_construction, .. } => *is_construction,
+            Entity::Line {
+                is_construction, ..
+            }
+            | Entity::Circle {
+                is_construction, ..
+            }
+            | Entity::Arc {
+                is_construction, ..
+            }
+            | Entity::Ellipse {
+                is_construction, ..
+            }
+            | Entity::Spline {
+                is_construction, ..
+            }
+            | Entity::Path {
+                is_construction, ..
+            } => *is_construction,
         }
     }
 
     /// Mengatur status konstruksi entitas.
     pub fn set_construction(&mut self, construction: bool) {
         match self {
-            Entity::Line { is_construction, .. }
-            | Entity::Circle { is_construction, .. }
-            | Entity::Arc { is_construction, .. }
-            | Entity::Ellipse { is_construction, .. }
-            | Entity::Spline { is_construction, .. }
-            | Entity::Path { is_construction, .. } => *is_construction = construction,
+            Entity::Line {
+                is_construction, ..
+            }
+            | Entity::Circle {
+                is_construction, ..
+            }
+            | Entity::Arc {
+                is_construction, ..
+            }
+            | Entity::Ellipse {
+                is_construction, ..
+            }
+            | Entity::Spline {
+                is_construction, ..
+            }
+            | Entity::Path {
+                is_construction, ..
+            } => *is_construction = construction,
         }
     }
 
@@ -626,9 +713,7 @@ impl Entity {
             Entity::Path { subpaths, .. } => {
                 let mut pts = Vec::new();
                 for sub in subpaths {
-                    for i in 0..sub.node_count() {
-                        pts.push(sub.node(i));
-                    }
+                    pts.extend(sub.nodes());
                 }
                 pts
             }
@@ -692,9 +777,7 @@ impl Entity {
                     Some(sum / (points.len() as f64))
                 }
             }
-            Entity::Path { .. } => {
-                self.bounding_box().map(|(min, max)| (min + max) * 0.5)
-            }
+            Entity::Path { .. } => self.bounding_box().map(|(min, max)| (min + max) * 0.5),
             Entity::Line { .. } => None,
         }
     }
@@ -819,10 +902,22 @@ impl Entity {
                     vec![]
                 }
             }
-            Entity::Path { .. } => {
-                // PointRef::PathNode diselesaikan di M0.4
-                vec![]
-            }
+            Entity::Path { subpaths, .. } => subpaths
+                .iter()
+                .enumerate()
+                .flat_map(|(s_idx, sub)| {
+                    sub.nodes().enumerate().map(move |(n_idx, p)| {
+                        (
+                            PointRef::PathNode {
+                                id,
+                                sub: s_idx as u16,
+                                node: n_idx as u32,
+                            },
+                            p,
+                        )
+                    })
+                })
+                .collect(),
         }
     }
 
@@ -864,8 +959,7 @@ impl Entity {
                 (0..SAMPLES)
                     .map(|i| {
                         let t = TAU * (i as f64) / (SAMPLES as f64);
-                        let boundary =
-                            *center + DVec2::new(radius_x * t.cos(), radius_y * t.sin());
+                        let boundary = *center + DVec2::new(radius_x * t.cos(), radius_y * t.sin());
                         (p - boundary).length()
                     })
                     .fold(f64::INFINITY, f64::min)
@@ -922,7 +1016,11 @@ pub fn sample_catmull_rom(points: &[DVec2], samples_per_span: usize) -> Vec<DVec
         let p0 = if i == 0 { points[0] } else { points[i - 1] };
         let p1 = points[i];
         let p2 = points[i + 1];
-        let p3 = if i + 2 < n { points[i + 2] } else { points[n - 1] };
+        let p3 = if i + 2 < n {
+            points[i + 2]
+        } else {
+            points[n - 1]
+        };
 
         for s in 0..samples {
             let t = s as f64 / samples as f64;
@@ -985,7 +1083,10 @@ mod tests {
             closed: true,
         };
         let pts = sub.flatten(0.01);
-        assert!(pts.len() >= 3, "Harus menghasilkan minimal 3 titik poliline");
+        assert!(
+            pts.len() >= 3,
+            "Harus menghasilkan minimal 3 titik poliline"
+        );
         assert_eq!(
             pts.first(),
             pts.last(),
@@ -1037,9 +1138,9 @@ mod tests {
         // Node 1 adalah sambungan antara segmen 0 dan segmen 1:
         // Handle bersebelahan: segs[0].c2 dan segs[1].c1
         let new_pos = DVec2::new(7.0, 8.0);
-        sub.set_node(1, new_pos);
+        sub.set_node(1, new_pos).unwrap();
 
-        assert_eq!(sub.node(1), new_pos);
+        assert_eq!(sub.node(1), Some(new_pos));
         match &sub.segs[0] {
             PathSeg::Cubic { c1, c2, end } => {
                 assert_eq!(*c1, DVec2::new(1.0, 1.0), "c1 pertama tidak boleh berubah");
@@ -1098,16 +1199,21 @@ mod tests {
 
     #[test]
     fn old_json_without_path_still_parses() {
-        let legacy_line = r#"{"Line":{"start":[0.0,0.0],"end":[10.0,0.0],"is_construction":false}}"#;
+        let legacy_line =
+            r#"{"Line":{"start":[0.0,0.0],"end":[10.0,0.0],"is_construction":false}}"#;
         let line: Entity = serde_json::from_str(legacy_line).expect("Line lama harus terbaca");
         assert!(!line.is_path());
 
-        let legacy_circle = r#"{"Circle":{"center":[5.0,5.0],"radius":3.0,"is_construction":false}}"#;
-        let circle: Entity = serde_json::from_str(legacy_circle).expect("Circle lama harus terbaca");
+        let legacy_circle =
+            r#"{"Circle":{"center":[5.0,5.0],"radius":3.0,"is_construction":false}}"#;
+        let circle: Entity =
+            serde_json::from_str(legacy_circle).expect("Circle lama harus terbaca");
         assert!(!circle.is_path());
 
-        let legacy_spline = r#"{"Spline":{"points":[[0.0,0.0],[5.0,1.0]],"is_construction":false}}"#;
-        let spline: Entity = serde_json::from_str(legacy_spline).expect("Spline lama harus terbaca");
+        let legacy_spline =
+            r#"{"Spline":{"points":[[0.0,0.0],[5.0,1.0]],"is_construction":false}}"#;
+        let spline: Entity =
+            serde_json::from_str(legacy_spline).expect("Spline lama harus terbaca");
         assert!(!spline.is_path());
 
         // Path baru harus bisa serialize & deserialize
@@ -1139,10 +1245,77 @@ mod tests {
 
         // Titik dekat puncak kurva (5.0, 7.5) dalam toleransi 0.5 mm
         let hit = sketch.hit_test(DVec2::new(5.0, 7.5), 0.5);
-        assert_eq!(hit, Some(id), "Hit-test harus mendeteksi path dalam toleransi");
+        assert_eq!(
+            hit,
+            Some(id),
+            "Hit-test harus mendeteksi path dalam toleransi"
+        );
 
         // Titik jauh
         let miss = sketch.hit_test(DVec2::new(5.0, 15.0), 0.5);
         assert_eq!(miss, None, "Hit-test tidak boleh mendeteksi titik jauh");
+    }
+
+    /// Regresi REVIEW-2026-09-24 #10: node path ditawarkan sebagai titik snap.
+    #[test]
+    fn path_endpoint_refs_cover_every_node() {
+        let mut ids: slotmap::SlotMap<EntityId, ()> = slotmap::SlotMap::with_key();
+        let id = ids.insert(());
+        let path = Entity::Path {
+            subpaths: vec![Subpath {
+                start: DVec2::ZERO,
+                segs: vec![
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 0.0),
+                    },
+                    PathSeg::Line {
+                        end: DVec2::new(10.0, 10.0),
+                    },
+                ],
+                closed: true,
+            }],
+            is_construction: false,
+        };
+        let refs = path.endpoint_refs(id);
+        assert_eq!(refs.len(), 3);
+        assert_eq!(
+            refs[2],
+            (
+                PointRef::PathNode {
+                    id,
+                    sub: 0,
+                    node: 2
+                },
+                DVec2::new(10.0, 10.0)
+            )
+        );
+    }
+
+    /// Regresi REVIEW-2026-09-24 #24: `ClosePath` sesudah `LineTo(start)`
+    /// tidak menyisakan node penutup duplikat (sama seperti PenBuilder).
+    #[test]
+    fn from_kurbo_closed_drops_duplicate_closing_node() {
+        let mut bp = kurbo::BezPath::new();
+        bp.move_to((0.0, 0.0));
+        bp.line_to((10.0, 0.0));
+        bp.line_to((10.0, 10.0));
+        bp.line_to((0.0, 0.0));
+        bp.close_path();
+        let subs = Subpath::from_kurbo(&bp);
+        assert_eq!(subs.len(), 1);
+        assert!(subs[0].closed);
+        assert_eq!(
+            subs[0].node_count(),
+            3,
+            "tiga sudut segitiga, tanpa duplikat"
+        );
+
+        // Penutup lengkung dipertahankan (tidak bisa diwakili penutupan implisit).
+        let mut bp = kurbo::BezPath::new();
+        bp.move_to((0.0, 0.0));
+        bp.line_to((10.0, 0.0));
+        bp.curve_to((10.0, 10.0), (0.0, 10.0), (0.0, 0.0));
+        bp.close_path();
+        assert_eq!(Subpath::from_kurbo(&bp)[0].segs.len(), 2);
     }
 }

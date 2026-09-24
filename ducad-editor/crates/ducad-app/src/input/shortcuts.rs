@@ -19,6 +19,26 @@ impl DuCADApp {
                 PaletteAction::ToggleAgentBridge,
             ),
             (
+                crate::mode::AppMode::Vector.label().to_string(),
+                "⌘+Shift+4".to_string(),
+                PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
+            ),
+            (
+                crate::mode::AppMode::Ink.label().to_string(),
+                "⌘+Shift+5".to_string(),
+                PaletteAction::SetAppMode(crate::mode::AppMode::Ink),
+            ),
+            (
+                crate::mode::AppMode::Sketch.label().to_string(),
+                "⌘+Shift+2".to_string(),
+                PaletteAction::SetAppMode(crate::mode::AppMode::Sketch),
+            ),
+            (
+                crate::mode::AppMode::Solid.label().to_string(),
+                String::new(),
+                PaletteAction::SetAppMode(crate::mode::AppMode::Solid),
+            ),
+            (
                 "Dokumen Baru".to_string(),
                 String::new(),
                 PaletteAction::File(FileOp::New),
@@ -406,9 +426,14 @@ impl DuCADApp {
             }
             PaletteAction::OpenAssist => self.open_assist_dialog(),
             PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
+            PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
-                let st = if self.touch_config.palm_rejection { "Aktif" } else { "Nonaktif" };
+                let st = if self.touch_config.palm_rejection {
+                    "Aktif"
+                } else {
+                    "Nonaktif"
+                };
                 self.model_status = Some(format!("Palm Rejection: {}", st));
             }
             PaletteAction::File(op) => match op {
@@ -466,7 +491,6 @@ impl DuCADApp {
         }
         self.radial_press = None;
     }
-
 
     pub fn status_text(&self) -> String {
         let hint = match self.tool {

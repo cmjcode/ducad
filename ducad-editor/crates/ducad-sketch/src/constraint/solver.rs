@@ -41,8 +41,7 @@ fn pack_entity(entity: &Entity, out: &mut Vec<f64>) {
         }
         Entity::Path { subpaths, .. } => {
             for sub in subpaths {
-                for i in 0..sub.node_count() {
-                    let n = sub.node(i);
+                for n in sub.nodes() {
                     out.extend([n.x, n.y]);
                 }
             }
@@ -95,7 +94,8 @@ fn unpack_entity(entity: &mut Entity, params: &[f64]) {
                 for i in 0..sub.node_count() {
                     if offset + 1 < params.len() {
                         let new_node = DVec2::new(params[offset], params[offset + 1]);
-                        sub.set_node(i, new_node);
+                        // `i < node_count()`, jadi tidak mungkin gagal.
+                        let _ = sub.set_node(i, new_node);
                         offset += 2;
                     }
                 }
@@ -156,6 +156,80 @@ pub(crate) fn involved_entities(constraints: &[Constraint]) -> Vec<EntityId> {
     ids
 }
 
+fn is_line(sketch: &Sketch, id: EntityId) -> bool {
+    matches!(sketch.entities.get(id), Some(Entity::Line { .. }))
+}
+
+/// Entitas yang parameter ke-3-nya (offset +2) adalah radius.
+fn is_radial(sketch: &Sketch, id: EntityId) -> bool {
+    matches!(
+        sketch.entities.get(id),
+        Some(Entity::Circle { .. } | Entity::Arc { .. } | Entity::Ellipse { .. })
+    )
+}
+
+fn point_ref_resolvable(sketch: &Sketch, pr: &PointRef) -> bool {
+    match (sketch.entities.get(pr.entity_id()), pr) {
+        (Some(Entity::Line { .. }), PointRef::LineStart(_) | PointRef::LineEnd(_)) => true,
+        (Some(Entity::Spline { points, .. }), PointRef::LineStart(_) | PointRef::LineEnd(_)) => {
+            !points.is_empty()
+        }
+        (
+            Some(Entity::Circle { .. } | Entity::Arc { .. } | Entity::Ellipse { .. }),
+            PointRef::Center(_),
+        ) => true,
+        (Some(Entity::Path { subpaths, .. }), PointRef::PathNode { sub, node, .. }) => subpaths
+            .get(*sub as usize)
+            .is_some_and(|sp| (*node as usize) < sp.node_count()),
+        _ => false,
+    }
+}
+
+/// Apakah semua rujukan `c` masih menunjuk entitas/titik yang ada dengan
+/// jenis yang cocok. Constraint yang gagal cek ini (yatim setelah entitas
+/// dihapus, atau menunjuk node path yang sudah hilang) dilewati solver —
+/// membacanya berarti indeks di luar blok parameter entitas.
+pub fn constraint_is_resolvable(sketch: &Sketch, c: &Constraint) -> bool {
+    let pt = |p: &PointRef| point_ref_resolvable(sketch, p);
+    let line = |id: &EntityId| is_line(sketch, *id);
+    let radial = |id: &EntityId| is_radial(sketch, *id);
+    match c {
+        Constraint::Coincident { a, b }
+        | Constraint::Distance { a, b, .. }
+        | Constraint::HorizontalPoints { a, b }
+        | Constraint::VerticalPoints { a, b } => pt(a) && pt(b),
+        Constraint::Horizontal { line: l } | Constraint::Vertical { line: l } => line(l),
+        Constraint::Parallel { a, b }
+        | Constraint::Perpendicular { a, b }
+        | Constraint::EqualLength { a, b }
+        | Constraint::Angle { a, b, .. }
+        | Constraint::Collinear { a, b } => line(a) && line(b),
+        Constraint::EqualRadius { a, b } | Constraint::Concentric { a, b } => {
+            radial(a) && radial(b)
+        }
+        Constraint::Fixed { point, .. } => pt(point),
+        Constraint::Radius { entity, .. } => radial(entity),
+        // Tangent Line-Line memang no-op (residual kosong) tetapi tetap sah.
+        Constraint::Tangent { a, b } => (radial(a) || line(a)) && (radial(b) || line(b)),
+        Constraint::Symmetric { a, b, axis } => pt(a) && pt(b) && line(axis),
+        Constraint::PointOnCurve { point, curve } => pt(point) && (line(curve) || radial(curve)),
+        Constraint::Midpoint { point, line: l } => pt(point) && line(l),
+    }
+}
+
+/// Pisahkan constraint yang bisa diselesaikan dari yang tidak. Mengembalikan
+/// indeks (pada `constraints`) constraint yang valid, plus jumlah yang dilewati.
+fn resolvable_indices(sketch: &Sketch, constraints: &[Constraint]) -> (Vec<usize>, usize) {
+    let valid: Vec<usize> = constraints
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| constraint_is_resolvable(sketch, c))
+        .map(|(i, _)| i)
+        .collect();
+    let skipped = constraints.len() - valid.len();
+    (valid, skipped)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EntityKind {
     Line,
@@ -183,6 +257,8 @@ fn build_kinds(entity_ids: &[EntityId], sketch: &Sketch) -> HashMap<EntityId, En
 #[derive(Debug, Clone)]
 pub(crate) struct SolverOffsets {
     pub entity: HashMap<EntityId, usize>,
+    /// Jumlah parameter per entitas — `LineEnd` pada Spline membaca titik terakhir.
+    pub len: HashMap<EntityId, usize>,
     pub path_sub: HashMap<(EntityId, u16), usize>,
 }
 
@@ -191,9 +267,14 @@ impl SolverOffsets {
         let off = self.entity[&pr.entity_id()];
         match pr {
             PointRef::LineStart(_) => DVec2::new(x[off], x[off + 1]),
-            PointRef::LineEnd(_) => DVec2::new(x[off + 2], x[off + 3]),
+            PointRef::LineEnd(id) => {
+                let end = off + self.len.get(id).copied().unwrap_or(4).max(2) - 2;
+                DVec2::new(x[end], x[end + 1])
+            }
             PointRef::Center(_) => DVec2::new(x[off], x[off + 1]),
             PointRef::PathNode { id, sub, node } => {
+                // Rujukan sudah divalidasi `constraint_is_resolvable`, jadi
+                // subpath pasti ada.
                 let cum = self.path_sub.get(&(*id, *sub)).copied().unwrap_or(0);
                 let node_off = off + 2 * (cum + *node as usize);
                 DVec2::new(x[node_off], x[node_off + 1])
@@ -230,19 +311,19 @@ impl SolverOffsets {
     }
 }
 
-fn build_offsets_and_x0(
-    entity_ids: &[EntityId],
-    sketch: &Sketch,
-) -> (SolverOffsets, Vec<f64>) {
+fn build_offsets_and_x0(entity_ids: &[EntityId], sketch: &Sketch) -> (SolverOffsets, Vec<f64>) {
     let mut entity = HashMap::new();
+    let mut len = HashMap::new();
     let mut path_sub = HashMap::new();
     let mut x = Vec::new();
     for id in entity_ids {
-        entity.insert(*id, x.len());
-        let e = sketch
-            .entities
-            .get(*id)
-            .expect("entitas constraint hilang dari sketch");
+        // Pemanggil hanya meneruskan entitas dari constraint yang lolos
+        // `constraint_is_resolvable`; entitas hilang dilewati tanpa panic.
+        let Some(e) = sketch.entities.get(*id) else {
+            continue;
+        };
+        let start = x.len();
+        entity.insert(*id, start);
         if let Entity::Path { subpaths, .. } = e {
             let mut cum = 0;
             for (s_idx, s) in subpaths.iter().enumerate() {
@@ -251,18 +332,23 @@ fn build_offsets_and_x0(
             }
         }
         pack_entity(e, &mut x);
+        len.insert(*id, x.len() - start);
     }
-    (SolverOffsets { entity, path_sub }, x)
+    (
+        SolverOffsets {
+            entity,
+            len,
+            path_sub,
+        },
+        x,
+    )
 }
 
-fn write_back(
-    entity_ids: &[EntityId],
-    offsets: &SolverOffsets,
-    x: &[f64],
-    sketch: &mut Sketch,
-) {
+fn write_back(entity_ids: &[EntityId], offsets: &SolverOffsets, x: &[f64], sketch: &mut Sketch) {
     for id in entity_ids {
-        let off = offsets.entity[id];
+        let Some(&off) = offsets.entity.get(id) else {
+            continue;
+        };
         if let Some(entity) = sketch.entities.get_mut(*id) {
             let dof = entity_dof(entity);
             unpack_entity(entity, &x[off..off + dof]);
@@ -340,26 +426,24 @@ fn constraint_residuals(
             let dot = da.dot(db);
             vec![cross.atan2(dot) - value]
         }
-        Constraint::Tangent { a, b } => {
-            match (kinds.get(a), kinds.get(b)) {
-                (Some(EntityKind::Radial), Some(EntityKind::Radial)) => {
-                    let (ca, ra) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
-                    let (cb, rb) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
-                    vec![(cb - ca).length() - (ra + rb)]
-                }
-                (Some(EntityKind::Line), Some(EntityKind::Radial)) => {
-                    let (s, e) = offsets.read_line(*a, x);
-                    let (c, r) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
-                    vec![distance_point_to_infinite_line(c, s, e) - r]
-                }
-                (Some(EntityKind::Radial), Some(EntityKind::Line)) => {
-                    let (s, e) = offsets.read_line(*b, x);
-                    let (c, r) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
-                    vec![distance_point_to_infinite_line(c, s, e) - r]
-                }
-                _ => vec![],
+        Constraint::Tangent { a, b } => match (kinds.get(a), kinds.get(b)) {
+            (Some(EntityKind::Radial), Some(EntityKind::Radial)) => {
+                let (ca, ra) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
+                let (cb, rb) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
+                vec![(cb - ca).length() - (ra + rb)]
             }
-        }
+            (Some(EntityKind::Line), Some(EntityKind::Radial)) => {
+                let (s, e) = offsets.read_line(*a, x);
+                let (c, r) = (offsets.read_center(*b, x), offsets.read_radius_param(*b, x));
+                vec![distance_point_to_infinite_line(c, s, e) - r]
+            }
+            (Some(EntityKind::Radial), Some(EntityKind::Line)) => {
+                let (s, e) = offsets.read_line(*b, x);
+                let (c, r) = (offsets.read_center(*a, x), offsets.read_radius_param(*a, x));
+                vec![distance_point_to_infinite_line(c, s, e) - r]
+            }
+            _ => vec![],
+        },
         Constraint::Symmetric { a, b, axis } => {
             let (axis_s, axis_e) = offsets.read_line(*axis, x);
             let pa = offsets.read_point_ref(a, x);
@@ -471,6 +555,9 @@ pub struct SolveResult {
     pub converged: bool,
     pub iterations: usize,
     pub final_residual_norm: f64,
+    /// Jumlah constraint yang dilewati karena rujukannya tidak valid (lihat
+    /// [`constraint_is_resolvable`]). Bila > 0, `converged` selalu `false`.
+    pub skipped: usize,
 }
 
 const MAX_ITERS: usize = 50;
@@ -524,6 +611,17 @@ pub struct DofReport {
 /// sebuah kendala jadi redundan secara lokal), jadi hasilnya berlaku untuk
 /// konfigurasi sekarang — sama seperti solver CAD komersial.
 pub fn analyze_dof(sketch: &Sketch, constraints: &[Constraint]) -> DofReport {
+    let (valid_idx, _) = resolvable_indices(sketch, constraints);
+    let valid: Vec<Constraint> = valid_idx.iter().map(|&i| constraints[i].clone()).collect();
+    let mut report = analyze_dof_resolvable(sketch, &valid);
+    // Indeks redundan dipetakan balik ke slice masukan asli.
+    for r in &mut report.redundant {
+        *r = valid_idx[*r];
+    }
+    report
+}
+
+fn analyze_dof_resolvable(sketch: &Sketch, constraints: &[Constraint]) -> DofReport {
     let entity_ids = involved_entities(constraints);
     if entity_ids.is_empty() {
         return DofReport {
@@ -673,27 +771,28 @@ pub fn solve(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult {
             converged: true,
             iterations: 0,
             final_residual_norm: 0.0,
+            skipped: 0,
         };
     }
-    let clusters = partition_into_clusters(constraints);
-    if clusters.len() <= 1 {
-        return solve_cluster(sketch, constraints);
-    }
+    let (valid, skipped) = resolvable_indices(sketch, constraints);
+    let valid: Vec<Constraint> = valid.iter().map(|&i| constraints[i].clone()).collect();
+    let clusters = partition_into_clusters(&valid);
 
     let mut converged = true;
     let mut iterations = 0;
     let mut sq_sum = 0.0;
     for cluster in clusters {
-        let subset: Vec<Constraint> = cluster.iter().map(|&i| constraints[i].clone()).collect();
+        let subset: Vec<Constraint> = cluster.iter().map(|&i| valid[i].clone()).collect();
         let r = solve_cluster(sketch, &subset);
         converged &= r.converged;
         iterations = iterations.max(r.iterations);
         sq_sum += r.final_residual_norm * r.final_residual_norm;
     }
     SolveResult {
-        converged,
+        converged: converged && skipped == 0,
         iterations,
         final_residual_norm: sq_sum.sqrt(),
+        skipped,
     }
 }
 
@@ -704,6 +803,7 @@ fn solve_cluster(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult
             converged: true,
             iterations: 0,
             final_residual_norm: 0.0,
+            skipped: 0,
         };
     }
     let (offsets, mut x) = build_offsets_and_x0(&entity_ids, sketch);
@@ -727,6 +827,7 @@ fn solve_cluster(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult
                 converged: true,
                 iterations: iter,
                 final_residual_norm: cost0.sqrt(),
+                skipped: 0,
             };
         }
 
@@ -773,6 +874,7 @@ fn solve_cluster(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult
                 converged: false,
                 iterations: iter,
                 final_residual_norm: cost0.sqrt(),
+                skipped: 0,
             };
         }
     }
@@ -783,5 +885,6 @@ fn solve_cluster(sketch: &mut Sketch, constraints: &[Constraint]) -> SolveResult
         converged: final_cost < COST_TOL,
         iterations: MAX_ITERS,
         final_residual_norm: final_cost.sqrt(),
+        skipped: 0,
     }
 }

@@ -330,9 +330,7 @@ fn new_positions(sketch: &Sketch, new_ids: &[EntityId]) -> Vec<DVec2> {
             Some(Entity::Spline { points, .. }) => out.extend(points.iter().copied()),
             Some(Entity::Path { subpaths, .. }) => {
                 for sub in subpaths {
-                    for i in 0..sub.node_count() {
-                        out.push(sub.node(i));
-                    }
+                    out.extend(sub.nodes());
                 }
             }
             None => {}
@@ -515,12 +513,16 @@ mod tests {
             out.accepted
         );
         // Solver menggeser KEDUA titik; yang penting keduanya berimpit.
-        let old_end = point_ref_position(&out.sketch, &PointRef::LineEnd(
-            out.sketch.entities.keys().next().unwrap(),
-        ))
+        let old_end = point_ref_position(
+            &out.sketch,
+            &PointRef::LineEnd(out.sketch.entities.keys().next().unwrap()),
+        )
         .unwrap();
         let new_start = point_ref_position(&out.sketch, &PointRef::LineStart(new[0])).unwrap();
-        assert!((old_end - new_start).length() < 1e-6, "{old_end} vs {new_start}");
+        assert!(
+            (old_end - new_start).length() < 1e-6,
+            "{old_end} vs {new_start}"
+        );
     }
 
     #[test]
@@ -574,10 +576,9 @@ mod tests {
             is_construction: false,
         });
 
-        let line_id = sketch.entities.insert(Entity::line(
-            DVec2::new(10.05, 0.05),
-            DVec2::new(20.0, 0.0),
-        ));
+        let line_id = sketch
+            .entities
+            .insert(Entity::line(DVec2::new(10.05, 0.05), DVec2::new(20.0, 0.0)));
 
         let opt = InferOptions {
             snap_dist: 0.5,

@@ -1,4 +1,5 @@
 pub mod align;
+pub mod input;
 pub mod node_edit;
 pub mod pen;
 pub mod shape_builder;
@@ -12,16 +13,20 @@ pub use transform::{
     PrecisionTransform, TransformParams,
 };
 
-use std::collections::BTreeSet;
 pub use ducad_sketch::path_edit::HandleSide;
 use ducad_sketch::path_edit::PenBuilder;
 use ducad_sketch::{EntityId, GroupId, Style};
 use glam::DVec2;
+use std::collections::BTreeSet;
 
 /// Target yang sedang di-drag oleh user dalam mode vektor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DragTarget {
-    Node { entity: EntityId, subpath: u16, node: u32 },
+    Node {
+        entity: EntityId,
+        subpath: u16,
+        node: u32,
+    },
     Handle {
         entity: EntityId,
         subpath: u16,
@@ -45,6 +50,9 @@ pub struct PenState {
     pub builder: PenBuilder,
     pub is_dragging: bool,
     pub drag_start: Option<DVec2>,
+    /// Keadaan builder sebelum node yang sedang ditekan ditambahkan — dasar
+    /// perhitungan ulang node halus selama drag.
+    pub before_node: Option<PenBuilder>,
 }
 
 /// State mode vektor DuCAD (M2.1).
@@ -73,6 +81,23 @@ pub struct VectorState {
     pub active_tab: VectorPanelTab,
     /// Status ciut/tutup panel samping vektor.
     pub panel_collapsed: bool,
+    /// Dialog transformasi presisi yang sedang terbuka (M2.5).
+    pub transform_dialog: Option<TransformDialog>,
+}
+
+/// Isian dialog transformasi presisi (teks agar pengguna bisa mengetik
+/// bebas; divalidasi saat diterapkan). Nilai awal = kotak batas seleksi.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TransformDialog {
+    /// Pusat X/Y baru (mm).
+    pub x: String,
+    pub y: String,
+    /// Lebar/tinggi baru (mm).
+    pub w: String,
+    pub h: String,
+    /// Rotasi (derajat, CCW).
+    pub rot_deg: String,
+    pub lock_aspect: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -81,7 +106,6 @@ pub enum VectorPanelTab {
     Properties,
     Layers,
 }
-
 
 impl VectorState {
     pub fn new() -> Self {
