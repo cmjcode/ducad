@@ -11,3 +11,8 @@ egui_wgpu = { workspace = true }
 glam = { workspace = true }
 bytemuck = { workspace = true }
 serde = { workspace = true }
+kurbo = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+lyon_tessellation = { workspace = true }
+lyon_path = { workspace = true }

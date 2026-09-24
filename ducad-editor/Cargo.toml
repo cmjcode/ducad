@@ -27,6 +27,8 @@ unic-langid = { version = "0.9", features = ["macros"] }
 ttf-parser = "0.25"
 kurbo = "0.13"
 rstar = "0.12"
+lyon_tessellation = "1.0"
+lyon_path = "1.0"
 criterion = "0.5"
 proptest = "1"
 

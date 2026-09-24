@@ -208,6 +208,11 @@ impl Style {
         }
     }
 
+    /// Apakah gaya ini merupakan default CAD (tanpa fill dan konfigurasi hairline standar).
+    pub fn is_cad_default(&self) -> bool {
+        self == &Self::cad_default()
+    }
+
     /// Validasi konsistensi gaya visual.
     pub fn validate(&self) -> Result<(), String> {
         if self.opacity < 0.0 || self.opacity > 1.0 || self.opacity.is_nan() {
