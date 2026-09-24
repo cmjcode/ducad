@@ -30,9 +30,14 @@ pub fn exec(a: Args) -> CliResult {
         sum.unit, sum.oplog_len, sum.params
     );
     for b in &sum.bodies {
+        let color_info = b
+            .material
+            .as_ref()
+            .map(|m| format!("  color {:?}", m.base_color))
+            .unwrap_or_default();
         println!(
-            "body {:<16} volume {:>12.4}  size {:?}  faces {}  edges {}  valid {}",
-            b.name, b.volume, b.size, b.faces, b.edges, b.valid
+            "body {:<16} volume {:>12.4}  size {:?}{}  faces {}  edges {}  valid {}",
+            b.name, b.volume, b.size, color_info, b.faces, b.edges, b.valid
         );
     }
     for sk in &sum.sketches {

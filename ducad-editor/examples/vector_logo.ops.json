@@ -31,6 +31,15 @@
           }
         }
       ]
+    },
+    {
+      "op": "extrude",
+      "id": "logo3d",
+      "sketch": "vector_sketch",
+      "profile": { "names": ["logo"] },
+      "distance": 10.0,
+      "per_object": true,
+      "material": "from_style"
     }
   ]
 }

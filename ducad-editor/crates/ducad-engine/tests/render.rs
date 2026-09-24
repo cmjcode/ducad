@@ -87,3 +87,18 @@ fn png_is_800x600_and_not_blank() {
     let dark = pix.pixels().iter().filter(|p| p.red() < 128).count();
     assert!(dark > 100, "hanya {dark} piksel gelap");
 }
+
+#[test]
+fn render_uses_material_base_color() {
+    let text = include_str!("../../../examples/vector_logo.ops.json");
+    let f: OpFile = serde_json::from_str(text).unwrap();
+    let mut s = Session::new();
+    assert!(s.run(f.ops, false).committed);
+    let r = render_svg(&s, &RenderOptions::default()).unwrap();
+    assert!(
+        r.svg.contains("stroke=\"#ff8800\""),
+        "SVG harus memuat warna material #ff8800: {}",
+        &r.svg[..r.svg.len().min(500)]
+    );
+}
+

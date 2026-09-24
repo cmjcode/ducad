@@ -47,10 +47,33 @@ pub struct BodyReport {
     pub centroid: [f64; 3],
     pub faces: usize,
     pub edges: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<MaterialReport>,
     /// Mis. `{"plane": 6, "cylinder": 4}`.
     pub face_kinds: BTreeMap<String, usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub topology: Option<Topology>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MaterialReport {
+    pub preset: String,
+    pub base_color: [f64; 4],
+    pub roughness: f64,
+    pub metallic: f64,
+    pub clearcoat: f64,
+}
+
+impl MaterialReport {
+    pub fn from_material(m: &ducad_core::Material) -> Self {
+        Self {
+            preset: format!("{:?}", m.preset),
+            base_color: m.base_color.map(|c| round4(c as f64)),
+            roughness: round4(m.roughness as f64),
+            metallic: round4(m.metallic as f64),
+            clearcoat: round4(m.clearcoat as f64),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,6 +166,7 @@ pub(crate) fn body_report(
         centroid: r3(ducad_kernel::compute_mesh_centroid(&geo.mesh)),
         faces: n_faces,
         edges: n_edges,
+        material: Some(MaterialReport::from_material(&body.material)),
         face_kinds,
         topology,
     }

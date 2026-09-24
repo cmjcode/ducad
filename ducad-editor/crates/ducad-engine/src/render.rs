@@ -1,6 +1,6 @@
 //! Render SVG/PNG deterministik untuk umpan balik visual agent (P2.3).
 
-use ducad_kernel::{HlrLineKind, SnapshotBody, SnapshotCamera, SnapshotOptions};
+use ducad_kernel::{HlrLineKind, SnapshotBody, SnapshotCamera, SnapshotOptions, VectorSnapshot};
 use glam::Vec3;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -209,24 +209,46 @@ pub fn render_svg_core(
     render_picked(&picked, opt)
 }
 
+fn color_to_hex(c: [f32; 4]) -> String {
+    let r = (c[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let g = (c[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+    let b = (c[2].clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+fn body_custom_color(mat: &ducad_core::Material) -> Option<String> {
+    let def = ducad_core::Material::default();
+    if (mat.base_color[0] - def.base_color[0]).abs() < 1e-3
+        && (mat.base_color[1] - def.base_color[1]).abs() < 1e-3
+        && (mat.base_color[2] - def.base_color[2]).abs() < 1e-3
+    {
+        None
+    } else {
+        Some(color_to_hex(mat.base_color))
+    }
+}
+
 /// Body yang akan dirender: daftar `opt.bodies`, atau semua body terlihat.
 fn pick_bodies<'m>(
     opt: &RenderOptions,
     lookup: impl Fn(&str) -> OpResult<(ducad_core::BodyId, &'m crate::model::BodyGeometry)>,
     model: &'m crate::model::ModelDoc,
-) -> OpResult<Vec<&'m crate::model::BodyGeometry>> {
+) -> OpResult<Vec<(&'m ducad_core::Body, &'m crate::model::BodyGeometry)>> {
     let mut picked = Vec::new();
     match &opt.bodies {
         Some(names) => {
             for n in names {
-                let (_, geo) = lookup(n)?;
-                picked.push(geo);
+                let (id, geo) = lookup(n)?;
+                let b = model.doc.bodies.get(id).ok_or_else(|| {
+                    OpError::new(OpErrorCode::UnknownRef, format!("Body {n} tidak ditemukan"))
+                })?;
+                picked.push((b, geo));
             }
         }
         None => {
             for (id, b) in model.doc.bodies.iter() {
                 if let (true, Some(geo)) = (b.visible, model.geometry.get(id)) {
-                    picked.push(geo);
+                    picked.push((b, geo));
                 }
             }
         }
@@ -235,7 +257,7 @@ fn pick_bodies<'m>(
 }
 
 fn render_picked(
-    picked: &[&crate::model::BodyGeometry],
+    picked: &[(&ducad_core::Body, &crate::model::BodyGeometry)],
     opt: &RenderOptions,
 ) -> OpResult<RenderResult> {
     if opt.width == 0 || opt.height == 0 || opt.width > 8192 || opt.height > 8192 {
@@ -249,7 +271,7 @@ fn render_picked(
     }
 
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    for g in picked {
+    for (_, g) in picked {
         if let Some((a, b)) = g.mesh.bounding_box() {
             lo = lo.min(Vec3::from_array(a));
             hi = hi.max(Vec3::from_array(b));
@@ -262,10 +284,23 @@ fn render_picked(
         ));
     }
     let camera = camera_for_bbox(lo, hi, opt.view, opt.width, opt.height);
-    let snap_bodies: Vec<SnapshotBody> = picked
+
+    let has_any_custom_color = picked
         .iter()
-        .map(|g| SnapshotBody::new(&g.edge_lines, &g.mesh))
-        .collect();
+        .any(|(b, _)| body_custom_color(&b.material).is_some());
+    let single_color = if picked.len() == 1 {
+        body_custom_color(&picked[0].0.material)
+    } else {
+        let first_color = body_custom_color(&picked[0].0.material);
+        if picked
+            .iter()
+            .all(|(b, _)| body_custom_color(&b.material) == first_color)
+        {
+            first_color
+        } else {
+            None
+        }
+    };
 
     let mut min_segment_px = SnapshotOptions::default().min_segment_px;
     let mut attempt = 0;
@@ -275,20 +310,82 @@ fn render_picked(
             min_segment_px,
             ..SnapshotOptions::default()
         };
-        let snap = ducad_kernel::extract_vector_snapshot(&camera, &snap_bodies, &[], &options);
-        let svg_opts = ducad_io::svg::SvgSnapshotOptions {
-            background: Some("#ffffff".into()),
-            include_hidden: opt.hidden_lines,
-            ..Default::default()
+
+        let (svg, visible_segments, hidden_segments) = if !has_any_custom_color
+            || single_color.is_some()
+        {
+            let snap_bodies: Vec<SnapshotBody> = picked
+                .iter()
+                .map(|(_, g)| SnapshotBody::new(&g.edge_lines, &g.mesh))
+                .collect();
+            let snap = ducad_kernel::extract_vector_snapshot(&camera, &snap_bodies, &[], &options);
+            let color = single_color.clone().unwrap_or_else(|| "#111827".to_string());
+            let silhouette_color = if single_color.is_some() {
+                color.clone()
+            } else {
+                "#374151".to_string()
+            };
+            let svg_opts = ducad_io::svg::SvgSnapshotOptions {
+                background: Some("#ffffff".into()),
+                include_hidden: opt.hidden_lines,
+                visible_color: color,
+                silhouette_color,
+                ..Default::default()
+            };
+            let svg = ducad_io::svg::export_vector_snapshot_svg_string(&snap, &svg_opts)
+                .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal membuat SVG: {e:#}")))?;
+            let hidden = snap.count(HlrLineKind::Hidden);
+            (svg, snap.segments.len() - hidden, hidden)
+        } else {
+            let mut layers = Vec::new();
+            let mut total_visible = 0;
+            let mut total_hidden = 0;
+            for (i, (b, g)) in picked.iter().enumerate() {
+                let body_snaps: Vec<SnapshotBody> = picked
+                    .iter()
+                    .enumerate()
+                    .map(|(j, (_, other_g))| {
+                        if j == i {
+                            SnapshotBody::new(&g.edge_lines, &g.mesh)
+                        } else {
+                            SnapshotBody::new(&[], &other_g.mesh)
+                        }
+                    })
+                    .collect();
+                let snap =
+                    ducad_kernel::extract_vector_snapshot(&camera, &body_snaps, &[], &options);
+                let hex = body_custom_color(&b.material).unwrap_or_else(|| "#111827".to_string());
+                let opts = ducad_io::svg::SvgSnapshotOptions {
+                    background: if i == 0 {
+                        Some("#ffffff".into())
+                    } else {
+                        None
+                    },
+                    include_hidden: opt.hidden_lines,
+                    visible_color: hex.clone(),
+                    silhouette_color: hex,
+                    ..Default::default()
+                };
+                let h = snap.count(HlrLineKind::Hidden);
+                total_visible += snap.segments.len() - h;
+                total_hidden += h;
+                layers.push((snap, opts));
+            }
+            let layer_refs: Vec<(&VectorSnapshot, &ducad_io::svg::SvgSnapshotOptions)> = layers
+                .iter()
+                .map(|(s, o)| (s, o))
+                .collect();
+            let svg = ducad_io::svg::export_vector_snapshot_svg_layers(&layer_refs)
+                .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal membuat SVG: {e:#}")))?;
+            (svg, total_visible, total_hidden)
         };
-        let svg = ducad_io::svg::export_vector_snapshot_svg_string(&snap, &svg_opts)
-            .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal membuat SVG: {e:#}")))?;
+
         attempt += 1;
         if svg.len() > MAX_SVG_BYTES && attempt <= 3 {
             min_segment_px *= 2.0;
             continue;
         }
-        let hidden = snap.count(HlrLineKind::Hidden);
+
         // Prolog XML dibuang: opsional di SVG, dan hasilnya jadi diawali `<svg`.
         let svg = match svg.find("<svg") {
             Some(i) => svg[i..].to_string(),
@@ -296,8 +393,8 @@ fn render_picked(
         };
         return Ok(RenderResult {
             svg,
-            visible_segments: snap.segments.len() - hidden,
-            hidden_segments: hidden,
+            visible_segments,
+            hidden_segments,
         });
     }
 }

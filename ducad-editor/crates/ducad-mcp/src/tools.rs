@@ -121,7 +121,7 @@ pub fn definitions() -> Vec<Value> {
         tool("close_part", "Tutup sesi part.", schema(json!({ "session": session_prop() }), &[])),
         tool(
             "run_ops",
-            "Jalankan batch Op secara atomik; pakai dry_run:true dulu untuk validasi. Hasil: BatchReport.",
+            "Jalankan batch Op secara atomik; pakai dry_run:true dulu untuk validasi. Hasil: BatchReport. Contoh vektor->3D: Op::Extrude dengan profile:{\"names\":[\"logo\"]}, per_object:true, material:\"from_style\".",
             run_ops,
         ),
         tool(

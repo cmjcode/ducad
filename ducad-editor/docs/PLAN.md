@@ -2904,6 +2904,26 @@ CAD dan desain grafis vektor multi-alat (M0.1–M0.8):
       arsitektur vektor vs tinta vs node constraint, dan berkas contoh
       `examples/vector_logo.ops.json` terverifikasi lewat `ducad-cli run` dan `inspect`.
 
+## Status Fase M1 — Render Vektor 2D (selesai)
+
+Pipeline rendering kurva vektor 2D di `ducad-render` berbasis tessellator lyon, caching mesh berbasis revisi entitas, dan integrasi kamera 2D pan/zoom:
+- [x] **M1.1–M1.5** — Lyon tessellation fill & stroke, mesh caching per-entitas, render antialiased, dan integrasi viewport 2D.
+
+## Status Fase M2 — Mode Vektor & Tooling (selesai)
+
+Antarmuka interaktif mode Vektor di `ducad-ui` dan `ducad-app`:
+- [x] **M2.1–M2.8** — Tool Pen, Node Editor, Shape Builder boolean 2D, panel Layers & Properties, penyelarasan Align/Distribute, transformasi objek, dan constraint solver node path.
+
+## Status Fase M3 — Vektor → 3D Parametrik (selesai)
+
+Jalur konversi kurva vektor bergaya menjadi solid 3D B-rep parametrik (`ducad-engine`, `ducad-app`, `ducad-cli`, `ducad-mcp`):
+- [x] **M3.1 — Profil dari `Entity::Path`.** Penanganan subpath tertutup dan kurva Bézier kubik eksak, hierarki region luar dan lubang bersarang (`evenodd` dan `nonzero`).
+- [x] **M3.2 — `Op::Extrude` per-objek & material dari style.** Ekstrusi per-entitas bernama (`per_object: true`), resolusi material otomatis dari warna fill/stroke vektor (`material: "from_style"`), dan ekstrusi kontur outline saja (`outline: { width }`).
+- [x] **M3.3 — Regenerasi parametrik saat vektor berubah.** Deteksi status stale berbasis revisi entitas sketsa sumber, regenerasi model deterministik, dan toleransi kegagalan tanpa merusak body eksisting.
+- [x] **M3.4 — Alur GUI Ekstrusi Vektor.** Context bar ekstrusi terintegrasi, masukan tebal langsung, opsi per-objek, warna fill, outline, ekstrusi berbasis layer, dan transisi kamera isometrik 200 ms.
+- [x] **M3.5 — CLI, MCP, SKILL, contoh.** Eksekusi `ducad-cli run` dan `inspect` menampilkan `material.base_color`, `render` menghasilkan SVG/PNG berwarna sesuai warna material, `build` deterministik (STEP + PNG + report.json hash identik), MCP tool description terbarui, dan dokumentasi `SKILL.md`.
+
+
 
 ## Menjalankan
 
