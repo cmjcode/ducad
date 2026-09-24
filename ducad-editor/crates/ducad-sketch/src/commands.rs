@@ -54,6 +54,7 @@ impl Command<Sketch> for InsertEntities {
                 if let Some(ref g) = self.group_name {
                     sketch.entity_names.insert(id, g.clone());
                 }
+                sketch.touch(id);
                 id
             })
             .collect();
@@ -62,6 +63,7 @@ impl Command<Sketch> for InsertEntities {
         for id in self.inserted_ids.drain(..) {
             sketch.entities.remove(id);
             sketch.entity_names.remove(&id);
+            sketch.touch(id);
         }
     }
 }
@@ -89,12 +91,19 @@ impl Command<Sketch> for DeleteEntities {
         self.removed = self
             .ids
             .iter()
-            .filter_map(|id| sketch.entities.remove(*id))
+            .filter_map(|id| {
+                let res = sketch.entities.remove(*id);
+                if res.is_some() {
+                    sketch.touch(*id);
+                }
+                res
+            })
             .collect();
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         for entity in self.removed.drain(..) {
-            sketch.entities.insert(entity);
+            let id = sketch.entities.insert(entity);
+            sketch.touch(id);
         }
     }
 }
@@ -128,21 +137,33 @@ impl Command<Sketch> for ReplaceEntities {
         self.removed = self
             .remove_ids
             .iter()
-            .filter_map(|id| sketch.entities.remove(*id))
+            .filter_map(|id| {
+                let res = sketch.entities.remove(*id);
+                if res.is_some() {
+                    sketch.touch(*id);
+                }
+                res
+            })
             .collect();
         self.inserted_ids = self
             .insert
             .iter()
             .cloned()
-            .map(|e| sketch.entities.insert(e))
+            .map(|e| {
+                let id = sketch.entities.insert(e);
+                sketch.touch(id);
+                id
+            })
             .collect();
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         for id in self.inserted_ids.drain(..) {
             sketch.entities.remove(id);
+            sketch.touch(id);
         }
         for entity in self.removed.drain(..) {
-            sketch.entities.insert(entity);
+            let id = sketch.entities.insert(entity);
+            sketch.touch(id);
         }
     }
 }
@@ -174,12 +195,14 @@ impl Command<Sketch> for UpdateEntity {
         if let Some(e) = sketch.entities.get_mut(self.id) {
             self.old_entity = Some(e.clone());
             *e = self.new_entity.clone();
+            sketch.touch(self.id);
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
         if let Some(old) = &self.old_entity {
             if let Some(e) = sketch.entities.get_mut(self.id) {
                 *e = old.clone();
+                sketch.touch(self.id);
             }
         }
     }
@@ -213,6 +236,7 @@ impl Command<Sketch> for ResizeRectangle {
             if let Some(e) = sketch.entities.get_mut(*id) {
                 self.old_lines.push((*id, e.clone()));
                 *e = new_entity.clone();
+                sketch.touch(*id);
             }
         }
     }
@@ -220,6 +244,7 @@ impl Command<Sketch> for ResizeRectangle {
         for (id, old_entity) in self.old_lines.drain(..) {
             if let Some(e) = sketch.entities.get_mut(id) {
                 *e = old_entity;
+                sketch.touch(id);
             }
         }
     }
@@ -246,6 +271,7 @@ impl Command<Sketch> for TranslateEntities {
         for id in &self.ids {
             if let Some(e) = sketch.entities.get_mut(*id) {
                 *e = translate_entity(e, self.delta);
+                sketch.touch(*id);
             }
         }
     }
@@ -253,6 +279,7 @@ impl Command<Sketch> for TranslateEntities {
         for id in &self.ids {
             if let Some(e) = sketch.entities.get_mut(*id) {
                 *e = translate_entity(e, -self.delta);
+                sketch.touch(*id);
             }
         }
     }
@@ -295,6 +322,7 @@ impl Command<Sketch> for RenameEntities {
             } else {
                 sketch.entity_names.insert(id, self.new_name.clone());
             }
+            sketch.touch(id);
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
@@ -307,6 +335,7 @@ impl Command<Sketch> for RenameEntities {
                     sketch.entity_names.remove(&id);
                 }
             }
+            sketch.touch(id);
         }
     }
 }
@@ -340,6 +369,7 @@ impl Command<Sketch> for ToggleConstruction {
             if let Some(e) = sketch.entities.get_mut(id) {
                 self.old_states.push((id, e.is_construction()));
                 e.set_construction(self.target_state);
+                sketch.touch(id);
             }
         }
     }
@@ -347,6 +377,7 @@ impl Command<Sketch> for ToggleConstruction {
         for &(id, old_state) in &self.old_states {
             if let Some(e) = sketch.entities.get_mut(id) {
                 e.set_construction(old_state);
+                sketch.touch(id);
             }
         }
     }

@@ -6,9 +6,10 @@ pub mod commands;
 pub mod constraint;
 pub mod document;
 pub mod entity;
+pub mod index;
+pub mod infer;
 pub mod measure;
 pub mod ops;
-pub mod infer;
 pub mod recognize;
 pub mod region;
 pub mod sketch;
@@ -24,6 +25,7 @@ pub use commands::{
 };
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};
+pub use index::{IndexedBox, SpatialIndex};
 pub use ops::{
     arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
     compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, extend_preview,

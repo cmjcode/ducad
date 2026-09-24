@@ -85,15 +85,16 @@ pub fn find_snap_with_exclude_set(
         }
     };
 
-    let others = || {
-        sketch
-            .entities
-            .iter()
-            .filter(move |(id, _)| !is_excluded(*id) && !sketch.is_hidden(*id))
-    };
+    let candidates = sketch.query_spatial_point(cursor, tolerance);
+    let candidate_entities: Vec<(EntityId, &Entity)> = candidates
+        .into_iter()
+        .filter(|id| !is_excluded(*id) && !sketch.is_hidden(*id))
+        .filter_map(|id| sketch.entities.get(id).map(|e| (id, e)))
+        .collect();
 
-    let mut endpoints: Vec<(DVec2, Option<PointRef>)> = others()
-        .flat_map(|(id, e)| e.endpoint_refs(id))
+    let mut endpoints: Vec<(DVec2, Option<PointRef>)> = candidate_entities
+        .iter()
+        .flat_map(|(id, e)| e.endpoint_refs(*id))
         .map(|(r, p)| (p, Some(r)))
         .collect();
 
@@ -106,7 +107,8 @@ pub fn find_snap_with_exclude_set(
     }
     if let Some(hit) = nearest(
         SnapKind::Midpoint,
-        others()
+        candidate_entities
+            .iter()
             .filter_map(|(_, e)| e.midpoint())
             .map(|p| (p, None))
             .collect(),
@@ -115,8 +117,9 @@ pub fn find_snap_with_exclude_set(
     }
 
     // Titik Pusat: Circle, Arc, Ellipse, Spline center
-    let mut center_pts: Vec<(DVec2, Option<PointRef>)> = others()
-        .filter_map(|(id, e)| e.center_ref(id))
+    let mut center_pts: Vec<(DVec2, Option<PointRef>)> = candidate_entities
+        .iter()
+        .filter_map(|(id, e)| e.center_ref(*id))
         .map(|(r, p)| (p, Some(r)))
         .collect();
 
@@ -134,12 +137,26 @@ pub fn find_snap_with_exclude_set(
         return Some(hit);
     }
 
+    let candidate_lines: Vec<(DVec2, DVec2)> = candidate_entities
+        .iter()
+        .filter_map(|(_, e)| match e {
+            Entity::Line { start, end, .. } => Some((*start, *end)),
+            _ => None,
+        })
+        .collect();
+
+    let mut intersection_pts = Vec::new();
+    for i in 0..candidate_lines.len() {
+        for j in (i + 1)..candidate_lines.len() {
+            if let Some(p) = line_intersection(candidate_lines[i], candidate_lines[j]) {
+                intersection_pts.push(p);
+            }
+        }
+    }
+
     if let Some(hit) = nearest(
         SnapKind::Intersection,
-        find_intersections_with_exclude_set(sketch, exclude_set)
-            .into_iter()
-            .map(|p| (p, None))
-            .collect(),
+        intersection_pts.into_iter().map(|p| (p, None)).collect(),
     ) {
         return Some(hit);
     }

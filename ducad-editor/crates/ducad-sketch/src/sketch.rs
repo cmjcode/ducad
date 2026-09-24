@@ -4,6 +4,19 @@ use std::collections::{HashMap, HashSet};
 
 use crate::constraint::Constraint;
 use crate::entity::{Entity, EntityId};
+use crate::index::SpatialIndex;
+
+/// Cache indeks spasial internal untuk Sketch.
+#[derive(Debug, Default)]
+pub struct SpatialCache(pub(crate) std::sync::RwLock<Option<SpatialIndex>>);
+
+impl Clone for SpatialCache {
+    fn clone(&self) -> Self {
+        let guard = self.0.read().ok();
+        let val = guard.and_then(|g| g.clone());
+        Self(std::sync::RwLock::new(val))
+    }
+}
 
 /// Satu sketch pada sebuah bidang kerja.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -20,9 +33,96 @@ pub struct Sketch {
     /// ID entitas yang disembunyikan (hidden).
     #[serde(default)]
     pub hidden_entities: HashSet<EntityId>,
+
+    /// Revisi per entitas; naik setiap kali entitas berubah lewat command.
+    #[serde(skip)]
+    pub rev: slotmap::SecondaryMap<EntityId, u64>,
+    #[serde(skip)]
+    pub global_rev: u64,
+
+    #[serde(skip)]
+    pub(crate) dirty_entities: Vec<EntityId>,
+    #[serde(skip)]
+    pub(crate) spatial_cache: SpatialCache,
 }
 
 impl Sketch {
+    /// Wajib dipanggil setiap command yang mengubah geometri entitas `id`.
+    pub fn touch(&mut self, id: EntityId) {
+        self.global_rev = self.global_rev.wrapping_add(1);
+        let next_rev = self.rev.get(id).copied().unwrap_or(0).wrapping_add(1);
+        self.rev.insert(id, next_rev);
+        self.dirty_entities.push(id);
+    }
+
+    pub fn touch_all(&mut self) {
+        self.global_rev = self.global_rev.wrapping_add(1);
+        for id in self.entities.keys() {
+            let next_rev = self.rev.get(id).copied().unwrap_or(0).wrapping_add(1);
+            self.rev.insert(id, next_rev);
+        }
+        self.dirty_entities.clear();
+        if let Ok(mut guard) = self.spatial_cache.0.write() {
+            *guard = None;
+        }
+    }
+
+    /// Bangun/perbarui indeks bbox. O(k log n) untuk k entitas yang berubah sejak `built_rev`.
+    pub fn spatial(&mut self) -> &SpatialIndex {
+        self.ensure_spatial_index();
+        let cache = self.spatial_cache.0.get_mut().unwrap();
+        cache.as_ref().unwrap()
+    }
+
+    /// Query semua EntityId yang bounding box-nya beririsan dengan titik `p` yang diperluas `tol`.
+    pub fn query_spatial_point(&self, p: DVec2, tol: f64) -> Vec<EntityId> {
+        self.ensure_spatial_index();
+        let guard = self.spatial_cache.0.read().unwrap();
+        if let Some(index) = guard.as_ref() {
+            index.query_point(p, tol)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Query semua EntityId yang bounding box-nya beririsan dengan kotak `[min, max]`.
+    pub fn query_spatial_rect(&self, min: DVec2, max: DVec2) -> Vec<EntityId> {
+        self.ensure_spatial_index();
+        let guard = self.spatial_cache.0.read().unwrap();
+        if let Some(index) = guard.as_ref() {
+            index.query_rect(min, max)
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn ensure_spatial_index(&self) {
+        let needs_update = {
+            let guard = self.spatial_cache.0.read().unwrap();
+            match guard.as_ref() {
+                None => true,
+                Some(idx) => {
+                    idx.built_rev() != self.global_rev || idx.entity_count != self.entities.len()
+                }
+            }
+        };
+
+        if needs_update {
+            let mut guard = self.spatial_cache.0.write().unwrap();
+            let still_needs = match guard.as_ref() {
+                None => true,
+                Some(idx) => {
+                    idx.built_rev() != self.global_rev || idx.entity_count != self.entities.len()
+                }
+            };
+            if still_needs {
+                let mut index = guard.take().unwrap_or_default();
+                index.update_from_sketch(self, None);
+                *guard = Some(index);
+            }
+        }
+    }
+
     /// Mengecek apakah entitas sedang disembunyikan.
     pub fn is_hidden(&self, id: EntityId) -> bool {
         self.hidden_entities.contains(&id)
@@ -54,13 +154,34 @@ impl Sketch {
     }
 
     /// Entitas terdekat dari `p` dalam radius `tolerance`, atau `None`.
+    /// Menggunakan query indeks spasial sebagai prefilter, lalu uji jarak presisi.
     pub fn hit_test(&self, p: DVec2, tolerance: f64) -> Option<EntityId> {
+        let candidates = self.query_spatial_point(p, tolerance);
+        candidates
+            .into_iter()
+            .filter(|id| !self.is_hidden(*id))
+            .filter_map(|id| self.entities.get(id).map(|e| (id, e.distance_to(p))))
+            .filter(|(_, d)| *d <= tolerance)
+            .min_by(|a, b| {
+                a.1.partial_cmp(&b.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            })
+            .map(|(id, _)| id)
+    }
+
+    /// Hit-test linier murni tanpa indeks spasial (dipakai untuk validasi dan tes).
+    pub fn hit_test_linear(&self, p: DVec2, tolerance: f64) -> Option<EntityId> {
         self.entities
             .iter()
             .filter(|(id, _)| !self.is_hidden(*id))
             .map(|(id, e)| (id, e.distance_to(p)))
             .filter(|(_, d)| *d <= tolerance)
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .min_by(|a, b| {
+                a.1.partial_cmp(&b.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            })
             .map(|(id, _)| id)
     }
 
