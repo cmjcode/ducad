@@ -3,6 +3,7 @@ use egui_wgpu::wgpu;
 use glam::{Mat4, Vec3};
 
 use crate::grid;
+use crate::vector::{self, GpuVectorBatch, LayerBatch};
 
 /// Bidang potong "tidak aktif" — normal nol vektor + offset sangat besar,
 /// jadi `dot(0, world) - w` selalu sangat negatif dan tidak pernah lolos
@@ -307,6 +308,12 @@ pub struct SceneRenderer {
     current_grid_plane: Option<crate::plane::SketchPlane>,
     current_grid_extent: f32,
     current_grid_step: f32,
+    vector_pipeline_2d: wgpu::RenderPipeline,
+    vector_pipeline_3d: wgpu::RenderPipeline,
+    vector_gradient_layout: wgpu::BindGroupLayout,
+    vector_batches: Vec<GpuVectorBatch>,
+    vector_enabled: bool,
+    is_2d_mode: bool,
 }
 
 impl SceneRenderer {
@@ -351,6 +358,13 @@ impl SceneRenderer {
                 resource: globals_buf.as_entire_binding(),
             }],
         });
+
+        let vector_pipelines = vector::create_vector_pipelines(
+            device,
+            color_format,
+            depth_format,
+            &globals_layout,
+        );
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ducad-scene"),
@@ -671,6 +685,12 @@ impl SceneRenderer {
             current_grid_plane: Some(crate::plane::SketchPlane::top()),
             current_grid_extent: 500.0,
             current_grid_step: 10.0,
+            vector_pipeline_2d: vector_pipelines.pipeline_2d,
+            vector_pipeline_3d: vector_pipelines.pipeline_3d,
+            vector_gradient_layout: vector_pipelines.gradient_layout,
+            vector_batches: Vec::new(),
+            vector_enabled: true,
+            is_2d_mode: false,
         }
     }
 
@@ -713,6 +733,46 @@ impl SceneRenderer {
             }
             None => CLIP_PLANE_DISABLED,
         };
+    }
+
+    /// Unggah batch vektor yang sudah ditesselasi per-layer untuk frame berikutnya.
+    pub fn set_vector_batches(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batches: &[LayerBatch],
+    ) {
+        self.vector_batches.clear();
+        for batch in batches {
+            if let Some(gpu_batch) = vector::upload_layer_batch(
+                device,
+                queue,
+                batch,
+                &self.vector_gradient_layout,
+            ) {
+                self.vector_batches.push(gpu_batch);
+            }
+        }
+    }
+
+    /// Aktifkan atau nonaktifkan rendering elemen vektor di scene.
+    pub fn set_vector_enabled(&mut self, on: bool) {
+        self.vector_enabled = on;
+    }
+
+    /// Apakah rendering elemen vektor sedang aktif.
+    pub fn vector_enabled(&self) -> bool {
+        self.vector_enabled
+    }
+
+    /// Set mode 2D (depth test Always/OFF untuk vektor) atau 3D CAD.
+    pub fn set_2d_mode(&mut self, is_2d: bool) {
+        self.is_2d_mode = is_2d;
+    }
+
+    /// Apakah viewport sedang dalam mode 2D.
+    pub fn is_2d_mode(&self) -> bool {
+        self.is_2d_mode
     }
 
     /// Upload garis overlay 2D (sketch) untuk frame ini.
@@ -1183,6 +1243,23 @@ impl SceneRenderer {
         rpass.set_vertex_buffer(0, self.grid_vbuf.slice(..));
         rpass.draw(0..self.grid_vertex_count, 0..1);
 
+        // 3b. Gambar Elemen Vektor (per-layer, bawah -> atas)
+        if self.vector_enabled && !self.vector_batches.is_empty() {
+            let pipeline = if self.is_2d_mode {
+                &self.vector_pipeline_2d
+            } else {
+                &self.vector_pipeline_3d
+            };
+            rpass.set_pipeline(pipeline);
+            rpass.set_bind_group(0, &self.globals_bind, &[]);
+            for batch in &self.vector_batches {
+                rpass.set_bind_group(1, &batch.gradient_bind, &[]);
+                rpass.set_vertex_buffer(0, batch.vertex_buf.slice(..));
+                rpass.set_index_buffer(batch.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                rpass.draw_indexed(0..batch.index_count, 0, 0..1);
+            }
+        }
+
         // 4. Gambar Overlay Garis 2D (Sketch)
         if let Some(buf) = &self.overlay_vbuf {
             rpass.set_pipeline(&self.overlay_pipeline);
@@ -1267,6 +1344,13 @@ mod tests {
     #[test]
     fn test_shader_wgsl_validity() {
         let shader_str = include_str!("shader.wgsl");
+        let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
+        assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
+    }
+
+    #[test]
+    fn test_shader_vector_wgsl_validity() {
+        let shader_str = include_str!("vector/shader_vector.wgsl");
         let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
         assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
     }

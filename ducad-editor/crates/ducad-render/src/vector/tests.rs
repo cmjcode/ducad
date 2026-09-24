@@ -587,3 +587,35 @@ fn hidden_entity_not_in_batch() {
     );
 }
 
+#[test]
+fn vertex_layout_matches_shader() {
+    use std::mem::{offset_of, size_of};
+    use super::cache::{GradientStop, GradientUniform};
+    use super::tessellate::VectorVertex;
+
+    // Ukuran VectorVertex harus tepat 48 byte
+    assert_eq!(size_of::<VectorVertex>(), 48);
+    assert_eq!(offset_of!(VectorVertex, pos), 0);
+    assert_eq!(offset_of!(VectorVertex, color), 12);
+    assert_eq!(offset_of!(VectorVertex, paint), 28);
+    assert_eq!(offset_of!(VectorVertex, uv), 32);
+    assert_eq!(offset_of!(VectorVertex, _pad), 40);
+
+    // Gradient uniform layout untuk shader WGSL std140
+    assert_eq!(size_of::<GradientStop>(), 32);
+    assert_eq!(size_of::<GradientUniform>(), 288);
+    assert_eq!(offset_of!(GradientUniform, kind), 0);
+    assert_eq!(offset_of!(GradientUniform, count), 4);
+    assert_eq!(offset_of!(GradientUniform, p0), 8);
+    assert_eq!(offset_of!(GradientUniform, p1), 16);
+    assert_eq!(offset_of!(GradientUniform, _pad), 24);
+    assert_eq!(offset_of!(GradientUniform, stops), 32);
+}
+
+#[test]
+fn wgsl_vector_shader_compiles() {
+    let shader_str = include_str!("shader_vector.wgsl");
+    let module = egui_wgpu::wgpu::naga::front::wgsl::parse_str(shader_str);
+    assert!(module.is_ok(), "WGSL parse error: {:?}", module.err());
+}
+
