@@ -442,13 +442,21 @@ impl Command<Sketch> for ResizeRectangle {
 /// Geser satu/lebih entitas sepanjang bidang sketsa-nya.
 pub struct TranslateEntities {
     label: &'static str,
-    ids: Vec<EntityId>,
-    delta: DVec2,
+    deltas: Vec<(EntityId, DVec2)>,
 }
 
 impl TranslateEntities {
     pub fn new(label: &'static str, ids: Vec<EntityId>, delta: DVec2) -> Self {
-        Self { label, ids, delta }
+        let deltas = ids.into_iter().map(|id| (id, delta)).collect();
+        Self { label, deltas }
+    }
+
+    pub fn with_deltas(label: &'static str, deltas: Vec<(EntityId, DVec2)>) -> Self {
+        Self { label, deltas }
+    }
+
+    pub fn deltas(&self) -> &[(EntityId, DVec2)] {
+        &self.deltas
     }
 }
 
@@ -457,18 +465,18 @@ impl Command<Sketch> for TranslateEntities {
         self.label
     }
     fn apply(&mut self, sketch: &mut Sketch) {
-        for id in &self.ids {
-            if let Some(e) = sketch.entities.get_mut(*id) {
-                *e = translate_entity(e, self.delta);
-                sketch.touch(*id);
+        for &(id, delta) in &self.deltas {
+            if let Some(e) = sketch.entities.get_mut(id) {
+                *e = translate_entity(e, delta);
+                sketch.touch(id);
             }
         }
     }
     fn revert(&mut self, sketch: &mut Sketch) {
-        for id in &self.ids {
-            if let Some(e) = sketch.entities.get_mut(*id) {
-                *e = translate_entity(e, -self.delta);
-                sketch.touch(*id);
+        for &(id, delta) in &self.deltas {
+            if let Some(e) = sketch.entities.get_mut(id) {
+                *e = translate_entity(e, -delta);
+                sketch.touch(id);
             }
         }
     }

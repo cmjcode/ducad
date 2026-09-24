@@ -3,7 +3,7 @@
 //! Logika murni tanpa ketergantungan GUI.
 
 use glam::DVec2;
-use crate::entity::{PathSeg, Subpath};
+use crate::entity::{Entity, PathSeg, Subpath};
 
 /// Konstanta kappa baku untuk aproksimasi lingkaran dengan 4 busur Bézier kubik:
 /// kappa = 4/3 * (sqrt(2) - 1) ≈ 0.5522847498307936
@@ -862,6 +862,198 @@ pub fn closest_point(sub: &Subpath, p: DVec2) -> (usize, f64, DVec2, f64) {
     (best_seg, best_t, best_pt, min_dist)
 }
 
+/// Mengaplikasikan transformasi affine kurbo pada DVec2.
+pub fn apply_affine(affine: kurbo::Affine, p: DVec2) -> DVec2 {
+    let kp = affine * kurbo::Point::new(p.x, p.y);
+    DVec2::new(kp.x, kp.y)
+}
+
+/// Mentransformasikan seluruh node dan handle pada sebuah `Subpath`.
+pub fn transform_subpath(sub: &Subpath, affine: kurbo::Affine) -> Subpath {
+    let start = apply_affine(affine, sub.start);
+    let segs = sub
+        .segs
+        .iter()
+        .map(|seg| match seg {
+            PathSeg::Line { end } => PathSeg::Line {
+                end: apply_affine(affine, *end),
+            },
+            PathSeg::Cubic { c1, c2, end } => PathSeg::Cubic {
+                c1: apply_affine(affine, *c1),
+                c2: apply_affine(affine, *c2),
+                end: apply_affine(affine, *end),
+            },
+        })
+        .collect();
+    Subpath {
+        start,
+        segs,
+        closed: sub.closed,
+    }
+}
+
+/// Mentransformasikan sembarang entitas dengan matriks `kurbo::Affine` (M2.5).
+/// - `Path`: titik kontrol dipetakan langsung dengan matriks affine (`map_points`).
+/// - `Circle`: jika skala non-seragam atau terdapat shear, dikonversi menjadi `Entity::Path` (4 kubik Bézier).
+///   Jika skala seragam, tetap `Entity::Circle`.
+/// - `Ellipse`: jika mengalami rotasi atau shear, dikonversi menjadi `Entity::Path` (4 kubik Bézier).
+///   Jika axis-aligned, tetap `Entity::Ellipse`.
+/// - `Line`, `Arc`, `Spline`: ditransformasikan sesuai geometri masing-masing.
+pub fn transform_entity(entity: &Entity, affine: kurbo::Affine) -> Entity {
+    let [a, b, c, d, _tx, _ty] = affine.as_coeffs();
+
+    match entity {
+        Entity::Path {
+            subpaths,
+            is_construction,
+        } => {
+            let new_subs = subpaths
+                .iter()
+                .map(|sub| transform_subpath(sub, affine))
+                .collect();
+            Entity::Path {
+                subpaths: new_subs,
+                is_construction: *is_construction,
+            }
+        }
+        Entity::Line {
+            start,
+            end,
+            is_construction,
+        } => Entity::Line {
+            start: apply_affine(affine, *start),
+            end: apply_affine(affine, *end),
+            is_construction: *is_construction,
+        },
+        Entity::Circle {
+            center,
+            radius,
+            is_construction,
+        } => {
+            let sx2 = a * a + b * b;
+            let sy2 = c * c + d * d;
+            let is_orthogonal = (a * c + b * d).abs() < 1e-9;
+            let is_uniform = is_orthogonal && (sx2 - sy2).abs() < 1e-9;
+
+            if is_uniform {
+                let s = sx2.sqrt();
+                let new_center = apply_affine(affine, *center);
+                Entity::Circle {
+                    center: new_center,
+                    radius: radius * s,
+                    is_construction: *is_construction,
+                }
+            } else {
+                let path_sub = shape_to_path_circle(*center, *radius);
+                let transformed_sub = transform_subpath(&path_sub, affine);
+                Entity::Path {
+                    subpaths: vec![transformed_sub],
+                    is_construction: *is_construction,
+                }
+            }
+        }
+        Entity::Ellipse {
+            center,
+            radius_x,
+            radius_y,
+            is_construction,
+        } => {
+            let is_axis_aligned = b.abs() < 1e-9 && c.abs() < 1e-9;
+            if is_axis_aligned {
+                let new_center = apply_affine(affine, *center);
+                Entity::Ellipse {
+                    center: new_center,
+                    radius_x: (radius_x * a).abs(),
+                    radius_y: (radius_y * d).abs(),
+                    is_construction: *is_construction,
+                }
+            } else {
+                let path_sub = shape_to_path_ellipse(*center, *radius_x, *radius_y);
+                let transformed_sub = transform_subpath(&path_sub, affine);
+                Entity::Path {
+                    subpaths: vec![transformed_sub],
+                    is_construction: *is_construction,
+                }
+            }
+        }
+        Entity::Arc {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            is_construction,
+        } => {
+            let sx2 = a * a + b * b;
+            let sy2 = c * c + d * d;
+            let is_orthogonal = (a * c + b * d).abs() < 1e-9;
+            let is_uniform = is_orthogonal && (sx2 - sy2).abs() < 1e-9;
+
+            if is_uniform {
+                let s = sx2.sqrt();
+                let new_center = apply_affine(affine, *center);
+                let rot = b.atan2(a);
+                let det = a * d - b * c;
+                let (new_start, new_end) = if det >= 0.0 {
+                    (start_angle + rot, end_angle + rot)
+                } else {
+                    (rot - end_angle, rot - start_angle)
+                };
+                Entity::Arc {
+                    center: new_center,
+                    radius: radius * s,
+                    start_angle: new_start,
+                    end_angle: new_end,
+                    is_construction: *is_construction,
+                }
+            } else {
+                let arc = kurbo::Arc {
+                    center: kurbo::Point::new(center.x, center.y),
+                    radii: kurbo::Vec2::new(*radius, *radius),
+                    start_angle: *start_angle,
+                    sweep_angle: end_angle - start_angle,
+                    x_rotation: 0.0,
+                };
+                let bez = kurbo::Shape::to_path(&arc, 0.01);
+                let subs = Subpath::from_kurbo(&bez);
+                let transformed_subs = subs
+                    .into_iter()
+                    .map(|s| transform_subpath(&s, affine))
+                    .collect();
+                Entity::Path {
+                    subpaths: transformed_subs,
+                    is_construction: *is_construction,
+                }
+            }
+        }
+        Entity::Spline {
+            points,
+            exact,
+            is_construction,
+        } => {
+            let new_points = points.iter().map(|p| apply_affine(affine, *p)).collect();
+            let new_exact = exact.as_ref().map(|segs| {
+                segs.iter()
+                    .map(|seg| match *seg {
+                        PathSeg::Line { end } => PathSeg::Line {
+                            end: apply_affine(affine, end),
+                        },
+                        PathSeg::Cubic { c1, c2, end } => PathSeg::Cubic {
+                            c1: apply_affine(affine, c1),
+                            c2: apply_affine(affine, c2),
+                            end: apply_affine(affine, end),
+                        },
+                    })
+                    .collect()
+            });
+            Entity::Spline {
+                points: new_points,
+                exact: new_exact,
+                is_construction: *is_construction,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1204,6 +1396,55 @@ mod tests {
                 let err = (pt_orig - pt_rest).length();
                 proptest::prop_assert!(err <= 0.1, "max error {} exceeded 0.1 mm at u={}", err, u);
             }
+        }
+    }
+
+    #[test]
+    fn transform_circle_nonuniform_becomes_path() {
+        let circle = Entity::circle(DVec2::new(10.0, 10.0), 5.0);
+        let affine = kurbo::Affine::scale_non_uniform(2.0, 3.0);
+        let transformed = transform_entity(&circle, affine);
+        match transformed {
+            Entity::Path { subpaths, .. } => {
+                assert_eq!(subpaths.len(), 1);
+                assert_eq!(subpaths[0].segs.len(), 4);
+                assert!(subpaths[0].closed);
+            }
+            _ => panic!("Expected Entity::Path for non-uniform circle scaling"),
+        }
+    }
+
+    #[test]
+    fn rotate_path_preserves_lengths() {
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 0.0);
+        let p2 = DVec2::new(10.0, 10.0);
+        let sub = Subpath {
+            start: p0,
+            segs: vec![
+                PathSeg::Line { end: p1 },
+                PathSeg::Line { end: p2 },
+            ],
+            closed: false,
+        };
+        let ent = Entity::Path {
+            subpaths: vec![sub],
+            is_construction: false,
+        };
+        let affine = kurbo::Affine::rotate(std::f64::consts::FRAC_PI_4);
+        let rot_ent = transform_entity(&ent, affine);
+        if let Entity::Path { subpaths, .. } = rot_ent {
+            let pts = subpaths[0].flatten(0.01);
+            let mut total_len: f64 = 0.0;
+            for i in 0..pts.len() - 1 {
+                total_len += (pts[i + 1] - pts[i]).length();
+            }
+            assert!(
+                (total_len - 20.0).abs() < 1e-3,
+                "Length must be preserved, expected 20.0, got {total_len}"
+            );
+        } else {
+            panic!("Expected Entity::Path");
         }
     }
 }

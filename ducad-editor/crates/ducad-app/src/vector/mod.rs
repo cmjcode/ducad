@@ -1,14 +1,21 @@
+pub mod align;
 pub mod node_edit;
 pub mod pen;
 pub mod shape_builder;
+pub mod transform;
+pub use align::{AlignMode, AlignRelative, AlignTool, DistributeMode};
 pub use node_edit::NodeEditTool;
 pub use pen::PenTool;
 pub use shape_builder::ShapeBuilder;
+pub use transform::{
+    find_root_group, get_group_members_recursive, resolve_group_selection, PivotAnchor,
+    PrecisionTransform, TransformParams,
+};
 
 use std::collections::BTreeSet;
 pub use ducad_sketch::path_edit::HandleSide;
 use ducad_sketch::path_edit::PenBuilder;
-use ducad_sketch::{EntityId, Style};
+use ducad_sketch::{EntityId, GroupId, Style};
 use glam::DVec2;
 
 /// Target yang sedang di-drag oleh user dalam mode vektor.
@@ -52,6 +59,8 @@ pub struct VectorState {
     pub drag: Option<DragState>,
     /// Gaya untuk objek baru (CorelDraw: "default object properties").
     pub last_style: Style,
+    /// Grup yang sedang diisolasi (dobel-klik masuk grup, Escape keluar).
+    pub isolated_group: Option<GroupId>,
 }
 
 impl VectorState {

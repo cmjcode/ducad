@@ -26,8 +26,8 @@ mod tests;
 pub use kurbo;
 pub use path_ops::{area, boolean, offset, simplify, stroke_to_path, BoolOp, PathOpError};
 pub use path_edit::{
-    shape_to_path, shape_to_path_circle, shape_to_path_ellipse, shape_to_path_polygon,
-    shape_to_path_rect, PenBuilder, VectorShape, KAPPA,
+    apply_affine, shape_to_path, shape_to_path_circle, shape_to_path_ellipse, shape_to_path_polygon,
+    shape_to_path_rect, transform_entity, transform_subpath, PenBuilder, VectorShape, KAPPA,
 };
 
 pub use commands::{
