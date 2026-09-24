@@ -211,19 +211,15 @@ impl PenBuilder {
         }
 
         if close {
-            // Jika segmen terakhir berakhir persis di start, gunakan segmen itu;
-            // jika belum, tambahkan penutup ke start.
-            let last_end = self.segs.last().map(|s| s.end()).unwrap_or(start);
-            if (last_end - start).length() > 1e-6 {
-                if let Some(h_out) = self.last_handle.take() {
-                    self.segs.push(PathSeg::Cubic {
-                        c1: h_out,
-                        c2: start,
-                        end: start,
-                    });
-                } else {
-                    self.segs.push(PathSeg::Line { end: start });
+            // Jika segmen terakhir berakhir persis di start, jatuhkan segmen duplikat tersebut
+            // karena closed = true sudah menyiratkan ruas kembali ke start secara implisit.
+            if let Some(last) = self.segs.last() {
+                if (last.end() - start).length() <= 1e-6 {
+                    self.segs.pop();
                 }
+            }
+            if self.segs.is_empty() {
+                return None;
             }
         }
 
@@ -233,6 +229,19 @@ impl PenBuilder {
             closed: close,
         })
     }
+}
+
+/// Kunci sudut ke kelipatan 45° terdekat terhadap titik acuan `origin` (saat Shift ditekan).
+pub fn snap_angle_45(origin: DVec2, target: DVec2) -> DVec2 {
+    let diff = target - origin;
+    let dist = diff.length();
+    if dist < 1e-6 {
+        return target;
+    }
+    let angle = diff.y.atan2(diff.x);
+    let step = std::f64::consts::FRAC_PI_4; // 45 derajat
+    let snapped_angle = (angle / step).round() * step;
+    origin + DVec2::new(snapped_angle.cos(), snapped_angle.sin()) * dist
 }
 
 #[cfg(test)]
@@ -296,5 +305,79 @@ mod tests {
             tol,
             radius
         );
+    }
+
+    #[test]
+    fn pen_corner_then_corner_gives_line_seg() {
+        let mut b = PenBuilder::new();
+        b.corner(DVec2::new(0.0, 0.0));
+        b.corner(DVec2::new(10.0, 0.0));
+        let sub = b.finish(false).expect("should produce subpath");
+        assert_eq!(sub.start, DVec2::new(0.0, 0.0));
+        assert_eq!(sub.segs.len(), 1);
+        assert_eq!(sub.segs[0], PathSeg::Line { end: DVec2::new(10.0, 0.0) });
+        assert!(!sub.closed);
+    }
+
+    #[test]
+    fn pen_smooth_makes_symmetric_handles() {
+        let mut b = PenBuilder::new();
+        b.corner(DVec2::new(0.0, 0.0));
+        let p = DVec2::new(10.0, 10.0);
+        let h_out = DVec2::new(15.0, 12.0);
+        b.smooth(p, h_out);
+        let sub = b.finish(false).expect("should produce subpath");
+        assert_eq!(sub.segs.len(), 1);
+        match sub.segs[0] {
+            PathSeg::Cubic { c2, end, .. } => {
+                assert_eq!(end, p);
+                // c2 adalah h_in yang simetris terhadap p dengan h_out
+                let midpoint = (c2 + h_out) * 0.5;
+                assert!((midpoint - p).length() < 1e-9);
+            }
+            _ => panic!("Expected Cubic segment"),
+        }
+    }
+
+    #[test]
+    fn pen_close_sets_closed_and_drops_duplicate_end() {
+        let mut b = PenBuilder::new();
+        b.corner(DVec2::new(0.0, 0.0));
+        b.corner(DVec2::new(10.0, 0.0));
+        b.corner(DVec2::new(10.0, 10.0));
+        b.corner(DVec2::new(0.0, 0.0)); // Titik penutup yang sama dengan start
+        let sub = b.finish(true).expect("should produce closed subpath");
+        assert!(sub.closed, "Subpath must be marked closed");
+        assert_eq!(
+            sub.segs.len(),
+            2,
+            "Duplicate end segment must be dropped, leaving 2 segments for 3 nodes"
+        );
+        assert_eq!(sub.node_count(), 3);
+    }
+
+    #[test]
+    fn pen_pop_restores_previous_state() {
+        let mut b = PenBuilder::new();
+        b.corner(DVec2::new(0.0, 0.0));
+        b.corner(DVec2::new(10.0, 0.0));
+        assert_eq!(b.segs.len(), 1);
+        assert!(b.pop());
+        assert_eq!(b.segs.len(), 0);
+        assert_eq!(b.start, Some(DVec2::new(0.0, 0.0)));
+        assert!(b.pop());
+        assert_eq!(b.start, None);
+        assert!(!b.pop());
+    }
+
+    #[test]
+    fn pen_finish_with_one_node_is_none() {
+        let mut b = PenBuilder::new();
+        assert!(b.clone().finish(false).is_none());
+        assert!(b.clone().finish(true).is_none());
+
+        b.corner(DVec2::new(5.0, 5.0));
+        assert!(b.clone().finish(false).is_none());
+        assert!(b.finish(true).is_none());
     }
 }

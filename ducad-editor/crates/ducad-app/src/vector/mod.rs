@@ -1,4 +1,5 @@
-//! State dan manajemen mode vektor (M2).
+pub mod pen;
+pub use pen::PenTool;
 
 use std::collections::BTreeSet;
 use ducad_sketch::path_edit::PenBuilder;

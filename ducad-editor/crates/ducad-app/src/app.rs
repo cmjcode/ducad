@@ -3871,6 +3871,48 @@ impl DuCADApp {
         self.selection_box = None;
         self.loft_alignment_dismissed = false;
     }
+
+    /// Commit subpath dari Pen tool ke dalam Sketch aktif (M2.2):
+    /// InsertEntities([Entity::Path]) + SetStyle + MoveToLayer dalam satu transaksi undo lalu touch.
+    pub fn commit_pen_subpath(
+        &mut self,
+        subpath: ducad_sketch::Subpath,
+    ) -> Option<ducad_sketch::EntityId> {
+        let before: std::collections::HashSet<ducad_sketch::EntityId> =
+            self.sketch().entities.keys().collect();
+        let active_layer = self.sketch_mut().ensure_default_layer();
+        let style = self.vector_state.last_style.clone();
+
+        {
+            let slot = self.sketch_set.active_mut();
+            slot.undo.begin("Pen");
+        }
+        let path_entity = ducad_sketch::Entity::Path {
+            subpaths: vec![subpath],
+            is_construction: false,
+        };
+        self.execute_sketch_command(Box::new(ducad_sketch::InsertEntities::new(
+            "Pen",
+            vec![path_entity],
+        )));
+        let new_id = self
+            .sketch()
+            .entities
+            .keys()
+            .find(|id| !before.contains(id))?;
+
+        self.execute_sketch_command(Box::new(ducad_sketch::SetStyle::new(vec![new_id], style)));
+        self.execute_sketch_command(Box::new(ducad_sketch::MoveToLayer::new(
+            vec![new_id],
+            active_layer,
+        )));
+        {
+            let slot = self.sketch_set.active_mut();
+            slot.undo.commit();
+        }
+        self.sketch_mut().touch(new_id);
+        Some(new_id)
+    }
 }
 
 /// Helper tombol lingkaran mengambang di pojok kanan bawah bergaya Shapr3D.
@@ -4110,9 +4152,31 @@ mod tests {
         assert_eq!(r_hybrid.min.y, r_pencil.min.y, "Tombol bergeser vertikal pada mode PencilOnly");
         assert_eq!(r_hybrid.min.y, r_finger.min.y, "Tombol bergeser vertikal pada mode FingerDesign");
         assert_eq!(r_hybrid.max.y, r_pencil.max.y, "Tombol bergeser vertikal pada mode PencilOnly");
-        assert_eq!(r_finger.max.y, r_pencil.max.y, "Tombol bergeser vertikal pada mode FingerDesign");
         assert_eq!(r_hybrid.height(), r_pencil.height(), "Tinggi tombol berubah pada mode PencilOnly");
         assert_eq!(r_finger.height(), r_pencil.height(), "Tinggi tombol berubah pada mode FingerDesign");
+    }
+
+    #[test]
+    fn test_commit_pen_subpath_and_undo() {
+        let mut app = DuCADApp::new_for_test();
+        let p0 = DVec2::new(0.0, 0.0);
+        let p1 = DVec2::new(10.0, 10.0);
+        let sub = ducad_sketch::Subpath {
+            start: p0,
+            segs: vec![ducad_sketch::PathSeg::Line { end: p1 }],
+            closed: false,
+        };
+        let initial_count = app.sketch().entities.len();
+        let entity_id = app.commit_pen_subpath(sub).expect("commit must succeed");
+        assert_eq!(app.sketch().entities.len(), initial_count + 1);
+        assert!(matches!(
+            app.sketch().entities.get(entity_id),
+            Some(ducad_sketch::Entity::Path { .. })
+        ));
+
+        // Undo
+        app.undo_active_sketch();
+        assert_eq!(app.sketch().entities.len(), initial_count);
     }
 }
 
