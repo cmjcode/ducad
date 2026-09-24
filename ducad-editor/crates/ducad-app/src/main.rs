@@ -18,6 +18,7 @@ pub mod file_io;
 pub mod freehand;
 pub mod history_db;
 pub mod import_worker;
+pub mod ink;
 pub mod input;
 /// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
 #[cfg(feature = "memory")]

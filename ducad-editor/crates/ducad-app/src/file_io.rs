@@ -77,11 +77,12 @@ impl DuCADApp {
     pub fn save_native_to(&mut self, path: PathBuf) {
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
-        match ducad_io::native::save_multi_plane_detailed_with_design(
+        match ducad_io::native::save_multi_plane_detailed_with_design_and_ink(
             &path,
             &ordered,
             &body_exports,
             self.design.as_ref(),
+            Some(&self.ink),
         ) {
             Ok(_) => {
                 let name = path
@@ -157,6 +158,8 @@ impl DuCADApp {
                 }
                 self.model = new_model;
                 self.model_undo = ducad_core::UndoStack::default();
+                self.ink = loaded.ink.unwrap_or_default();
+                self.ink_undo = ducad_core::UndoStack::default();
                 self.selected_bodies.clear();
 
                 let name = path

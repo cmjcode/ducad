@@ -466,6 +466,22 @@ impl DuCADApp {
     }
 
     #[inline]
+    pub fn can_undo(&self) -> bool {
+        !self.global_undo_order.is_empty()
+            || self.can_undo_active_sketch()
+            || self.model_undo.can_undo()
+            || self.ink_undo.can_undo()
+    }
+
+    #[inline]
+    pub fn can_redo(&self) -> bool {
+        !self.global_redo_order.is_empty()
+            || self.can_redo_active_sketch()
+            || self.model_undo.can_redo()
+            || self.ink_undo.can_redo()
+    }
+
+    #[inline]
     pub fn undo_active_sketch(&mut self) {
         let id = self.active_sketch_id();
         self.sketch_set.set_active(id);

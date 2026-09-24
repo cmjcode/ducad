@@ -1637,6 +1637,7 @@ dependencies = [
  "env_logger",
  "glam",
  "image",
+ "kurbo",
  "log",
  "mnemonic",
  "objc2 0.6.4",
@@ -1764,6 +1765,7 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "ducad-core",
+ "ducad-ink",
  "ducad-kernel",
  "ducad-sketch",
  "glam",

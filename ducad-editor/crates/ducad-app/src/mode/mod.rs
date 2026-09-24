@@ -10,16 +10,23 @@ pub enum AppMode {
     Vector,
     /// Mode 3D Solid: pemodelan B-rep, extrude, revolve, dsb.
     Solid,
+    /// Mode Sketsa Tinta Bebas (Concepts-like): kuas bertekanan, layer, kanvas tak hingga.
+    Ink,
 }
 
 impl AppMode {
-    /// Mengembalikan true jika dalam mode 2D (Sketch atau Vektor).
+    /// Mengembalikan true jika dalam mode 2D (Sketch, Vektor, atau Sketsa Tinta).
     pub fn is_2d(self) -> bool {
-        matches!(self, AppMode::Sketch | AppMode::Vector)
+        matches!(self, AppMode::Sketch | AppMode::Vector | AppMode::Ink)
     }
 
     /// Mengembalikan true jika dalam mode 3D solid.
     pub fn is_3d(self) -> bool {
         matches!(self, AppMode::Solid)
+    }
+
+    /// Mengembalikan true jika dalam mode Sketsa Tinta.
+    pub fn is_ink(self) -> bool {
+        matches!(self, AppMode::Ink)
     }
 }

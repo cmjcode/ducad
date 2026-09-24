@@ -878,6 +878,11 @@ impl DuCADApp {
             return;
         }
 
+        if self.app_mode == crate::mode::AppMode::Ink {
+            self.handle_ink_input(ui, response, rect);
+            return;
+        }
+
         let text_focused = ui.ctx().memory(|m| m.focused().is_some());
 
         if !text_focused {

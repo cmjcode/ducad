@@ -151,6 +151,9 @@ pub struct DuCADFile {
     /// `ducad-io` tidak boleh bergantung pada `ducad-engine`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub design: Option<serde_json::Value>,
+    /// Dokumen tinta bebas (Fase M4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ink: Option<ducad_ink::InkDoc>,
 }
 
 /// Body yang SUDAH dimuat (geometrinya sudah direkonstruksi jadi
@@ -174,6 +177,8 @@ pub struct LoadedDocument {
     pub bodies: Vec<LoadedBody>,
     /// Field `design` berkas v2, apa adanya.
     pub design: Option<serde_json::Value>,
+    /// Dokumen tinta bebas (Fase M4).
+    pub ink: Option<ducad_ink::InkDoc>,
 }
 
 impl LoadedDocument {
@@ -197,6 +202,16 @@ pub fn serialize_detailed_to_json_with_design(
     sketches: &[&Sketch],
     bodies: &[ExportBody],
     design: Option<&serde_json::Value>,
+) -> Result<String> {
+    serialize_detailed_to_json_with_design_and_ink(sketches, bodies, design, None)
+}
+
+/// Seperti [`serialize_detailed_to_json_with_design`] plus dokumen tinta bebas (`ink`).
+pub fn serialize_detailed_to_json_with_design_and_ink(
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
+    ink: Option<&ducad_ink::InkDoc>,
 ) -> Result<String> {
     let bodies = bodies
         .iter()
@@ -230,7 +245,7 @@ pub fn serialize_detailed_to_json_with_design(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let format_version = if sketches.iter().any(|s| needs_v3(s)) {
+    let format_version = if sketches.iter().any(|s| needs_v3(s)) || ink.is_some() {
         FORMAT_VERSION
     } else if design.is_some() {
         FORMAT_VERSION_DESIGN
@@ -245,6 +260,7 @@ pub fn serialize_detailed_to_json_with_design(
         right_sketch: sketches.get(2).map(|s| (*s).clone()),
         bodies,
         design: design.cloned(),
+        ink: ink.cloned(),
     };
     serde_json::to_string_pretty(&file).context("gagal serialize snapshot dokumen ke JSON")
 }
@@ -316,6 +332,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         right_sketch,
         bodies,
         design: file.design,
+        ink: file.ink,
     })
 }
 
@@ -335,7 +352,18 @@ pub fn save_multi_plane_detailed_with_design(
     bodies: &[ExportBody],
     design: Option<&serde_json::Value>,
 ) -> Result<()> {
-    let json = serialize_detailed_to_json_with_design(sketches, bodies, design)?;
+    save_multi_plane_detailed_with_design_and_ink(path, sketches, bodies, design, None)
+}
+
+/// Seperti [`save_multi_plane_detailed_with_design`] plus dokumen tinta bebas (`ink`).
+pub fn save_multi_plane_detailed_with_design_and_ink(
+    path: impl AsRef<Path>,
+    sketches: &[&Sketch],
+    bodies: &[ExportBody],
+    design: Option<&serde_json::Value>,
+    ink: Option<&ducad_ink::InkDoc>,
+) -> Result<()> {
+    let json = serialize_detailed_to_json_with_design_and_ink(sketches, bodies, design, ink)?;
     std::fs::write(path, json).context("gagal menulis file .ducad")?;
     Ok(())
 }
