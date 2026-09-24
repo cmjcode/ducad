@@ -3,8 +3,13 @@
 pub mod brush;
 pub mod commands;
 pub mod document;
+pub mod eraser;
 pub mod filter;
+pub mod index;
+pub mod lasso;
+pub mod nudge;
 pub mod predict;
+pub mod slice;
 pub mod stroke;
 
 pub use brush::{Brush, BrushId, BrushKind, PressureCurve};
@@ -13,8 +18,13 @@ pub use commands::{
     SetStrokesHidden, SplitStroke, TransformStrokes,
 };
 pub use document::InkDoc;
+pub use eraser::{erase, EraseMode, EraseResult};
 pub use filter::OneEuro;
+pub use index::{IndexedStroke, SpatialIndex};
+pub use lasso::{lasso_select, LassoMode};
+pub use nudge::nudge;
 pub use predict::StrokeBuilder;
+pub use slice::slice;
 pub use stroke::{InkPoint, Stroke};
 
 #[cfg(test)]
@@ -458,6 +468,211 @@ mod tests {
         cmd.revert(&mut doc);
         assert_eq!(doc, before_replace);
         assert_eq!(doc.stroke(id).unwrap().points, orig_pts);
+    }
+
+    #[test]
+    fn erase_whole_removes_only_hit_strokes() {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let lid = lm.insert(());
+
+        let s1 = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(0.0, 0.0, 0.5, 0.0, 0),
+                InkPoint::new(10.0, 0.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        let id1 = doc.add_stroke(s1);
+
+        let s2 = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(50.0, 50.0, 0.5, 0.0, 0),
+                InkPoint::new(60.0, 50.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        let _id2 = doc.add_stroke(s2);
+        doc.ensure_index();
+
+        let path = vec![Vec2::new(5.0, 0.0)];
+        let res = erase(&doc, &path, EraseMode::WholeStroke);
+        assert_eq!(res.removed, vec![id1]);
+        assert!(res.replaced.is_empty());
+    }
+
+    #[test]
+    fn erase_partial_splits_into_two() {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let lid = lm.insert(());
+
+        let pts: Vec<InkPoint> = (0..=10)
+            .map(|i| InkPoint::new(i as f32, 0.0, 0.5, 0.0, i * 10))
+            .collect();
+        let s = Stroke::new(0, pts, bid, Rgba([0.0, 0.0, 0.0, 1.0]), lid);
+        let id = doc.add_stroke(s);
+        doc.ensure_index();
+
+        // Eraser at (5.0, 0.0) with radius 1.5mm removes points 4, 5, 6
+        let path = vec![Vec2::new(5.0, 0.0)];
+        let res = erase(&doc, &path, EraseMode::Partial { radius_mm: 1.5 });
+
+        assert!(res.removed.is_empty());
+        assert_eq!(res.replaced.len(), 1);
+        let (replaced_id, chunks) = &res.replaced[0];
+        assert_eq!(*replaced_id, id);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 4); // 0, 1, 2, 3
+        assert_eq!(chunks[1].len(), 4); // 7, 8, 9, 10
+    }
+
+    #[test]
+    fn lasso_contain_vs_intersect() {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let lid = lm.insert(());
+
+        // Stroke 1: completely inside [10..20, 10..20]
+        let s1 = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(10.0, 10.0, 0.5, 0.0, 0),
+                InkPoint::new(20.0, 20.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        let id1 = doc.add_stroke(s1);
+
+        // Stroke 2: crosses boundary of polygon (inside at (15, 15), outside at (35, 35))
+        let s2 = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(15.0, 15.0, 0.5, 0.0, 0),
+                InkPoint::new(35.0, 35.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        let id2 = doc.add_stroke(s2);
+
+        // Stroke 3: completely outside at [50..60, 50..60]
+        let s3 = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(50.0, 50.0, 0.5, 0.0, 0),
+                InkPoint::new(60.0, 60.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        let _id3 = doc.add_stroke(s3);
+        doc.ensure_index();
+
+        let poly = vec![
+            Vec2::new(5.0, 5.0),
+            Vec2::new(25.0, 5.0),
+            Vec2::new(25.0, 25.0),
+            Vec2::new(5.0, 25.0),
+        ];
+
+        let contained = lasso_select(&doc, &poly, LassoMode::Contain);
+        assert_eq!(contained, vec![id1]);
+
+        let intersected = lasso_select(&doc, &poly, LassoMode::Intersect);
+        assert_eq!(intersected, vec![id1, id2]);
+    }
+
+    #[test]
+    fn nudge_outside_radius_is_identity() {
+        let pts = vec![
+            InkPoint::new(20.0, 20.0, 0.5, 0.0, 0),
+            InkPoint::new(30.0, 30.0, 0.5, 0.0, 10),
+        ];
+        let center = Vec2::new(0.0, 0.0);
+        let radius = 5.0;
+        let delta = Vec2::new(10.0, 10.0);
+
+        let nudged = nudge(&pts, center, radius, delta);
+        assert_eq!(nudged, pts);
+    }
+
+    #[test]
+    fn nudge_center_moves_by_delta() {
+        let pts = vec![InkPoint::new(5.0, 5.0, 0.7, 0.1, 100)];
+        let center = Vec2::new(5.0, 5.0);
+        let radius = 10.0;
+        let delta = Vec2::new(2.5, -4.0);
+
+        let nudged = nudge(&pts, center, radius, delta);
+        assert!((nudged[0].x - 7.5).abs() < 1e-5);
+        assert!((nudged[0].y - 1.0).abs() < 1e-5);
+        assert_eq!(nudged[0].pressure, 0.7);
+        assert_eq!(nudged[0].tilt, 0.1);
+        assert_eq!(nudged[0].t_ms, 100);
+    }
+
+    #[test]
+    fn slice_line_crossing_twice_gives_three_pieces() {
+        let pts = vec![
+            InkPoint::new(0.0, 10.0, 0.5, 0.0, 0),
+            InkPoint::new(5.0, 0.0, 0.5, 0.0, 10),
+            InkPoint::new(10.0, 10.0, 0.5, 0.0, 20),
+        ];
+        let line = (Vec2::new(-2.0, 5.0), Vec2::new(12.0, 5.0));
+        let pieces = slice(&pts, line);
+
+        assert_eq!(pieces.len(), 3);
+        assert!((pieces[0].last().unwrap().y - 5.0).abs() < 1e-4);
+        assert!((pieces[1][0].y - 5.0).abs() < 1e-4);
+        assert!((pieces[1].last().unwrap().y - 5.0).abs() < 1e-4);
+        assert!((pieces[2][0].y - 5.0).abs() < 1e-4);
+    }
+
+    use proptest::prelude::*;
+    proptest! {
+        #[test]
+        fn erase_never_increases_total_points(
+            x0 in -100.0f32..100.0,
+            y0 in -100.0f32..100.0,
+            n_pts in 3usize..30,
+            r in 0.1f32..20.0
+        ) {
+            let mut doc = InkDoc::default();
+            let bid = doc.brushes.keys().next().unwrap();
+            let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+            let lid = lm.insert(());
+
+            let pts: Vec<InkPoint> = (0..n_pts)
+                .map(|i| InkPoint::new(x0 + i as f32 * 2.0, y0 + (i as f32).sin() * 5.0, 0.5, 0.0, i as u32 * 10))
+                .collect();
+            let orig_len = pts.len();
+            doc.add_stroke(Stroke::new(0, pts, bid, Rgba([0.0, 0.0, 0.0, 1.0]), lid));
+
+            let path = vec![Vec2::new(x0 + 10.0, y0)];
+            let res = erase(&doc, &path, EraseMode::Partial { radius_mm: r });
+
+            let mut remaining_points = 0;
+            for (_, chunks) in &res.replaced {
+                for c in chunks {
+                    remaining_points += c.len();
+                }
+            }
+            prop_assert!(remaining_points <= orig_len);
+        }
     }
 
     #[test]

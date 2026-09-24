@@ -4,36 +4,8 @@ use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
 use crate::brush::{Brush, BrushId};
+use crate::index::SpatialIndex;
 use crate::stroke::Stroke;
-
-/// Objek bounding box coretan untuk indeks spasial RTree.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct IndexedStroke {
-    pub id: u64,
-    pub min: [f32; 2],
-    pub max: [f32; 2],
-}
-
-impl rstar::RTreeObject for IndexedStroke {
-    type Envelope = rstar::AABB<[f32; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        rstar::AABB::from_corners(self.min, self.max)
-    }
-}
-
-/// Indeks spasial berbasis R-Tree untuk query coretan tinta cepat.
-#[derive(Debug, Clone)]
-pub struct SpatialIndex {
-    pub(crate) tree: rstar::RTree<IndexedStroke>,
-    pub(crate) built_rev: u64,
-}
-
-impl SpatialIndex {
-    pub fn tree(&self) -> &rstar::RTree<IndexedStroke> {
-        &self.tree
-    }
-}
 
 /// Dokumen penampung seluruh coretan tinta, kuas, dan indeks spasial.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,21 +82,12 @@ impl InkDoc {
         if self.index.as_ref().map(|i| i.built_rev) == Some(self.rev) {
             return;
         }
-        let items: Vec<IndexedStroke> = self
-            .strokes
-            .iter()
-            .filter(|s| !s.hidden)
-            .map(|s| IndexedStroke {
-                id: s.id,
-                min: [s.bbox.0.x, s.bbox.0.y],
-                max: [s.bbox.1.x, s.bbox.1.y],
-            })
-            .collect();
+        self.index = Some(SpatialIndex::build(self));
+    }
 
-        self.index = Some(SpatialIndex {
-            tree: rstar::RTree::bulk_load(items),
-            built_rev: self.rev,
-        });
+    /// Mengambil referensi ke indeks spasial bila sudah dibangun.
+    pub fn index(&self) -> Option<&SpatialIndex> {
+        self.index.as_ref()
     }
 
     /// Mengembalikan ID coretan yang terlihat di dalam viewport kotak (min..max)
