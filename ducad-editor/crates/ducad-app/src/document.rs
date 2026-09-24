@@ -316,6 +316,8 @@ impl DuCADApp {
         let sketch_id = self.active_sketch_id();
         self.sketch_set.set_active(sketch_id);
         self.sketch_set.execute(cmd);
+        self.global_undo_order.push(crate::types::UndoTarget::Sketch);
+        self.global_redo_order.clear();
 
         let (action_title, detail_desc) = match name.as_str() {
             "Line" => ("Sketsa Garis 2D", format!("Menggambar segmen garis di Bidang {}", plane_label)),
@@ -365,11 +367,102 @@ impl DuCADApp {
         };
 
         self.model_undo.execute(cmd, &mut self.model);
+        self.global_undo_order.push(crate::types::UndoTarget::Model);
+        self.global_redo_order.clear();
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
             action_title,
             details,
         );
+    }
+
+    #[inline]
+    pub fn execute_ink_command(&mut self, cmd: Box<dyn Command<ducad_ink::InkDoc>>, details: &str) {
+        let name = cmd.name().to_string();
+        self.ink_undo.execute(cmd, &mut self.ink);
+        self.global_undo_order.push(crate::types::UndoTarget::Ink);
+        self.global_redo_order.clear();
+        self.record_activity(
+            ducad_ui::ActivityKindUi::Sketch2D,
+            &name,
+            details,
+        );
+    }
+
+    #[inline]
+    pub fn undo_active_ink(&mut self) {
+        self.ink_undo.undo(&mut self.ink);
+    }
+
+    #[inline]
+    pub fn redo_active_ink(&mut self) {
+        self.ink_undo.redo(&mut self.ink);
+    }
+
+    #[inline]
+    pub fn can_undo_active_ink(&self) -> bool {
+        self.ink_undo.can_undo()
+    }
+
+    #[inline]
+    pub fn can_redo_active_ink(&self) -> bool {
+        self.ink_undo.can_redo()
+    }
+
+    #[inline]
+    pub fn undo(&mut self) {
+        if let Some(target) = self.global_undo_order.pop() {
+            match target {
+                crate::types::UndoTarget::Sketch => {
+                    self.undo_active_sketch();
+                    self.global_redo_order.push(crate::types::UndoTarget::Sketch);
+                }
+                crate::types::UndoTarget::Model => {
+                    self.model_undo.undo(&mut self.model);
+                    self.selected_bodies.clear();
+                    self.global_redo_order.push(crate::types::UndoTarget::Model);
+                }
+                crate::types::UndoTarget::Ink => {
+                    self.undo_active_ink();
+                    self.global_redo_order.push(crate::types::UndoTarget::Ink);
+                }
+            }
+        } else if self.can_undo_active_sketch() {
+            self.undo_active_sketch();
+        } else if self.model_undo.can_undo() {
+            self.model_undo.undo(&mut self.model);
+            self.selected_bodies.clear();
+        } else if self.ink_undo.can_undo() {
+            self.undo_active_ink();
+        }
+    }
+
+    #[inline]
+    pub fn redo(&mut self) {
+        if let Some(target) = self.global_redo_order.pop() {
+            match target {
+                crate::types::UndoTarget::Sketch => {
+                    self.redo_active_sketch();
+                    self.global_undo_order.push(crate::types::UndoTarget::Sketch);
+                }
+                crate::types::UndoTarget::Model => {
+                    self.model_undo.redo(&mut self.model);
+                    self.selected_bodies.clear();
+                    self.global_undo_order.push(crate::types::UndoTarget::Model);
+                }
+                crate::types::UndoTarget::Ink => {
+                    self.redo_active_ink();
+                    self.global_undo_order.push(crate::types::UndoTarget::Ink);
+                }
+            }
+        } else if self.can_redo_active_sketch() {
+            self.redo_active_sketch();
+        } else if self.model_undo.can_redo() {
+            self.model_undo.redo(&mut self.model);
+            self.selected_bodies.clear();
+        } else if self.ink_undo.can_redo() {
+            self.redo_active_ink();
+        }
     }
 
     #[inline]
@@ -460,6 +553,10 @@ impl DuCADApp {
         self.line_chain_segments = 0;
         self.model = ModelDoc::default();
         self.model_undo = ducad_core::UndoStack::default();
+        self.ink = ducad_ink::InkDoc::default();
+        self.ink_undo = ducad_core::UndoStack::default();
+        self.global_undo_order.clear();
+        self.global_redo_order.clear();
         self.selected_bodies.clear();
         self.current_file_path = None;
         self.design = None;
@@ -706,6 +803,95 @@ mod tests {
         let rh = export_bodies[0].round_history.as_ref().expect("round history must exist");
         assert_eq!(rh.1.len(), 1);
         assert_eq!(rh.1[0].radius, 10.0);
+    }
+
+    #[test]
+    fn undo_order_across_modes_is_global() {
+        let mut app = DuCADApp::new_for_test();
+
+        // 1. Sketch command: insert a line
+        let l = ducad_sketch::Entity::Line {
+            start: glam::DVec2::new(0.0, 0.0),
+            end: glam::DVec2::new(10.0, 0.0),
+            is_construction: false,
+        };
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Line",
+            vec![l],
+        )));
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+
+        // 2. Model command: AddSolidCommand
+        let shape = ducad_kernel::make_box(10.0, 10.0, 10.0, false).unwrap();
+        let geo = ducad_engine::model::BodyGeometry::from_shape(shape);
+        app.execute_model_command(
+            Box::new(ducad_engine::model::AddSolidCommand::new("Dummy Cube", geo)),
+            "add dummy cube",
+        );
+        assert_eq!(app.model.doc.bodies.len(), 1);
+
+        // 3. Ink command: add a stroke
+        let bid = app.ink.brushes.keys().next().unwrap();
+        let mut lm: slotmap::SlotMap<ducad_sketch::layer::LayerId, ()> = slotmap::SlotMap::with_key();
+        let lid = lm.insert(());
+        let s = ducad_ink::Stroke::new(
+            0,
+            vec![ducad_ink::InkPoint::new(0.0, 0.0, 0.5, 0.0, 0)],
+            bid,
+            ducad_sketch::style::Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        );
+        app.execute_ink_command(
+            Box::new(ducad_ink::commands::AddStroke::new(s)),
+            "dummy ink test",
+        );
+        assert_eq!(app.ink.strokes.len(), 1);
+
+        // Verify global undo order: [Sketch, Model, Ink]
+        assert_eq!(
+            app.global_undo_order,
+            vec![
+                crate::types::UndoTarget::Sketch,
+                crate::types::UndoTarget::Model,
+                crate::types::UndoTarget::Ink
+            ]
+        );
+
+        // Undo 1: pops Ink
+        app.undo();
+        assert_eq!(app.ink.strokes.len(), 0);
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+
+        // Undo 2: pops Model
+        app.undo();
+        assert_eq!(app.ink.strokes.len(), 0);
+        assert_eq!(app.model.doc.bodies.len(), 0);
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+
+        // Undo 3: pops Sketch
+        app.undo();
+        assert_eq!(app.ink.strokes.len(), 0);
+        assert_eq!(app.model.doc.bodies.len(), 0);
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 0);
+
+        // Redo 1: restores Sketch
+        app.redo();
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+        assert_eq!(app.model.doc.bodies.len(), 0);
+        assert_eq!(app.ink.strokes.len(), 0);
+
+        // Redo 2: restores Model
+        app.redo();
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        assert_eq!(app.ink.strokes.len(), 0);
+
+        // Redo 3: restores Ink
+        app.redo();
+        assert_eq!(app.sketch_set.active_sketch().entities.len(), 1);
+        assert_eq!(app.model.doc.bodies.len(), 1);
+        assert_eq!(app.ink.strokes.len(), 1);
     }
 }
 

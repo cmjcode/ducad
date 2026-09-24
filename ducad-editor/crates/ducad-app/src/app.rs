@@ -71,6 +71,10 @@ pub struct DuCADApp {
 
     pub model: ModelDoc,
     pub model_undo: ducad_core::UndoStack<ModelDoc>,
+    pub ink: ducad_ink::InkDoc,
+    pub ink_undo: ducad_core::UndoStack<ducad_ink::InkDoc>,
+    pub global_undo_order: Vec<crate::types::UndoTarget>,
+    pub global_redo_order: Vec<crate::types::UndoTarget>,
     pub selected_bodies: HashSet<BodyId>,
     pub model_status: Option<String>,
     pub extrude_distance_input: String,
@@ -457,6 +461,10 @@ impl DuCADApp {
 
             model: ModelDoc::default(),
             model_undo: ducad_core::UndoStack::default(),
+            ink: ducad_ink::InkDoc::default(),
+            ink_undo: ducad_core::UndoStack::default(),
+            global_undo_order: Vec::new(),
+            global_redo_order: Vec::new(),
             selected_bodies: HashSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
@@ -752,6 +760,10 @@ impl DuCADApp {
 
             model: ModelDoc::default(),
             model_undo: ducad_core::UndoStack::default(),
+            ink: ducad_ink::InkDoc::default(),
+            ink_undo: ducad_core::UndoStack::default(),
+            global_undo_order: Vec::new(),
+            global_redo_order: Vec::new(),
             selected_bodies: HashSet::new(),
             model_status: None,
             extrude_distance_input: "10".to_string(),
@@ -1521,10 +1533,10 @@ impl eframe::App for DuCADApp {
                     || (i.modifiers.shift && i.key_pressed(egui::Key::Z)))
         });
         if undo_pressed {
-            self.undo_active_sketch();
+            self.undo();
         }
         if redo_pressed {
-            self.redo_active_sketch();
+            self.redo();
         }
 
         let save_as_pressed = ctx.input(|i| {

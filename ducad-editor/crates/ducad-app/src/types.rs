@@ -3,6 +3,14 @@ use ducad_kernel::PickRay;
 use ducad_ui::{SelectedEntityData, ToolbarTool};
 use glam::{DVec2, Vec3};
 
+/// Target undo lintas mode (Sketsa 2D, Model 3D, atau Tinta Ink).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoTarget {
+    Sketch,
+    Model,
+    Ink,
+}
+
 /// Tool sketch aktif.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolKind {

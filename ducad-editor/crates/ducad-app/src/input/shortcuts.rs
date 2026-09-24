@@ -357,10 +357,10 @@ impl DuCADApp {
                 self.set_tool(ToolKind::Select);
             }
             PaletteAction::Undo => {
-                self.undo_active_sketch();
+                self.undo();
             }
             PaletteAction::Redo => {
-                self.redo_active_sketch();
+                self.redo();
             }
             PaletteAction::ModelUndo => {
                 self.model_undo.undo(&mut self.model);

@@ -1624,6 +1624,7 @@ dependencies = [
  "ducad-core",
  "ducad-engine",
  "ducad-i18n",
+ "ducad-ink",
  "ducad-io",
  "ducad-kernel",
  "ducad-render",

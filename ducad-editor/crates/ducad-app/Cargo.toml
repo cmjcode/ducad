@@ -22,6 +22,7 @@ memory = ["dep:mnemonic"]
 
 [dependencies]
 ducad-core = { workspace = true }
+ducad-ink = { workspace = true }
 ducad-sketch = { workspace = true }
 ducad-kernel = { workspace = true }
 ducad-render = { workspace = true }

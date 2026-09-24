@@ -1,12 +1,17 @@
 //! Model coretan tinta bebas, kuas, filter input, dan manipulasi spasial DUCAD.
 
 pub mod brush;
+pub mod commands;
 pub mod document;
 pub mod filter;
 pub mod predict;
 pub mod stroke;
 
 pub use brush::{Brush, BrushId, BrushKind, PressureCurve};
+pub use commands::{
+    AddStroke, DeleteStrokes, MoveStrokesToLayer, ReplacePoints, SetStrokeColor,
+    SetStrokesHidden, SplitStroke, TransformStrokes,
+};
 pub use document::InkDoc;
 pub use filter::OneEuro;
 pub use predict::StrokeBuilder;
@@ -15,6 +20,7 @@ pub use stroke::{InkPoint, Stroke};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ducad_core::Command;
     use ducad_sketch::layer::LayerId;
     use ducad_sketch::style::Rgba;
     use glam::Vec2;
@@ -314,6 +320,144 @@ mod tests {
         let res2 = b2.finish();
 
         assert_eq!(res1, res2);
+    }
+
+    #[test]
+    fn apply_then_revert_restores_state() {
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let l1 = lm.insert(());
+        let l2 = lm.insert(());
+
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+
+        // 1. AddStroke
+        let s = Stroke::new(
+            0,
+            vec![
+                InkPoint::new(0.0, 0.0, 0.5, 0.0, 0),
+                InkPoint::new(10.0, 10.0, 0.5, 0.0, 10),
+            ],
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            l1,
+        );
+        let mut add_cmd = AddStroke::new(s);
+        let base_doc = doc.clone();
+        add_cmd.apply(&mut doc);
+        assert_eq!(doc.strokes.len(), 1);
+        add_cmd.revert(&mut doc);
+        assert_eq!(doc, base_doc);
+
+        // Apply it again so we have a stroke to work with
+        add_cmd.apply(&mut doc);
+        let stroke_id = add_cmd.stroke_id().unwrap();
+
+        // 2. SetStrokesHidden
+        let before_hidden = doc.clone();
+        let mut hide_cmd = SetStrokesHidden::new(vec![stroke_id], true);
+        hide_cmd.apply(&mut doc);
+        assert!(doc.stroke(stroke_id).unwrap().hidden);
+        hide_cmd.revert(&mut doc);
+        assert_eq!(doc, before_hidden);
+
+        // 3. SetStrokeColor
+        let before_color = doc.clone();
+        let mut color_cmd = SetStrokeColor::new(vec![stroke_id], Rgba([1.0, 0.0, 0.0, 1.0]));
+        color_cmd.apply(&mut doc);
+        assert_eq!(doc.stroke(stroke_id).unwrap().color, Rgba([1.0, 0.0, 0.0, 1.0]));
+        color_cmd.revert(&mut doc);
+        assert_eq!(doc, before_color);
+
+        // 4. MoveStrokesToLayer
+        let before_layer = doc.clone();
+        let mut layer_cmd = MoveStrokesToLayer::new(vec![stroke_id], l2);
+        layer_cmd.apply(&mut doc);
+        assert_eq!(doc.stroke(stroke_id).unwrap().layer, l2);
+        layer_cmd.revert(&mut doc);
+        assert_eq!(doc, before_layer);
+
+        // 5. TransformStrokes
+        let before_xform = doc.clone();
+        let mut xform_cmd =
+            TransformStrokes::new(vec![stroke_id], kurbo::Affine::translate((5.0, 5.0)));
+        xform_cmd.apply(&mut doc);
+        assert!((doc.stroke(stroke_id).unwrap().points[0].x - 5.0).abs() < 1e-4);
+        xform_cmd.revert(&mut doc);
+        assert_eq!(doc, before_xform);
+
+        // 6. DeleteStrokes
+        let before_del = doc.clone();
+        let mut del_cmd = DeleteStrokes::new(vec![stroke_id]);
+        del_cmd.apply(&mut doc);
+        assert_eq!(doc.strokes.len(), 0);
+        del_cmd.revert(&mut doc);
+        assert_eq!(doc, before_del);
+    }
+
+    #[test]
+    fn split_stroke_preserves_all_points() {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let lid = lm.insert(());
+
+        let pts: Vec<InkPoint> = (0..10)
+            .map(|i| InkPoint::new(i as f32, i as f32 * 2.0, 0.5, 0.0, i * 10))
+            .collect();
+        let stroke = Stroke::new(0, pts.clone(), bid, Rgba([0.0, 0.0, 0.0, 1.0]), lid);
+        let id = doc.add_stroke(stroke);
+        let before_split = doc.clone();
+
+        let mut cmd = SplitStroke::new(id, vec![3, 7]);
+        cmd.apply(&mut doc);
+
+        assert_eq!(doc.strokes.len(), 3);
+        assert_eq!(doc.strokes[0].points.len(), 3); // 0..3
+        assert_eq!(doc.strokes[1].points.len(), 4); // 3..7
+        assert_eq!(doc.strokes[2].points.len(), 3); // 7..10
+
+        let mut combined_pts = Vec::new();
+        for s in &doc.strokes {
+            combined_pts.extend_from_slice(&s.points);
+        }
+        assert_eq!(combined_pts, pts);
+
+        // Revert restores original state
+        cmd.revert(&mut doc);
+        assert_eq!(doc, before_split);
+    }
+
+    #[test]
+    fn replace_points_revert_restores_original() {
+        let mut doc = InkDoc::default();
+        let bid = doc.brushes.keys().next().unwrap();
+        let mut lm: SlotMap<LayerId, ()> = SlotMap::with_key();
+        let lid = lm.insert(());
+
+        let orig_pts: Vec<InkPoint> = (0..5)
+            .map(|i| InkPoint::new(i as f32, 0.0, 0.5, 0.0, i * 10))
+            .collect();
+        let id = doc.add_stroke(Stroke::new(
+            0,
+            orig_pts.clone(),
+            bid,
+            Rgba([0.0, 0.0, 0.0, 1.0]),
+            lid,
+        ));
+        let before_replace = doc.clone();
+
+        let new_pts: Vec<InkPoint> = (0..8)
+            .map(|i| InkPoint::new(i as f32 * 3.0, 10.0, 0.8, 0.1, i * 15))
+            .collect();
+        let mut cmd = ReplacePoints::new(id, new_pts.clone());
+        cmd.apply(&mut doc);
+
+        assert_eq!(doc.stroke(id).unwrap().points, new_pts);
+
+        cmd.revert(&mut doc);
+        assert_eq!(doc, before_replace);
+        assert_eq!(doc.stroke(id).unwrap().points, orig_pts);
     }
 
     #[test]
