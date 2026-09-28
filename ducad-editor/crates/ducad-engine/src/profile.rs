@@ -886,6 +886,7 @@ pub fn extrude_selection_with_holes_on_plane(
         let shape = ducad_kernel::extrude_profile_on_plane(
             &profile, origin, u_axis, v_axis, normal, distance,
         ).map_err(|e| format!("Extrude gagal: {e}"))?;
+        crate::compute::check_shape("Extrude", &shape).map_err(|e| e.message)?;
         let geo = BodyGeometry::from_shape(shape);
         return Ok(vec![("Solid".to_string(), geo)]);
     }
@@ -953,11 +954,19 @@ pub fn extrude_selection_with_holes_on_plane(
             }
         }
 
+        // Solid tidak valid (mis. profil memotong dirinya sendiri) tidak
+        // boleh masuk model: ia tampil sebagai kerangka tanpa permukaan.
+        if crate::compute::check_shape("Extrude", &outer_shape).is_err() {
+            continue;
+        }
         letter_shapes.push(outer_shape);
     }
 
     if letter_shapes.is_empty() {
-        return Err("Tidak ada profil tertutup yang dapat diekstrusi".to_string());
+        return Err(
+            "Tidak ada profil tertutup yang dapat diekstrusi — profil mungkin memotong dirinya sendiri"
+                .to_string(),
+        );
     }
 
     let is_text = sorted_regions.iter().any(|r| {

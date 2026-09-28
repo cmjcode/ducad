@@ -89,6 +89,44 @@ const CLOSED_POLY_MAX: usize = 12;
 /// Porsi ekor coretan tertutup yang diperiksa untuk kelebihan tarikan.
 const OVERSHOOT_TAIL_FRAC: f64 = 0.25;
 
+/// Versi TERBUKA dari bentuk tertutup hasil pengenalan: garis patah dari
+/// titik awal coretan, melewati sudut-sudut menurut urutan coretan, ke titik
+/// akhir coretan. Bentuk lengkung (lingkaran, elips, spline) menjadi spline
+/// terbuka. Dipakai saat penutupan otomatis dimatikan.
+fn reopen(shape: Recognized, pts: &[DVec2], spline_eps: f64) -> Recognized {
+    let corners: Vec<DVec2> = match shape {
+        Recognized::Rect { corners } => corners.to_vec(),
+        Recognized::Polyline { points, .. } => points,
+        other @ (Recognized::Line { .. } | Recognized::Arc { .. }) => return other,
+        _ => {
+            return Recognized::Spline {
+                points: simplify(pts, spline_eps),
+                closed: false,
+            }
+        }
+    };
+    let (start, end) = (pts[0], pts[pts.len() - 1]);
+    let nearest = |c: DVec2| {
+        (0..pts.len())
+            .min_by(|&a, &b| (pts[a] - c).length().total_cmp(&(pts[b] - c).length()))
+            .unwrap_or(0)
+    };
+    let mut ordered: Vec<(usize, DVec2)> = corners.iter().map(|c| (nearest(*c), *c)).collect();
+    ordered.sort_by_key(|(i, _)| *i);
+    let merge = spline_eps.max(1e-6) * 4.0;
+    let mut points = vec![start];
+    for (_, c) in ordered {
+        if (c - start).length() > merge && (c - end).length() > merge {
+            points.push(c);
+        }
+    }
+    points.push(end);
+    Recognized::Polyline {
+        points,
+        closed: false,
+    }
+}
+
 /// Coretan tertutup sering melewati titik awal sedikit ("kait" di ujung).
 /// Potong ekor di titik yang paling dekat ke titik awal (dicari hanya pada
 /// seperempat terakhir coretan), lalu tutup rapat ke titik awal.
@@ -460,13 +498,40 @@ fn fit_rect(corners: &[DVec2; 4]) -> [DVec2; 4] {
     ]
 }
 
+/// Opsi pengenalan.
+#[derive(Debug, Clone, Copy)]
+pub struct RecognizeOptions {
+    /// Coretan yang ujungnya berdekatan dirapatkan menjadi bentuk TERTUTUP
+    /// (lingkaran, elips, persegi, poligon, spline tertutup). `false` saat
+    /// pengguna masih menggambar: coretan dibiarkan terbuka seperti
+    /// digambar, penutupan menunggu aksi "Objek Tertutup".
+    pub close_shapes: bool,
+}
+
+impl Default for RecognizeOptions {
+    fn default() -> Self {
+        Self { close_shapes: true }
+    }
+}
+
 /// Kenali bentuk; `None` bila coretan terlalu pendek (ketukan).
 pub fn recognize(stroke: &Stroke) -> Option<Recognized> {
+    recognize_with(stroke, &RecognizeOptions::default())
+}
+
+/// [`recognize`] dengan opsi.
+pub fn recognize_with(stroke: &Stroke, opt: &RecognizeOptions) -> Option<Recognized> {
     let pts = preprocess(&stroke.points)?;
     let (min, max) = bbox(&pts);
     let diag = (max - min).length();
     let total = path_len(&pts);
     let closed = (pts[0] - pts[pts.len() - 1]).length() < CLOSE_FRAC * diag;
+    if closed && !opt.close_shapes {
+        // Kenali seperti biasa, lalu buka lagi dengan titik awal/akhir asli
+        // agar celah yang digambar pengguna tetap ada.
+        let shaped = recognize_with(stroke, &RecognizeOptions::default())?;
+        return Some(reopen(shaped, &pts, DP_SPLINE_FRAC * diag));
+    }
 
     // 3. Garis.
     let (origin, dir) = fit_line(&pts);
@@ -987,6 +1052,31 @@ mod tests {
         let closed = close_stroke(&pts);
         assert_eq!(closed.first(), closed.last());
         assert!(closed.len() <= 102, "ekor kait dipotong: {}", closed.len());
+    }
+
+    #[test]
+    fn close_shapes_off_keeps_stroke_open() {
+        let opt = RecognizeOptions {
+            close_shapes: false,
+        };
+        for shape in [Shape::Circle, Shape::Rect, Shape::Ellipse] {
+            let mut s = synth(&shape, 0.2, 160, 4);
+            // Ujung berhenti sedikit sebelum titik awal, seperti tangan.
+            s.points.truncate(s.points.len() - 6);
+            let r = recognize_with(&s, &opt).expect("dikenali");
+            assert!(
+                !matches!(
+                    r,
+                    Recognized::Circle { .. }
+                        | Recognized::Ellipse { .. }
+                        | Recognized::Rect { .. }
+                        | Recognized::Polyline { closed: true, .. }
+                        | Recognized::Spline { closed: true, .. }
+                ),
+                "tidak boleh ditutup otomatis: {r:?}"
+            );
+            assert_eq!(region_count(&r), 0, "masih terbuka: {r:?}");
+        }
     }
 
     #[test]

@@ -282,10 +282,8 @@ pub enum PaletteAction {
     ToggleAgentBridge,
     /// Pindah mode aplikasi (Sketsa CAD / Vektor / Tinta / 3D).
     SetAppMode(crate::mode::AppMode),
-    /// Tutup celah kecil agar sketsa menjadi profil tertutup.
-    CloseProfile,
-    /// Tinta → profil sketsa tertutup.
-    InkToProfile,
+    /// Sketsa/tinta → objek tertutup (tombol HUD "Objek Tertutup").
+    ConvertToClosedObjects,
     /// Nyalakan/matikan opsi kuas "Bentuk Pintar".
     ToggleInkSmartShape,
 }

@@ -15,6 +15,7 @@ pub mod apple;
 pub mod document;
 pub mod error_card_ui;
 pub mod file_io;
+pub mod closed_objects;
 pub mod freehand;
 pub mod history_db;
 pub mod import_worker;

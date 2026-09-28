@@ -18,8 +18,6 @@ use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, MIN_TOUCH_TARGET, TEX
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextAction {
     Extrude,
-    /// Tutup celah kecil agar seleksi menjadi profil tertutup.
-    CloseProfile,
     Offset,
     Mirror,
     Trim,
@@ -304,17 +302,6 @@ impl ContextActionBar {
                     {
                         action = Some(ContextAction::Extrude);
                     }
-                } else if context_action_btn(
-                    ui,
-                    icons::ICON_JOIN.codepoint,
-                    &t!("action-close-profile"),
-                    ACCENT_ORANGE,
-                    icon_sz,
-                    &t!("action-close-profile-desc"),
-                )
-                .clicked()
-                {
-                    action = Some(ContextAction::CloseProfile);
                 }
 
                 // 1. Offset

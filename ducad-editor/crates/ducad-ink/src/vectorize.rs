@@ -1,16 +1,12 @@
-//! Tinta → entitas sketch CAD ("Jadikan Profil" / "Bentuk Pintar").
+//! Tinta → entitas sketch CAD (tahap pertama "Objek Tertutup").
 //!
-//! Coretan tinta hanya jejak titik bertekanan; extrude butuh loop sketch
-//! yang tertutup rapat. Modul ini merangkai pipeline yang sama dengan tool
-//! Freehand — `recognize` → `infer_constraints` per coretan — lalu menutup
-//! celah antar coretan dengan `gaps::plan_gap_closure`. Semua dikerjakan
-//! pada SALINAN sketch; pemanggil GUI memasukkan hasilnya lewat command
-//! agar bisa di-undo.
-
-use std::collections::HashSet;
+//! Coretan tinta hanya jejak titik bertekanan. Modul ini merangkai pipeline
+//! yang sama dengan tool Freehand — `recognize` → `infer_constraints` per
+//! coretan — pada SALINAN sketch. Pemecahan menjadi wilayah tertutup
+//! (termasuk menyambung celah) dikerjakan sesudahnya oleh
+//! `ducad_sketch::faces::build_closed_objects`.
 
 use ducad_sketch::constraint::types::Constraint;
-use ducad_sketch::gaps::{apply_gap_fix, plan_gap_closure, GapOptions};
 use ducad_sketch::infer::{infer_constraints, InferOptions};
 use ducad_sketch::recognize::{recognize, to_entities, Stroke as RawStroke};
 use ducad_sketch::{Entity, EntityId, Sketch};
@@ -23,29 +19,22 @@ use crate::stroke::Stroke;
 pub struct VectorizeOptions {
     /// Jarak snap inferensi constraint (mm).
     pub snap_dist: f64,
-    /// Celah terbesar antar ujung coretan yang ditutup (mm).
-    pub close_gap: f64,
 }
 
 impl Default for VectorizeOptions {
     fn default() -> Self {
-        Self {
-            snap_dist: 2.0,
-            close_gap: 3.0,
-        }
+        Self { snap_dist: 2.0 }
     }
 }
 
 /// Hasil konversi, dirujuk dengan id sketch PERCOBAAN.
 #[derive(Debug, Clone, Default)]
 pub struct Vectorized {
-    /// Entitas baru (termasuk garis jembatan celah), sejajar `trial_ids`.
+    /// Entitas baru, sejajar `trial_ids`.
     pub entities: Vec<Entity>,
     pub trial_ids: Vec<EntityId>,
     /// Constraint baru (antar entitas baru, atau ke entitas lama).
     pub constraints: Vec<Constraint>,
-    /// Entitas LAMA yang ujungnya digeser penutup celah.
-    pub updated_existing: Vec<(EntityId, Entity)>,
     /// Id coretan tinta yang berhasil dikenali.
     pub converted: Vec<u64>,
 }
@@ -100,25 +89,6 @@ pub fn vectorize_strokes(base: &Sketch, strokes: &[&Stroke], opt: &VectorizeOpti
         return Vectorized::default();
     }
 
-    let scope: HashSet<EntityId> = new_ids.iter().copied().collect();
-    let fix = plan_gap_closure(
-        &trial,
-        Some(&scope),
-        &GapOptions {
-            max_gap: opt.close_gap,
-            move_max: opt.close_gap,
-        },
-    );
-    new_ids.extend(apply_gap_fix(&mut trial, &fix));
-
-    let updated_existing = base
-        .entities
-        .iter()
-        .filter_map(|(id, old)| {
-            let now = trial.entities.get(id)?;
-            (now != old).then(|| (id, now.clone()))
-        })
-        .collect();
     Vectorized {
         entities: new_ids
             .iter()
@@ -126,7 +96,6 @@ pub fn vectorize_strokes(base: &Sketch, strokes: &[&Stroke], opt: &VectorizeOpti
             .collect(),
         trial_ids: new_ids,
         constraints: trial.constraints.split_off(base_constraints),
-        updated_existing,
         converted,
     }
 }
@@ -135,9 +104,9 @@ pub fn vectorize_strokes(base: &Sketch, strokes: &[&Stroke], opt: &VectorizeOpti
 mod tests {
     use super::*;
     use crate::stroke::InkPoint;
-    use ducad_sketch::find_closed_regions;
     use ducad_sketch::layer::LayerId;
     use ducad_sketch::style::Rgba;
+    use ducad_sketch::{build_closed_objects, find_closed_regions, FaceOptions};
 
     fn ink(id: u64, pts: &[DVec2]) -> Stroke {
         Stroke::new(
@@ -161,13 +130,20 @@ mod tests {
             .collect()
     }
 
+    /// Tinta → entitas → objek tertutup, seperti tombol GUI.
     fn build(base: &Sketch, v: &Vectorized) -> Sketch {
         let mut s = base.clone();
-        for (id, e) in &v.updated_existing {
-            s.entities[*id] = e.clone();
+        let ids: Vec<EntityId> = v
+            .entities
+            .iter()
+            .map(|e| s.entities.insert(e.clone()))
+            .collect();
+        let r = build_closed_objects(&s, &ids, &FaceOptions::default());
+        for id in &r.consumed {
+            s.entities.remove(*id);
         }
-        for e in &v.entities {
-            s.entities.insert(e.clone());
+        for e in r.objects {
+            s.entities.insert(e);
         }
         s
     }

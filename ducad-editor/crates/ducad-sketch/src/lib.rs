@@ -6,6 +6,7 @@ pub mod commands;
 pub mod constraint;
 pub mod document;
 pub mod entity;
+pub mod faces;
 pub mod gaps;
 pub mod index;
 pub mod infer;
@@ -57,12 +58,10 @@ pub use ops::{
     slot_from_points, slot_from_radius, translate_entity, trim_segments, Chamfer2DResult,
     Fillet2DResult, FilletTarget, PolygonMode, SlotMode,
 };
-pub use gaps::{
-    apply_gap_fix, dangling_endpoints, open_endpoints, plan_gap_closure, BridgeLink, Endpoint,
-    GapFix, GapOptions,
-};
+pub use faces::{build_closed_objects, ClosedObjects, FaceOptions};
+pub use gaps::{dangling_endpoints, open_endpoints, Endpoint};
 pub use infer::{infer_constraints, Inferred, InferOptions, RejectReason};
-pub use recognize::{recognize, to_entities, Recognized, Stroke};
+pub use recognize::{recognize, recognize_with, to_entities, RecognizeOptions, Recognized, Stroke};
 pub use region::{
     build_hierarchy, detect_rectangle, find_closed_regions, find_region_at_point,
     find_region_containing_entity, find_region_hierarchy, ClosedRegion, RectAnchor, RectangleShape,

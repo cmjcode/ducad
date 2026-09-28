@@ -135,12 +135,25 @@ impl DuCADApp {
     /// Eksekusi commit extrude/cut saat drag gizmo selesai atau nilai presisi di-enter.
     pub fn commit_gizmo_extrusion(&mut self) {
         if self.gizmo_distance.abs() > 0.1 {
-            if let Ok(solids) = crate::model::extrude_selection_with_holes_on_plane(
+            let result = crate::model::extrude_selection_with_holes_on_plane(
                 self.sketch(),
                 &self.selected,
                 &crate::document::plane_frame_from(&self.active_plane),
                 self.gizmo_distance,
-            ) {
+            );
+            if let Err(msg) = &result {
+                // Dulu kegagalan di sini diabaikan diam-diam: pengguna hanya
+                // melihat pratinjau kerangka tanpa tahu extrude gagal.
+                self.model_status = Some(format!("Extrude gagal: {msg}"));
+                self.show_op_error(
+                    &ducad_engine::OpError::new(
+                        ducad_engine::OpErrorCode::KernelFailed,
+                        msg.clone(),
+                    ),
+                    Vec::new(),
+                );
+            }
+            if let Ok(solids) = result {
                 if self.gizmo_is_cutting {
                     if let Some(target_id) = self.gizmo_target_body {
                         if let Some(target_geo) = self.model.geometry.get(target_id) {

@@ -127,10 +127,9 @@ impl DuCADApp {
     }
 
     pub fn set_tool(&mut self, tool: ToolKind) {
-        // Umpan balik profil hanya relevan untuk Freehand/Select.
+        // Pesan hasil "Objek Tertutup" hanya relevan untuk Freehand/Select.
         if !matches!(tool, ToolKind::Freehand | ToolKind::Select) {
-            self.freehand.feedback = None;
-            self.freehand.open_ends.clear();
+            self.closed_objects.notice = None;
         }
         if self.tool == ToolKind::Loft && tool != ToolKind::Loft {
             if let Some(staged_id) = self.loft_staged_body_id.take() {

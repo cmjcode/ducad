@@ -108,7 +108,10 @@ impl DuCADApp {
                 }
                 self.model_status = None;
             }
-            Err(e) => self.model_status = Some(op_status("Extrude", &e)),
+            Err(e) => {
+                self.model_status = Some(op_status("Extrude", &e));
+                self.show_op_error(&e, Vec::new());
+            }
         }
     }
 

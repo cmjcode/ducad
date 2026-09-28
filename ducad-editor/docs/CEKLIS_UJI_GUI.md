@@ -128,24 +128,27 @@ bisa diuji di macOS.
 | A5.7 | Coret huruf "S" | Dikenali sebagai spline (bukan dipaksa jadi garis/busur) | ☐ |
 | A5.8 | Coret garis miring ~3° | TIDAK diluruskan paksa ke horizontal | ☐ |
 | A5.9 | Coret persegi lalu langsung Extrude | Berhasil tanpa harus menambal celah manual | ☐ |
-| A5.10 | Coret bentuk bebas tertutup (awan/kacang), sedikit melewati titik awal | Jadi spline/poligon tertutup; region langsung terpilih, bar konteks menampilkan **Ekstrusi**, status bar "Profil tertutup (… mm²)" | ☐ |
-| A5.11 | Coret setengah lingkaran, lalu setengah lingkaran kedua yang ujungnya meleset ±1 mm | Setelah coretan pertama: dua silang merah di ujung + status "Profil masih terbuka". Setelah coretan kedua: celah tertutup otomatis, silang merah hilang, region terpilih | ☐ |
-| A5.12 | Dari A5.11 tekan **Ekstrusi** di bar konteks | Solid terbentuk tanpa memilih entitas manual | ☐ |
-| A5.13 | Gambar 4 garis dengan celah ±5–10 px layar (di atas batas otomatis), pilih semuanya, tekan **Tutup Profil** | Celah dijembatani garis pendek; region terpilih; `Cmd+Z` sekali membatalkan penutupan | ☐ |
-| A5.14 | **Tutup Profil** pada garis tunggal | Status "Tidak ada celah…"; sketsa dan seleksi tidak berubah; tidak ada langkah undo baru | ☐ |
+| A5.10 | Coret beberapa garis/busur yang ujungnya meleset ±1 mm, juga satu lingkaran yang berhenti sebelum titik awal | Selama menggambar TIDAK ada yang ditutup: celah tetap terlihat, tidak ada garis penyambung atau seleksi otomatis | ☐ |
+| A5.11 | Tekan tombol biru **Objek Tertutup** di HUD mengambang di bawah header (bukan di header). Pindah ke alat lain (mis. Garis/Select): HUD hilang; kembali ke Freehand: HUD muncul | Celah tersambung, sketsa menjadi objek tertutup; status bar "N objek tertutup dibuat" | ☐ |
+| A5.12 | Ketuk objek, tekan **Ekstrusi** (atau tarik gizmo) | Solid berpermukaan terbentuk | ☐ |
+| A5.13 | Coret bentuk tertutup yang ujungnya melingkar masuk dan memotong garisnya sendiri (seperti angka "6"), tekan **Objek Tertutup** | Setiap wilayah yang terbentuk menjadi objek TERPISAH (tidak dibuang); masing-masing bisa di-extrude | ☐ |
+| A5.14 | Gambar persegi, lalu garis yang membelahnya dengan ujung kelebihan, tekan **Objek Tertutup** | Dua objek; hanya ekor kelebihan yang hilang | ☐ |
+| A5.15 | Persegi garis rapi (tidak disilang apa pun), tekan **Objek Tertutup** | Tidak diubah; constraint tetap; status "Sketsa sudah berupa objek tertutup" | ☐ |
+| A5.16 | Tekan **Objek Tertutup** dua kali, lalu `Cmd+Z` sekali | Tekan kedua tidak mengubah apa pun; satu undo mengembalikan coretan asli | ☐ |
+| A5.18 | Kanvas ramai: persegi & lingkaran CAD (dengan constraint/fitur 3D), teks, lalu beberapa coretan pensil yang tumpang tindih — sebagian memotong objek CAD. Tekan **Objek Tertutup** | Hanya coretan pensil yang diubah; objek CAD, teks, dan fitur 3D tidak berubah dan tidak ada error | ☐ |
+| A5.17 | Extrude profil yang tetap tidak valid | Kartu error muncul; tidak ada body kerangka tanpa permukaan | ☐ |
 
-### A5b. Mode Tinta → profil CAD
+### A5b. Mode Tinta → objek tertutup
 
 | # | Langkah | Hasil yang diharapkan | Status |
 |---|---|---|---|
-| A5b.1 | Masuk **Mode Sketsa Tinta** (⌘+Shift+5) | HUD atas: Kuas · Penghapus · Lasso · Bentuk Pintar · Jadikan Profil | ☐ |
-| A5b.2 | Coret beberapa garis kasar yang membentuk persegi (ujung tidak bertemu) | Tetap tampil sebagai tinta biasa | ☐ |
-| A5b.3 | Tekan **Jadikan Profil** tanpa seleksi | Tinta kasar tersembunyi, aplikasi pindah ke Mode Sketsa CAD, profil rapi tertutup dan terpilih, bar konteks menampilkan **Ekstrusi** | ☐ |
-| A5b.4 | Tekan **Ekstrusi** | Solid 3D terbentuk | ☐ |
-| A5b.5 | `Cmd+Z` tiga kali | Solid hilang → entitas sketsa hilang → tinta tampil lagi | ☐ |
-| A5b.6 | Lasso satu bentuk saja, tekan **Jadikan Profil (1)** | Hanya coretan terpilih yang dikonversi | ☐ |
-| A5b.7 | Nyalakan **Bentuk Pintar**, coret lingkaran/awan tertutup dengan Pencil | Coretan langsung jadi entitas sketsa tertutup (bukan tinta) dan region-nya terpilih | ☐ |
-| A5b.8 | Matikan **Bentuk Pintar**, coret lagi | Kembali menjadi tinta biasa | ☐ |
+| A5b.1 | Masuk **Mode Sketsa Tinta** (⌘+Shift+5) | HUD di bawah header: Kuas · Penghapus · Lasso · Bentuk Pintar · **Objek Tertutup** | ☐ |
+| A5b.2 | Coret beberapa garis kasar yang membentuk persegi dan satu garis yang membelahnya | Tetap tampil sebagai tinta biasa | ☐ |
+| A5b.3 | Tekan **Objek Tertutup** | Tinta kasar tersembunyi, pindah ke Mode Sketsa CAD, dua objek tertutup | ☐ |
+| A5b.4 | Ketuk satu objek, tekan **Ekstrusi** | Solid 3D terbentuk dari objek itu saja | ☐ |
+| A5b.5 | `Cmd+Z` tiga kali | Solid hilang → objek sketsa hilang → tinta tampil lagi | ☐ |
+| A5b.6 | Lasso satu bentuk saja, tekan **Objek Tertutup** | Hanya coretan terpilih yang dikonversi | ☐ |
+| A5b.7 | Nyalakan **Bentuk Pintar**, coret beberapa bentuk, lalu tekan **Objek Tertutup** | Coretan langsung jadi entitas sketsa (tanpa penutupan otomatis); tombol mengubahnya menjadi objek tertutup | ☐ |
 
 ### A6. Asisten AI lokal (P11.4) — build `--features apple-fm`
 

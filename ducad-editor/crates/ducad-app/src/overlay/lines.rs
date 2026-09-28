@@ -394,26 +394,6 @@ impl DuCADApp {
                     verts.extend(sketch_render::preview_lines(e, &self.active_plane));
                 }
             }
-            // Ujung profil yang masih bocor: tanda silang merah ±7 px.
-            let s = self.mm_per_px() * 7.0;
-            let red = [1.0, 0.25, 0.2, 0.95];
-            for p in &self.freehand.open_ends {
-                for (d0, d1) in [
-                    (glam::DVec2::new(-s, -s), glam::DVec2::new(s, s)),
-                    (glam::DVec2::new(-s, s), glam::DVec2::new(s, -s)),
-                ] {
-                    let a = self.active_plane.to_world(*p + d0, 0.08);
-                    let b = self.active_plane.to_world(*p + d1, 0.08);
-                    verts.push(LineVertex {
-                        position: [a.x, a.y, a.z],
-                        color: red,
-                    });
-                    verts.push(LineVertex {
-                        position: [b.x, b.y, b.z],
-                        color: red,
-                    });
-                }
-            }
         }
 
         if let Some((p1, p2)) = self.selection_box {

@@ -144,6 +144,7 @@ pub struct DuCADApp {
     pub memory: Option<std::sync::Arc<crate::memory::VaultMemory>>,
     /// Alat coretan bebas (P12.3).
     pub freehand: crate::freehand::FreehandState,
+    pub closed_objects: crate::closed_objects::ClosedObjectsState,
     /// Kartu error operasi + fix terverifikasi (P9.3).
     pub error_card: ducad_ui::ErrorCardState,
     pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
@@ -517,6 +518,7 @@ impl DuCADApp {
             #[cfg(feature = "memory")]
             memory: None,
             freehand: crate::freehand::FreehandState::new(),
+            closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -817,6 +819,7 @@ impl DuCADApp {
             #[cfg(feature = "memory")]
             memory: None,
             freehand: crate::freehand::FreehandState::new(),
+            closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
             file_status: None,
@@ -3713,7 +3716,7 @@ impl eframe::App for DuCADApp {
             }
         }
 
-        self.show_ink_hud(&ctx, screen_rect);
+        self.show_sketch_hud(&ctx, screen_rect);
 
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
@@ -3774,7 +3777,6 @@ impl eframe::App for DuCADApp {
                                         self.extrude_selected();
                                     }
                                 }
-                                ContextAction::CloseProfile => self.run_close_profile(),
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
