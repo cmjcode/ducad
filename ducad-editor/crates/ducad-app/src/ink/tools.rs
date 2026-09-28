@@ -54,6 +54,10 @@ pub struct InkToolState {
     pub builder: Option<StrokeBuilder>,
     /// Titik-titik coretan aktif yang sudah difilter untuk rendering real-time.
     pub active_points: Vec<InkPoint>,
+    /// Posisi pena MENTAH (tanpa filter 1€) coretan aktif — dipakai "Bentuk
+    /// Pintar": filter menimbulkan jeda di ujung coretan sehingga ujung
+    /// akhir tidak kembali ke titik awal dan profil tidak tertutup.
+    pub raw_points: Vec<Vec2>,
     /// Titik prediksi 1 langkah ke depan untuk rendering latensi ultra-rendah.
     pub predicted_point: Option<InkPoint>,
     /// ID sentuhan egui yang sedang aktif.
@@ -83,6 +87,7 @@ impl Default for InkToolState {
             smart_shape: false,
             builder: None,
             active_points: Vec::new(),
+            raw_points: Vec::new(),
             predicted_point: None,
             active_touch_id: None,
             stroke_start_instant: None,

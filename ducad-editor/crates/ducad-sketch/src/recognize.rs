@@ -49,8 +49,11 @@ pub enum Recognized {
         points: Vec<DVec2>,
         closed: bool,
     },
+    /// `closed`: titik terakhir SAMA PERSIS dengan titik pertama sehingga
+    /// region/profil mengenalinya sebagai loop tertutup.
     Spline {
         points: Vec<DVec2>,
+        closed: bool,
     },
 }
 
@@ -81,6 +84,34 @@ const DP_SPLINE_FRAC: f64 = 0.01;
 /// Cakupan sudut busur (derajat).
 const ARC_SPAN_MIN_DEG: f64 = 30.0;
 const ARC_SPAN_MAX_DEG: f64 = 330.0;
+/// Jumlah simpul maksimum poligon tertutup; di atas ini jadi spline tertutup.
+const CLOSED_POLY_MAX: usize = 12;
+/// Porsi ekor coretan tertutup yang diperiksa untuk kelebihan tarikan.
+const OVERSHOOT_TAIL_FRAC: f64 = 0.25;
+
+/// Coretan tertutup sering melewati titik awal sedikit ("kait" di ujung).
+/// Potong ekor di titik yang paling dekat ke titik awal (dicari hanya pada
+/// seperempat terakhir coretan), lalu tutup rapat ke titik awal.
+fn close_stroke(pts: &[DVec2]) -> Vec<DVec2> {
+    let n = pts.len();
+    if n < 4 {
+        return pts.to_vec();
+    }
+    let first = pts[0];
+    let from = ((n as f64) * (1.0 - OVERSHOOT_TAIL_FRAC)) as usize;
+    let k = (from.max(2)..n)
+        .min_by(|&a, &b| {
+            (pts[a] - first)
+                .length()
+                .total_cmp(&(pts[b] - first).length())
+        })
+        .unwrap_or(n - 1);
+    let mut out = pts[..=k].to_vec();
+    if let Some(last) = out.last_mut() {
+        *last = first;
+    }
+    out
+}
 
 fn bbox(points: &[DVec2]) -> (DVec2, DVec2) {
     let mut min = DVec2::splat(f64::MAX);
@@ -513,7 +544,7 @@ pub fn recognize(stroke: &Stroke) -> Option<Recognized> {
                 }
             }
         }
-        if (3..=8).contains(&corners.len()) {
+        if (3..=CLOSED_POLY_MAX).contains(&corners.len()) {
             return Some(Recognized::Polyline {
                 points: corners,
                 closed: true,
@@ -566,9 +597,22 @@ pub fn recognize(stroke: &Stroke) -> Option<Recognized> {
         }
     }
 
-    // 6. Sisanya spline.
+    // 6. Sisanya spline. Coretan tertutup dirapatkan agar bisa jadi profil.
+    if closed {
+        let mut points = simplify(&close_stroke(&pts), DP_SPLINE_FRAC * diag);
+        if let (Some(first), Some(last)) = (points.first().copied(), points.last_mut()) {
+            *last = first;
+        }
+        if points.len() >= 4 {
+            return Some(Recognized::Spline {
+                points,
+                closed: true,
+            });
+        }
+    }
     Some(Recognized::Spline {
         points: simplify(&pts, DP_SPLINE_FRAC * diag),
+        closed: false,
     })
 }
 
@@ -609,7 +653,7 @@ pub fn to_entities(r: &Recognized) -> Vec<Entity> {
         }
         // Coretan tangan tidak punya definisi kurva asli — yang ada hanya
         // jejak titik yang ditangkap, jadi `exact` memang kosong.
-        Recognized::Spline { points } => vec![Entity::spline(points.clone())],
+        Recognized::Spline { points, .. } => vec![Entity::spline(points.clone())],
     }
 }
 
@@ -881,4 +925,76 @@ mod tests {
         assert!((mid - drawn_mid).length() < 3.0, "{mid} vs {drawn_mid}");
     }
 
+    /// Bunga berkelopak `lobes`, digambar melewati titik awal sebesar
+    /// `overshoot` (fraksi putaran) lalu berhenti — seperti tangan sungguhan.
+    fn flower(lobes: f64, overshoot: f64, noise: f64, seed: u64) -> Stroke {
+        let mut rng = Lcg(seed | 1);
+        let n = 200;
+        let pts = (0..n)
+            .map(|i| {
+                let a = TAU * (1.0 + overshoot) * i as f64 / (n - 1) as f64;
+                let r = 16.0 + 4.0 * (lobes * a).sin();
+                DVec2::new(a.cos(), a.sin()) * r + rng.noise(noise)
+            })
+            .collect();
+        Stroke {
+            points: pts,
+            pressure: Vec::new(),
+        }
+    }
+
+    fn region_count(r: &Recognized) -> usize {
+        let mut sketch = crate::Sketch::default();
+        for e in to_entities(r) {
+            sketch.entities.insert(e);
+        }
+        crate::region::find_closed_regions(&sketch).len()
+    }
+
+    #[test]
+    fn closed_freeform_stroke_becomes_region() {
+        for seed in 1..=5u64 {
+            for (lobes, overshoot) in [(3.0, 0.0), (5.0, 0.05), (7.0, -0.04)] {
+                let s = flower(lobes, overshoot, 0.2, seed);
+                let r = recognize(&s).expect("bentuk dikenali");
+                assert_eq!(
+                    region_count(&r),
+                    1,
+                    "kelopak {lobes}, overshoot {overshoot}, seed {seed}: {r:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn many_lobed_stroke_is_closed_spline() {
+        let s = flower(7.0, 0.05, 0.2, 3);
+        match recognize(&s) {
+            Some(Recognized::Spline { points, closed }) => {
+                assert!(closed);
+                assert_eq!(points.first(), points.last(), "rapat persis");
+            }
+            other => panic!("harus spline tertutup: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn close_stroke_trims_overshoot_hook() {
+        // Lingkaran 1,1 putaran: 10% terakhir melewati titik awal.
+        let pts: Vec<DVec2> = (0..=110)
+            .map(|i| DVec2::from_angle(TAU * i as f64 / 100.0) * 10.0)
+            .collect();
+        let closed = close_stroke(&pts);
+        assert_eq!(closed.first(), closed.last());
+        assert!(closed.len() <= 102, "ekor kait dipotong: {}", closed.len());
+    }
+
+    #[test]
+    fn open_ess_stays_open() {
+        let s = synth(&Shape::Ess, 0.2, 140, 11);
+        assert!(matches!(
+            recognize(&s),
+            Some(Recognized::Spline { closed: false, .. })
+        ));
+    }
 }

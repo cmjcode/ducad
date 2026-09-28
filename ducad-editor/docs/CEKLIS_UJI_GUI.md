@@ -128,6 +128,24 @@ bisa diuji di macOS.
 | A5.7 | Coret huruf "S" | Dikenali sebagai spline (bukan dipaksa jadi garis/busur) | ☐ |
 | A5.8 | Coret garis miring ~3° | TIDAK diluruskan paksa ke horizontal | ☐ |
 | A5.9 | Coret persegi lalu langsung Extrude | Berhasil tanpa harus menambal celah manual | ☐ |
+| A5.10 | Coret bentuk bebas tertutup (awan/kacang), sedikit melewati titik awal | Jadi spline/poligon tertutup; region langsung terpilih, bar konteks menampilkan **Ekstrusi**, status bar "Profil tertutup (… mm²)" | ☐ |
+| A5.11 | Coret setengah lingkaran, lalu setengah lingkaran kedua yang ujungnya meleset ±1 mm | Setelah coretan pertama: dua silang merah di ujung + status "Profil masih terbuka". Setelah coretan kedua: celah tertutup otomatis, silang merah hilang, region terpilih | ☐ |
+| A5.12 | Dari A5.11 tekan **Ekstrusi** di bar konteks | Solid terbentuk tanpa memilih entitas manual | ☐ |
+| A5.13 | Gambar 4 garis dengan celah ±5–10 px layar (di atas batas otomatis), pilih semuanya, tekan **Tutup Profil** | Celah dijembatani garis pendek; region terpilih; `Cmd+Z` sekali membatalkan penutupan | ☐ |
+| A5.14 | **Tutup Profil** pada garis tunggal | Status "Tidak ada celah…"; sketsa dan seleksi tidak berubah; tidak ada langkah undo baru | ☐ |
+
+### A5b. Mode Tinta → profil CAD
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| A5b.1 | Masuk **Mode Sketsa Tinta** (⌘+Shift+5) | HUD atas: Kuas · Penghapus · Lasso · Bentuk Pintar · Jadikan Profil | ☐ |
+| A5b.2 | Coret beberapa garis kasar yang membentuk persegi (ujung tidak bertemu) | Tetap tampil sebagai tinta biasa | ☐ |
+| A5b.3 | Tekan **Jadikan Profil** tanpa seleksi | Tinta kasar tersembunyi, aplikasi pindah ke Mode Sketsa CAD, profil rapi tertutup dan terpilih, bar konteks menampilkan **Ekstrusi** | ☐ |
+| A5b.4 | Tekan **Ekstrusi** | Solid 3D terbentuk | ☐ |
+| A5b.5 | `Cmd+Z` tiga kali | Solid hilang → entitas sketsa hilang → tinta tampil lagi | ☐ |
+| A5b.6 | Lasso satu bentuk saja, tekan **Jadikan Profil (1)** | Hanya coretan terpilih yang dikonversi | ☐ |
+| A5b.7 | Nyalakan **Bentuk Pintar**, coret lingkaran/awan tertutup dengan Pencil | Coretan langsung jadi entitas sketsa tertutup (bukan tinta) dan region-nya terpilih | ☐ |
+| A5b.8 | Matikan **Bentuk Pintar**, coret lagi | Kembali menjadi tinta biasa | ☐ |
 
 ### A6. Asisten AI lokal (P11.4) — build `--features apple-fm`
 

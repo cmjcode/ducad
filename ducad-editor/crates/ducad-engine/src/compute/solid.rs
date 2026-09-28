@@ -11,7 +11,7 @@ use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::model::{BodyGeometry, BooleanKind};
 use crate::plane::PlaneFrame;
 use crate::profile::{
-    arc_endpoints_and_via, build_profile_from_selection, convert_region_to_exact_profile,
+    build_profile_from_selection, convert_region_to_exact_profile,
     entity_to_subpaths, extrude_selection_with_holes_on_plane, path_regions,
 };
 
@@ -42,57 +42,11 @@ fn region_profile(sketch: &Sketch, region: &ducad_sketch::RegionWithHoles) -> Pr
     outer.with_holes(holes)
 }
 
-/// Titik-titik ujung entitas terbuka (garis/busur/spline) yang tidak punya
-/// pasangan dalam `LIN_TOL` — petunjuk kenapa sketch tidak tertutup.
+/// Titik-titik ujung entitas terbuka yang tidak punya pasangan dalam
+/// `LIN_TOL` — petunjuk kenapa sketch tidak tertutup. Logika bersama ada di
+/// `ducad_sketch::gaps` (dipakai juga penutup celah otomatis GUI).
 fn dangling_endpoints(sketch: &Sketch) -> Vec<DVec2> {
-    let mut ends = Vec::new();
-    for (id, e) in sketch.entities.iter() {
-        if e.is_construction() || sketch.is_hidden(id) {
-            continue;
-        }
-        match e {
-            Entity::Line { start, end, .. } => ends.extend([*start, *end]),
-            Entity::Arc {
-                center,
-                radius,
-                start_angle,
-                end_angle,
-                ..
-            } => {
-                let (s, _, t) = arc_endpoints_and_via(*center, *radius, *start_angle, *end_angle);
-                ends.extend([s, t]);
-            }
-            Entity::Spline { points, .. } => {
-                if let (Some(f), Some(l)) = (points.first(), points.last()) {
-                    if (*f - *l).length() > LIN_TOL {
-                        ends.extend([*f, *l]);
-                    }
-                }
-            }
-            Entity::Path { subpaths, .. } => {
-                for sub in subpaths {
-                    if !sub.closed && !sub.segs.is_empty() {
-                        let first = sub.start;
-                        let last = sub.nodes().last().unwrap_or(first);
-                        if (first - last).length() > LIN_TOL {
-                            ends.extend([first, last]);
-                        }
-                    }
-                }
-            }
-            Entity::Circle { .. } | Entity::Ellipse { .. } => {}
-        }
-    }
-    ends.iter()
-        .enumerate()
-        .filter(|(i, p)| {
-            !ends
-                .iter()
-                .enumerate()
-                .any(|(j, q)| j != *i && (**p - *q).length() <= LIN_TOL)
-        })
-        .map(|(_, p)| *p)
-        .collect()
+    ducad_sketch::dangling_endpoints(sketch, LIN_TOL)
 }
 
 fn not_closed_error(sketch: &Sketch) -> OpError {

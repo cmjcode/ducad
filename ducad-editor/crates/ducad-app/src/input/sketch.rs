@@ -127,6 +127,11 @@ impl DuCADApp {
     }
 
     pub fn set_tool(&mut self, tool: ToolKind) {
+        // Umpan balik profil hanya relevan untuk Freehand/Select.
+        if !matches!(tool, ToolKind::Freehand | ToolKind::Select) {
+            self.freehand.feedback = None;
+            self.freehand.open_ends.clear();
+        }
         if self.tool == ToolKind::Loft && tool != ToolKind::Loft {
             if let Some(staged_id) = self.loft_staged_body_id.take() {
                 self.model.geometry.remove(staged_id);

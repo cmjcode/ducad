@@ -11,6 +11,7 @@ pub mod nudge;
 pub mod predict;
 pub mod slice;
 pub mod stroke;
+pub mod vectorize;
 
 pub use brush::{Brush, BrushId, BrushKind, PressureCurve};
 pub use commands::{
@@ -26,6 +27,7 @@ pub use nudge::nudge;
 pub use predict::StrokeBuilder;
 pub use slice::slice;
 pub use stroke::{InkPoint, Stroke};
+pub use vectorize::{stroke_points, vectorize_strokes, VectorizeOptions, Vectorized};
 
 #[cfg(test)]
 mod tests {

@@ -343,6 +343,25 @@ impl DuCADApp {
                 String::new(),
                 PaletteAction::TogglePalmRejection,
             ),
+            (
+                ducad_i18n::t!("action-close-profile"),
+                String::new(),
+                PaletteAction::CloseProfile,
+            ),
+            (
+                format!("{} ({})", ducad_i18n::t!("ink-to-profile"), crate::mode::AppMode::Ink.label()),
+                String::new(),
+                PaletteAction::InkToProfile,
+            ),
+            (
+                format!(
+                    "{}: {}",
+                    ducad_i18n::t!("ink-smart-shape"),
+                    if self.ink_state.smart_shape { "ON → OFF" } else { "OFF → ON" }
+                ),
+                String::new(),
+                PaletteAction::ToggleInkSmartShape,
+            ),
         ];
         if !self.selected.is_empty() {
             actions.push((
@@ -427,6 +446,13 @@ impl DuCADApp {
             PaletteAction::OpenAssist => self.open_assist_dialog(),
             PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
             PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),
+            PaletteAction::CloseProfile => self.run_close_profile(),
+            PaletteAction::InkToProfile => {
+                self.ink_to_profile();
+            }
+            PaletteAction::ToggleInkSmartShape => {
+                self.ink_state.smart_shape = !self.ink_state.smart_shape;
+            }
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection {
@@ -494,8 +520,13 @@ impl DuCADApp {
 
     pub fn status_text(&self) -> String {
         let hint = match self.tool {
-            ToolKind::Select => ducad_i18n::t!("status-prompt-select"),
-            ToolKind::Freehand => ducad_i18n::t!("tool-freehand-desc"),
+            ToolKind::Select => match self.profile_feedback_text() {
+                Some(msg) if !self.selected.is_empty() => msg,
+                _ => ducad_i18n::t!("status-prompt-select"),
+            },
+            ToolKind::Freehand => self
+                .profile_feedback_text()
+                .unwrap_or_else(|| ducad_i18n::t!("tool-freehand-desc")),
             ToolKind::Line => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-line-0"),
                 _ if self.line_chain_segments >= 2 => {

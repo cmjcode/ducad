@@ -104,6 +104,7 @@ impl DuCADApp {
                             self.ink_state.active_points = vec![raw];
                         }
                         self.ink_state.builder = Some(builder);
+                        self.ink_state.raw_points = vec![plane_pt];
                     }
                     InkTool::Eraser | InkTool::Lasso => {
                         self.ink_state.lasso_polygon = vec![plane_pt];
@@ -135,6 +136,7 @@ impl DuCADApp {
                                 self.ink_state.active_points.push(accepted);
                             }
                             self.ink_state.predicted_point = builder.predict(t_ms);
+                            self.ink_state.raw_points.push(plane_pt);
                         }
                     }
                     InkTool::Eraser | InkTool::Lasso => {
@@ -171,7 +173,17 @@ impl DuCADApp {
 
                 match self.ink_state.active_tool {
                     InkTool::Brush => {
-                        if let Some(builder) = self.ink_state.builder.take() {
+                        let mut raw = std::mem::take(&mut self.ink_state.raw_points);
+                        if raw.last() != Some(&plane_pt) {
+                            raw.push(plane_pt);
+                        }
+                        if self.ink_state.smart_shape
+                            && self.ink_state.builder.is_some()
+                            && self.ink_smart_shape_commit(&raw)
+                        {
+                            self.ink_state.builder = None;
+                            self.ink_state.active_points.clear();
+                        } else if let Some(builder) = self.ink_state.builder.take() {
                             let mut points = builder.finish();
                             if points.is_empty() {
                                 points.push(InkPoint::new(
@@ -209,6 +221,7 @@ impl DuCADApp {
                     self.ink_state.active_touch_id = None;
                     self.ink_state.builder = None;
                     self.ink_state.active_points.clear();
+                    self.ink_state.raw_points.clear();
                     self.ink_state.predicted_point = None;
                     self.ink_state.lasso_polygon.clear();
                     self.ink_state.slice_line = None;

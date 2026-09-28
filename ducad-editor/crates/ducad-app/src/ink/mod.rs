@@ -2,6 +2,7 @@
 
 pub mod canvas;
 pub mod input;
+pub mod profile;
 pub mod tools;
 
 pub use canvas::{build_ink_layer_batches, INK_CHUNK_STROKE_SIZE, INK_MAX_STROKE_WARNING};

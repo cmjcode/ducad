@@ -1205,6 +1205,25 @@ tool-freehand-desc = Gambar bebas dengan Pencil/mouse; bentuknya dirapikan dan d
 freehand-committed = Coretan diubah menjadi entitas sketsa ber-constraint
 freehand-accept = Terima bentuk
 freehand-reject = Tolak bentuk
+freehand-profile-closed = Profil tertutup ({ $area } mm²) — ketuk Ekstrusi untuk menjadikannya 3D
+freehand-profile-open-gap = Profil masih terbuka: celah terkecil { $gap } mm. Sambungkan ujung merah atau ketuk Tutup Profil
+freehand-profile-open = Profil masih terbuka. Sambungkan ujung merah atau ketuk Tutup Profil
+action-close-profile = Tutup Profil
+action-close-profile-desc = Sambungkan ujung-ujung yang hampir bertemu agar sketsa menjadi profil tertutup yang bisa di-extrude
+close-profile-done = { $count } celah ditutup
+close-profile-none = Tidak ada celah yang cukup dekat untuk ditutup
+close-profile-too-far = Celah terkecil { $gap } mm terlalu jauh untuk ditutup otomatis — perbesar tampilan lalu coba lagi, atau gambar garis penyambung
+
+## Mode Tinta → profil CAD
+ink-tool-brush = Kuas
+ink-tool-eraser = Penghapus
+ink-tool-lasso = Lasso
+ink-smart-shape = Bentuk Pintar
+ink-smart-shape-desc = Coretan langsung dirapikan menjadi garis/lingkaran/kurva sketsa CAD yang tertutup rapat dan siap di-extrude
+ink-to-profile = Jadikan Profil
+ink-to-profile-desc = Ubah coretan tinta terpilih (atau semua coretan bila tidak ada seleksi) menjadi profil sketsa tertutup, lalu pindah ke Mode Sketsa CAD untuk Ekstrusi
+ink-to-profile-empty = Tidak ada coretan tinta untuk diubah
+ink-to-profile-done = { $count } coretan diubah menjadi entitas sketsa
 
 ## Jembatan agent live (P5) dan kartu proposal (P8.4)
 bridge-title = Agent Bridge

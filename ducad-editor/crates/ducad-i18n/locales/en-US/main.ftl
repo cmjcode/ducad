@@ -1205,6 +1205,25 @@ tool-freehand-desc = Draw freely with Pencil/mouse; the shape is cleaned up and 
 freehand-committed = Stroke turned into constrained sketch entities
 freehand-accept = Accept shape
 freehand-reject = Reject shape
+freehand-profile-closed = Closed profile ({ $area } mm²) — tap Extrude to make it 3D
+freehand-profile-open-gap = Profile is still open: smallest gap { $gap } mm. Connect the red ends or tap Close Profile
+freehand-profile-open = Profile is still open. Connect the red ends or tap Close Profile
+action-close-profile = Close Profile
+action-close-profile-desc = Join ends that almost meet so the sketch becomes a closed profile ready to extrude
+close-profile-done = { $count } gaps closed
+close-profile-none = No gap is close enough to close
+close-profile-too-far = The smallest gap ({ $gap } mm) is too far to close automatically — zoom in and try again, or draw a connecting line
+
+## Ink mode → CAD profile
+ink-tool-brush = Brush
+ink-tool-eraser = Eraser
+ink-tool-lasso = Lasso
+ink-smart-shape = Smart Shape
+ink-smart-shape-desc = Strokes are cleaned up into watertight CAD sketch lines/circles/curves ready to extrude
+ink-to-profile = Make Profile
+ink-to-profile-desc = Turn the selected ink strokes (or all strokes when nothing is selected) into a closed sketch profile, then switch to CAD Sketch mode to Extrude
+ink-to-profile-empty = No ink strokes to convert
+ink-to-profile-done = { $count } strokes converted into sketch entities
 
 ## Live agent bridge (P5) and proposal card (P8.4)
 bridge-title = Agent Bridge

@@ -3713,6 +3713,8 @@ impl eframe::App for DuCADApp {
             }
         }
 
+        self.show_ink_hud(&ctx, screen_rect);
+
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
         let has_face_sel = self.active_face.is_some()
@@ -3772,6 +3774,7 @@ impl eframe::App for DuCADApp {
                                         self.extrude_selected();
                                     }
                                 }
+                                ContextAction::CloseProfile => self.run_close_profile(),
                                 ContextAction::Offset => self.set_tool(ToolKind::Offset),
                                 ContextAction::Mirror => self.set_tool(ToolKind::Mirror),
                                 ContextAction::Trim => self.set_tool(ToolKind::Trim),
