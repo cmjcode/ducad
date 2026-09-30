@@ -388,6 +388,7 @@ mod tests {
                 [0.0, 0.0, 1.0],
             ],
             indices: vec![0, 1, 2],
+            face_ranges: Vec::new(),
         }
     }
 

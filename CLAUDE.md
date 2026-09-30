@@ -39,6 +39,8 @@ cargo fmt --all -- --check                     # gerbang CI (belum memblokir; fo
 cargo clippy --workspace --all-targets -- -D warnings   # gerbang CI
 cargo test --workspace                         # gerbang CI
 make install-agent-tools                       # pasang ducad-cli, ducad-mcp (+ mnemonic-cli bila ada)
+./clean_no_occt.sh                             # bersihkan target tanpa menghapus OCCT (bisa juga: cargo clean-no-occt)
+cargo clean-ws                                 # bersihkan hanya crate workspace DUCAD (~1 detik)
 ```
 
 **Jembatan live (P5).** `ducad-mcp --attach [--socket PATH]` meneruskan

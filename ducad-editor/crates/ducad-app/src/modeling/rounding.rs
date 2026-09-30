@@ -684,6 +684,7 @@ impl DuCADApp {
                 positions: tess.positions.clone(),
                 normals: tess.normals.clone(),
                 indices: tess.indices.clone(),
+                face_ranges: tess.face_ranges.clone(),
             };
             let edge_lines = ducad_kernel::extract_shape_edges(&shape, Some(&mesh));
 

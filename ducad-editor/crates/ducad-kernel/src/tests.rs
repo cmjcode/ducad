@@ -270,11 +270,13 @@ fn kernel_mesh_merge_shifts_indices() {
         positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
         normals: vec![[0.0, 0.0, 1.0]; 3],
         indices: vec![0, 1, 2],
+        face_ranges: Vec::new(),
     };
     let b = KernelMesh {
         positions: vec![[2.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 1.0, 0.0]],
         normals: vec![[0.0, 0.0, 1.0]; 3],
         indices: vec![0, 1, 2],
+        face_ranges: Vec::new(),
     };
     let merged = KernelMesh::merge(&[&a, &b]);
     assert_eq!(merged.positions.len(), 6);
@@ -3426,4 +3428,36 @@ fn helix_spring_has_real_volume() {
     let v = spring.volume().abs();
     assert!(spring.is_valid(), "helix harus solid valid");
     assert!((v - expected).abs() / expected < 0.03, "volume pegas {v} vs {expected}");
+}
+
+/// Highlight face terpilih harus eksak: `face_index` hasil pick menunjuk
+/// rentang `face_ranges` yang SEMUA segitiganya berada di face itu — bukan
+/// tebakan radius di sekitar titik klik (dulu memberi sorotan gradasi yang
+/// merembes ke face tetangga).
+#[test]
+fn test_pick_face_index_maps_to_exact_mesh_triangles() {
+    let _guard = lock_test();
+    let shape = extrude_profile(&rect_profile(200.0, 100.0), 20.0).unwrap();
+    let mesh = shape.tessellate();
+    assert_eq!(mesh.face_ranges.len(), 6, "kotak punya 6 face");
+    assert_eq!(
+        mesh.face_ranges.last().map(|r| r.end as usize),
+        Some(mesh.indices.len()),
+        "rentang face harus menutup seluruh indices"
+    );
+
+    // Ray dari atas mengenai face atas (z = 20).
+    let ray = PickRay { origin: (50.0, 50.0, 500.0), dir: (0.0, 0.0, -1.0) };
+    let hit = pick_face_details(&shape, ray).expect("ray harus kena face atas");
+    let fi = hit.face_index.expect("face_index harus ditemukan");
+    let range = mesh.face_ranges[fi].clone();
+    assert!(range.end > range.start, "face atas harus punya segitiga");
+    for &vi in &mesh.indices[range.start as usize..range.end as usize] {
+        let z = mesh.positions[vi as usize][2];
+        assert!((z - 20.0).abs() < 1e-3, "vertex di luar face atas: z = {z}");
+    }
+
+    // Gizmo push/pull berada di titik klik, bukan di centroid batas.
+    let anchor = hit.gizmo_anchor();
+    assert!((anchor.0 - 50.0).abs() < 1e-6 && (anchor.1 - 50.0).abs() < 1e-6);
 }

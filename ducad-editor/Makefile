@@ -4,7 +4,7 @@
 # Includes macOS codesign, notarization, App Store pkg
 ############################################
 
-.PHONY: all help install-deps clean create-dirs \
+.PHONY: all help install-deps clean clean-no-occt create-dirs \
         build-macos build-linux build-windows \
         bundle-macos bundle-linux bundle-windows pkg-macos-store \
         build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
@@ -57,7 +57,7 @@ help:
 	@echo "  notarize           Notarize existing .app and .dmg"
 	@echo "  notarize-check     Check notarization status"
 	@echo "Dev Helpers:"
-	@echo "  run / dev / test / check / fmt / info"
+	@echo "  run / dev / test / check / fmt / info / clean-no-occt"
 	@echo "Environment (macOS signing/notarization):"
 	@echo "  APPLE_IDENTITY='Developer ID Application: Name (TEAMID)'"
 	@echo "  APPLE_IDENTITY_INS='Developer ID Installer: Name (TEAMID)'"
@@ -83,6 +83,9 @@ clean:
 	rm -rf $(BUILD_DIR)/$(MACOS_ARM_TARGET)/release/bundle
 	rm -rf $(BUILD_DIR)/$(MACOS_X86_TARGET)/release/bundle
 	@echo "✅ Clean done."
+
+clean-no-occt:
+	@./clean_no_occt.sh $(ARGS)
 
 create-dirs:
 	@mkdir -p $(MACOS_DIR) $(LINUX_DIR) $(WINDOWS_DIR) $(IOS_DIR)

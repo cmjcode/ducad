@@ -63,26 +63,24 @@ pub struct FaceHit {
     pub pull_dir: (f64, f64, f64),
     /// Titik-titik pembatas sekeliling perimeter face dalam ruang 3D
     pub boundary_points: Vec<(f64, f64, f64)>,
+    /// Indeks face dalam urutan `Shape::faces()` — sama dengan urutan
+    /// `KernelMesh::face_ranges`, sehingga segitiga face ini di mesh body
+    /// bisa disorot secara eksak. `None` bila face tak ditemukan lagi.
+    pub face_index: Option<usize>,
 }
 
 impl FaceHit {
-    /// Titik anchor gizmo push/pull (DUCAD Fase 8 lanjutan) — TIDAK selalu
-    /// `centroid`:
-    /// - `Plane`: `centroid`, sama seperti perilaku lama (face datar
-    ///   biasanya punya region kecil, centroid tetap dekat permukaan).
-    /// - selain `Plane` (`Cylinder`/`Cone`/`Sphere`/`Torus`/`Other`):
-    ///   `hit_point` — utk selimut silinder/bola penuh, `centroid` Newell
-    ///   jatuh di SUMBU (silinder) atau PUSAT bola (bola), yaitu di DALAM
-    ///   material. Handle gizmo yg diletakkan di `centroid + pull_dir·18`
-    ///   pun ikut terkubur utk radius > 18 mm — tak terlihat & tak bisa
-    ///   di-drag. `hit_point` selalu ada DI PERMUKAAN, jadi anchor aman
-    ///   utk semua radius.
+    /// Titik anchor gizmo push/pull: SELALU `hit_point` — titik yang
+    /// diklik pengguna, pasti berada DI PERMUKAAN face dan di layar.
+    ///
+    /// Dulu face datar memakai `centroid`, yaitu rata-rata titik sampel
+    /// batas. Titik sampel menumpuk di tepi lengkung dan poligon batas bisa
+    /// cekung, sehingga rata-rata itu dapat jatuh jauh di luar face (mis.
+    /// sisi samping body hasil fuse) — gizmo tampil di ruang kosong dan tak
+    /// terjangkau. Untuk selimut silinder/bola `centroid` bahkan jatuh di
+    /// sumbu/pusat, di dalam material.
     pub fn gizmo_anchor(&self) -> (f64, f64, f64) {
-        if self.surface_kind == SurfaceKind::Plane {
-            self.centroid
-        } else {
-            self.hit_point
-        }
+        self.hit_point
     }
 }
 
@@ -385,6 +383,7 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
         .collect();
 
     let pull_dir = compute_pull_dir(&face, surface_kind, hit, normal, ray.dir_vec());
+    let face_index = shape.inner().faces().position(|f| f.is_equal(&face));
     Some(FaceHit {
         hit_point: (hit.x, hit.y, hit.z),
         centroid: (centroid.x, centroid.y, centroid.z),
@@ -392,6 +391,7 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
         surface_kind,
         pull_dir: (pull_dir.x, pull_dir.y, pull_dir.z),
         boundary_points,
+        face_index,
     })
 }
 

@@ -430,6 +430,7 @@ mod tests {
             positions,
             normals,
             indices,
+            face_ranges: Vec::new(),
         };
 
         let rusuk_idx = [

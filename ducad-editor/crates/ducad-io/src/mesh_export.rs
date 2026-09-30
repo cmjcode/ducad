@@ -188,6 +188,7 @@ pub fn read_stl_binary_bytes(bytes: &[u8]) -> Result<KernelMesh> {
         positions,
         normals,
         indices,
+        face_ranges: Vec::new(),
     })
 }
 
@@ -252,6 +253,7 @@ pub fn read_stl_ascii_str(text: &str) -> Result<KernelMesh> {
         positions,
         normals,
         indices,
+        face_ranges: Vec::new(),
     })
 }
 
@@ -264,6 +266,7 @@ mod tests {
             positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             normals: vec![[0.0, 0.0, 1.0]; 3],
             indices: vec![0, 1, 2],
+            face_ranges: Vec::new(),
         }
     }
 

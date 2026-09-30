@@ -6,6 +6,10 @@ pub struct KernelMesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
+    /// Rentang `indices` milik tiap face B-rep, urut sama dengan
+    /// `Shape::faces()` — dipakai highlight face terpilih secara eksak
+    /// (lihat `FaceHit::face_index`). Kosong untuk mesh non-B-rep.
+    pub face_ranges: Vec<std::ops::Range<u32>>,
 }
 
 impl KernelMesh {
@@ -52,27 +56,31 @@ impl KernelMesh {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         let mut indices = Vec::new();
+        let mut face_ranges = Vec::new();
         for mesh in meshes {
             let offset = positions.len() as u32;
+            let index_offset = indices.len() as u32;
             positions.extend_from_slice(&mesh.positions);
             normals.extend_from_slice(&mesh.normals);
             indices.extend(mesh.indices.iter().map(|i| i + offset));
+            face_ranges.extend(
+                mesh.face_ranges
+                    .iter()
+                    .map(|r| (r.start + index_offset)..(r.end + index_offset)),
+            );
         }
         KernelMesh {
             positions,
             normals,
             indices,
+            face_ranges,
         }
     }
 }
 
 pub(crate) fn tessellate_shape(shape: &Shape) -> KernelMesh {
     let Ok(mesh) = shape.mesh() else {
-        return KernelMesh {
-            positions: Vec::new(),
-            normals: Vec::new(),
-            indices: Vec::new(),
-        };
+        return KernelMesh::default();
     };
     let positions = mesh
         .vertices
@@ -85,9 +93,15 @@ pub(crate) fn tessellate_shape(shape: &Shape) -> KernelMesh {
         .map(|n| [n.x as f32, n.y as f32, n.z as f32])
         .collect();
     let indices = mesh.indices.iter().map(|i| *i as u32).collect();
+    let face_ranges = mesh
+        .face_ranges
+        .iter()
+        .map(|r| (r.start as u32)..(r.end as u32))
+        .collect();
     KernelMesh {
         positions,
         normals,
         indices,
+        face_ranges,
     }
 }

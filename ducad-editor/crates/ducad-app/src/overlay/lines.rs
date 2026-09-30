@@ -1630,6 +1630,25 @@ impl DuCADApp {
 
             let mut face_vertex_indices = std::collections::HashSet::new();
             for hit in face_hits_for_body {
+                // Jalur eksak: segitiga milik face B-rep itu sendiri. Mesher
+                // membuat vertex terpisah per face, jadi warna tidak bocor
+                // ke face tetangga dan tidak ada gradasi di tepi sorotan.
+                // `face_index` merujuk shape body asli — tidak berlaku
+                // untuk mesh pratinjau rounding.
+                let is_body_mesh = std::ptr::eq(mesh_to_render.as_ref(), geo.mesh.as_ref());
+                let exact_range = hit
+                    .face_index
+                    .filter(|_| is_body_mesh)
+                    .and_then(|fi| mesh_to_render.face_ranges.get(fi))
+                    .filter(|r| (r.end as usize) <= mesh_to_render.indices.len());
+                if let Some(range) = exact_range {
+                    for &vi in &mesh_to_render.indices[range.start as usize..range.end as usize] {
+                        face_vertex_indices.insert(vi as usize);
+                    }
+                    continue;
+                }
+
+                // Cadangan (mesh tanpa `face_ranges`): tebak dari geometri.
                 let fpt = Vec3::new(hit.hit_point.0 as f32, hit.hit_point.1 as f32, hit.hit_point.2 as f32);
                 let fcentroid = Vec3::new(hit.centroid.0 as f32, hit.centroid.1 as f32, hit.centroid.2 as f32);
                 let fnorm = Vec3::new(hit.normal.0 as f32, hit.normal.1 as f32, hit.normal.2 as f32);
