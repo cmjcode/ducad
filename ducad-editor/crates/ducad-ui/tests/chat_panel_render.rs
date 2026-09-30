@@ -11,7 +11,7 @@ fn frame(ctx: &egui::Context, state: &mut ChatPanelState) -> Vec<(String, egui::
         ..Default::default()
     };
     let out = ctx.run_ui(input, |ui| {
-        ChatPanel::show(ui.ctx(), state);
+        ChatPanel::show(ui, state);
     });
     let mut out = out;
     out.textures_delta.clear();
@@ -104,4 +104,47 @@ fn transcript_stays_visible_while_streaming() {
             "frame {i}: status hilang"
         );
     }
+}
+
+/// Sidebar menempel di kanan dan menyempitkan area sisa (bukan mengambang).
+#[test]
+fn sidebar_docks_right_and_shrinks_remaining_area() {
+    let ctx = egui::Context::default();
+    let mut t = 0.0;
+    let mut remaining = |st: &mut ChatPanelState| {
+        let mut rect = egui::Rect::NOTHING;
+        // Beberapa frame (0,1 s) agar animasi buka/tutup selesai.
+        for _ in 0..30 {
+            t += 0.1;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1200.0, 900.0),
+                )),
+                time: Some(t),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                ChatPanel::show(ui, st);
+                rect = ui.available_rect_before_wrap();
+            });
+            out.textures_delta.clear();
+        }
+        rect
+    };
+
+    let mut closed = ChatPanelState::default();
+    let full = remaining(&mut closed);
+    assert!(full.width() > 1190.0, "panel tertutup tidak boleh memakan ruang: {full:?}");
+
+    let mut open = ChatPanelState {
+        open: true,
+        ..Default::default()
+    };
+    let rest = remaining(&mut open);
+    assert!(
+        rest.width() < full.width() - 250.0,
+        "sidebar terbuka harus menyempitkan area sisa: {rest:?}"
+    );
+    assert!(rest.min.x < 1.0, "sidebar harus di kanan, bukan kiri: {rest:?}");
 }

@@ -9,6 +9,7 @@ use crate::theme::{
 };
 use ducad_i18n::t;
 use egui::{Color32, RichText, ScrollArea, Sense, Ui, Vec2};
+use egui_icons::icons::ICON_CLOSE;
 
 /// Status satu baris.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +69,7 @@ impl ChecksPanel {
                 ui.label(RichText::new(format!("✓ {pass}  ✗ {not_pass}")).color(TEXT_SECONDARY));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .small_button("✕")
+                        .small_button(ICON_CLOSE.codepoint)
                         .on_hover_text(t!("checks-close"))
                         .clicked()
                     {

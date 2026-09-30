@@ -4,6 +4,7 @@
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 use ducad_i18n::t;
 use egui::{Align2, Color32, RichText, Vec2};
+use egui_icons::icons::ICON_CLOSE;
 
 #[derive(Debug, Clone, Default)]
 pub struct ErrorCardState {
@@ -39,7 +40,7 @@ impl ErrorCard {
                         ui.label(RichText::new("⚠").color(Color32::from_rgb(255, 159, 10)));
                         ui.label(RichText::new(&state.title).strong().color(TEXT_PRIMARY));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("✕").on_hover_text(t!("error-card-close")).clicked() {
+                            if ui.small_button(ICON_CLOSE.codepoint).on_hover_text(t!("error-card-close")).clicked() {
                                 event = Some(ErrorCardEvent::Close);
                             }
                         });

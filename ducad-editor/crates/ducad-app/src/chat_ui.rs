@@ -379,6 +379,15 @@ impl DuCADApp {
         self.sync_ai_privacy();
     }
 
+    /// Buka/tutup sidebar chat AI (ikon header, ⌘⇧A).
+    pub fn toggle_chat(&mut self) {
+        if self.chat.panel.open {
+            self.chat.panel.open = false;
+        } else {
+            self.open_chat();
+        }
+    }
+
     /// Samakan kebijakan privasi aplikasi dengan pengaturan chat.
     pub(crate) fn sync_ai_privacy(&mut self) {
         self.bridge.force_propose = self.chat.settings.confirm_writes;
@@ -551,10 +560,13 @@ impl DuCADApp {
         self.chat.panel.settings_open = false;
     }
 
-    /// Terima kejadian latar lalu render panel.
-    pub fn chat_frame(&mut self, ctx: &egui::Context) {
+    /// Terima kejadian latar lalu render sidebar di sisi kanan `ui`.
+    /// Harus dipanggil sebelum `CentralPanel` agar viewport menyempit.
+    pub fn chat_frame(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         self.chat_poll(ctx);
-        let Some(event) = ChatPanel::show(ctx, &mut self.chat.panel) else {
+        let Some(event) = ChatPanel::show(ui, &mut self.chat.panel) else {
             return;
         };
         match event {

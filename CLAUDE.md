@@ -55,7 +55,7 @@ menautkan pustaka MNEMONIC headless (`default-features = false`) sehingga
 yang tidak bisa menjalankan server MCP. Mati secara default. Vault bawaan:
 `$HOME/DUCAD-Memory` (iOS: Documents/DUCAD-Memory).
 
-**Chat AI (P13).** Panel "Chat AI" (⌘⇧A / tombol ✨ AI) menjalankan
+**Chat AI (P13).** Sidebar kanan "Chat AI" (⌘⇧A / ikon ✦ di header sebelah ⚙) menjalankan
 `ducad_chat::run_turn` di thread latar; setiap tool dikirim ke kanal
 in-process jembatan agent (`agent_bridge.rs`), jadi tool dan pagarnya
 identik dengan `--attach`. Privasi bawaan "hanya di perangkat": provider

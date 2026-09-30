@@ -1557,11 +1557,7 @@ impl eframe::App for DuCADApp {
         }
         // Chat AI (P13.3).
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::A)) {
-            if self.chat.panel.open {
-                self.chat.panel.open = false;
-            } else {
-                self.open_chat();
-            }
+            self.toggle_chat();
         }
         let mode_sketch_pressed = ctx.input(|i| {
             i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num2)
@@ -1638,13 +1634,17 @@ impl eframe::App for DuCADApp {
             self.zebra_config.enabled = !self.zebra_config.enabled;
         }
 
+        // Sidebar Chat AI di kanan: dirender sebelum CentralPanel supaya
+        // viewport menyempit (bukan tertimpa), lalu seluruh chrome mengambang
+        // (top bar, drawer) memakai sisa area di kirinya.
+        self.chat_frame(ui);
+        let screen_rect = ui.available_rect_before_wrap();
+
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 self.viewport(ui);
             });
-
-        let screen_rect = ctx.content_rect();
 
         // Mate HUD harus di-render di luar CentralPanel agar tidak terblokir oleh
         // Sense::click_and_drag yang dialokasikan oleh viewport(). Ini memastikan
@@ -1712,6 +1712,7 @@ impl eframe::App for DuCADApp {
             is_ipad,
             checks_summary,
             checks_panel_open: self.checks.panel_open,
+            chat_open: self.chat.panel.open,
             bridge_clients: self.bridge.enabled.then(|| self.bridge.client_count()),
             ai_on_device: (!crate::assist_ui::backend_name().is_empty()).then_some(
                 self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly,
@@ -1851,7 +1852,7 @@ impl eframe::App for DuCADApp {
                                 self.checks.panel_open = !self.checks.panel_open;
                             }
                             TopBarEvent::OpenAssist => self.open_assist_dialog(),
-                            TopBarEvent::OpenChat => self.open_chat(),
+                            TopBarEvent::ToggleChat => self.toggle_chat(),
                         }
                     }
                 });
@@ -4160,7 +4161,6 @@ impl eframe::App for DuCADApp {
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
-        self.chat_frame(&ctx);
         self.proposal_frame(&ctx);
         self.freehand_tick();
     }

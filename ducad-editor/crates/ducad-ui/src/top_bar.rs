@@ -17,7 +17,7 @@ use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
 use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
+    ICON_AUTO_AWESOME, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
     ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PERSON,
     ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN,
     ICON_TEXTURE, ICON_UPLOAD,
@@ -79,8 +79,8 @@ pub enum TopBarEvent {
     ToggleChecksPanel,
     /// Buka dialog "Tanya AI…".
     OpenAssist,
-    /// Buka panel Chat AI (P13.3).
-    OpenChat,
+    /// Buka/tutup sidebar Chat AI (P13.3).
+    ToggleChat,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -130,6 +130,8 @@ pub struct TopBarState {
     /// Jumlah klien jembatan agent (P5.1); `None` = jembatan mati.
     pub bridge_clients: Option<usize>,
     pub checks_panel_open: bool,
+    /// Sidebar Chat AI sedang terbuka (ikon header disorot).
+    pub chat_open: bool,
 }
 
 pub struct TopBar;
@@ -553,15 +555,6 @@ impl TopBar {
                         .on_hover_text(t!("bridge-on"));
                     }
 
-                    // 8c. Tombol Chat AI (P13.3) — selalu ada.
-                    if ui
-                        .add(egui::Button::new(RichText::new("✨ AI").size(12.0).color(crate::theme::ACCENT_BLUE)))
-                        .on_hover_text(t!("chat-open"))
-                        .clicked()
-                    {
-                        event = Some(TopBarEvent::OpenChat);
-                    }
-
                     // 8b. Chip status AI (P11.4).
                     if let Some(on_device) = state.ai_on_device {
                         let (label, color) = if on_device {
@@ -843,6 +836,26 @@ impl TopBar {
 
                     ui.add_space(item_gap);
 
+                    // Sebelah kiri Settings: Chat AI (P13.3) — buka/tutup sidebar kanan.
+                    let chat_title = t!("chat-title");
+                    let chat_sub = t!("chat-open");
+                    let chat_btn = header_icon_btn(
+                        ui,
+                        ICON_AUTO_AWESOME.codepoint,
+                        icon_sz,
+                        state.chat_open,
+                        &chat_title,
+                        Some("⌘⇧A"),
+                        Some(&chat_sub),
+                        None,
+                        None,
+                    );
+                    if chat_btn.clicked() {
+                        event = Some(TopBarEvent::ToggleChat);
+                    }
+
+                    ui.add_space(item_gap);
+
                     // Tombol Quick Toggle Touch Design Mode (Apple Pencil vs Sentuhan Jari)
                     let touch_bg = if state.touch_config.mode == TouchDesignMode::PencilOnly {
                         Some(Color32::from_rgba_premultiplied(18, 42, 85, 120))
@@ -1098,6 +1111,7 @@ mod tests {
             ai_on_device: None,
             bridge_clients: None,
             checks_panel_open: false,
+            chat_open: false,
         }
     }
 

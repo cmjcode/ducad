@@ -2,9 +2,13 @@
 //! DUCAD lewat tool yang sama dengan server MCP. Widget murni — state dan
 //! logika ada di `ducad-app/src/chat_ui.rs`.
 
-use crate::theme::{glass_frame, ACCENT_BLUE, ACCENT_GREEN, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{
+    glass_frame, ACCENT_BLUE, ACCENT_GREEN, BG_CARD_DARK, BG_HOVER_DARK, BORDER_SUBTLE,
+    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+};
 use ducad_i18n::t;
 use egui::{Color32, RichText};
+use egui_icons::icons::ICON_CLOSE;
 
 /// Warna error (sama dengan ringkasan checks gagal di top bar).
 const ERROR_RED: Color32 = Color32::from_rgb(255, 69, 58);
@@ -217,71 +221,8 @@ fn item_ui(ui: &mut egui::Ui, item: &ChatItem) {
             });
         }
         ChatRole::Assistant => markdown_lite(ui, &item.text, TEXT_PRIMARY),
-        ChatRole::Tool => {
-            let (icon, color) = match item.ok {
-                None => ("⏳", TEXT_SECONDARY),
-                Some(true) => ("✔", ACCENT_GREEN),
-                Some(false) => ("✖", ERROR_RED),
-            };
-            egui::Frame::new()
-                .stroke(egui::Stroke::new(1.0, TEXT_SECONDARY.gamma_multiply(0.4)))
-                .corner_radius(6.0)
-                .inner_margin(egui::Margin::symmetric(6, 4))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        if item.ok.is_none() {
-                            ui.spinner();
-                        } else {
-                            ui.label(RichText::new(icon).color(color));
-                        }
-                        ui.label(
-                            RichText::new(&item.tool)
-                                .monospace()
-                                .size(11.0)
-                                .color(TEXT_PRIMARY),
-                        );
-                    });
-                    if !item.detail.is_empty() {
-                        egui::CollapsingHeader::new(
-                            RichText::new(t!("chat-tool-args"))
-                                .size(10.0)
-                                .color(TEXT_SECONDARY),
-                        )
-                        .id_salt((
-                            "chat-args",
-                            item.tool.as_str(),
-                            item.detail.len(),
-                            item.text.len(),
-                        ))
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(&item.detail)
-                                        .monospace()
-                                        .size(10.0)
-                                        .color(TEXT_SECONDARY),
-                                )
-                                .wrap()
-                                .selectable(true),
-                            );
-                        });
-                    }
-                    if !item.text.is_empty() {
-                        ui.add(
-                            egui::Label::new(RichText::new(&item.text).size(10.0).color(color))
-                                .wrap()
-                                .selectable(true),
-                        );
-                    }
-                    if let Some(tex) = &item.image {
-                        let w = ui.available_width().min(320.0);
-                        let size = tex.size_vec2();
-                        let h = if size.x > 0.0 { w * size.y / size.x } else { w };
-                        ui.image((tex.id(), egui::vec2(w, h)));
-                    }
-                });
-        }
+        // Kartu tool digambar per kelompok berurutan di `tool_group_ui`.
+        ChatRole::Tool => tool_group_ui(ui, std::slice::from_ref(item), usize::MAX),
         ChatRole::Notice => {
             ui.add(
                 egui::Label::new(
@@ -299,6 +240,283 @@ fn item_ui(ui: &mut egui::Ui, item: &ChatItem) {
                     .wrap()
                     .selectable(true),
             );
+        }
+    }
+}
+
+/// Latar blok kode di detail tool.
+const CODE_BG: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 90);
+
+/// Nama tool yang enak dibaca: `mcp__ducad__run_ops` → "Run ops".
+fn tool_title(name: &str) -> String {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    let spaced = base.replace(['_', '-'], " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => name.to_string(),
+    }
+}
+
+/// Persingkat path panjang menjadi dua komponen terakhir.
+fn short_path(s: &str) -> String {
+    let parts: Vec<&str> = s.trim_end_matches('/').rsplit('/').take(3).collect();
+    if parts.len() < 3 {
+        return s.to_string();
+    }
+    format!("…/{}/{}", parts[1], parts[0])
+}
+
+/// Ringkasan satu baris dari argumen tool (perintah, path, jumlah op, …).
+fn tool_summary(detail: &str) -> String {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(detail)
+    else {
+        return detail.lines().next().unwrap_or("").to_string();
+    };
+    const COMMAND_KEYS: [&str; 3] = ["command", "CommandLine", "cmd"];
+    const PATH_KEYS: [&str; 6] = [
+        "file_path",
+        "path",
+        "AbsolutePath",
+        "TargetFile",
+        "DirectoryPath",
+        "SearchPath",
+    ];
+    const OTHER_KEYS: [&str; 8] = [
+        "url", "Url", "query", "Query", "pattern", "Pattern", "name", "part",
+    ];
+    let first_line = |v: &serde_json::Value| {
+        v.as_str()
+            .map(|s| s.lines().next().unwrap_or("").trim().to_string())
+    };
+    for k in COMMAND_KEYS {
+        if let Some(s) = map.get(k).and_then(first_line) {
+            return format!("$ {s}");
+        }
+    }
+    for k in PATH_KEYS {
+        if let Some(s) = map.get(k).and_then(first_line) {
+            return short_path(&s);
+        }
+    }
+    for k in OTHER_KEYS {
+        if let Some(s) = map.get(k).and_then(first_line) {
+            return s;
+        }
+    }
+    if let Some(ops) = map.get("ops").and_then(|v| v.as_array()) {
+        return format!("{} op", ops.len());
+    }
+    map.values().find_map(first_line).unwrap_or_default()
+}
+
+/// JSON argumen yang dirapikan; teks mentah bila tidak valid (mis. terpotong).
+fn pretty_json(detail: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(detail)
+        .ok()
+        .and_then(|v| serde_json::to_string_pretty(&v).ok())
+        .unwrap_or_else(|| detail.to_string())
+}
+
+/// Blok kode monospace yang bisa diseleksi, digulir bila panjang.
+fn code_block(ui: &mut egui::Ui, id: egui::Id, text: &str, color: Color32) {
+    egui::Frame::new()
+        .fill(CODE_BG)
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::ScrollArea::vertical()
+                .id_salt(id)
+                .max_height(180.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(RichText::new(text).monospace().size(10.5).color(color))
+                            .wrap()
+                            .selectable(true),
+                    );
+                });
+        });
+}
+
+/// Judul kecil bagian detail ("INPUT", "HASIL").
+fn section_label(ui: &mut egui::Ui, text: String) {
+    ui.label(
+        RichText::new(text.to_uppercase())
+            .size(9.5)
+            .strong()
+            .color(TEXT_MUTED),
+    );
+}
+
+/// Satu kelompok panggilan tool berurutan dalam satu kartu.
+/// `first_idx` = indeks item pertama di transkrip (untuk id widget unik).
+fn tool_group_ui(ui: &mut egui::Ui, items: &[ChatItem], first_idx: usize) {
+    egui::Frame::new()
+        .fill(BG_CARD_DARK)
+        .stroke(egui::Stroke::new(1.0, BORDER_SUBTLE))
+        .corner_radius(8.0)
+        .inner_margin(egui::Margin::symmetric(4, 4))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    let y = ui.cursor().top();
+                    let x = ui.max_rect().x_range();
+                    ui.painter().hline(
+                        (x.min + 6.0)..=(x.max - 6.0),
+                        y,
+                        egui::Stroke::new(1.0, BORDER_SUBTLE),
+                    );
+                }
+                tool_row_ui(ui, item, first_idx.saturating_add(i));
+            }
+        });
+}
+
+/// Satu baris tool: status · nama · ringkasan argumen; klik untuk detail.
+fn tool_row_ui(ui: &mut egui::Ui, item: &ChatItem, idx: usize) {
+    let id = ui.make_persistent_id(("chat-tool", idx));
+    let has_body = !item.detail.is_empty() || !item.text.is_empty() || item.image.is_some();
+    let mut open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let failed = item.ok == Some(false);
+
+    // Latar hover disisipkan di bawah isi baris setelah ukurannya diketahui.
+    let bg = ui.painter().add(egui::Shape::Noop);
+    let header = egui::Frame::new()
+        .inner_margin(egui::Margin::symmetric(6, 5))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                match item.ok {
+                    None => {
+                        ui.add(egui::Spinner::new().size(11.0));
+                    }
+                    Some(true) => {
+                        ui.label(RichText::new("✓").size(11.0).color(ACCENT_GREEN));
+                    }
+                    Some(false) => {
+                        ui.label(RichText::new(ICON_CLOSE.codepoint).size(11.0).color(ERROR_RED));
+                    }
+                }
+                ui.label(
+                    RichText::new(tool_title(&item.tool))
+                        .size(12.0)
+                        .strong()
+                        .color(TEXT_PRIMARY),
+                );
+                let summary = if item.ok.is_none() && item.detail.is_empty() {
+                    t!("chat-tool-running")
+                } else {
+                    tool_summary(&item.detail)
+                };
+                let chevron_w = if has_body { 14.0 } else { 0.0 };
+                ui.scope(|ui| {
+                    ui.set_max_width((ui.available_width() - chevron_w).max(0.0));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(summary)
+                                .monospace()
+                                .size(10.5)
+                                .color(TEXT_SECONDARY),
+                        )
+                        .truncate()
+                        .selectable(false),
+                    );
+                });
+                if has_body {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(if open { "⏷" } else { "⏵" })
+                                .size(10.0)
+                                .color(TEXT_MUTED),
+                        );
+                    });
+                }
+            });
+        })
+        .response;
+    let resp = ui.interact(header.rect, id.with("hdr"), egui::Sense::click());
+    if has_body && resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(id, open));
+    }
+    if has_body {
+        resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    }
+    if ui.rect_contains_pointer(header.rect) && has_body {
+        ui.painter().set(
+            bg,
+            egui::Shape::rect_filled(header.rect, 6.0, BG_HOVER_DARK),
+        );
+    }
+
+    // Galat tetap terlihat meski baris tertutup.
+    if failed && !open && !item.text.is_empty() {
+        egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: 23,
+                right: 6,
+                top: 0,
+                bottom: 5,
+            })
+            .show(ui, |ui| {
+                ui.add(
+                    egui::Label::new(RichText::new(&item.text).size(10.5).color(ERROR_RED))
+                        .wrap()
+                        .selectable(true),
+                );
+            });
+    }
+
+    if open && has_body {
+        egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: 23,
+                right: 6,
+                top: 0,
+                bottom: 8,
+            })
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                if !item.detail.is_empty() {
+                    section_label(ui, t!("chat-tool-input"));
+                    code_block(ui, id.with("in"), &pretty_json(&item.detail), TEXT_PRIMARY);
+                }
+                if !item.text.is_empty() {
+                    ui.add_space(2.0);
+                    section_label(ui, t!("chat-tool-output"));
+                    let color = if failed { ERROR_RED } else { TEXT_SECONDARY };
+                    code_block(ui, id.with("out"), &item.text, color);
+                }
+                if let Some(tex) = &item.image {
+                    ui.add_space(2.0);
+                    let w = ui.available_width().min(320.0);
+                    let size = tex.size_vec2();
+                    let h = if size.x > 0.0 { w * size.y / size.x } else { w };
+                    ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))).corner_radius(6.0));
+                }
+            });
+    }
+    // Gambar hasil (render_view) tetap tampil sebagai pratinjau saat tertutup.
+    if !open {
+        if let Some(tex) = &item.image {
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: 23,
+                    right: 6,
+                    top: 0,
+                    bottom: 6,
+                })
+                .show(ui, |ui| {
+                    let w = ui.available_width().min(320.0);
+                    let size = tex.size_vec2();
+                    let h = if size.x > 0.0 { w * size.y / size.x } else { w };
+                    ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))).corner_radius(6.0));
+                });
         }
     }
 }
@@ -504,23 +722,39 @@ fn api_settings_ui(
 }
 
 impl ChatPanel {
-    pub fn show(ctx: &egui::Context, state: &mut ChatPanelState) -> Option<ChatPanelEvent> {
-        if !state.open {
-            return None;
-        }
+    /// Render sidebar chat di sisi kanan `ui` (dipanggil sebelum
+    /// `CentralPanel` supaya viewport menyempit, bukan tertimpa).
+    pub fn show(ui: &mut egui::Ui, state: &mut ChatPanelState) -> Option<ChatPanelEvent> {
         let mut event = None;
-        let mut open = true;
-        let now = ctx.input(|i| i.time);
-        let screen = ctx.content_rect();
-        egui::Window::new(t!("chat-title"))
-            .id(egui::Id::new("ducad-chat-panel"))
-            .open(&mut open)
-            .collapsible(true)
+        let now = ui.input(|i| i.time);
+        let avail_w = ui.available_width();
+        let max_w = (avail_w * 0.6).max(SIDEBAR_MIN_W);
+        let default_w = SIDEBAR_DEFAULT_W.min(avail_w * 0.35).max(SIDEBAR_MIN_W);
+        egui::Panel::right(egui::Id::new("ducad-chat-sidebar"))
             .resizable(true)
-            .default_size([380.0, (screen.height() * 0.7).max(360.0)])
-            .default_pos([screen.right() - 400.0, 70.0])
-            .frame(glass_frame())
-            .show(ctx, |ui| {
+            .drag_to_open(false)
+            .default_size(default_w)
+            .size_range(SIDEBAR_MIN_W..=max_w)
+            .frame(sidebar_frame())
+            .show_collapsible(ui, &mut state.open, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(t!("chat-title"))
+                            .strong()
+                            .size(13.0)
+                            .color(TEXT_PRIMARY),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button(ICON_CLOSE.codepoint)
+                            .on_hover_text(t!("chat-close"))
+                            .clicked()
+                        {
+                            event = Some(ChatPanelEvent::Close);
+                        }
+                    });
+                });
+                ui.separator();
                 ui.horizontal(|ui| {
                     if state.targets.len() > 1 && !state.busy {
                         let before = state.target_idx;
@@ -632,9 +866,20 @@ impl ChatPanel {
                     if state.items.is_empty() {
                         ui.label(RichText::new(t!("chat-empty")).color(TEXT_SECONDARY));
                     }
-                    for item in &state.items {
-                        item_ui(ui, item);
-                        ui.add_space(4.0);
+                    // Panggilan tool berurutan disatukan dalam satu kartu.
+                    let mut i = 0;
+                    while i < state.items.len() {
+                        if state.items[i].role == ChatRole::Tool {
+                            let start = i;
+                            while i < state.items.len() && state.items[i].role == ChatRole::Tool {
+                                i += 1;
+                            }
+                            tool_group_ui(ui, &state.items[start..i], start);
+                        } else {
+                            item_ui(ui, &state.items[i]);
+                            i += 1;
+                        }
+                        ui.add_space(6.0);
                     }
                     if follow {
                         ui.scroll_to_cursor_animation(
@@ -692,9 +937,43 @@ impl ChatPanel {
                     }
                 });
             });
-        if !open {
-            event = Some(ChatPanelEvent::Close);
-        }
         event
+    }
+}
+
+/// Lebar sidebar chat (px).
+const SIDEBAR_MIN_W: f32 = 280.0;
+const SIDEBAR_DEFAULT_W: f32 = 360.0;
+
+/// Frame sidebar: menempel ke tepi kanan, tanpa sudut membulat/bayangan.
+fn sidebar_frame() -> egui::Frame {
+    egui::Frame {
+        inner_margin: egui::Margin::symmetric(10, 8),
+        corner_radius: egui::CornerRadius::ZERO,
+        shadow: egui::Shadow::NONE,
+        ..glass_frame()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_title_is_humanized() {
+        assert_eq!(tool_title("run_command"), "Run command");
+        assert_eq!(tool_title("mcp__ducad__run_ops"), "Run ops");
+        assert_eq!(tool_title(""), "");
+    }
+
+    #[test]
+    fn tool_summary_picks_key_argument() {
+        assert_eq!(tool_summary(r#"{"CommandLine":"ls -la\nx"}"#), "$ ls -la");
+        assert_eq!(
+            tool_summary(r#"{"AbsolutePath":"/Users/a/proj/src/main.rs"}"#),
+            "…/src/main.rs"
+        );
+        assert_eq!(tool_summary(r#"{"ops":[{},{}]}"#), "2 op");
+        assert_eq!(tool_summary(r#"{"ops":"#), r#"{"ops":"#);
     }
 }

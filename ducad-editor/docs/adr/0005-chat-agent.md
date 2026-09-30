@@ -84,6 +84,12 @@ mengubah part lewat percakapan, dan cakupan operasi yang setara dengan GUI.
 - **Privasi tidak pernah bisa diubah** sebelum ini: `AiPrivacy` tidak punya
   UI, sehingga Agent Bridge selalu terblokir. Sakelar kini ada di ⚙ panel
   Chat AI dan tersimpan.
+- **Chat sebagai sidebar kanan**, bukan jendela mengambang: `ChatPanel::show`
+  memakai `egui::Panel::right(..).show_collapsible` dan dipanggil sebelum
+  `CentralPanel`, sehingga viewport menyempit dan top bar/drawer kanan
+  memakai sisa area (`ui.available_rect_before_wrap()`). Pembukanya ikon ✦
+  di header kanan sebelah ⚙ (`TopBarEvent::ToggleChat`); tes
+  `sidebar_docks_right_and_shrinks_remaining_area` menjaganya.
 
 ## Yang belum dikerjakan (jujur)
 

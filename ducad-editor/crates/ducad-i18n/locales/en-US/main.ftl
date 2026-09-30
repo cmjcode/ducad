@@ -1244,6 +1244,7 @@ proposal-timeout = Agent proposal timed out
 
 ## AI chat (P13)
 chat-title = AI Chat
+chat-close = Close chat panel
 chat-open = AI Chat (agent that controls DUCAD)
 chat-hint = E.g. "make an L bracket 60×40×5 with 2 M5 holes" — Enter to send, Shift+Enter for a new line
 chat-send = Send
@@ -1268,7 +1269,9 @@ chat-save = Save
 chat-saved = AI settings saved.
 chat-blocked-privacy = "On-device only" privacy is on: provider { $host } is on the network. Enable "Allow external AI" in ⚙ or use a local Ollama.
 chat-cancelled = Cancelled.
-chat-tool-args = arguments
+chat-tool-input = Input
+chat-tool-output = Output
+chat-tool-running = running…
 chat-usage = tokens: { $input } in · { $output } out · { $cached } cached
 chat-activity = AI Chat
 chat-backend = Backend

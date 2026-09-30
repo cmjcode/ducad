@@ -1876,6 +1876,7 @@ dependencies = [
  "egui_icons",
  "glam",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

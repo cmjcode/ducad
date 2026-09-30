@@ -1244,6 +1244,7 @@ proposal-timeout = Usulan agent kedaluwarsa
 
 ## Chat AI (P13)
 chat-title = Chat AI
+chat-close = Tutup panel chat
 chat-open = Chat AI (agent yang mengendalikan DUCAD)
 chat-hint = Mis. "buat bracket L 60×40×5 dengan 2 lubang M5" — Enter untuk kirim, Shift+Enter baris baru
 chat-send = Kirim
@@ -1268,7 +1269,9 @@ chat-save = Simpan
 chat-saved = Pengaturan AI disimpan.
 chat-blocked-privacy = Privasi "Hanya di perangkat" aktif: provider { $host } ada di jaringan. Aktifkan "Izinkan AI eksternal" di ⚙ atau pakai Ollama lokal.
 chat-cancelled = Dibatalkan.
-chat-tool-args = argumen
+chat-tool-input = Input
+chat-tool-output = Hasil
+chat-tool-running = berjalan…
 chat-usage = token: { $input } masuk · { $output } keluar · { $cached } cache
 chat-activity = Chat AI
 chat-backend = Backend
