@@ -9,6 +9,7 @@ use resvg::usvg::{Options, Tree};
 pub mod agent_bridge;
 pub mod app;
 pub mod assist_ui;
+pub mod chat_cli;
 pub mod chat_history;
 pub mod chat_ui;
 pub mod checks_ui;

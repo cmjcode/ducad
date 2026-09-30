@@ -46,6 +46,31 @@ mengubah part lewat percakapan, dan cakupan operasi yang setara dengan GUI.
    dan prompts, serta tool live `document_info`, `get_view`, `set_view`,
    `get_selection`, `select`, `screenshot`.
 
+## Tambahan: CLI agent sebagai backend (P13.5)
+
+8. **CLI coding agent lokal** (Antigravity `agy`, Claude Code `claude`,
+   Gemini CLI `gemini`, atau perintah kustom) bisa dipilih sebagai backend
+   chat, pola harness TABULAR (`agent/harness.rs`). Agent berjalan dalam
+   mode print + `stream-json` di `~/.ducad/agent-workspace` (folder kosong)
+   dan memakai `ducad-mcp --attach` yang tersambung ke soket jembatan, jadi
+   tool, undo, dan kartu proposal sama dengan chat API.
+   - Claude Code: `--mcp-config` per giliran + `--strict-mcp-config` +
+     `--allowedTools mcp__ducad` (tool bawaan lain ditolak), sesi lanjut
+     dengan `--resume`.
+   - agy: `--dangerously-skip-permissions`, sesi lanjut `--conversation`,
+     server MCP didaftarkan global (`agy mcp add ducad -- ducad-mcp --attach`).
+   - Gemini: `--approval-mode yolo` + `--allowed-mcp-server-names ducad`,
+     `GEMINI_CLI_TRUST_WORKSPACE=true` (mode headless menolak folder yang
+     belum dipercaya), tanpa resume: riwayat teks disisipkan di prompt.
+   - Butuh "Izinkan AI eksternal": CLI mengirim desain ke provider modelnya.
+   - "Selalu minta persetujuan" kini dipaksa di jembatan (`force_propose`),
+     jadi berlaku untuk CLI agent dan agent eksternal mana pun.
+   Diverifikasi dengan Claude Code sungguhan (haiku): `new_part` →
+   `run_ops` → `inspect` → jawaban 6000 mm³; rekamannya menjadi fixture
+   `ducad-chat/tests/fixtures/claude_code_stream.ndjson`. agy menjawab
+   prompt uji. Gemini di mesin pengembang belum login (401), sehingga
+   jalur tool Gemini belum teruji langsung.
+
 ## Temuan saat implementasi
 
 - **Bug helix di kernel**: spine dari rangkaian segmen garis membuat

@@ -58,7 +58,8 @@ pub use canvas_hud::{
     StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
 };
 pub use chat_panel::{
-    ChatItem, ChatPanel, ChatPanelEvent, ChatPanelState, ChatProviderForm, ChatRole,
+    ChatItem, ChatPanel, ChatPanelEvent, ChatPanelState, ChatProviderForm, ChatRole, CliFormProfile,
+    CliMeta,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};

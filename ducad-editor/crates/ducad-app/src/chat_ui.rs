@@ -50,6 +50,12 @@ pub struct ChatState {
     /// id panggilan tool → indeks item kartunya.
     tool_items: HashMap<String, usize>,
     usage: Usage,
+    /// Giliran CLI agent yang berjalan (P13.5).
+    pub(crate) cli_run: Option<crate::chat_cli::CliRun>,
+    /// Id sesi CLI per jenis agent, untuk melanjutkan percakapan.
+    pub(crate) cli_sessions: HashMap<String, String>,
+    /// Hasil tugas latar Deteksi/Daftarkan/Uji.
+    pub(crate) cli_bg: Option<Receiver<String>>,
 }
 
 /// Eksekutor tool: kirim ke UI thread lewat jembatan, tunggu balasan.
@@ -147,7 +153,7 @@ fn preset_index(p: &ProviderConfig) -> usize {
     }
 }
 
-fn strip_context(text: &str) -> &str {
+pub(crate) fn strip_context(text: &str) -> &str {
     match text.strip_prefix(CONTEXT_PREFIX) {
         Some(rest) => rest.split_once('\n').map(|(_, t)| t).unwrap_or(rest),
         None => text,
@@ -218,8 +224,49 @@ impl ChatState {
             key_saved: secrets::has_stored(p),
             confirm_writes: self.settings.confirm_writes,
             allow_external: self.settings.allow_external,
+            ..Default::default()
         };
         self.panel.provider_label = p.label();
+        self.fill_cli_form();
+    }
+
+    /// Tes: pengaturan bawaan tanpa membaca berkas/DB pengguna.
+    #[cfg(test)]
+    pub(crate) fn loaded_for_test(&mut self) {
+        self.loaded = true;
+        self.history = Some(ChatHistory::in_memory());
+        self.settings = ChatSettings::default();
+        self.form_from_settings();
+    }
+
+    pub(crate) fn conv(&self) -> &[ConvMessage] {
+        &self.conv
+    }
+
+    pub(crate) fn push_conv(&mut self, m: ConvMessage) {
+        self.conv.push(m);
+    }
+
+    pub(crate) fn push_item(&mut self, item: ChatItem) {
+        self.push(item);
+    }
+
+    pub(crate) fn apply_chat_event(&mut self, ctx: &egui::Context, e: ChatEvent) {
+        self.apply_event(ctx, e);
+    }
+
+    /// Ada giliran (API atau CLI) yang sedang berjalan.
+    pub(crate) fn is_running(&self) -> bool {
+        self.rx.is_some() || self.cli_run.is_some()
+    }
+
+    pub(crate) fn begin_turn(&mut self) {
+        self.streaming = None;
+    }
+
+    pub(crate) fn end_turn(&mut self) {
+        self.streaming = None;
+        self.save_history();
     }
 
     fn history(&mut self) -> &ChatHistory {
@@ -334,6 +381,7 @@ impl DuCADApp {
 
     /// Samakan kebijakan privasi aplikasi dengan pengaturan chat.
     pub(crate) fn sync_ai_privacy(&mut self) {
+        self.bridge.force_propose = self.chat.settings.confirm_writes;
         self.ai.privacy = if self.chat.settings.allow_external {
             crate::assist_ui::AiPrivacy::AllowExternal
         } else {
@@ -342,7 +390,7 @@ impl DuCADApp {
     }
 
     /// Ringkasan dokumen yang disisipkan di depan pesan user.
-    fn chat_context(&self) -> String {
+    pub(crate) fn chat_context(&self) -> String {
         let file = self
             .current_file_path
             .as_ref()
@@ -370,6 +418,10 @@ impl DuCADApp {
 
     /// Kirim isi kotak input dengan model dari pengaturan.
     fn chat_send(&mut self, ctx: &egui::Context) {
+        if self.chat.settings.backend == ducad_chat::ChatBackend::Cli {
+            self.chat_send_cli(ctx);
+            return;
+        }
         let mut cfg = self.chat.settings.provider.clone();
         if !cfg.is_local() && !self.chat.settings.allow_external {
             let host = cfg.host().to_string();
@@ -387,7 +439,7 @@ impl DuCADApp {
     /// model terskrip).
     pub(crate) fn chat_start(&mut self, ctx: &egui::Context, mut model: Box<dyn ChatModel>) {
         let text = self.chat.panel.input.trim().to_string();
-        if text.is_empty() || self.chat.rx.is_some() {
+        if text.is_empty() || self.chat.is_running() {
             return;
         }
         self.chat.panel.input.clear();
@@ -439,6 +491,7 @@ impl DuCADApp {
 
     /// Terima kejadian dari thread chat (dipanggil tiap frame).
     pub(crate) fn chat_poll(&mut self, ctx: &egui::Context) {
+        self.chat_poll_cli(ctx);
         let Some(rx) = self.chat.rx.take() else {
             return;
         };
@@ -478,6 +531,8 @@ impl DuCADApp {
         self.chat.settings.provider = p;
         self.chat.settings.confirm_writes = f.confirm_writes;
         self.chat.settings.allow_external = f.allow_external;
+        self.chat.apply_cli_form();
+        self.bridge.force_propose = f.confirm_writes;
         match self.chat.settings.save(&ChatSettings::default_path()) {
             Ok(()) => self.chat.push(ChatItem::text(
                 ChatRole::Notice,
@@ -508,12 +563,14 @@ impl DuCADApp {
                 if let Some(c) = &self.chat.cancel {
                     c.store(true, Ordering::Relaxed);
                 }
+                self.chat_stop_cli();
             }
             ChatPanelEvent::NewChat => {
                 self.chat.conv.clear();
                 self.chat.panel.items.clear();
                 self.chat.tool_items.clear();
                 self.chat.session_id = None;
+                self.chat.cli_sessions.clear();
                 self.chat.usage = Usage::default();
                 self.chat.panel.usage_label.clear();
             }
@@ -535,6 +592,7 @@ impl DuCADApp {
                     self.chat.panel.items = items_from_conv(&conv);
                     self.chat.conv = conv;
                     self.chat.session_id = Some(id);
+                    self.chat.cli_sessions.clear();
                     self.chat.tool_items.clear();
                     self.chat.panel.history_open = false;
                     self.chat.panel.scroll_to_bottom = true;
@@ -548,6 +606,10 @@ impl DuCADApp {
                 self.chat.panel.sessions = self.chat.history().list();
             }
             ChatPanelEvent::Close => self.chat.panel.open = false,
+            ChatPanelEvent::TargetChanged(i) => self.chat_select_target(i),
+            ChatPanelEvent::CliDetect(i) => self.chat_cli_detect(i),
+            ChatPanelEvent::CliRegisterMcp(i) => self.chat_cli_background(i, true),
+            ChatPanelEvent::CliTest(i) => self.chat_cli_background(i, false),
         }
     }
 }

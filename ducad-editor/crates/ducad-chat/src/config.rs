@@ -129,6 +129,82 @@ pub struct ChatSettings {
     /// Agent Bridge.
     #[serde(default)]
     pub allow_external: bool,
+    /// Backend chat: API HTTP atau CLI agent lokal.
+    #[serde(default)]
+    pub backend: ChatBackend,
+    /// CLI agent yang dipakai bila `backend = cli`.
+    #[serde(default)]
+    pub cli_active: CliKindName,
+    /// Profil per CLI agent (urutan tampil = [`CLI_KINDS`]).
+    #[serde(default)]
+    pub cli_profiles: Vec<CliProfileData>,
+}
+
+/// Backend chat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatBackend {
+    #[default]
+    Api,
+    Cli,
+}
+
+/// Nama jenis CLI agent (independen dari modul `cli` supaya pengaturan tetap
+/// terbaca di iPadOS, tempat modul itu tidak dikompilasi).
+pub type CliKindName = String;
+
+/// Urutan jenis CLI agent.
+pub const CLI_KINDS: [&str; 4] = ["antigravity", "claude_code", "gemini_cli", "custom"];
+
+/// Profil CLI agent dalam bentuk data (lihat `cli::CliAgentProfile`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CliProfileData {
+    pub kind: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub bin: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
+    #[serde(default)]
+    pub extra_args: String,
+}
+
+impl ChatSettings {
+    /// Profil untuk `kind` (dibuat kosong bila belum ada).
+    pub fn cli_profile_mut(&mut self, kind: &str) -> &mut CliProfileData {
+        if let Some(i) = self.cli_profiles.iter().position(|p| p.kind == kind) {
+            return &mut self.cli_profiles[i];
+        }
+        self.cli_profiles.push(CliProfileData {
+            kind: kind.to_string(),
+            ..Default::default()
+        });
+        let n = self.cli_profiles.len() - 1;
+        &mut self.cli_profiles[n]
+    }
+
+    pub fn cli_profile(&self, kind: &str) -> CliProfileData {
+        self.cli_profiles
+            .iter()
+            .find(|p| p.kind == kind)
+            .cloned()
+            .unwrap_or(CliProfileData {
+                kind: kind.to_string(),
+                ..Default::default()
+            })
+    }
+
+    /// Jenis CLI aktif yang sah (bawaan `antigravity`).
+    pub fn active_cli(&self) -> &str {
+        CLI_KINDS
+            .iter()
+            .copied()
+            .find(|k| *k == self.cli_active)
+            .unwrap_or(CLI_KINDS[0])
+    }
 }
 
 fn default_rounds() -> usize {
@@ -142,6 +218,9 @@ impl Default for ChatSettings {
             confirm_writes: false,
             max_rounds: default_rounds(),
             allow_external: false,
+            backend: ChatBackend::Api,
+            cli_active: String::new(),
+            cli_profiles: Vec::new(),
         }
     }
 }

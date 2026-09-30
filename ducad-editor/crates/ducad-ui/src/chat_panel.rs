@@ -58,6 +58,35 @@ pub struct ChatProviderForm {
     pub key_saved: bool,
     pub confirm_writes: bool,
     pub allow_external: bool,
+    /// `true` = backend CLI agent.
+    pub use_cli: bool,
+    /// Tab CLI yang dibuka di pengaturan.
+    pub cli_tab: usize,
+    pub cli: Vec<CliFormProfile>,
+    pub cli_meta: Vec<CliMeta>,
+    /// Hasil Detect/Daftarkan MCP/Uji koneksi.
+    pub cli_status: String,
+    pub cli_busy: bool,
+}
+
+/// Isian satu profil CLI agent di formulir.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CliFormProfile {
+    pub enabled: bool,
+    pub bin: String,
+    pub model: String,
+    pub effort: String,
+    pub extra_args: String,
+}
+
+/// Info statis satu jenis CLI agent (diisi aplikasi).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CliMeta {
+    pub name: String,
+    pub presets: Vec<String>,
+    pub efforts: Vec<String>,
+    /// Placeholder argumen tambahan.
+    pub args_hint: String,
 }
 
 pub const PRESETS: [&str; 4] = [
@@ -86,6 +115,9 @@ pub struct ChatPanelState {
     pub clear_armed_until: Option<f64>,
     /// Gulir ke bawah pada frame berikutnya.
     pub scroll_to_bottom: bool,
+    /// Pilihan backend di kepala panel (label) dan indeks terpilih.
+    pub targets: Vec<String>,
+    pub target_idx: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +131,14 @@ pub enum ChatPanelEvent {
     LoadSession(i64),
     DeleteSession(i64),
     Close,
+    /// Pilih backend dari kepala panel (indeks `targets`).
+    TargetChanged(usize),
+    /// Cari binary CLI tab ini.
+    CliDetect(usize),
+    /// Daftarkan server MCP DUCAD di CLI tab ini.
+    CliRegisterMcp(usize),
+    /// Uji koneksi CLI tab ini.
+    CliTest(usize),
 }
 
 pub struct ChatPanel;
@@ -263,7 +303,167 @@ fn item_ui(ui: &mut egui::Ui, item: &ChatItem) {
     }
 }
 
+fn cli_settings_ui(
+    ui: &mut egui::Ui,
+    form: &mut ChatProviderForm,
+    event: &mut Option<ChatPanelEvent>,
+) {
+    ui.label(
+        RichText::new(t!("chat-cli-intro"))
+            .size(10.0)
+            .color(TEXT_SECONDARY),
+    );
+    ui.horizontal_wrapped(|ui| {
+        for (i, meta) in form.cli_meta.iter().enumerate() {
+            let on = form.cli.get(i).is_some_and(|c| c.enabled);
+            let label = if on {
+                format!("{} ●", meta.name)
+            } else {
+                meta.name.clone()
+            };
+            ui.selectable_value(&mut form.cli_tab, i, label);
+        }
+    });
+    let i = form.cli_tab.min(form.cli.len().saturating_sub(1));
+    let (Some(meta), Some(c)) = (form.cli_meta.get(i).cloned(), form.cli.get_mut(i)) else {
+        return;
+    };
+    ui.checkbox(&mut c.enabled, t!("chat-cli-enable"));
+    egui::Grid::new("chat-cli-grid")
+        .num_columns(2)
+        .spacing([8.0, 6.0])
+        .show(ui, |ui| {
+            ui.label(t!("chat-cli-command"));
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.bin)
+                        .hint_text(t!("chat-cli-command-hint"))
+                        .desired_width(170.0),
+                );
+                if ui.button(t!("chat-cli-detect")).clicked() {
+                    *event = Some(ChatPanelEvent::CliDetect(i));
+                }
+            });
+            ui.end_row();
+            ui.label(t!("chat-model"));
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut c.model)
+                        .hint_text(t!("chat-cli-model-default"))
+                        .desired_width(170.0),
+                );
+                if ui.button(t!("chat-cli-default")).clicked() {
+                    c.model.clear();
+                }
+            });
+            ui.end_row();
+        });
+    if !meta.presets.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(t!("chat-cli-quick-pick"))
+                    .size(10.0)
+                    .color(TEXT_SECONDARY),
+            );
+            for m in &meta.presets {
+                if ui
+                    .selectable_label(c.model == *m, RichText::new(m).size(11.0))
+                    .clicked()
+                {
+                    c.model = m.clone();
+                }
+            }
+        });
+    }
+    if !meta.efforts.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label(t!("chat-cli-effort"));
+            let shown = if c.effort.is_empty() {
+                t!("chat-cli-effort-default")
+            } else {
+                c.effort.clone()
+            };
+            egui::ComboBox::from_id_salt(("chat-cli-effort", i))
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut c.effort,
+                        String::new(),
+                        t!("chat-cli-effort-default"),
+                    );
+                    for e in &meta.efforts {
+                        ui.selectable_value(&mut c.effort, e.clone(), e.as_str());
+                    }
+                });
+        });
+    }
+    ui.horizontal(|ui| {
+        ui.label(t!("chat-cli-extra-args"));
+        ui.add(
+            egui::TextEdit::singleline(&mut c.extra_args)
+                .hint_text(meta.args_hint.as_str())
+                .desired_width(220.0),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.add_enabled_ui(!form.cli_busy, |ui| {
+            if ui
+                .button(t!("chat-cli-register"))
+                .on_hover_text(t!("chat-cli-register-hint"))
+                .clicked()
+            {
+                *event = Some(ChatPanelEvent::CliRegisterMcp(i));
+            }
+            if ui.button(t!("chat-cli-test")).clicked() {
+                *event = Some(ChatPanelEvent::CliTest(i));
+            }
+        });
+        if form.cli_busy {
+            ui.spinner();
+        }
+    });
+    if !form.cli_status.is_empty() {
+        ui.add(
+            egui::Label::new(
+                RichText::new(&form.cli_status)
+                    .size(10.0)
+                    .color(TEXT_SECONDARY),
+            )
+            .wrap()
+            .selectable(true),
+        );
+    }
+}
+
 fn settings_ui(ui: &mut egui::Ui, form: &mut ChatProviderForm, event: &mut Option<ChatPanelEvent>) {
+    ui.horizontal(|ui| {
+        ui.label(t!("chat-backend"));
+        ui.selectable_value(&mut form.use_cli, false, t!("chat-backend-api"));
+        ui.selectable_value(&mut form.use_cli, true, t!("chat-backend-cli"));
+    });
+    if form.use_cli {
+        cli_settings_ui(ui, form, event);
+    } else {
+        api_settings_ui(ui, form, event);
+    }
+    ui.separator();
+    ui.checkbox(&mut form.confirm_writes, t!("chat-confirm-writes"));
+    ui.checkbox(&mut form.allow_external, t!("chat-allow-external"));
+    ui.label(
+        RichText::new(t!("chat-privacy-note"))
+            .size(10.0)
+            .color(TEXT_SECONDARY),
+    );
+    if ui.button(t!("chat-save")).clicked() {
+        *event = Some(ChatPanelEvent::SaveSettings);
+    }
+}
+
+fn api_settings_ui(
+    ui: &mut egui::Ui,
+    form: &mut ChatProviderForm,
+    event: &mut Option<ChatPanelEvent>,
+) {
     egui::Grid::new("chat-settings")
         .num_columns(2)
         .spacing([8.0, 6.0])
@@ -301,16 +501,6 @@ fn settings_ui(ui: &mut egui::Ui, form: &mut ChatProviderForm, event: &mut Optio
             );
             ui.end_row();
         });
-    ui.checkbox(&mut form.confirm_writes, t!("chat-confirm-writes"));
-    ui.checkbox(&mut form.allow_external, t!("chat-allow-external"));
-    ui.label(
-        RichText::new(t!("chat-privacy-note"))
-            .size(10.0)
-            .color(TEXT_SECONDARY),
-    );
-    if ui.button(t!("chat-save")).clicked() {
-        *event = Some(ChatPanelEvent::SaveSettings);
-    }
 }
 
 impl ChatPanel {
@@ -332,11 +522,31 @@ impl ChatPanel {
             .frame(glass_frame())
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(&state.provider_label)
-                            .size(11.0)
-                            .color(TEXT_SECONDARY),
-                    );
+                    if state.targets.len() > 1 && !state.busy {
+                        let before = state.target_idx;
+                        let shown = state
+                            .targets
+                            .get(state.target_idx)
+                            .cloned()
+                            .unwrap_or_default();
+                        egui::ComboBox::from_id_salt("chat-target")
+                            .width(160.0)
+                            .selected_text(RichText::new(shown).size(11.0))
+                            .show_ui(ui, |ui| {
+                                for (i, t) in state.targets.iter().enumerate() {
+                                    ui.selectable_value(&mut state.target_idx, i, t.as_str());
+                                }
+                            });
+                        if state.target_idx != before {
+                            event = Some(ChatPanelEvent::TargetChanged(state.target_idx));
+                        }
+                    } else {
+                        ui.label(
+                            RichText::new(&state.provider_label)
+                                .size(11.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .small_button("⚙")
@@ -407,16 +617,17 @@ impl ChatPanel {
                         });
                 }
                 ui.separator();
-                let input_h = 84.0;
+                let input_h = if state.busy { 108.0 } else { 84.0 };
                 let avail = (ui.available_height() - input_h).max(120.0);
-                let mut scroll = egui::ScrollArea::vertical()
+                // JANGAN memakai `vertical_scroll_offset(f32::MAX)`: pada frame
+                // itu seluruh isi digambar di luar area pandang, dan saat agent
+                // mengalirkan kejadian tiap frame transkrip tampak kosong terus.
+                let follow = std::mem::take(&mut state.scroll_to_bottom);
+                let scroll = egui::ScrollArea::vertical()
                     .id_salt("chat-transcript")
                     .max_height(avail)
                     .auto_shrink([false, false])
                     .stick_to_bottom(true);
-                if std::mem::take(&mut state.scroll_to_bottom) {
-                    scroll = scroll.vertical_scroll_offset(f32::MAX);
-                }
                 scroll.show(ui, |ui| {
                     if state.items.is_empty() {
                         ui.label(RichText::new(t!("chat-empty")).color(TEXT_SECONDARY));
@@ -425,17 +636,25 @@ impl ChatPanel {
                         item_ui(ui, item);
                         ui.add_space(4.0);
                     }
-                    if state.busy {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(
-                                RichText::new(t!("chat-working"))
-                                    .size(11.0)
-                                    .color(TEXT_SECONDARY),
-                            );
-                        });
+                    if follow {
+                        ui.scroll_to_cursor_animation(
+                            Some(egui::Align::BOTTOM),
+                            egui::style::ScrollAnimation::none(),
+                        );
                     }
                 });
+                // Status tetap di luar area gulir: selalu terlihat selama
+                // agent bekerja, berapa pun panjang transkripnya.
+                if state.busy {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            RichText::new(t!("chat-working"))
+                                .size(11.0)
+                                .color(TEXT_SECONDARY),
+                        );
+                    });
+                }
                 ui.separator();
                 let resp = ui.add(
                     egui::TextEdit::multiline(&mut state.input)

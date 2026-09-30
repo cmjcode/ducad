@@ -46,6 +46,9 @@ pub struct AgentBridge {
     /// soket dan tidak tergantung sakelar Agent Bridge.
     local_rx: Option<Receiver<BridgeRequest>>,
     local_tx: Option<Sender<BridgeRequest>>,
+    /// "Selalu minta persetujuan": `run_ops` (tanpa `dry_run`) dari agent
+    /// mana pun dijalankan sebagai `propose_ops`.
+    pub force_propose: bool,
     /// Tangkapan layar yang menunggu frame renderer (P15.2).
     pub pending_screenshot: Option<crate::live_tools::PendingScreenshot>,
 }
@@ -483,6 +486,18 @@ impl DuCADApp {
             return Some(ToolOut::err(unsupported(method)));
         }
         self.sync_agent_meta();
+        let mut params = params;
+        let method = if method == "run_ops"
+            && self.bridge.force_propose
+            && params.get("dry_run") != Some(&Value::Bool(true))
+        {
+            if let Some(o) = params.as_object_mut() {
+                o.remove("dry_run");
+            }
+            "propose_ops"
+        } else {
+            method
+        };
         match method {
             "propose_ops" => match self.agent_propose(params, id, reply) {
                 Ok(()) => None,

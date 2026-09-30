@@ -20,7 +20,7 @@ Arah panah = "bergantung pada".
 - `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render. → core, sketch, kernel, io
 - `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/chat/schema). → engine, assist, chat, mcp
 - `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 24 tool + resources/prompts; mode `--attach` menambah 6 tool live. → engine
-- `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
+- `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
 - `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun.
@@ -61,6 +61,9 @@ in-process jembatan agent (`agent_bridge.rs`), jadi tool dan pagarnya
 identik dengan `--attach`. Privasi bawaan "hanya di perangkat": provider
 jaringan dan Agent Bridge baru aktif setelah ⚙ → "Izinkan AI eksternal".
 Headless: `ducad-cli chat [PART] --instruction "…" --provider anthropic --out OUT.ducad`.
+Backend kedua: **CLI agent** lokal (agy/claude/gemini/kustom, `ducad_chat::cli`,
+`ducad-app/src/chat_cli.rs`) yang memanggil `ducad-mcp --attach`; agy dan gemini
+butuh "Daftarkan MCP DUCAD" sekali di ⚙.
 
 `ducad-cli build PART --out DIR` membuat artefak manufaktur (STEP/STL/PDF/
 PNG/BOM) + `report.json`/`report.md` secara deterministik; checks yang gagal

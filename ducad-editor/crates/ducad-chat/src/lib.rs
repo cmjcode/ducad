@@ -14,6 +14,8 @@
 //! agent eksternal lewat MCP melihat tool yang persis sama.
 
 pub mod anthropic;
+#[cfg(not(target_os = "ios"))]
+pub mod cli;
 pub mod config;
 pub mod http;
 pub mod openai;
@@ -25,7 +27,7 @@ mod turn;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use config::{ApiStyle, ChatSettings, ProviderConfig};
+pub use config::{ApiStyle, ChatBackend, ChatSettings, CliProfileData, ProviderConfig, CLI_KINDS};
 pub use http::HttpModel;
 pub use scripted::ScriptedModel;
 pub use turn::{run_turn, Policy, SYSTEM_PROMPT};
