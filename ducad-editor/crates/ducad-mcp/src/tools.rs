@@ -1,4 +1,4 @@
-//! Definisi dan implementasi 15 tool MCP DUCAD (P3.2).
+//! Definisi dan implementasi tool MCP DUCAD (P3.2, P15.1).
 
 use base64::Engine as _;
 use ducad_engine::check::CheckItem;
@@ -10,7 +10,7 @@ use ducad_engine::tooling::{
     args, call_core_tool, call_stateless_tool, compact_text, to_value, SessionArg, ToolOut,
     CORE_TOOLS, STATELESS_TOOLS,
 };
-use ducad_engine::{OpError, OpResult, Session};
+use ducad_engine::{OpError, OpErrorCode, OpResult, Session};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -37,6 +37,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "propose_ops",
     "accept_proposal",
     "reject_proposal",
+    "drawing",
+    "import_step",
+    "diff",
+    "list_parts",
 ];
 
 fn session_prop() -> Value {
@@ -213,15 +217,132 @@ pub fn definitions() -> Vec<Value> {
             "Buang proposal yang tidak dipakai.",
             schema(json!({ "session": session_prop(), "proposal_id": { "type": "string" } }), &["proposal_id"]),
         ),
+        tool(
+            "drawing",
+            "Gambar kerja otomatis (tampak depan/atas/kanan/iso + dimensi + catatan lubang) ke PDF/SVG/DXF.",
+            schema(
+                json!({ "session": session_prop(),
+                        "format": { "type": "string", "enum": ["pdf", "svg", "dxf"] },
+                        "path": { "type": "string" },
+                        "paper": { "type": "string", "enum": ["a4", "a4-portrait", "a3", "a3-portrait"] },
+                        "title": { "type": "string" }, "part_number": { "type": "string" },
+                        "material": { "type": "string" },
+                        "notes": { "type": "array", "items": { "type": "string" } } }),
+                &["format", "path"],
+            ),
+        ),
+        tool(
+            "import_step",
+            "Impor berkas STEP sebagai body bernama `name` (isi STEP ikut tersimpan di part; body bisa dipakai op berikutnya, mis. boolean).",
+            schema(
+                json!({ "session": session_prop(), "path": { "type": "string" },
+                        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" } }),
+                &["path", "name"],
+            ),
+        ),
+        tool(
+            "diff",
+            "Bandingkan part sesi dengan berkas .ducad lain atau sesi lain: perubahan params, op, dan volume per body.",
+            schema(
+                json!({ "session": session_prop(), "against_path": { "type": "string" },
+                        "against_session": { "type": "string" },
+                        "geometric": { "type": "boolean", "description": "Hitung selisih volume per body (lebih lambat)." } }),
+                &[],
+            ),
+        ),
+        tool(
+            "list_parts",
+            "Daftar sesi part yang terbuka (id, nama, path, jumlah body/op).",
+            schema(json!({}), &[]),
+        ),
     ]
+}
+
+/// Tool yang hanya ada pada sesi live (aplikasi terbuka), P15.2.
+pub const LIVE_TOOL_NAMES: &[&str] = &[
+    "document_info",
+    "get_view",
+    "set_view",
+    "get_selection",
+    "select",
+    "screenshot",
+];
+
+/// Definisi tool sesi live.
+pub fn live_definitions() -> Vec<Value> {
+    let view = json!({ "type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "bottom"] });
+    vec![
+        tool(
+            "document_info",
+            "Keadaan dokumen yang terbuka di aplikasi: berkas, mode, body (nama, terlihat, volume, terpilih), params, jumlah seleksi, kamera.",
+            schema(json!({ "session": session_prop() }), &[]),
+        ),
+        tool("get_view", "Posisi kamera viewport pengguna.", schema(json!({ "session": session_prop() }), &[])),
+        tool(
+            "set_view",
+            "Arahkan kamera viewport pengguna: tampak preset dan/atau fit ke body (bawaan: fit semua body terlihat).",
+            schema(
+                json!({ "session": session_prop(), "view": view, "fit": { "type": "boolean" },
+                        "bodies": { "type": "array", "items": { "type": "string" } } }),
+                &[],
+            ),
+        ),
+        tool(
+            "get_selection",
+            "Apa yang sedang dipilih pengguna: body, face (titik + normal), tepi (ujung). Pakai untuk memahami \"ini\"/\"yang ini\" di instruksi.",
+            schema(json!({ "session": session_prop() }), &[]),
+        ),
+        tool(
+            "select",
+            "Sorot body / face planar / tepi di viewport lewat selector (mengganti seleksi, atau `add`). Tanpa argumen = kosongkan seleksi.",
+            schema(
+                json!({ "session": session_prop(), "body": { "type": "string" }, "faces": { "type": "string" },
+                        "edges": { "type": "string" }, "add": { "type": "boolean" } }),
+                &[],
+            ),
+        ),
+        tool(
+            "screenshot",
+            "Tangkapan layar jendela aplikasi (apa yang dilihat pengguna) sebagai PNG.",
+            schema(json!({ "session": session_prop() }), &[]),
+        ),
+    ]
+}
+
+/// Definisi tool untuk chat agent di dalam aplikasi (P13.2). `live`:
+/// sesi tunggal dokumen yang sedang terbuka, jadi tool yang membuat/menutup
+/// sesi dan `accept_proposal` (hanya pengguna yang boleh) disaring keluar,
+/// dan tool live ditambahkan.
+pub fn chat_tools(live: bool) -> Vec<Value> {
+    let mut defs: Vec<Value> = definitions()
+        .into_iter()
+        .filter(|t| {
+            let name = t["name"].as_str().unwrap_or_default();
+            !live || !crate::attach::UNSUPPORTED.contains(&name)
+        })
+        .collect();
+    if live {
+        defs.extend(live_definitions());
+    }
+    defs
 }
 
 /// Jalankan tool; error menjadi `isError: true` dengan payload `{"error": OpError}`.
 pub fn call(server: &mut Server, name: &str, arguments: Value) -> Value {
-    if let Some(attach) = server.attach.as_mut() {
-        return tool_result(attach.call(name, arguments));
+    tool_result(call_out(server, name, arguments))
+}
+
+/// Seperti [`call`] tetapi mengembalikan [`ToolOut`] mentah (dipakai
+/// `ducad-cli chat`, yang menjalankan server in-process tanpa JSON-RPC).
+pub fn call_out(server: &mut Server, name: &str, arguments: Value) -> ToolOut {
+    let live_ok = server.attach.is_some() && LIVE_TOOL_NAMES.contains(&name);
+    if !TOOL_NAMES.contains(&name) && !live_ok {
+        return ToolOut::err(OpError::invalid(format!("tool tidak dikenal: {name}")));
     }
-    tool_result(call_inner(server, name, arguments).unwrap_or_else(ToolOut::err))
+    if let Some(attach) = server.attach.as_mut() {
+        return attach.call(name, arguments);
+    }
+    call_inner(server, name, arguments).unwrap_or_else(ToolOut::err)
 }
 
 /// Bungkus [`ToolOut`] menjadi hasil `tools/call` MCP (teks + gambar).
@@ -433,6 +554,66 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                 image_png: None,
                 is_error,
             })
+        }
+        "list_parts" => {
+            let _: Value = a;
+            let parts: Vec<Value> = server
+                .sessions
+                .iter()
+                .map(|(id, p)| {
+                    json!({
+                        "session": id,
+                        "name": p.name,
+                        "path": p.path,
+                        "bodies": p.session.summary().bodies.len(),
+                        "ops": p.session.design().oplog.len(),
+                    })
+                })
+                .collect();
+            Ok(ToolOut::ok(json!({ "parts": parts })))
+        }
+        "diff" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                #[serde(default)]
+                against_path: Option<String>,
+                #[serde(default)]
+                against_session: Option<String>,
+                #[serde(default)]
+                geometric: bool,
+            }
+            let a: A = args(a)?;
+            let (key, _) = server.pick(a.session.as_deref())?;
+            let loaded;
+            let that: &Session = match (&a.against_path, &a.against_session) {
+                (Some(p), None) => {
+                    loaded = Session::from_file(&server.resolve(p)?)?;
+                    &loaded
+                }
+                (None, Some(k)) => {
+                    &server
+                        .sessions
+                        .get(k)
+                        .ok_or_else(|| {
+                            OpError::new(
+                                OpErrorCode::UnknownRef,
+                                format!("sesi '{k}' tidak dikenal"),
+                            )
+                        })?
+                        .session
+                }
+                _ => {
+                    return Err(OpError::invalid(
+                        "isi tepat satu dari 'against_path' atau 'against_session'",
+                    ))
+                }
+            };
+            let this = &server.sessions[&key].session;
+            let (d, _) = ducad_engine::diff::diff(that, this, a.geometric);
+            Ok(ToolOut::ok(to_value(d)?))
         }
         other => Err(OpError::invalid(format!("tool tidak dikenal: {other}"))),
     }

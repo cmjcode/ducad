@@ -121,12 +121,12 @@ impl HistoryDb {
     }
 
     #[cfg(target_os = "ios")]
-    fn resolve_db_path() -> PathBuf {
+    pub(crate) fn resolve_db_path() -> PathBuf {
         crate::file_io::ios_documents_dir().join("ducad_history.db")
     }
 
     #[cfg(not(target_os = "ios"))]
-    fn resolve_db_path() -> PathBuf {
+    pub(crate) fn resolve_db_path() -> PathBuf {
         if let Some(home) = std::env::var_os("HOME") {
             let p = PathBuf::from(home).join(".ducad").join("ducad_history.db");
             return p;

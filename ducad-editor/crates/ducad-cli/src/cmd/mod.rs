@@ -1,5 +1,6 @@
 pub mod assist;
 pub mod build;
+pub mod chat;
 pub mod check;
 pub mod diff;
 pub mod export;

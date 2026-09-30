@@ -278,6 +278,7 @@ pub enum PaletteAction {
     TogglePalmRejection,
     /// Buka dialog asisten AI lokal (P11.4).
     OpenAssist,
+    OpenChat,
     /// Nyalakan/matikan jembatan agent live (P5.1).
     ToggleAgentBridge,
     /// Pindah mode aplikasi (Sketsa CAD / Vektor / Tinta / 3D).

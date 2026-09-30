@@ -33,7 +33,13 @@ pub const CORE_TOOLS: &[&str] = &[
     "get_oplog",
     "get_schema",
     "run_checks",
+    "drawing",
+    "import_step",
 ];
+
+/// Tool tingkat-core yang MENGUBAH model (pemanggil GUI menyinkronkan
+/// `design` dan mencatat aktivitas setelahnya).
+pub const MUTATING_CORE_TOOLS: &[&str] = &["run_ops", "import_step"];
 
 /// Tool yang tidak menyentuh sesi sama sekali (bisa dijawab tanpa part
 /// terbuka).
@@ -278,10 +284,143 @@ pub fn call_core_tool(
                 crate::check::CheckSummary::from_results(results),
             )?))
         }
+        "drawing" => drawing_tool(core, a, paths),
+        "import_step" => import_step_tool(core, a, paths),
         other => Err(OpError::invalid(format!(
             "tool '{other}' bukan tool tingkat-core"
         ))),
     }
+}
+
+/// `drawing`: gambar kerja 4 tampak + dimensi otomatis → PDF/SVG/DXF.
+fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpResult<ToolOut> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct A {
+        #[serde(default)]
+        session: Option<String>,
+        format: String,
+        path: String,
+        #[serde(default)]
+        paper: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        part_number: Option<String>,
+        #[serde(default)]
+        material: Option<String>,
+        #[serde(default)]
+        notes: Vec<String>,
+    }
+    let a: A = args(a)?;
+    let _ = a.session;
+    let paper = match a
+        .paper
+        .as_deref()
+        .unwrap_or("a3")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "a4" => ducad_io::drawing::PaperSize::A4Landscape,
+        "a4-portrait" => ducad_io::drawing::PaperSize::A4Portrait,
+        "a3" => ducad_io::drawing::PaperSize::A3Landscape,
+        "a3-portrait" => ducad_io::drawing::PaperSize::A3Portrait,
+        other => {
+            return Err(OpError::invalid(format!(
+                "kertas '{other}' tidak dikenal (a4, a4-portrait, a3, a3-portrait)"
+            )))
+        }
+    };
+    let path = paths.resolve(&a.path)?;
+    let mut notes = crate::drawing_auto::hole_notes(&core.meta.design, &core.meta.design.params);
+    notes.extend(a.notes);
+    let info = crate::drawing_auto::TitleInfo {
+        title: a.title.unwrap_or_default(),
+        part_number: a.part_number.unwrap_or_default(),
+        material: a.material.unwrap_or_default(),
+        ..Default::default()
+    };
+    let sheet = crate::drawing_auto::auto_sheet(core, paper, &info, &notes)?;
+    let io = |e: anyhow::Error| {
+        OpError::new(
+            OpErrorCode::Io,
+            format!("gagal menulis {}: {e:#}", path.display()),
+        )
+    };
+    match a.format.to_ascii_lowercase().as_str() {
+        "pdf" => ducad_io::pdf::export_pdf(&sheet, &path).map_err(io)?,
+        "svg" => ducad_io::svg::export_drawing_sheet_svg(&sheet, &path).map_err(io)?,
+        "dxf" => ducad_io::dxf::export_drawing_sheet(&sheet, &path).map_err(io)?,
+        other => {
+            return Err(OpError::invalid(format!(
+                "format gambar '{other}' tidak dikenal (pdf, svg, dxf)"
+            )))
+        }
+    }
+    let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    Ok(ToolOut::ok(
+        json!({ "path": path, "bytes": bytes, "notes": notes }),
+    ))
+}
+
+/// `import_step`: body dari berkas STEP. Isi STEP disimpan di
+/// `design.base_bodies` sehingga part tetap bisa di-replay tanpa berkas
+/// aslinya; body bisa dirujuk op berikutnya dengan `name`.
+fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpResult<ToolOut> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct A {
+        #[serde(default)]
+        session: Option<String>,
+        path: String,
+        name: String,
+    }
+    let a: A = args(a)?;
+    let _ = a.session;
+    if !crate::ops::is_valid_op_id(&a.name) {
+        return Err(OpError::invalid(format!(
+            "nama body '{}' tidak valid: harus cocok ^[a-z][a-z0-9_]{{0,31}}$",
+            a.name
+        )));
+    }
+    let taken = core.model.doc.bodies.values().any(|b| b.name == a.name)
+        || core.meta.design.oplog.iter().any(|o| o.id() == a.name);
+    if taken {
+        return Err(OpError::new(
+            OpErrorCode::DuplicateId,
+            format!("nama '{}' sudah dipakai", a.name),
+        ));
+    }
+    let path = paths.resolve(&a.path)?;
+    let shape = ducad_kernel::KernelShape::read_step(&path)
+        .map_err(|e| OpError::kernel("Import STEP", e))?;
+    crate::compute::check_shape("Import STEP", &shape)?;
+    let step = shape
+        .to_step_string()
+        .map_err(|e| OpError::kernel("Import STEP", e))?;
+    let geo = crate::model::BodyGeometry::from_shape(shape);
+    let volume = geo.shape.volume().abs();
+    core.model_undo.execute(
+        Box::new(
+            crate::model::AddSolidCommand::new("Import STEP", geo).with_body_name(a.name.clone()),
+        ),
+        core.model,
+    );
+    core.meta
+        .design
+        .base_bodies
+        .push(ducad_io::native::NativeBody {
+            name: a.name.clone(),
+            uuid: ducad_core::new_part_uuid(),
+            visible: true,
+            material: ducad_core::Material::default(),
+            step,
+            round_history: None,
+        });
+    core.meta.design.fingerprint = crate::session::fingerprint(core.model);
+    Ok(ToolOut::ok(
+        json!({ "body": a.name, "volume": volume, "path": path }),
+    ))
 }
 
 /// Tool tanpa state: dijawab tanpa sesi terbuka.

@@ -17,6 +17,8 @@ local-gguf = ["ducad-assist/local-gguf"]
 
 [dependencies]
 ducad-assist = { workspace = true }
+ducad-chat = { workspace = true }
+ducad-mcp = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-io = { workspace = true }
 ducad-core = { workspace = true }

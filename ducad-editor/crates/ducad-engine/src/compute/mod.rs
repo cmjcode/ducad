@@ -9,6 +9,7 @@
 //! Fungsi compute TIDAK menyentuh undo stack dan TIDAK memutasi `ModelDoc`:
 //! ia menerima referensi dan mengembalikan geometri baru.
 
+pub mod advanced;
 pub mod hole;
 pub mod pattern;
 pub mod primitive;

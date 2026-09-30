@@ -42,6 +42,12 @@ pub struct AgentBridge {
     clients: Arc<AtomicUsize>,
     /// Pesan singkat untuk top bar / status.
     pub status: Option<String>,
+    /// Kanal in-process untuk chat AI di aplikasi (P13.3): tidak butuh
+    /// soket dan tidak tergantung sakelar Agent Bridge.
+    local_rx: Option<Receiver<BridgeRequest>>,
+    local_tx: Option<Sender<BridgeRequest>>,
+    /// Tangkapan layar yang menunggu frame renderer (P15.2).
+    pub pending_screenshot: Option<crate::live_tools::PendingScreenshot>,
 }
 
 /// `$HOME/.ducad/agent.sock` — satu folder dengan `ducad_history.db`.
@@ -66,9 +72,29 @@ impl AgentBridge {
         self.clients.load(Ordering::Relaxed)
     }
 
-    /// Terima maksimal satu permintaan; `None` bila tidak ada.
+    /// Terima maksimal satu permintaan (soket dulu, lalu chat in-process);
+    /// `None` bila tidak ada.
     pub fn try_recv(&self) -> Option<BridgeRequest> {
-        self.rx.as_ref()?.try_recv().ok()
+        if let Some(req) = self.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            return Some(req);
+        }
+        self.local_rx.as_ref()?.try_recv().ok()
+    }
+
+    /// Pengirim in-process untuk chat AI; kanal dibuat saat pertama dipakai.
+    pub fn local_sender(&mut self) -> Sender<BridgeRequest> {
+        if let Some(tx) = &self.local_tx {
+            return tx.clone();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.local_rx = Some(rx);
+        self.local_tx = Some(tx.clone());
+        tx
+    }
+
+    /// Ada sumber permintaan yang harus dilayani tiap frame.
+    pub fn is_active(&self) -> bool {
+        self.enabled || self.local_rx.is_some()
     }
 
     /// Balasan hasil tool.
@@ -326,6 +352,9 @@ impl DuCADApp {
             self.model_status = Some(ducad_i18n::t!("bridge-off"));
             return;
         }
+        // Kebijakan privasi disimpan di pengaturan chat (⚙ di panel Chat AI).
+        self.chat.ensure_loaded();
+        self.sync_ai_privacy();
         if self.ai.privacy == crate::assist_ui::AiPrivacy::OfflineOnly {
             self.model_status = Some(ducad_i18n::t!("bridge-blocked-offline"));
             return;
@@ -395,9 +424,10 @@ impl DuCADApp {
 
     /// Layani permintaan jembatan yang tertunda (awal `update`).
     pub fn poll_agent_bridge(&mut self, ctx: &egui::Context) {
-        if !self.bridge.enabled {
+        if !self.bridge.is_active() {
             return;
         }
+        self.poll_screenshot(ctx);
         for _ in 0..MAX_REQUESTS_PER_FRAME {
             let Some(req) = self.bridge.try_recv() else {
                 break;
@@ -445,6 +475,10 @@ impl DuCADApp {
         if ducad_engine::tooling::STATELESS_TOOLS.contains(&method) {
             return Some(call_stateless_tool(method, params).unwrap_or_else(ToolOut::err));
         }
+        if crate::live_tools::LIVE_TOOLS.contains(&method) {
+            self.sync_agent_meta();
+            return self.live_tool(method, params, id, reply);
+        }
         if !ducad_engine::tooling::CORE_TOOLS.contains(&method) && !BRIDGE_ONLY.contains(&method) {
             return Some(ToolOut::err(unsupported(method)));
         }
@@ -468,6 +502,10 @@ impl DuCADApp {
                     call_core_tool(&mut core, method, params, &paths)
                 };
                 let out = out.unwrap_or_else(ToolOut::err);
+                if method == "import_step" && !out.is_error {
+                    self.sync_design_after_agent();
+                    self.after_model_changed(&ducad_i18n::t!("bridge-title"), "import_step");
+                }
                 if method == "run_ops" && !out.is_error {
                     let committed = out.payload["committed"] == Value::Bool(true);
                     if committed {

@@ -16,6 +16,14 @@ fn one() -> Num {
     Num::Value(1.0)
 }
 
+fn z_axis() -> [Num; 3] {
+    [Num::Value(0.0), Num::Value(0.0), Num::Value(1.0)]
+}
+
+fn bottom_face() -> String {
+    "<Z".to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
@@ -78,6 +86,9 @@ pub enum Op {
         /// Selector tepi, mis. `"|Z"`.
         edges: String,
         radius: Num,
+        /// Fillet variabel: radius di ujung akhir tiap tepi (awal = `radius`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        radius_end: Option<Num>,
     },
     Chamfer {
         id: String,
@@ -124,6 +135,96 @@ pub enum Op {
         id: String,
         body: String,
     },
+    /// Loft solid melewati ≥ 2 sketch berurutan (satu region tertutup per
+    /// sketch; bidangnya bebas, mis. `{"base":"XY","offset":30}`).
+    Loft {
+        id: String,
+        sections: Vec<String>,
+        #[serde(default)]
+        mode: BodyMode,
+        #[serde(default)]
+        target: Option<String>,
+    },
+    /// Sapu profil sketch di sepanjang jalur (sketch terbuka atau titik 3D).
+    Sweep {
+        id: String,
+        sketch: String,
+        #[serde(default)]
+        profile: ProfileSel,
+        path: SweepPath,
+        #[serde(default)]
+        mode: BodyMode,
+        #[serde(default)]
+        target: Option<String>,
+    },
+    /// Pegas / ulir: penampang disapu di sepanjang helix. Ulir luar/dalam =
+    /// `mode: "add"`/`"cut"` pada batang/lubang.
+    Helix {
+        id: String,
+        /// Radius helix (ke pusat penampang).
+        r: Num,
+        pitch: Num,
+        turns: Num,
+        section: HelixSection,
+        /// Titik dasar sumbu.
+        #[serde(default)]
+        at: [Num; 3],
+        #[serde(default = "z_axis")]
+        axis: [Num; 3],
+        /// Radius di ujung atas (helix kerucut).
+        #[serde(default)]
+        end_r: Option<Num>,
+        #[serde(default)]
+        left_hand: bool,
+        #[serde(default)]
+        mode: BodyMode,
+        #[serde(default)]
+        target: Option<String>,
+    },
+    /// Kemiringan cetakan (draft) pada face planar.
+    Draft {
+        id: String,
+        body: String,
+        /// Selector face yang dimiringkan, mis. `"#Z"` (dinding samping).
+        faces: String,
+        angle_deg: Num,
+        /// Selector 1 face planar = bidang netral (tidak bergerak).
+        #[serde(default = "bottom_face")]
+        neutral: String,
+        /// Arah tarik cetakan.
+        #[serde(default = "z_axis")]
+        pull: [Num; 3],
+    },
+    /// Cermin body terhadap bidang. `copy` (bawaan): body baru bernama `id`;
+    /// `merge`: body asli diganti gabungannya dengan cerminannya.
+    Mirror {
+        id: String,
+        body: String,
+        plane: MirrorPlane,
+        #[serde(default = "yes")]
+        copy: bool,
+        #[serde(default)]
+        merge: bool,
+    },
+    /// Skala seragam terhadap `pivot`.
+    Scale {
+        id: String,
+        body: String,
+        factor: Num,
+        #[serde(default)]
+        pivot: [Num; 3],
+    },
+    /// Potong body dengan bidang. `keep: "both"` (bawaan): body asli
+    /// menyimpan sisi searah `normal`, body baru `id` menyimpan sisi lainnya.
+    Split {
+        id: String,
+        body: String,
+        #[serde(default)]
+        point: [Num; 3],
+        normal: [Num; 3],
+        #[serde(default)]
+        keep: SplitKeep,
+    },
 }
 
 impl Op {
@@ -140,7 +241,14 @@ impl Op {
             | Op::Hole { id, .. }
             | Op::Pattern { id, .. }
             | Op::Transform { id, .. }
-            | Op::Delete { id, .. } => id,
+            | Op::Delete { id, .. }
+            | Op::Loft { id, .. }
+            | Op::Sweep { id, .. }
+            | Op::Helix { id, .. }
+            | Op::Draft { id, .. }
+            | Op::Mirror { id, .. }
+            | Op::Scale { id, .. }
+            | Op::Split { id, .. } => id,
         }
     }
 
@@ -159,6 +267,13 @@ impl Op {
             Op::Pattern { .. } => "pattern",
             Op::Transform { .. } => "transform",
             Op::Delete { .. } => "delete",
+            Op::Loft { .. } => "loft",
+            Op::Sweep { .. } => "sweep",
+            Op::Helix { .. } => "helix",
+            Op::Draft { .. } => "draft",
+            Op::Mirror { .. } => "mirror",
+            Op::Scale { .. } => "scale",
+            Op::Split { .. } => "split",
         }
     }
 }
@@ -771,4 +886,45 @@ mod tests {
         );
         assert!(fresh.contains("\"extrude\""));
     }
+}
+
+/// Jalur sweep: id sketch berisi rantai terbuka (garis/busur/spline), atau
+/// `{"points": [[x,y,z], ...]}` polyline 3D.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum SweepPath {
+    Sketch(String),
+    Points { points: Vec<[Num; 3]> },
+}
+
+/// Penampang helix (externally tagged): `{"circle":{"r":1}}`,
+/// `{"rect":{"w":2,"h":1}}`, `{"triangle":{"w":1.5,"h":1.3}}` (ulir V).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum HelixSection {
+    Circle { r: Num },
+    Rect { w: Num, h: Num },
+    Triangle { w: Num, h: Num },
+}
+
+/// Bidang cermin: `"XY"`/`"XZ"`/`"YZ"` (lewat origin) atau
+/// `{"point":[x,y,z],"normal":[x,y,z]}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum MirrorPlane {
+    Named(String),
+    Custom {
+        #[serde(default)]
+        point: [Num; 3],
+        normal: [Num; 3],
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitKeep {
+    #[default]
+    Both,
+    Positive,
+    Negative,
 }

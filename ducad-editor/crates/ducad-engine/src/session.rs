@@ -20,8 +20,9 @@ use crate::model::{
 };
 use crate::ops::sketch::{build_sketch, resolve_plane, ResolvedPlane};
 use crate::ops::{
-    eval, eval_arr, is_valid_op_id, AxisSpec, BodyMode, BoolKind, ExtrudeDir, HoleKindSpec,
-    HoleSpecRef, MaterialSel, Num, Op, OutlineSpec, Params, PatternKind, PrimitiveSpec, ProfileSel,
+    eval, eval_arr, is_valid_op_id, AxisSpec, BodyMode, BoolKind, ExtrudeDir, HelixSection,
+    HoleKindSpec, HoleSpecRef, MaterialSel, MirrorPlane, Num, Op, OutlineSpec, Params, PatternKind,
+    PrimitiveSpec, ProfileSel, SplitKeep, SweepPath,
 };
 use crate::plane::PlaneFrame;
 
@@ -725,7 +726,16 @@ impl SessionCore<'_> {
                 let (bid, geo) = self.body(body)?;
                 let idx = crate::select::select_edges(&geo.shape, edges)?;
                 let pick = EdgePick::Indices(&idx);
-                let new_geo = if is_fillet {
+                let radius_end = match op {
+                    Op::Fillet {
+                        radius_end: Some(re),
+                        ..
+                    } => Some(eval(re, &params)?),
+                    _ => None,
+                };
+                let new_geo = if let Some(r1) = radius_end {
+                    compute::advanced::fillet_variable(&geo.shape, &idx, r, r1)?
+                } else if is_fillet {
                     compute::fillet(&geo.shape, &pick, r)?
                 } else {
                     compute::chamfer(&geo.shape, &pick, r)?
@@ -893,6 +903,253 @@ impl SessionCore<'_> {
                 self.exec(Box::new(DeleteBodyCommand::new(bid)));
                 self.meta.consumed.insert(body.clone(), id.clone());
                 out.removed.push(body.clone());
+            }
+            Op::Loft {
+                id,
+                sections,
+                mode,
+                target,
+            } => {
+                let mut secs = Vec::with_capacity(sections.len());
+                for sid in sections {
+                    let (sk, frame) = self.sketch(sid)?;
+                    let mut profiles = compute::resolve_profiles(sk, &ProfilePick::AllRegions)?;
+                    if profiles.len() != 1 {
+                        return Err(OpError::invalid(format!(
+                            "sketch penampang loft '{sid}' harus berisi tepat 1 region tertutup (ditemukan {})",
+                            profiles.len()
+                        )));
+                    }
+                    secs.push((profiles.remove(0), *frame));
+                }
+                let geo = compute::advanced::loft(&secs)?;
+                out.detail = volume_detail(&geo);
+                self.place_solids(id, "Loft", vec![geo], *mode, target.as_deref(), &mut out)?;
+            }
+            Op::Sweep {
+                id,
+                sketch,
+                profile,
+                path,
+                mode,
+                target,
+            } => {
+                let segments = match path {
+                    SweepPath::Sketch(pid) => {
+                        let (psk, pframe) = self.sketch(pid)?;
+                        compute::advanced::sketch_path(psk, pframe)?
+                    }
+                    SweepPath::Points { points } => {
+                        let pts = points
+                            .iter()
+                            .map(|p| eval_arr(p, &params))
+                            .collect::<OpResult<Vec<_>>>()?;
+                        compute::advanced::points_path(&pts)?
+                    }
+                };
+                let geo = {
+                    let (sk, frame) = self.sketch(sketch)?;
+                    let ids = profile_entities(sk, profile)?;
+                    let pick = profile_pick(profile, &ids, &params)?;
+                    let mut profiles = compute::resolve_profiles(sk, &pick)?;
+                    if profiles.len() != 1 {
+                        return Err(OpError::invalid(format!(
+                            "profil sweep harus tepat 1 region (ditemukan {}); pilih dengan 'profile'",
+                            profiles.len()
+                        )));
+                    }
+                    compute::advanced::sweep(&profiles.remove(0), frame, &segments)?
+                };
+                out.detail = volume_detail(&geo);
+                self.place_solids(id, "Sweep", vec![geo], *mode, target.as_deref(), &mut out)?;
+            }
+            Op::Helix {
+                id,
+                r,
+                pitch,
+                turns,
+                section,
+                at,
+                axis,
+                end_r,
+                left_hand,
+                mode,
+                target,
+            } => {
+                let shape = match section {
+                    HelixSection::Circle { r } => {
+                        compute::advanced::HelixShape::Circle(eval(r, &params)?)
+                    }
+                    HelixSection::Rect { w, h } => {
+                        compute::advanced::HelixShape::Rect(eval(w, &params)?, eval(h, &params)?)
+                    }
+                    HelixSection::Triangle { w, h } => compute::advanced::HelixShape::Triangle(
+                        eval(w, &params)?,
+                        eval(h, &params)?,
+                    ),
+                };
+                let end_r = end_r.as_ref().map(|e| eval(e, &params)).transpose()?;
+                let geo = compute::advanced::helix(
+                    eval(r, &params)?,
+                    end_r,
+                    eval(pitch, &params)?,
+                    eval(turns, &params)?,
+                    shape,
+                    eval_arr(at, &params)?,
+                    eval_arr(axis, &params)?,
+                    *left_hand,
+                )?;
+                out.detail = volume_detail(&geo);
+                self.place_solids(
+                    id,
+                    "Helix Thread",
+                    vec![geo],
+                    *mode,
+                    target.as_deref(),
+                    &mut out,
+                )?;
+            }
+            Op::Draft {
+                body,
+                faces,
+                angle_deg,
+                neutral,
+                pull,
+                ..
+            } => {
+                let angle = eval(angle_deg, &params)?;
+                let pull = DVec3::from(eval_arr(pull, &params)?);
+                let (bid, geo) = self.body(body)?;
+                let idx = crate::select::select_faces(&geo.shape, faces)?;
+                let n_idx = crate::select::select_faces(&geo.shape, neutral)?;
+                let all = ducad_kernel::enumerate_faces(&geo.shape);
+                if n_idx.len() != 1 || all[n_idx[0]].kind != SurfaceKind::Plane {
+                    return Err(OpError::invalid(format!(
+                        "selector bidang netral \"{neutral}\" harus menghasilkan tepat 1 face planar (cocok {})",
+                        n_idx.len()
+                    )));
+                }
+                let np = DVec3::from(all[n_idx[0]].centroid);
+                let new_geo = compute::advanced::draft(&geo.shape, &idx, np, pull, pull, angle)?;
+                out.detail = serde_json::json!({ "faces": idx.len(), "volume": new_geo.shape.volume().abs() });
+                self.exec(Box::new(ReplaceGeometryCommand::new(
+                    "Draft Angle",
+                    bid,
+                    new_geo,
+                )));
+                out.modified.push(body.clone());
+            }
+            Op::Mirror {
+                id,
+                body,
+                plane,
+                copy,
+                merge,
+            } => {
+                let (point, normal) = match plane {
+                    MirrorPlane::Named(n) => {
+                        let normal = match n.to_ascii_lowercase().as_str() {
+                            "xy" | "top" => DVec3::Z,
+                            "xz" | "front" => DVec3::Y,
+                            "yz" | "right" => DVec3::X,
+                            _ => {
+                                return Err(OpError::invalid(format!(
+                                    "bidang cermin '{n}' tidak dikenal (pakai XY/XZ/YZ atau {{point, normal}})"
+                                )))
+                            }
+                        };
+                        (DVec3::ZERO, normal)
+                    }
+                    MirrorPlane::Custom { point, normal } => (
+                        DVec3::from(eval_arr(point, &params)?),
+                        DVec3::from(eval_arr(normal, &params)?),
+                    ),
+                };
+                let (bid, geo) = self.body(body)?;
+                let mirrored = compute::advanced::mirror(&geo.shape, point, normal)?;
+                if *copy && *merge {
+                    let merged = compute::boolean(&geo.shape, &mirrored.shape, BooleanKind::Union)?;
+                    out.detail = volume_detail(&merged);
+                    self.exec(Box::new(ReplaceGeometryCommand::new("Mirror", bid, merged)));
+                    out.modified.push(body.clone());
+                } else if *copy {
+                    out.detail = volume_detail(&mirrored);
+                    self.exec(Box::new(
+                        AddSolidCommand::new("Mirror", mirrored).with_body_name(id.clone()),
+                    ));
+                    out.created.push(id.clone());
+                } else {
+                    out.detail = volume_detail(&mirrored);
+                    self.exec(Box::new(ReplaceGeometryCommand::new(
+                        "Mirror", bid, mirrored,
+                    )));
+                    out.modified.push(body.clone());
+                }
+            }
+            Op::Scale {
+                body,
+                factor,
+                pivot,
+                ..
+            } => {
+                let f = eval(factor, &params)?;
+                let (bid, geo) = self.body(body)?;
+                let new_geo = compute::advanced::scale(&geo.shape, eval_arr(pivot, &params)?, f)?;
+                out.detail = volume_detail(&new_geo);
+                self.exec(Box::new(ReplaceGeometryCommand::new("Scale", bid, new_geo)));
+                out.modified.push(body.clone());
+            }
+            Op::Split {
+                id,
+                body,
+                point,
+                normal,
+                keep,
+            } => {
+                let p = DVec3::from(eval_arr(point, &params)?);
+                let n = DVec3::from(eval_arr(normal, &params)?);
+                let (bid, geo) = self.body(body)?;
+                let (pos, neg) = compute::advanced::split(&geo.shape, p, n)?;
+                let miss = || {
+                    OpError::invalid("bidang potong tidak membelah body (salah satu sisi kosong)")
+                        .with_hint("periksa 'point' dan 'normal' terhadap bbox body (inspect)")
+                };
+                match keep {
+                    SplitKeep::Both => {
+                        let (Some(pos), Some(neg)) = (pos, neg) else {
+                            return Err(miss());
+                        };
+                        out.detail = serde_json::json!({
+                            "volume_positive": pos.shape.volume().abs(),
+                            "volume_negative": neg.shape.volume().abs(),
+                        });
+                        self.exec(Box::new(ReplaceGeometryCommand::new(
+                            "Split Body",
+                            bid,
+                            pos,
+                        )));
+                        self.exec(Box::new(
+                            AddSolidCommand::new("Split Body", neg).with_body_name(id.clone()),
+                        ));
+                        out.modified.push(body.clone());
+                        out.created.push(id.clone());
+                    }
+                    SplitKeep::Positive | SplitKeep::Negative => {
+                        let side = if *keep == SplitKeep::Positive {
+                            pos
+                        } else {
+                            neg
+                        };
+                        let side = side.ok_or_else(miss)?;
+                        out.detail = volume_detail(&side);
+                        self.exec(Box::new(ReplaceGeometryCommand::new(
+                            "Split Body",
+                            bid,
+                            side,
+                        )));
+                        out.modified.push(body.clone());
+                    }
+                }
             }
         }
         Ok(out)

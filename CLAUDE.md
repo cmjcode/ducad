@@ -18,8 +18,9 @@ Arah panah = "bergantung pada".
 - `ducad-ink` — dokumen tinta bebas (`InkDoc`, coretan bertekanan, kuas, command, indeks spasial, eraser/lasso). Tanpa GUI/kernel. → core, sketch
 - `ducad-io` — format `.ducad`, STEP/STL/OBJ/GLB, SVG/PDF/DXF. → core, sketch, kernel, ink
 - `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render. → core, sketch, kernel, io
-- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/schema). → engine, assist
-- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio 20 tool. → engine
+- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/chat/schema). → engine, assist, chat, mcp
+- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 24 tool + resources/prompts; mode `--attach` menambah 6 tool live. → engine
+- `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
 - `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun.
@@ -53,6 +54,13 @@ menautkan pustaka MNEMONIC headless (`default-features = false`) sehingga
 `VaultService` dipanggil di dalam proses — satu-satunya jalan di iPadOS,
 yang tidak bisa menjalankan server MCP. Mati secara default. Vault bawaan:
 `$HOME/DUCAD-Memory` (iOS: Documents/DUCAD-Memory).
+
+**Chat AI (P13).** Panel "Chat AI" (⌘⇧A / tombol ✨ AI) menjalankan
+`ducad_chat::run_turn` di thread latar; setiap tool dikirim ke kanal
+in-process jembatan agent (`agent_bridge.rs`), jadi tool dan pagarnya
+identik dengan `--attach`. Privasi bawaan "hanya di perangkat": provider
+jaringan dan Agent Bridge baru aktif setelah ⚙ → "Izinkan AI eksternal".
+Headless: `ducad-cli chat [PART] --instruction "…" --provider anthropic --out OUT.ducad`.
 
 `ducad-cli build PART --out DIR` membuat artefak manufaktur (STEP/STL/PDF/
 PNG/BOM) + `report.json`/`report.md` secara deterministik; checks yang gagal
@@ -101,3 +109,4 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 - Rencana produk: `ducad-editor/docs/PLAN.md`; status: `ducad-editor/docs/STATUS_FASE_A_B.md`.
 - Keputusan arsitektur: `ducad-editor/docs/adr/`.
 - Skill agent: `.claude/skills/ducad-modeling/SKILL.md`; memori agent: `scripts/init_memory_vault.sh`.
+- Rencana chat agent + op lanjutan: `.claude/plan/ducad-agent-harness/P13-P15-chat-agent.md`.

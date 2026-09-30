@@ -179,6 +179,17 @@ pub fn create_helix_wire(params: &HelixParams, samples_per_turn: usize) -> Resul
     Ok(Wire::from_edges(edges.iter()))
 }
 
+/// Kurva helix sebagai satu edge B-spline yang melewati titik sampel
+/// (mulus, cocok sebagai spine sweep).
+pub(crate) fn create_helix_spline_wire(params: &HelixParams, samples_per_turn: usize) -> Result<Wire> {
+    let pts = generate_helix_points(params, samples_per_turn.max(16))?;
+    if pts.len() < 3 {
+        bail!("Titik helix tidak mencukupi untuk membuat kurva");
+    }
+    let edge = Edge::spline_from_points(pts.iter().map(|p| dvec3(p[0], p[1], p[2])), None);
+    Ok(Wire::from_edges([&edge]))
+}
+
 type ProfilePlaneBasis = ([f64; 3], [f64; 3], [f64; 3], [f64; 3]);
 
 /// Basis lokal bidang penampang (cross-section plane) di titik awal kurva helix (s=0).
@@ -298,7 +309,10 @@ pub fn create_helix_solid_with_custom_profile(
     samples_per_turn: usize,
 ) -> Result<KernelShape> {
     let _guard = lock_kernel();
-    let spine_wire = create_helix_wire(params, samples_per_turn)?;
+    // Spine = SATU kurva B-spline interpolasi, bukan rangkaian segmen garis:
+    // MakePipe di sepanjang polyline menghasilkan solid rusak (volume ≈ 0,
+    // lihat tes `helix_spring_has_real_volume`).
+    let spine_wire = create_helix_spline_wire(params, samples_per_turn)?;
     let (origin, u_axis, v_axis, normal) = compute_start_profile_plane(params)?;
 
     let profile_wire = build_wire_on_plane(profile, origin, u_axis, v_axis, normal)?;

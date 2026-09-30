@@ -10,6 +10,10 @@ Contoh:
   python3 evals/run_eval.py --tasks evals/tasks --runs 1 --agent-cmd "true"
   python3 evals/run_eval.py --agent-cmd 'claude -p "$(cat {prompt_file})" \\
       --mcp-config {workdir}/.mcp.json --permission-mode acceptEdits'
+  # Chat agent DUCAD sendiri (P13), tool MCP in-process, kunci dari
+  # ANTHROPIC_API_KEY / Keychain aplikasi:
+  python3 evals/run_eval.py --agent-cmd 'ducad-cli chat \\
+      --instruction "$(cat {prompt_file})" --root {workdir} --provider anthropic'
 """
 
 import argparse

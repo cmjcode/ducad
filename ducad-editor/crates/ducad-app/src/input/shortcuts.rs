@@ -9,6 +9,11 @@ impl DuCADApp {
     pub fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
         let mut actions = vec![
             (
+                ducad_i18n::t!("chat-open"),
+                "⌘+Shift+A".to_string(),
+                PaletteAction::OpenChat,
+            ),
+            (
                 ducad_i18n::t!("assist-title"),
                 String::new(),
                 PaletteAction::OpenAssist,
@@ -439,6 +444,7 @@ impl DuCADApp {
                 self.model_status = Some(format!("Mode Sentuh aktif: {}", m.label()));
             }
             PaletteAction::OpenAssist => self.open_assist_dialog(),
+            PaletteAction::OpenChat => self.open_chat(),
             PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
             PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),
             PaletteAction::ConvertToClosedObjects => {

@@ -1,5 +1,5 @@
 use super::*;
-use glam::dvec3;
+use glam::{dvec3, DVec3};
 use opencascade::adhoc::AdHocShape;
 use std::sync::Mutex;
 
@@ -3338,4 +3338,92 @@ fn bezier_hole_removes_volume_from_plate() {
         (got - expected).abs() / expected < 0.01,
         "volume {got} != plat berlubang {expected} — cek orientasi wire lubang"
     );
+}
+
+// --- P14: operasi lanjutan untuk agent -----------------------------------
+
+fn xy_section(profile: Profile, z: f64) -> LoftSection {
+    LoftSection {
+        profile,
+        origin: [0.0, 0.0, z],
+        u_axis: [1.0, 0.0, 0.0],
+        v_axis: [0.0, 1.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+    }
+}
+
+fn mesh_bbox(s: &KernelShape) -> ([f32; 3], [f32; 3]) {
+    s.tessellate().bounding_box().expect("mesh tidak kosong")
+}
+
+#[test]
+fn loft_sections_prism_and_frustum() {
+    let _l = lock_test();
+    let prism = loft_sections(&[xy_section(rect_profile(10.0, 10.0), 0.0), xy_section(rect_profile(10.0, 10.0), 5.0)]).unwrap();
+    assert!(prism.is_valid());
+    assert!((prism.volume().abs() - 500.0).abs() < 1e-3, "{}", prism.volume());
+    let circle = |r: f64| Profile::Circle { center: (0.0, 0.0), radius: r };
+    let frustum = loft_sections(&[xy_section(circle(10.0), 0.0), xy_section(circle(5.0), 12.0)]).unwrap();
+    let expected = std::f64::consts::PI * 12.0 / 3.0 * (100.0 + 50.0 + 25.0);
+    assert!((frustum.volume().abs() - expected).abs() / expected < 1e-3, "{}", frustum.volume());
+    assert!(loft_sections(&[xy_section(circle(1.0), 0.0)]).is_err());
+}
+
+#[test]
+fn mirror_shape_reflects_across_plane() {
+    let _l = lock_test();
+    let b = make_box(10.0, 10.0, 10.0, false).unwrap();
+    let b = translate_shape(&b, 10.0, 0.0, 0.0).unwrap();
+    let m = mirror_shape(&b, dvec3(0.0, 0.0, 0.0), dvec3(1.0, 0.0, 0.0)).unwrap();
+    assert!(m.is_valid());
+    assert!((m.volume().abs() - 1000.0).abs() < 1e-6);
+    let (min, max) = mesh_bbox(&m);
+    assert!((min[0] + 20.0).abs() < 1e-4 && (max[0] + 10.0).abs() < 1e-4, "{min:?} {max:?}");
+    assert!(min[1].abs() < 1e-4 && (max[1] - 10.0).abs() < 1e-4, "Y tidak berubah: {min:?} {max:?}");
+    assert!(mirror_shape(&b, DVec3::ZERO, DVec3::ZERO).is_err());
+}
+
+#[test]
+fn draft_and_variable_fillet_by_index() {
+    let _l = lock_test();
+    let b = make_box(20.0, 20.0, 10.0, false).unwrap();
+    let sides: Vec<usize> = enumerate_faces(&b)
+        .iter()
+        .filter(|f| f.normal[2].abs() < 1e-6)
+        .map(|f| f.index)
+        .collect();
+    assert_eq!(sides.len(), 4);
+    let d = draft_faces_by_index(&b, &sides, DVec3::ZERO, DVec3::Z, DVec3::Z, 5.0).unwrap();
+    assert!(d.is_valid());
+    assert!(d.volume().abs() < 4000.0 - 1.0, "draft ke dalam mengurangi volume: {}", d.volume());
+    assert!(draft_faces_by_index(&b, &sides, DVec3::ZERO, DVec3::Z, DVec3::Z, 95.0).is_err());
+
+    let verticals: Vec<usize> = enumerate_edges(&b)
+        .iter()
+        .filter(|e| e.dir.is_some_and(|d| d[2].abs() > 0.99))
+        .map(|e| e.index)
+        .collect();
+    assert_eq!(verticals.len(), 4);
+    let f = fillet_edges_variable_by_index(&b, 1.0, 3.0, &verticals).unwrap();
+    assert!(f.is_valid());
+    let v = f.volume().abs();
+    assert!(v < 4000.0 && v > 3900.0, "{v}");
+    assert!(fillet_edges_variable_by_index(&b, 0.0, 1.0, &verticals).is_err());
+}
+
+#[test]
+fn helix_spring_has_real_volume() {
+    let _l = lock_test();
+    let params = HelixParams {
+        radius: 10.0,
+        pitch: 4.0,
+        turns: 3.0,
+        ..HelixParams::default()
+    };
+    let spring = create_helix_solid(&params, HelixProfileKind::Circle { radius: 1.0 }, 36).unwrap();
+    let length = 3.0 * ((2.0 * std::f64::consts::PI * 10.0f64).powi(2) + 16.0).sqrt();
+    let expected = std::f64::consts::PI * length;
+    let v = spring.volume().abs();
+    assert!(spring.is_valid(), "helix harus solid valid");
+    assert!((v - expected).abs() / expected < 0.03, "volume pegas {v} vs {expected}");
 }

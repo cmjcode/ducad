@@ -1310,6 +1310,82 @@
       ],
       "type": "string"
     },
+    "HelixSection": {
+      "description": "Penampang helix (externally tagged): `{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}` (ulir V).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "circle": {
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "r"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "circle"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rect": {
+              "additionalProperties": false,
+              "properties": {
+                "h": {
+                  "$ref": "#/definitions/Num"
+                },
+                "w": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "h",
+                "w"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "rect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "triangle": {
+              "additionalProperties": false,
+              "properties": {
+                "h": {
+                  "$ref": "#/definitions/Num"
+                },
+                "w": {
+                  "$ref": "#/definitions/Num"
+                }
+              },
+              "required": [
+                "h",
+                "w"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "triangle"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "HoleKindSpec": {
       "enum": [
         "clearance",
@@ -1380,6 +1456,44 @@
     },
     "MaterialSel": {
       "type": "string"
+    },
+    "MirrorPlane": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "normal": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "point": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "normal"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Bidang cermin: `\"XY\"`/`\"XZ\"`/`\"YZ\"` (lewat origin) atau `{\"point\":[x,y,z],\"normal\":[x,y,z]}`."
     },
     "Num": {
       "anyOf": [
@@ -1668,6 +1782,17 @@
             },
             "radius": {
               "$ref": "#/definitions/Num"
+            },
+            "radius_end": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fillet variabel: radius di ujung akhir tiap tepi (awal = `radius`)."
             }
           },
           "required": [
@@ -1896,6 +2021,381 @@
           "required": [
             "body",
             "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Loft solid melewati ≥ 2 sketch berurutan (satu region tertutup per sketch; bidangnya bebas, mis. `{\"base\":\"XY\",\"offset\":30}`).",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new"
+            },
+            "op": {
+              "enum": [
+                "loft"
+              ],
+              "type": "string"
+            },
+            "sections": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "target": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "sections"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sapu profil sketch di sepanjang jalur (sketch terbuka atau titik 3D).",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new"
+            },
+            "op": {
+              "enum": [
+                "sweep"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/SweepPath"
+            },
+            "profile": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ProfileSel"
+                }
+              ],
+              "default": "all"
+            },
+            "sketch": {
+              "type": "string"
+            },
+            "target": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "path",
+            "sketch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Pegas / ulir: penampang disapu di sepanjang helix. Ulir luar/dalam = `mode: \"add\"`/`\"cut\"` pada batang/lubang.",
+          "properties": {
+            "at": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "description": "Titik dasar sumbu.",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "axis": {
+              "default": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "end_r": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Radius di ujung atas (helix kerucut)."
+            },
+            "id": {
+              "type": "string"
+            },
+            "left_hand": {
+              "default": false,
+              "type": "boolean"
+            },
+            "mode": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BodyMode"
+                }
+              ],
+              "default": "new"
+            },
+            "op": {
+              "enum": [
+                "helix"
+              ],
+              "type": "string"
+            },
+            "pitch": {
+              "$ref": "#/definitions/Num"
+            },
+            "r": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Radius helix (ke pusat penampang)."
+            },
+            "section": {
+              "$ref": "#/definitions/HelixSection"
+            },
+            "target": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turns": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "pitch",
+            "r",
+            "section",
+            "turns"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Kemiringan cetakan (draft) pada face planar.",
+          "properties": {
+            "angle_deg": {
+              "$ref": "#/definitions/Num"
+            },
+            "body": {
+              "type": "string"
+            },
+            "faces": {
+              "description": "Selector face yang dimiringkan, mis. `\"#Z\"` (dinding samping).",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "neutral": {
+              "default": "<Z",
+              "description": "Selector 1 face planar = bidang netral (tidak bergerak).",
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "draft"
+              ],
+              "type": "string"
+            },
+            "pull": {
+              "default": [
+                0.0,
+                0.0,
+                1.0
+              ],
+              "description": "Arah tarik cetakan.",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "angle_deg",
+            "body",
+            "faces",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Cermin body terhadap bidang. `copy` (bawaan): body baru bernama `id`; `merge`: body asli diganti gabungannya dengan cerminannya.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "copy": {
+              "default": true,
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "merge": {
+              "default": false,
+              "type": "boolean"
+            },
+            "op": {
+              "enum": [
+                "mirror"
+              ],
+              "type": "string"
+            },
+            "plane": {
+              "$ref": "#/definitions/MirrorPlane"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op",
+            "plane"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Skala seragam terhadap `pivot`.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "factor": {
+              "$ref": "#/definitions/Num"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "scale"
+              ],
+              "type": "string"
+            },
+            "pivot": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "body",
+            "factor",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Potong body dengan bidang. `keep: \"both\"` (bawaan): body asli menyimpan sisi searah `normal`, body baru `id` menyimpan sisi lainnya.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "keep": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SplitKeep"
+                }
+              ],
+              "default": "both"
+            },
+            "normal": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "op": {
+              "enum": [
+                "split"
+              ],
+              "type": "string"
+            },
+            "point": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "normal",
             "op"
           ],
           "type": "object"
@@ -2301,6 +2801,14 @@
         }
       ]
     },
+    "SplitKeep": {
+      "enum": [
+        "both",
+        "positive",
+        "negative"
+      ],
+      "type": "string"
+    },
     "StyleSpec": {
       "additionalProperties": false,
       "description": "Spesifikasi gaya visual untuk `EntitySpec::Path`.",
@@ -2376,6 +2884,34 @@
         "start"
       ],
       "type": "object"
+    },
+    "SweepPath": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "points": {
+              "items": {
+                "items": {
+                  "$ref": "#/definitions/Num"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "points"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Jalur sweep: id sketch berisi rantai terbuka (garis/busur/spline), atau `{\"points\": [[x,y,z], ...]}` polyline 3D."
     }
   },
   "description": "Isi file ops: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",

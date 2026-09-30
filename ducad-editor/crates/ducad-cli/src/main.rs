@@ -93,6 +93,8 @@ enum Command {
     Build(cmd::build::Args),
     /// Minta asisten AI di perangkat mengusulkan perubahan (proposal).
     Assist(cmd::assist::Args),
+    /// Chat agent (Claude/OpenAI/Ollama) yang memodelkan lewat tool MCP.
+    Chat(cmd::chat::Args),
     /// Cetak JSON Schema OpFile.
     Schema,
 }
@@ -114,6 +116,7 @@ fn main() -> ExitCode {
         Command::Export(a) => cmd::export::exec(a),
         Command::Build(a) => cmd::build::exec(a),
         Command::Assist(a) => cmd::assist::exec(a),
+        Command::Chat(a) => cmd::chat::exec(a),
         Command::Schema => cmd::print_json(&ducad_engine::ops::op_schema()).map(|_| Exit::Ok),
     };
     match result {

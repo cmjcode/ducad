@@ -17,7 +17,7 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 /// Tambahan `instructions` khusus mode `--attach`.
-pub const ATTACH_INSTRUCTIONS: &str = " MODE LIVE: kamu terhubung ke aplikasi DUCAD yang sedang terbuka; semua perubahan langsung terlihat pengguna dan satu batch = satu langkah undo. `new_part`/`open_part`/`close_part` tidak tersedia (lakukan di aplikasi). `propose_ops` menampilkan pratinjau berwarna kepada pengguna dan baru dijawab setelah pengguna menekan Terima/Tolak; `accept_proposal` tidak tersedia bagi agent.";
+pub const ATTACH_INSTRUCTIONS: &str = " MODE LIVE: kamu terhubung ke aplikasi DUCAD yang sedang terbuka; semua perubahan langsung terlihat pengguna dan satu batch = satu langkah undo. `new_part`/`open_part`/`close_part` tidak tersedia (lakukan di aplikasi). `propose_ops` menampilkan pratinjau berwarna kepada pengguna dan baru dijawab setelah pengguna menekan Terima/Tolak; `accept_proposal` tidak tersedia bagi agent. Bila pengguna menyebut \"ini\"/\"yang dipilih\", panggil `get_selection`; `document_info` memberi keadaan dokumen; setelah membuat geometri, `set_view` agar hasilnya terlihat; `screenshot` menunjukkan apa yang dilihat pengguna.";
 
 pub const INSTRUCTIONS: &str = "DUCAD adalah CAD B-rep parametrik. Satuan mm, sudut derajat. Alur kerja: (1) `get_schema` sekali untuk melihat format `Op` dan tata bahasa selector; (2) `new_part` atau `open_part`; (3) tulis checks dari persyaratan user dengan `set_checks` sebelum memodelkan; (4) `run_ops` dengan `dry_run: true` untuk memvalidasi, lalu tanpa `dry_run`; (5) `inspect`, `run_checks`, dan `render_view` untuk memverifikasi hasil terhadap spesifikasi; (6) `save_part`. Body dirujuk dengan `id` op pembuatnya. Face/tepi dirujuk dengan selector seperti `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; uji selector dengan `query_geometry` sebelum dipakai. Batch `run_ops` bersifat atomik: bila satu op gagal, seluruh batch dibatalkan dan `error` menjelaskan penyebab serta `hint`; bila `error.fixes` ada, kirim ulang batch dengan `patched_op` menggantikan op yang gagal. Ubah dimensi dengan `set_params`, bukan dengan menumpuk op baru.";
 
@@ -216,6 +216,135 @@ pub fn handle_message(server: &mut Server, raw: &str) -> Option<Value> {
     })
 }
 
+/// Panduan ringkas (resource `ducad://guide`).
+fn guide_text() -> String {
+    format!(
+        "# Memodelkan dengan DUCAD\n\n{INSTRUCTIONS}\n\n## Selector\n\n{}\n",
+        ducad_engine::select::SELECTOR_CHEATSHEET
+    )
+}
+
+fn resource_list(server: &Server) -> Vec<Value> {
+    let mut out = vec![
+        json!({ "uri": "ducad://schema", "name": "Skema Op (JSON Schema)", "mimeType": "application/json" }),
+        json!({ "uri": "ducad://guide", "name": "Panduan memodelkan DUCAD", "mimeType": "text/markdown" }),
+        json!({ "uri": "ducad://example/plate", "name": "Contoh OpFile plat", "mimeType": "application/json" }),
+    ];
+    for id in server.sessions.keys() {
+        out.push(json!({ "uri": format!("ducad://part/{id}/oplog"), "name": format!("Oplog {id}"), "mimeType": "application/json" }));
+        out.push(json!({ "uri": format!("ducad://part/{id}/summary"), "name": format!("Ringkasan {id}"), "mimeType": "application/json" }));
+    }
+    out
+}
+
+fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
+    let text_of = |mime: &str, text: String| json!({ "contents": [{ "uri": uri, "mimeType": mime, "text": text }] });
+    match uri {
+        "ducad://schema" => Ok(text_of(
+            "application/json",
+            ducad_engine::ops::op_schema().to_string(),
+        )),
+        "ducad://guide" => Ok(text_of("text/markdown", guide_text())),
+        "ducad://example/plate" => Ok(text_of(
+            "application/json",
+            ducad_engine::ops::EXAMPLE_PLATE.to_string(),
+        )),
+        _ => {
+            let rest = uri
+                .strip_prefix("ducad://part/")
+                .ok_or_else(|| format!("resource tidak dikenal: {uri}"))?;
+            let (id, what) = rest
+                .split_once('/')
+                .ok_or_else(|| format!("resource tidak dikenal: {uri}"))?;
+            let part = server
+                .sessions
+                .get(id)
+                .ok_or_else(|| format!("sesi '{id}' tidak dikenal"))?;
+            let v = match what {
+                "oplog" => {
+                    let d = part.session.design();
+                    json!({ "params": d.params, "ops": d.oplog })
+                }
+                "summary" => {
+                    serde_json::to_value(part.session.summary()).map_err(|e| e.to_string())?
+                }
+                _ => return Err(format!("resource tidak dikenal: {uri}")),
+            };
+            Ok(text_of("application/json", v.to_string()))
+        }
+    }
+}
+
+fn prompt_list() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "model_part",
+            "description": "Buat part baru dari spesifikasi dengan alur kerja DUCAD (params, checks, dry run, verifikasi).",
+            "arguments": [
+                { "name": "spec", "description": "Spesifikasi part (dimensi, fitur, material).", "required": true },
+                { "name": "path", "description": "Berkas .ducad tujuan.", "required": false }
+            ]
+        }),
+        json!({
+            "name": "edit_part",
+            "description": "Ubah part yang ada tanpa menulis ulang oplog (utamakan set_params).",
+            "arguments": [
+                { "name": "path", "description": "Berkas .ducad.", "required": true },
+                { "name": "change", "description": "Perubahan yang diminta.", "required": true }
+            ]
+        }),
+    ]
+}
+
+fn get_prompt(name: &str, args: &Value) -> Result<Value, String> {
+    let arg = |k: &str| {
+        args.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let (description, text) = match name {
+        "model_part" => {
+            let spec = arg("spec");
+            if spec.trim().is_empty() {
+                return Err("argumen 'spec' wajib".into());
+            }
+            let path = match arg("path") {
+                p if p.is_empty() => "part.ducad".to_string(),
+                p => p,
+            };
+            (
+                "Buat part baru",
+                format!(
+                    "Buat part DUCAD dari spesifikasi berikut, lalu simpan ke {path}.\n\nSPESIFIKASI:\n{spec}\n\n\
+                     Langkah: get_schema → new_part → set_params (semua dimensi) → set_checks dari persyaratan → \
+                     run_ops dry_run lalu commit dalam batch kecil → inspect + run_checks + render_view (iso dan top) → \
+                     bandingkan angka dengan spesifikasi → save_part. Laporkan ukuran utama dan asumsi."
+                ),
+            )
+        }
+        "edit_part" => {
+            let (path, change) = (arg("path"), arg("change"));
+            if path.is_empty() || change.trim().is_empty() {
+                return Err("argumen 'path' dan 'change' wajib".into());
+            }
+            (
+                "Ubah part",
+                format!(
+                    "Buka {path} dengan open_part, baca get_oplog, lalu lakukan perubahan ini: {change}\n\n\
+                     Utamakan set_params bila param yang sesuai sudah ada; jangan menulis ulang op yang ada. \
+                     Verifikasi dengan run_checks dan render_view, lalu save_part ke path yang sama."
+                ),
+            )
+        }
+        other => return Err(format!("prompt tidak dikenal: {other}")),
+    };
+    Ok(json!({
+        "description": description,
+        "messages": [{ "role": "user", "content": { "type": "text", "text": text } }]
+    }))
+}
+
 fn error_reply(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
@@ -229,20 +358,41 @@ fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (
             };
             Ok(json!({
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": { "tools": {} },
+                "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
                 "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
                 "instructions": instructions,
             }))
         }
         m if m.starts_with("notifications/") => Ok(Value::Null),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": crate::tools::definitions() })),
+        "tools/list" => Ok(json!({ "tools": match server.attach {
+            Some(_) => crate::tools::chat_tools(true),
+            None => crate::tools::definitions(),
+        } })),
+        "resources/list" => Ok(json!({ "resources": resource_list(server) })),
+        "resources/read" => {
+            let uri = params
+                .get("uri")
+                .and_then(Value::as_str)
+                .ok_or((INVALID_PARAMS, "resources/read butuh 'uri'".to_string()))?;
+            read_resource(server, uri).map_err(|m| (INVALID_PARAMS, m))
+        }
+        "prompts/list" => Ok(json!({ "prompts": prompt_list() })),
+        "prompts/get" => {
+            let name = params
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or((INVALID_PARAMS, "prompts/get butuh 'name'".to_string()))?;
+            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            get_prompt(name, &args).map_err(|m| (INVALID_PARAMS, m))
+        }
         "tools/call" => {
             let name = params
                 .get("name")
                 .and_then(Value::as_str)
                 .ok_or((INVALID_PARAMS, "tools/call butuh 'name'".to_string()))?;
-            if !crate::tools::TOOL_NAMES.contains(&name) {
+            let live_ok = server.attach.is_some() && crate::tools::LIVE_TOOL_NAMES.contains(&name);
+            if !crate::tools::TOOL_NAMES.contains(&name) && !live_ok {
                 return Err((INVALID_PARAMS, format!("tool tidak dikenal: {name}")));
             }
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -291,7 +441,7 @@ mod tests {
         let r =
             handle_message(&mut s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#).unwrap();
         let tools = r["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 20);
+        assert_eq!(tools.len(), crate::tools::TOOL_NAMES.len());
         for t in tools {
             assert!(t["inputSchema"].is_object(), "{}", t["name"]);
             assert_eq!(t["inputSchema"]["additionalProperties"], false);
@@ -462,6 +612,113 @@ mod tests {
             .contains("di luar root"));
         let r = call(&mut s, 6, "save_part", json!({ "path": "/etc/luar.ducad" }));
         assert_eq!(r["isError"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resources_prompts_and_new_tools() {
+        let (mut s, dir) = server();
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        )
+        .unwrap();
+        assert!(r["result"]["capabilities"]["resources"].is_object());
+        call(&mut s, 2, "new_part", json!({}));
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":3,"method":"resources/list"}"#,
+        )
+        .unwrap();
+        let uris: Vec<String> = r["result"]["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["uri"].as_str().unwrap().to_string())
+            .collect();
+        assert!(
+            uris.contains(&"ducad://part/s1/oplog".to_string()),
+            "{uris:?}"
+        );
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"ducad://guide"}}"#,
+        )
+        .unwrap();
+        assert!(r["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("of(>Z)"));
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"ducad://part/zz/oplog"}}"#,
+        )
+        .unwrap();
+        assert_eq!(r["error"]["code"], -32602);
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":6,"method":"prompts/get","params":{"name":"model_part","arguments":{"spec":"plat 60x40x8"}}}"#,
+        )
+        .unwrap();
+        assert!(r["result"]["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("plat 60x40x8"));
+
+        // Part: blok → gambar kerja PDF → ekspor STEP → impor ulang → diff.
+        let r = call(
+            &mut s,
+            7,
+            "run_ops",
+            json!({ "ops": [
+            {"op":"primitive","id":"blok","shape":{"box":{"size":[30,20,10]}}}
+        ] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            8,
+            "drawing",
+            json!({ "format": "pdf", "path": "blok.pdf", "title": "Blok" }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert!(dir.join("blok.pdf").metadata().unwrap().len() > 500);
+        let r = call(
+            &mut s,
+            9,
+            "export",
+            json!({ "format": "step", "path": "blok.step" }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&mut s, 10, "save_part", json!({ "path": "v1.ducad" }));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            11,
+            "import_step",
+            json!({ "path": "blok.step", "name": "salinan" }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert!((text(&r)["volume"].as_f64().unwrap() - 6000.0).abs() < 1e-3);
+        let r = call(
+            &mut s,
+            12,
+            "import_step",
+            json!({ "path": "blok.step", "name": "salinan" }),
+        );
+        assert_eq!(r["isError"], true, "nama ganda ditolak");
+        let r = call(&mut s, 13, "diff", json!({ "against_path": "v1.ducad" }));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&mut s, 14, "list_parts", json!({}));
+        assert_eq!(text(&r)["parts"][0]["bodies"], 2);
+        // Impor tersimpan di part dan ikut di-replay.
+        call(&mut s, 15, "save_part", json!({ "path": "v2.ducad" }));
+        let r = call(&mut s, 16, "open_part", json!({ "path": "v2.ducad" }));
+        assert_eq!(
+            text(&r)["summary"]["bodies"].as_array().unwrap().len(),
+            2,
+            "{r}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

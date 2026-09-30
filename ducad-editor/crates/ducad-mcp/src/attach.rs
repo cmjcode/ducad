@@ -21,7 +21,14 @@ pub const LIVE_SESSION: &str = "live";
 pub const TIMEOUT_SECS: u64 = 120;
 
 /// Tool yang tidak masuk akal pada dokumen yang sedang terbuka.
-const UNSUPPORTED: &[&str] = &["new_part", "open_part", "close_part", "accept_proposal"];
+pub const UNSUPPORTED: &[&str] = &[
+    "new_part",
+    "open_part",
+    "close_part",
+    "accept_proposal",
+    "diff",
+    "list_parts",
+];
 
 pub struct AttachClient {
     socket: PathBuf,

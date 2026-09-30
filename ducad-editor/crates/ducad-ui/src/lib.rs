@@ -14,6 +14,7 @@
 pub mod account_drawer;
 pub mod assembly_drawer;
 pub mod canvas_hud;
+pub mod chat_panel;
 pub mod checks_panel;
 pub mod cmf_drawer;
 pub mod command_palette;
@@ -55,6 +56,9 @@ pub use canvas_hud::{
     RevolveHudAction, RibHudAction, RoundingHudAction, RoundingHudStyle, ShellHudAction,
     SlotHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
     StudioLightingPresetUi, SweepHudAction, ZebraHudAction,
+};
+pub use chat_panel::{
+    ChatItem, ChatPanel, ChatPanelEvent, ChatPanelState, ChatProviderForm, ChatRole,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};

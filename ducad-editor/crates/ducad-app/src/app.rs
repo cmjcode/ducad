@@ -138,6 +138,8 @@ pub struct DuCADApp {
     pub checks: crate::checks_ui::ChecksState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
+    /// Panel chat AI (P13.3).
+    pub chat: crate::chat_ui::ChatState,
     /// Memori MNEMONIC tertaut langsung (P11.5); dibuka saat pertama
     /// dipakai supaya aplikasi tidak menunggu indeks vault saat start.
     #[cfg(feature = "memory")]
@@ -515,6 +517,7 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
             memory: None,
             freehand: crate::freehand::FreehandState::new(),
@@ -816,6 +819,7 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             ai: crate::assist_ui::AiState::default(),
+            chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
             memory: None,
             freehand: crate::freehand::FreehandState::new(),
@@ -1551,6 +1555,14 @@ impl eframe::App for DuCADApp {
         if palette_pressed {
             self.palette.toggle();
         }
+        // Chat AI (P13.3).
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::A)) {
+            if self.chat.panel.open {
+                self.chat.panel.open = false;
+            } else {
+                self.open_chat();
+            }
+        }
         let mode_sketch_pressed = ctx.input(|i| {
             i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num2)
         });
@@ -1839,6 +1851,7 @@ impl eframe::App for DuCADApp {
                                 self.checks.panel_open = !self.checks.panel_open;
                             }
                             TopBarEvent::OpenAssist => self.open_assist_dialog(),
+                            TopBarEvent::OpenChat => self.open_chat(),
                         }
                     }
                 });
@@ -4147,6 +4160,7 @@ impl eframe::App for DuCADApp {
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
+        self.chat_frame(&ctx);
         self.proposal_frame(&ctx);
         self.freehand_tick();
     }

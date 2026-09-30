@@ -9,6 +9,8 @@ use resvg::usvg::{Options, Tree};
 pub mod agent_bridge;
 pub mod app;
 pub mod assist_ui;
+pub mod chat_history;
+pub mod chat_ui;
 pub mod checks_ui;
 #[cfg(target_vendor = "apple")]
 pub mod apple;
@@ -21,6 +23,7 @@ pub mod history_db;
 pub mod import_worker;
 pub mod ink;
 pub mod input;
+pub mod live_tools;
 /// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
 #[cfg(feature = "memory")]
 pub mod memory;

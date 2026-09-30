@@ -1241,3 +1241,33 @@ proposal-volume = +{ $added } mm³ / −{ $removed } mm³
 proposal-accepted = Usulan agent diterapkan
 proposal-rejected = Usulan agent ditolak
 proposal-timeout = Usulan agent kedaluwarsa
+
+## Chat AI (P13)
+chat-title = Chat AI
+chat-open = Chat AI (agent yang mengendalikan DUCAD)
+chat-hint = Mis. "buat bracket L 60×40×5 dengan 2 lubang M5" — Enter untuk kirim, Shift+Enter baris baru
+chat-send = Kirim
+chat-stop = Hentikan
+chat-new = Chat baru
+chat-new-confirm = Klik lagi untuk menghapus
+chat-working = Agent sedang bekerja…
+chat-empty = Minta agent membuat atau mengubah part. Setiap batch perubahan = satu langkah undo.
+chat-settings = Pengaturan provider AI
+chat-history = Riwayat chat
+chat-history-empty = Belum ada chat tersimpan.
+chat-provider = Provider
+chat-base-url = Base URL
+chat-model = Model
+chat-api-key = Kunci API
+chat-key-saved = tersimpan di Keychain — kosongkan untuk mempertahankan
+chat-key-empty = belum ada (atau pakai variabel lingkungan)
+chat-confirm-writes = Selalu minta persetujuan sebelum mengubah geometri
+chat-allow-external = Izinkan AI eksternal (desain dikirim ke provider jaringan)
+chat-privacy-note = Tanpa izin ini hanya provider lokal (localhost) yang bisa dipakai, dan Agent Bridge tetap mati.
+chat-save = Simpan
+chat-saved = Pengaturan AI disimpan.
+chat-blocked-privacy = Privasi "Hanya di perangkat" aktif: provider { $host } ada di jaringan. Aktifkan "Izinkan AI eksternal" di ⚙ atau pakai Ollama lokal.
+chat-cancelled = Dibatalkan.
+chat-tool-args = argumen
+chat-usage = token: { $input } masuk · { $output } keluar · { $cached } cache
+chat-activity = Chat AI

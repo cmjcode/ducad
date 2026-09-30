@@ -20,6 +20,8 @@ ducad-cloud = { path = "crates/ducad-cloud" }
 ducad-engine = { path = "crates/ducad-engine" }
 ducad-assist = { path = "crates/ducad-assist" }
 ducad-ink = { path = "crates/ducad-ink" }
+ducad-chat = { path = "crates/ducad-chat" }
+ducad-mcp = { path = "crates/ducad-mcp" }
 
 dirs = "6.0"
 fluent-bundle = "0.16"

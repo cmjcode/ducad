@@ -79,6 +79,8 @@ pub enum TopBarEvent {
     ToggleChecksPanel,
     /// Buka dialog "Tanya AI…".
     OpenAssist,
+    /// Buka panel Chat AI (P13.3).
+    OpenChat,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -549,6 +551,15 @@ impl TopBar {
                                 .color(crate::theme::ACCENT_GREEN),
                         ))
                         .on_hover_text(t!("bridge-on"));
+                    }
+
+                    // 8c. Tombol Chat AI (P13.3) — selalu ada.
+                    if ui
+                        .add(egui::Button::new(RichText::new("✨ AI").size(12.0).color(crate::theme::ACCENT_BLUE)))
+                        .on_hover_text(t!("chat-open"))
+                        .clicked()
+                    {
+                        event = Some(TopBarEvent::OpenChat);
                     }
 
                     // 8b. Chip status AI (P11.4).
