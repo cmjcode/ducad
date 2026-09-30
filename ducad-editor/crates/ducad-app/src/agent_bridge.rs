@@ -240,7 +240,7 @@ mod unix_server {
     fn handle_line(line: &str, tx: &mpsc::Sender<BridgeRequest>, ctx: &egui::Context) -> Value {
         let msg: Value = match serde_json::from_str(line) {
             Ok(v) => v,
-            Err(e) => return protocol_error(0, &format!("JSON tidak valid: {e}")),
+            Err(e) => return protocol_error(0, &format!("invalid JSON: {e}")),
         };
         let id = msg.get("id").and_then(Value::as_u64).unwrap_or(0);
         let Some(method) = msg.get("method").and_then(Value::as_str) else {
@@ -294,21 +294,27 @@ use ducad_engine::{DesignDoc, OpError, OpErrorCode, OpResult, SessionCore};
 use crate::app::DuCADApp;
 
 /// Metode yang dijawab jembatan (selain tool tingkat-core).
-const BRIDGE_ONLY: &[&str] = &["set_params", "save_part", "propose_ops"];
+const BRIDGE_ONLY: &[&str] = &[
+    "set_params",
+    "save_part",
+    "propose_ops",
+    "replace_op",
+    "remove_op",
+];
 
 /// Metode yang sengaja TIDAK tersedia lewat jembatan; alasannya menyusul
 /// di `hint` supaya agent tahu harus berbuat apa.
 fn unsupported(method: &str) -> OpError {
     let hint = match method {
         "new_part" | "open_part" | "close_part" => {
-            "lakukan di aplikasi (menu Berkas); jembatan bekerja pada dokumen yang sedang terbuka"
+            "do it in the app (File menu); the bridge works on the document that is currently open"
         }
-        "accept_proposal" => "hanya pengguna yang bisa menerima proposal, lewat tombol di aplikasi",
-        _ => "metode ini tidak tersedia pada sesi live",
+        "accept_proposal" => "only the user can accept a proposal, with the buttons in the app",
+        _ => "this method is not available in a live session",
     };
     OpError::new(
         OpErrorCode::InvalidParam,
-        format!("metode '{method}' tidak tersedia lewat jembatan live"),
+        format!("method '{method}' is not available through the live bridge"),
     )
     .with_hint(hint)
 }
@@ -328,7 +334,7 @@ impl ToolPaths for BridgePaths {
         }) {
             return Err(OpError::new(
                 OpErrorCode::Io,
-                format!("path harus relatif terhadap folder dokumen: {p}"),
+                format!("path must be relative to the document folder: {p}"),
             ));
         }
         Ok(self.0.join(raw))
@@ -487,6 +493,20 @@ impl DuCADApp {
         }
         self.sync_agent_meta();
         let mut params = params;
+        // Mode "selalu usulkan": edit oplog lama juga menunggu persetujuan.
+        if matches!(method, "replace_op" | "remove_op")
+            && self.bridge.force_propose
+            && params.get("dry_run") != Some(&Value::Bool(true))
+        {
+            let proposed = match ducad_engine::tooling::parse_edit_args(method, params) {
+                Ok(e) => self.agent_propose_edit(e, id, reply),
+                Err(e) => Err(e),
+            };
+            return match proposed {
+                Ok(()) => None,
+                Err(e) => Some(ToolOut::err(e)),
+            };
+        }
         let method = if method == "run_ops"
             && self.bridge.force_propose
             && params.get("dry_run") != Some(&Value::Bool(true))
@@ -505,6 +525,10 @@ impl DuCADApp {
             },
             "set_params" => Some(self.agent_set_params(params).unwrap_or_else(ToolOut::err)),
             "save_part" => Some(self.agent_save_part(params).unwrap_or_else(ToolOut::err)),
+            "replace_op" | "remove_op" => Some(
+                self.agent_edit_oplog(method, params)
+                    .unwrap_or_else(ToolOut::err),
+            ),
             _ => {
                 let paths = BridgePaths(self.bridge_root());
                 let out = {
@@ -517,6 +541,10 @@ impl DuCADApp {
                     call_core_tool(&mut core, method, params, &paths)
                 };
                 let out = out.unwrap_or_else(ToolOut::err);
+                if method == "set_checks" && !out.is_error {
+                    // Checks bagian dari design → ikut tersimpan ke .ducad.
+                    self.sync_design_after_agent();
+                }
                 if method == "import_step" && !out.is_error {
                     self.sync_design_after_agent();
                     self.after_model_changed(&ducad_i18n::t!("bridge-title"), "import_step");
@@ -580,8 +608,62 @@ impl DuCADApp {
         Ok(ToolOut::ok(report))
     }
 
+    /// `replace_op` / `remove_op`: edit oplog, replay di sesi salinan, lalu
+    /// adopsi sebagai SATU langkah undo GUI (`dry_run`: hanya laporan).
+    #[allow(clippy::result_large_err)]
+    fn agent_edit_oplog(&mut self, method: &str, params: Value) -> OpResult<ToolOut> {
+        let e = ducad_engine::tooling::parse_edit_args(method, params)?;
+        // Id op yang tidak dikenal → `Err` (sama dengan server MCP).
+        ducad_engine::edit_design(&self.agent_meta.design, None, &e.replace, &e.remove, &[])?;
+        let preview = match ducad_engine::preview_edit(
+            &self.model,
+            &self.agent_meta.design,
+            None,
+            &e.replace,
+            &e.remove,
+            &[],
+        ) {
+            Ok(p) => p,
+            // Replay gagal → laporan gagal berbentuk BatchReport; model utuh.
+            Err(err) => {
+                let core = SessionCore {
+                    model: &mut self.model,
+                    model_undo: &mut self.model_undo,
+                    sketches: &mut self.sketch_set,
+                    meta: &mut self.agent_meta,
+                };
+                let summary = ducad_engine::inspect::summarize_core(
+                    &core,
+                    None,
+                    false,
+                    ducad_engine::inspect::DEFAULT_TOPOLOGY_LIMIT,
+                )?;
+                let report = ducad_engine::BatchReport {
+                    committed: false,
+                    outcomes: Vec::new(),
+                    error: Some(err),
+                    summary,
+                    checks: None,
+                };
+                return Ok(ToolOut {
+                    payload: ducad_engine::tooling::to_value(report)?,
+                    image_png: None,
+                    is_error: true,
+                });
+            }
+        };
+        let mut report = preview.report;
+        if e.dry_run {
+            return Ok(ToolOut::ok(ducad_engine::tooling::to_value(report)?));
+        }
+        report.committed = true;
+        let meta = preview.session.meta().clone();
+        self.adopt_agent_model(preview.session.into_model(), meta, method);
+        Ok(ToolOut::ok(ducad_engine::tooling::to_value(report)?))
+    }
+
     /// Ganti seluruh model GUI dengan hasil replay, satu langkah undo.
-    fn adopt_agent_model(
+    pub(crate) fn adopt_agent_model(
         &mut self,
         model: ducad_engine::model::ModelDoc,
         meta: ducad_engine::SessionMeta,
@@ -613,10 +695,9 @@ impl DuCADApp {
         let paths = BridgePaths(self.bridge_root());
         let path = match a.path.as_deref() {
             Some(p) => paths.resolve(p)?,
-            None => self
-                .current_file_path
-                .clone()
-                .ok_or_else(|| OpError::invalid("dokumen belum punya path; isi argumen 'path'"))?,
+            None => self.current_file_path.clone().ok_or_else(|| {
+                OpError::invalid("the document has no path yet; pass the 'path' argument")
+            })?,
         };
         self.sync_design_after_agent();
         self.save_native_to(path.clone());
@@ -686,14 +767,11 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 app.poll_agent_bridge(&ctx);
                 let _ = reader.get_ref().set_nonblocking(true);
-                let mut buf = String::new();
-                match reader.read_line(&mut buf) {
-                    Ok(0) => std::thread::sleep(std::time::Duration::from_millis(1)),
-                    Ok(_) => {
-                        line = buf;
-                        break;
-                    }
-                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(1)),
+                // Soket non-blocking bisa memberi baris sepotong-sepotong:
+                // kumpulkan sampai `\n` sebelum di-parse.
+                match reader.read_line(&mut line) {
+                    Ok(_) if line.ends_with('\n') => break,
+                    _ => std::thread::sleep(std::time::Duration::from_millis(1)),
                 }
             }
             let _ = reader.get_ref().set_nonblocking(false);

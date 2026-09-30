@@ -18,8 +18,8 @@ fn tol_001() -> f64 {
     0.01
 }
 
-/// Satu check beserta id/catatan opsional. Catatan: serde tidak mendukung
-/// `flatten` + `deny_unknown_fields`, jadi field tak dikenal diabaikan di sini.
+/// One check with optional id/note. Note: serde does not support `flatten` + `deny_unknown_fields`,
+/// so unknown fields are ignored here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CheckItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,7 +50,7 @@ pub enum Check {
         #[serde(default = "one")]
         tol_pct: f64,
     },
-    /// Urutan X, Y, Z.
+    /// Order X, Y, Z.
     BboxSize {
         body: BodySel,
         expect: [Num; 3],
@@ -110,8 +110,8 @@ impl Check {
     }
 }
 
-/// `"*"` pada field `body` = satu-satunya body (error bila jumlah ≠ 1);
-/// `"*"` pada field `bodies` = semua body.
+/// `"*"` in field `body` = the only body (error if the count ≠ 1); `"*"` in field `bodies` = all
+/// bodies.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum BodySel {

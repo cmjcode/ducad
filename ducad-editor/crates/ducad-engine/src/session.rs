@@ -136,8 +136,9 @@ pub const MAX_PROPOSALS: usize = 8;
 struct StoredProposal {
     id: String,
     ops: Vec<Op>,
-    /// Bagian non-append (P11): params baru dan/atau op yang diganti.
-    edit: Option<(Option<Params>, Vec<ReplaceOp>)>,
+    /// Bagian non-append (P11): params baru, op yang diganti, dan id op
+    /// yang dihapus.
+    edit: Option<(Option<Params>, Vec<ReplaceOp>, Vec<String>)>,
     base_fingerprint: String,
 }
 
@@ -160,6 +161,9 @@ pub struct Proposal {
     /// Op yang diganti (proposal dari `propose_edit`).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub replace: Vec<ReplaceOp>,
+    /// Id op yang dihapus dari oplog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<String>,
     /// `committed = false`.
     pub report: BatchReport,
     pub diff: Vec<crate::diff::BodyDiff>,
@@ -214,6 +218,141 @@ fn body_lookup<'m>(
 
 fn clone_shape(shape: &KernelShape) -> OpResult<KernelShape> {
     ducad_kernel::clone_shape(shape).map_err(|e| OpError::kernel("Salin shape", e))
+}
+
+// ---------------------------------------------------------------------
+// Edit oplog di tempat (P11, P16).
+// ---------------------------------------------------------------------
+
+/// Design hasil edit: params diganti, op diganti di tempat (id tetap), op
+/// di `remove` dibuang, lalu `append` ditambahkan di akhir. Fungsi murni —
+/// dipakai [`Session`] dan jembatan live GUI.
+pub fn edit_design(
+    base: &DesignDoc,
+    params: Option<&Params>,
+    replace: &[ReplaceOp],
+    remove: &[String],
+    append: &[Op],
+) -> OpResult<DesignDoc> {
+    let mut design = base.clone();
+    let unknown = |id: &str, design: &DesignDoc| {
+        let known: Vec<&str> = design.oplog.iter().map(|o| o.id()).collect();
+        OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("op '{id}' is not in the oplog"),
+        )
+        .with_hint("list the existing op ids with get_oplog")
+        .with_context(serde_json::json!({ "ops": known }))
+    };
+    if let Some(p) = params {
+        design.params = p.clone();
+    }
+    for r in replace {
+        if remove.contains(&r.id) {
+            return Err(OpError::invalid(format!(
+                "op '{}' cannot be both replaced and removed",
+                r.id
+            )));
+        }
+        let Some(pos) = design.oplog.iter().position(|o| o.id() == r.id) else {
+            return Err(unknown(&r.id, &design));
+        };
+        if r.op.id() != r.id {
+            return Err(OpError::invalid(format!(
+                "replacement op has id '{}' but must use id '{}'",
+                r.op.id(),
+                r.id
+            )));
+        }
+        design.oplog[pos] = r.op.clone();
+    }
+    for id in remove {
+        let before = design.oplog.len();
+        design.oplog.retain(|o| o.id() != id);
+        if design.oplog.len() == before {
+            return Err(unknown(id, base));
+        }
+    }
+    design.oplog.extend(append.iter().cloned());
+    Ok(design)
+}
+
+/// Hasil [`preview_edit`]: sesi hasil replay + laporan + diff body.
+pub struct EditPreview {
+    /// Sesi baru hasil replay design yang diedit (siap diadopsi).
+    pub session: Session,
+    /// `committed = false`; `summary` = keadaan usulan.
+    pub report: BatchReport,
+    pub diff: Vec<crate::diff::BodyDiff>,
+    pub shapes: crate::diff::DiffShapes,
+}
+
+/// Uji edit oplog (lihat [`edit_design`]) tanpa menyentuh model pemanggil:
+/// replay pada sesi baru lalu diff terhadap `current`. Dipakai jembatan
+/// live GUI, yang memegang model dan undo-nya sendiri.
+pub fn preview_edit(
+    current: &ModelDoc,
+    base: &DesignDoc,
+    params: Option<&Params>,
+    replace: &[ReplaceOp],
+    remove: &[String],
+    append: &[Op],
+) -> OpResult<EditPreview> {
+    let design = edit_design(base, params, replace, remove, append)?;
+    let before = crate::diff::snapshot_bodies(current);
+    let (session, mut report) = Session::rebuild(DesignDoc {
+        fingerprint: String::new(),
+        ..design
+    })
+    .map_err(|e| with_remove_hint(e, remove))?;
+    let after = crate::diff::snapshot_bodies(&session.model);
+    let (diff, shapes, _) = crate::diff::diff_bodies(before, after, true);
+    report.committed = false;
+    report.summary = session.summary();
+    Ok(EditPreview {
+        session,
+        report,
+        diff,
+        shapes,
+    })
+}
+
+/// Riwayat batch undo setelah op di posisi `removed_at` (posisi oplog lama
+/// sepanjang `old_len`) dihapus. Batch mencakup op TERAKHIR oplog; op di
+/// depannya (mis. hasil muat berkas) tidak termasuk batch mana pun. Batch
+/// yang menjadi kosong dibuang.
+pub(crate) fn batches_after_remove(
+    batches: &[usize],
+    old_len: usize,
+    removed_at: &[usize],
+) -> Vec<usize> {
+    let covered: usize = batches.iter().sum();
+    let mut start = old_len.saturating_sub(covered);
+    let mut out = Vec::with_capacity(batches.len());
+    for &n in batches {
+        let gone = removed_at
+            .iter()
+            .filter(|&&p| p >= start && p < start + n)
+            .count();
+        if n > gone {
+            out.push(n - gone);
+        }
+        start += n;
+    }
+    out
+}
+
+/// Replay gagal setelah menghapus op: rujukan yang putus hampir selalu
+/// berarti op lain masih memakai op yang dihapus.
+fn with_remove_hint(e: OpError, remove: &[String]) -> OpError {
+    if remove.is_empty() || e.code != OpErrorCode::UnknownRef {
+        return e;
+    }
+    let by = e.op_id.clone().unwrap_or_else(|| "a later op".into());
+    e.with_hint(format!(
+        "op '{by}' still references the removed op(s) ({}); remove it as well or change its reference with replace_op",
+        remove.join(", ")
+    ))
 }
 
 // ---------------------------------------------------------------------
@@ -1899,6 +2038,7 @@ impl Session {
                 ops,
                 params: None,
                 replace: Vec::new(),
+                remove: Vec::new(),
                 report,
                 diff,
                 base_fingerprint,
@@ -1928,7 +2068,7 @@ impl Session {
         }
         let ops = self.proposals[pos].ops.clone();
         let report = match self.proposals[pos].edit.clone() {
-            Some((params, replace)) => self.apply_edit(params, &replace, ops),
+            Some((params, replace, remove)) => self.apply_edit(params, &replace, &remove, ops),
             None => self.run(ops, false),
         };
         if report.committed {
@@ -1939,46 +2079,23 @@ impl Session {
         report
     }
 
-    /// Design hasil edit: params diganti, op diganti di tempat, `append`
-    /// ditambahkan di akhir.
+    /// Design hasil edit atas design sesi ini (lihat [`edit_design`]).
     fn edited_design(
         &self,
         params: Option<&Params>,
         replace: &[ReplaceOp],
+        remove: &[String],
         append: &[Op],
     ) -> OpResult<DesignDoc> {
-        let mut design = self.meta.design.clone();
-        if let Some(p) = params {
-            design.params = p.clone();
-        }
-        for r in replace {
-            let slot = design
-                .oplog
-                .iter_mut()
-                .find(|o| o.id() == r.id)
-                .ok_or_else(|| {
-                    OpError::new(
-                        OpErrorCode::UnknownRef,
-                        format!("op '{}' tidak ada di oplog", r.id),
-                    )
-                })?;
-            if r.op.id() != r.id {
-                return Err(OpError::invalid(format!(
-                    "op pengganti ber-id '{}' harus memakai id '{}'",
-                    r.op.id(),
-                    r.id
-                )));
-            }
-            *slot = r.op.clone();
-        }
-        design.oplog.extend(append.iter().cloned());
-        Ok(design)
+        edit_design(&self.meta.design, params, replace, remove, append)
     }
 
     /// Ganti sesi dengan hasil rebuild, pertahankan riwayat batch, proposal,
-    /// dan peringatan.
-    fn adopt_rebuilt(&mut self, mut s: Session, appended: usize) {
-        s.meta.batches = std::mem::take(&mut self.meta.batches);
+    /// dan peringatan. `removed_at`: posisi oplog (lama) op yang dihapus.
+    fn adopt_rebuilt(&mut self, mut s: Session, removed_at: &[usize], appended: usize) {
+        let old_len = self.meta.design.oplog.len();
+        s.meta.batches =
+            batches_after_remove(&std::mem::take(&mut self.meta.batches), old_len, removed_at);
         if appended > 0 {
             s.meta.batches.push(appended);
         }
@@ -1988,38 +2105,77 @@ impl Session {
         *self = s;
     }
 
+    /// Posisi oplog op-op yang akan dihapus (id tak dikenal diabaikan;
+    /// sudah divalidasi [`edit_design`]).
+    fn positions_of(&self, remove: &[String]) -> Vec<usize> {
+        self.meta
+            .design
+            .oplog
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| remove.iter().any(|r| r == o.id()))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     fn apply_edit(
         &mut self,
         params: Option<Params>,
         replace: &[ReplaceOp],
+        remove: &[String],
         append: Vec<Op>,
     ) -> BatchReport {
-        let design = match self.edited_design(params.as_ref(), replace, &append) {
+        let design = match self.edited_design(params.as_ref(), replace, remove, &append) {
             Ok(d) => d,
             Err(e) => return self.failed_report(e),
         };
         match Self::rebuild(design) {
             Ok((s, report)) => {
-                self.adopt_rebuilt(s, append.len());
+                let removed_at = self.positions_of(remove);
+                self.adopt_rebuilt(s, &removed_at, append.len());
                 BatchReport {
                     summary: self.summary(),
                     ..report
                 }
             }
-            Err(e) => self.failed_report(e),
+            Err(e) => self.failed_report(with_remove_hint(e, remove)),
         }
     }
 
     /// Ganti satu op di oplog lalu replay penuh; gagal → sesi lama utuh
     /// (P11). Id op tidak dikenal → `UnknownRef`.
     pub fn replace_op(&mut self, id: &str, op: Op) -> OpResult<BatchReport> {
-        let replace = [ReplaceOp {
+        let replace = vec![ReplaceOp {
             id: id.to_string(),
             op,
         }];
+        self.edit_oplog(None, replace, Vec::new(), false)
+    }
+
+    /// Edit oplog di tempat: params baru, op diganti (id tetap), dan/atau op
+    /// dihapus, lalu replay penuh. Gagal → sesi lama utuh dan `error` di
+    /// laporan. `dry_run`: hanya uji replay, `summary` = keadaan usulan.
+    /// Id op tidak dikenal → `Err(UnknownRef)`.
+    pub fn edit_oplog(
+        &mut self,
+        params: Option<Params>,
+        replace: Vec<ReplaceOp>,
+        remove: Vec<String>,
+        dry_run: bool,
+    ) -> OpResult<BatchReport> {
         // Validasi id lebih dulu agar error referensi menjadi `Err`.
-        self.edited_design(None, &replace, &[])?;
-        Ok(self.apply_edit(None, &replace, Vec::new()))
+        let design = self.edited_design(params.as_ref(), &replace, &remove, &[])?;
+        if !dry_run {
+            return Ok(self.apply_edit(params, &replace, &remove, Vec::new()));
+        }
+        Ok(match Self::rebuild(design) {
+            Ok((copy, report)) => BatchReport {
+                committed: false,
+                summary: copy.summary(),
+                ..report
+            },
+            Err(e) => self.failed_report(with_remove_hint(e, &remove)),
+        })
     }
 
     /// Proposal umum (P11): params baru, penggantian op, dan op tambahan,
@@ -2032,13 +2188,28 @@ impl Session {
         replace: Vec<ReplaceOp>,
         append: Vec<Op>,
     ) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
-        if params.is_none() && replace.is_empty() && self.meta.design.checks.is_empty() {
+        self.propose_oplog_edit(params, replace, Vec::new(), append)
+    }
+
+    /// Seperti [`Session::propose_edit`] plus penghapusan op (`remove`).
+    pub fn propose_oplog_edit(
+        &mut self,
+        params: Option<Params>,
+        replace: Vec<ReplaceOp>,
+        remove: Vec<String>,
+        append: Vec<Op>,
+    ) -> OpResult<(Proposal, crate::diff::DiffShapes)> {
+        if params.is_none()
+            && replace.is_empty()
+            && remove.is_empty()
+            && self.meta.design.checks.is_empty()
+        {
             return self.propose(append);
         }
-        let design = self.edited_design(params.as_ref(), &replace, &append)?;
+        let design = self.edited_design(params.as_ref(), &replace, &remove, &append)?;
         let before = crate::diff::snapshot_bodies(&self.model);
         let base_fingerprint = fingerprint(&self.model);
-        let (copy, mut report) = Self::rebuild(design)?;
+        let (copy, mut report) = Self::rebuild(design).map_err(|e| with_remove_hint(e, &remove))?;
         let after = crate::diff::snapshot_bodies(&copy.model);
         let (diff, shapes, _) = crate::diff::diff_bodies(before, after, true);
         report.committed = false;
@@ -2051,7 +2222,7 @@ impl Session {
         self.proposals.push_back(StoredProposal {
             id: id.clone(),
             ops: append.clone(),
-            edit: Some((params.clone(), replace.clone())),
+            edit: Some((params.clone(), replace.clone(), remove.clone())),
             base_fingerprint: base_fingerprint.clone(),
         });
         Ok((
@@ -2060,6 +2231,7 @@ impl Session {
                 ops: append,
                 params,
                 replace,
+                remove,
                 report,
                 diff,
                 base_fingerprint,
@@ -2136,5 +2308,20 @@ impl Session {
             }
             None => Ok(true),
         }
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::batches_after_remove;
+
+    #[test]
+    fn batches_after_remove_adjusts_only_covering_batch() {
+        // oplog 6 op: 1 op dari berkas (tanpa batch), batch [2, 3].
+        assert_eq!(batches_after_remove(&[2, 3], 6, &[2]), vec![1, 3]);
+        assert_eq!(batches_after_remove(&[2, 3], 6, &[1, 2]), vec![3]);
+        assert_eq!(batches_after_remove(&[2, 3], 6, &[0]), vec![2, 3]);
+        assert_eq!(batches_after_remove(&[2, 3], 6, &[3, 4, 5]), vec![2]);
+        assert_eq!(batches_after_remove(&[], 3, &[1]), Vec::<usize>::new());
     }
 }

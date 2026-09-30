@@ -7,36 +7,36 @@ pub mod parse;
 
 /// Ringkasan tata bahasa & semantik selector untuk agent (≤ 40 baris).
 pub const SELECTOR_CHEATSHEET: &str = "\
-Selector face/tepi (tidak peka huruf besar; LIN_TOL 1e-4 mm, ANG_TOL 0.5 derajat)
-selector := term (or|and|except term)*        -- asosiatif kiri, prioritas sama
+Face/edge selectors (case-insensitive; LIN_TOL 1e-4 mm, ANG_TOL 0.5 degrees)
+selector := term (or|and|except term)*        -- left-associative, equal precedence
 term     := base filter*
-BASE                 FACE                               TEPI
-all                  semua face                         semua tepi
->A / <A              posisi centroid maks/min di A      posisi mid maks/min di A
-+A / -A              normal keluar searah +A/-A         (tidak berlaku)
-|A                   normal sejajar A                   garis sejajar A
-#A                   normal tegak lurus A               garis tegak lurus A
-largest / smallest   luas maks/min                      (tidak berlaku)
-longest / shortest   (tidak berlaku)                    panjang maks/min
-idx:i,j              indeks enumerasi                   indeks enumerasi
-of(S)                (tidak berlaku)                    tepi dari face hasil S
-(S)                  pengelompokan                      pengelompokan
+BASE                 FACE                               EDGE
+all                  all faces                          all edges
+>A / <A              max/min centroid position on A     max/min midpoint position on A
++A / -A              outward normal along +A/-A         (n/a)
+|A                   normal parallel to A               line parallel to A
+#A                   normal perpendicular to A          line perpendicular to A
+largest / smallest   max/min area                       (n/a)
+longest / shortest   (n/a)                              max/min length
+idx:i,j              enumeration indices                enumeration indices
+of(S)                (n/a)                              edges of the faces matched by S
+(S)                  grouping                           grouping
 A = X | Y | Z
-FILTER [KEY CMP VALUE], CMP = = < > <= >=, '=' numerik toleransi 1e-3
-kind   face: plane|cylinder|cone|sphere|torus|other   tepi: line|circle|other
-area   luas face (mm2)          len  panjang tepi (mm)
-r      radius (face silinder/kerucut/bola, tepi lingkaran)
-x y z  komponen centroid face / mid tepi
-Hasil terurut naik. Kosong -> selector_empty + context.available (jumlah per jenis).
-CONTOH
->Z                          face paling atas
-+Z[z=5]                     face menghadap +Z pada ketinggian 5
-#Z                          dinding samping box
-|Z                          tepi tegak (untuk fillet sudut)
-of(>Z)                      tepi keliling face atas
-of(>Z) and |X               tepi atas yang sejajar X
-all except |Z               semua tepi selain yang tegak
-all[kind=cylinder][r=2.75]  dinding lubang M5 clearance
+FILTER [KEY CMP VALUE], CMP = = < > <= >=, '=' numeric with tolerance 1e-3
+kind   face: plane|cylinder|cone|sphere|torus|other   edge: line|circle|other
+area   face area (mm2)              len  edge length (mm)
+r      radius (cylinder/cone/sphere face, circle edge)
+x y z  component of face centroid / edge midpoint
+Results sorted ascending. Empty -> selector_empty + context.available (count per kind).
+EXAMPLES
+>Z                          topmost face
++Z[z=5]                     face facing +Z at height 5
+#Z                          side walls of a box
+|Z                          vertical edges (for corner fillets)
+of(>Z)                      perimeter edges of the top face
+of(>Z) and |X               top edges parallel to X
+all except |Z               all edges except vertical ones
+all[kind=cylinder][r=2.75]  walls of M5 clearance holes
 ";
 
 pub use eval::{eval_edges, eval_faces, ANG_TOL_DEG};

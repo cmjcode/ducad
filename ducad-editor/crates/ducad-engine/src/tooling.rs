@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use crate::check::CheckItem;
 use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::inspect::{summarize_core, DEFAULT_TOPOLOGY_LIMIT};
-use crate::ops::{op_schema, Op, EXAMPLE_PLATE};
+use crate::ops::{op_schema, Op, EXAMPLES, EXAMPLE_PLATE};
 use crate::render::{render_svg_core, RenderOptions, View};
 use crate::select::{select_edges, select_faces, SELECTOR_CHEATSHEET};
 use crate::session::SessionCore;
@@ -32,6 +32,7 @@ pub const CORE_TOOLS: &[&str] = &[
     "render_view",
     "get_oplog",
     "get_schema",
+    "set_checks",
     "run_checks",
     "drawing",
     "import_step",
@@ -40,6 +41,23 @@ pub const CORE_TOOLS: &[&str] = &[
 /// Tool tingkat-core yang MENGUBAH model (pemanggil GUI menyinkronkan
 /// `design` dan mencatat aktivitas setelahnya).
 pub const MUTATING_CORE_TOOLS: &[&str] = &["run_ops", "import_step"];
+
+/// Tool yang tidak mengubah part maupun berkas — aman dipanggil kapan saja
+/// (anotasi MCP `readOnlyHint`).
+pub const READ_ONLY_TOOLS: &[&str] = &[
+    "inspect",
+    "query_geometry",
+    "measure",
+    "get_oplog",
+    "get_schema",
+    "run_checks",
+    "diff",
+    "list_parts",
+    "document_info",
+    "get_view",
+    "get_selection",
+    "screenshot",
+];
 
 /// Tool yang tidak menyentuh sesi sama sekali (bisa dijawab tanpa part
 /// terbuka).
@@ -87,14 +105,13 @@ impl ToolPaths for NoPaths {
     fn resolve(&self, _p: &str) -> OpResult<PathBuf> {
         Err(OpError::new(
             OpErrorCode::Io,
-            "menulis berkas tidak tersedia di konteks ini",
+            "writing files is not available in this context",
         ))
     }
 }
 
 pub fn args<T: for<'de> Deserialize<'de>>(v: Value) -> OpResult<T> {
-    serde_json::from_value(v)
-        .map_err(|e| OpError::invalid(format!("argumen tool tidak valid: {e}")))
+    serde_json::from_value(v).map_err(|e| OpError::invalid(format!("invalid tool arguments: {e}")))
 }
 
 pub fn to_value(v: impl serde::Serialize) -> OpResult<Value> {
@@ -116,13 +133,13 @@ pub fn call_core_tool(
             struct A {
                 #[serde(default)]
                 session: Option<String>,
-                ops: Vec<Op>,
+                ops: Vec<Value>,
                 #[serde(default)]
                 dry_run: bool,
             }
             let a: A = args(a)?;
             let _ = a.session;
-            let report = core.run(a.ops, a.dry_run);
+            let report = core.run(parse_ops(a.ops)?, a.dry_run);
             let is_error = report.error.is_some();
             Ok(ToolOut {
                 payload: to_value(report)?,
@@ -185,7 +202,7 @@ pub fn call_core_tool(
                         .collect::<OpResult<Vec<_>>>()?;
                     (idx, items)
                 }
-                _ => return Err(OpError::invalid("isi tepat satu dari 'faces' atau 'edges'")),
+                _ => return Err(OpError::invalid("give exactly one of 'faces' or 'edges'")),
             };
             Ok(ToolOut::ok(
                 json!({ "count": idx.len(), "indices": idx, "items": items }),
@@ -245,7 +262,7 @@ pub fn call_core_tool(
                 std::fs::write(p, &r.svg).map_err(|e| {
                     OpError::new(
                         OpErrorCode::Io,
-                        format!("gagal menulis {}: {e}", p.display()),
+                        format!("failed to write {}: {e}", p.display()),
                     )
                 })?;
             }
@@ -267,6 +284,22 @@ pub fn call_core_tool(
             Ok(ToolOut::ok(json!({ "params": d.params, "ops": d.oplog })))
         }
         "get_schema" => call_stateless_tool(name, a),
+        "set_checks" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                checks: Vec<CheckItem>,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            core.meta.design.checks = a.checks.clone();
+            let results = crate::check::run_checks(core, &a.checks);
+            Ok(ToolOut::ok(to_value(
+                crate::check::CheckSummary::from_results(results),
+            )?))
+        }
         "run_checks" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -287,7 +320,7 @@ pub fn call_core_tool(
         "drawing" => drawing_tool(core, a, paths),
         "import_step" => import_step_tool(core, a, paths),
         other => Err(OpError::invalid(format!(
-            "tool '{other}' bukan tool tingkat-core"
+            "tool '{other}' is not a core tool"
         ))),
     }
 }
@@ -327,7 +360,7 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         "a3-portrait" => ducad_io::drawing::PaperSize::A3Portrait,
         other => {
             return Err(OpError::invalid(format!(
-                "kertas '{other}' tidak dikenal (a4, a4-portrait, a3, a3-portrait)"
+                "unknown paper '{other}' (a4, a4-portrait, a3, a3-portrait)"
             )))
         }
     };
@@ -344,7 +377,7 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
     let io = |e: anyhow::Error| {
         OpError::new(
             OpErrorCode::Io,
-            format!("gagal menulis {}: {e:#}", path.display()),
+            format!("failed to write {}: {e:#}", path.display()),
         )
     };
     match a.format.to_ascii_lowercase().as_str() {
@@ -353,7 +386,7 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         "dxf" => ducad_io::dxf::export_drawing_sheet(&sheet, &path).map_err(io)?,
         other => {
             return Err(OpError::invalid(format!(
-                "format gambar '{other}' tidak dikenal (pdf, svg, dxf)"
+                "unknown drawing format '{other}' (pdf, svg, dxf)"
             )))
         }
     }
@@ -379,7 +412,7 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
     let _ = a.session;
     if !crate::ops::is_valid_op_id(&a.name) {
         return Err(OpError::invalid(format!(
-            "nama body '{}' tidak valid: harus cocok ^[a-z][a-z0-9_]{{0,31}}$",
+            "invalid body name '{}': must match ^[a-z][a-z0-9_]{{0,31}}$",
             a.name
         )));
     }
@@ -388,7 +421,7 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
     if taken {
         return Err(OpError::new(
             OpErrorCode::DuplicateId,
-            format!("nama '{}' sudah dipakai", a.name),
+            format!("name '{}' is already used", a.name),
         ));
     }
     let path = paths.resolve(&a.path)?;
@@ -429,20 +462,382 @@ pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
         "get_schema" => {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
-            struct A {}
-            let _: A = args(a)?;
-            let example: Value = serde_json::from_str(EXAMPLE_PLATE)
-                .map_err(|e| OpError::new(OpErrorCode::Io, e.to_string()))?;
-            Ok(ToolOut::ok(json!({
-                "op_schema": op_schema(),
-                "selector_cheatsheet": SELECTOR_CHEATSHEET,
-                "example": example,
-            })))
+            struct A {
+                #[serde(default)]
+                op: Option<String>,
+                #[serde(default)]
+                example: Option<String>,
+                #[serde(default)]
+                full: bool,
+            }
+            let a: A = args(a)?;
+            let parse = |text: &str| -> OpResult<Value> {
+                serde_json::from_str(text).map_err(|e| OpError::new(OpErrorCode::Io, e.to_string()))
+            };
+            if a.full {
+                return Ok(ToolOut::ok(json!({
+                    "op_schema": op_schema(),
+                    "selector_cheatsheet": SELECTOR_CHEATSHEET,
+                    "example": parse(EXAMPLE_PLATE)?,
+                })));
+            }
+            if let Some(kind) = a.op.as_deref() {
+                return op_detail(kind).map(ToolOut::ok);
+            }
+            if let Some(name) = a.example.as_deref() {
+                let (_, text, covers) =
+                    EXAMPLES
+                        .iter()
+                        .find(|(n, _, _)| *n == name)
+                        .ok_or_else(|| {
+                            let names: Vec<&str> = EXAMPLES.iter().map(|(n, _, _)| *n).collect();
+                            OpError::new(
+                                OpErrorCode::UnknownRef,
+                                format!("unknown example '{name}' (available: {names:?})"),
+                            )
+                        })?;
+                return Ok(ToolOut::ok(
+                    json!({ "example": name, "covers": covers, "op_file": parse(text)? }),
+                ));
+            }
+            Ok(ToolOut::ok(schema_overview()?))
         }
         other => Err(OpError::invalid(format!(
-            "tool '{other}' bukan tool tanpa state"
+            "tool '{other}' is not a stateless tool"
         ))),
     }
+}
+
+// ---------------------------------------------------------------------
+// Skema Op bertingkat untuk agent: ringkasan murah dulu, detail per op
+// sesuai kebutuhan (skema penuh ±33 KB).
+// ---------------------------------------------------------------------
+
+/// Varian `Op` dari JSON Schema: `(jenis, skema varian)`.
+fn op_variants(schema: &Value) -> Vec<(String, Value)> {
+    let op = &schema["definitions"]["Op"];
+    let list = op
+        .get("oneOf")
+        .or_else(|| op.get("anyOf"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    list.into_iter()
+        .filter_map(|v| {
+            let kind = v["properties"]["op"]["enum"][0].as_str()?.to_string();
+            Some((kind, v))
+        })
+        .collect()
+}
+
+/// Semua jenis op yang sah (nilai field `"op"`).
+pub fn op_kinds() -> Vec<String> {
+    op_variants(&op_schema())
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
+}
+
+/// Kumpulkan nama definisi yang dirujuk `$ref` secara transitif.
+fn collect_refs(v: &Value, defs: &Value, out: &mut std::collections::BTreeSet<String>) {
+    match v {
+        Value::Object(o) => {
+            if let Some(name) = o
+                .get("$ref")
+                .and_then(Value::as_str)
+                .and_then(|r| r.strip_prefix("#/definitions/"))
+            {
+                if out.insert(name.to_string()) {
+                    collect_refs(&defs[name], defs, out);
+                }
+            }
+            for x in o.values() {
+                collect_refs(x, defs, out);
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| collect_refs(x, defs, out)),
+        _ => {}
+    }
+}
+
+/// Skema lengkap SATU jenis op + definisi yang dirujuknya.
+fn op_detail(kind: &str) -> OpResult<Value> {
+    let schema = op_schema();
+    let variants = op_variants(&schema);
+    let Some((_, variant)) = variants.iter().find(|(k, _)| k == kind) else {
+        let kinds: Vec<&str> = variants.iter().map(|(k, _)| k.as_str()).collect();
+        return Err(OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("unknown op kind '{kind}' (available: {kinds:?})"),
+        ));
+    };
+    let defs = &schema["definitions"];
+    let mut names = std::collections::BTreeSet::new();
+    collect_refs(variant, defs, &mut names);
+    let definitions: serde_json::Map<String, Value> = names
+        .into_iter()
+        .map(|n| {
+            let d = defs[&n].clone();
+            (n, d)
+        })
+        .collect();
+    let examples: Vec<&str> = EXAMPLES
+        .iter()
+        .filter(|(_, text, _)| text.contains(&format!("\"op\":\"{kind}\"")))
+        .map(|(n, _, _)| *n)
+        .collect();
+    Ok(json!({
+        "op": kind,
+        "schema": variant,
+        "definitions": definitions,
+        "examples": examples,
+    }))
+}
+
+/// Ringkasan murah (±5 KB): tiap op dengan deskripsi + field wajib/opsional,
+/// daftar contoh, cheatsheet selector, dan cara meminta detail.
+fn schema_overview() -> OpResult<Value> {
+    let schema = op_schema();
+    let ops: Vec<Value> = op_variants(&schema)
+        .into_iter()
+        .map(|(kind, v)| {
+            let required: Vec<&str> = v["required"]
+                .as_array()
+                .map(|r| {
+                    r.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|f| *f != "op")
+                        .collect()
+                })
+                .unwrap_or_default();
+            let optional: Vec<&str> = v["properties"]
+                .as_object()
+                .map(|p| {
+                    p.keys()
+                        .map(String::as_str)
+                        .filter(|f| *f != "op" && !required.contains(f))
+                        .collect()
+                })
+                .unwrap_or_default();
+            json!({
+                "op": kind,
+                "summary": v["description"].as_str().unwrap_or_default(),
+                "required": required,
+                "optional": optional,
+            })
+        })
+        .collect();
+    let examples: Vec<Value> = EXAMPLES
+        .iter()
+        .map(|(n, _, covers)| json!({ "name": n, "covers": covers }))
+        .collect();
+    Ok(json!({
+        "about": schema["definitions"]["Op"]["description"],
+        "ops": ops,
+        "selector_cheatsheet": SELECTOR_CHEATSHEET,
+        "examples": examples,
+        "more": "get_schema {\"op\":\"fillet\"} = full schema of one op kind; {\"example\":\"flange\"} = tested example OpFile; {\"full\":true} = entire JSON Schema (large)",
+    }))
+}
+
+/// Tabel kode error untuk agent (markdown, bahasa Inggris seperti seluruh
+/// teks MCP). Satu sumber untuk resource `ducad://guide`.
+pub const ERROR_GUIDE: &str = "\
+| error.code | Meaning | Action |
+|---|---|---|
+| invalid_param | value out of domain / wrong tool argument or op field | read message (names op_index + valid fields) and fix it |
+| unknown_ref | unknown body/sketch/entity/param/op name | use names from context (available/ops) or inspect/get_oplog |
+| duplicate_id | op id already used | pick a new id ^[a-z][a-z0-9_]{0,31}$ or change the old op with replace_op |
+| body_consumed | body was merged by a boolean or deleted | reference the resulting body in context.consumed_by |
+| profile_not_closed | sketch has no closed loop | read hint (loose endpoints), close the contour |
+| profile_ambiguous | profile.at point is not inside any region | pick a point inside a region / use names |
+| profile_open_gap | two sketch endpoints almost meet | apply fixes (patches the sketch op) |
+| selector_syntax | selector cannot be parsed | see context.pos |
+| selector_empty | valid selector but 0 elements | see context.available, test with query_geometry |
+| fillet_radius_too_large / chamfer_too_large | exceeds the neighboring edge (context.limit) | use fixes[i].patched_op |
+| shell_too_thick | thickness >= half the smallest dimension | use fixes |
+| hole_outside_face | hole point outside the face | `at` is relative to the face centroid; or use at_world |
+| boolean_no_overlap | subtract/intersect without overlap | move a body (transform) |
+| kernel_failed | OCCT failed | reduce radius/thickness, change op order |
+| empty_result | result volume ~0 | check position/direction (direction reverse for a cut from a face) |
+| constraint_unsolved / over_constrained | conflicting sketch constraints | remove one constraint |
+| oplog_stale | model changed outside the oplog | bodies adopted as base_bodies; replan from inspect |
+| proposal_stale | model changed since propose_ops | create a new proposal |
+";
+
+/// Anti-pola yang paling sering membuat agent berputar-putar.
+pub const ANTI_PATTERNS: &str = "\
+- Stacking corrective ops or repeated undo to fix an old op: use replace_op / remove_op / set_params.
+- Raw coordinates although a param exists (\"w\": 60 while $w exists).
+- Fillet/chamfer before a boolean: the edges change; round last.
+- Picking edges with guessed idx: use semantic selectors, test with query_geometry.
+- Referencing body a/b after a boolean: the result is named after the boolean op id.
+- Extrude cut from a sketch on a face without direction \"reverse\": the face normal points outward, the cut misses the material.
+- Skipping render_view: inspect alone does not show a feature on the wrong side.
+- One giant batch: small batches (3-6 ops) are easier to diagnose.
+";
+
+/// Daftar jenis op satu baris per op (untuk panduan markdown).
+pub fn op_catalog_markdown() -> String {
+    op_variants(&op_schema())
+        .into_iter()
+        .map(|(kind, v)| {
+            let summary = v["description"]
+                .as_str()
+                .unwrap_or_default()
+                .replace('\n', " ");
+            format!("- **{kind}** — {summary}\n")
+        })
+        .collect()
+}
+
+/// Argumen edit oplog yang sudah divalidasi, bersama untuk `replace_op`,
+/// `remove_op`, dan `propose_ops` (server MCP dan jembatan live GUI).
+#[derive(Debug, Default)]
+pub struct EditArgs {
+    pub session: Option<String>,
+    /// Params BARU yang diminta (belum digabung ke params lama).
+    pub params: Option<crate::ops::Params>,
+    pub replace: Vec<crate::session::ReplaceOp>,
+    pub remove: Vec<String>,
+    /// Op yang ditambahkan di akhir (hanya `propose_ops`).
+    pub append: Vec<Op>,
+    pub dry_run: bool,
+}
+
+impl EditArgs {
+    /// Hanya menambah op di akhir (tanpa params/penggantian/penghapusan).
+    pub fn is_append_only(&self) -> bool {
+        self.params.is_none() && self.replace.is_empty() && self.remove.is_empty()
+    }
+}
+
+/// `{id, op}` mentah → `ReplaceOp`, dengan error parse yang menyebut id.
+pub fn parse_replace(id: String, op: Value) -> OpResult<crate::session::ReplaceOp> {
+    let mut ops = parse_ops(vec![op]).map_err(|mut e| {
+        e.op_index = None;
+        e.message = format!("replacement op for '{id}': {}", e.message);
+        e
+    })?;
+    let op = ops
+        .pop()
+        .ok_or_else(|| OpError::invalid("empty replacement op"))?;
+    Ok(crate::session::ReplaceOp { id, op })
+}
+
+/// Validasi argumen `replace_op` / `remove_op` / `propose_ops`.
+pub fn parse_edit_args(tool: &str, a: Value) -> OpResult<EditArgs> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Replace {
+        id: String,
+        op: Value,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct A {
+        #[serde(default)]
+        session: Option<String>,
+        // replace_op
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        op: Option<Value>,
+        // remove_op
+        #[serde(default)]
+        ids: Vec<String>,
+        #[serde(default)]
+        dry_run: bool,
+        // propose_ops
+        #[serde(default)]
+        ops: Vec<Value>,
+        #[serde(default)]
+        params: Option<crate::ops::Params>,
+        #[serde(default)]
+        replace: Vec<Replace>,
+        #[serde(default)]
+        remove: Vec<String>,
+    }
+    let a: A = args(a)?;
+    let propose_only =
+        !a.ops.is_empty() || a.params.is_some() || !a.replace.is_empty() || !a.remove.is_empty();
+    let mut out = EditArgs {
+        session: a.session,
+        dry_run: a.dry_run,
+        ..Default::default()
+    };
+    match tool {
+        "replace_op" => {
+            let (Some(id), Some(op), true, false) = (a.id, a.op, a.ids.is_empty(), propose_only)
+            else {
+                return Err(OpError::invalid(
+                    "replace_op takes exactly 'id' and 'op' (+ optional 'dry_run')",
+                ));
+            };
+            out.replace.push(parse_replace(id, op)?);
+        }
+        "remove_op" => {
+            if a.id.is_some() || a.op.is_some() || a.ids.is_empty() || propose_only {
+                return Err(OpError::invalid(
+                    "remove_op takes 'ids' (list of op ids) (+ optional 'dry_run')",
+                ));
+            }
+            out.remove = a.ids;
+        }
+        "propose_ops" => {
+            if a.id.is_some() || a.op.is_some() || !a.ids.is_empty() || a.dry_run {
+                return Err(OpError::invalid(
+                    "propose_ops takes 'ops', 'params', 'replace', 'remove' (not id/op/ids/dry_run)",
+                ));
+            }
+            if !propose_only {
+                return Err(OpError::invalid(
+                    "propose_ops needs at least one of 'ops', 'params', 'replace', 'remove'",
+                ));
+            }
+            out.append = parse_ops(a.ops)?;
+            out.params = a.params;
+            out.replace = a
+                .replace
+                .into_iter()
+                .map(|r| parse_replace(r.id, r.op))
+                .collect::<OpResult<Vec<_>>>()?;
+            out.remove = a.remove;
+        }
+        other => {
+            return Err(OpError::invalid(format!(
+                "'{other}' is not an oplog edit tool"
+            )))
+        }
+    }
+    Ok(out)
+}
+
+/// Parse larik op satu per satu supaya error menyebut `op_index`/`op_id`
+/// op yang salah, bukan hanya pesan serde untuk seluruh batch.
+pub fn parse_ops(raw: Vec<Value>) -> OpResult<Vec<Op>> {
+    raw.into_iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let id = v.get("id").and_then(Value::as_str).map(str::to_string);
+            let kind = v.get("op").and_then(Value::as_str).map(str::to_string);
+            serde_json::from_value::<Op>(v).map_err(|e| {
+                let mut err = OpError::invalid(format!(
+                    "op #{i}{}: {e}",
+                    id.as_deref()
+                        .map(|s| format!(" ('{s}')"))
+                        .unwrap_or_default()
+                ))
+                .with_hint(match &kind {
+                    Some(k) => format!("see the valid fields with get_schema {{\"op\":\"{k}\"}}"),
+                    None => "every op needs fields \"op\" and \"id\"; see get_schema".to_string(),
+                });
+                err.op_index = Some(i);
+                err.op_id = id;
+                err
+            })
+        })
+        .collect()
 }
 
 #[cfg(feature = "raster")]
@@ -487,7 +882,7 @@ pub fn resolve_ref(core: &SessionCore, v: &Value) -> OpResult<Ref> {
     let exactly_one = |n: usize, sel: &str| -> OpResult<()> {
         if n != 1 {
             return Err(OpError::invalid(format!(
-                "selector \"{sel}\" harus menghasilkan tepat 1 elemen (cocok {n})"
+                "selector \"{sel}\" must match exactly 1 element (matched {n})"
             ))
             .with_context(json!({ "matched": n })));
         }
@@ -523,7 +918,7 @@ pub fn resolve_ref(core: &SessionCore, v: &Value) -> OpResult<Ref> {
             })
         }
         _ => Err(OpError::invalid(
-            "rujukan harus {point} atau {body, face} atau {body, edge}",
+            "a reference must be {point}, {body, face} or {body, edge}",
         )),
     }
 }
@@ -562,7 +957,9 @@ pub fn compact_text(mut payload: Value) -> String {
             obj.insert("truncated".into(), json!(true));
             obj.insert(
                 "truncation_hint".into(),
-                json!("hasil dipotong: persempit dengan argumen 'body', 'limit', atau selector yang lebih spesifik"),
+                json!(
+                    "result truncated: narrow it with 'body', 'limit', or a more specific selector"
+                ),
             );
         }
         text = payload.to_string();
@@ -683,5 +1080,107 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code, OpErrorCode::Io);
+    }
+
+    #[test]
+    fn get_schema_is_tiered_and_cheap_by_default() {
+        let overview = call_stateless_tool("get_schema", json!({}))
+            .unwrap()
+            .payload;
+        let size = overview.to_string().len();
+        assert!(size < 16 * 1024, "ringkasan harus murah: {size} byte");
+        let ops = overview["ops"].as_array().unwrap();
+        assert_eq!(ops.len(), op_kinds().len());
+        for o in ops {
+            assert!(
+                !o["summary"].as_str().unwrap_or_default().is_empty(),
+                "op tanpa deskripsi: {}",
+                o["op"]
+            );
+        }
+        let fillet = ops.iter().find(|o| o["op"] == "fillet").unwrap();
+        assert!(fillet["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("radius")));
+        assert!(overview["selector_cheatsheet"]
+            .as_str()
+            .unwrap()
+            .contains("of(>Z)"));
+
+        let d = call_stateless_tool("get_schema", json!({ "op": "hole" }))
+            .unwrap()
+            .payload;
+        assert!(d["schema"]["properties"]["spec"].is_object());
+        assert!(
+            d["definitions"]["HoleSpecRef"].is_object(),
+            "definisi yang dirujuk ikut"
+        );
+        assert!(
+            d["definitions"].get("EntitySpec").is_none(),
+            "definisi lain tidak ikut"
+        );
+        assert!(d["examples"].as_array().unwrap().contains(&json!("plate")));
+
+        let e = call_stateless_tool("get_schema", json!({ "example": "flange" }))
+            .unwrap()
+            .payload;
+        assert!(e["op_file"]["ops"].is_array());
+        let err = call_stateless_tool("get_schema", json!({ "op": "filet" })).unwrap_err();
+        assert_eq!(err.code, OpErrorCode::UnknownRef);
+        assert!(err.message.contains("fillet"));
+
+        let full = call_stateless_tool("get_schema", json!({ "full": true }))
+            .unwrap()
+            .payload;
+        assert!(full["op_schema"]["definitions"]["Op"].is_object());
+    }
+
+    #[test]
+    fn parse_ops_reports_index_and_id_of_bad_op() {
+        let err = parse_ops(vec![
+            json!({"op":"primitive","id":"b","shape":{"sphere":{"r":1}}}),
+            json!({"op":"fillet","id":"f","body":"b","edges":"|Z","radious":2}),
+        ])
+        .unwrap_err();
+        assert_eq!(err.op_index, Some(1));
+        assert_eq!(err.op_id.as_deref(), Some("f"));
+        assert!(err.message.contains("radious"), "{}", err.message);
+        assert!(err.hint.unwrap_or_default().contains("\"op\":\"fillet\""));
+    }
+
+    #[test]
+    fn set_checks_is_a_core_tool() {
+        let mut session = crate::Session::new();
+        let out = call_core_tool(
+            &mut session.core(),
+            "set_checks",
+            json!({ "checks": [{"check": "body_count", "expect": 0}] }),
+            &NoPaths,
+        )
+        .unwrap();
+        assert_eq!(out.payload["pass"], 1, "{}", out.payload);
+        assert_eq!(session.design().checks.len(), 1);
+    }
+
+    #[test]
+    fn edit_args_validate_shape_per_tool() {
+        let e = parse_edit_args(
+            "replace_op",
+            json!({"id":"f1","op":{"op":"fillet","id":"f1","body":"p","edges":"|Z","radius":1}}),
+        )
+        .unwrap();
+        assert_eq!(e.replace.len(), 1);
+        assert!(parse_edit_args("replace_op", json!({"id":"f1"})).is_err());
+        assert!(parse_edit_args("remove_op", json!({"ids":[]})).is_err());
+        assert!(parse_edit_args("propose_ops", json!({})).is_err());
+        let e = parse_edit_args("propose_ops", json!({"remove":["h1"],"params":{"t":9}})).unwrap();
+        assert!(!e.is_append_only());
+        let err = parse_edit_args(
+            "replace_op",
+            json!({"id":"f1","op":{"op":"fillet","id":"f1","body":"p","edges":"|Z"}}),
+        )
+        .unwrap_err();
+        assert!(err.message.contains("'f1'"), "{}", err.message);
     }
 }

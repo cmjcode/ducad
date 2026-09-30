@@ -47,6 +47,10 @@ pub struct BodyReport {
     pub centroid: [f64; 3],
     pub faces: usize,
     pub edges: usize,
+    /// Massa (gram) = volume × densitas preset material; kosong bila
+    /// densitas preset tidak diketahui.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mass_g: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<MaterialReport>,
     /// Mis. `{"plane": 6, "cylinder": 4}`.
@@ -62,6 +66,8 @@ pub struct MaterialReport {
     pub roughness: f64,
     pub metallic: f64,
     pub clearcoat: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density_g_cm3: Option<f64>,
 }
 
 impl MaterialReport {
@@ -72,6 +78,7 @@ impl MaterialReport {
             roughness: round4(m.roughness as f64),
             metallic: round4(m.metallic as f64),
             clearcoat: round4(m.clearcoat as f64),
+            density_g_cm3: m.preset.density_g_cm3(),
         }
     }
 }
@@ -166,6 +173,11 @@ pub(crate) fn body_report(
         centroid: r3(ducad_kernel::compute_mesh_centroid(&geo.mesh)),
         faces: n_faces,
         edges: n_edges,
+        mass_g: body
+            .material
+            .preset
+            .density_g_cm3()
+            .map(|d| round4(geo.shape.volume().abs() / 1000.0 * d)),
         material: Some(MaterialReport::from_material(&body.material)),
         face_kinds,
         topology,

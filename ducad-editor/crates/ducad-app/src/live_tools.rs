@@ -54,7 +54,7 @@ fn preset(name: &str) -> OpResult<ViewPreset> {
         "bottom" => ViewPreset::Bottom,
         other => {
             return Err(OpError::invalid(format!(
-                "tampak '{other}' tidak dikenal (iso, front, back, left, right, top, bottom)"
+                "unknown view '{other}' (iso, front, back, left, right, top, bottom)"
             )))
         }
     })
@@ -102,7 +102,7 @@ impl DuCADApp {
                     .collect();
                 OpError::new(
                     OpErrorCode::UnknownRef,
-                    format!("body '{name}' tidak ada (yang ada: {known:?})"),
+                    format!("body '{name}' does not exist (available: {known:?})"),
                 )
             })
     }
@@ -160,7 +160,7 @@ impl DuCADApp {
             "screenshot" => {
                 if self.bridge.pending_screenshot.is_some() {
                     Err(OpError::invalid(
-                        "tangkapan layar lain masih diproses; coba lagi",
+                        "another screenshot is still in progress; try again",
                     ))
                 } else {
                     self.bridge.pending_screenshot = Some(PendingScreenshot {
@@ -172,9 +172,7 @@ impl DuCADApp {
                     return None;
                 }
             }
-            other => Err(OpError::invalid(format!(
-                "tool live tidak dikenal: {other}"
-            ))),
+            other => Err(OpError::invalid(format!("unknown live tool: {other}"))),
         };
         Some(r.unwrap_or_else(ToolOut::err))
     }
@@ -208,14 +206,14 @@ impl DuCADApp {
                 ),
                 None => AgentBridge::err_reply(
                     p.id,
-                    &OpError::new(OpErrorCode::Io, "gagal mengodekan PNG"),
+                    &OpError::new(OpErrorCode::Io, "failed to encode PNG"),
                 ),
             };
             let _ = p.reply.send(out);
         } else if Instant::now() >= p.deadline {
             let p = self.bridge.pending_screenshot.take().expect("ada");
-            let e = OpError::new(OpErrorCode::Io, "renderer tidak mengirim tangkapan layar")
-                .with_hint("pakai render_view untuk gambar tampak tanpa jendela aplikasi");
+            let e = OpError::new(OpErrorCode::Io, "the renderer did not deliver a screenshot")
+                .with_hint("use render_view for a view image without the app window");
             let _ = p.reply.send(AgentBridge::err_reply(p.id, &e));
         } else {
             ctx.request_repaint();
@@ -356,7 +354,7 @@ impl DuCADApp {
         }
         let Some(name) = a.body else {
             if a.faces.is_some() || a.edges.is_some() {
-                return Err(OpError::invalid("'faces'/'edges' butuh 'body'"));
+                return Err(OpError::invalid("'faces'/'edges' require 'body'"));
             }
             return self.live_get_selection();
         };
@@ -368,7 +366,7 @@ impl DuCADApp {
             None => {
                 return Err(OpError::new(
                     OpErrorCode::UnknownRef,
-                    format!("geometri body '{name}' tidak ada"),
+                    format!("body '{name}' has no geometry"),
                 ))
             }
         };
@@ -417,7 +415,7 @@ impl DuCADApp {
         let mut out = self.live_get_selection()?;
         if skipped > 0 {
             out.payload["warning"] = json!(format!(
-                "{skipped} face lengkung dilewati: seleksi live hanya untuk face planar"
+                "{skipped} curved face(s) skipped: live selection supports planar faces only"
             ));
         }
         Ok(out)

@@ -18,7 +18,7 @@ use crate::error::{OpError, OpErrorCode, OpResult};
 #[serde(untagged)]
 pub enum Num {
     Value(f64),
-    /// Ekspresi, mis. `"$w/2 - 3"`.
+    /// Expression, e.g. `"$w/2 - 3"`.
     Expr(String),
 }
 

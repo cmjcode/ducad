@@ -19,7 +19,7 @@ Arah panah = "bergantung pada".
 - `ducad-io` — format `.ducad`, STEP/STL/OBJ/GLB, SVG/PDF/DXF. → core, sketch, kernel, ink
 - `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render. → core, sketch, kernel, io
 - `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/chat/schema). → engine, assist, chat, mcp
-- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 24 tool + resources/prompts; mode `--attach` menambah 6 tool live. → engine
+- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 26 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
 - `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
@@ -88,6 +88,12 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 - Jangan ubah `rust-toolchain.toml`, versi/fitur `opencascade`, atau blok
   `[patch.crates-io]` — memicu kompilasi ulang OCCT 10–15 menit.
 - Komentar dan pesan untuk user dalam **bahasa Indonesia**; identifier Inggris.
+  **Pengecualian: semua teks yang dibaca agent lewat MCP dalam bahasa Inggris** —
+  instruksi server, judul/deskripsi tool dan parameternya, `ducad://guide`,
+  prompts, ringkasan `get_schema`, `SELECTOR_CHEATSHEET`, `ERROR_GUIDE`,
+  pesan error tingkat tool/jembatan, dan doc comment `///` pada tipe kontrak
+  `Op`/`Check` (menjadi `description` skema). Pesan error inti engine
+  (`compute`/`diagnose`/`select`) masih bahasa Indonesia karena ikut tampil di GUI.
 - Jangan mengganti label command model (`"Extrude"`, `"Fillet"`, …):
   `execute_model_command` memetakan label ke judul aktivitas.
 - Di engine, body dirujuk lewat **nama** (id op pembuatnya), bukan `BodyId`
@@ -103,8 +109,12 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 3. Varian `Op` di `ops/spec.rs` + perbarui `schema/ops.schema.json`.
 4. Pemetaan op → command di `session.rs` (`SessionCore::apply`), plus tes.
 5. Adapter GUI di `ducad-app/src/modeling/operations.rs` (label command tetap).
-6. Dokumentasi skill `.claude/skills/ducad-modeling/SKILL.md` (selector,
-   kode error, contoh).
+6. Doc comment `///` pada varian `Op` dan setiap field-nya (menjadi
+   `description` skema yang dibaca agent lewat `get_schema {"op":…}`), plus
+   contoh teruji di `tests/fixtures/*.ops.json` + `ops::EXAMPLES` bila op
+   belum diperagakan contoh mana pun.
+7. Dokumentasi skill `.claude/skills/ducad-modeling/SKILL.md` (selector,
+   kode error, contoh); kode error baru juga ke `tooling::ERROR_GUIDE`.
 
 ## Dokumen
 

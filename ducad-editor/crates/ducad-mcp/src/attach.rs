@@ -26,6 +26,10 @@ pub const UNSUPPORTED: &[&str] = &[
     "open_part",
     "close_part",
     "accept_proposal",
+    "reject_proposal",
+    "undo",
+    "redo",
+    "export",
     "diff",
     "list_parts",
 ];
@@ -46,20 +50,22 @@ pub fn default_socket() -> PathBuf {
 fn no_socket(path: &std::path::Path, e: &std::io::Error) -> OpError {
     OpError::new(
         OpErrorCode::Io,
-        format!("tidak bisa terhubung ke {}: {e}", path.display()),
+        format!("cannot connect to {}: {e}", path.display()),
     )
-    .with_hint("buka DUCAD, aktifkan Settings → Agent Bridge")
+    .with_hint("open DUCAD and enable Settings → Agent Bridge")
 }
 
 fn unsupported(name: &str) -> OpError {
-    let hint = if name == "accept_proposal" {
-        "hanya pengguna yang bisa menerima proposal, lewat tombol di aplikasi"
-    } else {
-        "lakukan di aplikasi; jembatan bekerja pada dokumen yang sedang terbuka"
+    let hint = match name {
+        "accept_proposal" | "reject_proposal" => {
+            "only the user can accept/reject a proposal, with the buttons in the app"
+        }
+        "undo" | "redo" => "ask the user to press ⌘Z/⇧⌘Z, or fix the op with replace_op/remove_op",
+        _ => "do it in the app; the bridge works on the document that is currently open",
     };
     OpError::new(
         OpErrorCode::InvalidParam,
-        format!("tool '{name}' tidak tersedia pada sesi live"),
+        format!("tool '{name}' is not available in a live session"),
     )
     .with_hint(hint)
 }
@@ -104,21 +110,21 @@ impl AttachClient {
             w.flush()
         };
         send(&mut writer)
-            .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal mengirim: {e}")))?;
+            .map_err(|e| OpError::new(OpErrorCode::Io, format!("failed to send: {e}")))?;
 
         let mut line = String::new();
         BufReader::new(stream).read_line(&mut line).map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("tidak ada balasan aplikasi: {e}"))
-                .with_hint("pastikan DUCAD masih terbuka dan Agent Bridge aktif")
+            OpError::new(OpErrorCode::Io, format!("no reply from the app: {e}"))
+                .with_hint("make sure DUCAD is still open and Agent Bridge is enabled")
         })?;
         if line.trim().is_empty() {
             return Err(OpError::new(
                 OpErrorCode::Io,
-                "aplikasi menutup koneksi tanpa balasan",
+                "the app closed the connection without replying",
             ));
         }
         let reply: Value = serde_json::from_str(&line)
-            .map_err(|e| OpError::new(OpErrorCode::Io, format!("balasan tidak valid: {e}")))?;
+            .map_err(|e| OpError::new(OpErrorCode::Io, format!("invalid reply: {e}")))?;
         Ok(ToolOut {
             payload: reply.get("payload").cloned().unwrap_or(Value::Null),
             image_png: reply

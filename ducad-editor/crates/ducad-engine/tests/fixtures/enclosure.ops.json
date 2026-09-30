@@ -1,0 +1,14 @@
+{ "params": { "w": 80, "d": 50, "h": 30, "wall": 2, "r": 5 },
+  "ops": [
+    {"op":"primitive","id":"box","shape":{"box":{"size":["$w","$d","$h"]}}},
+    {"op":"fillet","id":"corners","body":"box","edges":"|Z","radius":"$r"},
+    {"op":"shell","id":"hollow","body":"box","remove_faces":">Z","thickness":"$wall"},
+    {"op":"sketch","id":"port_sk","plane":{"body":"box","face":"<Y"},"entities":[
+      {"slot":{"from":[-10,0],"to":[10,0],"r":3,"name":"port"}}]},
+    {"op":"extrude","id":"port","sketch":"port_sk","distance":"$wall","direction":"reverse","mode":"cut","target":"box"},
+    {"op":"hole","id":"vents","body":"box","face":"<Z","at":[[-20,0],[0,0],[20,0]],"spec":{"diameter":4}}
+  ],
+  "checks": [
+    {"check":"min_wall","body":"box","min":1.9},
+    {"check":"hole_count","body":"box","diameter":4,"expect":3}
+  ] }

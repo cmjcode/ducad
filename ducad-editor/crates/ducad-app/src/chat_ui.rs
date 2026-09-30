@@ -727,6 +727,6 @@ mod tests {
         for banned in ["new_part", "open_part", "close_part", "accept_proposal"] {
             assert!(!names.contains(&banned.to_string()), "{banned}");
         }
-        assert!(system_prompt().contains("MODE LIVE"));
+        assert!(system_prompt().contains("LIVE MODE"));
     }
 }

@@ -17,9 +17,9 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 /// Tambahan `instructions` khusus mode `--attach`.
-pub const ATTACH_INSTRUCTIONS: &str = " MODE LIVE: kamu terhubung ke aplikasi DUCAD yang sedang terbuka; semua perubahan langsung terlihat pengguna dan satu batch = satu langkah undo. `new_part`/`open_part`/`close_part` tidak tersedia (lakukan di aplikasi). `propose_ops` menampilkan pratinjau berwarna kepada pengguna dan baru dijawab setelah pengguna menekan Terima/Tolak; `accept_proposal` tidak tersedia bagi agent. Bila pengguna menyebut \"ini\"/\"yang dipilih\", panggil `get_selection`; `document_info` memberi keadaan dokumen; setelah membuat geometri, `set_view` agar hasilnya terlihat; `screenshot` menunjukkan apa yang dilihat pengguna.";
+pub const ATTACH_INSTRUCTIONS: &str = " LIVE MODE: you are connected to the DUCAD app that is open right now; every change is visible to the user immediately and each `run_ops`/`set_params`/`replace_op`/`remove_op` is one undo step. `new_part`/`open_part`/`close_part`, `undo`/`redo`, `export`, `diff`, and `list_parts` are not available (ask the user to do it in the app). `propose_ops` shows the user a colored preview and only returns after the user presses Accept/Reject; `accept_proposal` is not available to agents. When the user says \"this\"/\"the selected one\", call `get_selection`; `document_info` gives the document state; after creating geometry, call `set_view` so the result is visible; `screenshot` shows what the user sees.";
 
-pub const INSTRUCTIONS: &str = "DUCAD adalah CAD B-rep parametrik. Satuan mm, sudut derajat. Alur kerja: (1) `get_schema` sekali untuk melihat format `Op` dan tata bahasa selector; (2) `new_part` atau `open_part`; (3) tulis checks dari persyaratan user dengan `set_checks` sebelum memodelkan; (4) `run_ops` dengan `dry_run: true` untuk memvalidasi, lalu tanpa `dry_run`; (5) `inspect`, `run_checks`, dan `render_view` untuk memverifikasi hasil terhadap spesifikasi; (6) `save_part`. Body dirujuk dengan `id` op pembuatnya. Face/tepi dirujuk dengan selector seperti `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; uji selector dengan `query_geometry` sebelum dipakai. Batch `run_ops` bersifat atomik: bila satu op gagal, seluruh batch dibatalkan dan `error` menjelaskan penyebab serta `hint`; bila `error.fixes` ada, kirim ulang batch dengan `patched_op` menggantikan op yang gagal. Ubah dimensi dengan `set_params`, bukan dengan menumpuk op baru.";
+pub const INSTRUCTIONS: &str = "DUCAD is a parametric B-rep CAD. Units: mm, angles in degrees. Workflow: (1) call `get_schema` with no arguments once: a summary of every op kind (required/optional fields), the selector cheatsheet, and the list of tested examples; get one kind in detail with `get_schema {\"op\":\"hole\"}` and a full example with `{\"example\":\"flange\"}`; (2) `new_part` or `open_part`; (3) turn the user's requirements into checks with `set_checks` before modeling; (4) `run_ops` with `dry_run: true` to validate, then without `dry_run`; (5) `inspect`, `run_checks`, and `render_view` to verify the result against the spec; (6) `save_part`. Bodies are referenced by the `id` of the op that created them; a boolean consumes bodies `a` and `b` (use the boolean's `id` afterwards). Faces/edges are referenced with selectors such as `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; test a selector with `query_geometry` before using it. A `run_ops` batch is atomic: if one op fails the whole batch is rolled back and `error` explains the cause, `op_index`, and a `hint`; when `error.fixes` is present, resend the batch with `patched_op` replacing the failed op. Change dimensions with `set_params`; fix an existing op with `replace_op` and drop it with `remove_op` (both replay the oplog) — do not stack corrective ops or undo repeatedly. Full guide + error code table: resource `ducad://guide`. Reply to the user in their own language.";
 
 /// Satu part terbuka.
 pub struct Part {
@@ -51,7 +51,7 @@ impl ducad_engine::tooling::ToolPaths for RootPaths {
 /// Resolusi path tool relatif ke `root`; hasil kanonik HARUS di dalam
 /// `root` (pagar keamanan). Path yang belum ada dikanonisasi lewat induknya.
 pub fn resolve_in_root(root: &Path, p: &str) -> OpResult<PathBuf> {
-    let outside = || OpError::new(OpErrorCode::Io, format!("path di luar root: {p}"));
+    let outside = || OpError::new(OpErrorCode::Io, format!("path outside root: {p}"));
     let raw = Path::new(p);
     let joined = if raw.is_absolute() {
         raw.to_path_buf()
@@ -72,7 +72,7 @@ pub fn resolve_in_root(root: &Path, p: &str) -> OpResult<PathBuf> {
             let parent = parent.canonicalize().map_err(|e| {
                 OpError::new(
                     OpErrorCode::Io,
-                    format!("direktori {} tidak ada: {e}", parent.display()),
+                    format!("directory {} does not exist: {e}", parent.display()),
                 )
             })?;
             parent.join(file)
@@ -121,17 +121,15 @@ impl Server {
             Some(k) => k.to_string(),
             None => match self.sessions.len() {
                 0 => {
-                    return Err(
-                        OpError::new(OpErrorCode::UnknownRef, "belum ada part terbuka")
-                            .with_hint("panggil new_part atau open_part"),
-                    )
+                    return Err(OpError::new(OpErrorCode::UnknownRef, "no part is open")
+                        .with_hint("call new_part or open_part"))
                 }
                 1 => self.sessions.keys().next().cloned().unwrap_or_default(),
                 _ => {
                     let ids: Vec<&String> = self.sessions.keys().collect();
                     return Err(OpError::new(
                         OpErrorCode::InvalidParam,
-                        format!("ada beberapa part terbuka {ids:?}; isi argumen 'session'"),
+                        format!("several parts are open {ids:?}; pass the 'session' argument"),
                     ));
                 }
             },
@@ -141,7 +139,7 @@ impl Server {
             Some(p) => Ok((key, p)),
             None => Err(OpError::new(
                 OpErrorCode::UnknownRef,
-                format!("sesi '{key}' tidak dikenal (yang ada: {known:?})"),
+                format!("unknown session '{key}' (open: {known:?})"),
             )),
         }
     }
@@ -191,7 +189,7 @@ pub fn handle_message(server: &mut Server, raw: &str) -> Option<Value> {
         return Some(error_reply(
             Value::Null,
             INVALID_REQUEST,
-            "request harus objek",
+            "request must be an object",
         ));
     };
     let id = obj.get("id").cloned();
@@ -199,7 +197,7 @@ pub fn handle_message(server: &mut Server, raw: &str) -> Option<Value> {
         return Some(error_reply(
             id.unwrap_or(Value::Null),
             INVALID_REQUEST,
-            "method tidak ada",
+            "missing method",
         ));
     };
     let params = obj.get("params").cloned().unwrap_or(Value::Null);
@@ -216,23 +214,37 @@ pub fn handle_message(server: &mut Server, raw: &str) -> Option<Value> {
     })
 }
 
-/// Panduan ringkas (resource `ducad://guide`).
+/// Panduan lengkap (resource `ducad://guide`), dibangkitkan dari engine
+/// supaya selalu sama dengan skema dan kode error yang berlaku.
 fn guide_text() -> String {
+    let examples: String = ducad_engine::ops::EXAMPLES
+        .iter()
+        .map(|(n, _, covers)| format!("- `ducad://example/{n}` — {covers}\n"))
+        .collect();
     format!(
-        "# Memodelkan dengan DUCAD\n\n{INSTRUCTIONS}\n\n## Selector\n\n{}\n",
-        ducad_engine::select::SELECTOR_CHEATSHEET
+        "# Modeling with DUCAD\n\n{INSTRUCTIONS}\n\n## Op kinds\n\n{}\n\
+         Full fields of one kind: `get_schema {{\"op\":\"<kind>\"}}`.\n\n\
+         ## Selectors\n\n```text\n{}```\n\n## Error codes\n\n{}\n## Anti-patterns\n\n{}\n\
+         ## Tested examples\n\n{examples}",
+        ducad_engine::tooling::op_catalog_markdown(),
+        ducad_engine::select::SELECTOR_CHEATSHEET,
+        ducad_engine::tooling::ERROR_GUIDE,
+        ducad_engine::tooling::ANTI_PATTERNS,
     )
 }
 
 fn resource_list(server: &Server) -> Vec<Value> {
     let mut out = vec![
-        json!({ "uri": "ducad://schema", "name": "Skema Op (JSON Schema)", "mimeType": "application/json" }),
-        json!({ "uri": "ducad://guide", "name": "Panduan memodelkan DUCAD", "mimeType": "text/markdown" }),
-        json!({ "uri": "ducad://example/plate", "name": "Contoh OpFile plat", "mimeType": "application/json" }),
+        json!({ "uri": "ducad://schema", "name": "Op schema (JSON Schema)", "mimeType": "application/json" }),
+        json!({ "uri": "ducad://guide", "name": "DUCAD modeling guide", "mimeType": "text/markdown" }),
     ];
+    for (name, _, covers) in ducad_engine::ops::EXAMPLES {
+        out.push(json!({ "uri": format!("ducad://example/{name}"), "name": format!("Example OpFile {name}"),
+                         "description": covers, "mimeType": "application/json" }));
+    }
     for id in server.sessions.keys() {
         out.push(json!({ "uri": format!("ducad://part/{id}/oplog"), "name": format!("Oplog {id}"), "mimeType": "application/json" }));
-        out.push(json!({ "uri": format!("ducad://part/{id}/summary"), "name": format!("Ringkasan {id}"), "mimeType": "application/json" }));
+        out.push(json!({ "uri": format!("ducad://part/{id}/summary"), "name": format!("Summary {id}"), "mimeType": "application/json" }));
     }
     out
 }
@@ -245,21 +257,23 @@ fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
             ducad_engine::ops::op_schema().to_string(),
         )),
         "ducad://guide" => Ok(text_of("text/markdown", guide_text())),
-        "ducad://example/plate" => Ok(text_of(
-            "application/json",
-            ducad_engine::ops::EXAMPLE_PLATE.to_string(),
-        )),
+        _ if uri.starts_with("ducad://example/") => {
+            let name = uri.trim_start_matches("ducad://example/");
+            ducad_engine::ops::example(name)
+                .map(|t| text_of("application/json", t.to_string()))
+                .ok_or_else(|| format!("unknown example: {name}"))
+        }
         _ => {
             let rest = uri
                 .strip_prefix("ducad://part/")
-                .ok_or_else(|| format!("resource tidak dikenal: {uri}"))?;
+                .ok_or_else(|| format!("unknown resource: {uri}"))?;
             let (id, what) = rest
                 .split_once('/')
-                .ok_or_else(|| format!("resource tidak dikenal: {uri}"))?;
+                .ok_or_else(|| format!("unknown resource: {uri}"))?;
             let part = server
                 .sessions
                 .get(id)
-                .ok_or_else(|| format!("sesi '{id}' tidak dikenal"))?;
+                .ok_or_else(|| format!("unknown session '{id}'"))?;
             let v = match what {
                 "oplog" => {
                     let d = part.session.design();
@@ -268,7 +282,7 @@ fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
                 "summary" => {
                     serde_json::to_value(part.session.summary()).map_err(|e| e.to_string())?
                 }
-                _ => return Err(format!("resource tidak dikenal: {uri}")),
+                _ => return Err(format!("unknown resource: {uri}")),
             };
             Ok(text_of("application/json", v.to_string()))
         }
@@ -279,18 +293,25 @@ fn prompt_list() -> Vec<Value> {
     vec![
         json!({
             "name": "model_part",
-            "description": "Buat part baru dari spesifikasi dengan alur kerja DUCAD (params, checks, dry run, verifikasi).",
+            "description": "Create a new part from a spec with the DUCAD workflow (params, checks, dry run, verification).",
             "arguments": [
-                { "name": "spec", "description": "Spesifikasi part (dimensi, fitur, material).", "required": true },
-                { "name": "path", "description": "Berkas .ducad tujuan.", "required": false }
+                { "name": "spec", "description": "Part spec (dimensions, features, material).", "required": true },
+                { "name": "path", "description": "Target .ducad file.", "required": false }
+            ]
+        }),
+        json!({
+            "name": "fix_error",
+            "description": "Recover from a DUCAD tool error (fixes, replace_op, query_geometry) without looping.",
+            "arguments": [
+                { "name": "error", "description": "The error JSON object from the tool result.", "required": true }
             ]
         }),
         json!({
             "name": "edit_part",
-            "description": "Ubah part yang ada tanpa menulis ulang oplog (utamakan set_params).",
+            "description": "Change an existing part without rewriting the oplog (prefer set_params / replace_op).",
             "arguments": [
-                { "name": "path", "description": "Berkas .ducad.", "required": true },
-                { "name": "change", "description": "Perubahan yang diminta.", "required": true }
+                { "name": "path", "description": ".ducad file.", "required": true },
+                { "name": "change", "description": "The requested change.", "required": true }
             ]
         }),
     ]
@@ -307,37 +328,57 @@ fn get_prompt(name: &str, args: &Value) -> Result<Value, String> {
         "model_part" => {
             let spec = arg("spec");
             if spec.trim().is_empty() {
-                return Err("argumen 'spec' wajib".into());
+                return Err("argument 'spec' is required".into());
             }
             let path = match arg("path") {
                 p if p.is_empty() => "part.ducad".to_string(),
                 p => p,
             };
             (
-                "Buat part baru",
+                "Create a new part",
                 format!(
-                    "Buat part DUCAD dari spesifikasi berikut, lalu simpan ke {path}.\n\nSPESIFIKASI:\n{spec}\n\n\
-                     Langkah: get_schema → new_part → set_params (semua dimensi) → set_checks dari persyaratan → \
-                     run_ops dry_run lalu commit dalam batch kecil → inspect + run_checks + render_view (iso dan top) → \
-                     bandingkan angka dengan spesifikasi → save_part. Laporkan ukuran utama dan asumsi."
+                    "Create a DUCAD part from the following spec, then save it to {path}.\n\nSPEC:\n{spec}\n\n\
+                     Steps: get_schema → new_part → set_params (every dimension) → set_checks from the requirements → \
+                     run_ops dry_run then commit in small batches → inspect + run_checks + render_view (iso and top) → \
+                     compare the numbers with the spec → save_part. Report the main dimensions and your assumptions."
                 ),
             )
         }
         "edit_part" => {
             let (path, change) = (arg("path"), arg("change"));
             if path.is_empty() || change.trim().is_empty() {
-                return Err("argumen 'path' dan 'change' wajib".into());
+                return Err("arguments 'path' and 'change' are required".into());
             }
             (
-                "Ubah part",
+                "Change a part",
                 format!(
-                    "Buka {path} dengan open_part, baca get_oplog, lalu lakukan perubahan ini: {change}\n\n\
-                     Utamakan set_params bila param yang sesuai sudah ada; jangan menulis ulang op yang ada. \
-                     Verifikasi dengan run_checks dan render_view, lalu save_part ke path yang sama."
+                    "Open {path} with open_part, read get_oplog, then make this change: {change}\n\n\
+                     Prefer set_params when a matching param exists; change old ops with replace_op \
+                     and drop them with remove_op (dry_run first) — do not stack corrective ops. \
+                     Verify with run_checks and render_view, then save_part to the same path."
                 ),
             )
         }
-        other => return Err(format!("prompt tidak dikenal: {other}")),
+        "fix_error" => {
+            let error = arg("error");
+            if error.trim().is_empty() {
+                return Err("argument 'error' is required".into());
+            }
+            (
+                "Recover from an error",
+                format!(
+                    "A DUCAD tool failed with this error:\n\n{error}\n\n\
+                     Steps: (1) read code, message, op_index/op_id, hint, and context; \
+                     (2) if fixes is present, resend the batch with fixes[0].patched_op replacing the op at op_index \
+                     (mind patch.op_id — a fix may patch another op, e.g. a sketch); \
+                     (3) selector_empty/selector_syntax → test a new selector with query_geometry first; \
+                     (4) unknown_ref/body_consumed → check names with inspect/get_oplog; \
+                     (5) a mistake in an op that is ALREADY committed → replace_op with dry_run:true, then without dry_run. \
+                     Do not repeat the same op unchanged more than once."
+                ),
+            )
+        }
+        other => return Err(format!("unknown prompt: {other}")),
     };
     Ok(json!({
         "description": description,
@@ -374,7 +415,7 @@ fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (
             let uri = params
                 .get("uri")
                 .and_then(Value::as_str)
-                .ok_or((INVALID_PARAMS, "resources/read butuh 'uri'".to_string()))?;
+                .ok_or((INVALID_PARAMS, "resources/read requires 'uri'".to_string()))?;
             read_resource(server, uri).map_err(|m| (INVALID_PARAMS, m))
         }
         "prompts/list" => Ok(json!({ "prompts": prompt_list() })),
@@ -382,7 +423,7 @@ fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (
             let name = params
                 .get("name")
                 .and_then(Value::as_str)
-                .ok_or((INVALID_PARAMS, "prompts/get butuh 'name'".to_string()))?;
+                .ok_or((INVALID_PARAMS, "prompts/get requires 'name'".to_string()))?;
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             get_prompt(name, &args).map_err(|m| (INVALID_PARAMS, m))
         }
@@ -390,18 +431,15 @@ fn dispatch(server: &mut Server, method: &str, params: Value) -> Result<Value, (
             let name = params
                 .get("name")
                 .and_then(Value::as_str)
-                .ok_or((INVALID_PARAMS, "tools/call butuh 'name'".to_string()))?;
+                .ok_or((INVALID_PARAMS, "tools/call requires 'name'".to_string()))?;
             let live_ok = server.attach.is_some() && crate::tools::LIVE_TOOL_NAMES.contains(&name);
             if !crate::tools::TOOL_NAMES.contains(&name) && !live_ok {
-                return Err((INVALID_PARAMS, format!("tool tidak dikenal: {name}")));
+                return Err((INVALID_PARAMS, format!("unknown tool: {name}")));
             }
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             Ok(crate::tools::call(server, name, args))
         }
-        _ => Err((
-            METHOD_NOT_FOUND,
-            format!("method tidak ditemukan: {method}"),
-        )),
+        _ => Err((METHOD_NOT_FOUND, format!("method not found: {method}"))),
     }
 }
 
@@ -571,8 +609,158 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("of(>Z)"));
-        assert!(schema["op_schema"]["definitions"]["Op"].is_object());
+        assert!(schema["ops"].as_array().is_some_and(|a| a.len() >= 19));
+        let r = call(&mut s, 15, "get_schema", json!({ "full": true }));
+        assert!(text(&r)["op_schema"]["definitions"]["Op"].is_object());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tools_list_is_compact_and_annotated() {
+        let (mut s, _) = server();
+        let r =
+            handle_message(&mut s, r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#).unwrap();
+        let size = r.to_string().len();
+        assert!(size < 40 * 1024, "tools/list terlalu besar: {size} byte");
+        for t in r["result"]["tools"].as_array().unwrap() {
+            let name = t["name"].as_str().unwrap();
+            assert!(t["title"].is_string(), "{name}");
+            let a = &t["annotations"];
+            assert!(a["readOnlyHint"].is_boolean(), "{name}");
+            assert_eq!(a["openWorldHint"], false, "{name}");
+        }
+        let find = |n: &str| {
+            r["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["name"] == n)
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(find("inspect")["annotations"]["readOnlyHint"], true);
+        assert_eq!(find("remove_op")["annotations"]["destructiveHint"], true);
+        let kinds = &find("run_ops")["inputSchema"]["properties"]["ops"]["items"]["properties"]
+            ["op"]["enum"];
+        assert!(kinds.as_array().unwrap().contains(&json!("helix")));
+    }
+
+    #[test]
+    fn edit_tools_change_existing_ops() {
+        let (mut s, dir) = server();
+        let plate: Value = serde_json::from_str(ducad_engine::ops::EXAMPLE_PLATE).unwrap();
+        call(&mut s, 1, "new_part", json!({}));
+        call(
+            &mut s,
+            2,
+            "set_params",
+            json!({ "params": plate["params"] }),
+        );
+        let r = call(&mut s, 3, "run_ops", json!({ "ops": plate["ops"] }));
+        assert_eq!(r["isError"], false, "{r}");
+        let vol = |r: &Value| text(r)["summary"]["bodies"][0]["volume"].as_f64().unwrap();
+        let v0 = vol(&r);
+
+        // Salah ketik field → op_index menunjuk op yang salah.
+        let r = call(
+            &mut s,
+            4,
+            "run_ops",
+            json!({ "ops": [
+            {"op":"primitive","id":"x","shape":{"sphere":{"r":1}}},
+            {"op":"chamfer","id":"c","body":"plate","edges":"|Z","distanse":1}
+        ] }),
+        );
+        assert_eq!(r["isError"], true);
+        assert_eq!(text(&r)["error"]["op_index"], 1, "{r}");
+
+        let fillet = json!({"op":"fillet","id":"f1","body":"plate","edges":"|Z","radius":1});
+        let r = call(
+            &mut s,
+            5,
+            "replace_op",
+            json!({ "id": "f1", "op": fillet, "dry_run": true }),
+        );
+        assert_eq!(text(&r)["committed"], false, "{r}");
+        assert!(vol(&r) > v0);
+        let r = call(&mut s, 6, "replace_op", json!({ "id": "f1", "op": fillet }));
+        assert_eq!(text(&r)["committed"], true, "{r}");
+        let v1 = vol(&r);
+        assert!(v1 > v0);
+
+        let r = call(&mut s, 7, "remove_op", json!({ "ids": ["base"] }));
+        assert_eq!(r["isError"], true);
+        assert!(
+            text(&r)["error"]["hint"]
+                .as_str()
+                .unwrap()
+                .contains("replace_op"),
+            "{r}"
+        );
+        let r = call(&mut s, 8, "remove_op", json!({ "ids": ["h1"] }));
+        assert_eq!(text(&r)["committed"], true, "{r}");
+        let r = call(&mut s, 9, "get_oplog", json!({}));
+        assert_eq!(text(&r)["ops"].as_array().unwrap().len(), 3);
+
+        // Proposal edit: params + ganti op, diterapkan lewat accept.
+        let r = call(
+            &mut s,
+            10,
+            "propose_ops",
+            json!({
+                "params": { "t": 10 },
+                "replace": [{ "id": "f1", "op": {"op":"fillet","id":"f1","body":"plate","edges":"|Z","radius":2} }]
+            }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(r["content"][1]["type"], "image");
+        let pid = text(&r)["proposal_id"].as_str().unwrap().to_string();
+        let r = call(&mut s, 11, "accept_proposal", json!({ "proposal_id": pid }));
+        assert_eq!(text(&r)["committed"], true, "{r}");
+        let r = call(&mut s, 12, "get_oplog", json!({}));
+        assert_eq!(text(&r)["params"]["t"], 10.0);
+        assert_eq!(text(&r)["params"]["w"], 60.0, "params lama tetap");
+
+        let r = call(&mut s, 13, "propose_ops", json!({}));
+        assert_eq!(r["isError"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn guide_and_examples_resources() {
+        let (mut s, _) = server();
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"ducad://guide"}}"#,
+        )
+        .unwrap();
+        let guide = r["result"]["contents"][0]["text"].as_str().unwrap();
+        for needle in [
+            "**helix**",
+            "fillet_radius_too_large",
+            "replace_op",
+            "ducad://example/flange",
+        ] {
+            assert!(guide.contains(needle), "panduan tanpa {needle}");
+        }
+        for (name, _, _) in ducad_engine::ops::EXAMPLES {
+            let msg = json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read",
+                              "params": { "uri": format!("ducad://example/{name}") } });
+            let r = handle_message(&mut s, &msg.to_string()).unwrap();
+            assert!(
+                r["result"]["contents"][0]["text"].is_string(),
+                "{name}: {r}"
+            );
+        }
+        let r = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":3,"method":"prompts/get","params":{"name":"fix_error","arguments":{"error":"{\"code\":\"selector_empty\"}"}}}"#,
+        )
+        .unwrap();
+        assert!(r["result"]["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("query_geometry"));
     }
 
     #[test]
@@ -609,7 +797,7 @@ mod tests {
         assert!(r["content"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("di luar root"));
+            .contains("outside root"));
         let r = call(&mut s, 6, "save_part", json!({ "path": "/etc/luar.ducad" }));
         assert_eq!(r["isError"], true);
         let _ = std::fs::remove_dir_all(&dir);

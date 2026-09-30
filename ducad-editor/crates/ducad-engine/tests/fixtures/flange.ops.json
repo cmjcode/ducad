@@ -1,0 +1,16 @@
+{ "params": { "bore_r": 10, "od_r": 40, "hub_r": 20, "t": 8, "hub_h": 25, "bolt_r": 3.3, "pcd_r": 30 },
+  "ops": [
+    {"op":"sketch","id":"profile","plane":"XZ","entities":[
+      {"polyline":{"closed":true,"name":"half","points":[
+        ["$bore_r",0],["$od_r",0],["$od_r","$t"],["$hub_r","$t"],["$hub_r","$hub_h"],["$bore_r","$hub_h"]]}}]},
+    {"op":"revolve","id":"flange","sketch":"profile","axis":"v"},
+    {"op":"primitive","id":"bolt","shape":{"cylinder":{"r":"$bolt_r","h":"$t"}},"at":["$pcd_r",0,0]},
+    {"op":"pattern","id":"bolts","body":"bolt","merge":true,
+     "kind":{"circular":{"pivot":[0,0,0],"axis":[0,0,1],"count":6,"angle_deg":360}}},
+    {"op":"boolean","id":"part","kind":"subtract","a":"flange","b":"bolt"},
+    {"op":"chamfer","id":"ch","body":"part","edges":"of(>Z)","distance":1}
+  ],
+  "checks": [
+    {"check":"body_count","expect":1},
+    {"check":"bbox_size","body":"part","expect":[80,80,25],"tol":0.1}
+  ] }

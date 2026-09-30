@@ -1,0 +1,11 @@
+{ "params": { "a": 30, "top_r": 8, "h": 40, "coil_r": 12, "wire_r": 1.5, "pitch": 6, "turns": 5 },
+  "ops": [
+    {"op":"sketch","id":"s_base","plane":"XY","entities":[
+      {"rect":{"center":[0,0],"w":"$a","h":"$a","name":"sq"}}]},
+    {"op":"sketch","id":"s_top","plane":{"base":"XY","offset":"$h"},"entities":[
+      {"circle":{"center":[0,0],"r":"$top_r","name":"c"}}]},
+    {"op":"loft","id":"funnel","sections":["s_base","s_top"]},
+    {"op":"helix","id":"spring","r":"$coil_r","pitch":"$pitch","turns":"$turns",
+     "section":{"circle":{"r":"$wire_r"}},"at":[60,0,0]},
+    {"op":"mirror","id":"funnel_m","body":"funnel","plane":{"point":[30,0,0],"normal":[1,0,0]}}
+  ] }

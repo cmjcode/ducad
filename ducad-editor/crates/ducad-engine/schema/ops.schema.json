@@ -3,7 +3,7 @@
   "additionalProperties": false,
   "definitions": {
     "AllTag": {
-      "description": "Tag string `\"all\"`.",
+      "description": "String tag `\"all\"`.",
       "enum": [
         "all"
       ],
@@ -41,7 +41,7 @@
           "type": "object"
         }
       ],
-      "description": "Sumbu revolve: `\"u\"`/`\"v\"` (sumbu bidang sketch lewat origin) atau garis 2D di bidang sketch."
+      "description": "Revolve axis: `\"u\"`/`\"v\"` (sketch plane axis through the origin) or a 2D line in the sketch plane."
     },
     "BodyMode": {
       "enum": [
@@ -63,7 +63,7 @@
           "type": "array"
         }
       ],
-      "description": "`\"*\"` pada field `body` = satu-satunya body (error bila jumlah ≠ 1); `\"*\"` pada field `bodies` = semua body."
+      "description": "`\"*\"` in field `body` = the only body (error if the count ≠ 1); `\"*\"` in field `bodies` = all bodies."
     },
     "BoolKind": {
       "enum": [
@@ -74,7 +74,7 @@
       "type": "string"
     },
     "CheckItem": {
-      "description": "Satu check beserta id/catatan opsional. Catatan: serde tidak mendukung `flatten` + `deny_unknown_fields`, jadi field tak dikenal diabaikan di sini.",
+      "description": "One check with optional id/note. Note: serde does not support `flatten` + `deny_unknown_fields`, so unknown fields are ignored here.",
       "oneOf": [
         {
           "properties": {
@@ -171,7 +171,7 @@
           "type": "object"
         },
         {
-          "description": "Urutan X, Y, Z.",
+          "description": "Order X, Y, Z.",
           "properties": {
             "body": {
               "$ref": "#/definitions/BodySel"
@@ -400,7 +400,7 @@
       "type": "object"
     },
     "ConstraintSpec": {
-      "description": "Constraint sketch. Entitas dirujuk dengan nama; titik dengan `\"<nama>.start\" | \".end\" | \".center\"`.",
+      "description": "Sketch constraint. Entities are referenced by name; points by `\"<name>.start\" | \".end\" | \".center\"`.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -597,7 +597,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Sudut CCW dari arah `a` ke arah `b`, derajat.",
+          "description": "CCW angle from direction `a` to direction `b`, degrees.",
           "properties": {
             "angle": {
               "additionalProperties": false,
@@ -758,7 +758,7 @@
       ]
     },
     "EntitySpec": {
-      "description": "Entitas sketch (externally tagged, mis. `{\"rect\": {...}}`).",
+      "description": "Sketch entity (externally tagged, e.g. `{\"rect\": {...}}`).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -808,7 +808,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Tepat satu dari `center`/`corner` (sudut kiri-bawah). Anak: `name.bottom`, `name.right`, `name.top`, `name.left`.",
+          "description": "Exactly one of `center`/`corner` (bottom-left corner). Children: `name.bottom`, `name.right`, `name.top`, `name.left`.",
           "properties": {
             "rect": {
               "additionalProperties": false,
@@ -910,7 +910,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Busur CCW dari `start_deg` ke `end_deg`.",
+          "description": "CCW arc from `start_deg` to `end_deg`.",
           "properties": {
             "arc": {
               "additionalProperties": false,
@@ -960,7 +960,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Busur lewat tiga titik.",
+          "description": "Arc through three points.",
           "properties": {
             "arc3": {
               "additionalProperties": false,
@@ -1061,7 +1061,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Poligon beraturan `sides` (3..=64); anak `name.0 … name.{n-1}`.",
+          "description": "Regular polygon with `sides` (3..=64); children `name.0 … name.{n-1}`.",
           "properties": {
             "polygon": {
               "additionalProperties": false,
@@ -1113,7 +1113,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Slot lonjong antar-pusat `from`–`to` dengan radius `r`; anak `name.0 …`.",
+          "description": "Obround slot between centers `from`–`to` with radius `r`; children `name.0 …`.",
           "properties": {
             "slot": {
               "additionalProperties": false,
@@ -1164,7 +1164,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Rangkaian garis; anak `name.0 …`.",
+          "description": "Chain of lines; children `name.0 …`.",
           "properties": {
             "polyline": {
               "additionalProperties": false,
@@ -1311,7 +1311,7 @@
       "type": "string"
     },
     "HelixSection": {
-      "description": "Penampang helix (externally tagged): `{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}` (ulir V).",
+      "description": "Helix section (externally tagged): `{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}` (V thread).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -1399,7 +1399,7 @@
       "anyOf": [
         {
           "additionalProperties": false,
-          "description": "`iso`: `\"M2\"`..`\"M12\"`, `\"M2.5\"`. `depth: null` = tembus.",
+          "description": "`iso`: `\"M2\"`..`\"M12\"`, `\"M2.5\"`. `depth: null` = through.",
           "properties": {
             "depth": {
               "anyOf": [
@@ -1493,7 +1493,7 @@
           "type": "object"
         }
       ],
-      "description": "Bidang cermin: `\"XY\"`/`\"XZ\"`/`\"YZ\"` (lewat origin) atau `{\"point\":[x,y,z],\"normal\":[x,y,z]}`."
+      "description": "Mirror plane: `\"XY\"`/`\"XZ\"`/`\"YZ\"` (through the origin) or `{\"point\":[x,y,z],\"normal\":[x,y,z]}`."
     },
     "Num": {
       "anyOf": [
@@ -1502,24 +1502,28 @@
           "type": "number"
         },
         {
-          "description": "Ekspresi, mis. `\"$w/2 - 3\"`.",
+          "description": "Expression, e.g. `\"$w/2 - 3\"`.",
           "type": "string"
         }
       ]
     },
     "Op": {
+      "description": "One modeling step. Field `op` selects the kind; `id` is unique (`^[a-z][a-z0-9_]{0,31}$`) and becomes the name of the body/sketch this op CREATES. Ops that MODIFY a body (fillet, chamfer, shell, hole, transform, pattern merge, draft, scale) keep the existing body name. Numbers may be param expressions: `\"$w/2 - 3\"`. Units: mm and degrees.",
       "oneOf": [
         {
           "additionalProperties": false,
+          "description": "2D sketch on a plane: named entities + constraints. Creates no body; extrude/revolve/loft/sweep use it by `id`. Entity coordinates are the plane's local (u, v) (XY: u=X, v=Y; XZ: u=X, v=Z; YZ: u=Y, v=Z).",
           "properties": {
             "constraints": {
               "default": [],
+              "description": "Constraints between named entities (optional; the initial geometry already defines the shape).",
               "items": {
                 "$ref": "#/definitions/ConstraintSpec"
               },
               "type": "array"
             },
             "entities": {
+              "description": "Externally tagged entities, e.g. `{\"rect\":{\"center\":[0,0],\"w\":60,\"h\":40,\"name\":\"outline\"}}`.",
               "items": {
                 "$ref": "#/definitions/EntitySpec"
               },
@@ -1535,7 +1539,12 @@
               "type": "string"
             },
             "plane": {
-              "$ref": "#/definitions/PlaneSpec"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PlaneSpec"
+                }
+              ],
+              "description": "`\"XY\"`/`\"XZ\"`/`\"YZ\"`, `{\"base\":\"XY\",\"offset\":10}`, or `{\"body\":\"plate\",\"face\":\">Z\"}` (planar face; origin = face centroid)."
             }
           },
           "required": [
@@ -1548,6 +1557,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Extrude closed sketch regions along the plane normal. `mode` `new` creates body `id`; `add`/`cut` unions with / cuts body `target` (its name is kept). Holes inside a region are carried along.",
           "properties": {
             "direction": {
               "allOf": [
@@ -1555,7 +1565,8 @@
                   "$ref": "#/definitions/ExtrudeDir"
                 }
               ],
-              "default": "normal"
+              "default": "normal",
+              "description": "`normal` (default, along the plane normal), `reverse`, `symmetric`."
             },
             "distance": {
               "allOf": [
@@ -1563,7 +1574,7 @@
                   "$ref": "#/definitions/Num"
                 }
               ],
-              "description": "Untuk `direction = symmetric`: tebal TOTAL."
+              "description": "Distance (> 0). For `direction = symmetric`: TOTAL thickness."
             },
             "id": {
               "type": "string"
@@ -1574,7 +1585,8 @@
                   "$ref": "#/definitions/MaterialSel"
                 }
               ],
-              "default": "default"
+              "default": "default",
+              "description": "`\"default\"`, `\"from_style\"` (fill color of path entities), or a preset name."
             },
             "mode": {
               "allOf": [
@@ -1582,7 +1594,8 @@
                   "$ref": "#/definitions/BodyMode"
                 }
               ],
-              "default": "new"
+              "default": "new",
+              "description": "`new` (default), `add`, `cut`. `add`/`cut` require `target`."
             },
             "op": {
               "enum": [
@@ -1599,10 +1612,12 @@
                   "type": "null"
                 }
               ],
-              "default": null
+              "default": null,
+              "description": "Extrude only the outline (stroke) with width `width`, not the fill."
             },
             "per_object": {
               "default": false,
+              "description": "One body per selected entity (`id.<name>`), `new` mode only; for vectors/logos.",
               "type": "boolean"
             },
             "profile": {
@@ -1611,13 +1626,16 @@
                   "$ref": "#/definitions/ProfileSel"
                 }
               ],
-              "default": "all"
+              "default": "all",
+              "description": "Regions to extrude: `\"all\"` (default), `{\"names\":[\"outline\"]}`, or `{\"at\":[u,v]}` (smallest region containing the point)."
             },
             "sketch": {
+              "description": "Id of the source sketch op.",
               "type": "string"
             },
             "target": {
               "default": null,
+              "description": "Body name for `add`/`cut` mode; must be empty for `new`.",
               "type": [
                 "string",
                 "null"
@@ -1634,6 +1652,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Revolve sketch regions around an axis in the sketch plane. The profile must not cross the axis.",
           "properties": {
             "angle_deg": {
               "anyOf": [
@@ -1645,10 +1664,15 @@
                 }
               ],
               "default": null,
-              "description": "`null` = 360°."
+              "description": "Sweep angle; `null` = 360°."
             },
             "axis": {
-              "$ref": "#/definitions/AxisSpec"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AxisSpec"
+                }
+              ],
+              "description": "`\"u\"`/`\"v\"` (plane axis through the sketch origin) or `{\"origin\":[u,v],\"dir\":[du,dv]}`."
             },
             "id": {
               "type": "string"
@@ -1659,7 +1683,8 @@
                   "$ref": "#/definitions/BodyMode"
                 }
               ],
-              "default": "new"
+              "default": "new",
+              "description": "`new` (default), `add`, `cut` (see `extrude.mode`)."
             },
             "op": {
               "enum": [
@@ -1673,13 +1698,16 @@
                   "$ref": "#/definitions/ProfileSel"
                 }
               ],
-              "default": "all"
+              "default": "all",
+              "description": "Regions to revolve (see `extrude.profile`)."
             },
             "sketch": {
+              "description": "Id of the source sketch op.",
               "type": "string"
             },
             "target": {
               "default": null,
+              "description": "Body name for `add`/`cut` mode.",
               "type": [
                 "string",
                 "null"
@@ -1696,6 +1724,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Primitive body named `id`. Box: minimum corner at `at` (or centered on `at` when `centered`). Cylinder/cone: base center at `at`, growing toward +Z. Sphere: center at `at`.",
           "properties": {
             "at": {
               "default": [
@@ -1703,6 +1732,7 @@
                 0.0,
                 0.0
               ],
+              "description": "World position [x,y,z]; default origin.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -1720,7 +1750,12 @@
               "type": "string"
             },
             "shape": {
-              "$ref": "#/definitions/PrimitiveSpec"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PrimitiveSpec"
+                }
+              ],
+              "description": "`{\"box\":{\"size\":[x,y,z]}}`, `{\"cylinder\":{\"r\":5,\"h\":10}}`, `{\"sphere\":{\"r\":5}}`, `{\"cone\":{\"r1\":5,\"r2\":0,\"h\":10}}`."
             }
           },
           "required": [
@@ -1732,18 +1767,26 @@
         },
         {
           "additionalProperties": false,
+          "description": "Boolean of two bodies → new body named `id`. Bodies `a` and `b` are CONSUMED (referencing them again → `body_consumed`); use `id` in later ops.",
           "properties": {
             "a": {
+              "description": "First body (for `subtract`: the one being cut).",
               "type": "string"
             },
             "b": {
+              "description": "Second body (for `subtract`: the cutting tool).",
               "type": "string"
             },
             "id": {
               "type": "string"
             },
             "kind": {
-              "$ref": "#/definitions/BoolKind"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BoolKind"
+                }
+              ],
+              "description": "`union`, `subtract` (a − b), `intersect`."
             },
             "op": {
               "enum": [
@@ -1763,12 +1806,14 @@
         },
         {
           "additionalProperties": false,
+          "description": "Round body edges (body modified in place).",
           "properties": {
             "body": {
+              "description": "Name of the body to modify.",
               "type": "string"
             },
             "edges": {
-              "description": "Selector tepi, mis. `\"|Z\"`.",
+              "description": "Edge selector, e.g. `\"|Z\"` (vertical edges) or `\"of(>Z)\"` (top face perimeter).",
               "type": "string"
             },
             "id": {
@@ -1781,7 +1826,12 @@
               "type": "string"
             },
             "radius": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Radius (> 0); too large → `fillet_radius_too_large` + `fixes`."
             },
             "radius_end": {
               "anyOf": [
@@ -1792,7 +1842,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Fillet variabel: radius di ujung akhir tiap tepi (awal = `radius`)."
+              "description": "Variable fillet: radius at the end of each edge (start = `radius`)."
             }
           },
           "required": [
@@ -1806,14 +1856,22 @@
         },
         {
           "additionalProperties": false,
+          "description": "Equal-distance chamfer on body edges (body modified in place).",
           "properties": {
             "body": {
+              "description": "Name of the body to modify.",
               "type": "string"
             },
             "distance": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Chamfer distance from the edge (> 0)."
             },
             "edges": {
+              "description": "Edge selector (see `fillet.edges`).",
               "type": "string"
             },
             "id": {
@@ -1837,8 +1895,10 @@
         },
         {
           "additionalProperties": false,
+          "description": "Hollow the body into a shell of `thickness`, opening faces `remove_faces` (body modified in place; walls grow inward).",
           "properties": {
             "body": {
+              "description": "Name of the body to modify.",
               "type": "string"
             },
             "id": {
@@ -1851,11 +1911,16 @@
               "type": "string"
             },
             "remove_faces": {
-              "description": "Selector face yang dibuang, mis. `\">Z\"`.",
+              "description": "Selector of the faces to remove, e.g. `\">Z\"` (open top).",
               "type": "string"
             },
             "thickness": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Wall thickness (> 0, < half the smallest body dimension)."
             }
           },
           "required": [
@@ -1869,10 +1934,11 @@
         },
         {
           "additionalProperties": false,
+          "description": "Standard/custom hole perpendicular to a planar face, going into the material (body modified in place). Give `at` and/or `at_world`.",
           "properties": {
             "at": {
               "default": [],
-              "description": "Titik lokal (u, v) pada bidang face (`PlaneFrame::on_face`).",
+              "description": "Local (u, v) points on the face plane: origin = face centroid, u = world +X projected onto the face (+Y if the face is perpendicular to X), v = normal × u. Face `>Z`: u = X, v = Y.",
               "items": {
                 "items": {
                   "$ref": "#/definitions/Num"
@@ -1885,7 +1951,7 @@
             },
             "at_world": {
               "default": [],
-              "description": "Titik dunia, diproyeksikan tegak lurus ke bidang face.",
+              "description": "World points, projected perpendicular onto the face plane.",
               "items": {
                 "items": {
                   "$ref": "#/definitions/Num"
@@ -1897,10 +1963,11 @@
               "type": "array"
             },
             "body": {
+              "description": "Name of the body to drill.",
               "type": "string"
             },
             "face": {
-              "description": "Selector yang harus menghasilkan tepat 1 face planar.",
+              "description": "Selector that must match exactly 1 planar face, e.g. `\">Z\"`.",
               "type": "string"
             },
             "id": {
@@ -1913,7 +1980,12 @@
               "type": "string"
             },
             "spec": {
-              "$ref": "#/definitions/HoleSpecRef"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/HoleSpecRef"
+                }
+              ],
+              "description": "`{\"iso\":\"M5\"}` (clearance, through), `{\"iso\":\"M6\",\"kind\":\"counterbore\"}`, or `{\"diameter\":4.2,\"depth\":10}`."
             }
           },
           "required": [
@@ -1927,18 +1999,26 @@
         },
         {
           "additionalProperties": false,
+          "description": "Pattern copies of a body. `merge: false` (default): new copies `id.1`, `id.2`, …; `merge: true`: all copies are unioned into `body`.",
           "properties": {
             "body": {
+              "description": "Name of the source body.",
               "type": "string"
             },
             "id": {
               "type": "string"
             },
             "kind": {
-              "$ref": "#/definitions/PatternKind"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PatternKind"
+                }
+              ],
+              "description": "`{\"linear\":{\"count\":[nx,ny,nz],\"pitch\":[dx,dy,dz]}}` or `{\"circular\":{\"pivot\":[0,0,0],\"axis\":[0,0,1],\"count\":6,\"angle_deg\":360}}`. `count` includes the original."
             },
             "merge": {
               "default": false,
+              "description": "Union the copies into the source body.",
               "type": "boolean"
             },
             "op": {
@@ -1958,8 +2038,10 @@
         },
         {
           "additionalProperties": false,
+          "description": "Move and/or rotate a body (modified in place); translate first, then rotate.",
           "properties": {
             "body": {
+              "description": "Name of the body to move.",
               "type": "string"
             },
             "id": {
@@ -1980,10 +2062,12 @@
                   "type": "null"
                 }
               ],
-              "default": null
+              "default": null,
+              "description": "`{\"pivot\":[x,y,z],\"axis\":[0,0,1],\"angle_deg\":90}`."
             },
             "translate": {
               "default": null,
+              "description": "Offset [dx,dy,dz].",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2004,8 +2088,10 @@
         },
         {
           "additionalProperties": false,
+          "description": "Delete a body from the model (e.g. a helper body or cutting tool).",
           "properties": {
             "body": {
+              "description": "Name of the body to delete.",
               "type": "string"
             },
             "id": {
@@ -2027,7 +2113,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Loft solid melewati ≥ 2 sketch berurutan (satu region tertutup per sketch; bidangnya bebas, mis. `{\"base\":\"XY\",\"offset\":30}`).",
+          "description": "Loft a solid through ≥ 2 ordered sketches (one closed region per sketch; any plane, e.g. `{\"base\":\"XY\",\"offset\":30}`).",
           "properties": {
             "id": {
               "type": "string"
@@ -2038,7 +2124,8 @@
                   "$ref": "#/definitions/BodyMode"
                 }
               ],
-              "default": "new"
+              "default": "new",
+              "description": "`new` (default), `add`, `cut` (see `extrude.mode`)."
             },
             "op": {
               "enum": [
@@ -2047,6 +2134,7 @@
               "type": "string"
             },
             "sections": {
+              "description": "Section sketch ids, ordered from start to end (≥ 2).",
               "items": {
                 "type": "string"
               },
@@ -2054,6 +2142,7 @@
             },
             "target": {
               "default": null,
+              "description": "Body name for `add`/`cut` mode.",
               "type": [
                 "string",
                 "null"
@@ -2069,7 +2158,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Sapu profil sketch di sepanjang jalur (sketch terbuka atau titik 3D).",
+          "description": "Sweep a sketch profile along a path (open sketch or 3D points).",
           "properties": {
             "id": {
               "type": "string"
@@ -2080,7 +2169,8 @@
                   "$ref": "#/definitions/BodyMode"
                 }
               ],
-              "default": "new"
+              "default": "new",
+              "description": "`new` (default), `add`, `cut` (see `extrude.mode`)."
             },
             "op": {
               "enum": [
@@ -2089,7 +2179,12 @@
               "type": "string"
             },
             "path": {
-              "$ref": "#/definitions/SweepPath"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SweepPath"
+                }
+              ],
+              "description": "Id of a sketch holding an open chain, or `{\"points\":[[x,y,z],…]}`."
             },
             "profile": {
               "allOf": [
@@ -2097,13 +2192,16 @@
                   "$ref": "#/definitions/ProfileSel"
                 }
               ],
-              "default": "all"
+              "default": "all",
+              "description": "Section region (see `extrude.profile`)."
             },
             "sketch": {
+              "description": "Id of the section sketch (closed region), ideally perpendicular to the start of the path.",
               "type": "string"
             },
             "target": {
               "default": null,
+              "description": "Body name for `add`/`cut` mode.",
               "type": [
                 "string",
                 "null"
@@ -2120,7 +2218,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Pegas / ulir: penampang disapu di sepanjang helix. Ulir luar/dalam = `mode: \"add\"`/`\"cut\"` pada batang/lubang.",
+          "description": "Spring / thread: a section swept along a helix. External/internal thread = `mode: \"add\"`/`\"cut\"` on a shaft/hole.",
           "properties": {
             "at": {
               "default": [
@@ -2128,7 +2226,7 @@
                 0.0,
                 0.0
               ],
-              "description": "Titik dasar sumbu.",
+              "description": "Base point of the axis.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2142,6 +2240,7 @@
                 0.0,
                 1.0
               ],
+              "description": "Helix axis direction (default +Z).",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2159,13 +2258,14 @@
                 }
               ],
               "default": null,
-              "description": "Radius di ujung atas (helix kerucut)."
+              "description": "Radius at the top end (conical helix)."
             },
             "id": {
               "type": "string"
             },
             "left_hand": {
               "default": false,
+              "description": "Left-hand thread.",
               "type": "boolean"
             },
             "mode": {
@@ -2174,7 +2274,8 @@
                   "$ref": "#/definitions/BodyMode"
                 }
               ],
-              "default": "new"
+              "default": "new",
+              "description": "`new` (default), `add`, `cut`: external thread = `add`, internal thread = `cut`."
             },
             "op": {
               "enum": [
@@ -2183,7 +2284,12 @@
               "type": "string"
             },
             "pitch": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Rise per turn (mm)."
             },
             "r": {
               "allOf": [
@@ -2191,20 +2297,31 @@
                   "$ref": "#/definitions/Num"
                 }
               ],
-              "description": "Radius helix (ke pusat penampang)."
+              "description": "Helix radius (to the section center)."
             },
             "section": {
-              "$ref": "#/definitions/HelixSection"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/HelixSection"
+                }
+              ],
+              "description": "`{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}`."
             },
             "target": {
               "default": null,
+              "description": "Body name for `add`/`cut` mode.",
               "type": [
                 "string",
                 "null"
               ]
             },
             "turns": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Number of turns."
             }
           },
           "required": [
@@ -2219,16 +2336,22 @@
         },
         {
           "additionalProperties": false,
-          "description": "Kemiringan cetakan (draft) pada face planar.",
+          "description": "Mold draft on planar faces.",
           "properties": {
             "angle_deg": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Draft angle (degrees, > 0)."
             },
             "body": {
+              "description": "Name of the body to modify.",
               "type": "string"
             },
             "faces": {
-              "description": "Selector face yang dimiringkan, mis. `\"#Z\"` (dinding samping).",
+              "description": "Selector of the faces to draft, e.g. `\"#Z\"` (side walls).",
               "type": "string"
             },
             "id": {
@@ -2236,7 +2359,7 @@
             },
             "neutral": {
               "default": "<Z",
-              "description": "Selector 1 face planar = bidang netral (tidak bergerak).",
+              "description": "Selector of 1 planar face = neutral plane (does not move).",
               "type": "string"
             },
             "op": {
@@ -2251,7 +2374,7 @@
                 0.0,
                 1.0
               ],
-              "description": "Arah tarik cetakan.",
+              "description": "Mold pull direction.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2271,13 +2394,15 @@
         },
         {
           "additionalProperties": false,
-          "description": "Cermin body terhadap bidang. `copy` (bawaan): body baru bernama `id`; `merge`: body asli diganti gabungannya dengan cerminannya.",
+          "description": "Mirror a body across a plane. `copy` (default): new body named `id`; `merge`: the original body is replaced by its union with the mirror image.",
           "properties": {
             "body": {
+              "description": "Name of the source body.",
               "type": "string"
             },
             "copy": {
               "default": true,
+              "description": "Create a new body `id` (default `true`).",
               "type": "boolean"
             },
             "id": {
@@ -2285,6 +2410,7 @@
             },
             "merge": {
               "default": false,
+              "description": "Union the mirror image into the original body (keeps the name `body`).",
               "type": "boolean"
             },
             "op": {
@@ -2294,7 +2420,12 @@
               "type": "string"
             },
             "plane": {
-              "$ref": "#/definitions/MirrorPlane"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MirrorPlane"
+                }
+              ],
+              "description": "`\"XY\"`/`\"XZ\"`/`\"YZ\"` (through the origin) or `{\"point\":[x,y,z],\"normal\":[x,y,z]}`."
             }
           },
           "required": [
@@ -2307,13 +2438,19 @@
         },
         {
           "additionalProperties": false,
-          "description": "Skala seragam terhadap `pivot`.",
+          "description": "Uniform scale about `pivot`.",
           "properties": {
             "body": {
+              "description": "Name of the body to modify.",
               "type": "string"
             },
             "factor": {
-              "$ref": "#/definitions/Num"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Scale factor (> 0)."
             },
             "id": {
               "type": "string"
@@ -2330,6 +2467,7 @@
                 0.0,
                 0.0
               ],
+              "description": "Fixed point of the scale; default origin.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2348,9 +2486,10 @@
         },
         {
           "additionalProperties": false,
-          "description": "Potong body dengan bidang. `keep: \"both\"` (bawaan): body asli menyimpan sisi searah `normal`, body baru `id` menyimpan sisi lainnya.",
+          "description": "Cut a body with a plane. `keep: \"both\"` (default): the original body keeps the side along `normal`, new body `id` keeps the other side.",
           "properties": {
             "body": {
+              "description": "Name of the body to cut.",
               "type": "string"
             },
             "id": {
@@ -2362,9 +2501,11 @@
                   "$ref": "#/definitions/SplitKeep"
                 }
               ],
-              "default": "both"
+              "default": "both",
+              "description": "`both` (default), `positive` (only the side along the normal), `negative`."
             },
             "normal": {
+              "description": "Cutting plane normal.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2384,6 +2525,7 @@
                 0.0,
                 0.0
               ],
+              "description": "Point on the cutting plane; default origin.",
               "items": {
                 "$ref": "#/definitions/Num"
               },
@@ -2404,7 +2546,7 @@
     },
     "OutlineSpec": {
       "additionalProperties": false,
-      "description": "Spesifikasi outline untuk mengekstrusi stroke garis saja (bukan isian).",
+      "description": "Outline spec to extrude only the stroke line (not the fill).",
       "properties": {
         "width": {
           "anyOf": [
@@ -2544,7 +2686,7 @@
           "type": "object"
         }
       ],
-      "description": "Bidang sketch: nama (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, alias `\"top\"`/`\"front\"`/ `\"right\"`, tidak peka huruf besar), bidang bernama yang digeser, atau face planar sebuah body."
+      "description": "Sketch plane: a name (`\"XY\"`/`\"XZ\"`/`\"YZ\"`, aliases `\"top\"`/`\"front\"`/`\"right\"`, case-insensitive), an offset named plane, or a planar face of a body."
     },
     "PrimitiveSpec": {
       "description": "Externally tagged: `{\"box\": {...}}`.",
@@ -2694,7 +2836,7 @@
           "type": "object"
         }
       ],
-      "description": "Pemilihan profil: `\"all\"`, `{\"names\": [...]}` (nama entitas sketch), atau `{\"at\": [u, v]}` (region terkecil yang memuat titik)."
+      "description": "Profile selection: `\"all\"`, `{\"names\": [...]}` (sketch entity names), or `{\"at\": [u, v]}` (smallest region containing the point)."
     },
     "RotateSpec": {
       "additionalProperties": false,
@@ -2727,7 +2869,7 @@
       "type": "object"
     },
     "SegSpec": {
-      "description": "Ruas segmen pada `SubpathSpec` (garis lurus atau kurva Bézier kubik).",
+      "description": "Segment of a `SubpathSpec` (straight line or cubic Bézier curve).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -2811,7 +2953,7 @@
     },
     "StyleSpec": {
       "additionalProperties": false,
-      "description": "Spesifikasi gaya visual untuk `EntitySpec::Path`.",
+      "description": "Visual style for `EntitySpec::Path`.",
       "properties": {
         "fill": {
           "default": null,
@@ -2858,7 +3000,7 @@
     },
     "SubpathSpec": {
       "additionalProperties": false,
-      "description": "Rangkaian kurva tertutup atau terbuka untuk `EntitySpec::Path`.",
+      "description": "Closed or open chain of curves for `EntitySpec::Path`.",
       "properties": {
         "closed": {
           "default": false,
@@ -2911,13 +3053,13 @@
           "type": "object"
         }
       ],
-      "description": "Jalur sweep: id sketch berisi rantai terbuka (garis/busur/spline), atau `{\"points\": [[x,y,z], ...]}` polyline 3D."
+      "description": "Sweep path: id of a sketch holding an open chain (lines/arcs/splines), or `{\"points\": [[x,y,z], ...]}` 3D polyline."
     }
   },
-  "description": "Isi file ops: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",
+  "description": "Ops file content: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",
   "properties": {
     "checks": {
-      "description": "Check desain opsional (format P7); `ducad-cli run` memasangnya ke `design.checks` sebelum menjalankan op.",
+      "description": "Optional design checks (P7 format); `ducad-cli run` installs them into `design.checks` before running the ops.",
       "items": {
         "$ref": "#/definitions/CheckItem"
       },

@@ -33,6 +33,9 @@ pub struct ProposalView {
     pub ops_labels: Vec<String>,
     /// Op yang dijalankan bila diterima.
     pub ops: Vec<Op>,
+    /// Edit oplog (params/ganti/hapus): sesi hasil replay + laporannya,
+    /// diadopsi utuh bila diterima. `None` = hanya menambah `ops`.
+    pub edited: Option<Box<(ducad_engine::Session, ducad_engine::BatchReport)>>,
     /// Sidik jari model saat proposal dibuat.
     pub base_fingerprint: String,
     /// Tujuan balasan agent: `(id permintaan, pengirim)`.
@@ -64,26 +67,72 @@ impl DuCADApp {
         req_id: u64,
         reply: &Sender<Value>,
     ) -> ducad_engine::OpResult<()> {
-        #[derive(serde::Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct A {
-            #[serde(default)]
-            session: Option<String>,
-            ops: Vec<Op>,
-        }
-        let a: A = ducad_engine::tooling::args(params)?;
-        let _ = a.session;
-        let ops = a.ops;
+        let e = ducad_engine::tooling::parse_edit_args("propose_ops", params)?;
+        self.agent_propose_edit(e, req_id, reply)
+    }
 
-        let (report, diff, shapes, base_fingerprint) = {
+    /// Proposal dari argumen edit yang sudah divalidasi: tambah op di akhir
+    /// (batch lalu batalkan), atau edit oplog (params/ganti/hapus) yang
+    /// di-replay pada sesi salinan. Model GUI tidak berubah sampai diterima.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn agent_propose_edit(
+        &mut self,
+        e: ducad_engine::tooling::EditArgs,
+        req_id: u64,
+        reply: &Sender<Value>,
+    ) -> ducad_engine::OpResult<()> {
+        let mut labels: Vec<String> = Vec::new();
+        if let Some(p) = &e.params {
+            let mut keys: Vec<String> = p.iter().map(|(k, v)| format!("{k} = {v}")).collect();
+            keys.sort();
+            labels.push(format!("params: {}", keys.join(", ")));
+        }
+        labels.extend(
+            e.replace
+                .iter()
+                .map(|r| format!("~ {} ({})", r.id, r.op.kind())),
+        );
+        labels.extend(e.remove.iter().map(|id| format!("− {id}")));
+        labels.extend(
+            e.append
+                .iter()
+                .map(|o| format!("{} ({})", o.id(), o.kind())),
+        );
+
+        let (diff, shapes, base_fingerprint, edited) = if e.is_append_only() {
             let mut core = ducad_engine::SessionCore {
                 model: &mut self.model,
                 model_undo: &mut self.model_undo,
                 sketches: &mut self.sketch_set,
                 meta: &mut self.agent_meta,
             };
-            core.propose(ops.clone())?
+            let (_, diff, shapes, fp) = core.propose(e.append.clone())?;
+            (diff, shapes, fp, None)
+        } else {
+            let params = e.params.map(|p| {
+                let mut merged = self.agent_meta.design.params.clone();
+                merged.extend(p);
+                merged
+            });
+            let preview = ducad_engine::preview_edit(
+                &self.model,
+                &self.agent_meta.design,
+                params.as_ref(),
+                &e.replace,
+                &e.remove,
+                &e.append,
+            )?;
+            let fp = ducad_engine::session::fingerprint(&self.model);
+            let mut report = preview.report;
+            report.committed = true;
+            (
+                preview.diff,
+                preview.shapes,
+                fp,
+                Some(Box::new((preview.session, report))),
+            )
         };
+        let ops = e.append;
 
         let tess = |v: &[ducad_kernel::KernelShape]| -> Vec<std::sync::Arc<KernelMesh>> {
             v.iter()
@@ -103,11 +152,9 @@ impl DuCADApp {
                 added = added_txt.as_str(),
                 removed = removed_txt.as_str()
             ),
-            ops_labels: ops
-                .iter()
-                .map(|o| format!("{} ({})", o.id(), o.kind()))
-                .collect(),
+            ops_labels: labels,
             ops,
+            edited,
             base_fingerprint,
             reply: Some((req_id, reply.clone())),
             deadline: Instant::now() + Duration::from_secs(REPLY_TIMEOUT_SECS),
@@ -117,7 +164,6 @@ impl DuCADApp {
         if let Some(mut old) = self.pending_proposal.take() {
             old.reply_rejected("superseded");
         }
-        let _ = report;
         self.pending_proposal = Some(view);
         Ok(())
     }
@@ -171,6 +217,18 @@ impl DuCADApp {
                 let _ = tx.send(AgentBridge::err_reply(id, &e));
             }
             self.model_status = Some(ducad_i18n::t!("proposal-rejected"));
+            return;
+        }
+        if let Some(edited) = p.edited.take() {
+            // Edit oplog: adopsi sesi hasil replay sebagai satu langkah undo.
+            let (session, report) = *edited;
+            let payload = ducad_engine::tooling::to_value(report).unwrap_or(Value::Null);
+            let meta = session.meta().clone();
+            self.adopt_agent_model(session.into_model(), meta, &p.id);
+            if let Some((id, tx)) = p.reply.take() {
+                let _ = tx.send(AgentBridge::ok_reply(id, payload, None, false));
+            }
+            self.model_status = Some(ducad_i18n::t!("proposal-accepted"));
             return;
         }
         let report = {
@@ -273,5 +331,121 @@ mod tests {
         let r = rx.try_recv().expect("balasan stale");
         assert_eq!(r["is_error"], true, "{r}");
         assert_eq!(r["payload"]["error"]["code"], "proposal_stale", "{r}");
+    }
+
+    /// App dengan contoh plate (params + 4 op) lewat jembatan.
+    fn app_with_plate() -> DuCADApp {
+        let mut app = DuCADApp::new_for_test();
+        let _tx = app.bridge.test_channel();
+        let (reply, _rx) = mpsc::channel();
+        let plate: Value = serde_json::from_str(ducad_engine::ops::EXAMPLE_PLATE).unwrap();
+        for (method, params) in [
+            ("set_params", json!({ "params": plate["params"] })),
+            ("run_ops", json!({ "ops": plate["ops"] })),
+        ] {
+            let out = app
+                .agent_call_for_test(method, params, 1, &reply)
+                .expect("balasan langsung");
+            assert!(!out.is_error, "{method}: {}", out.payload);
+        }
+        app
+    }
+
+    fn live_volume(app: &mut DuCADApp) -> f64 {
+        let (reply, _rx) = mpsc::channel();
+        let out = app
+            .agent_call_for_test("inspect", json!({}), 2, &reply)
+            .expect("inspect");
+        out.payload["bodies"][0]["volume"]
+            .as_f64()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn replace_op_on_live_document_is_one_undo_step() {
+        let mut app = app_with_plate();
+        let v0 = live_volume(&mut app);
+        let (reply, _rx) = mpsc::channel();
+        let fillet = json!({"op":"fillet","id":"f1","body":"plate","edges":"|Z","radius":1});
+        let out = app
+            .agent_call_for_test(
+                "replace_op",
+                json!({ "id": "f1", "op": fillet.clone(), "dry_run": true }),
+                3,
+                &reply,
+            )
+            .expect("balasan");
+        assert_eq!(out.payload["committed"], false, "{}", out.payload);
+        assert_eq!(live_volume(&mut app), v0, "dry run tidak mengubah dokumen");
+
+        let out = app
+            .agent_call_for_test("replace_op", json!({ "id": "f1", "op": fillet }), 4, &reply)
+            .expect("balasan");
+        assert!(!out.is_error, "{}", out.payload);
+        let v1 = live_volume(&mut app);
+        assert!(v1 > v0, "fillet lebih kecil → volume bertambah");
+
+        app.model_undo.undo(&mut app.model);
+        assert!(
+            (live_volume(&mut app) - v0).abs() < 1e-6,
+            "satu undo GUI mengembalikan"
+        );
+
+        let out = app
+            .agent_call_for_test("remove_op", json!({ "ids": ["nope"] }), 5, &reply)
+            .expect("balasan");
+        assert_eq!(
+            out.payload["error"]["code"], "unknown_ref",
+            "{}",
+            out.payload
+        );
+    }
+
+    #[test]
+    fn force_propose_turns_remove_op_into_edit_proposal() {
+        let mut app = app_with_plate();
+        app.bridge.force_propose = true;
+        let v0 = live_volume(&mut app);
+        let (reply, rx) = mpsc::channel();
+        let out = app.agent_call_for_test("remove_op", json!({ "ids": ["h1"] }), 6, &reply);
+        assert!(out.is_none(), "balasan menunggu keputusan pengguna");
+        let p = app.pending_proposal.as_ref().expect("ada proposal");
+        assert!(p.edited.is_some());
+        assert!(
+            p.ops_labels.iter().any(|l| l.contains("h1")),
+            "{:?}",
+            p.ops_labels
+        );
+        assert_eq!(live_volume(&mut app), v0, "model belum berubah");
+
+        app.accept_pending_proposal();
+        let r = rx.try_recv().expect("balasan setelah diterima");
+        assert_eq!(r["payload"]["committed"], true, "{r}");
+        assert!(
+            live_volume(&mut app) > v0,
+            "lubang hilang → volume bertambah"
+        );
+        assert!(app.agent_meta.design.oplog.iter().all(|o| o.id() != "h1"));
+    }
+
+    #[test]
+    fn set_checks_is_saved_into_document_design() {
+        let mut app = app_with_plate();
+        let (reply, _rx) = mpsc::channel();
+        let out = app
+            .agent_call_for_test(
+                "set_checks",
+                json!({ "checks": [{"check": "hole_count", "body": "*", "diameter": 5.5, "expect": 4}] }),
+                7,
+                &reply,
+            )
+            .expect("balasan");
+        assert_eq!(out.payload["pass"], 1, "{}", out.payload);
+        let design = app.design.clone().expect("design tersimpan");
+        assert_eq!(
+            design["checks"].as_array().map(|a| a.len()),
+            Some(1),
+            "{design}"
+        );
     }
 }

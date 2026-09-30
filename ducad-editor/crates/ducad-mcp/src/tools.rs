@@ -4,11 +4,11 @@ use base64::Engine as _;
 use ducad_engine::check::CheckItem;
 use ducad_engine::export::{export, ExportFormat};
 use ducad_engine::inspect::summarize;
-use ducad_engine::ops::{op_schema, Op, Params};
+use ducad_engine::ops::{Params, EXAMPLES};
 use ducad_engine::render::{svg_to_png, View};
 use ducad_engine::tooling::{
-    args, call_core_tool, call_stateless_tool, compact_text, to_value, SessionArg, ToolOut,
-    CORE_TOOLS, STATELESS_TOOLS,
+    args, call_core_tool, call_stateless_tool, compact_text, op_kinds, parse_edit_args, to_value,
+    SessionArg, ToolOut, CORE_TOOLS, READ_ONLY_TOOLS, STATELESS_TOOLS,
 };
 use ducad_engine::{OpError, OpErrorCode, OpResult, Session};
 use serde::Deserialize;
@@ -23,6 +23,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "close_part",
     "run_ops",
     "set_params",
+    "replace_op",
+    "remove_op",
     "inspect",
     "query_geometry",
     "measure",
@@ -43,21 +45,86 @@ pub const TOOL_NAMES: &[&str] = &[
     "list_parts",
 ];
 
+/// Tool yang bisa menimpa/membuang sesuatu (anotasi MCP `destructiveHint`).
+const DESTRUCTIVE_TOOLS: &[&str] = &[
+    "save_part",
+    "close_part",
+    "replace_op",
+    "remove_op",
+    "export",
+    "set_checks",
+    "drawing",
+];
+
+/// Tool yang aman diulang dengan argumen sama (anotasi `idempotentHint`).
+const IDEMPOTENT_TOOLS: &[&str] = &[
+    "save_part",
+    "set_params",
+    "export",
+    "set_checks",
+    "drawing",
+    "render_view",
+    "set_view",
+    "select",
+];
+
 fn session_prop() -> Value {
-    json!({ "type": "string", "description": "Id sesi (mis. \"s1\"); boleh kosong bila hanya ada satu part terbuka." })
+    json!({ "type": "string", "description": "Session id (e.g. \"s1\"); may be omitted when only one part is open." })
 }
 
 fn schema(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required, "additionalProperties": false })
 }
 
-fn tool(name: &str, description: &str, input: Value) -> Value {
-    json!({ "name": name, "description": description, "inputSchema": input })
+/// Definisi tool MCP lengkap dengan `title` dan `annotations`
+/// (readOnly/destructive/idempotent) supaya klien bisa mengizinkan tool
+/// baca-saja tanpa bertanya.
+fn tool(name: &str, title: &str, description: &str, input: Value) -> Value {
+    let read_only = READ_ONLY_TOOLS.contains(&name);
+    json!({
+        "name": name,
+        "title": title,
+        "description": description,
+        "inputSchema": input,
+        "annotations": {
+            "title": title,
+            "readOnlyHint": read_only,
+            "destructiveHint": !read_only && DESTRUCTIVE_TOOLS.contains(&name),
+            "idempotentHint": read_only || IDEMPOTENT_TOOLS.contains(&name),
+            "openWorldHint": false,
+        },
+    })
+}
+
+/// Skema satu Op yang RINGKAS: hanya `op` (enum jenis) dan `id`. Skema
+/// penuh (±33 KB) sengaja tidak ditanam di sini — agent mengambil detail
+/// per jenis lewat `get_schema {"op": …}`, dan engine memvalidasi setiap op
+/// dengan error yang menyebut `op_index` serta field yang sah.
+fn op_item() -> Value {
+    json!({
+        "type": "object",
+        "description": "One Op: {\"op\":<kind>,\"id\":<name>, …fields of that kind}. Fields per kind: get_schema {\"op\":\"<kind>\"}.",
+        "properties": {
+            "op": { "type": "string", "enum": op_kinds() },
+            "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" }
+        },
+        "required": ["op", "id"],
+        "additionalProperties": true
+    })
+}
+
+fn ops_prop(description: &str) -> Value {
+    json!({ "type": "array", "items": op_item(), "description": description })
+}
+
+fn params_prop() -> Value {
+    json!({ "type": "object", "additionalProperties": { "type": "number" },
+            "description": "Params to change/add (merged into the existing params), e.g. {\"t\": 10}." })
 }
 
 fn ref_schema() -> Value {
     json!({
-        "description": "Rujukan: {\"point\":[x,y,z]}, {\"body\":B,\"face\":SEL}, atau {\"body\":B,\"edge\":SEL}; selector harus menghasilkan tepat 1 elemen.",
+        "description": "Reference: {\"point\":[x,y,z]}, {\"body\":B,\"face\":SEL}, or {\"body\":B,\"edge\":SEL}; the selector must match exactly 1 element.",
         "oneOf": [
             schema(json!({ "point": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 } }), &["point"]),
             schema(json!({ "body": { "type": "string" }, "face": { "type": "string" } }), &["body", "face"]),
@@ -66,27 +133,10 @@ fn ref_schema() -> Value {
     })
 }
 
+const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (created/modified/removed per op), summary (volume/bbox per body), checks. On failure → isError with error{code, message, hint, op_index, op_id, context, fixes[]}; when fixes is present, resend with patched_op.";
+
 /// Daftar tool untuk `tools/list`.
 pub fn definitions() -> Vec<Value> {
-    let op_schema = op_schema();
-    let definitions = op_schema.get("definitions").cloned().unwrap_or(json!({}));
-    let mut run_ops = schema(
-        json!({
-            "session": session_prop(),
-            "ops": { "type": "array", "items": { "$ref": "#/definitions/Op" }, "description": "Daftar Op (lihat get_schema)." },
-            "dry_run": { "type": "boolean", "description": "Validasi tanpa mengubah part." }
-        }),
-        &["ops"],
-    );
-    let mut propose_ops = schema(
-        json!({
-            "session": session_prop(),
-            "ops": { "type": "array", "items": { "$ref": "#/definitions/Op" } }
-        }),
-        &["ops"],
-    );
-    propose_ops["definitions"] = definitions.clone();
-    run_ops["definitions"] = definitions;
     let check_defs =
         serde_json::to_value(schemars::schema_for!(Vec<CheckItem>)).unwrap_or(json!({}));
     let check_items = check_defs
@@ -102,52 +152,93 @@ pub fn definitions() -> Vec<Value> {
         &["checks"],
     ));
     let run_checks = with_check_defs(schema(
-        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items } }),
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items,
+                "description": "Optional; without it the design checks installed by set_checks are used." } }),
         &[],
     ));
     let view = json!({ "type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "bottom"] });
+    let example_names: Vec<&str> = EXAMPLES.iter().map(|(n, _, _)| *n).collect();
     vec![
         tool(
             "new_part",
-            "Buat part kosong baru. Panggil sebelum run_ops bila belum ada part terbuka.",
+            "New part",
+            "Create a new empty part; returns {session, summary}. Call before run_ops when no part is open.",
             schema(json!({ "name": { "type": "string" } }), &[]),
         ),
         tool(
             "open_part",
-            "Buka berkas .ducad (relatif ke root). Mode adopsi/oplog basi dilaporkan di summary.warnings.",
+            "Open part",
+            "Open a .ducad file (relative to the root); returns {session, summary}. Adoption mode / stale oplog is reported in summary.warnings.",
             schema(json!({ "path": { "type": "string" } }), &["path"]),
         ),
         tool(
             "save_part",
-            "Simpan part ke .ducad; tanpa path memakai path asal.",
+            "Save part",
+            "Save the part to .ducad; without path, saves to its original path.",
             schema(json!({ "session": session_prop(), "path": { "type": "string" } }), &[]),
         ),
-        tool("close_part", "Tutup sesi part.", schema(json!({ "session": session_prop() }), &[])),
+        tool("close_part", "Close part", "Close the part session (unsaved changes are lost).", schema(json!({ "session": session_prop() }), &[])),
         tool(
             "run_ops",
-            "Jalankan batch Op secara atomik; pakai dry_run:true dulu untuk validasi. Hasil: BatchReport. Contoh vektor->3D: Op::Extrude dengan profile:{\"names\":[\"logo\"]}, per_object:true, material:\"from_style\".",
-            run_ops,
+            "Run ops",
+            &format!("Append a batch of Ops to the end of the oplog atomically (all succeed or nothing changes); use dry_run:true first to validate. {BATCH_RESULT} To CHANGE an existing op use replace_op/remove_op/set_params, do not stack new ops. Vector->3D example: extrude with profile:{{\"names\":[\"logo\"]}}, per_object:true, material:\"from_style\"."),
+            schema(
+                json!({
+                    "session": session_prop(),
+                    "ops": ops_prop("List of Ops, executed in order."),
+                    "dry_run": { "type": "boolean", "description": "Validate without changing the part." }
+                }),
+                &["ops"],
+            ),
         ),
         tool(
             "set_params",
-            "Ubah param (digabung ke param lama) lalu replay seluruh oplog. Cara yang benar untuk mengubah dimensi.",
+            "Set params",
+            &format!("Change params (merged into the existing params), then replay the whole oplog. The right way to change dimensions written as \"$name\". {BATCH_RESULT}"),
+            schema(json!({ "session": session_prop(), "params": params_prop() }), &["params"]),
+        ),
+        tool(
+            "replace_op",
+            "Replace op",
+            &format!("Replace ONE existing op in the oplog (same id, same position), then replay the whole oplog; later ops are recomputed. On failure the part is unchanged. Use it to fix an old op (selector, radius, profile, …) without undo. {BATCH_RESULT}"),
             schema(
-                json!({ "session": session_prop(), "params": { "type": "object", "additionalProperties": { "type": "number" } } }),
-                &["params"],
+                json!({
+                    "session": session_prop(),
+                    "id": { "type": "string", "description": "Id of the op to replace (see get_oplog)." },
+                    "op": op_item(),
+                    "dry_run": { "type": "boolean", "description": "Test the replay without changing the part; summary = proposed state." }
+                }),
+                &["id", "op"],
+            ),
+        ),
+        tool(
+            "remove_op",
+            "Remove ops",
+            &format!("Remove one or more ops from the oplog, then replay. An op still referenced by another op → unknown_ref error with a hint (remove the referencing op too, or change its reference with replace_op). {BATCH_RESULT}"),
+            schema(
+                json!({
+                    "session": session_prop(),
+                    "ids": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Ids of the ops to remove." },
+                    "dry_run": { "type": "boolean", "description": "Test the replay without changing the part." }
+                }),
+                &["ids"],
             ),
         ),
         tool(
             "inspect",
-            "Ringkasan part: volume, bbox, jumlah face/tepi per body, sketch, params. topology:true untuk daftar face/tepi.",
+            "Inspect part",
+            "Part summary: volume, mass (mass_g, from the material density), area, bbox/size, centroid, face/edge counts per body, material, sketches (entities, closed regions, DOF), params. topology:true lists faces/edges (index, kind, point, normal).",
             schema(
-                json!({ "session": session_prop(), "body": { "type": "string" }, "topology": { "type": "boolean" },
-                        "limit": { "type": "integer", "minimum": 1 } }),
+                json!({ "session": session_prop(), "body": { "type": "string", "description": "Limit to one body." },
+                        "topology": { "type": "boolean" },
+                        "limit": { "type": "integer", "minimum": 1, "description": "Max topology items per body." } }),
                 &[],
             ),
         ),
         tool(
             "query_geometry",
-            "Uji selector face atau tepi pada satu body sebelum dipakai di fillet/hole/sketch.",
+            "Query geometry",
+            "Test a face OR edge selector on one body before using it in fillet/hole/sketch; returns {count, indices, items (max 50)}. Empty → selector_empty with context.available.",
             schema(
                 json!({ "session": session_prop(), "body": { "type": "string" }, "faces": { "type": "string" },
                         "edges": { "type": "string" } }),
@@ -156,12 +247,14 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "measure",
-            "Ukur jarak (dan sudut / celah bidang bila berlaku) antara dua rujukan.",
+            "Measure",
+            "Measure the distance between two references; plus angle_deg when both have a direction, and plane_gap when both are parallel planar faces.",
             schema(json!({ "session": session_prop(), "a": ref_schema(), "b": ref_schema() }), &["a", "b"]),
         ),
         tool(
             "render_view",
-            "Render tampak part ke PNG (dan opsional SVG) untuk verifikasi visual.",
+            "Render view",
+            "Render a view of the part as a PNG image (optionally save the SVG) for visual verification.",
             schema(
                 json!({ "session": session_prop(), "view": view, "hidden_lines": { "type": "boolean" },
                         "width": { "type": "integer", "minimum": 16, "maximum": 4096 },
@@ -173,14 +266,16 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "get_oplog",
-            "Ambil params dan daftar Op part (sumber kebenaran desain).",
+            "Get oplog",
+            "Get the part params and Op list (the design source of truth; its ids are used by replace_op/remove_op).",
             schema(json!({ "session": session_prop() }), &[]),
         ),
-        tool("undo", "Batalkan batch run_ops terakhir.", schema(json!({ "session": session_prop() }), &[])),
-        tool("redo", "Ulangi batch yang terakhir di-undo.", schema(json!({ "session": session_prop() }), &[])),
+        tool("undo", "Undo", "Undo the last run_ops batch (can be redone).", schema(json!({ "session": session_prop() }), &[])),
+        tool("redo", "Redo", "Redo the last undone batch.", schema(json!({ "session": session_prop() }), &[])),
         tool(
             "export",
-            "Ekspor body terlihat ke STEP/STL/OBJ/GLB.",
+            "Export",
+            "Export visible bodies to STEP/STL/OBJ/GLB.",
             schema(
                 json!({ "session": session_prop(), "format": { "type": "string", "enum": ["step", "stl", "obj", "glb"] },
                         "path": { "type": "string" } }),
@@ -189,37 +284,61 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "get_schema",
-            "Skema Op, cheatsheet selector, dan contoh lengkap. Panggil sekali di awal.",
-            schema(json!({}), &[]),
+            "Op schema",
+            "No arguments: a cheap SUMMARY (every op kind + description + required/optional fields, selector cheatsheet, example list). {op:\"fillet\"} = full schema of one op kind; {example:\"flange\"} = a tested example OpFile; {full:true} = the entire JSON Schema (large). Call the summary once at the start.",
+            schema(
+                json!({
+                    "op": { "type": "string", "enum": op_kinds() },
+                    "example": { "type": "string", "enum": example_names },
+                    "full": { "type": "boolean" }
+                }),
+                &[],
+            ),
         ),
         tool(
             "set_checks",
-            "Ganti seluruh daftar check desain (persyaratan user: volume, bbox_size, hole_count, min_wall, clearance, …) dan evaluasi sekarang. Tulis sebelum memodelkan.",
+            "Set checks",
+            "Replace the whole list of design checks (user requirements: volume, bbox_size, hole_count, min_wall, clearance, …) and evaluate them now. Write them before modeling; every later BatchReport includes their results.",
             set_checks,
         ),
         tool(
             "run_checks",
-            "Evaluasi check desain (atau daftar 'checks' yang diberikan) terhadap geometri saat ini.",
+            "Run checks",
+            "Evaluate the design checks (or the given 'checks' list) against the current geometry; returns pass/fail per check with the measured value.",
             run_checks,
         ),
         tool(
             "propose_ops",
-            "Pratinjau batch Op tanpa mengubah part: diff body (+/- volume) dan gambar diff berwarna. Terapkan dengan accept_proposal.",
-            propose_ops,
+            "Propose changes",
+            "Preview a change without modifying the part: body diff (+/- volume) and a colored diff image (green = added, red = removed). Give 'ops' (appended) and/or 'params', 'replace', 'remove' (oplog edits). Apply with accept_proposal.",
+            schema(
+                json!({
+                    "session": session_prop(),
+                    "ops": ops_prop("Ops appended to the end of the oplog."),
+                    "params": params_prop(),
+                    "replace": { "type": "array", "description": "Ops to replace: [{id, op}].",
+                                 "items": schema(json!({ "id": { "type": "string" }, "op": op_item() }), &["id", "op"]) },
+                    "remove": { "type": "array", "items": { "type": "string" }, "description": "Ids of the ops to remove." }
+                }),
+                &[],
+            ),
         ),
         tool(
             "accept_proposal",
-            "Terapkan proposal dari propose_ops (gagal proposal_stale bila part berubah sejak proposal dibuat).",
+            "Accept proposal",
+            "Apply a proposal from propose_ops (fails with proposal_stale if the part changed since it was made).",
             schema(json!({ "session": session_prop(), "proposal_id": { "type": "string" } }), &["proposal_id"]),
         ),
         tool(
             "reject_proposal",
-            "Buang proposal yang tidak dipakai.",
+            "Reject proposal",
+            "Discard an unused proposal.",
             schema(json!({ "session": session_prop(), "proposal_id": { "type": "string" } }), &["proposal_id"]),
         ),
         tool(
             "drawing",
-            "Gambar kerja otomatis (tampak depan/atas/kanan/iso + dimensi + catatan lubang) ke PDF/SVG/DXF.",
+            "Drawing",
+            "Automatic engineering drawing (front/top/right/iso views + dimensions + hole notes) to PDF/SVG/DXF.",
             schema(
                 json!({ "session": session_prop(),
                         "format": { "type": "string", "enum": ["pdf", "svg", "dxf"] },
@@ -233,7 +352,8 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "import_step",
-            "Impor berkas STEP sebagai body bernama `name` (isi STEP ikut tersimpan di part; body bisa dipakai op berikutnya, mis. boolean).",
+            "Import STEP",
+            "Import a STEP file as a body named `name` (the STEP content is stored in the part; later ops can use the body, e.g. boolean).",
             schema(
                 json!({ "session": session_prop(), "path": { "type": "string" },
                         "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" } }),
@@ -242,17 +362,19 @@ pub fn definitions() -> Vec<Value> {
         ),
         tool(
             "diff",
-            "Bandingkan part sesi dengan berkas .ducad lain atau sesi lain: perubahan params, op, dan volume per body.",
+            "Diff parts",
+            "Compare the session part with another .ducad file or session: param, op, and per-body volume changes.",
             schema(
                 json!({ "session": session_prop(), "against_path": { "type": "string" },
                         "against_session": { "type": "string" },
-                        "geometric": { "type": "boolean", "description": "Hitung selisih volume per body (lebih lambat)." } }),
+                        "geometric": { "type": "boolean", "description": "Compute per-body volume differences (slower)." } }),
                 &[],
             ),
         ),
         tool(
             "list_parts",
-            "Daftar sesi part yang terbuka (id, nama, path, jumlah body/op).",
+            "List parts",
+            "List open part sessions (id, name, path, body/op counts).",
             schema(json!({}), &[]),
         ),
     ]
@@ -274,13 +396,15 @@ pub fn live_definitions() -> Vec<Value> {
     vec![
         tool(
             "document_info",
-            "Keadaan dokumen yang terbuka di aplikasi: berkas, mode, body (nama, terlihat, volume, terpilih), params, jumlah seleksi, kamera.",
+            "Document info",
+            "State of the document open in the app: file, mode, bodies (name, visible, volume, selected), params, selection count, camera.",
             schema(json!({ "session": session_prop() }), &[]),
         ),
-        tool("get_view", "Posisi kamera viewport pengguna.", schema(json!({ "session": session_prop() }), &[])),
+        tool("get_view", "Get view", "The user's viewport camera position.", schema(json!({ "session": session_prop() }), &[])),
         tool(
             "set_view",
-            "Arahkan kamera viewport pengguna: tampak preset dan/atau fit ke body (bawaan: fit semua body terlihat).",
+            "Set view",
+            "Point the user's viewport camera: preset view and/or fit to bodies (default: fit all visible bodies).",
             schema(
                 json!({ "session": session_prop(), "view": view, "fit": { "type": "boolean" },
                         "bodies": { "type": "array", "items": { "type": "string" } } }),
@@ -289,12 +413,14 @@ pub fn live_definitions() -> Vec<Value> {
         ),
         tool(
             "get_selection",
-            "Apa yang sedang dipilih pengguna: body, face (titik + normal), tepi (ujung). Pakai untuk memahami \"ini\"/\"yang ini\" di instruksi.",
+            "Get selection",
+            "What the user has selected: bodies, faces (point + normal), edges (endpoints). Use it to resolve \"this\"/\"that one\" in instructions.",
             schema(json!({ "session": session_prop() }), &[]),
         ),
         tool(
             "select",
-            "Sorot body / face planar / tepi di viewport lewat selector (mengganti seleksi, atau `add`). Tanpa argumen = kosongkan seleksi.",
+            "Select",
+            "Highlight bodies / planar faces / edges in the viewport via selectors (replaces the selection, or `add`). No arguments = clear the selection.",
             schema(
                 json!({ "session": session_prop(), "body": { "type": "string" }, "faces": { "type": "string" },
                         "edges": { "type": "string" }, "add": { "type": "boolean" } }),
@@ -303,7 +429,8 @@ pub fn live_definitions() -> Vec<Value> {
         ),
         tool(
             "screenshot",
-            "Tangkapan layar jendela aplikasi (apa yang dilihat pengguna) sebagai PNG.",
+            "Screenshot",
+            "Screenshot of the app window (what the user sees) as PNG.",
             schema(json!({ "session": session_prop() }), &[]),
         ),
     ]
@@ -337,7 +464,7 @@ pub fn call(server: &mut Server, name: &str, arguments: Value) -> Value {
 pub fn call_out(server: &mut Server, name: &str, arguments: Value) -> ToolOut {
     let live_ok = server.attach.is_some() && LIVE_TOOL_NAMES.contains(&name);
     if !TOOL_NAMES.contains(&name) && !live_ok {
-        return ToolOut::err(OpError::invalid(format!("tool tidak dikenal: {name}")));
+        return ToolOut::err(OpError::invalid(format!("unknown tool: {name}")));
     }
     if let Some(attach) = server.attach.as_mut() {
         return attach.call(name, arguments);
@@ -434,9 +561,9 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             let a: A = args(a)?;
             let target = a.path.as_deref().map(|p| server.resolve(p)).transpose()?;
             let (_, part) = server.pick(a.session.as_deref())?;
-            let path = target
-                .or_else(|| part.path.clone())
-                .ok_or_else(|| OpError::invalid("part belum punya path; isi argumen 'path'"))?;
+            let path = target.or_else(|| part.path.clone()).ok_or_else(|| {
+                OpError::invalid("the part has no path yet; pass the 'path' argument")
+            })?;
             part.session.save(&path)?;
             part.path = Some(path.clone());
             let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -495,30 +622,30 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             let bytes = export(&part.session, a.format, &path)?;
             Ok(ToolOut::ok(json!({ "path": path, "bytes": bytes })))
         }
-        "set_checks" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                checks: Vec<CheckItem>,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            part.session.set_checks(a.checks);
-            Ok(ToolOut::ok(to_value(part.session.run_checks(None))?))
+        "replace_op" | "remove_op" => {
+            let e = parse_edit_args(name, a)?;
+            let (_, part) = server.pick(e.session.as_deref())?;
+            let report = part
+                .session
+                .edit_oplog(None, e.replace, e.remove, e.dry_run)?;
+            let is_error = report.error.is_some();
+            Ok(ToolOut {
+                payload: to_value(report)?,
+                image_png: None,
+                is_error,
+            })
         }
         "propose_ops" => {
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct A {
-                #[serde(default)]
-                session: Option<String>,
-                ops: Vec<Op>,
-            }
-            let a: A = args(a)?;
-            let (_, part) = server.pick(a.session.as_deref())?;
-            let (proposal, shapes) = part.session.propose(a.ops)?;
+            let e = parse_edit_args(name, a)?;
+            let (_, part) = server.pick(e.session.as_deref())?;
+            let params = e.params.map(|p| {
+                let mut merged = part.session.design().params.clone();
+                merged.extend(p);
+                merged
+            });
+            let (proposal, shapes) = part
+                .session
+                .propose_oplog_edit(params, e.replace, e.remove, e.append)?;
             let r =
                 ducad_engine::render::render_diff_svg(&part.session, &shapes, View::Iso, 800, 600)?;
             let png = svg_to_png(&r.svg, 800, 600)?;
@@ -598,16 +725,13 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                         .sessions
                         .get(k)
                         .ok_or_else(|| {
-                            OpError::new(
-                                OpErrorCode::UnknownRef,
-                                format!("sesi '{k}' tidak dikenal"),
-                            )
+                            OpError::new(OpErrorCode::UnknownRef, format!("unknown session '{k}'"))
                         })?
                         .session
                 }
                 _ => {
                     return Err(OpError::invalid(
-                        "isi tepat satu dari 'against_path' atau 'against_session'",
+                        "give exactly one of 'against_path' or 'against_session'",
                     ))
                 }
             };
@@ -615,6 +739,6 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             let (d, _) = ducad_engine::diff::diff(that, this, a.geometric);
             Ok(ToolOut::ok(to_value(d)?))
         }
-        other => Err(OpError::invalid(format!("tool tidak dikenal: {other}"))),
+        other => Err(OpError::invalid(format!("unknown tool: {other}"))),
     }
 }

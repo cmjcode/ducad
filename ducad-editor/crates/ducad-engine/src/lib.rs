@@ -33,8 +33,8 @@ pub use error::{apply_patch, OpError, OpErrorCode, OpPatch, OpResult, SuggestedF
 pub use ops::MaterialSel;
 pub use plane::PlaneFrame;
 pub use session::{
-    resolve_material, BatchReport, DesignDoc, OpOutcome, Proposal, ReplaceOp, Session,
-    SessionCore, SessionMeta,
+    edit_design, preview_edit, resolve_material, BatchReport, DesignDoc, EditPreview, OpOutcome,
+    Proposal, ReplaceOp, Session, SessionCore, SessionMeta,
 };
 
 #[test]
