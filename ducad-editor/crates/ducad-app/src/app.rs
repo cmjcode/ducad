@@ -2044,7 +2044,55 @@ impl eframe::App for DuCADApp {
                 .pivot(egui::Align2::RIGHT_BOTTOM)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, max_drawer_h, folder_bottom_y) {
+                    let diff = if self.is_sketching {
+                        if self.selected.is_empty() {
+                            ducad_ui::StyleDiff::from_styles(std::slice::from_ref(&self.vector_state.last_style))
+                        } else {
+                            let sketch = self.sketch();
+                            let styles: Vec<ducad_sketch::Style> = self.selected.iter().map(|&id| sketch.style_of(id)).collect();
+                            ducad_ui::StyleDiff::from_styles(&styles)
+                        }
+                    } else {
+                        ducad_ui::StyleDiff::from_styles(&[])
+                    };
+                    let doc_swatches = if self.is_sketching {
+                        self.sketch().swatches.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    let layer_order_reversed: Vec<(ducad_sketch::layer::LayerId, ducad_sketch::layer::Layer)> = if self.is_sketching {
+                        let sketch = self.sketch();
+                        sketch
+                            .layer_order
+                            .iter()
+                            .rev()
+                            .filter_map(|&lid| sketch.layers.get(lid).map(|l| (lid, l.clone())))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let active_layer = if self.is_sketching {
+                        self.vector_state.active_layer.or_else(|| self.sketch().layer_order.first().copied())
+                    } else {
+                        None
+                    };
+
+                    let vector_ctx = if self.is_sketching {
+                        Some(ducad_ui::VectorDrawerContext {
+                            diff: &diff,
+                            properties_panel: &mut self.vector_state.properties_panel,
+                            swatches: &mut self.vector_state.swatches,
+                            doc_swatches: &doc_swatches,
+                            layers_panel: &mut self.vector_state.layers_panel,
+                            layer_order_reversed: &layer_order_reversed,
+                            active_layer,
+                        })
+                    } else {
+                        None
+                    };
+
+                    let items_drawer_max_h = (folder_bottom_y - (screen_rect.min.y + 56.0)).max(300.0);
+                    if let Some(ev) = self.items_drawer.show(ui, &entities_2d, &bodies, items_drawer_max_h, folder_bottom_y, vector_ctx) {
                         match ev {
                             ItemsDrawerEvent::ToggleBodyVisibility(raw_id) => {
                                 for (id, b) in self.model.doc.bodies.iter_mut() {
@@ -2210,6 +2258,110 @@ impl eframe::App for DuCADApp {
                             ItemsDrawerEvent::ToggleGroup(name) => {
                                 let current = *self.items_drawer.expanded_groups.get(&name).unwrap_or(&true);
                                 self.items_drawer.expanded_groups.insert(name, !current);
+                            }
+                            ItemsDrawerEvent::TabChanged(tab) => {
+                                match tab {
+                                    ducad_ui::ItemsDrawerTab::Properties => {
+                                        self.vector_state.active_tab = crate::vector::VectorPanelTab::Properties;
+                                    }
+                                    ducad_ui::ItemsDrawerTab::Layers => {
+                                        self.vector_state.active_tab = crate::vector::VectorPanelTab::Layers;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            ItemsDrawerEvent::Property(prop_ev) => {
+                                match prop_ev {
+                                    ducad_ui::PropertiesPanelEvent::SetField(field) => {
+                                        if !self.selected.is_empty() {
+                                            let ids: Vec<ducad_sketch::EntityId> = self.selected.iter().copied().collect();
+                                            let cmd = ducad_sketch::commands::SetStyleField::new(ids, field.clone());
+                                            self.execute_sketch_command(Box::new(cmd));
+                                        }
+                                        match &field {
+                                            ducad_sketch::commands::StyleField::Fill(f) => self.vector_state.last_style.fill = f.clone(),
+                                            ducad_sketch::commands::StyleField::FillRule(r) => self.vector_state.last_style.fill_rule = *r,
+                                            ducad_sketch::commands::StyleField::Stroke(s) => self.vector_state.last_style.stroke = s.clone(),
+                                            ducad_sketch::commands::StyleField::Opacity(o) => self.vector_state.last_style.opacity = *o,
+                                            ducad_sketch::commands::StyleField::Blend(b) => self.vector_state.last_style.blend = *b,
+                                        }
+                                    }
+                                    ducad_ui::PropertiesPanelEvent::AddDocumentSwatch(rgba) => {
+                                        self.sketch_mut().swatches.push(rgba);
+                                    }
+                                    ducad_ui::PropertiesPanelEvent::StartEyedropper => {
+                                        self.set_tool(ToolKind::Eyedropper);
+                                    }
+                                }
+                            }
+                            ItemsDrawerEvent::Layer(layer_ev) => {
+                                match layer_ev {
+                                    ducad_ui::LayersPanelEvent::SelectActive(lid) => {
+                                        self.vector_state.active_layer = Some(lid);
+                                    }
+                                    ducad_ui::LayersPanelEvent::SelectLayer(lid) => {
+                                        let to_select: Vec<_> = self
+                                            .sketch()
+                                            .entities
+                                            .iter()
+                                            .filter(|(eid, entity)| {
+                                                self.sketch().layer_of(*eid) == Some(lid)
+                                                    && !entity.is_construction()
+                                                    && !self.sketch().is_hidden(*eid)
+                                            })
+                                            .map(|(eid, _)| eid)
+                                            .collect();
+                                        self.selected.clear();
+                                        for eid in to_select {
+                                            self.selected.insert(eid);
+                                        }
+                                        self.vector_extrude_state.per_object = true;
+                                    }
+                                    ducad_ui::LayersPanelEvent::ExtrudeLayer(lid) => {
+                                        let dist: f64 = self.vector_extrude_state.depth_input.trim().parse().unwrap_or(10.0);
+                                        self.extrude_layer(
+                                            lid,
+                                            dist,
+                                            self.vector_extrude_state.material_from_style,
+                                            self.vector_extrude_state.outline_only,
+                                        );
+                                    }
+                                    ducad_ui::LayersPanelEvent::ToggleVisibility(lid, vis) => {
+                                        self.execute_sketch_command(Box::new(ducad_sketch::commands::SetLayerFlags::new(lid, Some(vis), None)));
+                                    }
+                                    ducad_ui::LayersPanelEvent::ToggleLocked(lid, lock) => {
+                                        self.execute_sketch_command(Box::new(ducad_sketch::commands::SetLayerFlags::new(lid, None, Some(lock))));
+                                    }
+                                    ducad_ui::LayersPanelEvent::Rename(lid, name) => {
+                                        self.execute_sketch_command(Box::new(ducad_sketch::commands::RenameLayer::new(lid, name)));
+                                    }
+                                    ducad_ui::LayersPanelEvent::MoveUp(lid) => {
+                                        let mut order = self.sketch().layer_order.clone();
+                                        if let Some(pos) = order.iter().position(|&x| x == lid) {
+                                            if pos + 1 < order.len() {
+                                                order.swap(pos, pos + 1);
+                                                self.execute_sketch_command(Box::new(ducad_sketch::commands::ReorderLayers::new(order)));
+                                            }
+                                        }
+                                    }
+                                    ducad_ui::LayersPanelEvent::MoveDown(lid) => {
+                                        let mut order = self.sketch().layer_order.clone();
+                                        if let Some(pos) = order.iter().position(|&x| x == lid) {
+                                            if pos > 0 {
+                                                order.swap(pos, pos - 1);
+                                                self.execute_sketch_command(Box::new(ducad_sketch::commands::ReorderLayers::new(order)));
+                                            }
+                                        }
+                                    }
+                                    ducad_ui::LayersPanelEvent::Create(layer) => {
+                                        let cmd = ducad_sketch::commands::CreateLayer::new(layer);
+                                        self.execute_sketch_command(Box::new(cmd));
+                                    }
+                                    ducad_ui::LayersPanelEvent::Delete(lid) => {
+                                        let cmd = ducad_sketch::commands::DeleteLayer::new(lid);
+                                        self.execute_sketch_command(Box::new(cmd));
+                                    }
+                                }
                             }
                         }
                     }
@@ -2978,27 +3130,43 @@ impl eframe::App for DuCADApp {
                         }
 
                         // Tombol Folder (Kanan)
+                        let is_folder_active = self.items_drawer_open
+                            && (!self.is_sketching
+                                || self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Objects);
                         let folder_resp = round_floating_icon_btn(
                             ui,
                             egui_icons::icons::ICON_FOLDER.codepoint,
-                            self.items_drawer_open,
+                            is_folder_active,
                             "Properties Dokumen (Objek 2D & Solid Body 3D)",
                             self.icon_size,
                         );
                         if folder_resp.clicked() {
-                            self.items_drawer_open = !self.items_drawer_open;
+                            if is_folder_active {
+                                self.items_drawer_open = false;
+                            } else {
+                                self.items_drawer_open = true;
+                                self.items_drawer.active_tab = ducad_ui::ItemsDrawerTab::Objects;
+                            }
                         }
 
                         if self.is_sketching {
+                            let is_tune_active = self.items_drawer_open
+                                && (self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Properties
+                                    || self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Layers);
                             let vector_panel_resp = round_floating_icon_btn(
                                 ui,
                                 egui_icons::icons::ICON_TUNE.codepoint,
-                                !self.vector_state.panel_collapsed,
+                                is_tune_active,
                                 "Panel Properti Gaya & Layer Vektor",
                                 self.icon_size,
                             );
                             if vector_panel_resp.clicked() {
-                                self.vector_state.panel_collapsed = !self.vector_state.panel_collapsed;
+                                if is_tune_active {
+                                    self.items_drawer_open = false;
+                                } else {
+                                    self.items_drawer_open = true;
+                                    self.items_drawer.active_tab = ducad_ui::ItemsDrawerTab::Properties;
+                                }
                             }
                         }
                     });
@@ -3034,165 +3202,7 @@ impl eframe::App for DuCADApp {
                 });
         }
 
-        if self.is_sketching && !self.drawing_sheet_state.is_open && !self.vector_state.panel_collapsed {
-            let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0);
-            let panel_x = screen_rect.max.x - 16.0;
-            let panel_y = topbar_bottom_y + 16.0;
-            let panel_w = 270.0;
-            let max_panel_h = (screen_rect.height() - panel_y - 80.0).max(250.0);
 
-            egui::Area::new(egui::Id::new("ducad-vector-panels-area"))
-                .fixed_pos(egui::pos2(panel_x, panel_y))
-                .pivot(egui::Align2::RIGHT_TOP)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    ui.set_max_width(panel_w);
-                    ui.set_max_height(max_panel_h);
-                    ducad_ui::theme::glass_frame().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let is_props = self.vector_state.active_tab == crate::vector::VectorPanelTab::Properties;
-                            if ui.selectable_label(is_props, egui::RichText::new("Properti").strong()).clicked() {
-                                self.vector_state.active_tab = crate::vector::VectorPanelTab::Properties;
-                            }
-                            let is_layers = self.vector_state.active_tab == crate::vector::VectorPanelTab::Layers;
-                            if ui.selectable_label(is_layers, egui::RichText::new("Layer").strong()).clicked() {
-                                self.vector_state.active_tab = crate::vector::VectorPanelTab::Layers;
-                            }
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("✕").on_hover_text("Sembunyikan panel").clicked() {
-                                    self.vector_state.panel_collapsed = true;
-                                }
-                            });
-                        });
-                        ui.separator();
-
-                        egui::ScrollArea::vertical()
-                            .max_height(max_panel_h - 40.0)
-                            .show(ui, |ui| {
-                                match self.vector_state.active_tab {
-                                    crate::vector::VectorPanelTab::Properties => {
-                                        let diff = if self.selected.is_empty() {
-                                            ducad_ui::StyleDiff::from_styles(std::slice::from_ref(&self.vector_state.last_style))
-                                        } else {
-                                            let sketch = self.sketch();
-                                            let styles: Vec<ducad_sketch::Style> = self.selected.iter().map(|&id| sketch.style_of(id)).collect();
-                                            ducad_ui::StyleDiff::from_styles(&styles)
-                                        };
-                                        let doc_swatches = self.sketch().swatches.clone();
-                                        if let Some(ev) = self.vector_state.properties_panel.show(
-                                            ui,
-                                            &diff,
-                                            &mut self.vector_state.swatches,
-                                            &doc_swatches,
-                                        ) {
-                                            match ev {
-                                                ducad_ui::PropertiesPanelEvent::SetField(field) => {
-                                                    if !self.selected.is_empty() {
-                                                        let ids: Vec<ducad_sketch::EntityId> = self.selected.iter().copied().collect();
-                                                        let cmd = ducad_sketch::commands::SetStyleField::new(ids, field.clone());
-                                                        self.execute_sketch_command(Box::new(cmd));
-                                                    }
-                                                    match &field {
-                                                        ducad_sketch::commands::StyleField::Fill(f) => self.vector_state.last_style.fill = f.clone(),
-                                                        ducad_sketch::commands::StyleField::FillRule(r) => self.vector_state.last_style.fill_rule = *r,
-                                                        ducad_sketch::commands::StyleField::Stroke(s) => self.vector_state.last_style.stroke = s.clone(),
-                                                        ducad_sketch::commands::StyleField::Opacity(o) => self.vector_state.last_style.opacity = *o,
-                                                        ducad_sketch::commands::StyleField::Blend(b) => self.vector_state.last_style.blend = *b,
-                                                    }
-                                                }
-                                                ducad_ui::PropertiesPanelEvent::AddDocumentSwatch(rgba) => {
-                                                    self.sketch_mut().swatches.push(rgba);
-                                                }
-                                                ducad_ui::PropertiesPanelEvent::StartEyedropper => {
-                                                    self.set_tool(ToolKind::Eyedropper);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    crate::vector::VectorPanelTab::Layers => {
-                                        let sketch = self.sketch();
-                                        let layer_order_reversed: Vec<(ducad_sketch::layer::LayerId, ducad_sketch::layer::Layer)> = sketch
-                                            .layer_order
-                                            .iter()
-                                            .rev()
-                                            .filter_map(|&lid| sketch.layers.get(lid).map(|l| (lid, l.clone())))
-                                            .collect();
-                                        let active_layer = self.vector_state.active_layer.or_else(|| sketch.layer_order.first().copied());
-                                        if let Some(ev) = self.vector_state.layers_panel.show(ui, &layer_order_reversed, active_layer) {
-                                            match ev {
-                                                ducad_ui::LayersPanelEvent::SelectActive(lid) => {
-                                                    self.vector_state.active_layer = Some(lid);
-                                                }
-                                                ducad_ui::LayersPanelEvent::SelectLayer(lid) => {
-                                                    let to_select: Vec<_> = self
-                                                        .sketch()
-                                                        .entities
-                                                        .iter()
-                                                        .filter(|(eid, entity)| {
-                                                            self.sketch().layer_of(*eid) == Some(lid)
-                                                                && !entity.is_construction()
-                                                                && !self.sketch().is_hidden(*eid)
-                                                        })
-                                                        .map(|(eid, _)| eid)
-                                                        .collect();
-                                                    self.selected.clear();
-                                                    for eid in to_select {
-                                                        self.selected.insert(eid);
-                                                    }
-                                                    self.vector_extrude_state.per_object = true;
-                                                }
-                                                ducad_ui::LayersPanelEvent::ExtrudeLayer(lid) => {
-                                                    let dist: f64 = self.vector_extrude_state.depth_input.trim().parse().unwrap_or(10.0);
-                                                    self.extrude_layer(
-                                                        lid,
-                                                        dist,
-                                                        self.vector_extrude_state.material_from_style,
-                                                        self.vector_extrude_state.outline_only,
-                                                    );
-                                                }
-                                                ducad_ui::LayersPanelEvent::ToggleVisibility(lid, vis) => {
-                                                    self.execute_sketch_command(Box::new(ducad_sketch::commands::SetLayerFlags::new(lid, Some(vis), None)));
-                                                }
-                                                ducad_ui::LayersPanelEvent::ToggleLocked(lid, lock) => {
-                                                    self.execute_sketch_command(Box::new(ducad_sketch::commands::SetLayerFlags::new(lid, None, Some(lock))));
-                                                }
-                                                ducad_ui::LayersPanelEvent::Rename(lid, name) => {
-                                                    self.execute_sketch_command(Box::new(ducad_sketch::commands::RenameLayer::new(lid, name)));
-                                                }
-                                                ducad_ui::LayersPanelEvent::MoveUp(lid) => {
-                                                    let mut order = self.sketch().layer_order.clone();
-                                                    if let Some(pos) = order.iter().position(|&x| x == lid) {
-                                                        if pos + 1 < order.len() {
-                                                            order.swap(pos, pos + 1);
-                                                            self.execute_sketch_command(Box::new(ducad_sketch::commands::ReorderLayers::new(order)));
-                                                        }
-                                                    }
-                                                }
-                                                ducad_ui::LayersPanelEvent::MoveDown(lid) => {
-                                                    let mut order = self.sketch().layer_order.clone();
-                                                    if let Some(pos) = order.iter().position(|&x| x == lid) {
-                                                        if pos > 0 {
-                                                            order.swap(pos, pos - 1);
-                                                            self.execute_sketch_command(Box::new(ducad_sketch::commands::ReorderLayers::new(order)));
-                                                        }
-                                                    }
-                                                }
-                                                ducad_ui::LayersPanelEvent::Create(layer) => {
-                                                    let cmd = ducad_sketch::commands::CreateLayer::new(layer);
-                                                    self.execute_sketch_command(Box::new(cmd));
-                                                }
-                                                ducad_ui::LayersPanelEvent::Delete(lid) => {
-                                                    let cmd = ducad_sketch::commands::DeleteLayer::new(lid);
-                                                    self.execute_sketch_command(Box::new(cmd));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                    });
-                });
-        }
 
 
         if self.section_enabled {
@@ -4065,23 +4075,7 @@ impl eframe::App for DuCADApp {
         let m_summary = self.measurements.last().map(|m| m.label());
         let show_normal_to_sketch = self.tool != ToolKind::Select;
 
-        let has_top_bar_hud = matches!(
-            self.tool,
-            ToolKind::Loft
-                | ToolKind::Shell
-                | ToolKind::Rib
-                | ToolKind::DraftAngle
-                | ToolKind::SplitBody
-                | ToolKind::DatumPlane
-                | ToolKind::Boolean
-                | ToolKind::Sweep
-                | ToolKind::Pattern
-                | ToolKind::Polygon
-                | ToolKind::Slot
-                | ToolKind::Revolve
-        ) || self.staged_mate_kind.is_some();
-
-        if !has_top_bar_hud && !self.drawing_sheet_state.is_open {
+        if !self.drawing_sheet_state.is_open {
             if let Some(ev) = CanvasHud::show_status_pill(
                 ui,
                 screen_rect,

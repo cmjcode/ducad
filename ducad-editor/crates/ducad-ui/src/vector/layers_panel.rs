@@ -74,81 +74,77 @@ impl LayersPanelState {
             ui.separator();
 
             // Daftar layer (urutan terbalik: atas = depan)
-            egui::ScrollArea::vertical()
-                .max_height(240.0)
-                .show(ui, |ui| {
-                    for (idx, (lid, layer)) in layer_order_reversed.iter().enumerate() {
-                        let is_active = Some(*lid) == active_layer;
-                        let lid = *lid;
+            for (idx, (lid, layer)) in layer_order_reversed.iter().enumerate() {
+                let is_active = Some(*lid) == active_layer;
+                let lid = *lid;
 
-                        ui.horizontal(|ui| {
-                            // 1. Indikator aktif (klik untuk jadikan aktif)
-                            let marker = if is_active { "●" } else { "○" };
-                            if ui.selectable_label(is_active, marker).on_hover_text("Klik untuk jadikan layer aktif").clicked() {
-                                event = Some(LayersPanelEvent::SelectActive(lid));
-                            }
+                ui.horizontal(|ui| {
+                    // 1. Indikator aktif (klik untuk jadikan aktif)
+                    let marker = if is_active { "●" } else { "○" };
+                    if ui.selectable_label(is_active, marker).on_hover_text("Klik untuk jadikan layer aktif").clicked() {
+                        event = Some(LayersPanelEvent::SelectActive(lid));
+                    }
 
-                            // 2. Kotak warna layer
-                            let egui_col = egui::Color32::from_rgba_unmultiplied(
-                                (layer.color.0[0] * 255.0) as u8,
-                                (layer.color.0[1] * 255.0) as u8,
-                                (layer.color.0[2] * 255.0) as u8,
-                                255,
-                            );
-                            let (c_rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
-                            ui.painter().rect_filled(c_rect, 2.0, egui_col);
+                    // 2. Kotak warna layer
+                    let egui_col = egui::Color32::from_rgba_unmultiplied(
+                        (layer.color.0[0] * 255.0) as u8,
+                        (layer.color.0[1] * 255.0) as u8,
+                        (layer.color.0[2] * 255.0) as u8,
+                        255,
+                    );
+                    let (c_rect, _) = ui.allocate_exact_size(Vec2::new(12.0, 12.0), egui::Sense::hover());
+                    ui.painter().rect_filled(c_rect, 2.0, egui_col);
 
-                            // 3. Toggle Mata (Visibilitas)
-                            let eye_icon = if layer.visible { "👁" } else { "Ø" };
-                            if ui.small_button(eye_icon).on_hover_text("Tampilkan/Sembunyikan layer").clicked() {
-                                event = Some(LayersPanelEvent::ToggleVisibility(lid, !layer.visible));
-                            }
+                    // 3. Toggle Mata (Visibilitas)
+                    let eye_icon = if layer.visible { "👁" } else { "Ø" };
+                    if ui.small_button(eye_icon).on_hover_text("Tampilkan/Sembunyikan layer").clicked() {
+                        event = Some(LayersPanelEvent::ToggleVisibility(lid, !layer.visible));
+                    }
 
-                            // 4. Toggle Gembok (Kunci)
-                            let lock_icon = if layer.locked { "🔒" } else { "🔓" };
-                            if ui.small_button(lock_icon).on_hover_text("Kunci/Buka kunci layer").clicked() {
-                                event = Some(LayersPanelEvent::ToggleLocked(lid, !layer.locked));
-                            }
+                    // 4. Toggle Gembok (Kunci)
+                    let lock_icon = if layer.locked { "🔒" } else { "🔓" };
+                    if ui.small_button(lock_icon).on_hover_text("Kunci/Buka kunci layer").clicked() {
+                        event = Some(LayersPanelEvent::ToggleLocked(lid, !layer.locked));
+                    }
 
-                            // 5. Nama layer (edit jika sedang diedit)
-                            if let Some((editing_id, ref mut name_buf)) = self.editing_layer {
-                                if editing_id == lid {
-                                    let resp = ui.text_edit_singleline(name_buf);
-                                    if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        event = Some(LayersPanelEvent::Rename(lid, name_buf.clone()));
-                                        self.editing_layer = None;
-                                    }
-                                } else {
-                                    if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
-                                        event = Some(ev);
-                                    }
-                                }
-                            } else {
-                                if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
-                                    event = Some(ev);
-                                }
+                    // 5. Nama layer (edit jika sedang diedit)
+                    if let Some((editing_id, ref mut name_buf)) = self.editing_layer {
+                        if editing_id == lid {
+                            let resp = ui.text_edit_singleline(name_buf);
+                            if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                event = Some(LayersPanelEvent::Rename(lid, name_buf.clone()));
+                                self.editing_layer = None;
                             }
+                        } else {
+                            if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
+                                event = Some(ev);
+                            }
+                        }
+                    } else {
+                        if let Some(ev) = render_layer_name(ui, layer, &mut self.editing_layer, lid) {
+                            event = Some(ev);
+                        }
+                    }
 
-                            // Tombol Ekstrusi Layer (M3.4)
-                            if ui.small_button("🚀").on_hover_text("Ekstrusi layer ini ke 3D (per objek)").clicked() {
-                                event = Some(LayersPanelEvent::ExtrudeLayer(lid));
-                            }
+                    // Tombol Ekstrusi Layer (M3.4)
+                    if ui.small_button("🚀").on_hover_text("Ekstrusi layer ini ke 3D (per objek)").clicked() {
+                        event = Some(LayersPanelEvent::ExtrudeLayer(lid));
+                    }
 
-                            // 6. Urutan: Naik / Turun
-                            if idx > 0 && ui.small_button("▲").on_hover_text("Pindah ke atas (ke depan)").clicked() {
-                                event = Some(LayersPanelEvent::MoveUp(lid));
-                            }
-                            if idx + 1 < layer_order_reversed.len() && ui.small_button("▼").on_hover_text("Pindah ke bawah (ke belakang)").clicked() {
-                                event = Some(LayersPanelEvent::MoveDown(lid));
-                            }
+                    // 6. Urutan: Naik / Turun
+                    if idx > 0 && ui.small_button("▲").on_hover_text("Pindah ke atas (ke depan)").clicked() {
+                        event = Some(LayersPanelEvent::MoveUp(lid));
+                    }
+                    if idx + 1 < layer_order_reversed.len() && ui.small_button("▼").on_hover_text("Pindah ke bawah (ke belakang)").clicked() {
+                        event = Some(LayersPanelEvent::MoveDown(lid));
+                    }
 
-                            // 7. Tombol hapus layer
-                            if layer_order_reversed.len() > 1 && ui.small_button("−").on_hover_text("Hapus layer").clicked() {
-                                event = Some(LayersPanelEvent::Delete(lid));
-                            }
-                        });
+                    // 7. Tombol hapus layer
+                    if layer_order_reversed.len() > 1 && ui.small_button("−").on_hover_text("Hapus layer").clicked() {
+                        event = Some(LayersPanelEvent::Delete(lid));
                     }
                 });
+            }
         });
 
         event

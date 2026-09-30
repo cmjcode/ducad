@@ -2,7 +2,7 @@
 //!
 //! Menampilkan widget HUD mengambang langsung di atas kanvas 3D:
 //! tombol kapsul "Normal to Sketch", banner peringatan Section View,
-//! badge dimensi in-situ, dan status seleksi mengambang di pojok kiri atas kanvas.
+//! badge dimensi in-situ, dan status seleksi mengambang di pojok kiri bawah kanvas.
 
 use crate::theme::{
     pill_frame, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
@@ -942,7 +942,7 @@ impl CanvasHud {
         )
     }
 
-    /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di dalam container UI yang diberikan.
+    /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di pojok kiri bawah kanvas.
     pub fn show_status_pill(
         ui: &mut Ui,
         canvas_rect: Rect,
@@ -954,49 +954,52 @@ impl CanvasHud {
             return None;
         }
 
+        let pos = Pos2::new(canvas_rect.min.x + 16.0, canvas_rect.max.y - 16.0);
         let mut event = None;
-        let mut width = (selection_summary.len() as f32 * 6.4 + 12.0).max(60.0);
-        if show_normal_to_sketch { width += 140.0; }
-        if let Some(m) = measurement_summary { width += m.len() as f32 * 6.4 + 30.0; }
 
-        Self::render_header_hud_container(
-            ui,
-            canvas_rect,
-            width,
-            false,
-            "ducad-hud-status-area",
-            |ui| {
-                Self::hud_title(ui, selection_summary, false);
+        egui::Area::new(egui::Id::new("ducad-hud-status-area"))
+            .fixed_pos(pos)
+            .pivot(Align2::LEFT_BOTTOM)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                ui.spacing_mut().button_padding = Vec2::new(6.0, 2.0);
 
-                // Tombol "Normal to Sketch" menyatu di pill bila mode sketsa aktif
-                if show_normal_to_sketch {
-                    ui.label(RichText::new("|").color(TEXT_SECONDARY));
-                    if Self::hud_toggle_btn(
-                        ui,
-                        format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
-                        false,
-                    )
-                    .clicked()
-                    {
-                        event = Some(CanvasHudEvent::OrientNormalToSketch);
-                    }
-                }
+                pill_frame().show(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        Self::hud_title(ui, selection_summary, false);
 
-                // Ringkasan pengukuran jika ada
-                if let Some(m) = measurement_summary {
-                    ui.label(RichText::new("|").color(TEXT_SECONDARY));
-                    let resp = ui.selectable_label(
-                        false,
-                        RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, m))
-                            .size(10.0)
-                            .color(TEXT_PRIMARY),
-                    );
-                    if resp.clicked() {
-                        event = Some(CanvasHudEvent::OpenMeasurements);
-                    }
-                }
-            },
-        );
+                        // Tombol "Normal to Sketch" menyatu di pill bila mode sketsa aktif
+                        if show_normal_to_sketch {
+                            ui.label(RichText::new("|").color(TEXT_SECONDARY));
+                            if Self::hud_toggle_btn(
+                                ui,
+                                format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
+                                false,
+                            )
+                            .clicked()
+                            {
+                                event = Some(CanvasHudEvent::OrientNormalToSketch);
+                            }
+                        }
+
+                        // Ringkasan pengukuran jika ada
+                        if let Some(m) = measurement_summary {
+                            ui.label(RichText::new("|").color(TEXT_SECONDARY));
+                            let resp = ui.selectable_label(
+                                false,
+                                RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, m))
+                                    .size(10.0)
+                                    .color(TEXT_PRIMARY),
+                            );
+                            if resp.clicked() {
+                                event = Some(CanvasHudEvent::OpenMeasurements);
+                            }
+                        }
+                    });
+                });
+            });
+
         event
     }
 

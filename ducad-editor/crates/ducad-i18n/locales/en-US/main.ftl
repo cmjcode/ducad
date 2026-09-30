@@ -256,6 +256,12 @@ axis-z = Z Axis
 axis-custom = Custom Line
 
 # Items Drawer
+drawer-tab-objects = Objects
+drawer-tab-properties = Properties
+drawer-tab-layers = Layers
+drawer-vector-sketch-inactive = Sketch Mode Inactive
+drawer-vector-sketch-inactive-desc = Enter or start a 2D sketch to edit vector style properties.
+drawer-vector-layers-inactive-desc = Enter or start a 2D sketch to manage vector layers.
 drawer-items-title = Items
 drawer-bodies = 3D Bodies ({ $count })
 drawer-sketches = 2D Sketches ({ $count })

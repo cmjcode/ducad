@@ -74,7 +74,10 @@ pub use feature_tree_drawer::{FeatureTreeDrawer, FeatureTreeEvent};
 pub use history_drawer::{
     ActivityItemInfo, ActivityKindUi, HistoryDrawer, HistoryDrawerEvent,
 };
-pub use items_drawer::{BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent};
+pub use items_drawer::{
+    BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent, ItemsDrawerTab,
+    VectorDrawerContext,
+};
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
 pub use planes_drawer::{PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};

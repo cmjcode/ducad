@@ -256,6 +256,12 @@ axis-z = Sumbu Z
 axis-custom = Garis Kustom
 
 # Items Drawer
+drawer-tab-objects = Objek
+drawer-tab-properties = Properti
+drawer-tab-layers = Layer
+drawer-vector-sketch-inactive = Mode Sketsa Tidak Aktif
+drawer-vector-sketch-inactive-desc = Buka atau mulai sketsa 2D untuk mengedit isian, garis tepi, dan gaya vektor.
+drawer-vector-layers-inactive-desc = Buka atau mulai sketsa 2D untuk mengelola layer vektor.
 drawer-items-title = Item
 drawer-bodies = Body 3D ({ $count })
 drawer-sketches = Sketsa 2D ({ $count })

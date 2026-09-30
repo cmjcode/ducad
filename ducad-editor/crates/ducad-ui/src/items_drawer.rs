@@ -8,14 +8,20 @@
 use crate::theme::{
     card_frame, glass_frame, ACCENT_BLUE, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
+use crate::vector::{
+    LayersPanelEvent, LayersPanelState, PropertiesPanelEvent, PropertiesPanelState, StyleDiff,
+    SwatchManager,
+};
 use ducad_i18n::t;
+use ducad_sketch::layer::{Layer, LayerId};
+use ducad_sketch::Rgba;
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2,
 };
 use egui_icons::icons::{
     ICON_CATEGORY, ICON_CLEAR, ICON_CLOSE, ICON_CUBE_OUTLINE, ICON_FOLDER, ICON_HORIZONTAL_RULE,
-    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_SEARCH, ICON_VISIBILITY,
-    ICON_VISIBILITY_OFF,
+    ICON_KEYBOARD_ARROW_DOWN, ICON_KEYBOARD_ARROW_RIGHT, ICON_LAYERS, ICON_SEARCH, ICON_TUNE,
+    ICON_VISIBILITY, ICON_VISIBILITY_OFF,
 };
 
 pub struct BodyItemInfo {
@@ -36,6 +42,26 @@ pub struct Entity2dItemInfo {
     pub group_name: Option<String>,
 }
 
+/// Tab aktif pada panel dock dokumen di pojok kanan bawah.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ItemsDrawerTab {
+    #[default]
+    Objects,
+    Properties,
+    Layers,
+}
+
+/// Konteks pengeditan vektor untuk tab Properti & Layer pada ItemsDrawer.
+pub struct VectorDrawerContext<'a> {
+    pub diff: &'a StyleDiff,
+    pub properties_panel: &'a mut PropertiesPanelState,
+    pub swatches: &'a mut SwatchManager,
+    pub doc_swatches: &'a [Rgba],
+    pub layers_panel: &'a mut LayersPanelState,
+    pub layer_order_reversed: &'a [(LayerId, Layer)],
+    pub active_layer: Option<LayerId>,
+}
+
 #[derive(Debug, Clone)]
 pub enum ItemsDrawerEvent {
     ToggleBodyVisibility(u64),
@@ -47,6 +73,9 @@ pub enum ItemsDrawerEvent {
     Close,
     Open,
     ToggleGroup(String),
+    TabChanged(ItemsDrawerTab),
+    Property(PropertiesPanelEvent),
+    Layer(LayersPanelEvent),
 }
 
 pub struct ItemsDrawer {
@@ -54,8 +83,11 @@ pub struct ItemsDrawer {
     pub objects_2d_expanded: bool,
     pub bodies_expanded: bool,
     pub custom_height: Option<f32>,
+    pub last_rendered_height: f32,
     /// Expanded state per nama grup 2D.
     pub expanded_groups: std::collections::HashMap<String, bool>,
+    /// Tab aktif saat ini (Objek, Properti, atau Layer).
+    pub active_tab: ItemsDrawerTab,
 }
 
 impl Default for ItemsDrawer {
@@ -65,7 +97,9 @@ impl Default for ItemsDrawer {
             objects_2d_expanded: true,
             bodies_expanded: true,
             custom_height: None,
+            last_rendered_height: 200.0,
             expanded_groups: std::collections::HashMap::new(),
+            active_tab: ItemsDrawerTab::Objects,
         }
     }
 }
@@ -277,7 +311,7 @@ impl ItemsDrawer {
         event
     }
 
-    /// Render panel pohon objek (accordion 2D Entities + 3D Bodies).
+    /// Render panel dock di pojok kanan bawah (tab Objek, Properti gaya vektor, dan Layer).
     pub fn show(
         &mut self,
         ui: &mut Ui,
@@ -285,34 +319,13 @@ impl ItemsDrawer {
         bodies: &[BodyItemInfo],
         max_height: f32,
         _anchor_bottom_y: f32,
+        mut vector_ctx: Option<VectorDrawerContext<'_>>,
     ) -> Option<ItemsDrawerEvent> {
         let mut event = None;
 
-        // Hitung perkiraan tinggi konten
         let query = self.search_query.trim().to_lowercase();
-        let entities_count = entities_2d
-            .iter()
-            .filter(|e| query.is_empty() || e.name.to_lowercase().contains(&query))
-            .count();
-        let bodies_count = bodies
-            .iter()
-            .filter(|b| query.is_empty() || b.name.to_lowercase().contains(&query))
-            .count();
 
-        // 56px header search + padding + 36px accordion header + item heights
-        let mut estimated_h: f32 = 72.0;
-        if self.objects_2d_expanded {
-            estimated_h += 38.0 + (entities_count.max(1) as f32 * 36.0);
-        } else {
-            estimated_h += 38.0;
-        }
-        if self.bodies_expanded {
-            estimated_h += 38.0 + (bodies_count.max(1) as f32 * 36.0);
-        } else {
-            estimated_h += 38.0;
-        }
-
-        glass_frame().show(ui, |ui| {
+        let frame_resp = glass_frame().show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                 const DRAWER_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH - 4.0;
                 ui.set_min_width(DRAWER_W);
@@ -346,7 +359,8 @@ impl ItemsDrawer {
                     let delta_y = handle_resp.drag_delta().y;
                     let cur_h = self
                         .custom_height
-                        .unwrap_or_else(|| estimated_h.clamp(140.0, max_height));
+                        .unwrap_or(self.last_rendered_height)
+                        .clamp(120.0, max_height);
                     let new_h = (cur_h - delta_y).clamp(120.0, max_height);
                     self.custom_height = Some(new_h);
                     ui.ctx().request_repaint();
@@ -358,69 +372,132 @@ impl ItemsDrawer {
                 }
 
                 // =========================================================================
-                // 1. SEARCH BAR COMPACT DENGAN TOMBOL CLOSE
+                // 1. TAB BAR (Objek | Properti | Layer) DENGAN TOMBOL CLOSE
                 // =========================================================================
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(ICON_SEARCH.codepoint)
-                            .size(13.0)
-                            .color(TEXT_SECONDARY),
-                    );
-                    let has_query = !self.search_query.is_empty();
-                    let clear_btn_w = if has_query { 20.0 } else { 0.0 };
-                    let close_btn_w = 22.0;
-                    let text_width =
-                        (ui.available_width() - clear_btn_w - close_btn_w - 6.0).max(60.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.search_query)
-                            .hint_text(t!("drawer-search-placeholder"))
-                            .clip_text(true)
-                            .desired_width(text_width),
-                    );
+                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
 
-                    if has_query
-                        && ui
+                    let is_obj = self.active_tab == ItemsDrawerTab::Objects;
+                    if ui
+                        .selectable_label(
+                            is_obj,
+                            RichText::new(t!("drawer-tab-objects"))
+                                .size(11.5)
+                                .color(if is_obj { Color32::WHITE } else { TEXT_SECONDARY })
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ItemsDrawerTab::Objects;
+                        event = Some(ItemsDrawerEvent::TabChanged(ItemsDrawerTab::Objects));
+                    }
+
+                    let is_prop = self.active_tab == ItemsDrawerTab::Properties;
+                    if ui
+                        .selectable_label(
+                            is_prop,
+                            RichText::new(t!("drawer-tab-properties"))
+                                .size(11.5)
+                                .color(if is_prop { Color32::WHITE } else { TEXT_SECONDARY })
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ItemsDrawerTab::Properties;
+                        event = Some(ItemsDrawerEvent::TabChanged(ItemsDrawerTab::Properties));
+                    }
+
+                    let is_layer = self.active_tab == ItemsDrawerTab::Layers;
+                    if ui
+                        .selectable_label(
+                            is_layer,
+                            RichText::new(t!("drawer-tab-layers"))
+                                .size(11.5)
+                                .color(if is_layer { Color32::WHITE } else { TEXT_SECONDARY })
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        self.active_tab = ItemsDrawerTab::Layers;
+                        event = Some(ItemsDrawerEvent::TabChanged(ItemsDrawerTab::Layers));
+                    }
+
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let close_btn = ui
                             .small_button(
-                                RichText::new(ICON_CLEAR.codepoint)
-                                    .size(11.0)
+                                RichText::new(ICON_CLOSE.codepoint)
+                                    .size(12.0)
                                     .color(TEXT_SECONDARY),
                             )
-                            .on_hover_text(t!("history-clear-search"))
-                            .clicked()
-                    {
-                        self.search_query.clear();
-                    }
-
-                    let close_btn = ui
-                        .small_button(
-                            RichText::new(ICON_CLOSE.codepoint)
-                                .size(12.0)
-                                .color(TEXT_SECONDARY),
-                        )
-                        .on_hover_text(t!("history-close"));
-                    if close_btn.clicked() {
-                        event = Some(ItemsDrawerEvent::Close);
-                    }
+                            .on_hover_text(t!("history-close"));
+                        if close_btn.clicked() {
+                            event = Some(ItemsDrawerEvent::Close);
+                        }
+                    });
                 });
 
-                ui.add_space(2.0);
+                ui.separator();
 
-                // =========================================================================
-                // 2. SCROLL AREA KONTEN
-                // =========================================================================
-                let panel_h = self
-                    .custom_height
-                    .unwrap_or_else(|| estimated_h.clamp(140.0, max_height));
-                let scroll_height = (panel_h - 52.0).max(60.0);
+                match self.active_tab {
+                    ItemsDrawerTab::Objects => {
+                        // Search bar compact
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(ICON_SEARCH.codepoint)
+                                    .size(13.0)
+                                    .color(TEXT_SECONDARY),
+                            );
+                            let has_query = !self.search_query.is_empty();
+                            let clear_btn_w = if has_query { 20.0 } else { 0.0 };
+                            let text_width =
+                                (ui.available_width() - clear_btn_w - 4.0).max(60.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.search_query)
+                                    .hint_text(t!("drawer-search-placeholder"))
+                                    .clip_text(true)
+                                    .desired_width(text_width),
+                            );
 
-                ScrollArea::vertical()
-                    .id_salt("items_drawer_scroll")
-                    .min_scrolled_height(scroll_height)
-                    .max_height(scroll_height)
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.set_min_height(scroll_height);
-                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
+                            if has_query
+                                && ui
+                                    .small_button(
+                                        RichText::new(ICON_CLEAR.codepoint)
+                                            .size(11.0)
+                                            .color(TEXT_SECONDARY),
+                                    )
+                                    .on_hover_text(t!("history-clear-search"))
+                                    .clicked()
+                            {
+                                self.search_query.clear();
+                            }
+                        });
+
+                        ui.add_space(2.0);
+
+                        let is_custom = self.custom_height.is_some();
+                        let header_overhead = 88.0;
+                        let max_scroll_h = match self.custom_height {
+                            Some(custom_h) => {
+                                (custom_h - header_overhead).clamp(50.0, (max_height - header_overhead).max(50.0))
+                            }
+                            None => (max_height - header_overhead).max(60.0),
+                        };
+
+                        let mut scroll_area = ScrollArea::vertical()
+                            .id_salt("items_drawer_scroll")
+                            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                            .max_height(max_scroll_h)
+                            .auto_shrink([false, !is_custom]);
+
+                        if is_custom {
+                            scroll_area = scroll_area.min_scrolled_height(max_scroll_h);
+                        }
+
+                        scroll_area.show(ui, |ui| {
+                            if is_custom {
+                                ui.set_min_height(max_scroll_h);
+                            }
+                            ui.spacing_mut().item_spacing = Vec2::new(0.0, 6.0);
 
                         // -----------------------------------------------------------------
                         // ACCORDION A: 2D OBJECTS
@@ -891,8 +968,127 @@ impl ItemsDrawer {
                             }
                         }
                     });
-            });
-        });
+            }
+            ItemsDrawerTab::Properties => {
+                let is_custom = self.custom_height.is_some();
+                let header_overhead = 58.0;
+                let max_scroll_h = match self.custom_height {
+                    Some(custom_h) => {
+                        (custom_h - header_overhead).clamp(50.0, (max_height - header_overhead).max(50.0))
+                    }
+                    None => (max_height - header_overhead).max(60.0),
+                };
+
+                let mut scroll_area = ScrollArea::vertical()
+                    .id_salt("items_drawer_props_scroll")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                    .max_height(max_scroll_h)
+                    .auto_shrink([false, !is_custom]);
+
+                if is_custom {
+                    scroll_area = scroll_area.min_scrolled_height(max_scroll_h);
+                }
+
+                scroll_area.show(ui, |ui| {
+                    if is_custom {
+                        ui.set_min_height(max_scroll_h);
+                    }
+                    if let Some(ref mut vctx) = vector_ctx {
+                        if let Some(prop_ev) = vctx.properties_panel.show(
+                            ui,
+                            vctx.diff,
+                            vctx.swatches,
+                            vctx.doc_swatches,
+                        ) {
+                            event = Some(ItemsDrawerEvent::Property(prop_ev));
+                        }
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(28.0);
+                            ui.label(
+                                RichText::new(ICON_TUNE.codepoint)
+                                    .size(24.0)
+                                    .color(TEXT_MUTED),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(t!("drawer-vector-sketch-inactive"))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(TEXT_SECONDARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(t!("drawer-vector-sketch-inactive-desc"))
+                                    .size(10.5)
+                                    .color(TEXT_MUTED),
+                            );
+                        });
+                    }
+                });
+            }
+            ItemsDrawerTab::Layers => {
+                let is_custom = self.custom_height.is_some();
+                let header_overhead = 58.0;
+                let max_scroll_h = match self.custom_height {
+                    Some(custom_h) => {
+                        (custom_h - header_overhead).clamp(50.0, (max_height - header_overhead).max(50.0))
+                    }
+                    None => (max_height - header_overhead).max(60.0),
+                };
+
+                let mut scroll_area = ScrollArea::vertical()
+                    .id_salt("items_drawer_layers_scroll")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
+                    .max_height(max_scroll_h)
+                    .auto_shrink([false, !is_custom]);
+
+                if is_custom {
+                    scroll_area = scroll_area.min_scrolled_height(max_scroll_h);
+                }
+
+                scroll_area.show(ui, |ui| {
+                    if is_custom {
+                        ui.set_min_height(max_scroll_h);
+                    }
+                    if let Some(ref mut vctx) = vector_ctx {
+                        if let Some(layer_ev) = vctx.layers_panel.show(
+                            ui,
+                            vctx.layer_order_reversed,
+                            vctx.active_layer,
+                        ) {
+                            event = Some(ItemsDrawerEvent::Layer(layer_ev));
+                        }
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(28.0);
+                            ui.label(
+                                RichText::new(ICON_LAYERS.codepoint)
+                                    .size(24.0)
+                                    .color(TEXT_MUTED),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(t!("drawer-vector-sketch-inactive"))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(TEXT_SECONDARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(t!("drawer-vector-layers-inactive-desc"))
+                                    .size(10.5)
+                                    .color(TEXT_MUTED),
+                            );
+                        });
+                    }
+                });
+            }
+        }
+    });
+});
+
+self.last_rendered_height = frame_resp.response.rect.height();
 
         event
     }
