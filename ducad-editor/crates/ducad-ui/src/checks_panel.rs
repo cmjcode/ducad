@@ -66,7 +66,7 @@ impl ChecksPanel {
                         .strong()
                         .color(TEXT_PRIMARY),
                 );
-                ui.label(RichText::new(format!("✓ {pass}  ✗ {not_pass}")).color(TEXT_SECONDARY));
+                ui.label(RichText::new(format!("✔ {pass}  ✖ {not_pass}")).color(TEXT_SECONDARY));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button(ICON_CLOSE.codepoint)
@@ -85,8 +85,8 @@ impl ChecksPanel {
             ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for (i, row) in rows.iter().enumerate() {
                     let (icon, color) = match row.status {
-                        CheckRowStatus::Pass => ("✓", ACCENT_GREEN),
-                        CheckRowStatus::Fail => ("✗", FAIL_RED),
+                        CheckRowStatus::Pass => ("✔", ACCENT_GREEN),
+                        CheckRowStatus::Fail => ("✖", FAIL_RED),
                         CheckRowStatus::Error => ("!", ACCENT_ORANGE),
                     };
                     let dim = |c: Color32| if row.stale { c.gamma_multiply(0.45) } else { c };

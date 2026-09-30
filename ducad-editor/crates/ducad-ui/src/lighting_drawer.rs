@@ -9,7 +9,7 @@ use egui::{
     Vec2,
 };
 use egui_icons::icons::{
-    ICON_CLOSE, ICON_LIGHTBULB_ON, ICON_TUNE,
+    ICON_CHEVRON_RIGHT, ICON_CLOSE, ICON_EXPAND_MORE, ICON_LIGHTBULB_ON, ICON_TUNE,
 };
 
 use crate::canvas_hud::StudioLightingPresetUi;
@@ -296,7 +296,7 @@ impl LightingDrawer {
                         // --- Floor Soft Contact Shadow Section ---
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(format!("⏥ {}", t!("hud-studio-floor-shadow")))
+                                RichText::new(format!("{} {}", egui_icons::icons::ICON_SHADOW.codepoint, t!("hud-studio-floor-shadow")))
                                     .size(10.0)
                                     .strong()
                                     .color(TEXT_PRIMARY),
@@ -369,7 +369,7 @@ impl LightingDrawer {
 
                         // --- 3-Point Light Balance Fine-Tuning ---
                         ui.horizontal(|ui| {
-                            let arrow = if self.fine_tune_expanded { "▼" } else { "▶" };
+                            let arrow = if self.fine_tune_expanded { ICON_EXPAND_MORE.codepoint } else { ICON_CHEVRON_RIGHT.codepoint };
                             let label = ui.selectable_label(
                                 self.fine_tune_expanded,
                                 RichText::new(format!(

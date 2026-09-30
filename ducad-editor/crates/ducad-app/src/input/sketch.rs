@@ -234,7 +234,7 @@ impl DuCADApp {
                                     vec![res.trimmed_line1, res.trimmed_line2, res.arc],
                                 )));
                                 self.model_status = Some(format!(
-                                    "✓ Fillet 2D direvisi — R {}", self.unit.format(r)
+                                    "✔ Fillet 2D direvisi — R {}", self.unit.format(r)
                                 ));
                             }
                         } else {
@@ -247,7 +247,7 @@ impl DuCADApp {
                                     Entity::line(f2, apex),
                                 ],
                             )));
-                            self.model_status = Some("✓ Fillet 2D dihapus — dikembalikan ke sudut tajam".to_string());
+                            self.model_status = Some("✔ Fillet 2D dihapus — dikembalikan ke sudut tajam".to_string());
                         }
                     }
                 }
@@ -279,7 +279,7 @@ impl DuCADApp {
                                 vec![res.trimmed_line1, res.trimmed_line2, res.arc],
                             )));
                             self.model_status = Some(format!(
-                                "✓ Fillet 2D diterapkan — R {}", self.unit.format(r)
+                                "✔ Fillet 2D diterapkan — R {}", self.unit.format(r)
                             ));
                         }
                     } else {
@@ -291,7 +291,7 @@ impl DuCADApp {
                                 vec![res.trimmed_line1, res.trimmed_line2, res.bevel_line],
                             )));
                             self.model_status = Some(format!(
-                                "✓ Chamfer 2D diterapkan — C {}", self.unit.format(d)
+                                "✔ Chamfer 2D diterapkan — C {}", self.unit.format(d)
                             ));
                         }
                     }
@@ -1253,7 +1253,7 @@ impl DuCADApp {
                                         let count = self.datum_selected_points.len();
                                         if count == 3 {
                                             self.model_status = Some(format!(
-                                                "3/3 titik terpilih: ({:.1}, {:.1}, {:.1}) ✓ Klik 'Create Plane' atau tekan Enter",
+                                                "3/3 titik terpilih: ({:.1}, {:.1}, {:.1}) ✔ Klik 'Create Plane' atau tekan Enter",
                                                 pt.x, pt.y, pt.z
                                             ));
                                         } else {
@@ -1283,7 +1283,7 @@ impl DuCADApp {
                                     for (_id, geo) in self.model.geometry.iter() {
                                         if let Some((_, polyline)) = ducad_kernel::pick_edge(&geo.shape, ray, tol) {
                                             self.selected_edges = vec![crate::types::PickedEdge { ray, polyline }];
-                                            self.model_status = Some("Edge 3D terpilih sebagai sumbu putar ✓".to_string());
+                                            self.model_status = Some("Edge 3D terpilih sebagai sumbu putar ✔".to_string());
                                             return;
                                         }
                                     }
@@ -1293,7 +1293,7 @@ impl DuCADApp {
                                 if let Some(pos) = click_pos {
                                     if let Some((b_id, ray, hit)) = self.pick_body_face_at_cursor(rect, pos) {
                                         self.active_face = Some((b_id, ray, hit));
-                                        self.model_status = Some("Face 3D terpilih sebagai acuan offset ✓".to_string());
+                                        self.model_status = Some("Face 3D terpilih sebagai acuan offset ✔".to_string());
                                         return;
                                     }
                                 }
@@ -1595,7 +1595,7 @@ impl DuCADApp {
                                 if detected_hole {
                                     "Fitur lubang terpilih — klik Hole Wizard untuk ubah dimensi / geser posisi".to_string()
                                 } else if self.tool == ToolKind::HoleWizard {
-                                    "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
+                                    "Titik lokasi lubang ditempatkan pada titik klik face ✔".to_string()
                                 } else {
                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
                                 },
@@ -1617,13 +1617,13 @@ impl DuCADApp {
                                         self.pending_sweep_profile = Some((profile, plane));
                                         self.selected.clear();
                                         self.sweep_path_plane_idx = None;
-                                        self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
+                                        self.model_status = Some("✔ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
                                     }
                                 } else if let Ok(profile) = crate::model::build_profile_from_selection(self.sketch_at_index(plane_idx), &std::iter::once(ent_id).collect()) {
                                     self.pending_sweep_profile = Some((profile, plane));
                                     self.selected.clear();
                                     self.sweep_path_plane_idx = None;
-                                    self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
+                                    self.model_status = Some("✔ Profil tersimpan! Sekarang klik kurva jalur pada bidang lain.".to_string());
                                 } else {
                                     self.model_status = Some("Entitas ini bukan profil 2D tertutup. Pilih profil tertutup.".to_string());
                                 }
@@ -1643,7 +1643,7 @@ impl DuCADApp {
 
                                 if let Ok(path) = crate::model::build_path_from_selection_on_plane(self.sketch_at_index(plane_idx), &self.selected, &crate::document::plane_frame_from(&plane)) {
                                     self.pending_sweep_path = Some(path);
-                                    self.model_status = Some("✓ Profil & Jalur terpilih! Tekan 'Buat Sweep 3D' di atas atau tekan Enter".to_string());
+                                    self.model_status = Some("✔ Profil & Jalur terpilih! Tekan 'Buat Sweep 3D' di atas atau tekan Enter".to_string());
                                 } else {
                                     self.pending_sweep_path = None;
                                 }
@@ -1817,7 +1817,7 @@ impl DuCADApp {
                                                 if detected_hole {
                                                     "Fitur lubang terpilih — klik Hole Wizard untuk ubah dimensi / geser posisi".to_string()
                                                 } else if self.tool == ToolKind::HoleWizard {
-                                                    "Titik lokasi lubang ditempatkan pada titik klik face ✓".to_string()
+                                                    "Titik lokasi lubang ditempatkan pada titik klik face ✔".to_string()
                                                 } else {
                                                     "Sisi (face) 3D terpilih — tarik panah gizmo atau masukkan jarak extrude".to_string()
                                                 },

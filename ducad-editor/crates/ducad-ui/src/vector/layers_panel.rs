@@ -6,6 +6,7 @@
 use ducad_sketch::layer::{Layer, LayerId};
 use ducad_sketch::Rgba;
 use egui::{RichText, Ui, Vec2};
+use egui_icons::icons::{ICON_ARROW_DOWNWARD, ICON_ARROW_UPWARD};
 
 /// Aksi / event yang dihasilkan oleh interaksi di Panel Layer.
 #[derive(Debug, Clone, PartialEq)]
@@ -132,10 +133,10 @@ impl LayersPanelState {
                     }
 
                     // 6. Urutan: Naik / Turun
-                    if idx > 0 && ui.small_button("▲").on_hover_text("Pindah ke atas (ke depan)").clicked() {
+                    if idx > 0 && ui.small_button(ICON_ARROW_UPWARD.codepoint).on_hover_text("Pindah ke atas (ke depan)").clicked() {
                         event = Some(LayersPanelEvent::MoveUp(lid));
                     }
-                    if idx + 1 < layer_order_reversed.len() && ui.small_button("▼").on_hover_text("Pindah ke bawah (ke belakang)").clicked() {
+                    if idx + 1 < layer_order_reversed.len() && ui.small_button(ICON_ARROW_DOWNWARD.codepoint).on_hover_text("Pindah ke bawah (ke belakang)").clicked() {
                         event = Some(LayersPanelEvent::MoveDown(lid));
                     }
 

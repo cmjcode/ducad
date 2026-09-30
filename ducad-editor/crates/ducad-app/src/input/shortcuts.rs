@@ -357,7 +357,7 @@ impl DuCADApp {
                 format!(
                     "{}: {}",
                     ducad_i18n::t!("ink-smart-shape"),
-                    if self.ink_state.smart_shape { "ON → OFF" } else { "OFF → ON" }
+                    if self.ink_state.smart_shape { "ON » OFF" } else { "OFF » ON" }
                 ),
                 String::new(),
                 PaletteAction::ToggleInkSmartShape,

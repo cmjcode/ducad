@@ -14,7 +14,7 @@ use egui::{
 };
 use egui_icons::icons::{
     ICON_ADJUST, ICON_CLOSE, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN,
-    ICON_GRID_VIEW, ICON_LAYERS, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
+    ICON_GRID_VIEW, ICON_LAYERS, ICON_OPEN_WITH, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
     ICON_TEXTURE,
 };
 
@@ -211,7 +211,7 @@ impl ManualDimensionMode {
     pub fn icon(self) -> &'static str {
         match self {
             ManualDimensionMode::Linear => "📏",
-            ManualDimensionMode::Diameter => "⌀",
+            ManualDimensionMode::Diameter => "Ø",
             ManualDimensionMode::Radius => "R",
             ManualDimensionMode::Angle => "∠",
         }
@@ -2128,7 +2128,7 @@ fn render_sheet_canvas(
             );
 
             let badge_pos = Pos2::new(v_box.min.x + 6.0, v_box.min.y + 4.0);
-            let badge_text = if is_dragging { "✥ Menggeser..." } else { "✥ Tahan & Geser Tata Letak" };
+            let badge_text = if is_dragging { format!("{} Menggeser...", ICON_OPEN_WITH.codepoint) } else { format!("{} Tahan & Geser Tata Letak", ICON_OPEN_WITH.codepoint) };
             let badge_galley = painter.layout_no_wrap(
                 badge_text.to_string(),
                 FontId::proportional((3.5 * zoom).clamp(8.0, 11.0)),
@@ -2498,7 +2498,7 @@ fn render_sheet_canvas(
                 painter.galley(Pos2::new(label_bg_rect.min.x + 2.0, label_bg_rect.min.y + 1.0), galley, active_dim_color);
             }
 
-            // Highlight border dan tombol hapus [ ✕ ] saat dimensi dihover / dipilih
+            // Highlight border dan tombol hapus [ ✖ ] saat dimensi dihover / dipilih
             if is_dim_hovered || is_dim_selected || is_dim_dragging {
                 painter.rect_stroke(
                     label_bg_rect.expand(2.5),
@@ -2551,7 +2551,7 @@ fn render_sheet_canvas(
                     egui::StrokeKind::Outside,
                 );
 
-                // Tombol Hapus [ ✕ ]
+                // Tombol Hapus [ ✖ ]
                 let del_center = Pos2::new(text_rect.max.x + 9.5, text_rect.center().y);
                 let del_color = if is_del_hovered {
                     Color32::from_rgb(230, 40, 40)
@@ -3176,7 +3176,7 @@ fn render_bom_table_screen<F>(
             painter.rect_filled(row_screen_rect, CornerRadius::ZERO, bg_col);
             painter.rect_stroke(row_screen_rect, CornerRadius::ZERO, stroke_highlight, egui::StrokeKind::Inside);
 
-            // Tombol Hapus [ ✕ ] di tepi kanan baris
+            // Tombol Hapus [ ✖ ] di tepi kanan baris
             let del_btn_center = Pos2::new(row_screen_rect.max.x - 7.0, row_screen_rect.center().y);
             let is_del_hover = state.hovered_bom_delete_row == Some(r_idx);
             painter.circle_filled(
@@ -3296,7 +3296,7 @@ fn render_callout_balloons_screen<F>(
         let font_num = FontId::proportional((balloon.radius_mm * 1.05 * zoom).clamp(9.0, 22.0));
         painter.text(p_center, Align2::CENTER_CENTER, num_str, font_num, active_color);
 
-        // 7. Tombol Hapus [ ✕ ] saat dihover
+        // 7. Tombol Hapus [ ✖ ] saat dihover
         if is_hovered || is_selected {
             let del_center = Pos2::new(p_center.x + r_px * 0.7 + 6.0, p_center.y - r_px * 0.7 - 6.0);
             let is_del_hover = state.hovered_balloon_delete == Some(balloon.id);

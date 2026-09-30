@@ -271,7 +271,7 @@ impl Entity2dPopup {
                             if ui.button("// Parallel").clicked() {
                                 ev = Some(ToolPopupEvent::ApplyConstraint(InspectorConstraintAction::Parallel));
                             }
-                            if ui.button("⊥ Perpend").clicked() {
+                            if ui.button("⟂ Perpend").clicked() {
                                 ev = Some(ToolPopupEvent::ApplyConstraint(InspectorConstraintAction::Perpendicular));
                             }
                         });

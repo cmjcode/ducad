@@ -73,7 +73,7 @@ fn changes_of(edit: &AssistEdit, before: &Params) -> Vec<String> {
         for (k, v) in p {
             match before.get(k) {
                 Some(old) if (old - v).abs() < 1e-9 => {}
-                Some(old) => out.push(format!("{k}: {old} → {v}")),
+                Some(old) => out.push(format!("{k}: {old} » {v}")),
                 None => out.push(format!("{k}: {v} (baru)")),
             }
         }

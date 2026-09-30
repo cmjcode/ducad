@@ -581,7 +581,7 @@ impl TopBar {
                         let chk_btn = ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new(format!("✓ {pass} ✗ {not_pass}")).size(11.0).color(color),
+                                    RichText::new(format!("✔ {pass} ✖ {not_pass}")).size(11.0).color(color),
                                 )
                                 .selected(state.checks_panel_open),
                             )
@@ -597,13 +597,13 @@ impl TopBar {
                         |ui| {
                             ui.set_min_width(170.0);
                             let m_title = t!("hud-show-dimensions");
-                            let m_chk = if state.is_measure_active { "✓ " } else { "  " };
+                            let m_chk = if state.is_measure_active { "✔ " } else { "  " };
                             if ui.button(format!("{}{} {}", m_chk, ICON_STRAIGHTEN.codepoint, m_title)).clicked() {
                                 event = Some(TopBarEvent::ToggleMeasurements);
                                 ui.close();
                             }
                             let z_title = t!("tool-zebra-stripes");
-                            let z_chk = if state.zebra_view_active { "✓ " } else { "  " };
+                            let z_chk = if state.zebra_view_active { "✔ " } else { "  " };
                             if ui.button(format!("{}{} {}", z_chk, ICON_TEXTURE.codepoint, z_title)).clicked() {
                                 event = Some(TopBarEvent::ToggleZebraView);
                                 ui.close();
@@ -614,14 +614,14 @@ impl TopBar {
                                 ui.close();
                             }
                             let assem_title = t!("assembly-tree-title");
-                            let a_chk = if state.assembly_drawer_open { "✓ " } else { "  " };
+                            let a_chk = if state.assembly_drawer_open { "✔ " } else { "  " };
                             if ui.button(format!("{}{} {}", a_chk, ICON_CATEGORY.codepoint, assem_title)).clicked() {
                                 event = Some(TopBarEvent::ToggleAssemblyDrawer);
                                 ui.close();
                             }
                             if let Some((pass, not_pass)) = state.checks_summary {
-                                let c_chk = if state.checks_panel_open { "✓ " } else { "  " };
-                                let label = format!("{c_chk}{} (✓ {pass} ✗ {not_pass})", t!("checks-title"));
+                                let c_chk = if state.checks_panel_open { "✔ " } else { "  " };
+                                let label = format!("{c_chk}{} (✔ {pass} ✖ {not_pass})", t!("checks-title"));
                                 if ui.button(label).clicked() {
                                     event = Some(TopBarEvent::ToggleChecksPanel);
                                     ui.close();
@@ -726,7 +726,7 @@ impl TopBar {
                                 |ui| {
                                     for lang in Language::all() {
                                         let is_sel = current_language() == *lang;
-                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        let prefix = if is_sel { "✔ " } else { "   " };
                                         if ui
                                             .button(format!("{}{}", prefix, lang.display_name()))
                                             .clicked()
@@ -752,7 +752,7 @@ impl TopBar {
                                         ("18 px (Standar)", 18.0),
                                     ] {
                                         let is_sel = (icon_sz - size).abs() < 0.1;
-                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        let prefix = if is_sel { "✔ " } else { "   " };
                                         if ui.button(format!("{}{}", prefix, label)).clicked() {
                                             event = Some(TopBarEvent::SetIconSize(size));
                                             ui.close();
@@ -775,7 +775,7 @@ impl TopBar {
                                         LengthUnit::Inches,
                                     ] {
                                         let is_sel = state.current_unit == unit;
-                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        let prefix = if is_sel { "✔ " } else { "   " };
                                         if ui
                                             .button(format!("{}{}", prefix, unit.label()))
                                             .clicked()
@@ -807,7 +807,7 @@ impl TopBar {
                                         TouchDesignMode::FingerDesign,
                                     ] {
                                         let is_sel = state.touch_config.mode == m;
-                                        let prefix = if is_sel { "✓ " } else { "   " };
+                                        let prefix = if is_sel { "✔ " } else { "   " };
                                         if ui
                                             .button(format!("{}{}", prefix, m.label()))
                                             .on_hover_text(m.description())

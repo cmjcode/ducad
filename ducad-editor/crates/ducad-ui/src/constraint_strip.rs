@@ -74,7 +74,7 @@ impl ConstraintStrip {
                 (ConstraintAction::ApplyHorizontal, "—", "Horizontal (1 Garis / 2 Titik)"),
                 (ConstraintAction::ApplyVertical, "|", "Vertical (1 Garis / 2 Titik)"),
                 (ConstraintAction::ApplyParallel, "//", "Parallel / Sejajar (2 Garis)"),
-                (ConstraintAction::ApplyPerpendicular, "⊥", "Perpendicular / Tegak Lurus (2 Garis)"),
+                (ConstraintAction::ApplyPerpendicular, "⟂", "Perpendicular / Tegak Lurus (2 Garis)"),
                 (ConstraintAction::ApplyEqualLength, "==", "Equal Length / Sama Panjang (2 Garis)"),
                 (ConstraintAction::ApplyEqualRadius, "=R", "Equal Radius (2 Lingkaran/Arc)"),
                 (ConstraintAction::ApplyTangent, "tan", "Tangent / Bersinggungan"),

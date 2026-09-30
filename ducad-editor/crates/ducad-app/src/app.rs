@@ -2583,7 +2583,7 @@ impl eframe::App for DuCADApp {
                                     match self.restore_snapshot_from_json(&snap_json) {
                                         Ok(()) => {
                                             self.model_status = Some(format!(
-                                                "✓ Dokumen dipulihkan ke waktu {} ({})",
+                                                "✔ Dokumen dipulihkan ke waktu {} ({})",
                                                 timestamp, action
                                             ));
                                         }
@@ -2943,7 +2943,7 @@ impl eframe::App for DuCADApp {
                                     let cmd = crate::model::SetBodyMaterialCommand::new("Ubah Material", bid, new_mat);
                                     self.model_undo.execute(Box::new(cmd), &mut self.model);
                                 }
-                                self.model_status = Some("✓ Preset Material diterapkan".to_string());
+                                self.model_status = Some("✔ Preset Material diterapkan".to_string());
                                 ctx.request_repaint();
                             }
                             CmfDrawerEvent::Close => {
@@ -3493,7 +3493,7 @@ impl eframe::App for DuCADApp {
                             self.pending_loft_bottom = Some(profile);
                             self.selected.clear();
                             self.model_status = Some(
-                                "✓ Profil bawah tersimpan! Sekarang klik profil kedua di kanvas lalu klik 'Eksekusi Loft'."
+                                "✔ Profil bawah tersimpan! Sekarang klik profil kedua di kanvas lalu klik 'Eksekusi Loft'."
                                     .to_string(),
                             );
                         }
@@ -3813,7 +3813,7 @@ impl eframe::App for DuCADApp {
                                         self.selected.clear();
                                         self.pending_sweep_path = None;
                                         self.sweep_path_plane_idx = None;
-                                        self.model_status = Some("✓ Profil tersimpan! Sekarang klik kurva jalur pada bidang manapun di kanvas.".to_string());
+                                        self.model_status = Some("✔ Profil tersimpan! Sekarang klik kurva jalur pada bidang manapun di kanvas.".to_string());
                                     } else {
                                         self.pending_sweep_profile = None;
                                         self.pending_sweep_path = None;
@@ -4274,7 +4274,7 @@ impl DuCADApp {
             self.selected.clear();
             self.selection_box = None;
             self.loft_alignment_dismissed = false;
-            self.model_status = Some("✓ Loft 3D berhasil dibuat!".to_string());
+            self.model_status = Some("✔ Loft 3D berhasil dibuat!".to_string());
         } else if regions.len() == 2 {
             self.update_staged_loft(regions);
             self.commit_staged_loft(regions);

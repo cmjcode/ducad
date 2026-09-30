@@ -1890,7 +1890,7 @@ impl ToolGuides {
             Self::draw_badge(
                 painter,
                 badge_pos,
-                "✓ Spring 3D",
+                "✔ Spring 3D",
                 Color32::from_rgba_premultiplied(15, 80, 40, 220),
                 Color32::WHITE,
             );

@@ -1874,6 +1874,7 @@ dependencies = [
  "ducad-sketch",
  "egui",
  "egui_icons",
+ "epaint_default_fonts",
  "glam",
  "serde",
  "serde_json",

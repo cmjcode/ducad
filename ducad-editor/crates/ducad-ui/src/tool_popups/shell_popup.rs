@@ -35,7 +35,7 @@ impl ShellPopup {
             ctx,
             "ducad-shell-popup",
             &t!("popup-shell-title"),
-            "⧉",
+            egui_icons::icons::ICON_FILTER_NONE.codepoint,
             ACCENT_BLUE,
             screen_rect,
             |ui| {

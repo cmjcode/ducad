@@ -15,6 +15,9 @@ ducad-cloud = { workspace = true }
 egui = { workspace = true }
 glam = { workspace = true }
 egui_icons = { workspace = true }
+# Hack (bawaan egui, sudah di dependency tree) dipasang sebagai fallback glyph
+# font proporsional: simbol seperti ⌀ ∠ ⊥ → ▼ tidak ada di Ubuntu/NotoEmoji.
+epaint_default_fonts = "0.36"
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true }
 

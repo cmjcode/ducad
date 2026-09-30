@@ -62,7 +62,7 @@ impl DuCADApp {
             .iter()
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
-            .unwrap_or_else(|| format!("{} ▾", t!("tool-coincident")));
+            .unwrap_or_else(|| format!("{} {}", t!("tool-coincident"), egui_icons::icons::ICON_ARROW_DROP_DOWN.codepoint));
         ui.menu_button(active_label, |ui| {
             for (kind, label) in point_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
@@ -82,7 +82,7 @@ impl DuCADApp {
             .iter()
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
-            .unwrap_or_else(|| format!("📏 {} ▾", t!("tool-measure")));
+            .unwrap_or_else(|| format!("📏 {} {}", t!("tool-measure"), egui_icons::icons::ICON_ARROW_DROP_DOWN.codepoint));
         ui.menu_button(measure_active_label, |ui| {
             for (kind, label) in measure_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
@@ -168,7 +168,7 @@ impl DuCADApp {
                 |ui| {
                     for lang in Language::all() {
                         let is_sel = current_language() == *lang;
-                        let prefix = if is_sel { "✓ " } else { "   " };
+                        let prefix = if is_sel { "✔ " } else { "   " };
                         if ui.button(format!("{}{}", prefix, lang.display_name())).clicked() {
                             self.language = *lang;
                             set_language(*lang);

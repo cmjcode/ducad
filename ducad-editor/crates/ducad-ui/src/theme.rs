@@ -174,16 +174,34 @@ pub fn dimension_pill_frame() -> Frame {
     }
 }
 
+/// Pasang font ikon Material + fallback glyph simbol ke font proporsional.
+///
+/// Ubuntu-Light/NotoEmoji (font proporsional bawaan egui) tidak memiliki banyak
+/// simbol teknis (`⌀ ∠ ⊥ → ▼ …`) sehingga tampil sebagai kotak (◻). Hack —
+/// font monospace bawaan egui — memilikinya, jadi dipasang sebagai fallback
+/// terakhir. Cakupan dijaga tes `ui_glyph_coverage`.
+fn install_fonts(ctx: &egui::Context) {
+    egui_icons::initialize(ctx);
+    ctx.add_font(egui::epaint::text::FontInsert::new(
+        "ducad-symbol-fallback",
+        egui::FontData::from_static(epaint_default_fonts::HACK_REGULAR),
+        vec![egui::epaint::text::InsertFontFamily {
+            family: egui::FontFamily::Proportional,
+            priority: egui::epaint::text::FontPriority::Lowest,
+        }],
+    ));
+}
+
 /// Terapkan tema + gaya target-sentuh ke context egui.
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
-    egui_icons::initialize(ctx);
+    install_fonts(ctx);
 
     apply_with_touch(ctx, mode, MIN_TOUCH_TARGET);
 }
 
 /// Terapkan tema + gaya target-sentuh kustom (misalnya 44pt Apple HIG untuk iPad) ke context egui.
 pub fn apply_with_touch(ctx: &egui::Context, mode: ThemeMode, touch_target_y: f32) {
-    egui_icons::initialize(ctx);
+    install_fonts(ctx);
 
     let theme = match mode {
         ThemeMode::Dark => egui::Theme::Dark,

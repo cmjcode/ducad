@@ -8,7 +8,7 @@ use crate::theme::{
 };
 use ducad_i18n::t;
 use egui::{Color32, RichText};
-use egui_icons::icons::ICON_CLOSE;
+use egui_icons::icons::{ICON_CHECK, ICON_CLOSE};
 
 /// Warna error (sama dengan ringkasan checks gagal di top bar).
 const ERROR_RED: Color32 = Color32::from_rgb(255, 69, 58);
@@ -396,7 +396,7 @@ fn tool_row_ui(ui: &mut egui::Ui, item: &ChatItem, idx: usize) {
                         ui.add(egui::Spinner::new().size(11.0));
                     }
                     Some(true) => {
-                        ui.label(RichText::new("✓").size(11.0).color(ACCENT_GREEN));
+                        ui.label(RichText::new(ICON_CHECK.codepoint).size(11.0).color(ACCENT_GREEN));
                     }
                     Some(false) => {
                         ui.label(RichText::new(ICON_CLOSE.codepoint).size(11.0).color(ERROR_RED));

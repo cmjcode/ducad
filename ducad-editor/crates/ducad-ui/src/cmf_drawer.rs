@@ -9,7 +9,7 @@ use egui::{
     Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Slider, Stroke, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_AUTO_AWESOME, ICON_CLOSE, ICON_PALETTE, ICON_SHIELD, ICON_TEXTURE, ICON_WATER_DROP,
+    ICON_AUTO_AWESOME, ICON_CHEVRON_RIGHT, ICON_CLOSE, ICON_EXPAND_MORE, ICON_PALETTE, ICON_SHIELD, ICON_TEXTURE, ICON_WATER_DROP,
 };
 
 use crate::theme::{
@@ -384,7 +384,7 @@ impl CmfDrawer {
                         // -------------------------------------------------------------
                         // 3. FINE-TUNING SLIDERS (Roughness, Metallic, Clearcoat, Opacity)
                         // -------------------------------------------------------------
-                        let chevron = if self.fine_tune_expanded { "▼" } else { "▶" };
+                        let chevron = if self.fine_tune_expanded { ICON_EXPAND_MORE.codepoint } else { ICON_CHEVRON_RIGHT.codepoint };
                         let ft_header_resp = ui.button(
                             RichText::new(format!("{} ⚙ {}", chevron, t!("inspector-cmf-fine-tune")))
                                 .size(10.0)

@@ -378,7 +378,7 @@ impl DuCADApp {
                 self.selected.clear();
                 self.selection_box = None;
                 self.loft_alignment_dismissed = false;
-                self.model_status = Some("✓ Loft 3D berhasil dibuat!".to_string());
+                self.model_status = Some("✔ Loft 3D berhasil dibuat!".to_string());
             }
             Err(e) => self.model_status = Some(format!("Loft gagal: {e}")),
         }
@@ -497,7 +497,7 @@ impl DuCADApp {
                 self.sweep_path_plane_idx = None;
                 self.hovered_plane_idx = None;
                 self.selected.clear();
-                self.model_status = Some("✓ Solid Sweep 3D berhasil dibuat".to_string());
+                self.model_status = Some("✔ Solid Sweep 3D berhasil dibuat".to_string());
                 self.set_tool(ToolKind::Select);
             }
             Err(e) => self.model_status = Some(format!("Sweep gagal: {e}")),
@@ -540,7 +540,7 @@ impl DuCADApp {
                         Box::new(AddSolidCommand::new(solid_name, geo)),
                         &format!("Membuat solid 3D {} (Pitch {:.1} mm, {} Putaran)", solid_name, params.pitch, params.turns),
                     );
-                    self.model_status = Some(format!("✓ Solid 3D {} berhasil dibuat!", solid_name));
+                    self.model_status = Some(format!("✔ Solid 3D {} berhasil dibuat!", solid_name));
                     self.set_tool(ToolKind::Select);
                 }
                 Err(e) => {
@@ -552,7 +552,7 @@ impl DuCADApp {
             match ducad_kernel::create_helix_path_segments(&params, 36) {
                 Ok(segments) => {
                     self.pending_sweep_path = Some(segments);
-                    self.model_status = Some("✓ Kurva spiral 3D disimpan sebagai jalur Sweep! Pilih profil lalu buat Sweep.".to_string());
+                    self.model_status = Some("✔ Kurva spiral 3D disimpan sebagai jalur Sweep! Pilih profil lalu buat Sweep.".to_string());
                     self.set_tool(ToolKind::Sweep);
                 }
                 Err(e) => {
@@ -876,7 +876,7 @@ impl DuCADApp {
                 self.shell_variable_faces.clear();
                 self.active_face = None;
                 self.picking_mode = crate::types::PickMode::None;
-                self.model_status = Some(format!("Shell dinding bervariasi pada '{}' berhasil ✓", orig_name));
+                self.model_status = Some(format!("Shell dinding bervariasi pada '{}' berhasil ✔", orig_name));
                 self.set_tool(crate::types::ToolKind::Select);
             }
             Err(e) => self.model_status = Some(format!("Shell Variable gagal: {e}")),
@@ -1024,7 +1024,7 @@ impl DuCADApp {
                 self.rib_end_pt = None;
                 self.active_face = None;
                 self.picking_mode = crate::types::PickMode::None;
-                self.model_status = Some(format!("Tulang penguat (Rib) pada '{}' berhasil ditambahkan ✓", orig_name));
+                self.model_status = Some(format!("Tulang penguat (Rib) pada '{}' berhasil ditambahkan ✔", orig_name));
                 self.set_tool(crate::types::ToolKind::Select);
             }
             Err(e) => {
@@ -1216,7 +1216,7 @@ impl DuCADApp {
                 self.active_face = None;
                 self.picking_mode = crate::types::PickMode::None;
                 self.model_status = Some(format!(
-                    "Draft Angle {:.1}° diterapkan ✓",
+                    "Draft Angle {:.1}° diterapkan ✔",
                     angle_deg
                 ));
                 self.set_tool(crate::types::ToolKind::Select);
@@ -1323,7 +1323,7 @@ impl DuCADApp {
                         self.selected_faces.clear();
                         self.picking_mode = crate::types::PickMode::None;
                         self.model_status = Some(format!(
-                            "Body '{}' berhasil dipotong menjadi {} body terpisah ✓",
+                            "Body '{}' berhasil dipotong menjadi {} body terpisah ✔",
                             orig_name, total
                         ));
                         self.set_tool(crate::types::ToolKind::Select);
@@ -1347,7 +1347,7 @@ impl DuCADApp {
                         self.selected_faces.clear();
                         self.picking_mode = crate::types::PickMode::None;
                         self.model_status = Some(format!(
-                            "Face pada body '{}' berhasil dibagi ✓",
+                            "Face pada body '{}' berhasil dibagi ✔",
                             orig_name
                         ));
                         self.set_tool(crate::types::ToolKind::Select);
@@ -1421,7 +1421,7 @@ impl DuCADApp {
         self.hovered_corner_2d = None;
         self.pattern_custom_pivot_2d = None;
         self.pattern_custom_pivot_3d = None;
-        self.model_status = Some(format!("{} entitas baru ditambahkan via Pattern ✓", count));
+        self.model_status = Some(format!("{} entitas baru ditambahkan via Pattern ✔", count));
         self.set_tool(crate::types::ToolKind::Select);
     }
 
@@ -1499,7 +1499,7 @@ impl DuCADApp {
         self.selected_bodies.clear();
         self.pattern_custom_pivot_2d = None;
         self.pattern_custom_pivot_3d = None;
-        self.model_status = Some(format!("{} solid baru ditambahkan via Pattern 3D ✓", total_new));
+        self.model_status = Some(format!("{} solid baru ditambahkan via Pattern 3D ✔", total_new));
         self.set_tool(crate::types::ToolKind::Select);
     }
 

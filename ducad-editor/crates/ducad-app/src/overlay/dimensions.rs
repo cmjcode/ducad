@@ -867,7 +867,7 @@ impl DuCADApp {
                             self.commit_staged_loft(&selected_regions);
                         } else if regions_count == 2 {
                             self.update_staged_loft(&selected_regions);
-                            self.model_status = Some("✓ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
+                            self.model_status = Some("✔ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
                         }
                     }
                     ducad_ui::LoftHudAction::Cancel => {
@@ -882,7 +882,7 @@ impl DuCADApp {
                         self.commit_staged_loft(&selected_regions);
                     } else {
                         self.update_staged_loft(&selected_regions);
-                        self.model_status = Some("✓ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
+                        self.model_status = Some("✔ Loft 3D terbentuk — Anda bisa ubah tinggi, klik flip, atau tekan Selesai".to_string());
                     }
                 } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     self.cancel_staged_loft();

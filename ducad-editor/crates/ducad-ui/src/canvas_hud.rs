@@ -13,8 +13,8 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_LIGHTBULB_ON, ICON_LOCK,
-    ICON_STRAIGHTEN, ICON_TEXTURE,
+    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_FOUNDATION,
+    ICON_LIGHTBULB_ON, ICON_LOCK, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,14 +431,19 @@ impl CanvasHud {
     /// Standard helper to render toggle / preset button in HUDs
     #[inline]
     pub fn hud_toggle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
-        let btn = egui::Button::new(
-            RichText::new(label.as_ref())
-                .size(10.0)
-                .strong()
-                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
-        )
+        let btn = egui::Button::new(RichText::new(label.as_ref()).size(10.0).strong().color(
+            if is_active {
+                Color32::WHITE
+            } else {
+                TEXT_PRIMARY
+            },
+        ))
         .corner_radius(CornerRadius::same(10))
-        .fill(if is_active { ACCENT_BLUE } else { Self::HUD_BTN_INACTIVE_FILL });
+        .fill(if is_active {
+            ACCENT_BLUE
+        } else {
+            Self::HUD_BTN_INACTIVE_FILL
+        });
         ui.add(btn)
     }
 
@@ -447,15 +452,18 @@ impl CanvasHud {
     pub fn hud_circle_btn(ui: &mut Ui, label: impl AsRef<str>, is_active: bool) -> egui::Response {
         let text = label.as_ref();
         let min_w = if text.len() <= 2 { 20.0 } else { 24.0 };
-        let btn = egui::Button::new(
-            RichText::new(text)
-                .size(10.0)
-                .strong()
-                .color(if is_active { Color32::WHITE } else { TEXT_PRIMARY }),
-        )
+        let btn = egui::Button::new(RichText::new(text).size(10.0).strong().color(if is_active {
+            Color32::WHITE
+        } else {
+            TEXT_PRIMARY
+        }))
         .min_size(Vec2::new(min_w, 20.0))
         .corner_radius(CornerRadius::same(10))
-        .fill(if is_active { ACCENT_BLUE } else { Self::HUD_BTN_INACTIVE_FILL });
+        .fill(if is_active {
+            ACCENT_BLUE
+        } else {
+            Self::HUD_BTN_INACTIVE_FILL
+        });
         ui.add(btn)
     }
 
@@ -466,7 +474,11 @@ impl CanvasHud {
             RichText::new(text.as_ref())
                 .size(11.0)
                 .strong()
-                .color(if is_active { ACCENT_BLUE } else { Color32::WHITE }),
+                .color(if is_active {
+                    ACCENT_BLUE
+                } else {
+                    Color32::WHITE
+                }),
         );
     }
 
@@ -528,10 +540,14 @@ impl CanvasHud {
         let mut event = None;
         pill_frame().show(ui, |ui| {
             let btn = ui.button(
-                RichText::new(format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")))
-                    .size(12.0)
-                    .strong()
-                    .color(TEXT_PRIMARY),
+                RichText::new(format!(
+                    "{} {}",
+                    ICON_3D_ROTATION.codepoint,
+                    t!("hud-normal-to-sketch")
+                ))
+                .size(12.0)
+                .strong()
+                .color(TEXT_PRIMARY),
             );
             if btn.clicked() {
                 event = Some(CanvasHudEvent::OrientNormalToSketch);
@@ -553,7 +569,7 @@ impl CanvasHud {
                 let mut event = None;
                 Self::hud_title(ui, format!("✂ {}", t!("hud-section-banner")), true);
                 ui.separator();
-                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✖ {}", t!("hud-turn-off"))).clicked() {
                     event = Some(CanvasHudEvent::TurnOffSectionView);
                 }
                 event
@@ -579,35 +595,82 @@ impl CanvasHud {
             "ducad-hud-studio-lighting-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, format!("{} {}", ICON_LIGHTBULB_ON.codepoint, t!("hud-studio-title")), true);
+                Self::hud_title(
+                    ui,
+                    format!("{} {}", ICON_LIGHTBULB_ON.codepoint, t!("hud-studio-title")),
+                    true,
+                );
 
                 ui.separator();
 
                 // 1. Preset Selector Chips: [Clean Studio] [Warm Showcase] [Cool Tech] [Dramatic]
-                ui.label(RichText::new(format!("{}:", t!("hud-studio-preset"))).size(10.0).color(TEXT_SECONDARY));
-                if Self::hud_toggle_btn(ui, t!("hud-studio-clean"), *preset == StudioLightingPresetUi::CleanStudio).clicked() {
+                ui.label(
+                    RichText::new(format!("{}:", t!("hud-studio-preset")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
+                if Self::hud_toggle_btn(
+                    ui,
+                    t!("hud-studio-clean"),
+                    *preset == StudioLightingPresetUi::CleanStudio,
+                )
+                .clicked()
+                {
                     *preset = StudioLightingPresetUi::CleanStudio;
-                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::CleanStudio));
+                    action = Some(StudioHudAction::SetPreset(
+                        StudioLightingPresetUi::CleanStudio,
+                    ));
                 }
-                if Self::hud_toggle_btn(ui, t!("hud-studio-warm"), *preset == StudioLightingPresetUi::WarmShowcase).clicked() {
+                if Self::hud_toggle_btn(
+                    ui,
+                    t!("hud-studio-warm"),
+                    *preset == StudioLightingPresetUi::WarmShowcase,
+                )
+                .clicked()
+                {
                     *preset = StudioLightingPresetUi::WarmShowcase;
-                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::WarmShowcase));
+                    action = Some(StudioHudAction::SetPreset(
+                        StudioLightingPresetUi::WarmShowcase,
+                    ));
                 }
-                if Self::hud_toggle_btn(ui, t!("hud-studio-cool"), *preset == StudioLightingPresetUi::CoolTech).clicked() {
+                if Self::hud_toggle_btn(
+                    ui,
+                    t!("hud-studio-cool"),
+                    *preset == StudioLightingPresetUi::CoolTech,
+                )
+                .clicked()
+                {
                     *preset = StudioLightingPresetUi::CoolTech;
                     action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::CoolTech));
                 }
-                if Self::hud_toggle_btn(ui, t!("hud-studio-dramatic"), *preset == StudioLightingPresetUi::DramaticDark).clicked() {
+                if Self::hud_toggle_btn(
+                    ui,
+                    t!("hud-studio-dramatic"),
+                    *preset == StudioLightingPresetUi::DramaticDark,
+                )
+                .clicked()
+                {
                     *preset = StudioLightingPresetUi::DramaticDark;
-                    action = Some(StudioHudAction::SetPreset(StudioLightingPresetUi::DramaticDark));
+                    action = Some(StudioHudAction::SetPreset(
+                        StudioLightingPresetUi::DramaticDark,
+                    ));
                 }
 
                 ui.separator();
 
                 // 2. SSAO Slider
-                ui.label(RichText::new(format!("{}:", t!("hud-studio-ssao"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("hud-studio-ssao")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let mut ssao_pct = (*ssao_intensity * 100.0).round();
-                let ssao_drag = ui.add(egui::DragValue::new(&mut ssao_pct).range(0.0..=150.0).speed(1.0).suffix("%"));
+                let ssao_drag = ui.add(
+                    egui::DragValue::new(&mut ssao_pct)
+                        .range(0.0..=150.0)
+                        .speed(1.0)
+                        .suffix("%"),
+                );
                 if ssao_drag.changed() {
                     *ssao_intensity = ssao_pct / 100.0;
                     action = Some(StudioHudAction::SetSsaoIntensity(*ssao_intensity));
@@ -617,24 +680,41 @@ impl CanvasHud {
 
                 // 3. Floor Soft Contact Shadow Toggle & Slider
                 let is_floor_active = *floor_shadow_enabled;
-                if Self::hud_toggle_btn(ui, format!("⏥ {}", t!("hud-studio-floor-shadow")), is_floor_active).clicked() {
+                if Self::hud_toggle_btn(
+                    ui,
+                    format!(
+                        "{} {}",
+                        egui_icons::icons::ICON_SHADOW.codepoint,
+                        t!("hud-studio-floor-shadow")
+                    ),
+                    is_floor_active,
+                )
+                .clicked()
+                {
                     *floor_shadow_enabled = !*floor_shadow_enabled;
                     action = Some(StudioHudAction::ToggleFloorShadow);
                 }
 
                 if *floor_shadow_enabled {
                     let mut shadow_pct = (*floor_shadow_intensity * 100.0).round();
-                    let shadow_drag = ui.add(egui::DragValue::new(&mut shadow_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                    let shadow_drag = ui.add(
+                        egui::DragValue::new(&mut shadow_pct)
+                            .range(10.0..=100.0)
+                            .speed(1.0)
+                            .suffix("%"),
+                    );
                     if shadow_drag.changed() {
                         *floor_shadow_intensity = shadow_pct / 100.0;
-                        action = Some(StudioHudAction::SetFloorShadowIntensity(*floor_shadow_intensity));
+                        action = Some(StudioHudAction::SetFloorShadowIntensity(
+                            *floor_shadow_intensity,
+                        ));
                     }
                 }
 
                 ui.separator();
 
                 // 4. Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✖ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(StudioHudAction::TurnOff);
                 }
 
@@ -660,12 +740,20 @@ impl CanvasHud {
             "ducad-hud-zebra-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")), true);
+                Self::hud_title(
+                    ui,
+                    format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-zebra-stripes")),
+                    true,
+                );
 
                 ui.separator();
 
                 // Preset orientasi sudut garis zebra: [Horizontal] [Vertical] [45°]
-                ui.label(RichText::new(format!("{}:", t!("zebra-angle"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("zebra-angle")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let is_horiz = angle.abs() < 1e-2;
                 let is_vert = (*angle - std::f32::consts::FRAC_PI_2).abs() < 1e-2;
                 let is_45 = (*angle - std::f32::consts::FRAC_PI_4).abs() < 1e-2;
@@ -688,8 +776,13 @@ impl CanvasHud {
                 ui.separator();
 
                 // Slider Kerapatan (Frequency)
-                ui.label(RichText::new(format!("{}:", t!("zebra-density"))).size(10.0).color(TEXT_SECONDARY));
-                let freq_drag = ui.add(egui::DragValue::new(frequency).range(5.0..=80.0).speed(0.5));
+                ui.label(
+                    RichText::new(format!("{}:", t!("zebra-density")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
+                let freq_drag =
+                    ui.add(egui::DragValue::new(frequency).range(5.0..=80.0).speed(0.5));
                 if freq_drag.changed() {
                     action = Some(ZebraHudAction::SetFrequency(*frequency));
                 }
@@ -697,9 +790,18 @@ impl CanvasHud {
                 ui.separator();
 
                 // Slider Opacity / Blend
-                ui.label(RichText::new(format!("{}:", t!("zebra-blend"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("zebra-blend")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let mut blend_pct = (*blend * 100.0).round();
-                let blend_drag = ui.add(egui::DragValue::new(&mut blend_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                let blend_drag = ui.add(
+                    egui::DragValue::new(&mut blend_pct)
+                        .range(10.0..=100.0)
+                        .speed(1.0)
+                        .suffix("%"),
+                );
                 if blend_drag.changed() {
                     *blend = blend_pct / 100.0;
                     action = Some(ZebraHudAction::SetBlend(*blend));
@@ -707,7 +809,7 @@ impl CanvasHud {
 
                 ui.separator();
                 // Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✖ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(ZebraHudAction::TurnOff);
                 }
 
@@ -733,12 +835,20 @@ impl CanvasHud {
             "ducad-hud-draft-heatmap-panel",
             |ui| {
                 let mut action = None;
-                Self::hud_title(ui, format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-draft-analysis")), true);
+                Self::hud_title(
+                    ui,
+                    format!("{} {}", ICON_TEXTURE.codepoint, t!("tool-draft-analysis")),
+                    true,
+                );
 
                 ui.separator();
 
                 // Preset Arah Tarik (Pull Direction)
-                ui.label(RichText::new(format!("{}:", t!("draft-pull-dir"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("draft-pull-dir")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let dirs = [
                     ("+Z", [0.0, 0.0, 1.0]),
                     ("-Z", [0.0, 0.0, -1.0]),
@@ -760,7 +870,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Slider / Preset Sudut Target
-                ui.label(RichText::new(format!("{}:", t!("draft-target-angle"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("draft-target-angle")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let mut angle_val = *target_angle_deg;
                 let angle_drag = ui.add(
                     egui::DragValue::new(&mut angle_val)
@@ -779,26 +893,59 @@ impl CanvasHud {
                 let angle_str = format!("{:.1}", *target_angle_deg);
                 // Hijau (Safe)
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(46, 204, 113)));
-                    ui.label(RichText::new(t!("draft-safe-legend", angle = &angle_str)).size(9.5).color(Color32::from_rgb(180, 240, 200)));
+                    ui.label(
+                        RichText::new("●")
+                            .size(11.0)
+                            .color(Color32::from_rgb(46, 204, 113)),
+                    );
+                    ui.label(
+                        RichText::new(t!("draft-safe-legend", angle = &angle_str))
+                            .size(9.5)
+                            .color(Color32::from_rgb(180, 240, 200)),
+                    );
                 });
                 // Kuning (Low Draft)
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(241, 196, 15)));
-                    ui.label(RichText::new(t!("draft-warning-legend", angle = &angle_str)).size(9.5).color(Color32::from_rgb(255, 235, 160)));
+                    ui.label(
+                        RichText::new("●")
+                            .size(11.0)
+                            .color(Color32::from_rgb(241, 196, 15)),
+                    );
+                    ui.label(
+                        RichText::new(t!("draft-warning-legend", angle = &angle_str))
+                            .size(9.5)
+                            .color(Color32::from_rgb(255, 235, 160)),
+                    );
                 });
                 // Merah (Undercut)
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(231, 76, 60)));
-                    ui.label(RichText::new(t!("draft-undercut-legend")).size(9.5).color(Color32::from_rgb(255, 180, 180)));
+                    ui.label(
+                        RichText::new("●")
+                            .size(11.0)
+                            .color(Color32::from_rgb(231, 76, 60)),
+                    );
+                    ui.label(
+                        RichText::new(t!("draft-undercut-legend"))
+                            .size(9.5)
+                            .color(Color32::from_rgb(255, 180, 180)),
+                    );
                 });
 
                 ui.separator();
 
                 // Slider Blend
-                ui.label(RichText::new(format!("{}:", t!("draft-blend"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("draft-blend")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 let mut blend_pct = (*blend * 100.0).round();
-                let blend_drag = ui.add(egui::DragValue::new(&mut blend_pct).range(10.0..=100.0).speed(1.0).suffix("%"));
+                let blend_drag = ui.add(
+                    egui::DragValue::new(&mut blend_pct)
+                        .range(10.0..=100.0)
+                        .speed(1.0)
+                        .suffix("%"),
+                );
                 if blend_drag.changed() {
                     *blend = blend_pct / 100.0;
                     action = Some(DraftInspectionHudAction::SetBlend(*blend));
@@ -806,7 +953,7 @@ impl CanvasHud {
 
                 ui.separator();
                 // Tombol Nonaktifkan
-                if Self::hud_cancel_btn(ui, format!("✕ {}", t!("hud-turn-off"))).clicked() {
+                if Self::hud_cancel_btn(ui, format!("✖ {}", t!("hud-turn-off"))).clicked() {
                     action = Some(DraftInspectionHudAction::TurnOff);
                 }
 
@@ -849,11 +996,7 @@ impl CanvasHud {
                             .color(TEXT_SECONDARY),
                     );
                     let mut dist_val = *offset_distance;
-                    let drag = ui.add(
-                        egui::DragValue::new(&mut dist_val)
-                            .speed(0.5)
-                            .suffix(" mm"),
-                    );
+                    let drag = ui.add(egui::DragValue::new(&mut dist_val).speed(0.5).suffix(" mm"));
                     if drag.changed() {
                         *offset_distance = dist_val;
                         action = Some(MateHudAction::SetOffset(dist_val));
@@ -868,11 +1011,7 @@ impl CanvasHud {
                             .color(TEXT_SECONDARY),
                     );
                     let mut ang_val = *angle_deg;
-                    let drag = ui.add(
-                        egui::DragValue::new(&mut ang_val)
-                            .speed(1.0)
-                            .suffix("°"),
-                    );
+                    let drag = ui.add(egui::DragValue::new(&mut ang_val).speed(1.0).suffix("°"));
                     if drag.changed() {
                         *angle_deg = ang_val;
                         action = Some(MateHudAction::SetAngle(ang_val));
@@ -974,7 +1113,11 @@ impl CanvasHud {
                             ui.label(RichText::new("|").color(TEXT_SECONDARY));
                             if Self::hud_toggle_btn(
                                 ui,
-                                format!("{} {}", ICON_3D_ROTATION.codepoint, t!("hud-normal-to-sketch")),
+                                format!(
+                                    "{} {}",
+                                    ICON_3D_ROTATION.codepoint,
+                                    t!("hud-normal-to-sketch")
+                                ),
                                 false,
                             )
                             .clicked()
@@ -1445,11 +1588,7 @@ impl CanvasHud {
         let blend_color = Color32::from_rgb(77, 166, 255);
 
         if is_hovered || is_dragging {
-            painter.circle_filled(
-                pos_2d,
-                arm + 3.0,
-                blend_color.gamma_multiply(0.22),
-            );
+            painter.circle_filled(pos_2d, arm + 3.0, blend_color.gamma_multiply(0.22));
         } else if is_armed {
             painter.circle_stroke(
                 pos_2d,
@@ -1527,7 +1666,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Tombol Pilihan Sudut Preset (90°, 180°, 270°, 360°)
-                ui.label(RichText::new(format!("{}:", t!("param-angle"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("param-angle")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 for &deg in &[90.0, 180.0, 270.0, 360.0] {
                     let is_active = (current_angle - deg).abs() < 1e-3;
                     let label = format!("{:.0}°", deg);
@@ -1613,7 +1756,11 @@ impl CanvasHud {
             Align2::LEFT_TOP,
             &step_text,
             egui::FontId::proportional(11.0),
-            if is_staged { ACCENT_GREEN } else { ACCENT_ORANGE },
+            if is_staged {
+                ACCENT_GREEN
+            } else {
+                ACCENT_ORANGE
+            },
         );
 
         let c_sketch = Pos2::new(card_rect.left() + 65.0, card_rect.center().y + 8.0);
@@ -1659,7 +1806,11 @@ impl CanvasHud {
 
         if is_staged {
             let rot_c = Pos2::new(axis_x, card_rect.center().y + 8.0);
-            painter.circle_stroke(rot_c, 18.0, Stroke::new(1.2, ACCENT_GREEN.gamma_multiply(0.8)));
+            painter.circle_stroke(
+                rot_c,
+                18.0,
+                Stroke::new(1.2, ACCENT_GREEN.gamma_multiply(0.8)),
+            );
         }
 
         let p_tip = Pos2::new(card_rect.left() + 10.0, card_rect.bottom() - 10.0);
@@ -1709,7 +1860,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Tombol Pilihan Tinggi Preset (10mm, 20mm, 30mm, 50mm, 100mm)
-                ui.label(RichText::new(format!("{}:", t!("param-height"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("param-height")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 for &h in &[10.0, 20.0, 30.0, 50.0, 100.0] {
                     let is_active = (current_height - h).abs() < 1e-3;
                     let label = format!("{:.0}", h);
@@ -1804,7 +1959,10 @@ impl CanvasHud {
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             let align_btn = egui::Button::new(
-                                RichText::new(t!("hud-loft-align-center")).size(11.0).strong().color(Color32::WHITE),
+                                RichText::new(t!("hud-loft-align-center"))
+                                    .size(11.0)
+                                    .strong()
+                                    .color(Color32::WHITE),
                             )
                             .fill(ACCENT_BLUE);
                             if ui.add(align_btn).clicked() {
@@ -1813,7 +1971,9 @@ impl CanvasHud {
 
                             ui.add_space(8.0);
                             let keep_btn = egui::Button::new(
-                                RichText::new(t!("hud-loft-keep-offset")).size(10.5).color(TEXT_PRIMARY),
+                                RichText::new(t!("hud-loft-keep-offset"))
+                                    .size(10.5)
+                                    .color(TEXT_PRIMARY),
                             )
                             .fill(Color32::from_rgba_premultiplied(50, 55, 65, 200));
                             if ui.add(keep_btn).clicked() {
@@ -1858,7 +2018,11 @@ impl CanvasHud {
                     ui.separator();
 
                     // Quick Preset Buttons [1 mm, 2 mm, 3 mm, 5 mm]
-                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-thickness")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     for &t in &[1.0, 2.0, 3.0, 5.0] {
                         let is_active = (current_thickness - t).abs() < 0.05;
                         let label = format!("{:.0}", t);
@@ -1913,9 +2077,9 @@ impl CanvasHud {
             |ui| {
                 let mut hud_action = None;
                 let step_text = if has_geometry {
-                    "🦴 Face Terpilih"
+                    format!("{} Face Terpilih", ICON_FOUNDATION.codepoint)
                 } else {
-                    "🦴 Pilih Face Casing"
+                    format!("{} Pilih Face Casing", ICON_FOUNDATION.codepoint)
                 };
 
                 Self::hud_title(ui, step_text, has_geometry);
@@ -1927,7 +2091,8 @@ impl CanvasHud {
                     ui.label(RichText::new("Sudut:").size(10.0).color(TEXT_SECONDARY));
                     let current_ang = angle_input.trim().parse::<f64>().unwrap_or(0.0);
                     for &(deg, lbl) in &[(0.0, "0°"), (45.0, "45°"), (90.0, "90°")] {
-                        if Self::hud_circle_btn(ui, lbl, (current_ang - deg).abs() < 1e-2).clicked() {
+                        if Self::hud_circle_btn(ui, lbl, (current_ang - deg).abs() < 1e-2).clicked()
+                        {
                             *angle_input = format!("{:.1}", deg);
                             hud_action = Some(RibHudAction::SetAngle(deg));
                         }
@@ -1945,7 +2110,11 @@ impl CanvasHud {
 
                     ui.separator();
                     // Thickness input
-                    ui.label(RichText::new(format!("{}:", t!("param-thickness"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-thickness")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     let thick_edit = egui::TextEdit::singleline(thickness_input)
                         .desired_width(34.0)
                         .font(egui::FontId::monospace(10.5));
@@ -1958,7 +2127,11 @@ impl CanvasHud {
 
                     ui.separator();
                     // Depth input
-                    ui.label(RichText::new(format!("{}:", t!("param-depth"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-depth")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     let depth_edit = egui::TextEdit::singleline(depth_input)
                         .desired_width(34.0)
                         .font(egui::FontId::monospace(10.5));
@@ -1971,7 +2144,11 @@ impl CanvasHud {
 
                     ui.separator();
                     // Draft angle input
-                    ui.label(RichText::new(format!("{}:", t!("param-draft"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-draft")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     let draft_edit = egui::TextEdit::singleline(draft_input)
                         .desired_width(30.0)
                         .font(egui::FontId::monospace(10.5));
@@ -2025,7 +2202,11 @@ impl CanvasHud {
                     ui.separator();
 
                     // Quick Preset Buttons [1°, 2°, 3°, 5°, 7°]
-                    ui.label(RichText::new(format!("{}:", t!("param-draft-angle"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-draft-angle")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     for &a in &[1.0, 2.0, 3.0, 5.0, 7.0] {
                         let is_active = (current_angle - a).abs() < 0.05;
                         let label = format!("{:.0}°", a);
@@ -2048,7 +2229,11 @@ impl CanvasHud {
 
                     ui.separator();
                     // Dropdown Arah Bukaan Cetakan (Pull Direction)
-                    ui.label(RichText::new(format!("{}:", t!("param-pull-dir"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-pull-dir")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     egui::ComboBox::from_id_salt("ducad-draft-top-hud-pull-dir")
                         .selected_text(
                             RichText::new(current_pull_dir.label())
@@ -2080,7 +2265,8 @@ impl CanvasHud {
 
                     ui.separator();
                     // Tombol Eksekusi Draft Angle (Commit)
-                    if Self::hud_commit_btn(ui, format!("✓ {}", t!("popup-draft-apply"))).clicked() {
+                    if Self::hud_commit_btn(ui, format!("✔ {}", t!("popup-draft-apply"))).clicked()
+                    {
                         hud_action = Some(DraftHudAction::Commit);
                     }
                 }
@@ -2136,7 +2322,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Dropdown Bidang (Plane)
-                ui.label(RichText::new(format!("{}:", t!("popup-split-plane"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("popup-split-plane")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 egui::ComboBox::from_id_salt("ducad-split-top-hud-plane")
                     .selected_text(
                         RichText::new(current_plane.label())
@@ -2167,7 +2357,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Offset Input & Quick Buttons
-                ui.label(RichText::new(format!("{}:", t!("popup-split-offset"))).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(format!("{}:", t!("popup-split-offset")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
 
                 for &off in &[-10.0, 0.0, 10.0] {
                     let is_active = (offset_val - off).abs() < 0.05;
@@ -2192,8 +2386,8 @@ impl CanvasHud {
                 ui.separator();
                 // Tombol Eksekusi
                 let btn_label = match *split_mode {
-                    SplitMode::SplitBody => format!("✓ {}", t!("popup-split-apply")),
-                    SplitMode::SplitFace => format!("✓ {}", t!("popup-split-apply-face")),
+                    SplitMode::SplitBody => format!("✔ {}", t!("popup-split-apply")),
+                    SplitMode::SplitFace => format!("✔ {}", t!("popup-split-apply-face")),
                 };
                 if Self::hud_commit_btn(ui, &btn_label).clicked() {
                     hud_action = Some(SplitHudAction::Commit);
@@ -2370,11 +2564,15 @@ impl CanvasHud {
                     }
                     DatumPlaneMode::ThreePoints => {
                         let pts_text = format!("{}/3 points", points_count);
-                        ui.label(RichText::new(pts_text).size(10.5).color(if points_count >= 3 {
-                            ACCENT_BLUE
-                        } else {
-                            ACCENT_ORANGE
-                        }));
+                        ui.label(
+                            RichText::new(pts_text)
+                                .size(10.5)
+                                .color(if points_count >= 3 {
+                                    ACCENT_BLUE
+                                } else {
+                                    ACCENT_ORANGE
+                                }),
+                        );
 
                         if points_count > 0 && Self::hud_toggle_btn(ui, "Clear", false).clicked() {
                             hud_action = Some(DatumPlaneHudAction::ClearPoints);
@@ -2430,7 +2628,11 @@ impl CanvasHud {
                     ui.separator();
 
                     // Pilihan Operasi Boolean: Union, Subtract, Intersect
-                    ui.label(RichText::new(format!("{}:", t!("param-operation"))).size(10.0).color(TEXT_SECONDARY));
+                    ui.label(
+                        RichText::new(format!("{}:", t!("param-operation")))
+                            .size(10.0)
+                            .color(TEXT_SECONDARY),
+                    );
                     let ops = [
                         (BooleanOpKind::Union, t!("boolean-union")),
                         (BooleanOpKind::Subtract, t!("boolean-subtract")),
@@ -2540,7 +2742,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Sides selector: Quick preset chips [3, 4, 5, 6, 8]
-                ui.label(RichText::new(t!("hud-polygon-sides")).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(t!("hud-polygon-sides"))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 for &n in &[3, 4, 5, 6, 8] {
                     let is_active = sides == n;
                     let label = format!("{}", n);
@@ -2552,7 +2758,11 @@ impl CanvasHud {
                 // Custom N DragValue
                 let mut current_n = sides;
                 if ui
-                    .add(egui::DragValue::new(&mut current_n).range(3..=64).speed(0.2))
+                    .add(
+                        egui::DragValue::new(&mut current_n)
+                            .range(3..=64)
+                            .speed(0.2),
+                    )
                     .changed()
                 {
                     hud_action = Some(PolygonHudAction::SetSides(current_n));
@@ -2564,8 +2774,14 @@ impl CanvasHud {
                 let inscribed_label = t!("hud-polygon-inscribed");
                 let circumscribed_label = t!("hud-polygon-circumscribed");
                 let modes = [
-                    (ducad_sketch::PolygonMode::Inscribed, inscribed_label.as_str()),
-                    (ducad_sketch::PolygonMode::Circumscribed, circumscribed_label.as_str()),
+                    (
+                        ducad_sketch::PolygonMode::Inscribed,
+                        inscribed_label.as_str(),
+                    ),
+                    (
+                        ducad_sketch::PolygonMode::Circumscribed,
+                        circumscribed_label.as_str(),
+                    ),
                 ];
 
                 for (m, label) in modes {
@@ -2626,7 +2842,11 @@ impl CanvasHud {
                 ui.separator();
 
                 // Quick width presets
-                ui.label(RichText::new(t!("hud-slot-width")).size(10.0).color(TEXT_SECONDARY));
+                ui.label(
+                    RichText::new(t!("hud-slot-width"))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
                 for &w in &[5.0, 10.0, 20.0, 30.0] {
                     let is_active = (width - w).abs() < 1e-3;
                     let label = format!("{}", w);
@@ -2702,20 +2922,35 @@ impl CanvasHud {
                 match pattern_kind {
                     PatternKind::Linear => {
                         // X params
-                        ui.label(RichText::new("X:").size(10.5).strong().color(Color32::from_rgb(255, 100, 100)));
+                        ui.label(
+                            RichText::new("X:")
+                                .size(10.5)
+                                .strong()
+                                .color(Color32::from_rgb(255, 100, 100)),
+                        );
                         ui.add(egui::DragValue::new(count_x).range(1..=50).prefix("qty: "));
                         ui.add(egui::DragValue::new(pitch_x).speed(1.0).suffix("mm"));
 
                         ui.separator();
                         // Y params
-                        ui.label(RichText::new("Y:").size(10.5).strong().color(Color32::from_rgb(100, 220, 100)));
+                        ui.label(
+                            RichText::new("Y:")
+                                .size(10.5)
+                                .strong()
+                                .color(Color32::from_rgb(100, 220, 100)),
+                        );
                         ui.add(egui::DragValue::new(count_y).range(1..=50).prefix("qty: "));
                         ui.add(egui::DragValue::new(pitch_y).speed(1.0).suffix("mm"));
 
                         if is_3d {
                             ui.separator();
                             // Z params
-                            ui.label(RichText::new("Z:").size(10.5).strong().color(Color32::from_rgb(100, 150, 255)));
+                            ui.label(
+                                RichText::new("Z:")
+                                    .size(10.5)
+                                    .strong()
+                                    .color(Color32::from_rgb(100, 150, 255)),
+                            );
                             ui.add(egui::DragValue::new(count_z).range(1..=50).prefix("qty: "));
                             ui.add(egui::DragValue::new(pitch_z).speed(1.0).suffix("mm"));
                         }
@@ -2727,11 +2962,21 @@ impl CanvasHud {
 
                         // Radius
                         ui.label(RichText::new("Radius:").size(10.0).color(TEXT_SECONDARY));
-                        ui.add(egui::DragValue::new(circ_radius).speed(1.0).range(0.1..=10000.0).suffix("mm"));
+                        ui.add(
+                            egui::DragValue::new(circ_radius)
+                                .speed(1.0)
+                                .range(0.1..=10000.0)
+                                .suffix("mm"),
+                        );
 
                         // Angle
                         ui.label(RichText::new("Sudut:").size(10.0).color(TEXT_SECONDARY));
-                        ui.add(egui::DragValue::new(circ_angle_deg).speed(1.0).range(-360.0..=360.0).suffix("°"));
+                        ui.add(
+                            egui::DragValue::new(circ_angle_deg)
+                                .speed(1.0)
+                                .range(-360.0..=360.0)
+                                .suffix("°"),
+                        );
 
                         // Quick Angle buttons
                         for angle in &[360.0, 180.0, 90.0] {
@@ -2746,11 +2991,26 @@ impl CanvasHud {
                             ui.separator();
                             // Dropdown Axis
                             egui::ComboBox::from_id_salt("ducad-pattern-axis-combo")
-                                .selected_text(RichText::new(circ_axis.label()).size(10.0).color(TEXT_PRIMARY))
+                                .selected_text(
+                                    RichText::new(circ_axis.label())
+                                        .size(10.0)
+                                        .color(TEXT_PRIMARY),
+                                )
                                 .width(90.0)
                                 .show_ui(ui, |ui| {
-                                    for ax in &[PatternAxisPreset::Z, PatternAxisPreset::Y, PatternAxisPreset::X] {
-                                        if ui.selectable_value(circ_axis, *ax, RichText::new(ax.label()).size(10.0)).clicked() {
+                                    for ax in &[
+                                        PatternAxisPreset::Z,
+                                        PatternAxisPreset::Y,
+                                        PatternAxisPreset::X,
+                                    ] {
+                                        if ui
+                                            .selectable_value(
+                                                circ_axis,
+                                                *ax,
+                                                RichText::new(ax.label()).size(10.0),
+                                            )
+                                            .clicked()
+                                        {
                                             hud_action = Some(PatternHudAction::SetAxis(*ax));
                                         }
                                     }
@@ -2761,13 +3021,14 @@ impl CanvasHud {
 
                 ui.separator();
                 // Tombol Eksekusi Pattern
-                if Self::hud_commit_btn(ui, format!("✓ {}", t!("popup-pattern-apply"))).clicked() {
+                if Self::hud_commit_btn(ui, format!("✔ {}", t!("popup-pattern-apply"))).clicked()
+                {
                     hud_action = Some(PatternHudAction::Commit);
                 }
 
                 ui.separator();
                 // Tombol Batal
-                if Self::hud_cancel_btn(ui, "✕ Batal").clicked() {
+                if Self::hud_cancel_btn(ui, "✖ Batal").clicked() {
                     hud_action = Some(PatternHudAction::Cancel);
                 }
 
@@ -2798,10 +3059,13 @@ impl CanvasHud {
 
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("{} {}", ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, label))
-                        .size(12.0)
-                        .strong()
-                        .color(ACCENT_BLUE),
+                    RichText::new(format!(
+                        "{} {}",
+                        ICON_DRIVE_FILE_RENAME_OUTLINE.codepoint, label
+                    ))
+                    .size(12.0)
+                    .strong()
+                    .color(ACCENT_BLUE),
                 );
             });
 
@@ -2830,7 +3094,11 @@ impl CanvasHud {
                         .color(Color32::WHITE),
                 )
                 .fill(ACCENT_BLUE);
-                if ui.add(save_btn).on_hover_text("Simpan nama (Enter)").clicked() {
+                if ui
+                    .add(save_btn)
+                    .on_hover_text("Simpan nama (Enter)")
+                    .clicked()
+                {
                     event = Some(RenamePopupEvent::Confirm(input_buf.trim().to_string()));
                 }
             });
@@ -2839,7 +3107,9 @@ impl CanvasHud {
         // Tap/click di luar area popup untuk batal
         if event.is_none() {
             if let Some(pointer_pos) = ui.input(|i| i.pointer.interact_pos()) {
-                if ui.input(|i| i.pointer.any_pressed()) && !frame_resp.response.rect.contains(pointer_pos) {
+                if ui.input(|i| i.pointer.any_pressed())
+                    && !frame_resp.response.rect.contains(pointer_pos)
+                {
                     event = Some(RenamePopupEvent::Cancel);
                 }
             }
@@ -2887,9 +3157,15 @@ impl CanvasHud {
             ui.add_space(4.0);
 
             // Minus button
-            let minus_btn = egui::Button::new(RichText::new("−").size(12.0).strong().color(if count > min { Color32::WHITE } else { TEXT_MUTED }))
-                .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
-                .min_size(egui::vec2(18.0, 18.0));
+            let minus_btn = egui::Button::new(RichText::new("−").size(12.0).strong().color(
+                if count > min {
+                    Color32::WHITE
+                } else {
+                    TEXT_MUTED
+                },
+            ))
+            .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
+            .min_size(egui::vec2(18.0, 18.0));
             if ui.add(minus_btn).on_hover_text("Kurangi jumlah").clicked() && count > min {
                 new_count = Some(count - 1);
             }
@@ -2899,9 +3175,15 @@ impl CanvasHud {
             ui.label(RichText::new(text).size(10.5).strong().color(ACCENT_BLUE));
 
             // Plus button
-            let plus_btn = egui::Button::new(RichText::new("+").size(12.0).strong().color(if count < max { Color32::WHITE } else { TEXT_MUTED }))
-                .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
-                .min_size(egui::vec2(18.0, 18.0));
+            let plus_btn = egui::Button::new(RichText::new("+").size(12.0).strong().color(
+                if count < max {
+                    Color32::WHITE
+                } else {
+                    TEXT_MUTED
+                },
+            ))
+            .fill(Color32::from_rgba_premultiplied(40, 48, 60, 200))
+            .min_size(egui::vec2(18.0, 18.0));
             if ui.add(plus_btn).on_hover_text("Tambah jumlah").clicked() && count < max {
                 new_count = Some(count + 1);
             }
@@ -2930,13 +3212,29 @@ impl CanvasHud {
         };
 
         let painter = ui.painter();
-        painter.circle_filled(center_pos, 8.0, Color32::from_rgba_premultiplied(10, 20, 35, 200));
+        painter.circle_filled(
+            center_pos,
+            8.0,
+            Color32::from_rgba_premultiplied(10, 20, 35, 200),
+        );
         painter.circle_stroke(center_pos, 8.0, egui::Stroke::new(1.8, color));
         painter.circle_filled(center_pos, 3.0, color);
 
         // Crosshair ticks
-        painter.line_segment([center_pos - egui::vec2(12.0, 0.0), center_pos + egui::vec2(12.0, 0.0)], egui::Stroke::new(1.0, color));
-        painter.line_segment([center_pos - egui::vec2(0.0, 12.0), center_pos + egui::vec2(0.0, 12.0)], egui::Stroke::new(1.0, color));
+        painter.line_segment(
+            [
+                center_pos - egui::vec2(12.0, 0.0),
+                center_pos + egui::vec2(12.0, 0.0),
+            ],
+            egui::Stroke::new(1.0, color),
+        );
+        painter.line_segment(
+            [
+                center_pos - egui::vec2(0.0, 12.0),
+                center_pos + egui::vec2(0.0, 12.0),
+            ],
+            egui::Stroke::new(1.0, color),
+        );
 
         if is_hovered {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -3020,14 +3318,10 @@ impl CanvasHud {
                 ui.separator();
 
                 // Stepper [-] [ Input TextBox ] [+]
-                let minus_btn = egui::Button::new(
-                    RichText::new("−")
-                        .size(12.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
-                .min_size(Vec2::new(20.0, 20.0));
+                let minus_btn =
+                    egui::Button::new(RichText::new("−").size(12.0).strong().color(Color32::WHITE))
+                        .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
+                        .min_size(Vec2::new(20.0, 20.0));
                 if ui
                     .add(minus_btn)
                     .on_hover_text("Kurangi radius (-0.5)")
@@ -3049,14 +3343,10 @@ impl CanvasHud {
                 }
                 ui.label(RichText::new(unit_suffix).size(10.0).color(TEXT_SECONDARY));
 
-                let plus_btn = egui::Button::new(
-                    RichText::new("+")
-                        .size(12.0)
-                        .strong()
-                        .color(Color32::WHITE),
-                )
-                .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
-                .min_size(Vec2::new(20.0, 20.0));
+                let plus_btn =
+                    egui::Button::new(RichText::new("+").size(12.0).strong().color(Color32::WHITE))
+                        .fill(Color32::from_rgba_premultiplied(45, 55, 75, 220))
+                        .min_size(Vec2::new(20.0, 20.0));
                 if ui
                     .add(plus_btn)
                     .on_hover_text("Tambah radius (+0.5)")

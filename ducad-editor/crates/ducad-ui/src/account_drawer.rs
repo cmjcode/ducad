@@ -179,9 +179,9 @@ impl AccountDrawer {
 
         // Feature checklist
         ui.label(RichText::new("Fitur Cloud Terhubung:").size(11.0).color(TEXT_SECONDARY));
-        ui.label(RichText::new("  ✓ Sinkronisasi Proyek CAD Cloud").size(11.0).color(TEXT_MUTED));
-        ui.label(RichText::new("  ✓ Riwayat Versi & Rollback").size(11.0).color(TEXT_MUTED));
-        ui.label(RichText::new("  ✓ Standard Parts & Fastener Catalog").size(11.0).color(TEXT_MUTED));
+        ui.label(RichText::new("  ✔ Sinkronisasi Proyek CAD Cloud").size(11.0).color(TEXT_MUTED));
+        ui.label(RichText::new("  ✔ Riwayat Versi & Rollback").size(11.0).color(TEXT_MUTED));
+        ui.label(RichText::new("  ✔ Standard Parts & Fastener Catalog").size(11.0).color(TEXT_MUTED));
 
         ui.add_space(12.0);
 

@@ -1181,7 +1181,7 @@ impl AssemblyDrawer {
                                         self.motion_t = 0.0;
                                         self.motion_playing = false;
                                     }
-                                    ui.label(RichText::new(format!("{:.1} → {:.1}", study.from, study.to)).size(9.0).color(TEXT_MUTED));
+                                    ui.label(RichText::new(format!("{:.1} » {:.1}", study.from, study.to)).size(9.0).color(TEXT_MUTED));
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                         if ui.button(RichText::new(ICON_DELETE.codepoint).size(11.0).color(TEXT_SECONDARY)).clicked() {
                                             events.push(AssemblyDrawerEvent::DeleteMotionStudy(i));

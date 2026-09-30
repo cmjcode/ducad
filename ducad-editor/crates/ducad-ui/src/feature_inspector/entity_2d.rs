@@ -461,7 +461,7 @@ pub fn show_2d_entity_cards(
                         ));
                     }
                     if ui
-                        .button(RichText::new(format!("⊥ {}", t!("inspector-perpendicular"))).size(10.0))
+                        .button(RichText::new(format!("⟂ {}", t!("inspector-perpendicular"))).size(10.0))
                         .clicked()
                     {
                         *event = Some(InspectorEvent::ApplyConstraint(
