@@ -278,7 +278,7 @@ impl FeatureTreeDrawer {
                         ui.painter().circle_filled(
                             badge_rect.center(),
                             9.0,
-                            Color32::from_rgba_premultiplied(10, 132, 255, 45),
+                            ACCENT_BLUE.gamma_multiply(0.18),
                         );
                         ui.painter().circle_stroke(
                             badge_rect.center(),

@@ -92,8 +92,13 @@ impl ThemeMode {
                 v.widgets.open.bg_fill = BG_CARD_DARK;
                 v.widgets.open.corner_radius = CornerRadius::same(6);
 
-                v.selection.bg_fill = Color32::from_rgba_premultiplied(10, 132, 255, 60);
-                v.selection.stroke = Stroke::new(1.0, ACCENT_BLUE);
+                // Latar item terpilih (selectable_label, selectable_value, seleksi teks).
+                // Harus `from_rgba_unmultiplied`: versi premultiplied dengan RGB > alpha
+                // di-blend aditif oleh egui sehingga tampak biru pekat, dan egui memakai
+                // `selection.stroke` sebagai WARNA TEKS item terpilih — teks biru di atas
+                // biru pekat tidak terbaca (regresi panel Simulation). Teks putih di sini.
+                v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 90);
+                v.selection.stroke = Stroke::new(1.0, Color32::WHITE);
                 v
             }
             ThemeMode::Light => {
@@ -103,8 +108,10 @@ impl ThemeMode {
                 v.widgets.inactive.corner_radius = CornerRadius::same(6);
                 v.widgets.hovered.corner_radius = CornerRadius::same(6);
                 v.widgets.active.corner_radius = CornerRadius::same(6);
-                v.selection.bg_fill = Color32::from_rgba_premultiplied(10, 132, 255, 50);
-                v.selection.stroke = Stroke::new(1.0, ACCENT_BLUE);
+                // Lihat catatan di mode gelap: unmultiplied + teks gelap agar terbaca
+                // di atas biru muda translusen.
+                v.selection.bg_fill = Color32::from_rgba_unmultiplied(10, 132, 255, 70);
+                v.selection.stroke = Stroke::new(1.0, Color32::from_rgb(10, 40, 80));
                 v
             }
         }
@@ -241,5 +248,50 @@ mod tests {
             });
         });
         output.textures_delta.clear();
+    }
+
+    /// Luminansi relatif (sRGB → linear) untuk rasio kontras WCAG.
+    fn luminance(c: Color32) -> f32 {
+        let lin = |v: u8| {
+            let f = v as f32 / 255.0;
+            if f <= 0.04045 { f / 12.92 } else { ((f + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (la, lb) = (luminance(a), luminance(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    /// Komposit `src` (premultiplied) di atas `dst` opak.
+    fn over(src: Color32, dst: Color32) -> Color32 {
+        let k = 1.0 - src.a() as f32 / 255.0;
+        let ch = |s: u8, d: u8| (s as f32 + d as f32 * k).round().clamp(0.0, 255.0) as u8;
+        Color32::from_rgb(ch(src.r(), dst.r()), ch(src.g(), dst.g()), ch(src.b(), dst.b()))
+    }
+
+    /// Penjaga regresi: teks item terpilih (`selection.stroke`) harus kontras
+    /// dengan latar seleksi yang dikomposit di atas panel. Dulu keduanya biru
+    /// aksen sehingga nama studi di panel Simulation tidak terlihat.
+    #[test]
+    fn selection_text_is_legible_on_selection_fill() {
+        for mode in [ThemeMode::Dark, ThemeMode::Light] {
+            let v = mode.visuals();
+            let fill = v.selection.bg_fill;
+            // Premultiplied valid: tiap kanal <= alpha (RGB > alpha = blending aditif).
+            assert!(
+                fill.r() <= fill.a() && fill.g() <= fill.a() && fill.b() <= fill.a(),
+                "{mode:?}: selection.bg_fill {fill:?} bukan premultiplied valid (aditif)"
+            );
+            let bg_opaque = over(v.panel_fill, Color32::from_rgb(18, 19, 22));
+            let composited = over(fill, bg_opaque);
+            let ratio = contrast(v.selection.stroke.color, composited);
+            assert!(
+                ratio >= 4.5,
+                "{mode:?}: kontras teks seleksi {ratio:.2} < 4.5 (teks {:?} di atas {composited:?})",
+                v.selection.stroke.color
+            );
+        }
     }
 }
