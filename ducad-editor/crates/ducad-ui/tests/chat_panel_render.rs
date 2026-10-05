@@ -154,3 +154,44 @@ fn sidebar_locks_right_and_reserves_width() {
     assert!(win.right() > 1180.0, "sidebar harus menempel di kanan: {win:?}");
     assert!(win.height() > 800.0, "sidebar harus setinggi layar: {win:?}");
 }
+
+/// Regresi: input panjang pernah mendorong tombol kirim keluar panel, dan
+/// kartu composer pernah terpotong tepi bawah panel. Tombol kirim (yang
+/// mengambang di dalam kartu) harus selalu berada di dalam rect jendela.
+#[test]
+fn send_button_stays_inside_panel() {
+    for (name, input, settings, history, busy) in [
+        ("kosong", String::new(), false, false, false),
+        ("30 baris", "baris\n".repeat(30), false, false, false),
+        ("semua terbuka", "a\nb\nc".to_string(), true, true, false),
+        ("sibuk", "x".to_string(), false, true, true),
+    ] {
+        let ctx = egui::Context::default();
+        let mut st = ChatPanelState {
+            open: true,
+            input,
+            settings_open: settings,
+            history_open: history,
+            busy,
+            ..Default::default()
+        };
+        let icon = if busy {
+            egui_icons::icons::ICON_STOP.codepoint
+        } else {
+            egui_icons::icons::ICON_SEND.codepoint
+        };
+        let mut btn = None;
+        for _ in 0..5 {
+            let texts = frame(&ctx, &mut st);
+            btn = texts.iter().find(|(s, _)| s == icon).map(|(_, r)| *r);
+        }
+        let r = btn.unwrap_or_else(|| panic!("{name}: ikon tombol harus tergambar"));
+        let win = ctx
+            .memory(|m| m.area_rect(egui::Id::new("ducad-chat-sidebar")))
+            .expect("jendela chat harus punya area");
+        assert!(
+            r.max.y <= win.max.y - 4.0 && r.min.y >= win.min.y,
+            "{name}: tombol harus di dalam jendela: tombol {r:?}, jendela {win:?}"
+        );
+    }
+}

@@ -3,14 +3,15 @@
 //! logika ada di `ducad-app/src/chat_ui.rs`.
 
 use crate::theme::{
-    glass_frame, ACCENT_BLUE, ACCENT_GREEN, BG_CARD_DARK, BG_HOVER_DARK, BORDER_SUBTLE,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    glass_frame, ACCENT_BLUE, ACCENT_GREEN, BG_CARD_DARK, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_MUTED,
+    TEXT_PRIMARY, TEXT_SECONDARY,
 };
-use ducad_i18n::t;
 use ducad_glass::GlassFrame;
+use ducad_i18n::t;
 use egui::{Color32, RichText};
 use egui_icons::icons::{
-    ICON_ADD_COMMENT, ICON_CHECK, ICON_CLOSE, ICON_DELETE, ICON_HISTORY, ICON_SETTINGS,
+    ICON_ADD_COMMENT, ICON_CHECK, ICON_CLOSE, ICON_DELETE, ICON_HISTORY, ICON_SEND, ICON_SETTINGS,
+    ICON_STOP,
 };
 
 /// Warna error (sama dengan ringkasan checks gagal di top bar).
@@ -399,10 +400,18 @@ fn tool_row_ui(ui: &mut egui::Ui, item: &ChatItem, idx: usize) {
                         ui.add(egui::Spinner::new().size(11.0));
                     }
                     Some(true) => {
-                        ui.label(RichText::new(ICON_CHECK.codepoint).size(11.0).color(ACCENT_GREEN));
+                        ui.label(
+                            RichText::new(ICON_CHECK.codepoint)
+                                .size(11.0)
+                                .color(ACCENT_GREEN),
+                        );
                     }
                     Some(false) => {
-                        ui.label(RichText::new(ICON_CLOSE.codepoint).size(11.0).color(ERROR_RED));
+                        ui.label(
+                            RichText::new(ICON_CLOSE.codepoint)
+                                .size(11.0)
+                                .color(ERROR_RED),
+                        );
                     }
                 }
                 ui.label(
@@ -606,16 +615,18 @@ fn cli_settings_ui(
             };
             egui::ComboBox::from_id_salt(("chat-cli-effort", i))
                 .selected_text(shown)
-                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
-                    ui.selectable_value(
-                        &mut c.effort,
-                        String::new(),
-                        t!("chat-cli-effort-default"),
-                    );
-                    for e in &meta.efforts {
-                        ui.selectable_value(&mut c.effort, e.clone(), e.as_str());
-                    }
-                }));
+                .show_ui(ui, |ui| {
+                    crate::theme::glass_menu(ui, |ui| {
+                        ui.selectable_value(
+                            &mut c.effort,
+                            String::new(),
+                            t!("chat-cli-effort-default"),
+                        );
+                        for e in &meta.efforts {
+                            ui.selectable_value(&mut c.effort, e.clone(), e.as_str());
+                        }
+                    })
+                });
         });
     }
     ui.horizontal(|ui| {
@@ -693,11 +704,13 @@ fn api_settings_ui(
             let before = form.preset;
             egui::ComboBox::from_id_salt("chat-preset")
                 .selected_text(PRESETS.get(form.preset).copied().unwrap_or_default())
-                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
-                    for (i, p) in PRESETS.iter().enumerate() {
-                        ui.selectable_value(&mut form.preset, i, *p);
-                    }
-                }));
+                .show_ui(ui, |ui| {
+                    crate::theme::glass_menu(ui, |ui| {
+                        for (i, p) in PRESETS.iter().enumerate() {
+                            ui.selectable_value(&mut form.preset, i, *p);
+                        }
+                    })
+                });
             if form.preset != before {
                 *event = Some(ChatPanelEvent::PresetChanged(form.preset));
             }
@@ -738,7 +751,10 @@ impl ChatPanel {
             .map(|r| r.width())
             .filter(|w| w.is_finite() && *w > 0.0)
             .unwrap_or_else(|| Self::default_width(ctx));
-        w + 2.0 * SIDEBAR_MARGIN
+        // Hanya SATU margin: chrome yang digeser (top bar) sudah punya margin
+        // kanannya sendiri (`CHROME_MARGIN_X`), jadi celah top bar ↔ sidebar
+        // sama persis dengan jarak sidebar ke tepi layar — bukan dua kali lipat.
+        w + CHROME_MARGIN_X
     }
 
     fn area_id() -> egui::Id {
@@ -767,202 +783,321 @@ impl ChatPanel {
         let glass = sidebar_glass();
         // Tinggi isi = tinggi layar dikurangi margin tepi dan margin frame.
         let content_h = (screen.height()
-            - 2.0 * SIDEBAR_MARGIN
+            - 2.0 * CHROME_MARGIN_Y
             - f32::from(glass.inner_margin.top + glass.inner_margin.bottom))
         .max(200.0);
         egui::Window::new(t!("chat-title"))
             .id(Self::area_id())
             .title_bar(false)
-            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-SIDEBAR_MARGIN, SIDEBAR_MARGIN))
+            .anchor(
+                egui::Align2::RIGHT_TOP,
+                egui::vec2(-CHROME_MARGIN_X, CHROME_MARGIN_Y),
+            )
             .resizable([true, false])
             .default_width(default_w)
             .min_width(SIDEBAR_MIN_W)
             .max_width(max_w)
             .frame(glass.transparent_flat())
-            .show(&ctx, |ui| glass.paint_behind_window(ui, Self::area_id(), |ui| {
-                ui.set_height(content_h);
-                // Satu baris kepala: pemilih model di kiri, ikon bulat
-                // (chat baru, riwayat, pengaturan, tutup) di kanan.
-                ui.horizontal(|ui| {
-                    if state.targets.len() > 1 && !state.busy {
-                        let before = state.target_idx;
-                        let shown = state
-                            .targets
-                            .get(state.target_idx)
-                            .cloned()
-                            .unwrap_or_default();
-                        egui::ComboBox::from_id_salt("chat-target")
-                            .width(160.0)
-                            .selected_text(RichText::new(shown).size(11.0))
-                            .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
-                                for (i, t) in state.targets.iter().enumerate() {
-                                    ui.selectable_value(&mut state.target_idx, i, t.as_str());
+            .show(&ctx, |ui| {
+                glass.paint_behind_window(ui, Self::area_id(), |ui| {
+                    ui.set_height(content_h);
+                    // Satu baris kepala: pemilih model di kiri, ikon bulat
+                    // (chat baru, riwayat, pengaturan, tutup) di kanan. Tingginya
+                    // dikunci ke `HEADER_ROW_H` supaya sejajar dengan baris tombol
+                    // top bar yang berdiri di sebelah kirinya.
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), HEADER_ROW_H),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            if state.targets.len() > 1 && !state.busy {
+                                let before = state.target_idx;
+                                let shown = state
+                                    .targets
+                                    .get(state.target_idx)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                egui::ComboBox::from_id_salt("chat-target")
+                                    .width(160.0)
+                                    .selected_text(RichText::new(shown).size(11.0))
+                                    .show_ui(ui, |ui| {
+                                        crate::theme::glass_menu(ui, |ui| {
+                                            for (i, t) in state.targets.iter().enumerate() {
+                                                ui.selectable_value(
+                                                    &mut state.target_idx,
+                                                    i,
+                                                    t.as_str(),
+                                                );
+                                            }
+                                        })
+                                    });
+                                if state.target_idx != before {
+                                    event = Some(ChatPanelEvent::TargetChanged(state.target_idx));
                                 }
-                            }));
-                        if state.target_idx != before {
-                            event = Some(ChatPanelEvent::TargetChanged(state.target_idx));
-                        }
-                    } else {
-                        ui.label(
-                            RichText::new(&state.provider_label)
-                                .size(11.0)
-                                .color(TEXT_SECONDARY),
-                        );
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if round_icon_btn(ui, ICON_CLOSE.codepoint, &t!("chat-close"), false)
-                            .clicked()
-                        {
-                            event = Some(ChatPanelEvent::Close);
-                        }
-                        if round_icon_btn(
-                            ui,
-                            ICON_SETTINGS.codepoint,
-                            &t!("chat-settings"),
-                            state.settings_open,
-                        )
-                        .clicked()
-                        {
-                            state.settings_open = !state.settings_open;
-                        }
-                        if round_icon_btn(
-                            ui,
-                            ICON_HISTORY.codepoint,
-                            &t!("chat-history"),
-                            state.history_open,
-                        )
-                        .clicked()
-                        {
-                            state.history_open = !state.history_open;
-                            if state.history_open {
-                                event = Some(ChatPanelEvent::OpenHistory);
-                            }
-                        }
-                        // Chat baru butuh dua klik (3 detik): klik pertama
-                        // "mempersenjatai" ikon (warna aksen + tooltip konfirmasi).
-                        let armed = state.clear_armed_until.is_some_and(|t| t > now);
-                        let tip = if armed {
-                            t!("chat-new-confirm")
-                        } else {
-                            t!("chat-new")
-                        };
-                        let clicked = ui
-                            .add_enabled_ui(!state.busy, |ui| {
-                                round_icon_btn(ui, ICON_ADD_COMMENT.codepoint, &tip, armed)
-                                    .clicked()
-                            })
-                            .inner;
-                        if clicked {
-                            if armed {
-                                state.clear_armed_until = None;
-                                event = Some(ChatPanelEvent::NewChat);
                             } else {
-                                state.clear_armed_until = Some(now + 3.0);
+                                ui.label(
+                                    RichText::new(&state.provider_label)
+                                        .size(11.0)
+                                        .color(TEXT_SECONDARY),
+                                );
                             }
-                        }
-                    });
-                });
-                if state.settings_open {
-                    ui.separator();
-                    settings_ui(ui, &mut state.form, &mut event);
-                }
-                if state.history_open {
-                    ui.separator();
-                    if state.sessions.is_empty() {
-                        ui.label(
-                            RichText::new(t!("chat-history-empty"))
-                                .size(11.0)
-                                .color(TEXT_SECONDARY),
-                        );
-                    }
-                    egui::ScrollArea::vertical()
-                        .id_salt("chat-sessions")
-                        .max_height(160.0)
-                        .show(ui, |ui| {
-                            for (id, title, when) in &state.sessions {
-                                ui.horizontal(|ui| {
-                                    if ui.link(title).on_hover_text(when).clicked() {
-                                        event = Some(ChatPanelEvent::LoadSession(*id));
-                                    }
-                                    if round_icon_btn(ui, ICON_DELETE.codepoint, "", false)
-                                        .clicked()
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if round_icon_btn(
+                                        ui,
+                                        ICON_CLOSE.codepoint,
+                                        &t!("chat-close"),
+                                        false,
+                                    )
+                                    .clicked()
                                     {
-                                        event = Some(ChatPanelEvent::DeleteSession(*id));
+                                        event = Some(ChatPanelEvent::Close);
                                     }
-                                });
+                                    if round_icon_btn(
+                                        ui,
+                                        ICON_SETTINGS.codepoint,
+                                        &t!("chat-settings"),
+                                        state.settings_open,
+                                    )
+                                    .clicked()
+                                    {
+                                        state.settings_open = !state.settings_open;
+                                    }
+                                    if round_icon_btn(
+                                        ui,
+                                        ICON_HISTORY.codepoint,
+                                        &t!("chat-history"),
+                                        state.history_open,
+                                    )
+                                    .clicked()
+                                    {
+                                        state.history_open = !state.history_open;
+                                        if state.history_open {
+                                            event = Some(ChatPanelEvent::OpenHistory);
+                                        }
+                                    }
+                                    // Chat baru butuh dua klik (3 detik): klik pertama
+                                    // "mempersenjatai" ikon (warna aksen + tooltip konfirmasi).
+                                    let armed = state.clear_armed_until.is_some_and(|t| t > now);
+                                    let tip = if armed {
+                                        t!("chat-new-confirm")
+                                    } else {
+                                        t!("chat-new")
+                                    };
+                                    let clicked = ui
+                                        .add_enabled_ui(!state.busy, |ui| {
+                                            round_icon_btn(
+                                                ui,
+                                                ICON_ADD_COMMENT.codepoint,
+                                                &tip,
+                                                armed,
+                                            )
+                                            .clicked()
+                                        })
+                                        .inner;
+                                    if clicked {
+                                        if armed {
+                                            state.clear_armed_until = None;
+                                            event = Some(ChatPanelEvent::NewChat);
+                                        } else {
+                                            state.clear_armed_until = Some(now + 3.0);
+                                        }
+                                    }
+                                },
+                            );
+                        },
+                    );
+                    if state.settings_open {
+                        ui.separator();
+                        settings_ui(ui, &mut state.form, &mut event);
+                    }
+                    if state.history_open {
+                        ui.separator();
+                        if state.sessions.is_empty() {
+                            ui.label(
+                                RichText::new(t!("chat-history-empty"))
+                                    .size(11.0)
+                                    .color(TEXT_SECONDARY),
+                            );
+                        }
+                        egui::ScrollArea::vertical()
+                            .id_salt("chat-sessions")
+                            .max_height(160.0)
+                            .show(ui, |ui| {
+                                for (id, title, when) in &state.sessions {
+                                    ui.horizontal(|ui| {
+                                        if ui.link(title).on_hover_text(when).clicked() {
+                                            event = Some(ChatPanelEvent::LoadSession(*id));
+                                        }
+                                        if round_icon_btn(ui, ICON_DELETE.codepoint, "", false)
+                                            .clicked()
+                                        {
+                                            event = Some(ChatPanelEvent::DeleteSession(*id));
+                                        }
+                                    });
+                                }
+                            });
+                    }
+                    ui.separator();
+                    // Tata letak bawah-ke-atas yang pasti: composer ditambatkan
+                    // ke tepi bawah panel setinggi baris teksnya (2..=6 baris,
+                    // lebih dari itu bergulir), transkrip mengisi sisa di atasnya.
+                    // Dengan begitu kartu composer tidak pernah terpotong panel.
+                    let composer_font = egui::FontId::proportional(COMPOSER_FONT_PX);
+                    let row_h = ui.fonts_mut(|f| f.row_height(&composer_font));
+                    let rows = composer_rows(&state.input);
+                    let text_h = row_h * rows as f32;
+                    let full = ui.available_rect_before_wrap();
+                    let card_h = text_h + COMPOSER_CHROME_H;
+                    let composer_rect = egui::Rect::from_min_max(
+                        egui::pos2(full.left(), full.bottom() - card_h),
+                        full.right_bottom(),
+                    );
+                    let transcript_rect = egui::Rect::from_min_max(
+                        full.left_top(),
+                        egui::pos2(full.right(), composer_rect.top() - COMPOSER_GAP),
+                    );
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(transcript_rect), |ui| {
+                        // Status tetap di luar area gulir: selalu terlihat selama
+                        // agent bekerja, berapa pun panjang transkripnya.
+                        let status_h = if state.busy { STATUS_ROW_H } else { 0.0 };
+                        let avail = (transcript_rect.height() - status_h).max(40.0);
+                        // JANGAN memakai `vertical_scroll_offset(f32::MAX)`: pada frame
+                        // itu seluruh isi digambar di luar area pandang, dan saat agent
+                        // mengalirkan kejadian tiap frame transkrip tampak kosong terus.
+                        let follow = std::mem::take(&mut state.scroll_to_bottom);
+                        let scroll = egui::ScrollArea::vertical()
+                            .id_salt("chat-transcript")
+                            .max_height(avail)
+                            .auto_shrink([false, false])
+                            .stick_to_bottom(true);
+                        scroll.show(ui, |ui| {
+                            if state.items.is_empty() {
+                                ui.label(RichText::new(t!("chat-empty")).color(TEXT_SECONDARY));
+                            }
+                            // Panggilan tool berurutan disatukan dalam satu kartu.
+                            let mut i = 0;
+                            while i < state.items.len() {
+                                if state.items[i].role == ChatRole::Tool {
+                                    let start = i;
+                                    while i < state.items.len()
+                                        && state.items[i].role == ChatRole::Tool
+                                    {
+                                        i += 1;
+                                    }
+                                    tool_group_ui(ui, &state.items[start..i], start);
+                                } else {
+                                    item_ui(ui, &state.items[i]);
+                                    i += 1;
+                                }
+                                ui.add_space(6.0);
+                            }
+                            if follow {
+                                ui.scroll_to_cursor_animation(
+                                    Some(egui::Align::BOTTOM),
+                                    egui::style::ScrollAnimation::none(),
+                                );
                             }
                         });
-                }
-                ui.separator();
-                let input_h = if state.busy { 108.0 } else { 84.0 };
-                let avail = (ui.available_height() - input_h).max(120.0);
-                // JANGAN memakai `vertical_scroll_offset(f32::MAX)`: pada frame
-                // itu seluruh isi digambar di luar area pandang, dan saat agent
-                // mengalirkan kejadian tiap frame transkrip tampak kosong terus.
-                let follow = std::mem::take(&mut state.scroll_to_bottom);
-                let scroll = egui::ScrollArea::vertical()
-                    .id_salt("chat-transcript")
-                    .max_height(avail)
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true);
-                scroll.show(ui, |ui| {
-                    if state.items.is_empty() {
-                        ui.label(RichText::new(t!("chat-empty")).color(TEXT_SECONDARY));
-                    }
-                    // Panggilan tool berurutan disatukan dalam satu kartu.
-                    let mut i = 0;
-                    while i < state.items.len() {
-                        if state.items[i].role == ChatRole::Tool {
-                            let start = i;
-                            while i < state.items.len() && state.items[i].role == ChatRole::Tool {
-                                i += 1;
-                            }
-                            tool_group_ui(ui, &state.items[start..i], start);
-                        } else {
-                            item_ui(ui, &state.items[i]);
-                            i += 1;
+                        if state.busy {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(
+                                    RichText::new(t!("chat-working"))
+                                        .size(11.0)
+                                        .color(TEXT_SECONDARY),
+                                );
+                            });
                         }
-                        ui.add_space(6.0);
-                    }
-                    if follow {
-                        ui.scroll_to_cursor_animation(
-                            Some(egui::Align::BOTTOM),
-                            egui::style::ScrollAnimation::none(),
-                        );
-                    }
-                });
-                // Status tetap di luar area gulir: selalu terlihat selama
-                // agent bekerja, berapa pun panjang transkripnya.
-                if state.busy {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label(
-                            RichText::new(t!("chat-working"))
-                                .size(11.0)
-                                .color(TEXT_SECONDARY),
-                        );
                     });
-                }
-                ui.separator();
-                let resp = ui.add(
-                    egui::TextEdit::multiline(&mut state.input)
-                        .hint_text(t!("chat-hint"))
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY),
-                );
-                let enter = resp.has_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-                ui.horizontal(|ui| {
+                    // Composer: kartu membulat yang seluruhnya kotak teks (teks
+                    // bisa sampai tepi bawah); tombol bulat kirim/berhenti dan
+                    // label usage mengambang di atasnya, di sudut bawah kartu.
+                    let composer_id = ui.id().with("chat-composer");
+                    let focused = ui.memory(|m| m.has_focus(composer_id));
+                    let stroke = if focused {
+                        egui::Stroke::new(1.0, ACCENT_BLUE)
+                    } else {
+                        egui::Stroke::new(1.0, BORDER_SUBTLE)
+                    };
+                    let card = egui::Frame {
+                        inner_margin: egui::Margin::symmetric(10, 8),
+                        outer_margin: egui::Margin::ZERO,
+                        corner_radius: egui::CornerRadius::same(12),
+                        shadow: egui::Shadow::NONE,
+                        fill: BG_CARD_DARK,
+                        stroke,
+                    };
+                    let inner = ui
+                        .scope_builder(egui::UiBuilder::new().max_rect(composer_rect), |ui| {
+                            card.show(ui, |ui| {
+                                let resp = egui::ScrollArea::vertical()
+                                    .id_salt("chat-composer-scroll")
+                                    .max_height(text_h)
+                                    .auto_shrink([false, false])
+                                    .stick_to_bottom(true)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::TextEdit::multiline(&mut state.input)
+                                                .id(composer_id)
+                                                .frame(egui::Frame::NONE)
+                                                .hint_text(
+                                                    RichText::new(t!("chat-hint"))
+                                                        .size(COMPOSER_FONT_PX)
+                                                        .color(TEXT_MUTED),
+                                                )
+                                                .font(composer_font.clone())
+                                                .text_color(TEXT_PRIMARY)
+                                                .desired_rows(COMPOSER_MIN_ROWS)
+                                                .desired_width(f32::INFINITY),
+                                        )
+                                    })
+                                    .inner;
+                                resp.has_focus()
+                                    && ui.input(|i| {
+                                        i.key_pressed(egui::Key::Enter) && !i.modifiers.shift
+                                    })
+                            })
+                        })
+                        .inner;
+                    let enter = inner.inner;
+                    let card_rect = inner.response.rect;
+                    // Tombol mengambang di pojok kanan bawah kartu, di atas teks.
+                    let btn_rect = egui::Rect::from_min_size(
+                        card_rect.right_bottom()
+                            - egui::vec2(
+                                COMPOSER_BTN_SIDE + COMPOSER_BTN_INSET,
+                                COMPOSER_BTN_SIDE + COMPOSER_BTN_INSET,
+                            ),
+                        egui::Vec2::splat(COMPOSER_BTN_SIDE),
+                    );
                     if state.busy {
-                        if ui.button(t!("chat-stop")).clicked() {
+                        if round_action_btn(
+                            ui,
+                            btn_rect,
+                            ICON_STOP.codepoint,
+                            &t!("chat-stop"),
+                            BG_HOVER_DARK,
+                            TEXT_PRIMARY,
+                            true,
+                        )
+                        .clicked()
+                        {
                             event = Some(ChatPanelEvent::Stop);
                         }
                     } else {
                         let can = !state.input.trim().is_empty();
-                        let btn =
-                            egui::Button::new(RichText::new(t!("chat-send")).color(Color32::WHITE))
-                                .fill(ACCENT_BLUE);
-                        if ui.add_enabled(can, btn).clicked() || (enter && can) {
+                        let clicked = round_action_btn(
+                            ui,
+                            btn_rect,
+                            ICON_SEND.codepoint,
+                            &t!("chat-send"),
+                            ACCENT_BLUE,
+                            Color32::WHITE,
+                            can,
+                        )
+                        .clicked();
+                        if clicked || (enter && can) {
                             if enter {
                                 // Enter menyisipkan baris baru; buang sebelum dikirim.
                                 let trimmed = state.input.trim_end_matches('\n').to_string();
@@ -972,16 +1107,42 @@ impl ChatPanel {
                         }
                     }
                     if !state.usage_label.is_empty() {
-                        ui.label(
-                            RichText::new(&state.usage_label)
-                                .size(10.0)
-                                .color(TEXT_SECONDARY),
+                        ui.painter().text(
+                            card_rect.left_bottom() + egui::vec2(10.0, -COMPOSER_BTN_INSET),
+                            egui::Align2::LEFT_BOTTOM,
+                            &state.usage_label,
+                            egui::FontId::proportional(10.0),
+                            TEXT_MUTED,
                         );
                     }
-                });
-            }));
+                })
+            });
         event
     }
+}
+
+/// Tombol aksi bulat utama composer (kirim / berhenti) yang mengambang di
+/// `rect`: lingkaran dengan isian `fill` dan ikon `icon_color`; redup saat
+/// `enabled` false. Dipasang setelah kotak teks supaya berada di atasnya.
+fn round_action_btn(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    icon: &str,
+    tooltip: &str,
+    fill: Color32,
+    icon_color: Color32,
+    enabled: bool,
+) -> egui::Response {
+    let btn = egui::Button::new(RichText::new(icon).size(15.0).color(icon_color))
+        .min_size(rect.size())
+        .corner_radius(egui::CornerRadius::same((COMPOSER_BTN_SIDE / 2.0) as u8))
+        .fill(fill)
+        .stroke(egui::Stroke::NONE);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        ui.add_enabled(enabled, btn)
+    })
+    .inner
+    .on_hover_text(tooltip)
 }
 
 /// Tombol ikon bulat (lingkaran, bukan kotak) untuk kepala panel chat.
@@ -1002,18 +1163,51 @@ fn round_icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str, active: bool) ->
     }
 }
 
+/// Ukuran font kotak ketik chat (px): lebih besar dari Body bawaan (12,5)
+/// agar nyaman diketik, tanpa mendominasi transkrip.
+const COMPOSER_FONT_PX: f32 = 14.0;
+
+/// Batas baris kotak ketik sebelum bergulir.
+const COMPOSER_MIN_ROWS: usize = 2;
+const COMPOSER_MAX_ROWS: usize = 6;
+/// Tinggi kartu composer di luar teks: margin kartu atas+bawah (8+8) dan
+/// garis tepi (tombol mengambang, tidak menambah tinggi).
+const COMPOSER_CHROME_H: f32 = 18.0;
+/// Jarak transkrip ke kartu composer (px).
+const COMPOSER_GAP: f32 = 6.0;
+/// Tinggi baris status "agent bekerja" di bawah transkrip (px).
+const STATUS_ROW_H: f32 = 24.0;
+/// Sisi tombol bulat mengambang dan jaraknya dari tepi kartu (px).
+const COMPOSER_BTN_SIDE: f32 = 28.0;
+const COMPOSER_BTN_INSET: f32 = 6.0;
+
+/// Jumlah baris yang ditampilkan kotak ketik untuk `input` (dibatasi
+/// `COMPOSER_MIN_ROWS..=COMPOSER_MAX_ROWS`; baris kosong di akhir dihitung).
+fn composer_rows(input: &str) -> usize {
+    let lines = input.split('\n').count();
+    lines.clamp(COMPOSER_MIN_ROWS, COMPOSER_MAX_ROWS)
+}
+
 /// Lebar sidebar chat (px).
 const SIDEBAR_MIN_W: f32 = 280.0;
 const SIDEBAR_DEFAULT_W: f32 = 360.0;
-/// Jarak sidebar dari tepi layar (px).
-const SIDEBAR_MARGIN: f32 = 12.0;
+/// Jarak chrome mengambang dari tepi layar (px). HARUS sama dengan posisi
+/// top bar di `ducad-app` (`fixed_pos(12, 10)`, margin kanan 12) supaya tepi
+/// atas sidebar sejajar dengan tepi atas top bar dan celah di antara
+/// keduanya sama dengan jarak ke tepi layar.
+const CHROME_MARGIN_X: f32 = 12.0;
+const CHROME_MARGIN_Y: f32 = 10.0;
+/// Tinggi baris kepala sidebar = tinggi isi top bar (`bar_h`, minimal 30 px
+/// di `top_bar.rs`) sehingga, dengan frame dan margin dalam yang sama, ikon
+/// kepala sidebar berdiri sejajar dengan tombol top bar di sebelah kirinya.
+const HEADER_ROW_H: f32 = 30.0;
 
-/// Kaca sidebar: material `Panel` yang sama dengan drawer lain, sudut
-/// membulat, tanpa bayangan ganda (bayangan sudah dilukis frame window).
+/// Kaca sidebar: material, sudut, DAN margin dalam yang sama persis dengan
+/// top bar (`glass_frame()`), tanpa bayangan ganda (bayangan sudah dilukis
+/// frame window). Jangan menimpa `inner_margin` di sini — padding kepala
+/// sidebar pernah 8 px sementara top bar 5 px sehingga tombolnya tidak sejajar.
 fn sidebar_glass() -> GlassFrame {
-    glass_frame()
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .shadow(egui::Shadow::NONE)
+    glass_frame().shadow(egui::Shadow::NONE)
 }
 
 #[cfg(test)]
@@ -1030,6 +1224,25 @@ mod tests {
         assert_eq!(sidebar.fill, base.fill);
         assert_eq!(sidebar.transparent_flat().fill, Color32::TRANSPARENT);
         assert_eq!(sidebar.corner_radius, base.corner_radius);
+        assert_eq!(sidebar.inner_margin, base.inner_margin);
+    }
+
+    /// Regresi: offset sidebar pernah (12, 12) dan memesan dua margin,
+    /// sehingga tepinya 2 px lebih rendah dari top bar (y = 10) dan celah
+    /// ke top bar 24 px, bukan 12 px seperti jarak ke tepi layar.
+    #[test]
+    fn sidebar_margins_match_top_bar_chrome() {
+        assert_eq!(CHROME_MARGIN_X, 12.0);
+        assert_eq!(CHROME_MARGIN_Y, 10.0);
+        assert_eq!(HEADER_ROW_H, 30.0);
+    }
+
+    #[test]
+    fn composer_rows_are_clamped() {
+        assert_eq!(composer_rows(""), 2);
+        assert_eq!(composer_rows("a\nb\nc"), 3);
+        assert_eq!(composer_rows("a\nb\nc\n"), 4);
+        assert_eq!(composer_rows(&"x\n".repeat(20)), 6);
     }
 
     #[test]
