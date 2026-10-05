@@ -14,6 +14,7 @@ pub mod chat_history;
 pub mod chat_ui;
 pub mod checks_ui;
 pub mod mass_ui;
+pub mod industry_ui;
 pub mod sim_ui;
 #[cfg(target_vendor = "apple")]
 pub mod apple;

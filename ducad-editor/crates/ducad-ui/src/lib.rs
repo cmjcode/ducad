@@ -17,6 +17,7 @@ pub mod canvas_hud;
 pub mod chat_panel;
 pub mod checks_panel;
 pub mod mass_properties_panel;
+pub mod industry_panel;
 pub mod sim_panel;
 pub mod cmf_drawer;
 pub mod command_palette;
@@ -64,6 +65,11 @@ pub use chat_panel::{
     CliMeta,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
+pub use industry_panel::{
+    stackup_of, valid_op_id, AdvStudyDraft, AdvStudyKind, CouplingKindUi, IndConfigRow,
+    IndSheetRow, IndStudyRow, IndustryData, IndustryEvent, IndustryPanel, IndustryTab,
+    SheetEdgesUi, SheetFeatureUi, StackLinkUi, ThermalBcDraft, ThermalBcUi,
+};
 pub use sim_panel::{
     turbo_color, FixtureDraft, FixtureKindUi, LoadDraft, LoadKindUi, SimOverlayUi, SimPanel,
     SimPanelData, SimPanelEvent, SimResultUi, SimRunStatus, SimStudyRow, StudyDraft,

@@ -400,6 +400,98 @@ pub fn def_signature(model: &ModelDoc, def: &StudyDef) -> Option<u64> {
     Some(h)
 }
 
+/// Studi yang siap dijalankan di thread lain: tidak ada lagi panggilan
+/// kernel setelah [`prepare_def`] (selector dan material sudah diselesaikan).
+pub struct PreparedStudy {
+    pub kind: StudyKind,
+    surface: SurfaceMesh,
+    elastic: Option<ElasticMaterial>,
+    thermal_material: Option<ThermalMaterial>,
+    resolved: ResolvedSetup,
+    thermal: ResolvedThermalSetup,
+    modes: usize,
+}
+
+impl PreparedStudy {
+    /// Jalankan solver (boleh di thread latar).
+    pub fn run(&self, cancel: &CancelToken) -> Result<StudyOutcome, SimError> {
+        use std::sync::Arc;
+        let missing = || SimError::InvalidSetup("material is missing".into());
+        let analysis = |r: AnalysisReport| StudyOutcome::Analysis(Arc::new(r));
+        let (surface, resolved) = (&self.surface, &self.resolved);
+        Ok(match self.kind {
+            StudyKind::Static => {
+                let m = self.elastic.as_ref().ok_or_else(missing)?;
+                StudyOutcome::Stress(Arc::new(ducad_sim::run_static(surface, m, resolved, cancel)?))
+            }
+            StudyKind::Frequency => {
+                let m = self.elastic.as_ref().ok_or_else(missing)?;
+                analysis(AnalysisReport::Frequency(ducad_sim::run_frequency(
+                    surface, m, resolved, self.modes, cancel,
+                )?))
+            }
+            StudyKind::Buckling => {
+                let m = self.elastic.as_ref().ok_or_else(missing)?;
+                analysis(AnalysisReport::Buckling(ducad_sim::run_buckling(
+                    surface, m, resolved, self.modes, cancel,
+                )?))
+            }
+            StudyKind::Thermal => {
+                let tm = self.thermal_material.as_ref().ok_or_else(missing)?;
+                analysis(AnalysisReport::Thermal(ducad_sim::run_thermal(
+                    surface,
+                    tm,
+                    resolved,
+                    &self.thermal,
+                    cancel,
+                )?))
+            }
+            StudyKind::ThermalStress => {
+                let m = self.elastic.as_ref().ok_or_else(missing)?;
+                let tm = self.thermal_material.as_ref().ok_or_else(missing)?;
+                StudyOutcome::Stress(Arc::new(ducad_sim::run_thermal_stress(
+                    surface,
+                    m,
+                    tm,
+                    resolved,
+                    &self.thermal,
+                    cancel,
+                )?))
+            }
+        })
+    }
+}
+
+/// Selesaikan body, material, dan selector sebuah definisi studi.
+pub fn prepare_def(
+    model: &ModelDoc,
+    meta: &SessionMeta,
+    def: &StudyDef,
+) -> OpResult<PreparedStudy> {
+    let (body, geo) = body_named(model, meta, &def.setup.body)?;
+    let resolved = resolve_setup(geo, &def.setup)?;
+    let thermal = resolve_thermal(geo, def)?;
+    let modes = mode_count(def)?;
+    let elastic = match def.kind {
+        StudyKind::Thermal => None,
+        _ => Some(elastic_material(&model.doc, body)?),
+    };
+    let thermal_material = if def.kind.is_thermal() {
+        Some(thermal_material(&model.doc, body)?)
+    } else {
+        None
+    };
+    Ok(PreparedStudy {
+        kind: def.kind,
+        surface: surface_mesh(geo),
+        elastic,
+        thermal_material,
+        resolved,
+        thermal,
+        modes,
+    })
+}
+
 /// Jalankan satu definisi studi di atas model (tanpa menyentuh cache).
 pub fn run_def(
     model: &ModelDoc,
@@ -407,50 +499,33 @@ pub fn run_def(
     def: &StudyDef,
     cancel: &CancelToken,
 ) -> OpResult<StudyOutcome> {
-    use std::sync::Arc;
-    let (body, geo) = body_named(model, meta, &def.setup.body)?;
-    let resolved = resolve_setup(geo, &def.setup)?;
-    let thermal = resolve_thermal(geo, def)?;
-    let modes = mode_count(def)?;
-    let surface = surface_mesh(geo);
-    let analysis = |r: AnalysisReport| StudyOutcome::Analysis(Arc::new(r));
-    Ok(match def.kind {
-        StudyKind::Static => {
-            let material = elastic_material(&model.doc, body)?;
-            StudyOutcome::Stress(Arc::new(
-                ducad_sim::run_static(&surface, &material, &resolved, cancel).map_err(sim_error)?,
-            ))
+    prepare_def(model, meta, def)?
+        .run(cancel)
+        .map_err(sim_error)
+}
+
+/// Simpan hasil studi `id` ke cache sesi.
+pub fn store_outcome(meta: &mut SessionMeta, id: &str, signature: u64, outcome: &StudyOutcome) {
+    match outcome {
+        StudyOutcome::Stress(report) => {
+            meta.sim_results.insert(
+                id.to_string(),
+                StudyResult {
+                    signature,
+                    report: report.clone(),
+                },
+            );
         }
-        StudyKind::Frequency => {
-            let material = elastic_material(&model.doc, body)?;
-            analysis(AnalysisReport::Frequency(
-                ducad_sim::run_frequency(&surface, &material, &resolved, modes, cancel)
-                    .map_err(sim_error)?,
-            ))
+        StudyOutcome::Analysis(report) => {
+            meta.analysis_results.insert(
+                id.to_string(),
+                AnalysisResult {
+                    signature,
+                    report: report.clone(),
+                },
+            );
         }
-        StudyKind::Buckling => {
-            let material = elastic_material(&model.doc, body)?;
-            analysis(AnalysisReport::Buckling(
-                ducad_sim::run_buckling(&surface, &material, &resolved, modes, cancel)
-                    .map_err(sim_error)?,
-            ))
-        }
-        StudyKind::Thermal => {
-            let material = thermal_material(&model.doc, body)?;
-            analysis(AnalysisReport::Thermal(
-                ducad_sim::run_thermal(&surface, &material, &resolved, &thermal, cancel)
-                    .map_err(sim_error)?,
-            ))
-        }
-        StudyKind::ThermalStress => {
-            let material = elastic_material(&model.doc, body)?;
-            let tm = thermal_material(&model.doc, body)?;
-            StudyOutcome::Stress(Arc::new(
-                ducad_sim::run_thermal_stress(&surface, &material, &tm, &resolved, &thermal, cancel)
-                    .map_err(sim_error)?,
-            ))
-        }
-    })
+    }
 }
 
 /// Jalankan satu setup statik di atas model (tanpa menyentuh cache).
@@ -568,26 +643,7 @@ pub fn run_study_any(
     }
     let outcome = run_def(core.model, core.meta, &def, cancel)?;
     if let Some(signature) = signature {
-        match &outcome {
-            StudyOutcome::Stress(report) => {
-                core.meta.sim_results.insert(
-                    id.to_string(),
-                    StudyResult {
-                        signature,
-                        report: report.clone(),
-                    },
-                );
-            }
-            StudyOutcome::Analysis(report) => {
-                core.meta.analysis_results.insert(
-                    id.to_string(),
-                    AnalysisResult {
-                        signature,
-                        report: report.clone(),
-                    },
-                );
-            }
-        }
+        store_outcome(core.meta, id, signature, &outcome);
     }
     Ok(outcome)
 }

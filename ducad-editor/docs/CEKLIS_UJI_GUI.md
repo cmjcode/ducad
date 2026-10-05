@@ -253,6 +253,51 @@ DUCAD_SERVER_URL=http://127.0.0.1:3000 cargo run -p ducad-app
 - [ ] Angka panel sama dengan `ducad-cli sim BERKAS.ducad` untuk berkas yang disimpan dari sesi yang sama.
 - [ ] Tombol hapus menghilangkan studi dari daftar.
 
+### A13. Panel Fitur Industri (P18–P20)
+
+Buka: ⌘K → "Fitur Industri". Membukanya menutup panel Simulasi (sudut yang sama), dan sebaliknya.
+
+**Tab Studi**
+- [ ] Balok bermaterial: Studi baru → Frekuensi natural → klik face ujung → "Tambah tumpuan" → Buat → Jalankan. Spinner tampil, UI tetap responsif, lalu daftar "Mode n: … Hz" muncul menaik.
+- [ ] Buckling: tumpuan + beban tekan pada face seberang → faktor tekuk tampil; tanpa beban, tombol Buat tidak aktif.
+- [ ] Termal: dua syarat batas suhu pada dua face → suhu maks/min sama dengan yang dimasukkan. Hanya fluks panas → Buat tidak aktif.
+- [ ] Tegangan termal dengan mesh tetra → von Mises, deformasi, faktor keamanan tampil.
+- [ ] Batalkan di tengah studi besar: status "dibatalkan", aplikasi tidak beku.
+- [ ] Ubah geometri: baris studi menampilkan "Hasil basi".
+- [ ] Studi di tab ini tidak muncul di panel Simulasi, dan sebaliknya.
+
+**Tab Konfigurasi**
+- [ ] Desain berparameter (dibuat agent / dibuka dari `.ducad`): centang parameter, ubah nilainya, beri nama, Simpan → model berubah dan konfigurasi baru aktif.
+- [ ] Pilih "Default" → model kembali; ⌘Z membatalkan pergantian konfigurasi.
+- [ ] Centang op di "Op yang dilewati" → fitur itu hilang pada varian tersebut.
+- [ ] Ekspor CSV lalu Impor CSV yang sama → daftar konfigurasi tidak berubah.
+- [ ] Nama "Default" atau nama kosong: tombol Simpan tidak aktif.
+
+**Tab Sheet metal**
+- [ ] Buat pelat dasar 100×60×2 → body muncul di daftar.
+- [ ] Flange tepi "Sejajar X", panjang 20, sudut 90 → dua dinding terlipat; ulangi "Sejajar Y".
+- [ ] Hem dan Jog pada sisi yang masih bebas menghasilkan bentuk yang benar.
+- [ ] Bentangkan → body menjadi pola datar dan berlabel "terbentang"; Lipat kembali memulihkannya.
+- [ ] "Buat pola datar" menambah body baru; "Ekspor DXF pola datar" menghasilkan DXF dengan layer OUTLINE / BEND_UP / BEND_DOWN.
+- [ ] Flange pada tepi yang sudah berflange memberi pesan gagal, model tidak berubah.
+
+**Tab Toleransi**
+- [ ] Rantai dua mata rantai ±0,1: total kasus terburuk dan RSS langsung terhitung; isi suaian "H7" → kolom plus/minus hilang dan total berubah; suaian "Q7" → pesan error merah.
+- [ ] "Jadikan check desain" → check baru muncul di panel Checks dengan status lulus/gagal sesuai batas.
+- [ ] Tambah bingkai kontrol, datum, dimensi bertoleransi, dan kekasaran → "Buka lembar gambar" memperlihatkan keempatnya di posisi yang diisi; ekspor PDF dan SVG memuatnya.
+- [ ] Label datum tidak sah (mis. huruf kecil) ditolak dengan pesan.
+
+**Tab Part standar**
+- [ ] Sisipkan ISO 4762 M6×20 di titik asal; lalu klik sebuah face → "Pakai titik face terpilih" → sisipkan mur di sana.
+- [ ] Ganti standar → daftar ukuran ikut berganti; kolom panjang hanya tampil untuk baut dan pin.
+- [ ] Klik face silinder batang baut → "Tambah ulir" kosmetik: tercatat di daftar bawah, geometri tidak berubah.
+- [ ] Hilangkan centang "Kosmetik" → alur ulir terpotong (butuh beberapa detik).
+
+**Tab Rakitan**
+- [ ] Dengan dua body: tambah kopling roda gigi rasio −2 → tampil di daftar; putar penggerak (seret / studi gerak) → yang digerakkan ikut berputar berlawanan.
+- [ ] Tambah dua langkah urai → geser "Faktor urai" dari 0 ke 1: part lepas berurutan, bukan serentak.
+- [ ] Hapus kopling dan langkah urai lewat tombol tempat sampah.
+
 ---
 
 ## Bagian B — Regresi inti (sebelum rilis)

@@ -2969,7 +2969,7 @@ Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
   - Tegangan termal di mesh hex tidak eksak di bawah gradien suhu (4,5 MPa palsu pada batang 20→120 °C); pakai `mesh.kind: "tet"`.
   - Suhu acuan `thermal_stress` tetap 20 °C (belum bisa diatur per studi).
   - Bentuk mode dan medan suhu tidak dirender (tidak ada gambar/animasi); `render_view overlay` hanya untuk studi tegangan.
-  - **GUI P18 belum dikerjakan:** pemilih jenis studi, slider kehalusan mesh, wireframe mesh, animasi mode. Panel Simulasi hanya menampilkan studi `static`.
+  - **GUI P18 (sebagian):** tab "Studi" di panel Fitur Industri — pemilih jenis studi, mesh hex/tetra + slider ukuran sel, jumlah mode, syarat batas termal, jalan di thread latar, hasil berupa angka. **Belum:** wireframe mesh, animasi bentuk mode, heatmap suhu. Panel Simulasi tetap hanya studi `static`.
   - Skema check lengkap kini hanya dimuat di `set_checks` (bukan juga di `run_checks`) supaya `tools/list` tetap < 40 KiB.
 
 ## Status Fase P19 — Sheet metal, GD&T/toleransi, konfigurasi varian
@@ -2981,7 +2981,7 @@ Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
   - Sheet metal: pelat dasar harus poligon bersisi lurus; flange hanya pada sisi pelat dasar (belum flange-di-atas-flange) dan selalu selebar sisi; `relief` dicatat tetapi belum memotong geometri; `flat_pattern` tidak membuat sketsa garis tekuk (garisnya ada di `detail` op dan di DXF); tampak datar otomatis di gambar kerja belum ada; tabel bend deduction kustom belum bisa dipasang lewat op.
   - GD&T: tidak ada op `Annotate` yang tersimpan di oplog — anotasi adalah argumen tool `drawing`; DXF melewatkan anotasi; `ToleranceStackup` memakai rantai eksplisit, bukan id dimensi gambar; huruf ISO 286 di luar daftar di atas mengembalikan error. Dua temuan pada kode lama yang TIDAK diperbaiki: ekspor SVG lembar gambar tercermin sumbu-Y relatif terhadap PDF, dan blok judul PDF menulis operator `arc` yang tidak sah.
   - Konfigurasi: `set_params {configuration}` belum tersedia pada jembatan live (`--attach`).
-  - **GUI belum ada** untuk ketiganya (adapter `modeling/operations.rs`, panel konfigurasi, editor anotasi); semuanya headless lewat oplog/CLI/MCP.
+  - **GUI (2026-10-05):** panel "Fitur Industri" (command palette) — tab Konfigurasi (aktifkan/tambah/ubah/hapus, CSV), Sheet metal (pelat dasar persegi di XY, flange/hem/jog, bentang/lipat, pola datar, DXF), Toleransi (stack-up langsung + jadikan check, anotasi GD&T yang ikut tergambar di lembar gambar). Batas GUI: pelat dasar hanya persegi panjang di XY; anotasi hidup selama sesi (tidak tersimpan di `.ducad`); tidak lewat adapter `modeling/operations.rs` melainkan `run_ops` di oplog agent seperti panel Simulasi. Uji manual (ceklis A13) belum dijalankan.
 
 
 ## Status Fase P20 — Assembly industri (sebagian)
@@ -2996,7 +2996,7 @@ Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
   - Studi rakitan (`Bonded`, `NoPenetration`) di `ducad-sim`.
   - Tampak terurai otomatis di gambar kerja (yang ada: balon + tabel; proyeksi instance terurai masih tugas pemanggil).
   - Large assembly: lazy-load, LOD/decimasi, target 500 instance.
-  - GUI untuk semua butir di atas (dialog toolbox, kopling, editor langkah urai).
+  - **GUI (2026-10-05):** panel "Fitur Industri" — tab Part standar (sisip toolbox di titik/face terpilih, ulir kosmetik atau fisik pada face silinder terpilih) dan tab Rakitan (kopling gear/screw/rack, editor langkah urai, slider faktor urai); `solve_and_apply_assembly` kini memakai `solve_assembly_with_couplings`. Batas GUI: sumbu kopling hanya X/Y/Z lewat posisi instance; langkah urai hanya translasi. Uji manual (ceklis A13) belum dijalankan.
 
 
 

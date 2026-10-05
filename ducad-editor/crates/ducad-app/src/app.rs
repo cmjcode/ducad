@@ -140,6 +140,8 @@ pub struct DuCADApp {
     pub mass: crate::mass_ui::MassState,
     /// Studi simulasi (P17).
     pub sim: crate::sim_ui::SimState,
+    /// Panel Fitur Industri (P18–P20).
+    pub industry: crate::industry_ui::IndustryState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
     /// Panel chat AI (P13.3).
@@ -522,6 +524,7 @@ impl DuCADApp {
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
             sim: crate::sim_ui::SimState::default(),
+            industry: crate::industry_ui::IndustryState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -826,6 +829,7 @@ impl DuCADApp {
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
             sim: crate::sim_ui::SimState::default(),
+            industry: crate::industry_ui::IndustryState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -1680,6 +1684,7 @@ impl eframe::App for DuCADApp {
         let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
 
         self.refresh_sim();
+        self.refresh_industry();
         self.refresh_checks(&ctx);
         let check_rows = self.check_rows();
         let checks_summary = (!check_rows.is_empty()).then(|| ducad_ui::checks_summary(&check_rows));
@@ -1896,6 +1901,23 @@ impl eframe::App for DuCADApp {
                 self.sim.panel = panel;
                 if let Some(ev) = panel_event {
                     self.handle_sim_panel_event(ev, &ctx);
+                }
+            }
+
+            if self.industry.panel_open {
+                // Kanan panel Simulasi, di bawah top bar.
+                let top = topbar_resp.response.rect.max.y + 8.0;
+                let data = self.industry_panel_data();
+                let mut panel = std::mem::take(&mut self.industry.panel);
+                let panel_event = egui::Area::new(egui::Id::new("ducad-industry-panel-area"))
+                    .fixed_pos(egui::pos2(screen_rect.min.x + 72.0, top))
+                    .pivot(egui::Align2::LEFT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| panel.show(ui, &data))
+                    .inner;
+                self.industry.panel = panel;
+                if let Some(ev) = panel_event {
+                    self.handle_industry_event(ev, &ctx);
                 }
             }
 
@@ -4171,7 +4193,7 @@ impl eframe::App for DuCADApp {
         let mut ds_action = None;
         if self.drawing_sheet_state.is_open {
             if self.drawing_sheet_doc.is_none() {
-                let sheet = self.build_current_drawing_sheet();
+                let sheet = self.build_annotated_drawing_sheet();
                 self.drawing_sheet_doc = Some(sheet);
             }
             if let Some(sheet) = &mut self.drawing_sheet_doc {

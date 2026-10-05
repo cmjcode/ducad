@@ -106,7 +106,7 @@ impl DuCADApp {
 
     /// Body sasaran studi baru: pemilik face aktif, body terpilih, atau
     /// body pertama.
-    fn sim_target(&self) -> Option<BodyId> {
+    pub(crate) fn sim_target(&self) -> Option<BodyId> {
         self.active_face
             .as_ref()
             .map(|(id, _, _)| *id)
@@ -123,7 +123,7 @@ impl DuCADApp {
     /// Selector untuk face yang sedang aktif di viewport: arah ekstrem
     /// (`>Z`, `<X`, …) bila itu menunjuk tepat face tersebut, selain itu
     /// `idx:<n>`.
-    fn sim_picked_selector(&mut self) -> Option<String> {
+    pub(crate) fn sim_picked_selector(&mut self) -> Option<String> {
         let (body, _, hit) = self.active_face.as_ref()?;
         let c = hit.centroid;
         let key = (*body, [c.0, c.1, c.2].map(|v| (v * 1000.0).round() as i64));
@@ -245,7 +245,7 @@ impl DuCADApp {
     }
 
     /// Jalankan tool core langsung di atas state GUI (tanpa mode usul).
-    fn sim_core_tool(&mut self, tool: &str, args: serde_json::Value) -> Result<(), String> {
+    pub(crate) fn sim_core_tool(&mut self, tool: &str, args: serde_json::Value) -> Result<(), String> {
         self.sync_agent_meta();
         let out = {
             let mut core = SessionCore {

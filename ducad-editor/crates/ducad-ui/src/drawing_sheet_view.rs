@@ -2525,6 +2525,70 @@ fn render_sheet_canvas(
         }
     }
 
+    // G2. Anotasi GD&T / toleransi (geometri yang sama dengan ekspor PDF/SVG).
+    let annot_stroke = Stroke::new((0.25 * zoom).clamp(0.8, 2.0), Color32::BLACK);
+    for annotation in &sheet.annotations {
+        let Some(geometry) = ducad_io::drawing::gdt::annotation_geometry(annotation) else {
+            continue;
+        };
+        let [ax, ay] = geometry.anchor;
+        let at = |p: &[f32; 2]| mm_to_screen(ax + p[0], ay + p[1]);
+        for path in &geometry.paths {
+            let mut points: Vec<Pos2> = Vec::new();
+            let mut closed = false;
+            for cmd in &path.cmds {
+                match cmd {
+                    ducad_io::drawing::gdt::PathCmd::Move(a)
+                    | ducad_io::drawing::gdt::PathCmd::Line(a) => points.push(at(a)),
+                    ducad_io::drawing::gdt::PathCmd::Cubic(c1, c2, end) => {
+                        let Some(start) = points.last().copied() else {
+                            continue;
+                        };
+                        let (c1, c2, end) = (at(c1), at(c2), at(end));
+                        for k in 1..=8 {
+                            let t = k as f32 / 8.0;
+                            let u = 1.0 - t;
+                            let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+                            points.push(Pos2::new(
+                                w[0] * start.x + w[1] * c1.x + w[2] * c2.x + w[3] * end.x,
+                                w[0] * start.y + w[1] * c1.y + w[2] * c2.y + w[3] * end.y,
+                            ));
+                        }
+                    }
+                    ducad_io::drawing::gdt::PathCmd::Close => closed = true,
+                }
+            }
+            if points.len() < 2 {
+                continue;
+            }
+            if path.filled {
+                painter.add(egui::Shape::convex_polygon(
+                    points,
+                    Color32::BLACK,
+                    annot_stroke,
+                ));
+            } else if closed {
+                painter.add(egui::Shape::closed_line(points, annot_stroke));
+            } else {
+                painter.add(egui::Shape::line(points, annot_stroke));
+            }
+        }
+        for run in &geometry.texts {
+            let align = if run.centered {
+                egui::Align2::CENTER_BOTTOM
+            } else {
+                egui::Align2::LEFT_BOTTOM
+            };
+            painter.text(
+                at(&run.pos),
+                align,
+                &run.text,
+                FontId::proportional((run.size_mm * zoom).clamp(5.0, 40.0)),
+                Color32::BLACK,
+            );
+        }
+    }
+
     // H. Anotasi Teks Bebas (Custom Text Notes)
     for (idx, note) in sheet.custom_texts.iter().enumerate() {
         let is_editing = state.active_text_edit == Some(ActiveTextTarget::CustomText(idx));

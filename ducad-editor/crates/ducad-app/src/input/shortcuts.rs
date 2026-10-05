@@ -34,6 +34,11 @@ impl DuCADApp {
                 PaletteAction::ToggleSimPanel,
             ),
             (
+                ducad_i18n::t!("ind-open"),
+                String::new(),
+                PaletteAction::ToggleIndustryPanel,
+            ),
+            (
                 crate::mode::AppMode::Vector.label().to_string(),
                 "⌘+Shift+4".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
@@ -457,7 +462,19 @@ impl DuCADApp {
             PaletteAction::OpenChat => self.open_chat(),
             PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
             PaletteAction::ToggleMassPanel => self.mass.panel_open = !self.mass.panel_open,
-            PaletteAction::ToggleSimPanel => self.sim.panel_open = !self.sim.panel_open,
+            PaletteAction::ToggleSimPanel => {
+                self.sim.panel_open = !self.sim.panel_open;
+                // Kedua panel menempati sudut yang sama.
+                if self.sim.panel_open {
+                    self.industry.panel_open = false;
+                }
+            }
+            PaletteAction::ToggleIndustryPanel => {
+                self.industry.panel_open = !self.industry.panel_open;
+                if self.industry.panel_open {
+                    self.sim.panel_open = false;
+                }
+            }
             PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),
             PaletteAction::ConvertToClosedObjects => {
                 self.convert_to_closed_objects();

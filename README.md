@@ -392,9 +392,10 @@ Handwritten dimension OCR (P12.4) is documented but intentionally not implemente
 |---|---|
 | P16 | Mass properties (inertia, principal axes), mechanical material library, `set_material`, Mass Properties panel |
 | P17 | `ducad-sim`: linear static FEA on a hex voxel mesh, `study` op, `simulate_static` tool, `ducad-cli sim`, Simulation panel |
-| P18 | Tet10 mesh, frequency / buckling / thermal / thermal-stress studies and their checks (headless only) |
-| P19 | Configurations + design tables, sheet metal + flat-pattern DXF, ISO 286 / GD&T / tolerance stack-up (headless only) |
-| P20 | ISO threads, standard-part toolbox, gear/screw/rack couplings, exploded steps, BOM balloons (headless only) |
+| P18 | Tet10 mesh, frequency / buckling / thermal / thermal-stress studies and their checks |
+| P19 | Configurations + design tables, sheet metal + flat-pattern DXF, ISO 286 / GD&T / tolerance stack-up |
+| P20 | ISO threads, standard-part toolbox, gear/screw/rack couplings, exploded steps, BOM balloons |
+| GUI | **Industrial Features** panel: one tab per P18–P20 feature group |
 
 ---
 
@@ -431,10 +432,29 @@ replaying — never by stacking new operations on top.
 
 ## 🔬 Using Simulation & Industrial Features
 
-Everything here is driven through the oplog (`*.ops.json`, `ducad-cli`, or the
-MCP tools). Two features also have a GUI panel today — **Mass Properties** and
-**Simulation (static study)**, both opened from the command palette. The other
-features have no GUI yet.
+Everything here can be driven two ways: through the oplog (`*.ops.json`,
+`ducad-cli`, or the MCP tools), or in the application through three panels opened
+from the command palette:
+
+| Panel | What it does |
+|---|---|
+| **Mass Properties** | Mass, center of mass, inertia and principal axes of the selected body; assign a material. |
+| **Simulation (static study)** | Click faces to add fixtures and loads, run, see the stress heatmap on the model. |
+| **Industrial Features** | Six tabs — see below. |
+
+The **Industrial Features** panel:
+
+| Tab | In the app |
+|---|---|
+| Studies | Frequency, buckling, thermal and thermal-stress studies: pick faces for fixtures / load / thermal boundaries, choose hex or tet mesh and cell size, run in the background, read the numbers. |
+| Configurations | Switch variant, add or edit one (tick the parameters to override and the ops to suppress), delete, export / import the design table as CSV. |
+| Sheet metal | Create a rectangular base flange, add edge flange / hem / jog on the X or Y sides (or a custom edge selector), unfold / fold, create the flat pattern, export it as DXF. |
+| Tolerances | Build a stack-up chain (ISO fit or plus/minus per link), see worst-case and RSS totals live, add it as a design check; place GD&T frames, datums, toleranced dimensions and surface finish on the drawing sheet. |
+| Standard parts | Insert an ISO bolt, nut, washer, pin or bearing at a point (or at the picked face); add a cosmetic or physical thread to the picked cylindrical face. |
+| Assembly | Add gear / screw / rack-and-pinion couplings between two instances, define sequential explode steps, drag the explode factor. |
+
+Everything a panel does is stored as the same ops shown below, so a part built
+in the GUI replays headlessly and vice versa.
 
 Every snippet below is taken from a tested fixture in
 `ducad-editor/crates/ducad-engine/tests/fixtures/`: `mass_bracket`,
@@ -577,10 +597,14 @@ BOM with their ISO designation.
 
 ### Not available yet
 
-GUI for configurations, sheet metal, GD&T, standard parts and non-static
-studies; mode-shape and temperature rendering; path/cam/width mates; assembly
-(multi-body) studies; exploded projection views; large-assembly LOD. Details per
-phase: [PLAN.md](ducad-editor/docs/PLAN.md).
+Mode-shape and temperature rendering (the Studies tab shows numbers only);
+a mesh wireframe view; path/cam/width mates; assembly (multi-body) studies;
+exploded projection views; large-assembly LOD. In the GUI, the sheet-metal base
+is a rectangle on the XY plane, GD&T annotations live for the session (they are
+exported with the sheet but not saved in the `.ducad` file), and coupling axes
+are limited to X/Y/Z through the instance position. The Industrial Features
+panel is covered by automated tests but has not been through the manual GUI
+checklist yet. Details per phase: [PLAN.md](ducad-editor/docs/PLAN.md).
 
 ---
 

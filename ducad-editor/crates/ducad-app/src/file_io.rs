@@ -563,6 +563,13 @@ impl DuCADApp {
         sketch_segments
     }
 
+    /// Lembar gambar saat ini plus anotasi GD&T dari panel Fitur Industri.
+    pub fn build_annotated_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
+        let mut sheet = self.build_current_drawing_sheet();
+        sheet.annotations = self.industry.annotations.clone();
+        sheet
+    }
+
     pub fn build_current_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
         let shapes = self.all_body_shapes();
         let meshes = self.visible_body_meshes();
@@ -789,7 +796,7 @@ impl DuCADApp {
     /// Membuka tampilan lembar kerja teknik 2D (Drawing Sheet).
     pub fn open_drawing_sheet(&mut self) {
         if self.drawing_sheet_doc.is_none() {
-            let sheet = self.build_current_drawing_sheet();
+            let sheet = self.build_annotated_drawing_sheet();
             self.drawing_sheet_doc = Some(sheet);
         }
         self.drawing_sheet_state.is_open = true;
@@ -807,7 +814,7 @@ impl DuCADApp {
             .drawing_sheet_doc
             .as_ref()
             .cloned()
-            .unwrap_or_else(|| self.build_current_drawing_sheet());
+            .unwrap_or_else(|| self.build_annotated_drawing_sheet());
 
         let filter_name = ducad_i18n::t!("file-pdf-filter");
         let default_name = format!(
@@ -845,7 +852,7 @@ impl DuCADApp {
             .drawing_sheet_doc
             .as_ref()
             .cloned()
-            .unwrap_or_else(|| self.build_current_drawing_sheet());
+            .unwrap_or_else(|| self.build_annotated_drawing_sheet());
 
         let filter_name = ducad_i18n::t!("file-drawing-dxf-filter");
         let default_name = format!(
@@ -883,7 +890,7 @@ impl DuCADApp {
             .drawing_sheet_doc
             .as_ref()
             .cloned()
-            .unwrap_or_else(|| self.build_current_drawing_sheet());
+            .unwrap_or_else(|| self.build_annotated_drawing_sheet());
 
         let filter_name = ducad_i18n::t!("file-drawing-svg-filter");
         let default_name = format!(

@@ -260,6 +260,8 @@ pub enum PaletteAction {
     ToggleMassPanel,
     /// Buka/tutup panel simulasi (P17).
     ToggleSimPanel,
+    /// Buka/tutup panel Fitur Industri (P18–P20).
+    ToggleIndustryPanel,
     SetTool(ToolKind),
     CreateDatumPlane,
     OpenRevolveDialog,

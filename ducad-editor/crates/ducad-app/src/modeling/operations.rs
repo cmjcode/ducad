@@ -1913,7 +1913,8 @@ impl DuCADApp {
     /// Selesaikan seluruh relasi mate perakitan dan terapkan transformasi ke geometri 3D bodi solid.
     pub fn solve_and_apply_assembly(&mut self) {
         self.sync_assembly_instances();
-        let report = ducad_kernel::solve_assembly(&mut self.assembly_tree);
+        // Kopling gear/screw/rack mengikuti penggeraknya setelah mate selesai.
+        let report = ducad_kernel::solve_assembly_with_couplings(&mut self.assembly_tree);
 
         for (inst_id, tf) in report.applied {
             if let Some(inst) = self.assembly_tree.instances.get(&inst_id) {
