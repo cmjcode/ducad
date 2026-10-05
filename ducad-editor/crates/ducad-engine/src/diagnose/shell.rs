@@ -1,4 +1,5 @@
-//! Shell: tebal ≥ setengah dimensi terkecil body.
+//! Shell: tebal ≥ setengah dimensi terkecil body, atau kedalaman rongga
+//! menembus dinding dasar.
 
 use std::collections::BTreeMap;
 
@@ -19,6 +20,9 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, err: OpError) -> OpError
     else {
         return err;
     };
+    if err.code == OpErrorCode::ShellDepthTooDeep {
+        return depth_fixes(core, op, id, err);
+    }
     if err.code != OpErrorCode::KernelFailed {
         return err;
     }
@@ -63,4 +67,34 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, err: OpError) -> OpError
         .collect();
     out.fixes = verified_fixes(op, candidates, |patched| core.try_op(patched));
     out
+}
+
+/// Kedalaman terlalu dalam: tawarkan rongga penuh (hapus `depth`) dan
+/// setengah kedalaman maksimum.
+fn depth_fixes(core: &mut SessionCore, op: &Op, id: &str, mut err: OpError) -> OpError {
+    let mut candidates = vec![(
+        "Pakai rongga penuh (tanpa depth)".to_string(),
+        OpPatch {
+            op_id: id.to_string(),
+            set: BTreeMap::new(),
+            remove: vec!["/depth".to_string()],
+        },
+    )];
+    if let Some(max) = err.context.get("max_depth").and_then(|v| v.as_f64()) {
+        let v = (0.5 * max * 100.0).round() / 100.0;
+        if v > 0.0 {
+            let mut set = BTreeMap::new();
+            set.insert("/depth".to_string(), json!(v));
+            candidates.push((
+                format!("Pakai kedalaman {v} mm"),
+                OpPatch {
+                    op_id: id.to_string(),
+                    set,
+                    remove: vec![],
+                },
+            ));
+        }
+    }
+    err.fixes = verified_fixes(op, candidates, |patched| core.try_op(patched));
+    err
 }

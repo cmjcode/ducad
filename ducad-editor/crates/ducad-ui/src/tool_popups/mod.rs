@@ -71,7 +71,8 @@ pub enum ToolPopupEvent {
     ApplyLoft { height: f64 },
     // Shell
     ToggleFacePicking,
-    ApplyShell { thickness: f64 },
+    /// `depth`: kedalaman rongga dari sisi terbuka (0 = rongga penuh).
+    ApplyShell { thickness: f64, depth: f64 },
     // Draft Angle (Fase 2.1 — Manufaktur Plastik)
     ApplyDraftAngle {
         angle_deg: f64,

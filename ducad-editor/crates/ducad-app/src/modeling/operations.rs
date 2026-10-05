@@ -735,7 +735,83 @@ impl DuCADApp {
         }
     }
 
-    /// Shell/Hollow 1 body terpilih.
+    /// Kedalaman rongga dari `shell_depth_input`: kosong = 0 = rongga penuh.
+    /// `None` bila teksnya bukan angka (status sudah diisi).
+    fn shell_depth(&mut self) -> Option<f64> {
+        let text = self.shell_depth_input.trim();
+        if text.is_empty() {
+            return Some(0.0);
+        }
+        match text.parse::<f64>() {
+            Ok(v) => Some(v),
+            Err(_) => {
+                self.model_status = Some("Kedalaman rongga tidak valid".to_string());
+                None
+            }
+        }
+    }
+
+    /// Eksekusi tool Shell sesuai keadaan pilihan saat ini (tombol HUD / Enter).
+    pub fn commit_shell(&mut self) {
+        if !self.shell_variable_faces.is_empty() || self.shell_is_variable_mode {
+            self.shell_variable_selected_body();
+        } else if self.selected_faces.len() <= 1 && self.active_face.is_some() {
+            self.shell_active_face();
+        } else {
+            self.shell_selected_body();
+        }
+    }
+
+    /// Jalankan shell pada `id` dan catat hasilnya; `label` = label command model.
+    fn run_shell(&mut self, id: BodyId, label: &'static str, pick: ShellPick, thickness: f64, depth: f64) -> bool {
+        let Some(geo) = self.model.geometry.get(id) else {
+            return false;
+        };
+        let face_pick = match &pick {
+            ShellPick::Rays(rays) => FacePick::Rays(rays),
+            ShellPick::Direction(dir) => FacePick::Farthest(*dir),
+        };
+        match compute::shell(&geo.shape, &face_pick, thickness, depth) {
+            Ok(new_geo) => {
+                let details = if depth > 0.0 {
+                    format!(
+                        "Membuat rongga hollow dinding tebal {:.1} mm, kedalaman {:.1} mm",
+                        thickness, depth
+                    )
+                } else {
+                    format!("Membuat rongga hollow dinding tebal {:.1} mm", thickness)
+                };
+                self.execute_model_command(
+                    Box::new(ReplaceGeometryCommand::new(label, id, new_geo)),
+                    &details,
+                );
+                let (open_rays, open_direction) = match pick {
+                    ShellPick::Rays(rays) => (rays, None),
+                    ShellPick::Direction(dir) => (Vec::new(), Some(dir)),
+                };
+                self.record_shell_feature(thickness, &open_rays, open_direction, depth);
+                self.round_history.remove(&id);
+                self.selected_faces.clear();
+                self.active_face = None;
+                // Tool Shell tetap dalam mode pilih-face supaya body berikutnya
+                // bisa langsung diklik; jalur lain mengembalikan mode normal.
+                if self.tool != ToolKind::Shell {
+                    self.picking_mode = PickMode::None;
+                }
+                true
+            }
+            Err(e) => {
+                self.model_status = Some(op_status("Shell", &e));
+                let fixes = self.shell_fix_candidates(id, &e, thickness, depth, &face_pick);
+                self.show_op_error(&e, fixes);
+                false
+            }
+        }
+    }
+
+    /// Shell/Hollow 1 body terpilih. Sisi yang dibuka = face yang dipilih
+    /// (boleh lebih dari satu, sisi mana pun); tanpa pilihan face, sisi
+    /// terjauh ke arah `shell_direction`.
     pub fn shell_selected_body(&mut self) {
         let Some(&id) = self
             .selected_bodies
@@ -750,41 +826,22 @@ impl DuCADApp {
             self.model_status = Some("Tebal shell tidak valid".to_string());
             return;
         };
-        let Some(geo) = self.model.geometry.get(id) else {
+        let Some(depth) = self.shell_depth() else {
             return;
         };
-        let result = if self.selected_faces.is_empty() {
-            // Pemilihan face berdasarkan arah (`shell_direction`) belum punya
-            // padanan `FacePick`: kernel dipanggil langsung seperti sebelumnya.
-            ducad_kernel::shell_hollow(&geo.shape, thickness, self.shell_direction)
-                .map(BodyGeometry::from_shape)
-                .map_err(|e| OpError::new(OpErrorCode::KernelFailed, e.to_string()))
+        let pick = if self.selected_faces.is_empty() {
+            ShellPick::Direction(self.shell_direction)
         } else {
-            compute::shell(&geo.shape, &FacePick::Rays(&self.selected_faces), thickness)
+            ShellPick::Rays(self.selected_faces.clone())
         };
-        match result {
-            Ok(new_geo) => {
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new("Shell", id, new_geo)),
-                    &format!("Membuat rongga hollow dinding tebal {:.1} mm", thickness),
-                );
-                self.round_history.remove(&id);
-                self.selected_faces.clear();
-                self.picking_mode = PickMode::None;
-                self.model_status = None;
-            }
-            Err(e) => {
-                self.model_status = Some(op_status("Shell", &e));
-                let faces = self.selected_faces.clone();
-                let fixes = self.shell_fix_candidates(id, thickness, &faces);
-                self.show_op_error(&e, fixes);
-            }
+        if self.run_shell(id, "Shell", pick, thickness, depth) {
+            self.model_status = None;
         }
     }
 
     /// Shell/Hollow sisi/face 3D yang sedang aktif dengan ketebalan dinding yang ditentukan.
     pub fn shell_active_face(&mut self) {
-        let Some((target_id, ray, _)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r, ())) else {
+        let Some((target_id, ray)) = self.active_face.as_ref().map(|(id, r, _)| (*id, *r)) else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu untuk Shell/Hollow".to_string());
             return;
@@ -793,24 +850,11 @@ impl DuCADApp {
             self.model_status = Some("Tebal shell tidak valid".to_string());
             return;
         };
-        let Some(geo) = self.model.geometry.get(target_id) else {
+        let Some(depth) = self.shell_depth() else {
             return;
         };
-
-        match ducad_kernel::shell_hollow_faces(&geo.shape, thickness, &[ray]) {
-            Ok(shape) => {
-                let new_geo = BodyGeometry::from_shape(shape);
-                self.execute_model_command(
-                    Box::new(ReplaceGeometryCommand::new("Shell Face", target_id, new_geo)),
-                    &format!("Membuat rongga berlubang pada sisi (Tebal {:.1} mm)", thickness),
-                );
-                self.round_history.remove(&target_id);
-                self.active_face = None;
-                self.model_status = Some(format!("Shell face {:.1} mm sukses", thickness));
-            }
-            Err(e) => {
-                self.model_status = Some(format!("Shell face gagal: {e}"));
-            }
+        if self.run_shell(target_id, "Shell Face", ShellPick::Rays(vec![ray]), thickness, depth) {
+            self.model_status = Some(format!("Shell face {:.1} mm sukses", thickness));
         }
     }
 
@@ -2039,6 +2083,12 @@ impl DuCADApp {
             }
         }
     }
+}
+
+/// Sisi yang dibuka tool Shell: face hasil klik, atau sisi terjauh ke satu arah sumbu.
+pub(crate) enum ShellPick {
+    Rays(Vec<PickRay>),
+    Direction(ducad_kernel::Direction),
 }
 
 /// Teks status "X gagal: …" untuk error compute. `OpError::kernel` sudah

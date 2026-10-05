@@ -1024,13 +1024,18 @@ impl SessionCore<'_> {
                 body,
                 remove_faces,
                 thickness,
+                depth,
                 ..
             } => {
                 let t = eval(thickness, &params)?;
+                let d = match depth {
+                    Some(d) => eval(d, &params)?,
+                    None => 0.0,
+                };
                 let (bid, geo) = self.body(body)?;
                 let idx = crate::select::select_faces(&geo.shape, remove_faces)?;
-                let new_geo = compute::shell(&geo.shape, &FacePick::Indices(&idx), t)?;
-                out.detail = serde_json::json!({ "faces": idx.len(), "volume": new_geo.shape.volume().abs() });
+                let new_geo = compute::shell(&geo.shape, &FacePick::Indices(&idx), t, d)?;
+                out.detail = serde_json::json!({ "faces": idx.len(), "depth": d, "volume": new_geo.shape.volume().abs() });
                 self.exec(Box::new(ReplaceGeometryCommand::new("Shell", bid, new_geo)));
                 out.modified.push(body.clone());
             }

@@ -87,7 +87,10 @@ pub struct DuCADApp {
     pub fillet_variable_enabled: bool,
     pub chamfer_distance_input: String,
     pub shell_thickness_input: String,
+    /// Arah sisi yang dibuka bila tidak ada face yang dipilih (HUD Shell).
     pub shell_direction: ducad_kernel::Direction,
+    /// Kedalaman rongga dari sisi terbuka (mm); "0"/kosong = rongga penuh.
+    pub shell_depth_input: String,
     pub boolean_op: ducad_ui::BooleanOpKind,
 
     pub fillet_2d_radius: f64,
@@ -488,6 +491,7 @@ impl DuCADApp {
             chamfer_distance_input: "2".to_string(),
             shell_thickness_input: "2".to_string(),
             shell_direction: ducad_kernel::Direction::PosZ,
+            shell_depth_input: "0".to_string(),
             boolean_op: ducad_ui::BooleanOpKind::Union,
             fillet_2d_radius: 5.0,
             chamfer_2d_dist: 5.0,
@@ -793,6 +797,7 @@ impl DuCADApp {
             chamfer_distance_input: "2".to_string(),
             shell_thickness_input: "2".to_string(),
             shell_direction: ducad_kernel::Direction::PosZ,
+            shell_depth_input: "0".to_string(),
             boolean_op: ducad_ui::BooleanOpKind::Union,
             fillet_2d_radius: 5.0,
             chamfer_2d_dist: 5.0,
@@ -1975,8 +1980,11 @@ impl eframe::App for DuCADApp {
                             }
                             ToolbarEvent::SelectTool(t) => {
                                 let kind = ToolKind::from_toolbar_tool(t);
+                                // `set_tool` lebih dulu: ia mengatur mode pilih-face
+                                // tool Shell dari jalur mana pun (toolbar, palet, menu konteks).
+                                self.set_tool(kind);
                                 match kind {
-                                    ToolKind::Shell | ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
+                                    ToolKind::DraftAngle | ToolKind::SplitBody | ToolKind::Rib => {
                                         self.picking_mode = PickMode::Face;
                                     }
                                     ToolKind::Select => {
@@ -1984,7 +1992,6 @@ impl eframe::App for DuCADApp {
                                     }
                                     _ => {}
                                 }
-                                self.set_tool(kind);
                             }
                         }
                     }
@@ -3596,9 +3603,10 @@ impl eframe::App for DuCADApp {
                         self.picking_mode = PickMode::Face;
                     }
                 }
-                ToolPopupEvent::ApplyShell { thickness } => {
+                ToolPopupEvent::ApplyShell { thickness, depth } => {
                     self.shell_thickness_input = thickness.to_string();
-                    self.shell_selected_body();
+                    self.shell_depth_input = depth.to_string();
+                    self.commit_shell();
                 }
                 ToolPopupEvent::ApplyDraftAngle { angle_deg, pull_dir } => {
                     self.apply_draft_angle(angle_deg, pull_dir);

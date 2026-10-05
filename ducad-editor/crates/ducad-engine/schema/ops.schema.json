@@ -2644,11 +2644,22 @@
         },
         {
           "additionalProperties": false,
-          "description": "Hollow the body into a shell of `thickness`, opening faces `remove_faces` (body modified in place; walls grow inward).",
+          "description": "Hollow the body into a shell of `thickness`, opening faces `remove_faces` (body modified in place; walls grow inward). Any face can be opened, so the cavity can face any direction.",
           "properties": {
             "body": {
               "description": "Name of the body to modify.",
               "type": "string"
+            },
+            "depth": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cavity depth in mm, measured from the opened face into the body. Omitted or `0` = full cavity (down to a floor of `thickness`). `> 0` leaves the material below that depth solid; it needs exactly 1 planar opened face and must be < body height − `thickness` (else `shell_depth_too_deep` + `fixes`)."
             },
             "id": {
               "type": "string"
@@ -2660,7 +2671,7 @@
               "type": "string"
             },
             "remove_faces": {
-              "description": "Selector of the faces to remove, e.g. `\">Z\"` (open top).",
+              "description": "Selector of the faces to remove: `\">Z\"` opens the top, `\"<Z\"` the bottom, `\">X\"`, `\"<X\"`, `\">Y\"`, `\"<Y\"` a side; several faces open several sides.",
               "type": "string"
             },
             "thickness": {

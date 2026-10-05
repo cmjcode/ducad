@@ -900,50 +900,48 @@ impl DuCADApp {
                 ui.input(|i| i.time),
             );
         } else if self.tool == ToolKind::Shell {
-            let has_face_selection = self.active_face.is_some() || !self.selected_faces.is_empty() || !self.selected_bodies.is_empty();
+            // Siap dieksekusi bila ada sisi yang diklik ATAU persis satu body
+            // terpilih (sisi dibuka lewat tombol arah HUD).
+            let faces_count = if self.selected_faces.is_empty() {
+                usize::from(self.active_face.is_some())
+            } else {
+                self.selected_faces.len()
+            };
+            let has_target = faces_count > 0 || self.selected_bodies.len() == 1;
             let current_thickness = self.shell_thickness_input.trim().parse::<f64>().unwrap_or(2.0);
 
             if let Some(action) = CanvasHud::render_shell_top_bar_hud(
                 ui,
                 rect,
-                has_face_selection,
+                has_target,
+                faces_count,
+                self.shell_direction,
                 current_thickness,
                 &mut self.shell_thickness_input,
+                &mut self.shell_depth_input,
             ) {
                 match action {
                     ducad_ui::ShellHudAction::SetThickness(t) => {
                         self.shell_thickness_input = format!("{:.1}", t);
                     }
+                    ducad_ui::ShellHudAction::SetDirection(dir) => {
+                        self.shell_direction = dir;
+                    }
                     ducad_ui::ShellHudAction::ToggleVariableMode => {
                         self.shell_is_variable_mode = !self.shell_is_variable_mode;
                     }
-                    ducad_ui::ShellHudAction::Commit => {
-                        if !self.shell_variable_faces.is_empty() || self.shell_is_variable_mode {
-                            self.shell_variable_selected_body();
-                        } else if self.active_face.is_some() {
-                            self.shell_active_face();
-                        } else {
-                            self.shell_selected_body();
-                        }
-                    }
+                    ducad_ui::ShellHudAction::Commit => self.commit_shell(),
                     ducad_ui::ShellHudAction::Cancel => {
                         self.set_tool(ToolKind::Select);
                     }
                 }
             }
 
-            if has_face_selection {
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    if !self.shell_variable_faces.is_empty() || self.shell_is_variable_mode {
-                        self.shell_variable_selected_body();
-                    } else if self.active_face.is_some() {
-                        self.shell_active_face();
-                    } else {
-                        self.shell_selected_body();
-                    }
-                } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.set_tool(ToolKind::Select);
-                }
+            let typing = ui.ctx().memory(|m| m.focused().is_some());
+            if has_target && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.commit_shell();
+            } else if !typing && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.set_tool(ToolKind::Select);
             }
         } else if self.tool == ToolKind::Rib {
             let has_target = !self.selected_bodies.is_empty() || self.active_face.is_some() || !self.selected.is_empty();

@@ -82,6 +82,8 @@ pub enum LoftHudAction {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShellHudAction {
     SetThickness(f64),
+    /// Arah sisi yang dibuka saat belum ada face yang dipilih.
+    SetDirection(ducad_kernel::Direction),
     ToggleVariableMode,
     Commit,
     Cancel,
@@ -1988,67 +1990,112 @@ impl CanvasHud {
         hud_action
     }
 
-    /// Render Top Bar HUD mengambang untuk mode Shell / Hollow 3D (seperti Revolve & Loft)
+    /// Render Top Bar HUD mengambang untuk mode Shell / Hollow 3D (seperti Revolve & Loft).
+    ///
+    /// `has_target`: ada body/face yang akan di-shell. `faces_count`: jumlah
+    /// sisi yang dipilih untuk dibuka; `0` → tampilkan 6 tombol arah
+    /// (`direction` aktif). `depth_input`: kedalaman rongga, `0` = penuh.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_shell_top_bar_hud(
         ui: &mut Ui,
         canvas_rect: Rect,
-        has_face_selection: bool,
+        has_target: bool,
+        faces_count: usize,
+        direction: ducad_kernel::Direction,
         current_thickness: f64,
         thickness_input: &mut String,
+        depth_input: &mut String,
     ) -> Option<ShellHudAction> {
-        let banner_w = 680.0;
+        use ducad_kernel::Direction;
+        let banner_w = if has_target { 860.0 } else { 420.0 };
         Self::render_header_hud_container(
             ui,
             canvas_rect,
             banner_w,
-            has_face_selection,
+            has_target,
             "ducad-hud-shell-banner",
             |ui| {
                 let mut hud_action = None;
 
-                let step_text = if has_face_selection {
-                    t!("hud-shell-prompt-ready")
+                if !has_target {
+                    Self::hud_title(ui, t!("hud-shell-prompt-select"), false);
+                    return hud_action;
+                }
+
+                if faces_count == 0 {
+                    // Belum ada sisi yang diklik: buka sisi terjauh ke arah sumbu pilihan.
+                    Self::hud_title(ui, t!("hud-shell-open-dir"), true);
+                    for (dir, label) in [
+                        (Direction::PosX, "+X"),
+                        (Direction::NegX, "-X"),
+                        (Direction::PosY, "+Y"),
+                        (Direction::NegY, "-Y"),
+                        (Direction::PosZ, "+Z"),
+                        (Direction::NegZ, "-Z"),
+                    ] {
+                        if Self::hud_circle_btn(ui, label, dir == direction).clicked() {
+                            hud_action = Some(ShellHudAction::SetDirection(dir));
+                        }
+                    }
                 } else {
-                    t!("hud-shell-prompt-select")
-                };
+                    Self::hud_title(ui, t!("hud-shell-faces-open", count = faces_count), true);
+                }
 
-                Self::hud_title(ui, &step_text, has_face_selection);
+                ui.separator();
 
-                if has_face_selection {
-                    ui.separator();
-
-                    // Quick Preset Buttons [1 mm, 2 mm, 3 mm, 5 mm]
-                    ui.label(
-                        RichText::new(format!("{}:", t!("param-thickness")))
-                            .size(10.0)
-                            .color(TEXT_SECONDARY),
-                    );
-                    for &t in &[1.0, 2.0, 3.0, 5.0] {
-                        let is_active = (current_thickness - t).abs() < 0.05;
-                        let label = format!("{:.0}", t);
-                        if Self::hud_circle_btn(ui, &label, is_active).clicked() {
-                            *thickness_input = format!("{:.1}", t);
-                            hud_action = Some(ShellHudAction::SetThickness(t));
-                        }
+                // Quick Preset Buttons [1 mm, 2 mm, 3 mm, 5 mm]
+                ui.label(
+                    RichText::new(format!("{}:", t!("param-thickness")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                );
+                for &t in &[1.0, 2.0, 3.0, 5.0] {
+                    let is_active = (current_thickness - t).abs() < 0.05;
+                    let label = format!("{:.0}", t);
+                    if Self::hud_circle_btn(ui, &label, is_active).clicked() {
+                        *thickness_input = format!("{:.1}", t);
+                        hud_action = Some(ShellHudAction::SetThickness(t));
                     }
+                }
 
-                    // Input Textbox Tebal
-                    let text_edit = egui::TextEdit::singleline(thickness_input)
+                // Input Textbox Tebal
+                let text_edit = egui::TextEdit::singleline(thickness_input)
+                    .desired_width(44.0)
+                    .font(egui::FontId::monospace(10.5));
+                let resp = ui.add(text_edit);
+                if resp.changed() {
+                    if let Ok(t) = thickness_input.trim().parse::<f64>() {
+                        hud_action = Some(ShellHudAction::SetThickness(t));
+                    }
+                }
+                ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+
+                ui.separator();
+
+                // Kedalaman rongga dari sisi terbuka (0 = rongga penuh). Hanya
+                // bermakna bila persis satu sisi dibuka.
+                let depth_enabled = faces_count <= 1;
+                ui.label(
+                    RichText::new(format!("{}:", t!("param-depth")))
+                        .size(10.0)
+                        .color(TEXT_SECONDARY),
+                )
+                .on_hover_text(t!("hud-shell-depth-hint"));
+                ui.add_enabled(
+                    depth_enabled,
+                    egui::TextEdit::singleline(depth_input)
                         .desired_width(44.0)
-                        .font(egui::FontId::monospace(10.5));
-                    let resp = ui.add(text_edit);
-                    if resp.changed() {
-                        if let Ok(t) = thickness_input.trim().parse::<f64>() {
-                            hud_action = Some(ShellHudAction::SetThickness(t));
-                        }
-                    }
-                    ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
+                        .hint_text("0")
+                        .font(egui::FontId::monospace(10.5)),
+                )
+                .on_hover_text(t!("hud-shell-depth-hint"))
+                .on_disabled_hover_text(t!("hud-shell-depth-single-face"));
+                ui.label(RichText::new("mm").size(10.0).color(TEXT_SECONDARY));
 
-                    ui.separator();
-                    // Tombol Eksekusi Shell (Commit)
-                    if Self::hud_commit_btn(ui, t!("hud-shell-exec-enter")).clicked() {
-                        hud_action = Some(ShellHudAction::Commit);
-                    }
+                ui.separator();
+                // Tombol Eksekusi Shell (Commit)
+                if Self::hud_commit_btn(ui, t!("hud-shell-exec-enter")).clicked() {
+                    hud_action = Some(ShellHudAction::Commit);
                 }
 
                 hud_action

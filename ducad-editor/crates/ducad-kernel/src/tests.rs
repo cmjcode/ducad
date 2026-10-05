@@ -3048,6 +3048,86 @@ fn shell_by_index_top_face_volume() {
 }
 
 #[test]
+fn shell_open_every_axis_direction_keeps_volume_and_opens_that_side() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let expected = 8000.0 - 16.0 * 16.0 * 18.0;
+    for (dir, axis, sign) in [
+        (Direction::PosX, 0, 1.0),
+        (Direction::NegX, 0, -1.0),
+        (Direction::PosY, 1, 1.0),
+        (Direction::NegY, 1, -1.0),
+        (Direction::PosZ, 2, 1.0),
+        (Direction::NegZ, 2, -1.0),
+    ] {
+        let out = shell_open(&shape, 2.0, ShellOpening::Farthest(dir), 0.0).unwrap();
+        assert!(out.is_valid(), "{dir:?}");
+        let v = out.volume().abs();
+        assert!((v - expected).abs() / expected < 0.01, "{dir:?}: {v} vs {expected}");
+        // Sisi terbuka kehilangan material → pusat massa bergeser ke sisi seberang.
+        let c = out.mass_properties().centroid;
+        let shift = (c[axis] - 10.0) * sign;
+        assert!(shift < -0.1, "{dir:?}: pusat massa {c:?} tidak menjauhi sisi terbuka");
+    }
+}
+
+#[test]
+fn shell_open_limited_depth_leaves_solid_bottom() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let out = shell_open(&shape, 2.0, ShellOpening::Farthest(Direction::PosZ), 10.0).unwrap();
+    assert!(out.is_valid());
+    let expected = 8000.0 - 16.0 * 16.0 * 10.0;
+    let v = out.volume().abs();
+    assert!((v - expected).abs() / expected < 0.01, "{v} vs {expected}");
+}
+
+#[test]
+fn shell_open_limited_depth_sideways() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let out = shell_open(&shape, 2.0, ShellOpening::Farthest(Direction::NegX), 5.0).unwrap();
+    assert!(out.is_valid());
+    let expected = 8000.0 - 16.0 * 16.0 * 5.0;
+    let v = out.volume().abs();
+    assert!((v - expected).abs() / expected < 0.01, "{v} vs {expected}");
+    let c = out.mass_properties().centroid;
+    assert!(c[0] > 10.1, "rongga harus berada di sisi -X: {c:?}");
+}
+
+#[test]
+fn shell_open_zero_depth_equals_plain_shell() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let a = shell_open(&shape, 2.0, ShellOpening::Farthest(Direction::PosZ), 0.0).unwrap();
+    let b = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
+    assert!((a.volume().abs() - b.volume().abs()).abs() < 1e-6);
+}
+
+#[test]
+fn shell_open_depth_reaching_bottom_wall_is_typed_error() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let Err(err) = shell_open(&shape, 2.0, ShellOpening::Farthest(Direction::PosZ), 18.0) else {
+        panic!("kedalaman 18 mm harus ditolak");
+    };
+    let too_deep = err.downcast_ref::<ShellDepthTooDeep>().expect("error bertipe");
+    assert!((too_deep.max_depth - 18.0).abs() < 1e-3, "{too_deep:?}");
+    assert!(shell_open(&shape, 2.0, ShellOpening::Farthest(Direction::PosZ), -1.0).is_err());
+}
+
+#[test]
+fn shell_open_depth_rejects_multiple_open_faces() {
+    let _guard = lock_test();
+    let shape = make_box(20.0, 20.0, 20.0, false).unwrap();
+    let faces = topo::enumerate_faces(&shape);
+    let idx: Vec<usize> = faces.iter().filter(|f| f.normal[2].abs() > 0.9).map(|f| f.index).collect();
+    assert_eq!(idx.len(), 2);
+    assert!(shell_open(&shape, 2.0, ShellOpening::Indices(&idx), 5.0).is_err());
+    assert!(shell_open(&shape, 2.0, ShellOpening::Indices(&idx), 0.0).is_ok());
+}
+
+#[test]
 fn by_index_out_of_range_errors() {
     let _guard = lock_test();
     let shape = box_60_40_8();

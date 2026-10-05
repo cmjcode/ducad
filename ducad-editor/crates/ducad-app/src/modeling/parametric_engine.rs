@@ -321,6 +321,57 @@ impl DuCADApp {
         )
     }
 
+    /// Catat langkah Shell ke dalam DAG, lengkap dengan sisi yang dibuka dan
+    /// kedalaman rongga supaya regenerasi membuka sisi yang sama (bukan
+    /// selalu sisi atas).
+    pub fn record_shell_feature(
+        &mut self,
+        thickness: f64,
+        open_rays: &[ducad_kernel::PickRay],
+        open_direction: Option<ducad_kernel::Direction>,
+        depth: f64,
+    ) -> FeatureId {
+        let parent_id = self
+            .parametric_dag
+            .nodes
+            .iter()
+            .rev()
+            .find_map(|n| match n.payload {
+                FeaturePayload::Extrude { .. }
+                | FeaturePayload::Revolve { .. }
+                | FeaturePayload::Fillet { .. }
+                | FeaturePayload::Chamfer { .. }
+                | FeaturePayload::Shell { .. } => Some(n.id),
+                _ => None,
+            })
+            .unwrap_or(0);
+
+        let name = format!("Shell {}", self.parametric_dag.nodes.len() + 1);
+        self.parametric_dag.add_feature(
+            name,
+            FeaturePayload::Shell {
+                target_feature_id: parent_id,
+                thickness,
+                open_rays: open_rays
+                    .iter()
+                    .map(|r| {
+                        (
+                            [r.origin.0, r.origin.1, r.origin.2],
+                            [r.dir.0, r.dir.1, r.dir.2],
+                        )
+                    })
+                    .collect(),
+                open_direction: open_direction.map(|d| shell_direction_label(d).to_string()),
+                depth,
+            },
+            if parent_id > 0 {
+                vec![parent_id]
+            } else {
+                vec![]
+            },
+        )
+    }
+
     /// Catat langkah Chamfer ke dalam DAG.
     pub fn record_chamfer_feature(&mut self, distance: f64) -> FeatureId {
         let parent_id = self
@@ -466,10 +517,17 @@ impl DuCADApp {
                 distance: val1,
             },
             FeaturePayload::Shell {
-                target_feature_id, ..
+                target_feature_id,
+                open_rays,
+                open_direction,
+                depth,
+                ..
             } => FeaturePayload::Shell {
                 target_feature_id,
                 thickness: val1,
+                open_rays,
+                open_direction,
+                depth,
             },
             FeaturePayload::Sketch {
                 plane_ref,
@@ -744,10 +802,26 @@ impl DuCADApp {
             FeaturePayload::Shell {
                 target_feature_id,
                 thickness,
+                open_rays,
+                open_direction,
+                depth,
             } => {
-                let t = *thickness;
+                let (t, d) = (*thickness, *depth);
+                let rays: Vec<ducad_kernel::PickRay> = open_rays
+                    .iter()
+                    .map(|(o, dir)| ducad_kernel::PickRay {
+                        origin: (o[0], o[1], o[2]),
+                        dir: (dir[0], dir[1], dir[2]),
+                    })
+                    .collect();
+                let dir = shell_direction_from_label(open_direction.as_deref());
                 self.regen_finishing(id, *target_feature_id, ctx, |s| {
-                    ducad_kernel::shell_hollow(s, t, ducad_kernel::Direction::PosZ)
+                    let opening = if rays.is_empty() {
+                        ducad_kernel::ShellOpening::Farthest(dir)
+                    } else {
+                        ducad_kernel::ShellOpening::Rays(&rays)
+                    };
+                    ducad_kernel::shell_open(s, t, opening, d)
                 })
             }
             FeaturePayload::Hole { .. }
@@ -897,6 +971,33 @@ impl DuCADApp {
                 .insert(body, BodyGeometry::from_shape(shape));
         }
         FeatureRegen::Built
+    }
+}
+
+/// Label tersimpan untuk arah sisi shell yang dibuka (`"+X"` … `"-Z"`).
+pub(crate) fn shell_direction_label(dir: ducad_kernel::Direction) -> &'static str {
+    use ducad_kernel::Direction;
+    match dir {
+        Direction::PosX => "+X",
+        Direction::NegX => "-X",
+        Direction::PosY => "+Y",
+        Direction::NegY => "-Y",
+        Direction::PosZ => "+Z",
+        Direction::NegZ => "-Z",
+    }
+}
+
+/// Kebalikan `shell_direction_label`; label tak dikenal / kosong (berkas
+/// lama) = sisi atas, perilaku sebelum arah disimpan.
+pub(crate) fn shell_direction_from_label(label: Option<&str>) -> ducad_kernel::Direction {
+    use ducad_kernel::Direction;
+    match label {
+        Some("+X") => Direction::PosX,
+        Some("-X") => Direction::NegX,
+        Some("+Y") => Direction::PosY,
+        Some("-Y") => Direction::NegY,
+        Some("-Z") => Direction::NegZ,
+        _ => Direction::PosZ,
     }
 }
 

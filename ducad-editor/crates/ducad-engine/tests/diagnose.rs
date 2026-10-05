@@ -154,3 +154,54 @@ fn undiagnosed_kernel_failure_has_no_fake_fix() {
     assert_eq!(e.code, OpErrorCode::KernelFailed, "{e:?}");
     assert!(e.fixes.is_empty());
 }
+
+#[test]
+fn shell_opens_any_side_and_limits_depth() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"primitive","id":"a","shape":{"box":{"size":[20,20,20]}}},
+                {"op":"shell","id":"sa","body":"a","remove_faces":"<X","thickness":2},
+                {"op":"primitive","id":"b","shape":{"box":{"size":[20,20,20]}},"at":[40,0,0]},
+                {"op":"shell","id":"sb","body":"b","remove_faces":"<Z","thickness":2,"depth":10}]"#),
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+    let full = r.outcomes[1].detail["volume"].as_f64().unwrap();
+    let limited = r.outcomes[3].detail["volume"].as_f64().unwrap();
+    assert!((full - (8000.0 - 16.0 * 16.0 * 18.0)).abs() < 40.0, "{full}");
+    assert!((limited - (8000.0 - 16.0 * 16.0 * 10.0)).abs() < 40.0, "{limited}");
+}
+
+#[test]
+fn shell_depth_too_deep_gets_verified_fixes() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"primitive","id":"a","shape":{"box":{"size":[20,20,20]}}},
+                {"op":"shell","id":"sa","body":"a","remove_faces":">Z","thickness":2,"depth":19}]"#),
+        false,
+    );
+    let e = r.error.expect("depth 19 harus gagal");
+    assert_eq!(e.code, OpErrorCode::ShellDepthTooDeep, "{e:?}");
+    assert!((e.context["max_depth"].as_f64().unwrap() - 18.0).abs() < 1e-3);
+    assert_eq!(e.fixes.len(), 2, "{:?}", e.fixes);
+    assert!(e.fixes.iter().all(|f| f.verified));
+    let r = s.run(
+        vec![
+            ops(r#"[{"op":"primitive","id":"a","shape":{"box":{"size":[20,20,20]}}}]"#).remove(0),
+            e.fixes[1].patched_op.clone(),
+        ],
+        false,
+    );
+    assert!(r.committed, "{:?}", r.error);
+}
+
+#[test]
+fn shell_depth_with_two_open_faces_is_invalid_param() {
+    let mut s = Session::new();
+    let r = s.run(
+        ops(r#"[{"op":"primitive","id":"a","shape":{"box":{"size":[20,20,20]}}},
+                {"op":"shell","id":"sa","body":"a","remove_faces":"|Z","thickness":2,"depth":5}]"#),
+        false,
+    );
+    assert_eq!(r.error.expect("harus gagal").code, OpErrorCode::InvalidParam);
+}

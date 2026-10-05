@@ -14,6 +14,7 @@ use glam::DVec2;
 
 use crate::app::DuCADApp;
 use crate::model::BooleanKind;
+use crate::types::{PickMode, ToolKind};
 
 const REL_TOL: f64 = 1e-6;
 
@@ -150,6 +151,222 @@ fn adapter_shell_selected_body_volume() {
     app.shell_selected_body();
     assert!(app.model_status.is_none(), "{:?}", app.model_status);
     assert_volume("shell", total_volume(&app), SHELL_VOLUME);
+}
+
+/// Pusat massa satu-satunya body (untuk memastikan sisi mana yang terbuka).
+fn only_centroid(app: &DuCADApp) -> [f64; 3] {
+    let geo = app.model.geometry.values().next().expect("satu body");
+    geo.shape.mass_properties().centroid
+}
+
+#[test]
+fn adapter_shell_side_face_opens_that_side() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+    app.selected_bodies = [id].into_iter().collect();
+    // Ray dari kiri menumbuk face x = 0 (sisi -X).
+    app.selected_faces = vec![PickRay {
+        origin: (-100.0, 10.0, 10.0),
+        dir: (1.0, 0.0, 0.0),
+    }];
+    app.shell_thickness_input = "2".to_string();
+    app.shell_selected_body();
+    assert!(app.model_status.is_none(), "{:?}", app.model_status);
+    assert_volume("shell -X", total_volume(&app), SHELL_VOLUME);
+    let c = only_centroid(&app);
+    assert!(c[0] > 10.1 && (c[2] - 10.0).abs() < 1e-6, "{c:?}");
+}
+
+#[test]
+fn adapter_shell_direction_without_face_selection() {
+    for (dir, axis, sign) in [
+        (ducad_kernel::Direction::NegZ, 2, -1.0),
+        (ducad_kernel::Direction::PosY, 1, 1.0),
+        (ducad_kernel::Direction::NegX, 0, -1.0),
+    ] {
+        let mut app = DuCADApp::new_for_test();
+        let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+        app.selected_bodies = [id].into_iter().collect();
+        app.shell_direction = dir;
+        app.shell_thickness_input = "2".to_string();
+        app.commit_shell();
+        assert!(app.model_status.is_none(), "{dir:?}: {:?}", app.model_status);
+        assert_volume("shell arah", total_volume(&app), SHELL_VOLUME);
+        let c = only_centroid(&app);
+        assert!((c[axis] - 10.0) * sign < -0.1, "{dir:?}: {c:?}");
+    }
+}
+
+#[test]
+fn adapter_shell_two_faces_opens_both() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+    app.selected_bodies = [id].into_iter().collect();
+    app.selected_faces = vec![
+        top_face_ray(10.0, 10.0),
+        PickRay {
+            origin: (10.0, 10.0, -100.0),
+            dir: (0.0, 0.0, 1.0),
+        },
+    ];
+    app.shell_thickness_input = "2".to_string();
+    app.commit_shell();
+    assert!(app.model_status.is_none(), "{:?}", app.model_status);
+    // Tabung persegi: 20x20x20 dikurangi lubang tembus 16x16x20.
+    assert_volume("shell 2 sisi", total_volume(&app), 8000.0 - 16.0 * 16.0 * 20.0);
+}
+
+#[test]
+fn adapter_shell_depth_limits_cavity_and_zero_is_full() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+    app.selected_bodies = [id].into_iter().collect();
+    app.selected_faces = vec![top_face_ray(10.0, 10.0)];
+    app.shell_thickness_input = "2".to_string();
+    app.shell_depth_input = "10".to_string();
+    app.commit_shell();
+    assert!(app.model_status.is_none(), "{:?}", app.model_status);
+    assert_volume("shell depth 10", total_volume(&app), 8000.0 - 16.0 * 16.0 * 10.0);
+
+    // Kedalaman 0 dan kosong = rongga penuh seperti sebelumnya.
+    for depth in ["0", ""] {
+        let mut app = DuCADApp::new_for_test();
+        let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+        app.selected_bodies = [id].into_iter().collect();
+        app.selected_faces = vec![top_face_ray(10.0, 10.0)];
+        app.shell_thickness_input = "2".to_string();
+        app.shell_depth_input = depth.to_string();
+        app.commit_shell();
+        assert_volume("shell depth 0", total_volume(&app), SHELL_VOLUME);
+    }
+}
+
+#[test]
+fn adapter_shell_depth_too_deep_offers_fixes_and_keeps_body() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+    app.selected_bodies = [id].into_iter().collect();
+    app.selected_faces = vec![top_face_ray(10.0, 10.0)];
+    app.shell_thickness_input = "2".to_string();
+    app.shell_depth_input = "19".to_string();
+    app.commit_shell();
+    assert!(app.model_status.is_some());
+    assert_volume("tidak berubah", total_volume(&app), 8000.0);
+    assert!(app.error_card.open);
+    assert_eq!(app.error_fixes.len(), 2, "{:?}", app.error_fixes);
+    // Fix pertama (setengah kedalaman maksimum = 9 mm) langsung berhasil.
+    app.apply_gui_fix(0);
+    assert_volume("fix depth", total_volume(&app), 8000.0 - 16.0 * 16.0 * 9.0);
+}
+
+#[test]
+fn adapter_shell_records_opening_for_regeneration() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [0.0; 3]);
+    app.selected_bodies = [id].into_iter().collect();
+    app.shell_direction = ducad_kernel::Direction::NegY;
+    app.shell_thickness_input = "2".to_string();
+    app.shell_depth_input = "5".to_string();
+    app.commit_shell();
+    let node = app.parametric_dag.nodes.last().expect("fitur shell tercatat");
+    match &node.payload {
+        ducad_core::parametric::FeaturePayload::Shell {
+            thickness,
+            open_rays,
+            open_direction,
+            depth,
+            ..
+        } => {
+            assert_eq!(*thickness, 2.0);
+            assert!(open_rays.is_empty());
+            assert_eq!(open_direction.as_deref(), Some("-Y"));
+            assert_eq!(*depth, 5.0);
+        }
+        other => panic!("payload bukan Shell: {other:?}"),
+    }
+}
+
+#[test]
+fn shell_payload_without_opening_fields_still_loads() {
+    use ducad_core::parametric::FeaturePayload;
+    // Berkas lama hanya menyimpan target + tebal: buang field baru dari
+    // bentuk JSON saat ini lalu muat kembali.
+    let mut json = serde_json::to_value(FeaturePayload::Shell {
+        target_feature_id: 3,
+        thickness: 2.0,
+        open_rays: vec![([0.0; 3], [0.0, 0.0, -1.0])],
+        open_direction: Some("-X".to_string()),
+        depth: 4.0,
+    })
+    .unwrap();
+    fn strip(v: &mut serde_json::Value) {
+        if let Some(map) = v.as_object_mut() {
+            for k in ["open_rays", "open_direction", "depth"] {
+                map.remove(k);
+            }
+            map.values_mut().for_each(strip);
+        }
+    }
+    strip(&mut json);
+    let FeaturePayload::Shell {
+        thickness,
+        open_rays,
+        open_direction,
+        depth,
+        ..
+    } = serde_json::from_value(json).unwrap()
+    else {
+        panic!("payload bukan Shell");
+    };
+    assert_eq!(thickness, 2.0);
+    assert!(open_rays.is_empty() && depth == 0.0);
+    // Tanpa arah tersimpan = sisi atas, perilaku lama.
+    assert_eq!(
+        super::parametric_engine::shell_direction_from_label(open_direction.as_deref()),
+        ducad_kernel::Direction::PosZ
+    );
+    for dir in [
+        ducad_kernel::Direction::PosX,
+        ducad_kernel::Direction::NegX,
+        ducad_kernel::Direction::PosY,
+        ducad_kernel::Direction::NegY,
+        ducad_kernel::Direction::PosZ,
+        ducad_kernel::Direction::NegZ,
+    ] {
+        let label = super::parametric_engine::shell_direction_label(dir);
+        assert_eq!(super::parametric_engine::shell_direction_from_label(Some(label)), dir);
+    }
+}
+
+#[test]
+fn shell_tool_picks_face_without_preselected_body_and_toggles() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Box", [20.0, 20.0, 20.0], [-10.0, -10.0, -10.0]);
+    app.set_tool(ToolKind::Shell);
+    assert_eq!(app.picking_mode, PickMode::Face, "Shell selalu masuk mode pilih-face");
+    assert!(app.selected_bodies.is_empty());
+
+    use eframe::egui;
+    let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    // Cari piksel yang mengenai box (kamera bawaan mengarah ke sekitar origin).
+    let hit_pos = (0..=20)
+        .flat_map(|i| (0..=20).map(move |j| egui::pos2(40.0 * i as f32, 30.0 * j as f32)))
+        .find(|p| app.pick_body_face_at_cursor(rect, *p).is_some())
+        .expect("box terlihat di viewport");
+
+    app.pick_face_for_tool(rect, hit_pos);
+    assert!(app.selected_bodies.contains(&id), "body terpilih otomatis");
+    assert_eq!(app.selected_faces.len(), 1);
+    assert!(app.active_face.is_some());
+
+    // Klik ulang face yang sama membatalkan pilihan.
+    app.pick_face_for_tool(rect, hit_pos);
+    assert!(app.selected_faces.is_empty());
+    assert!(app.active_face.is_none());
+
+    // Keluar dari Shell mengembalikan mode klik normal.
+    app.set_tool(ToolKind::Select);
+    assert_eq!(app.picking_mode, PickMode::None);
 }
 
 #[test]

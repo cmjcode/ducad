@@ -44,6 +44,8 @@ pub enum OpErrorCode {
     ChamferTooLarge,
     /// Tebal shell ≥ setengah dimensi terkecil body.
     ShellTooThick,
+    /// Kedalaman rongga shell menembus dinding dasar.
+    ShellDepthTooDeep,
     /// Titik lubang di luar batas face.
     HoleOutsideFace,
     /// Lubang buta lebih dalam dari tebal body (peringatan).

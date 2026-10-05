@@ -5,7 +5,7 @@
 
 use ducad_core::BodyId;
 use ducad_engine::compute::{self, EdgePick, FacePick};
-use ducad_engine::OpError;
+use ducad_engine::{OpError, OpErrorCode};
 use ducad_kernel::PickRay;
 use ducad_ui::{ErrorCard, ErrorCardEvent};
 
@@ -17,6 +17,8 @@ pub enum GuiFix {
     FilletRadius(f64),
     ChamferDistance(f64),
     ShellThickness(f64),
+    /// Kedalaman rongga shell (0 = rongga penuh).
+    ShellDepth(f64),
 }
 
 /// Maksimum kandidat yang diverifikasi per error (sama dengan engine P9.2).
@@ -98,22 +100,43 @@ impl DuCADApp {
             .collect()
     }
 
-    /// Kandidat tebal shell yang lebih tipis dan terbukti berhasil.
+    /// Kandidat perbaikan shell yang terbukti berhasil pada pilihan sisi yang
+    /// sama: kedalaman lebih dangkal / rongga penuh bila kedalamannya yang
+    /// salah, selain itu tebal dinding yang lebih tipis.
     pub fn shell_fix_candidates(
         &self,
         id: BodyId,
+        err: &OpError,
         thickness: f64,
-        faces: &[PickRay],
+        depth: f64,
+        faces: &FacePick,
     ) -> Vec<(String, GuiFix)> {
         let Some(geo) = self.model.geometry.get(id) else {
             return Vec::new();
         };
-        if faces.is_empty() {
-            return Vec::new();
+        if err.code == OpErrorCode::ShellDepthTooDeep {
+            let max = err.context.get("max_depth").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let half = (max * 0.5 * 10.0).floor() / 10.0;
+            let mut depths = vec![0.0];
+            if half > 0.0 {
+                depths.insert(0, half);
+            }
+            return depths
+                .into_iter()
+                .filter(|d| compute::shell(&geo.shape, faces, thickness, *d).is_ok())
+                .map(|d| {
+                    let label = if d > 0.0 {
+                        ducad_i18n::t!("fix-use-depth", value = format!("{d}"))
+                    } else {
+                        ducad_i18n::t!("fix-use-full-cavity")
+                    };
+                    (label, GuiFix::ShellDepth(d))
+                })
+                .collect();
         }
         candidates(thickness)
             .into_iter()
-            .filter(|v| compute::shell(&geo.shape, &FacePick::Rays(faces), *v).is_ok())
+            .filter(|v| compute::shell(&geo.shape, faces, *v, depth).is_ok())
             .map(|v| {
                 (
                     ducad_i18n::t!("fix-use-thickness", value = format!("{v}")),
@@ -140,7 +163,11 @@ impl DuCADApp {
             }
             GuiFix::ShellThickness(v) => {
                 self.shell_thickness_input = format!("{v}");
-                self.shell_selected_body();
+                self.commit_shell();
+            }
+            GuiFix::ShellDepth(v) => {
+                self.shell_depth_input = format!("{v}");
+                self.commit_shell();
             }
         }
     }

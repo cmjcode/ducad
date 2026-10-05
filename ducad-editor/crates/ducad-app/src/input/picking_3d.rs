@@ -14,6 +14,10 @@ impl DuCADApp {
         let Some(pos) = response.interact_pointer_pos() else {
             return;
         };
+        if self.picking_mode == PickMode::Face {
+            self.pick_face_for_tool(rect, pos);
+            return;
+        }
         let Some(&id) = self
             .selected_bodies
             .iter()
@@ -44,11 +48,47 @@ impl DuCADApp {
                     self.selected_edges.push(PickedEdge { ray, polyline });
                 }
             }
-            PickMode::Face => {
-                if let Some(hit) = ducad_kernel::pick_face_details(&geo.shape, ray) {
-                    self.selected_faces.push(ray);
-                    self.active_face = Some((id, ray, hit));
-                }
+            // Ditangani `pick_face_for_tool` di atas.
+            PickMode::Face => {}
+        }
+    }
+
+    /// Klik face saat mode pilih-face aktif (Shell, Draft, Split, Rib).
+    ///
+    /// Face boleh di sisi mana pun dan di body mana pun yang terlihat: body
+    /// yang terkena otomatis menjadi body terpilih, jadi pengguna tidak perlu
+    /// memilih body lebih dulu. Klik ulang face yang sama membatalkan
+    /// pilihannya; klik face lain di body yang sama menambah pilihan.
+    pub fn pick_face_for_tool(&mut self, rect: egui::Rect, pos: egui::Pos2) {
+        let Some((id, ray, hit)) = self.pick_body_face_at_cursor(rect, pos) else {
+            return;
+        };
+        let same_body = self.selected_bodies.len() == 1 && self.selected_bodies.contains(&id);
+        if !same_body {
+            self.selected_bodies.clear();
+            self.selected_bodies.insert(id);
+            self.selected_faces.clear();
+            self.active_face = None;
+        }
+        let Some(geo) = self.model.geometry.get(id) else {
+            return;
+        };
+        let already = hit.face_index.and_then(|idx| {
+            self.selected_faces.iter().position(|r| {
+                ducad_kernel::pick_face_details(&geo.shape, *r).and_then(|h| h.face_index)
+                    == Some(idx)
+            })
+        });
+        match already {
+            Some(i) => {
+                self.selected_faces.remove(i);
+                self.active_face = self.selected_faces.last().and_then(|r| {
+                    ducad_kernel::pick_face_details(&geo.shape, *r).map(|h| (id, *r, h))
+                });
+            }
+            None => {
+                self.selected_faces.push(ray);
+                self.active_face = Some((id, ray, hit));
             }
         }
     }

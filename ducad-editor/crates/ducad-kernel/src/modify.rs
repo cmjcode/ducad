@@ -316,18 +316,171 @@ pub fn chamfer_edges_by_index(shape: &KernelShape, distance: f64, edges: &[usize
     validate_or_heal(KernelShape::from_inner(cloned), "Chamfer")
 }
 
+/// Face yang dibuka (dibuang) operasi shell.
+#[derive(Debug, Clone, Copy)]
+pub enum ShellOpening<'a> {
+    /// Indeks [`crate::topo::enumerate_faces`].
+    Indices(&'a [usize]),
+    /// Ray picking GUI (bisa >1 — mis. buka 2 sisi sekaligus).
+    Rays(&'a [PickRay]),
+    /// Satu face terjauh ke arah sumbu ini (mis. `NegX` = buka sisi kiri).
+    Farthest(Direction),
+}
+
+/// Error bertipe: kedalaman rongga menembus dinding dasar. Engine
+/// mengenalinya lewat `downcast_ref` (pola sama dengan `EmptyIntersection`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShellDepthTooDeep {
+    pub depth: f64,
+    /// Kedalaman terbesar yang masih menyisakan material di dasar rongga.
+    pub max_depth: f64,
+}
+
+impl std::fmt::Display for ShellDepthTooDeep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "kedalaman rongga {} mm harus lebih kecil dari {:.3} mm (tinggi body dikurangi tebal dinding); isi 0 untuk rongga penuh",
+            self.depth, self.max_depth
+        )
+    }
+}
+
+impl std::error::Error for ShellDepthTooDeep {}
+
+/// Face `shape` yang ditunjuk `opening`. Tanpa lock — pemanggil memegang guard.
+fn resolve_shell_faces(shape: &opencascade::primitives::Shape, opening: ShellOpening) -> Result<Vec<opencascade::primitives::Face>> {
+    match opening {
+        ShellOpening::Indices(idx) => take_by_index(ordered_faces(shape), idx, "face"),
+        ShellOpening::Rays(rays) => {
+            if rays.is_empty() {
+                bail!("pilih minimal 1 wajah (atau pakai arah otomatis)");
+            }
+            let mut faces: Vec<opencascade::primitives::Face> = Vec::with_capacity(rays.len());
+            for ray in rays {
+                let Some((face, _)) = resolve_face_along_ray(shape, *ray) else {
+                    bail!("salah satu wajah terpilih tidak ditemukan lagi pada shape");
+                };
+                // Dua ray boleh menunjuk face yang sama (klik ganda) — OCCT
+                // menolak daftar face berulang.
+                if !faces.iter().any(|f| f.is_equal(&face)) {
+                    faces.push(face);
+                }
+            }
+            Ok(faces)
+        }
+        ShellOpening::Farthest(dir) => {
+            let face = shape
+                .faces()
+                .try_farthest(dir.to_occt())
+                .ok_or_else(|| anyhow!("shape tidak punya face untuk dihilangkan"))?;
+            Ok(vec![face])
+        }
+    }
+}
+
+/// Inti shell: kosongkan `shape` setebal `thickness`, membuka `faces`.
+///
+/// `depth == 0` → rongga penuh (sampai dinding dasar setebal `thickness`).
+/// `depth > 0` → rongga hanya sedalam `depth` mm diukur dari face terbuka
+/// ke dalam; material di bawahnya tetap pejal. Caranya: hollow penuh, lalu
+/// bagian body asli di bawah bidang `depth` digabungkan kembali (union).
+/// Tanpa lock — pemanggil memegang guard.
+fn hollow_open(
+    shape: &opencascade::primitives::Shape,
+    thickness: f64,
+    faces: Vec<opencascade::primitives::Face>,
+    depth: f64,
+) -> Result<opencascade::primitives::Shape> {
+    if !depth.is_finite() || depth < 0.0 {
+        bail!("kedalaman rongga tidak boleh negatif (0 = rongga penuh)");
+    }
+    let hollow = |faces: Vec<opencascade::primitives::Face>| {
+        shape
+            .try_hollow(-thickness.abs(), faces)
+            .map_err(|e| anyhow!("operasi shell/hollow gagal: {e}"))
+    };
+    if depth < 1e-9 {
+        return hollow(faces);
+    }
+    let [face] = faces.as_slice() else {
+        bail!("kedalaman rongga hanya berlaku bila persis 1 sisi dibuka (isi 0 untuk rongga penuh)");
+    };
+    if SurfaceKind::from(face.surface_kind().as_str()) != SurfaceKind::Plane {
+        bail!("kedalaman rongga hanya berlaku untuk sisi datar (isi 0 untuk rongga penuh)");
+    }
+    let anchor = face.center_of_mass();
+    let normal = face.normal_at(anchor).normalize_or_zero();
+    if normal == DVec3::ZERO {
+        bail!("normal sisi terbuka tidak terdefinisi");
+    }
+    // Tinggi body diukur dari face terbuka ke arah dalam.
+    let extent = crate::mesh::tessellate_shape(shape)
+        .positions
+        .iter()
+        .map(|p| (anchor - dvec3(p[0] as f64, p[1] as f64, p[2] as f64)).dot(normal))
+        .fold(0.0_f64, f64::max);
+    let max_depth = extent - thickness;
+    if depth >= max_depth - 1e-6 {
+        return Err(ShellDepthTooDeep { depth, max_depth: max_depth.max(0.0) }.into());
+    }
+
+    let plane_point = anchor - normal * depth;
+    let fillers: Vec<_> = shape
+        .split_with_plane(plane_point, normal)
+        .map_err(|e| anyhow!("gagal membagi body pada kedalaman rongga: {e}"))?
+        .into_iter()
+        .filter(|piece| {
+            let (volume, centroid, _) = piece.volume_properties();
+            volume.abs() > 1e-9 && (centroid - plane_point).dot(normal) < 0.0
+        })
+        .collect();
+    if fillers.is_empty() {
+        bail!("bidang kedalaman rongga tidak memotong body");
+    }
+
+    let mut out = hollow(faces)?;
+    for filler in &fillers {
+        out = out
+            .union(filler)
+            .context("gagal menutup dasar rongga pada kedalaman yang diminta")?
+            .shape;
+    }
+    Ok(out.clean())
+}
+
+fn check_shell_thickness(thickness: f64) -> Result<()> {
+    if thickness.is_nan() || thickness <= 0.0 {
+        bail!("tebal shell harus > 0");
+    }
+    Ok(())
+}
+
+/// Shell/hollow umum: buka face `opening`, dinding setebal `thickness`,
+/// rongga sedalam `depth` mm dari face terbuka (`0` = rongga penuh; `> 0`
+/// butuh persis 1 face planar). Hasil divalidasi (dan diperbaiki bila bisa).
+pub fn shell_open(
+    shape: &KernelShape,
+    thickness: f64,
+    opening: ShellOpening,
+    depth: f64,
+) -> Result<KernelShape> {
+    check_shell_thickness(thickness)?;
+    let _guard = lock_kernel();
+    let cloned = deep_clone(shape.inner())?;
+    let faces = resolve_shell_faces(&cloned, opening)?;
+    let hollowed = hollow_open(&cloned, thickness, faces, depth)?;
+    validate_or_heal(KernelShape::from_inner(hollowed), "Shell")
+}
+
 /// Shell/hollow dengan face yang dibuang dipilih lewat indeks
 /// [`crate::topo::enumerate_faces`].
 pub fn shell_faces_by_index(shape: &KernelShape, thickness: f64, remove_faces: &[usize]) -> Result<KernelShape> {
-    if thickness <= 0.0 {
-        bail!("tebal shell harus > 0");
-    }
+    check_shell_thickness(thickness)?;
     let _guard = lock_kernel();
     let cloned = deep_clone(shape.inner())?;
-    let faces = take_by_index(ordered_faces(&cloned), remove_faces, "face")?;
-    let hollowed = cloned
-        .try_hollow(-thickness.abs(), faces)
-        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
+    let faces = resolve_shell_faces(&cloned, ShellOpening::Indices(remove_faces))?;
+    let hollowed = hollow_open(&cloned, thickness, faces, 0.0)?;
     validate_or_heal(KernelShape::from_inner(hollowed), "Shell")
 }
 
@@ -339,19 +492,11 @@ pub fn shell_hollow(
     thickness: f64,
     remove_face_dir: Direction,
 ) -> Result<KernelShape> {
-    if thickness <= 0.0 {
-        bail!("tebal shell harus > 0");
-    }
+    check_shell_thickness(thickness)?;
     let _guard = lock_kernel();
     let cloned = deep_clone(shape.inner())?;
-    let face = cloned
-        .faces()
-        .try_farthest(remove_face_dir.to_occt())
-        .ok_or_else(|| anyhow::anyhow!("shape tidak punya face untuk dihilangkan"))?;
-    let hollowed = cloned
-        .try_hollow(-thickness.abs(), [face])
-        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
-    Ok(KernelShape::from_inner(hollowed))
+    let faces = resolve_shell_faces(&cloned, ShellOpening::Farthest(remove_face_dir))?;
+    Ok(KernelShape::from_inner(hollow_open(&cloned, thickness, faces, 0.0)?))
 }
 
 /// Sama seperti `shell_hollow`, tapi wajah yang dibuang ditentukan lewat
@@ -361,25 +506,11 @@ pub fn shell_hollow_faces(
     thickness: f64,
     rays: &[PickRay],
 ) -> Result<KernelShape> {
-    if thickness <= 0.0 {
-        bail!("tebal shell harus > 0");
-    }
-    if rays.is_empty() {
-        bail!("pilih minimal 1 wajah (atau pakai shell_hollow untuk arah otomatis)");
-    }
+    check_shell_thickness(thickness)?;
     let _guard = lock_kernel();
     let cloned = deep_clone(shape.inner())?;
-    let mut faces = Vec::with_capacity(rays.len());
-    for ray in rays {
-        let Some((face, _)) = resolve_face_along_ray(&cloned, *ray) else {
-            bail!("salah satu wajah terpilih tidak ditemukan lagi pada shape");
-        };
-        faces.push(face);
-    }
-    let hollowed = cloned
-        .try_hollow(-thickness.abs(), faces)
-        .map_err(|e| anyhow::anyhow!("operasi shell/hollow gagal: {e}"))?;
-    Ok(KernelShape::from_inner(hollowed))
+    let faces = resolve_shell_faces(&cloned, ShellOpening::Rays(rays))?;
+    Ok(KernelShape::from_inner(hollow_open(&cloned, thickness, faces, 0.0)?))
 }
 
 /// Extrude satu sisi (face) solid sepanjang `distance` mm searah normal keluar.

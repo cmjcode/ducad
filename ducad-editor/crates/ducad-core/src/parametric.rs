@@ -115,6 +115,17 @@ pub enum FeaturePayload {
     Shell {
         target_feature_id: FeatureId,
         thickness: f64,
+        /// Sisi yang dibuka, tiap sisi sebagai ray picking `(asal, arah)`
+        /// dalam koordinat dunia. Kosong → pakai `open_direction`.
+        #[serde(default)]
+        open_rays: Vec<([f64; 3], [f64; 3])>,
+        /// Arah sumbu sisi terjauh yang dibuka: `"+X"`, `"-X"`, `"+Y"`,
+        /// `"-Y"`, `"+Z"`, `"-Z"`. `None` (berkas lama) = `"+Z"`.
+        #[serde(default)]
+        open_direction: Option<String>,
+        /// Kedalaman rongga dari sisi terbuka (mm); 0 = rongga penuh.
+        #[serde(default)]
+        depth: f64,
     },
     /// Helix / Pegas Spiral 3D.
     Helix {
@@ -242,8 +253,12 @@ impl FeaturePayload {
                     spec.kind, spec.diameter, spec.depth
                 )
             }
-            FeaturePayload::Shell { thickness, .. } => {
-                format!("Thickness: {:.1} mm", thickness)
+            FeaturePayload::Shell { thickness, depth, .. } => {
+                if *depth > 0.0 {
+                    format!("Thickness: {:.1} mm, Depth: {:.1} mm", thickness, depth)
+                } else {
+                    format!("Thickness: {:.1} mm", thickness)
+                }
             }
             FeaturePayload::Helix {
                 radius,

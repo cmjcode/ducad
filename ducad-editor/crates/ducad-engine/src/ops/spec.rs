@@ -146,15 +146,22 @@ pub enum Op {
         distance: Num,
     },
     /// Hollow the body into a shell of `thickness`, opening faces `remove_faces` (body modified in
-    /// place; walls grow inward).
+    /// place; walls grow inward). Any face can be opened, so the cavity can face any direction.
     Shell {
         id: String,
         /// Name of the body to modify.
         body: String,
-        /// Selector of the faces to remove, e.g. `">Z"` (open top).
+        /// Selector of the faces to remove: `">Z"` opens the top, `"<Z"` the bottom, `">X"`,
+        /// `"<X"`, `">Y"`, `"<Y"` a side; several faces open several sides.
         remove_faces: String,
         /// Wall thickness (> 0, < half the smallest body dimension).
         thickness: Num,
+        /// Cavity depth in mm, measured from the opened face into the body. Omitted or `0` = full
+        /// cavity (down to a floor of `thickness`). `> 0` leaves the material below that depth
+        /// solid; it needs exactly 1 planar opened face and must be < body height − `thickness`
+        /// (else `shell_depth_too_deep` + `fixes`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        depth: Option<Num>,
     },
     /// Standard/custom hole perpendicular to a planar face, going into the material (body modified
     /// in place). Give `at` and/or `at_world`.

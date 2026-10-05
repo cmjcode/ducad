@@ -7,6 +7,8 @@ use crate::theme::{ACCENT_BLUE, TEXT_SECONDARY};
 #[derive(Debug, Clone)]
 pub struct ShellPopupState {
     pub shell_input: String,
+    /// Kedalaman rongga dari sisi terbuka; "0" = rongga penuh.
+    pub depth_input: String,
     pub is_face_picking_active: bool,
     pub selected_faces_count: usize,
     pub selected_bodies_count: usize,
@@ -16,6 +18,7 @@ impl Default for ShellPopupState {
     fn default() -> Self {
         Self {
             shell_input: "2.0".to_string(),
+            depth_input: "0".to_string(),
             is_face_picking_active: false,
             selected_faces_count: 0,
             selected_bodies_count: 0,
@@ -71,6 +74,15 @@ impl ShellPopup {
                     );
                 });
 
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{}:", t!("param-depth"))).size(11.0));
+                    ui.add_sized(
+                        Vec2::new(60.0, 18.0),
+                        egui::TextEdit::singleline(&mut state.depth_input).hint_text("0"),
+                    )
+                    .on_hover_text(t!("hud-shell-depth-hint"));
+                });
+
                 ui.add_space(3.0);
                 if ui
                     .add(
@@ -81,8 +93,10 @@ impl ShellPopup {
                     )
                     .clicked()
                 {
-                    if let Ok(t) = state.shell_input.trim().parse::<f64>() {
-                        ev = Some(ToolPopupEvent::ApplyShell { thickness: t });
+                    let depth = state.depth_input.trim();
+                    let depth = if depth.is_empty() { Ok(0.0) } else { depth.parse::<f64>() };
+                    if let (Ok(t), Ok(depth)) = (state.shell_input.trim().parse::<f64>(), depth) {
+                        ev = Some(ToolPopupEvent::ApplyShell { thickness: t, depth });
                     }
                 }
 

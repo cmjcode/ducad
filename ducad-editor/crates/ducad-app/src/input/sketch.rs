@@ -143,6 +143,13 @@ impl DuCADApp {
             self.sweep_path_plane_idx = None;
             self.hovered_plane_idx = None;
         }
+        // Shell memilih sisi yang dibuka lewat klik face, dari jalur mana pun
+        // tool diaktifkan (toolbar, palet perintah, menu konteks, pintasan).
+        if tool == ToolKind::Shell {
+            self.picking_mode = PickMode::Face;
+        } else if self.tool == ToolKind::Shell && self.picking_mode == PickMode::Face {
+            self.picking_mode = PickMode::None;
+        }
         self.tool = tool;
         self.pending_points.clear();
         self.pending_point_refs.clear();
@@ -872,6 +879,10 @@ impl DuCADApp {
         if self.picking_mode != PickMode::None {
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.picking_mode = PickMode::None;
+                // Shell tanpa mode pilih-face tidak bisa dipakai: keluar dari tool.
+                if self.tool == ToolKind::Shell {
+                    self.set_tool(ToolKind::Select);
+                }
             } else {
                 self.handle_3d_picking(response, rect);
             }

@@ -811,6 +811,7 @@ pub const ERROR_GUIDE: &str = "\
 | selector_empty | valid selector but 0 elements | see context.available, test with query_geometry |
 | fillet_radius_too_large / chamfer_too_large | exceeds the neighboring edge (context.limit) | use fixes[i].patched_op |
 | shell_too_thick | thickness >= half the smallest dimension | use fixes |
+| shell_depth_too_deep | shell `depth` reaches the bottom wall (context.max_depth) | use fixes (full cavity or half the max depth) |
 | hole_outside_face | hole point outside the face | `at` is relative to the face centroid; or use at_world |
 | boolean_no_overlap | subtract/intersect without overlap | move a body (transform) |
 | kernel_failed | OCCT failed | reduce radius/thickness, change op order |

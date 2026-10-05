@@ -1,9 +1,9 @@
 //! Fillet, chamfer, dan shell.
 
-use ducad_kernel::{KernelShape, PickRay};
+use ducad_kernel::{Direction, KernelShape, PickRay, ShellDepthTooDeep, ShellOpening};
 
 use super::{finish, require_positive};
-use crate::error::{OpError, OpResult};
+use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::model::BodyGeometry;
 
 /// Pemilihan tepi untuk fillet/chamfer.
@@ -22,6 +22,8 @@ pub enum FacePick<'a> {
     Indices(&'a [usize]),
     /// Ray picking GUI.
     Rays(&'a [PickRay]),
+    /// Satu face terjauh ke arah sumbu (GUI: body terpilih tanpa face).
+    Farthest(Direction),
 }
 
 fn edge_pick_not_empty(edges: &EdgePick) -> OpResult<()> {
@@ -61,18 +63,54 @@ pub fn chamfer(shape: &KernelShape, edges: &EdgePick, distance: f64) -> OpResult
     )
 }
 
-pub fn shell(shape: &KernelShape, remove: &FacePick, thickness: f64) -> OpResult<BodyGeometry> {
+/// Shell: buka face `remove`, dinding setebal `thickness`. `depth` =
+/// kedalaman rongga dari face terbuka ke dalam; `0` = rongga penuh sampai
+/// dinding dasar, `> 0` butuh persis 1 face planar.
+pub fn shell(
+    shape: &KernelShape,
+    remove: &FacePick,
+    thickness: f64,
+    depth: f64,
+) -> OpResult<BodyGeometry> {
     require_positive("tebal shell", thickness)?;
-    let empty = match remove {
-        FacePick::Indices(idx) => idx.is_empty(),
-        FacePick::Rays(rays) => rays.is_empty(),
+    if !depth.is_finite() || depth < 0.0 {
+        return Err(OpError::invalid(format!(
+            "kedalaman rongga harus >= 0 (diberikan {depth}; 0 = rongga penuh)"
+        ))
+        .with_context(serde_json::json!({ "param": "depth", "value": depth })));
+    }
+    let count = match remove {
+        FacePick::Indices(idx) => idx.len(),
+        FacePick::Rays(rays) => rays.len(),
+        FacePick::Farthest(_) => 1,
     };
-    if empty {
+    if count == 0 {
         return Err(OpError::invalid("Pilih minimal 1 face yang dibuang"));
     }
-    let result = match remove {
-        FacePick::Indices(idx) => ducad_kernel::shell_faces_by_index(shape, thickness, idx),
-        FacePick::Rays(rays) => ducad_kernel::shell_hollow_faces(shape, thickness, rays),
+    if depth > 0.0 && count > 1 {
+        return Err(OpError::invalid(format!(
+            "kedalaman rongga {depth} mm hanya berlaku bila persis 1 face dibuka ({count} face dipilih)"
+        ))
+        .with_hint("buka 1 face saja, atau isi kedalaman 0 untuk rongga penuh"));
+    }
+    let opening = match remove {
+        FacePick::Indices(idx) => ShellOpening::Indices(idx),
+        FacePick::Rays(rays) => ShellOpening::Rays(rays),
+        FacePick::Farthest(dir) => ShellOpening::Farthest(*dir),
     };
-    finish("Shell", result.map_err(|e| OpError::kernel("Shell", e))?)
+    let result = ducad_kernel::shell_open(shape, thickness, opening, depth).map_err(|e| {
+        match e.downcast_ref::<ShellDepthTooDeep>() {
+            Some(d) => OpError::new(
+                OpErrorCode::ShellDepthTooDeep,
+                format!(
+                    "kedalaman rongga {} mm harus lebih kecil dari {:.3} mm (tinggi body dikurangi tebal dinding)",
+                    d.depth, d.max_depth
+                ),
+            )
+            .with_hint("kurangi kedalaman, atau isi 0 untuk rongga penuh")
+            .with_context(serde_json::json!({ "depth": d.depth, "max_depth": d.max_depth })),
+            None => OpError::kernel("Shell", e),
+        }
+    })?;
+    finish("Shell", result)
 }
