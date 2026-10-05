@@ -560,8 +560,9 @@ impl DuCADApp {
         self.chat.panel.settings_open = false;
     }
 
-    /// Terima kejadian latar lalu render sidebar di sisi kanan `ui`.
-    /// Harus dipanggil sebelum `CentralPanel` agar viewport menyempit.
+    /// Terima kejadian latar lalu render sidebar kaca terkunci di sisi kanan
+    /// layar, di atas kanvas. Lebar yang dipesannya untuk chrome lain dibaca
+    /// pemanggil lewat `ChatPanel::reserved_width`.
     pub fn chat_frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;

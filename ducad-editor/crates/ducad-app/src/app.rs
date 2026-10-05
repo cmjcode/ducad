@@ -1685,11 +1685,13 @@ impl eframe::App for DuCADApp {
             self.zebra_config.enabled = !self.zebra_config.enabled;
         }
 
-        // Sidebar Chat AI di kanan: dirender sebelum CentralPanel supaya
-        // viewport menyempit (bukan tertimpa), lalu seluruh chrome mengambang
-        // (top bar, drawer) memakai sisa area di kirinya.
+        // Sidebar Chat AI terkunci di kanan sebagai jendela kaca di atas
+        // kanvas: viewport tetap selebar layar (kanvas terlihat di balik
+        // kaca), sedangkan chrome mengambang (top bar, drawer) digeser ke
+        // kiri sebesar lebar yang dipesan sidebar.
         self.chat_frame(ui);
-        let screen_rect = ui.available_rect_before_wrap();
+        let mut screen_rect = ui.available_rect_before_wrap();
+        screen_rect.max.x -= ducad_ui::ChatPanel::reserved_width(&ctx, &self.chat.panel);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)

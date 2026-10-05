@@ -106,15 +106,15 @@ fn transcript_stays_visible_while_streaming() {
     }
 }
 
-/// Sidebar menempel di kanan dan menyempitkan area sisa (bukan mengambang).
+/// Sidebar terkunci di tepi kanan, memesan lebar untuk chrome lain, dan
+/// tidak memakan area `ui` (kanvas tetap selebar layar di balik kaca).
 #[test]
-fn sidebar_docks_right_and_shrinks_remaining_area() {
+fn sidebar_locks_right_and_reserves_width() {
     let ctx = egui::Context::default();
     let mut t = 0.0;
-    let mut remaining = |st: &mut ChatPanelState| {
+    let mut run = |st: &mut ChatPanelState| {
         let mut rect = egui::Rect::NOTHING;
-        // Beberapa frame (0,1 s) agar animasi buka/tutup selesai.
-        for _ in 0..30 {
+        for _ in 0..10 {
             t += 0.1;
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -134,17 +134,23 @@ fn sidebar_docks_right_and_shrinks_remaining_area() {
     };
 
     let mut closed = ChatPanelState::default();
-    let full = remaining(&mut closed);
-    assert!(full.width() > 1190.0, "panel tertutup tidak boleh memakan ruang: {full:?}");
+    let full = run(&mut closed);
+    assert_eq!(ChatPanel::reserved_width(&ctx, &closed), 0.0);
 
     let mut open = ChatPanelState {
         open: true,
         ..Default::default()
     };
-    let rest = remaining(&mut open);
+    let rest = run(&mut open);
     assert!(
-        rest.width() < full.width() - 250.0,
-        "sidebar terbuka harus menyempitkan area sisa: {rest:?}"
+        (rest.width() - full.width()).abs() < 1.0,
+        "kanvas harus tetap selebar layar: {rest:?} vs {full:?}"
     );
-    assert!(rest.min.x < 1.0, "sidebar harus di kanan, bukan kiri: {rest:?}");
+    let reserved = ChatPanel::reserved_width(&ctx, &open);
+    assert!(reserved >= 280.0, "lebar yang dipesan: {reserved}");
+    let win = ctx
+        .memory(|m| m.area_rect(egui::Id::new("ducad-chat-sidebar")))
+        .expect("sidebar terbuka harus punya area");
+    assert!(win.right() > 1180.0, "sidebar harus menempel di kanan: {win:?}");
+    assert!(win.height() > 800.0, "sidebar harus setinggi layar: {win:?}");
 }

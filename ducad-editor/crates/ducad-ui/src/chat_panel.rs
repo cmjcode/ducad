@@ -7,8 +7,11 @@ use crate::theme::{
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 use ducad_i18n::t;
+use ducad_glass::GlassFrame;
 use egui::{Color32, RichText};
-use egui_icons::icons::{ICON_CHECK, ICON_CLOSE};
+use egui_icons::icons::{
+    ICON_ADD_COMMENT, ICON_CHECK, ICON_CLOSE, ICON_DELETE, ICON_HISTORY, ICON_SETTINGS,
+};
 
 /// Warna error (sama dengan ringkasan checks gagal di top bar).
 const ERROR_RED: Color32 = Color32::from_rgb(255, 69, 58);
@@ -722,39 +725,64 @@ fn api_settings_ui(
 }
 
 impl ChatPanel {
-    /// Render sidebar chat di sisi kanan `ui` (dipanggil sebelum
-    /// `CentralPanel` supaya viewport menyempit, bukan tertimpa).
+    /// Lebar layar yang dipesan sidebar (lebar panel + margin tepi), 0 bila
+    /// tertutup. Chrome lain (bar atas, drawer) digeser ke kiri sebesar ini
+    /// supaya tidak tertutup panel; viewport sendiri tetap selebar layar agar
+    /// kanvas terlihat di balik kaca.
+    pub fn reserved_width(ctx: &egui::Context, state: &ChatPanelState) -> f32 {
+        if !state.open {
+            return 0.0;
+        }
+        let w = ctx
+            .memory(|m| m.area_rect(Self::area_id()))
+            .map(|r| r.width())
+            .filter(|w| w.is_finite() && *w > 0.0)
+            .unwrap_or_else(|| Self::default_width(ctx));
+        w + 2.0 * SIDEBAR_MARGIN
+    }
+
+    fn area_id() -> egui::Id {
+        egui::Id::new("ducad-chat-sidebar")
+    }
+
+    fn default_width(ctx: &egui::Context) -> f32 {
+        let avail_w = ctx.content_rect().width();
+        SIDEBAR_DEFAULT_W.min(avail_w * 0.35).max(SIDEBAR_MIN_W)
+    }
+
+    /// Render sidebar chat terkunci di tepi kanan layar: jendela Liquid Glass
+    /// bersudut membulat yang menumpuk di atas kanvas (kanvas tetap terlihat
+    /// di balik kaca). Tidak bisa digeser; lebarnya bisa diubah dari tepi
+    /// kiri. Ruang yang dipesannya dibaca lewat [`Self::reserved_width`].
     pub fn show(ui: &mut egui::Ui, state: &mut ChatPanelState) -> Option<ChatPanelEvent> {
+        if !state.open {
+            return None;
+        }
         let mut event = None;
         let now = ui.input(|i| i.time);
-        let avail_w = ui.available_width();
-        let max_w = (avail_w * 0.6).max(SIDEBAR_MIN_W);
-        let default_w = SIDEBAR_DEFAULT_W.min(avail_w * 0.35).max(SIDEBAR_MIN_W);
-        egui::Panel::right(egui::Id::new("ducad-chat-sidebar"))
-            .resizable(true)
-            .drag_to_open(false)
-            .default_size(default_w)
-            .size_range(SIDEBAR_MIN_W..=max_w)
-            .frame(sidebar_frame())
-            .show_collapsible(ui, &mut state.open, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(t!("chat-title"))
-                            .strong()
-                            .size(13.0)
-                            .color(TEXT_PRIMARY),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button(ICON_CLOSE.codepoint)
-                            .on_hover_text(t!("chat-close"))
-                            .clicked()
-                        {
-                            event = Some(ChatPanelEvent::Close);
-                        }
-                    });
-                });
-                ui.separator();
+        let ctx = ui.ctx().clone();
+        let screen = ctx.content_rect();
+        let max_w = (screen.width() * 0.6).max(SIDEBAR_MIN_W);
+        let default_w = Self::default_width(&ctx);
+        let glass = sidebar_glass();
+        // Tinggi isi = tinggi layar dikurangi margin tepi dan margin frame.
+        let content_h = (screen.height()
+            - 2.0 * SIDEBAR_MARGIN
+            - f32::from(glass.inner_margin.top + glass.inner_margin.bottom))
+        .max(200.0);
+        egui::Window::new(t!("chat-title"))
+            .id(Self::area_id())
+            .title_bar(false)
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-SIDEBAR_MARGIN, SIDEBAR_MARGIN))
+            .resizable([true, false])
+            .default_width(default_w)
+            .min_width(SIDEBAR_MIN_W)
+            .max_width(max_w)
+            .frame(glass.transparent_flat())
+            .show(&ctx, |ui| glass.paint_behind_window(ui, Self::area_id(), |ui| {
+                ui.set_height(content_h);
+                // Satu baris kepala: pemilih model di kiri, ikon bulat
+                // (chat baru, riwayat, pengaturan, tutup) di kanan.
                 ui.horizontal(|ui| {
                     if state.targets.len() > 1 && !state.busy {
                         let before = state.target_idx;
@@ -782,36 +810,49 @@ impl ChatPanel {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button("⚙")
-                            .on_hover_text(t!("chat-settings"))
+                        if round_icon_btn(ui, ICON_CLOSE.codepoint, &t!("chat-close"), false)
                             .clicked()
+                        {
+                            event = Some(ChatPanelEvent::Close);
+                        }
+                        if round_icon_btn(
+                            ui,
+                            ICON_SETTINGS.codepoint,
+                            &t!("chat-settings"),
+                            state.settings_open,
+                        )
+                        .clicked()
                         {
                             state.settings_open = !state.settings_open;
                         }
-                        if ui
-                            .small_button("🕘")
-                            .on_hover_text(t!("chat-history"))
-                            .clicked()
+                        if round_icon_btn(
+                            ui,
+                            ICON_HISTORY.codepoint,
+                            &t!("chat-history"),
+                            state.history_open,
+                        )
+                        .clicked()
                         {
                             state.history_open = !state.history_open;
                             if state.history_open {
                                 event = Some(ChatPanelEvent::OpenHistory);
                             }
                         }
+                        // Chat baru butuh dua klik (3 detik): klik pertama
+                        // "mempersenjatai" ikon (warna aksen + tooltip konfirmasi).
                         let armed = state.clear_armed_until.is_some_and(|t| t > now);
-                        let label = if armed {
+                        let tip = if armed {
                             t!("chat-new-confirm")
                         } else {
                             t!("chat-new")
                         };
-                        if ui
-                            .add_enabled(
-                                !state.busy,
-                                egui::Button::new(RichText::new(label).size(11.0)),
-                            )
-                            .clicked()
-                        {
+                        let clicked = ui
+                            .add_enabled_ui(!state.busy, |ui| {
+                                round_icon_btn(ui, ICON_ADD_COMMENT.codepoint, &tip, armed)
+                                    .clicked()
+                            })
+                            .inner;
+                        if clicked {
                             if armed {
                                 state.clear_armed_until = None;
                                 event = Some(ChatPanelEvent::NewChat);
@@ -843,7 +884,9 @@ impl ChatPanel {
                                     if ui.link(title).on_hover_text(when).clicked() {
                                         event = Some(ChatPanelEvent::LoadSession(*id));
                                     }
-                                    if ui.small_button("🗑").clicked() {
+                                    if round_icon_btn(ui, ICON_DELETE.codepoint, "", false)
+                                        .clicked()
+                                    {
                                         event = Some(ChatPanelEvent::DeleteSession(*id));
                                     }
                                 });
@@ -936,28 +979,58 @@ impl ChatPanel {
                         );
                     }
                 });
-            });
+            }));
         event
+    }
+}
+
+/// Tombol ikon bulat (lingkaran, bukan kotak) untuk kepala panel chat.
+/// `active` mewarnai ikon dengan aksen (panel terbuka / konfirmasi).
+fn round_icon_btn(ui: &mut egui::Ui, icon: &str, tooltip: &str, active: bool) -> egui::Response {
+    const SIDE: f32 = 24.0;
+    let color = if active { ACCENT_BLUE } else { TEXT_PRIMARY };
+    let btn = egui::Button::new(RichText::new(icon).size(13.0).color(color))
+        .min_size(egui::Vec2::splat(SIDE))
+        .corner_radius(egui::CornerRadius::same((SIDE / 2.0) as u8))
+        .fill(BG_CARD_DARK)
+        .stroke(egui::Stroke::new(1.0, BORDER_SUBTLE));
+    let resp = ui.add(btn);
+    if tooltip.is_empty() {
+        resp
+    } else {
+        resp.on_hover_text(tooltip)
     }
 }
 
 /// Lebar sidebar chat (px).
 const SIDEBAR_MIN_W: f32 = 280.0;
 const SIDEBAR_DEFAULT_W: f32 = 360.0;
+/// Jarak sidebar dari tepi layar (px).
+const SIDEBAR_MARGIN: f32 = 12.0;
 
-/// Frame sidebar: menempel ke tepi kanan, tanpa sudut membulat/bayangan.
-fn sidebar_frame() -> egui::Frame {
-    egui::Frame {
-        inner_margin: egui::Margin::symmetric(10, 8),
-        corner_radius: egui::CornerRadius::ZERO,
-        shadow: egui::Shadow::NONE,
-        ..glass_frame().flat()
-    }
+/// Kaca sidebar: material `Panel` yang sama dengan drawer lain, sudut
+/// membulat, tanpa bayangan ganda (bayangan sudah dilukis frame window).
+fn sidebar_glass() -> GlassFrame {
+    glass_frame()
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .shadow(egui::Shadow::NONE)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regresi: sidebar pernah memakai `glass_frame().flat()` (isian pekat
+    /// tanpa shader kaca) sehingga tampak lebih buram dari panel lain.
+    #[test]
+    fn sidebar_uses_same_glass_material_as_other_panels() {
+        let sidebar = sidebar_glass();
+        let base = glass_frame();
+        assert_eq!(sidebar.material, base.material);
+        assert_eq!(sidebar.fill, base.fill);
+        assert_eq!(sidebar.transparent_flat().fill, Color32::TRANSPARENT);
+        assert_eq!(sidebar.corner_radius, base.corner_radius);
+    }
 
     #[test]
     fn tool_title_is_humanized() {
