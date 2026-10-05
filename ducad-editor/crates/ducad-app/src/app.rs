@@ -1689,13 +1689,14 @@ impl eframe::App for DuCADApp {
         let check_rows = self.check_rows();
         let checks_summary = (!check_rows.is_empty()).then(|| ducad_ui::checks_summary(&check_rows));
 
+        let palette_actions = self.palette_actions();
         let mut topbar_state = TopBarState {
+            command_groups: Self::topbar_command_groups(&palette_actions),
             document_name: doc_name,
             status_saved: is_saved,
             current_unit: self.model.doc.unit,
             is_sketching: self.is_sketching,
             items_drawer_open: self.items_drawer_open,
-            assembly_drawer_open: self.assembly_drawer_open,
             section_view_active: self.section_enabled,
             is_measure_active: self.show_all_dimensions,
             zebra_view_active: self.zebra_config.enabled,
@@ -1789,9 +1790,6 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::ToggleItemsDrawer => {
                                 self.items_drawer_open = !self.items_drawer_open;
                             }
-                            TopBarEvent::ToggleAssemblyDrawer => {
-                                self.assembly_drawer_open = !self.assembly_drawer_open;
-                            }
                             TopBarEvent::OpenSearch => {
                                 self.palette.open();
                             }
@@ -1867,6 +1865,11 @@ impl eframe::App for DuCADApp {
                             }
                             TopBarEvent::OpenAssist => self.open_assist_dialog(),
                             TopBarEvent::ToggleChat => self.toggle_chat(),
+                            TopBarEvent::RunCommand(idx) => {
+                                if let Some((_, _, action)) = palette_actions.get(idx) {
+                                    self.run_palette_action(&ctx, *action);
+                                }
+                            }
                         }
                     }
                 });
@@ -3189,6 +3192,18 @@ impl eframe::App for DuCADApp {
                             self.draft_config.enabled = !self.draft_config.enabled;
                         }
 
+                        // Tombol Assembly (Pohon Perakitan & Mate) — urutannya mengikuti tumpukan drawer
+                        let assem_resp = round_floating_icon_btn(
+                            ui,
+                            egui_icons::icons::ICON_CATEGORY.codepoint,
+                            self.assembly_drawer_open,
+                            &ducad_i18n::t!("topbar-assembly-tooltip"),
+                            self.icon_size,
+                        );
+                        if assem_resp.clicked() {
+                            self.assembly_drawer_open = !self.assembly_drawer_open;
+                        }
+
                         // Tombol Feature Tree & Riwayat Desain (Pohon Parametrik & Snapshot)
                         let feat_tree_resp = round_floating_icon_btn(
                             ui,
@@ -4179,10 +4194,21 @@ impl eframe::App for DuCADApp {
             }
         }
 
+        // Dihitung ulang: event top bar di atas bisa mengubah label (tema, seleksi).
         let palette_actions = self.palette_actions();
-        let palette_entries: Vec<(&str, &str)> = palette_actions
+        let group_titles: Vec<String> =
+            crate::types::PaletteGroup::ALL.iter().map(|g| g.title()).collect();
+        let palette_entries: Vec<ducad_ui::PaletteEntry<'_>> = palette_actions
             .iter()
-            .map(|(label, hint, _)| (label.as_str(), hint.as_str()))
+            .map(|(label, hint, action)| {
+                let group = action.group();
+                ducad_ui::PaletteEntry {
+                    label: label.as_str(),
+                    hint: hint.as_str(),
+                    group: group_titles[group as usize].as_str(),
+                    icon: group.icon(),
+                }
+            })
             .collect();
         if let Some(idx) = self.palette.show(&ctx, &palette_entries) {
             let action = palette_actions[idx].2;

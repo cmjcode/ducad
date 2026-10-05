@@ -36,6 +36,19 @@ settings-icon-size = Ukuran Ikon
 menu-shortcuts = Pintasan Keyboard
 menu-command-palette = Palet Perintah
 cmd-no-match = Tidak ada perintah cocok
+cmd-search-hint = Cari perintah…
+cmd-hint-navigate = navigasi
+cmd-hint-run = jalankan
+cmd-hint-close = tutup
+menu-all-commands = Semua Perintah
+cmd-group-ai = AI & Agent
+cmd-group-mode = Mode & Bidang Kerja
+cmd-group-file = Berkas
+cmd-group-sketch = Alat Sketsa
+cmd-group-solid = Alat 3D
+cmd-group-analysis = Ukur & Analisis
+cmd-group-edit = Edit
+cmd-group-view = Tampilan & Pengaturan
 
 # Top Bar Actions & Tooltips
 topbar-home-tooltip = Dokumen Baru

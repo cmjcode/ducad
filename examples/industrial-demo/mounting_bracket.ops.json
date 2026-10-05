@@ -1,0 +1,68 @@
+{ "params": { "len": 80, "depth": 50, "t": 6, "wall_h": 60, "hole_y": 35 },
+  "configurations": [
+    { "name": "thick", "params": { "t": 8 } },
+    { "name": "steel", "material_overrides": { "bracket": "s235" } },
+    { "name": "bare", "suppressed_ops": ["tray_wall_x", "tray_wall_y"] }
+  ],
+  "ops": [
+    {"op":"primitive","id":"base","shape":{"box":{"size":["$len","$depth","$t"]}}},
+    {"op":"hole","id":"bolt_holes","body":"base","face":">Z",
+     "at_world":[[20,"$hole_y","$t"],[60,"$hole_y","$t"]],"spec":{"iso":"M6"}},
+    {"op":"primitive","id":"wall","shape":{"box":{"size":["$len","$t","$wall_h"]}}},
+    {"op":"boolean","id":"bracket","kind":"union","a":"base","b":"wall"},
+    {"op":"set_material","id":"bracket_mat","body":"bracket","material":"al_6061_t6"},
+
+    {"op":"standard_part","id":"washer_a","standard":"iso7089","size":"M6","at":[20,"$hole_y","$t"]},
+    {"op":"standard_part","id":"washer_b","standard":"iso7089","size":"M6","at":[60,"$hole_y","$t"]},
+    {"op":"standard_part","id":"bolt_a","standard":"iso4762","size":"M6","length":20,"at":[20,"$hole_y","$t + 1.6"]},
+    {"op":"standard_part","id":"bolt_b","standard":"iso4762","size":"M6","length":20,"at":[60,"$hole_y","$t + 1.6"]},
+    {"op":"set_material","id":"washer_a_mat","body":"washer_a","material":"aisi_304"},
+    {"op":"set_material","id":"washer_b_mat","body":"washer_b","material":"aisi_304"},
+    {"op":"set_material","id":"bolt_a_mat","body":"bolt_a","material":"aisi_304"},
+    {"op":"set_material","id":"bolt_b_mat","body":"bolt_b","material":"aisi_304"},
+    {"op":"thread","id":"bolt_a_thread","body":"bolt_a","face":"all[kind=cylinder][r=3]","length":14},
+    {"op":"thread","id":"bolt_b_thread","body":"bolt_b","face":"all[kind=cylinder][r=3]","length":14},
+
+    {"op":"sketch","id":"tray_sk","plane":"XY","entities":[
+      {"rect":{"corner":[110,0],"w":70,"h":50,"name":"outline"}}]},
+    {"op":"base_flange","id":"tray","sketch":"tray_sk","thickness":1.5,"bend_radius":1.5,"k_factor":0.44},
+    {"op":"edge_flange","id":"tray_wall_x","body":"tray","edges":"|X[len=70][z=0]","length":15},
+    {"op":"edge_flange","id":"tray_wall_y","body":"tray","edges":"|Y[len=50][z=0]","length":15},
+    {"op":"set_material","id":"tray_mat","body":"tray","material":"s235"},
+
+    {"op":"study","id":"side_load","kind":"static","setup":{
+      "body":"bracket",
+      "fixtures":[{"id":"bolted_down","faces":"<Z","kind":"fixed"}],
+      "loads":[{"id":"push","faces":">Z","kind":"force","newton":[0,400,0]}],
+      "mesh":{"cell_mm":2}}},
+    {"op":"study","id":"vibration","kind":"frequency","modes":3,"setup":{
+      "body":"bracket",
+      "fixtures":[{"id":"bolted_down","faces":"<Z","kind":"fixed"}],
+      "loads":[],
+      "mesh":{"cell_mm":3}}},
+    {"op":"study","id":"crush","kind":"buckling","modes":1,"setup":{
+      "body":"bracket",
+      "fixtures":[{"id":"bolted_down","faces":"<Z","kind":"fixed"}],
+      "loads":[{"id":"press","faces":">Z","kind":"force","newton":[0,0,-2000]}],
+      "mesh":{"cell_mm":3}}},
+    {"op":"study","id":"hot_base","kind":"thermal","setup":{
+      "body":"bracket","fixtures":[],"loads":[],
+      "mesh":{"cell_mm":3}},
+      "thermal":{"boundary":[
+        {"id":"heated","faces":"<Z","kind":"temperature","celsius":80},
+        {"id":"air","faces":">Z","kind":"convection","h_w_mm2k":2.5e-5,"ambient_c":25}]}}
+  ],
+  "checks": [
+    {"id":"bracket_light","check":"mass","body":"bracket","min_g":50,"max_g":400},
+    {"id":"bolts_clear","check":"no_interference","bodies":["bracket","bolt_a","bolt_b","washer_a","washer_b"]},
+    {"id":"stress_ok","check":"max_stress","study":"side_load","max_mpa":200},
+    {"id":"stiff","check":"max_displacement","study":"side_load","max_mm":1.0},
+    {"id":"safe","check":"min_safety_factor","study":"side_load","min":1.5},
+    {"id":"above_200hz","check":"min_natural_frequency","study":"vibration","min_hz":200},
+    {"id":"no_buckling","check":"min_buckling_factor","study":"crush","min":3},
+    {"id":"not_too_hot","check":"max_temperature","study":"hot_base","max_c":81},
+    {"id":"tray_bend_ok","check":"min_bend_radius","body":"tray","min_ratio_to_t":1},
+    {"id":"tray_grip_ok","check":"min_flange_length","body":"tray","min":6},
+    {"id":"bolt_fit","check":"tolerance_stackup","max_total":0.05,
+     "chain":[{"nominal":6,"fit":"H7"},{"nominal":6,"fit":"g6","reverse":true}]}
+  ] }

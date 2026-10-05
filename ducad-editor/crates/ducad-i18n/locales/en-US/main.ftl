@@ -36,6 +36,19 @@ settings-icon-size = Icon Size
 menu-shortcuts = Keyboard Shortcuts
 menu-command-palette = Command Palette
 cmd-no-match = No matching command
+cmd-search-hint = Search commands…
+cmd-hint-navigate = navigate
+cmd-hint-run = run
+cmd-hint-close = close
+menu-all-commands = All Commands
+cmd-group-ai = AI & Agent
+cmd-group-mode = Mode & Work Plane
+cmd-group-file = File
+cmd-group-sketch = Sketch Tools
+cmd-group-solid = 3D Tools
+cmd-group-analysis = Measure & Analysis
+cmd-group-edit = Edit
+cmd-group-view = View & Settings
 
 # Top Bar Actions & Tooltips
 topbar-home-tooltip = New Document

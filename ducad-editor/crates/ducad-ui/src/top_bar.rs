@@ -58,7 +58,6 @@ pub enum TopBarEvent {
     SetLanguage(Language),
     SetIconSize(f32),
     ToggleItemsDrawer,
-    ToggleAssemblyDrawer,
     OpenSearch,
     EnterSketching,
     ExitSketching,
@@ -81,6 +80,26 @@ pub enum TopBarEvent {
     OpenAssist,
     /// Buka/tutup sidebar Chat AI (P13.3).
     ToggleChat,
+    /// Jalankan perintah palette; nilainya `TopBarCommand::index`.
+    RunCommand(usize),
+}
+
+/// Satu perintah palette yang ikut tampil di burger menu.
+#[derive(Debug, Clone)]
+pub struct TopBarCommand {
+    pub label: String,
+    /// Pintasan keyboard, boleh kosong.
+    pub hint: String,
+    /// Indeks ke daftar perintah milik caller.
+    pub index: usize,
+}
+
+/// Submenu burger menu: satu grup perintah palette.
+#[derive(Debug, Clone)]
+pub struct TopBarCommandGroup {
+    pub icon: &'static str,
+    pub title: String,
+    pub items: Vec<TopBarCommand>,
 }
 
 /// State kontrol header yang dibaca & (untuk `plane_menu_open`) ditulis ulang
@@ -95,7 +114,6 @@ pub struct TopBarState {
     /// (dan popup pemilih bidangnya) ditampilkan sama sekali.
     pub is_sketching: bool,
     pub items_drawer_open: bool,
-    pub assembly_drawer_open: bool,
     pub section_view_active: bool,
     pub is_measure_active: bool,
     pub zebra_view_active: bool,
@@ -132,6 +150,9 @@ pub struct TopBarState {
     pub checks_panel_open: bool,
     /// Sidebar Chat AI sedang terbuka (ikon header disorot).
     pub chat_open: bool,
+    /// Semua perintah command palette, per grup — dirender sebagai submenu
+    /// burger menu supaya tiap perintah punya jalur klik di GUI.
+    pub command_groups: Vec<TopBarCommandGroup>,
 }
 
 pub struct TopBar;
@@ -256,6 +277,48 @@ impl TopBar {
                         {
                             event = Some(TopBarEvent::OpenDrawingSheet);
                             ui.close();
+                        }
+                        if !state.command_groups.is_empty() {
+                            ui.separator();
+                            ui.label(
+                                RichText::new(t!("menu-all-commands"))
+                                    .strong()
+                                    .size(10.5)
+                                    .color(TEXT_SECONDARY),
+                            );
+                            let max_h = ui.ctx().content_rect().height() * 0.6;
+                            for group in &state.command_groups {
+                                ui.menu_button(format!("{} {}", group.icon, group.title), |ui| {
+                                    ui.set_min_width(260.0);
+                                    egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
+                                        for cmd in &group.items {
+                                            let mut btn = egui::Button::new(cmd.label.as_str());
+                                            if !cmd.hint.is_empty() {
+                                                btn = btn.shortcut_text(cmd.hint.as_str());
+                                            }
+                                            if ui.add(btn).clicked() {
+                                                event = Some(TopBarEvent::RunCommand(cmd.index));
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                });
+                            }
+                            ui.separator();
+                            if ui
+                                .add(
+                                    egui::Button::new(format!(
+                                        "{} {}",
+                                        ICON_SEARCH.codepoint,
+                                        t!("menu-command-palette")
+                                    ))
+                                    .shortcut_text("⌘K"),
+                                )
+                                .clicked()
+                            {
+                                event = Some(TopBarEvent::OpenCommandPalette);
+                                ui.close();
+                            }
                         }
                     },
                 )
@@ -525,23 +588,8 @@ impl TopBar {
                         event = Some(TopBarEvent::OpenDrawingSheet);
                     }
 
-                    // 7. Tombol Assembly Mating & Joint Drawer (Pohon Rakitan)
-                    let assem_title = t!("assembly-tree-title");
-                    let assem_sub = t!("topbar-assembly-tooltip");
-                    let assem_btn = header_icon_btn(
-                        ui,
-                        ICON_CATEGORY.codepoint,
-                        icon_sz,
-                        state.assembly_drawer_open,
-                        &assem_title,
-                        None,
-                        Some(&assem_sub),
-                        None,
-                        None,
-                    );
-                    if assem_btn.clicked() {
-                        event = Some(TopBarEvent::ToggleAssemblyDrawer);
-                    }
+                    // Tombol Assembly kini berada di bar tombol mengambang pojok kanan bawah
+                    // (`app.rs`), dekat drawer yang dibukanya.
 
                     // 8a2. Chip status jembatan agent (P5.1).
                     if let Some(clients) = state.bridge_clients {
@@ -611,12 +659,6 @@ impl TopBar {
                             let ds_title = t!("topbar-drawing-sheet");
                             if ui.button(format!("  {} {}", ICON_PICTURE_AS_PDF.codepoint, ds_title)).clicked() {
                                 event = Some(TopBarEvent::OpenDrawingSheet);
-                                ui.close();
-                            }
-                            let assem_title = t!("assembly-tree-title");
-                            let a_chk = if state.assembly_drawer_open { "✔ " } else { "  " };
-                            if ui.button(format!("{}{} {}", a_chk, ICON_CATEGORY.codepoint, assem_title)).clicked() {
-                                event = Some(TopBarEvent::ToggleAssemblyDrawer);
                                 ui.close();
                             }
                             if let Some((pass, not_pass)) = state.checks_summary {
@@ -1092,9 +1134,9 @@ mod tests {
             icon_size: crate::theme::ICON_SIZE_DEFAULT,
             is_sketching: false,
             items_drawer_open: false,
-            assembly_drawer_open: false,
             section_view_active: false,
             is_measure_active: false,
+            command_groups: Vec::new(),
             zebra_view_active: false,
             studio_lighting_active: false,
             active_plane_name: "Top".to_string(),

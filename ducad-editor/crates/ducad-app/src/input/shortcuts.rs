@@ -3,7 +3,7 @@ use ducad_sketch::DeleteEntities;
 use eframe::egui;
 
 use crate::app::DuCADApp;
-use crate::types::{FileOp, PaletteAction, ToolKind, RADIAL_TOOLS};
+use crate::types::{FileOp, PaletteAction, PaletteGroup, ToolKind, RADIAL_TOOLS};
 
 impl DuCADApp {
     pub fn palette_actions(&self) -> Vec<(String, String, PaletteAction)> {
@@ -392,7 +392,35 @@ impl DuCADApp {
                 PaletteAction::ClearMeasurements,
             ));
         }
+        // Urut per grup (stabil) — palette dan burger menu menampilkan
+        // judul grup sekali saja.
+        actions.sort_by_key(|(_, _, action)| action.group());
         actions
+    }
+
+    /// Daftar `palette_actions` sebagai submenu burger menu: setiap perintah
+    /// palette punya jalur klik di GUI. `index` menunjuk ke `actions`.
+    pub fn topbar_command_groups(
+        actions: &[(String, String, PaletteAction)],
+    ) -> Vec<ducad_ui::TopBarCommandGroup> {
+        PaletteGroup::ALL
+            .iter()
+            .map(|&group| ducad_ui::TopBarCommandGroup {
+                icon: group.icon(),
+                title: group.title(),
+                items: actions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, _, action))| action.group() == group)
+                    .map(|(index, (label, hint, _))| ducad_ui::TopBarCommand {
+                        label: label.clone(),
+                        hint: hint.clone(),
+                        index,
+                    })
+                    .collect(),
+            })
+            .filter(|g| !g.items.is_empty())
+            .collect()
     }
 
     pub fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
@@ -673,5 +701,35 @@ impl DuCADApp {
             Some(snap) => format!("{hint}  ·  snap: {:?}", snap.kind),
             None => hint,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_palette_command_is_in_the_burger_menu() {
+        let app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        let groups = DuCADApp::topbar_command_groups(&actions);
+        let mut seen: Vec<usize> = groups
+            .iter()
+            .flat_map(|g| g.items.iter().map(|c| c.index))
+            .collect();
+        seen.sort_unstable();
+        assert_eq!(seen, (0..actions.len()).collect::<Vec<_>>());
+        for group in &groups {
+            for cmd in &group.items {
+                assert_eq!(cmd.label, actions[cmd.index].0);
+            }
+        }
+    }
+
+    #[test]
+    fn palette_actions_are_sorted_by_group() {
+        let app = DuCADApp::new_for_test();
+        let groups: Vec<_> = app.palette_actions().iter().map(|a| a.2.group()).collect();
+        assert!(groups.windows(2).all(|w| w[0] <= w[1]));
     }
 }

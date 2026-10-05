@@ -79,7 +79,7 @@ pub use mass_properties_panel::{
     MassPropertiesPanel, MassUnit,
 };
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
-pub use command_palette::CommandPalette;
+pub use command_palette::{CommandPalette, PaletteEntry};
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use context_bar::{ContextAction, ContextActionBar, VectorExtrudeBarState};
 pub use sketch_hud::{InkHudState, InkHudTool, SketchHud, SketchHudEvent};
@@ -123,7 +123,9 @@ pub use tool_popups::{
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, TextPopup, TextPopupState, ToolPopupEvent,
 };
-pub use top_bar::{TopBar, TopBarEvent, TopBarFileOp, TopBarState};
+pub use top_bar::{
+    TopBar, TopBarCommand, TopBarCommandGroup, TopBarEvent, TopBarFileOp, TopBarState,
+};
 pub use touch::{TouchDesignConfig, TouchDesignMode};
 pub use viewcube::{ViewCube, ViewCubeAction};
 pub use ducad_i18n::{current_language, set_language, t, Language};

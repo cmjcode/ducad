@@ -295,6 +295,109 @@ pub enum PaletteAction {
     ToggleInkSmartShape,
 }
 
+/// Grup perintah di command palette dan burger menu; urutan varian =
+/// urutan tampil.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PaletteGroup {
+    Ai,
+    Mode,
+    File,
+    Sketch,
+    Solid,
+    Analysis,
+    Edit,
+    View,
+}
+
+impl PaletteGroup {
+    pub const ALL: [PaletteGroup; 8] = [
+        PaletteGroup::Ai,
+        PaletteGroup::Mode,
+        PaletteGroup::File,
+        PaletteGroup::Sketch,
+        PaletteGroup::Solid,
+        PaletteGroup::Analysis,
+        PaletteGroup::Edit,
+        PaletteGroup::View,
+    ];
+
+    pub fn title(self) -> String {
+        match self {
+            PaletteGroup::Ai => ducad_i18n::t!("cmd-group-ai"),
+            PaletteGroup::Mode => ducad_i18n::t!("cmd-group-mode"),
+            PaletteGroup::File => ducad_i18n::t!("cmd-group-file"),
+            PaletteGroup::Sketch => ducad_i18n::t!("cmd-group-sketch"),
+            PaletteGroup::Solid => ducad_i18n::t!("cmd-group-solid"),
+            PaletteGroup::Analysis => ducad_i18n::t!("cmd-group-analysis"),
+            PaletteGroup::Edit => ducad_i18n::t!("cmd-group-edit"),
+            PaletteGroup::View => ducad_i18n::t!("cmd-group-view"),
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        use egui_icons::icons::*;
+        match self {
+            PaletteGroup::Ai => ICON_AUTO_AWESOME.codepoint,
+            PaletteGroup::Mode => ICON_LAYERS.codepoint,
+            PaletteGroup::File => ICON_DESCRIPTION.codepoint,
+            PaletteGroup::Sketch => ICON_EDIT.codepoint,
+            PaletteGroup::Solid => ICON_VIEW_IN_AR.codepoint,
+            PaletteGroup::Analysis => ICON_STRAIGHTEN.codepoint,
+            PaletteGroup::Edit => ICON_UNDO.codepoint,
+            PaletteGroup::View => ICON_TUNE.codepoint,
+        }
+    }
+}
+
+impl PaletteAction {
+    pub fn group(self) -> PaletteGroup {
+        match self {
+            PaletteAction::OpenAssist
+            | PaletteAction::OpenChat
+            | PaletteAction::ToggleAgentBridge => PaletteGroup::Ai,
+            PaletteAction::SetAppMode(_)
+            | PaletteAction::EnterSketching
+            | PaletteAction::ExitSketching
+            | PaletteAction::SetSketchPlane(_)
+            | PaletteAction::CreateDatumPlane => PaletteGroup::Mode,
+            PaletteAction::File(_) | PaletteAction::OpenDrawingSheet => PaletteGroup::File,
+            PaletteAction::SetTool(ToolKind::Measure | ToolKind::MeasureAngle)
+            | PaletteAction::ClearMeasurements
+            | PaletteAction::ToggleMassPanel
+            | PaletteAction::ToggleSimPanel
+            | PaletteAction::ToggleIndustryPanel
+            | PaletteAction::ToggleZebraView => PaletteGroup::Analysis,
+            PaletteAction::SetTool(
+                ToolKind::Extrude
+                | ToolKind::Revolve
+                | ToolKind::Loft
+                | ToolKind::Sweep
+                | ToolKind::Helix
+                | ToolKind::Shell
+                | ToolKind::Rib
+                | ToolKind::DraftAngle
+                | ToolKind::SplitBody
+                | ToolKind::Boolean
+                | ToolKind::DatumPlane,
+            )
+            | PaletteAction::OpenRevolveDialog => PaletteGroup::Solid,
+            PaletteAction::SetTool(_)
+            | PaletteAction::ToggleConstruction
+            | PaletteAction::ConvertToClosedObjects
+            | PaletteAction::ToggleInkSmartShape => PaletteGroup::Sketch,
+            PaletteAction::Undo
+            | PaletteAction::Redo
+            | PaletteAction::ModelUndo
+            | PaletteAction::ModelRedo
+            | PaletteAction::DeleteSelection => PaletteGroup::Edit,
+            PaletteAction::ToggleTheme
+            | PaletteAction::ToggleStudioLighting
+            | PaletteAction::SetTouchDesignMode(_)
+            | PaletteAction::TogglePalmRejection => PaletteGroup::View,
+        }
+    }
+}
+
 pub fn required_points(tool: ToolKind) -> usize {
     match tool {
         // Freehand tidak memakai klik titik: satu coretan penuh.
