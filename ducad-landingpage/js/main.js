@@ -107,7 +107,7 @@
         document.body.removeChild(textarea);
       }
 
-      btn.textContent = (copiedKey && i18n && i18n.t(copiedKey)) || "Copied ✓";
+      btn.textContent = (copiedKey && i18n && i18n.t(copiedKey)) || "Copied";
       btn.classList.add("is-copied");
       setTimeout(() => {
         btn.textContent = (restoreKey && i18n && i18n.t(restoreKey)) || originalLabel;
