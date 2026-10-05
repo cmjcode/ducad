@@ -3,7 +3,9 @@
 use serde::Serialize;
 use serde_json::json;
 
-use super::types::{BodySel, Check, CheckItem, CheckResult, CheckStatus};
+use super::types::{
+    BodySel, Check, CheckItem, CheckResult, CheckStatus, InertiaAxis, StackMethod,
+};
 use crate::inspect::round4;
 use crate::model::{BodyGeometry, ModelDoc};
 use crate::ops::{eval, eval_arr, Num, Params};
@@ -46,7 +48,8 @@ pub fn run_checks_on(
 ) -> Vec<CheckResult> {
     let ctx = Ctx {
         model,
-        params: &meta.design.params,
+        params: meta.design.effective_params(),
+        meta,
     };
     checks
         .iter()
@@ -124,12 +127,81 @@ type R = Result<Outcome, String>;
 
 struct Ctx<'a> {
     model: &'a ModelDoc,
-    params: &'a Params,
+    params: Params,
+    meta: &'a SessionMeta,
 }
 
 impl Ctx<'_> {
+    /// Model sheet metal body `name`.
+    fn sheet(&self, name: &str) -> Result<&ducad_core::SheetMetalModel, String> {
+        self.meta
+            .sheet_metal
+            .get(name)
+            .map(|s| &s.model)
+            .ok_or_else(|| format!("body '{name}' bukan part sheet metal (buat dengan op base_flange)"))
+    }
+
+    /// Id studi: `"*"` = satu-satunya studi di oplog yang jenisnya lolos
+    /// `wanted` (mis. hanya studi frekuensi untuk `min_natural_frequency`).
+    fn study_id(
+        &self,
+        study: &str,
+        what: &str,
+        wanted: impl Fn(crate::ops::StudyKind) -> bool,
+    ) -> Result<String, String> {
+        if study != "*" {
+            return Ok(study.to_string());
+        }
+        let all: Vec<String> = crate::sim::study_defs(self.meta)
+            .into_iter()
+            .filter(|(_, d)| wanted(d.kind))
+            .map(|(id, _)| id.to_string())
+            .collect();
+        match all.as_slice() {
+            [only] => Ok(only.clone()),
+            [] => Err(format!("tidak ada studi {what} di oplog")),
+            many => Err(format!(
+                "\"*\" butuh tepat satu studi {what}, ada {}; sebut id-nya",
+                many.len()
+            )),
+        }
+    }
+
+    /// Hasil segar studi tegangan `study` (`static` / `thermal_stress`).
+    fn study(&self, study: &str) -> Result<(String, &ducad_sim::SimReport), String> {
+        let id = self.study_id(study, "tegangan", |k| k.has_stress())?;
+        let report = crate::sim::fresh_result(self.model, self.meta, &id)?;
+        Ok((id, report))
+    }
+
+    /// Hasil segar studi frekuensi/buckling/termal berjenis `kind`.
+    fn analysis(
+        &self,
+        study: &str,
+        kind: crate::ops::StudyKind,
+    ) -> Result<(String, &crate::sim::AnalysisReport), String> {
+        let id = self.study_id(study, kind.name(), |k| k == kind)?;
+        let report = crate::sim::fresh_analysis(self.model, self.meta, &id)?;
+        Ok((id, report))
+    }
+
+    /// Densitas body (g/cm³): nilai eksplisit check, lalu material mekanik,
+    /// lalu perkiraan preset visual.
+    fn density(&self, name: &str, explicit: Option<f64>) -> Result<f64, String> {
+        if let Some(d) = explicit {
+            return Ok(d);
+        }
+        self.model
+            .doc
+            .bodies
+            .values()
+            .find(|b| b.name == name)
+            .and_then(|b| self.model.doc.density_of(b))
+            .ok_or_else(|| "densitas material tidak diketahui; isi density_g_cm3".to_string())
+    }
+
     fn num(&self, n: &Num) -> Result<f64, String> {
-        eval(n, self.params).map_err(|e| e.message)
+        eval(n, &self.params).map_err(|e| e.message)
     }
 
     fn all_bodies(&self) -> Vec<(String, &BodyGeometry)> {
@@ -254,7 +326,7 @@ impl Ctx<'_> {
             Check::BboxSize { body, expect, tol } => {
                 let (name, g) = self.one(body)?;
                 let size = bbox_size(g)?;
-                let e = eval_arr(expect, self.params).map_err(|e| e.message)?;
+                let e = eval_arr(expect, &self.params).map_err(|e| e.message)?;
                 let pass = (0..3).all(|i| (size[i] - e[i]).abs() <= *tol);
                 Ok(Outcome::new(
                     pass,
@@ -270,7 +342,7 @@ impl Ctx<'_> {
             Check::BboxMax { body, max } => {
                 let (name, g) = self.one(body)?;
                 let size = bbox_size(g)?;
-                let m = eval_arr(max, self.params).map_err(|e| e.message)?;
+                let m = eval_arr(max, &self.params).map_err(|e| e.message)?;
                 let pass = (0..3).all(|i| size[i] <= m[i] + 1e-3);
                 Ok(Outcome::new(
                     pass,
@@ -287,21 +359,7 @@ impl Ctx<'_> {
                 density_g_cm3,
             } => {
                 let (name, g) = self.one(body)?;
-                let density = match density_g_cm3 {
-                    Some(d) => *d,
-                    None => {
-                        let preset = self
-                            .model
-                            .doc
-                            .bodies
-                            .values()
-                            .find(|b| b.name == name)
-                            .map(|b| b.material.preset);
-                        preset
-                            .and_then(|p| p.density_g_cm3())
-                            .ok_or("densitas material tidak diketahui; isi density_g_cm3")?
-                    }
-                };
+                let density = self.density(&name, *density_g_cm3)?;
                 let grams = g.shape.volume().abs() / 1000.0 * density;
                 let lo = min_g.as_ref().map(|n| self.num(n)).transpose()?;
                 let hi = max_g.as_ref().map(|n| self.num(n)).transpose()?;
@@ -315,6 +373,262 @@ impl Ctx<'_> {
                     ),
                 )
                 .body(&name))
+            }
+            Check::CenterOfMass { body, expect, tol } => {
+                let (name, g) = self.one(body)?;
+                let want = [
+                    self.num(&expect[0])?,
+                    self.num(&expect[1])?,
+                    self.num(&expect[2])?,
+                ];
+                let mp = g.shape.mass_properties();
+                if mp.volume_mm3 <= 1e-9 {
+                    return Err("body tidak bervolume; pusat massa tidak terdefinisi".into());
+                }
+                let got = mp.centroid;
+                let pass = got.iter().zip(want).all(|(a, b)| (a - b).abs() <= *tol);
+                Ok(Outcome::new(
+                    pass,
+                    json!(got.map(round4)),
+                    json!({ "expect": want, "tol": tol }),
+                    format!(
+                        "pusat massa [{:.3}, {:.3}, {:.3}] mm, diharapkan [{}, {}, {}] ± {tol}",
+                        got[0], got[1], got[2], want[0], want[1], want[2]
+                    ),
+                )
+                .body(&name)
+                .at(Some(got.map(round4))))
+            }
+            Check::MomentOfInertia {
+                body,
+                axis,
+                min,
+                max,
+                density_g_cm3,
+            } => {
+                let (name, g) = self.one(body)?;
+                let density = self.density(&name, *density_g_cm3)?;
+                let mp = g.shape.mass_properties();
+                let rho = density / 1000.0;
+                let com = mp.inertia_com();
+                let (principal, _) = mp.principal();
+                let value = rho
+                    * match axis {
+                        InertiaAxis::X => com[0][0],
+                        InertiaAxis::Y => com[1][1],
+                        InertiaAxis::Z => com[2][2],
+                        InertiaAxis::PrincipalMin => principal[0],
+                        InertiaAxis::PrincipalMid => principal[1],
+                        InertiaAxis::PrincipalMax => principal[2],
+                    };
+                let lo = min.as_ref().map(|n| self.num(n)).transpose()?;
+                let hi = max.as_ref().map(|n| self.num(n)).transpose()?;
+                let pass = lo.is_none_or(|l| value >= l) && hi.is_none_or(|h| value <= h);
+                Ok(Outcome::new(
+                    pass,
+                    json!(round4(value)),
+                    json!({ "axis": axis, "min": lo, "max": hi, "density_g_cm3": density }),
+                    format!(
+                        "momen inersia {value:.2} g·mm² (densitas {density} g/cm³), batas [{lo:?}, {hi:?}]"
+                    ),
+                )
+                .body(&name))
+            }
+            Check::MaxStress { study, max_mpa } => {
+                let (id, r) = self.study(study)?;
+                let limit = self.num(max_mpa)?;
+                let v = r.max_von_mises_mpa;
+                Ok(Outcome::new(
+                    v <= limit,
+                    json!(round4(v)),
+                    json!({ "study": id, "max_mpa": limit }),
+                    format!("von Mises maksimum {v:.3} MPa, batas {limit} MPa (studi '{id}')"),
+                )
+                .at(Some(r.location.map(round4))))
+            }
+            Check::MaxDisplacement { study, max_mm } => {
+                let (id, r) = self.study(study)?;
+                let limit = self.num(max_mm)?;
+                let v = r.max_displacement_mm;
+                Ok(Outcome::new(
+                    v <= limit,
+                    json!((v * 1e6).round() / 1e6),
+                    json!({ "study": id, "max_mm": limit }),
+                    format!("deformasi maksimum {v:.5} mm, batas {limit} mm (studi '{id}')"),
+                ))
+            }
+            Check::MinSafetyFactor { study, min } => {
+                let (id, r) = self.study(study)?;
+                let limit = self.num(min)?;
+                let v = r.safety_factor;
+                Ok(Outcome::new(
+                    v >= limit,
+                    json!(round4(v)),
+                    json!({ "study": id, "min": limit }),
+                    format!("faktor keamanan {v:.3}, minimum {limit} (studi '{id}')"),
+                )
+                .at(Some(r.location.map(round4))))
+            }
+            Check::MinNaturalFrequency { study, min_hz } => {
+                let (id, r) = self.analysis(study, crate::ops::StudyKind::Frequency)?;
+                let limit = self.num(min_hz)?;
+                let crate::sim::AnalysisReport::Frequency(r) = r else {
+                    return Err(format!("studi '{id}' bukan studi frekuensi"));
+                };
+                let v = r
+                    .frequencies_hz
+                    .first()
+                    .copied()
+                    .ok_or_else(|| format!("studi '{id}' tidak menghasilkan mode"))?;
+                Ok(Outcome::new(
+                    v >= limit,
+                    json!(round4(v)),
+                    json!({ "study": id, "min_hz": limit }),
+                    format!("frekuensi natural pertama {v:.3} Hz, minimum {limit} Hz (studi '{id}')"),
+                ))
+            }
+            Check::MinBucklingFactor { study, min } => {
+                let (id, r) = self.analysis(study, crate::ops::StudyKind::Buckling)?;
+                let limit = self.num(min)?;
+                let crate::sim::AnalysisReport::Buckling(r) = r else {
+                    return Err(format!("studi '{id}' bukan studi buckling"));
+                };
+                // Tanpa faktor = beban tidak menimbulkan tekuk → lulus.
+                Ok(match r.load_factors.first().copied() {
+                    Some(v) => Outcome::new(
+                        v >= limit,
+                        json!(round4(v)),
+                        json!({ "study": id, "min": limit }),
+                        format!("faktor tekuk kritis {v:.3}, minimum {limit} (studi '{id}')"),
+                    ),
+                    None => Outcome::new(
+                        true,
+                        serde_json::Value::Null,
+                        json!({ "study": id, "min": limit }),
+                        format!("beban studi '{id}' tidak menimbulkan tekuk"),
+                    ),
+                })
+            }
+            Check::MaxTemperature { study, max_c } => {
+                let (id, r) = self.analysis(study, crate::ops::StudyKind::Thermal)?;
+                let limit = self.num(max_c)?;
+                let crate::sim::AnalysisReport::Thermal(r) = r else {
+                    return Err(format!("studi '{id}' bukan studi termal"));
+                };
+                let v = r.max_temperature_c;
+                Ok(Outcome::new(
+                    v <= limit,
+                    json!(round4(v)),
+                    json!({ "study": id, "max_c": limit }),
+                    format!("suhu maksimum {v:.2} °C, batas {limit} °C (studi '{id}')"),
+                )
+                .at(Some(r.location.map(round4))))
+            }
+            Check::MinBendRadius {
+                body,
+                min_ratio_to_t,
+            } => {
+                let (name, _) = self.one(body)?;
+                let limit = self.num(min_ratio_to_t)?;
+                let model = self.sheet(&name)?;
+                let Some(ratio) = model.min_bend_ratio() else {
+                    return Ok(Outcome::new(
+                        true,
+                        serde_json::Value::Null,
+                        json!({ "min_ratio_to_t": limit }),
+                        "part pelat tanpa tekukan".to_string(),
+                    )
+                    .body(&name));
+                };
+                Ok(Outcome::new(
+                    ratio + 1e-9 >= limit,
+                    json!(round4(ratio)),
+                    json!({ "min_ratio_to_t": limit, "thickness": model.thickness }),
+                    format!(
+                        "radius tekuk terkecil {:.3} mm = {ratio:.3} × tebal {} mm, minimum {limit} × tebal",
+                        ratio * model.thickness,
+                        model.thickness
+                    ),
+                )
+                .body(&name))
+            }
+            Check::MinFlangeLength { body, min } => {
+                let (name, _) = self.one(body)?;
+                let limit = self.num(min)?;
+                let model = self.sheet(&name)?;
+                let Some(shortest) = model.min_flange_length() else {
+                    return Ok(Outcome::new(
+                        true,
+                        serde_json::Value::Null,
+                        json!({ "min": limit }),
+                        "part pelat tanpa flange".to_string(),
+                    )
+                    .body(&name));
+                };
+                Ok(Outcome::new(
+                    shortest + 1e-9 >= limit,
+                    json!(round4(shortest)),
+                    json!({ "min": limit }),
+                    format!("flange terpendek {shortest:.3} mm, minimum {limit} mm"),
+                )
+                .body(&name))
+            }
+            Check::ToleranceStackup {
+                chain,
+                max_total,
+                method,
+            } => {
+                let limit = self.num(max_total)?;
+                if chain.is_empty() {
+                    return Err("rantai toleransi kosong".into());
+                }
+                let mut links = Vec::with_capacity(chain.len());
+                for (i, link) in chain.iter().enumerate() {
+                    let nominal = self.num(&link.nominal)?;
+                    let (plus, minus) = match (&link.fit, &link.plus, &link.minus) {
+                        (Some(fit), None, None) => {
+                            let fit = ducad_core::IsoFit::parse(fit)
+                                .map_err(|e| format!("mata rantai {i}: {e}"))?;
+                            let (upper, lower) = ducad_core::iso286::limits(nominal.abs(), &fit)
+                                .map_err(|e| format!("mata rantai {i}: {e}"))?;
+                            (upper, -lower)
+                        }
+                        (None, plus, minus) => (
+                            plus.as_ref().map(|n| self.num(n)).transpose()?.unwrap_or(0.0),
+                            minus.as_ref().map(|n| self.num(n)).transpose()?.unwrap_or(0.0),
+                        ),
+                        _ => {
+                            return Err(format!(
+                                "mata rantai {i}: isi `fit` ATAU `plus`/`minus`, jangan keduanya"
+                            ))
+                        }
+                    };
+                    // Mata rantai berlawanan arah: nominal dikurangkan, batas bertukar.
+                    links.push(if link.reverse {
+                        (-nominal, minus, plus)
+                    } else {
+                        (nominal, plus, minus)
+                    });
+                }
+                let r = ducad_core::drawing_annot::tolerance_stackup(&links);
+                let total = match method {
+                    StackMethod::WorstCase => r.worst_case_total(),
+                    StackMethod::Rss => r.rss_total(),
+                };
+                Ok(Outcome::new(
+                    total <= limit + 1e-12,
+                    json!({
+                        "nominal": round4(r.nominal),
+                        "total": round4(total),
+                        "worst_case": [round4(r.worst_case_plus), round4(r.worst_case_minus)],
+                        "rss": [round4(r.rss_plus), round4(r.rss_minus)],
+                    }),
+                    json!({ "max_total": limit, "method": method }),
+                    format!(
+                        "tumpukan toleransi {total:.4} mm pada nominal {:.4} mm, batas {limit} mm",
+                        r.nominal
+                    ),
+                ))
             }
             Check::MinWall { body, min } => {
                 let (name, g) = self.one(body)?;
@@ -420,7 +734,8 @@ pub fn resolve_min_wall(
     };
     let ctx = Ctx {
         model,
-        params: &meta.design.params,
+        params: meta.design.effective_params(),
+        meta,
     };
     let (name, _) = ctx.one(body).ok()?;
     Some((name, ctx.num(min).ok()?))

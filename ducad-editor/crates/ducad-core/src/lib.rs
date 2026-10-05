@@ -8,6 +8,30 @@ use slotmap::SlotMap;
 pub mod hole;
 pub use hole::{HoleKind, HoleSpec, IsoMetricThread};
 
+pub mod material;
+pub use material::{
+    library_material, material_library, LibraryMaterial, Material, MaterialPreset, MaterialSource,
+    MechanicalProperties,
+};
+
+pub mod configuration;
+pub use configuration::{
+    design_table_from_csv, design_table_to_csv, valid_configuration_name, Configuration,
+    DEFAULT_CONFIGURATION,
+};
+
+pub mod sheet_metal;
+pub use sheet_metal::{
+    bend_allowance, bend_deduction, default_k_factor, BendLine, BendSegment, BendTable, Flange,
+    FlatPattern, ReliefKind, SectionSegment, SheetMetalModel, DEFAULT_K_FACTOR,
+};
+
+pub mod standard_parts;
+pub use standard_parts::{standard_part, StandardKind, StandardPart, StandardShape};
+
+pub mod coupling;
+pub use coupling::{AxisLine, Coupling, CouplingKind, ExplodeStep};
+
 pub mod undo;
 // `Command`/`UndoStack` dipindah ke modul `undo` (lihat catatan modulnya)
 // dan di-re-export di sini supaya seluruh pemanggil lama tidak berubah.
@@ -27,9 +51,14 @@ pub use external::{
 pub mod assembly;
 pub use assembly::{
     AssemblyInstance, AssemblyInstanceId, AssemblyTree, ClashItem, ClashReport, DegreesOfFreedom,
-    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind, MotionStudy,
-    SubAssembly, SubAssemblyId,
+    MateConstraint, MateConstraintId, MateKind, MateStatus, MateTarget, MateTargetKind,
+    MotionStudy, SubAssembly, SubAssemblyId,
 };
+
+pub mod iso286;
+pub use iso286::IsoFit;
+
+pub mod drawing_annot;
 
 /// Satuan ukuran panjang yang didukung untuk tampilan dan input dimensi.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -109,130 +138,6 @@ impl LengthUnit {
     }
 }
 
-/// Preset material standar untuk desain industri dan presentasi CMF (Color, Material, Finish).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MaterialPreset {
-    /// Plastik matte bertekstur (ABS / PC) — sebaran difus lembut bebas silau.
-    MattePlastic,
-    /// Plastik licin berkilau tinggi — pantulan specular tajam dengan lapisan clearcoat mengkilap.
-    GlossyPlastic,
-    /// Aluminium anodisasi sikat / satin — karakter metalik tinggi dengan pantulan satin elegan.
-    AnodizedAluminum,
-    /// Krom poles cermin / stainless steel — refleksi metalik penuh mengkilap dan kontras tinggi.
-    PolishedChrome,
-    /// Kaca tembus pandang / akrilik jernih — transparansi alpha blending dengan efek pendaran tepi Fresnel.
-    TranslucentGlass,
-    /// Nilai parameter kustom dari pengguna.
-    Custom,
-}
-
-impl MaterialPreset {
-    pub fn all() -> &'static [MaterialPreset] {
-        &[
-            MaterialPreset::MattePlastic,
-            MaterialPreset::GlossyPlastic,
-            MaterialPreset::AnodizedAluminum,
-            MaterialPreset::PolishedChrome,
-            MaterialPreset::TranslucentGlass,
-            MaterialPreset::Custom,
-        ]
-    }
-
-    /// Densitas perkiraan (g/cm³) untuk check massa: plastik 1,20;
-    /// aluminium 2,70; krom/baja 7,85; kaca 2,50. `Custom` tidak diketahui.
-    pub fn density_g_cm3(self) -> Option<f64> {
-        match self {
-            MaterialPreset::MattePlastic | MaterialPreset::GlossyPlastic => Some(1.20),
-            MaterialPreset::AnodizedAluminum => Some(2.70),
-            MaterialPreset::PolishedChrome => Some(7.85),
-            MaterialPreset::TranslucentGlass => Some(2.50),
-            MaterialPreset::Custom => None,
-        }
-    }
-}
-
-/// Definisi material fisik (PBR - Physically-Based Rendering) untuk sebuah solid body 3D.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Material {
-    pub preset: MaterialPreset,
-    /// Warna dasar Albedo RGBA (termasuk alpha / opacity untuk material tembus pandang seperti kaca).
-    pub base_color: [f32; 4],
-    /// Kekasaran permukaan (0.0 = cermin licin / glossy, 1.0 = difus kasar / matte).
-    pub roughness: f32,
-    /// Tingkat metalisitas (0.0 = dielektrik / plastik / kaca, 1.0 = metal / chrome / aluminium).
-    pub metallic: f32,
-    /// Lapisan kilau bening tambahan (clearcoat layer, 0.0 s/d 1.0).
-    pub clearcoat: f32,
-}
-
-impl Default for Material {
-    fn default() -> Self {
-        Self::matte_plastic(Some([0.62, 0.68, 0.76, 1.0]))
-    }
-}
-
-impl Material {
-    /// Buat material Plastik Matte (ABS/PC).
-    pub fn matte_plastic(color: Option<[f32; 4]>) -> Self {
-        Self {
-            preset: MaterialPreset::MattePlastic,
-            base_color: color.unwrap_or([0.22, 0.24, 0.27, 1.0]), // Charcoal ABS
-            roughness: 0.75,
-            metallic: 0.0,
-            clearcoat: 0.0,
-        }
-    }
-
-    /// Buat material Plastik Glossy / Licin.
-    pub fn glossy_plastic(color: Option<[f32; 4]>) -> Self {
-        Self {
-            preset: MaterialPreset::GlossyPlastic,
-            base_color: color.unwrap_or([0.96, 0.38, 0.12, 1.0]), // Vibrant Industrial Orange
-            roughness: 0.10,
-            metallic: 0.0,
-            clearcoat: 0.90,
-        }
-    }
-
-    /// Buat material Aluminium Anodisasi Satin / Brushed.
-    pub fn anodized_aluminum(color: Option<[f32; 4]>) -> Self {
-        Self {
-            preset: MaterialPreset::AnodizedAluminum,
-            base_color: color.unwrap_or([0.72, 0.75, 0.80, 1.0]), // Space Gray Aluminum
-            roughness: 0.32,
-            metallic: 0.95,
-            clearcoat: 0.10,
-        }
-    }
-
-    /// Buat material Polished Chrome / Stainless Steel.
-    pub fn polished_chrome(color: Option<[f32; 4]>) -> Self {
-        Self {
-            preset: MaterialPreset::PolishedChrome,
-            base_color: color.unwrap_or([0.92, 0.94, 0.96, 1.0]), // Mirror Chrome
-            roughness: 0.03,
-            metallic: 1.0,
-            clearcoat: 0.0,
-        }
-    }
-
-    /// Buat material Kaca Transparan / Clear Acrylic.
-    pub fn translucent_glass(color: Option<[f32; 4]>) -> Self {
-        Self {
-            preset: MaterialPreset::TranslucentGlass,
-            base_color: color.unwrap_or([0.75, 0.88, 0.96, 0.38]), // Clear Ice Blue
-            roughness: 0.08,
-            metallic: 0.0,
-            clearcoat: 1.0,
-        }
-    }
-
-    /// Apakah material ini tembus pandang (alpha < 0.99).
-    pub fn is_translucent(&self) -> bool {
-        self.base_color[3] < 0.99
-    }
-}
-
 slotmap::new_key_type! {
     /// Identitas stabil sebuah body di dokumen.
     pub struct BodyId;
@@ -246,6 +151,10 @@ pub struct Body {
     pub visible: bool,
     #[serde(default)]
     pub material: Material,
+    /// Material mekanik (P16): sumber densitas/E/ν untuk properti massa dan
+    /// simulasi. `None` = belum dipilih; densitas jatuh ke preset visual.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanical: Option<MaterialSource>,
     /// Identitas STABIL body lintas simpan/muat (dirujuk berkas perakitan
     /// lain). Diisi saat body dibuat dan disalin apa adanya dari/ke file
     /// native — dulu app menulis `uuid: None` sehingga nilainya berganti
@@ -260,6 +169,9 @@ pub struct Document {
     pub bodies: SlotMap<BodyId, Body>,
     pub dirty: bool,
     pub unit: LengthUnit,
+    /// Material mekanik kustom milik berkas ini (kunci → sifat), dirujuk
+    /// `MaterialSource::Library` sebelum pustaka bawaan.
+    pub material_library: Vec<(String, MechanicalProperties)>,
 }
 
 impl Document {
@@ -267,14 +179,35 @@ impl Document {
         self.add_body_with_material(name, Material::default())
     }
 
-    pub fn add_body_with_material(&mut self, name: impl Into<String>, material: Material) -> BodyId {
+    pub fn add_body_with_material(
+        &mut self,
+        name: impl Into<String>,
+        material: Material,
+    ) -> BodyId {
         self.dirty = true;
         self.bodies.insert(Body {
             name: name.into(),
             visible: true,
             material,
+            mechanical: None,
             uuid: crate::new_part_uuid(),
         })
+    }
+
+    /// Sifat mekanik body (pustaka kustom berkas didahulukan).
+    pub fn mechanical_of(&self, body: &Body) -> Option<MechanicalProperties> {
+        body.mechanical
+            .as_ref()
+            .and_then(|m| m.resolve(&self.material_library))
+    }
+
+    /// Densitas body (g/cm³): material mekanik bila ada, selain itu
+    /// perkiraan dari preset visual.
+    pub fn density_of(&self, body: &Body) -> Option<f64> {
+        match &body.mechanical {
+            Some(m) => m.density_g_cm3(&self.material_library),
+            None => body.material.preset.density_g_cm3(),
+        }
     }
 }
 

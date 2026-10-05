@@ -44,7 +44,7 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, mut err: OpError) -> OpE
     } else {
         err.context = json!({ "candidates": listed });
     }
-    let params = core.meta.design.params.clone();
+    let params = core.meta.design.effective_params();
     let candidates = order
         .iter()
         .map(|i| {

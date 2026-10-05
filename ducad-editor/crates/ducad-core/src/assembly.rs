@@ -34,9 +34,7 @@ pub enum MateTargetKind {
         radius: f64,
     },
     /// Titik sudut / titik acuan 3D (Point / Vertex).
-    Point {
-        pos: (f64, f64, f64),
-    },
+    Point { pos: (f64, f64, f64) },
 }
 
 impl MateTargetKind {
@@ -73,10 +71,7 @@ pub enum MateKind {
         opposite_normal: bool,
     },
     /// Menetapkan jarak terukur offset $d$ mm antara dua permukaan/titik acuan.
-    Distance {
-        offset: f64,
-        opposite_normal: bool,
-    },
+    Distance { offset: f64, opposite_normal: bool },
     /// Menetapkan sudut rotasi engsel $\theta^\circ$ antara dua bidang atau garis acuan.
     Angle {
         angle_deg: f64,
@@ -496,6 +491,13 @@ pub struct AssemblyTree {
     /// Studi gerak yang didefinisikan pada perakitan ini.
     #[serde(default)]
     pub motion_studies: Vec<MotionStudy>,
+    /// Mate lanjutan berupa hubungan gerak (gear, screw, rack-pinion) —
+    /// lihat `crate::coupling`. Dievaluasi setelah solver mate.
+    #[serde(default)]
+    pub couplings: Vec<crate::coupling::Coupling>,
+    /// Langkah urai berurutan (*exploded view*); melengkapi `explode_offset`.
+    #[serde(default)]
+    pub explode_steps: Vec<crate::coupling::ExplodeStep>,
     pub sub_assemblies: HashMap<SubAssemblyId, SubAssembly>,
     pub mates: HashMap<MateConstraintId, MateConstraint>,
     pub next_instance_id: AssemblyInstanceId,
@@ -509,6 +511,8 @@ impl Default for AssemblyTree {
             instances: HashMap::new(),
             explode_factor: 0.0,
             motion_studies: Vec::new(),
+            couplings: Vec::new(),
+            explode_steps: Vec::new(),
             sub_assemblies: HashMap::new(),
             mates: HashMap::new(),
             next_instance_id: 1,
@@ -525,7 +529,11 @@ impl AssemblyTree {
 
     /// Tambahkan instance part baru ke perakitan.
     /// Jika ini instance pertama dalam perakitan, otomatis jadikan `is_grounded = true`.
-    pub fn add_instance(&mut self, name: impl Into<String>, body_id_raw: u64) -> AssemblyInstanceId {
+    pub fn add_instance(
+        &mut self,
+        name: impl Into<String>,
+        body_id_raw: u64,
+    ) -> AssemblyInstanceId {
         let id = self.next_instance_id;
         self.next_instance_id += 1;
         let is_first = self.instances.is_empty();
@@ -622,14 +630,17 @@ impl AssemblyTree {
             } else {
                 self.top_level_parent(inst.parent_sub_assembly)
             };
-            let entry = rows.entry((group, key_id.clone())).or_insert_with(|| BomRow {
-                item: 0,
-                part_number: inst.part_number.clone(),
-                name: inst.name.clone(),
-                material: inst.material.clone(),
-                quantity: 0,
-                sub_assembly: group.and_then(|g| self.sub_assemblies.get(&g).map(|s| s.name.clone())),
-            });
+            let entry = rows
+                .entry((group, key_id.clone()))
+                .or_insert_with(|| BomRow {
+                    item: 0,
+                    part_number: inst.part_number.clone(),
+                    name: inst.name.clone(),
+                    material: inst.material.clone(),
+                    quantity: 0,
+                    sub_assembly: group
+                        .and_then(|g| self.sub_assemblies.get(&g).map(|s| s.name.clone())),
+                });
             entry.quantity += 1;
         }
 
@@ -710,7 +721,9 @@ impl AssemblyTree {
     }
 
     /// Instance yang geometrinya berasal dari berkas lain.
-    pub fn external_instances(&self) -> impl Iterator<Item = (AssemblyInstanceId, &crate::external::ExternalPartRef)> {
+    pub fn external_instances(
+        &self,
+    ) -> impl Iterator<Item = (AssemblyInstanceId, &crate::external::ExternalPartRef)> {
         self.instances.iter().filter_map(|(id, inst)| {
             inst.source
                 .as_ref()
@@ -735,7 +748,9 @@ impl AssemblyTree {
             inst.explode_offset.1,
             inst.explode_offset.2,
         );
-        Some((t + off * f, q))
+        // Langkah urai berurutan (P20) ditambahkan di atas offset radial.
+        let (shift, spin) = self.explode_step_pose(id);
+        Some((t + off * f + shift, spin * q))
     }
 
     /// Isi `explode_offset` tiap instance secara RADIAL dari pusat
@@ -787,7 +802,11 @@ impl AssemblyTree {
 
     /// Apakah menjadikan `new_parent` sebagai induk `sub` akan membuat
     /// siklus. Dipakai UI sebelum memindahkan node di pohon perakitan.
-    pub fn would_create_cycle(&self, sub: SubAssemblyId, new_parent: Option<SubAssemblyId>) -> bool {
+    pub fn would_create_cycle(
+        &self,
+        sub: SubAssemblyId,
+        new_parent: Option<SubAssemblyId>,
+    ) -> bool {
         let mut cursor = new_parent;
         let mut steps = 0;
         while let Some(cur) = cursor {
@@ -1080,7 +1099,6 @@ impl ClashReport {
         self.evaluated_pairs = 0;
     }
 }
-
 
 #[cfg(test)]
 mod hierarchy_tests {
@@ -1458,7 +1476,11 @@ mod bom_tests {
         let csv = row.to_csv_row();
         assert!(csv.contains("\"Bracket, Left\""), "csv: {csv}");
         assert!(csv.contains("\"Alu \"\"6061\"\"\""), "csv: {csv}");
-        assert_eq!(csv.matches(',').count(), 5 + 1, "koma pemisah + 1 di dalam kutip");
+        assert_eq!(
+            csv.matches(',').count(),
+            5 + 1,
+            "koma pemisah + 1 di dalam kutip"
+        );
     }
 
     #[test]

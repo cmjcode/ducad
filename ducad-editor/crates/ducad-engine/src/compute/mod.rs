@@ -14,7 +14,9 @@ pub mod hole;
 pub mod pattern;
 pub mod primitive;
 pub mod round;
+pub mod sheet_metal;
 pub mod sketch;
+pub mod standard;
 pub mod solid;
 
 pub use hole::hole;

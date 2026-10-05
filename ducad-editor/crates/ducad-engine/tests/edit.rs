@@ -196,6 +196,10 @@ fn examples_replay() {
         s.set_checks(f.checks);
         let r = s.run(f.ops, false);
         assert!(r.committed, "{name}: {:?}", r.error);
+        // Check studi butuh hasil simulasi yang segar.
+        for (id, result) in s.run_all_studies(&ducad_sim::CancelToken::new()) {
+            assert!(result.is_ok(), "{name}/{id}: {:?}", result.err());
+        }
         let checks = s.run_checks(None);
         assert_eq!(
             checks.fail + checks.error,

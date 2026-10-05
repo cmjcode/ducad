@@ -375,7 +375,7 @@ impl DuCADApp {
     }
 
     /// Folder tempat `save_part`/`save_svg` jembatan boleh menulis.
-    fn bridge_root(&self) -> PathBuf {
+    pub(crate) fn bridge_root(&self) -> PathBuf {
         self.current_file_path
             .as_ref()
             .and_then(|p| p.parent().map(PathBuf::from))
@@ -387,7 +387,7 @@ impl DuCADApp {
     /// berbeda (pengguna mengedit manual atau menekan undo) → mode adopsi:
     /// body saat ini menjadi `base_bodies`, oplog dikosongkan, dan
     /// peringatan `"oplog_stale"` ditambahkan.
-    fn sync_agent_meta(&mut self) {
+    pub(crate) fn sync_agent_meta(&mut self) {
         let fp = ducad_engine::session::fingerprint(&self.model);
         if self.agent_meta.design.fingerprint == fp {
             return;
@@ -395,14 +395,18 @@ impl DuCADApp {
         let had_work = !self.agent_meta.design.oplog.is_empty()
             || !self.agent_meta.design.fingerprint.is_empty();
         let base_bodies = self
-            .native_body_refs()
-            .into_iter()
-            .filter_map(|(name, visible, material, shape)| {
+            .model
+            .doc
+            .bodies
+            .iter()
+            .filter_map(|(id, meta)| {
+                let shape = &self.model.geometry.get(id)?.shape;
                 Some(ducad_io::native::NativeBody {
-                    name: name.to_string(),
+                    name: meta.name.clone(),
                     uuid: ducad_core::new_part_uuid(),
-                    visible,
-                    material,
+                    visible: meta.visible,
+                    material: meta.material,
+                    mechanical: meta.mechanical.clone(),
                     step: shape.to_step_string().ok()?,
                     round_history: None,
                 })
@@ -611,7 +615,7 @@ impl DuCADApp {
     /// `replace_op` / `remove_op`: edit oplog, replay di sesi salinan, lalu
     /// adopsi sebagai SATU langkah undo GUI (`dry_run`: hanya laporan).
     #[allow(clippy::result_large_err)]
-    fn agent_edit_oplog(&mut self, method: &str, params: Value) -> OpResult<ToolOut> {
+    pub(crate) fn agent_edit_oplog(&mut self, method: &str, params: Value) -> OpResult<ToolOut> {
         let e = ducad_engine::tooling::parse_edit_args(method, params)?;
         // Id op yang tidak dikenal → `Err` (sama dengan server MCP).
         ducad_engine::edit_design(&self.agent_meta.design, None, &e.replace, &e.remove, &[])?;

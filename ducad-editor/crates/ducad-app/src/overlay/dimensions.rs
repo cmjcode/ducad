@@ -746,6 +746,8 @@ impl DuCADApp {
         if self.show_all_dimensions {
             self.render_all_element_dimensions(ui, rect);
         }
+        self.paint_sim_overlay(ui, rect);
+        self.paint_mass_marker(ui, rect);
 
         // Mate HUD sekarang di-render oleh show_mate_hud_ctx() di luar CentralPanel
         // agar klik tombol Apply tidak terblokir oleh Sense::click_and_drag canvas.

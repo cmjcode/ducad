@@ -2930,6 +2930,75 @@ Jalur konversi kurva vektor bergaya menjadi solid 3D B-rep parametrik (`ducad-en
 - [x] **M3.5 — CLI, MCP, SKILL, contoh.** Eksekusi `ducad-cli run` dan `inspect` menampilkan `material.base_color`, `render` menghasilkan SVG/PNG berwarna sesuai warna material, `build` deterministik (STEP + PNG + report.json hash identik), MCP tool description terbarui, dan dokumentasi `SKILL.md`.
 
 
+## Status Fase P16 — Properti massa + pustaka material mekanik
+
+Rencana: `P16-P20-simulasi-dan-fitur-industri.md` (akar repo).
+
+- [x] **Kernel.** `KernelShape::mass_properties` (volume, pusat massa, tensor inersia eksak `BRepGProp`) + `principal_axes` (Jacobi 3×3) dan teorema sumbu sejajar di `ducad-kernel/src/mass.rs`. Tanpa binding cxx baru: tensor disusun dari `MomentOfInertia` pada enam sumbu, jadi OCCT tidak dibangun ulang.
+- [x] **Core.** `ducad-core/src/material.rs`: `MechanicalProperties`, pustaka 13 bahan, `MaterialSource`; `Body.mechanical` dan `Document.material_library` (`#[serde(default)]`, berkas lama tetap terbaca).
+- [x] **Engine.** `Op::SetMaterial`, `inspect` (pusat massa, `inertia_com`/`inertia_origin`, momen & sumbu utama, radius girasi, `mechanical`, `assembly`), checks `center_of_mass` dan `moment_of_inertia`; `Check::Mass` memakai densitas material mekanik.
+- [x] **CLI/MCP/skill.** `ducad-cli inspect --mass`; `inspect` MCP membawa field baru (jumlah tool tetap); contoh `mass_bracket`.
+- [x] **GUI.** Panel "Properti Massa" (command palette) dengan pilihan satuan, tombol salin, pemilih material mekanik (pustaka + kustom), dan penanda pusat massa + sumbu utama di viewport.
+- [ ] **Belum:** `cargo deny check licenses` (cargo-deny tidak terpasang di mesin pengembang saat fase ini dikerjakan — jalankan di CI); uji manual GUI di `CEKLIS_UJI_GUI.md` bagian P16; agregat massa perakitan `AssemblyTree` dengan transformasi mate (yang ada: gabungan semua body sesi di posisi dunianya + `inspect::aggregate_mass` untuk pemanggil perakitan).
+
+
+## Status Fase P17 — Simulasi statik linier (mesh hex voxel)
+
+- [x] **`ducad-sim`.** Voxelizer (parity scanline, tag face per sisi sel, koreksi volume), Hex8 + mode inkompatibel Wilson–Taylor, CSR, PCG. Menyimpang dari rencana: prekondisi dua-tingkat (block Jacobi + koreksi kasar mode kaku) menggantikan Jacobi murni, karena Jacobi butuh 3.400–6.800 iterasi pada pelat tipis; iterasi maksimum `max(20·√n, 2000)`. Tanpa kernel/GUI (`sim_has_no_kernel_or_gui_dependency`). Angka benchmark: `docs/SIM_VALIDATION.md`.
+- [x] **Engine.** `Op::Study` (disimpan di oplog, tidak membuat body, tidak menjalankan solver), `sim::run_study` dengan cache per tanda tangan (mesh + material + setup) di `SessionMeta::sim_results`, checks `max_stress` / `max_displacement` / `min_safety_factor` (status `error` bila belum dijalankan atau basi), kode error `sim_*`.
+- [x] **MCP/CLI.** Tool `simulate_static` (27 tool), `render_view` dengan `overlay` + `deform_scale`, `ducad-cli sim`, `ducad-cli build` menulis `sim/<id>.json` + `sim/<id>-stress.png` dan keluar kode 3 bila check gagal.
+- [x] **GUI.** Panel "Simulasi" (command palette): daftar studi, penyusun studi dari face yang diklik, Jalankan/Batal di thread latar, ringkasan hasil, legenda, skala deformasi; hasil lama redup.
+- [ ] **Menyimpang / belum:**
+  - Heatmap viewport digambar sebagai overlay egui berwarna per-sudut (diurut kedalaman tiap frame), **bukan** atribut vertex + `overlay_mode` di `shader.wgsl`. Akibatnya overlay tidak teroklusi body lain. Jalur shader belum dikerjakan.
+  - Cache hasil hanya di memori sesi; `~/.ducad/sim-cache/<hash>` belum ada.
+  - Studi tidak membuat langkah undo GUI (hapus lewat tombol di panel); label aktivitas `"Study"` tidak ditambahkan karena studi bukan command model.
+  - Beban studi berupa angka literal, belum bisa merujuk `$param`.
+  - `simulate_static` lewat jembatan live berjalan di thread UI (panel GUI sudah di thread latar).
+  - Studi yang dibuat di GUI hidup di oplog agent; berkas yang kemudian diedit manual di GUI diadopsi ulang (oplog dikosongkan) seperti op agent lain, sehingga studinya ikut hilang.
+  - Uji manual GUI (`CEKLIS_UJI_GUI.md` A12) dan pengukuran iPad belum dijalankan; `cargo deny` belum dijalankan (tidak terpasang).
+
+
+## Status Fase P18 — Mesh tetra + frekuensi, buckling, termal
+
+- [x] **`ducad-sim`.** Mesher tetra (sampel tepi/face + Bowyer–Watson dengan predikat eksak + kisi BCC, kupas sliver, flip, smoothing), elemen Tet10, `run_frequency`, `run_buckling`, `run_thermal`, `run_thermal_stress`; semuanya juga berjalan di mesh hex. Gagal mesh → hex dengan peringatan `SIM_MESH_FALLBACK_HEX`. Jalur hex tidak berubah bit demi bit. Angka gate: `docs/SIM_VALIDATION.md`.
+- [x] **Engine/MCP/CLI.** `Op::Study.kind` = `static | frequency | buckling | thermal | thermal_stress` + field `thermal`, `modes`; `SessionMeta::analysis_results`; checks `min_natural_frequency`, `min_buckling_factor`, `max_temperature`; tool `simulate_static` menerima `kind`/`thermal`/`modes` (nama tool tetap, 27 tool); `ducad-cli sim` dan `build` (kolom per jenis di `report.md`). Fixture `sim_modes`, tes `study_kinds` (cocok dengan teori balok dalam 5 %).
+- [ ] **Menyimpang / belum:**
+  - **Target performa frekuensi meleset:** 10 mode pada 94 rb Tet10 = 247 s (target < 30 s). Statik pada mesh yang sama 6,75 s (target < 10 s, tercapai). 14 rb elemen: 18 s, frekuensi dalam 0,4 % dari mesh halus.
+  - Solver eigen LOBPCG, bukan Lanczos shift-invert; residual yang dilaporkan 1e-3..1e-2 (berhenti saat nilai eigen stabil 1e-8).
+  - Mesher tanpa boundary recovery eksplisit dan tanpa loop refinement Steiner; `mesh_tet_quality` memakai 7 fixture sintetis (rencana: 12), semuanya radius-ratio minimum ≥ 0,2 dan nol tet terbalik. Dinding lebih tipis dari ukuran mesh belum diuji.
+  - Tegangan termal di mesh hex tidak eksak di bawah gradien suhu (4,5 MPa palsu pada batang 20→120 °C); pakai `mesh.kind: "tet"`.
+  - Suhu acuan `thermal_stress` tetap 20 °C (belum bisa diatur per studi).
+  - Bentuk mode dan medan suhu tidak dirender (tidak ada gambar/animasi); `render_view overlay` hanya untuk studi tegangan.
+  - **GUI P18 belum dikerjakan:** pemilih jenis studi, slider kehalusan mesh, wireframe mesh, animasi mode. Panel Simulasi hanya menampilkan studi `static`.
+  - Skema check lengkap kini hanya dimuat di `set_checks` (bukan juga di `run_checks`) supaya `tools/list` tetap < 40 KiB.
+
+## Status Fase P19 — Sheet metal, GD&T/toleransi, konfigurasi varian
+
+- [x] **Konfigurasi varian.** `ducad-core/src/configuration.rs` (`Configuration`, design table CSV). Disimpan di `DesignDoc.configurations` + `active_configuration` (bukan di `Document`, karena replay hidup di engine). Param efektif = dasar ⊕ varian aktif; op tersuppress tetap di oplog tetapi dilewati; penimpaan material diterapkan setelah replay. `Session::{configurations, set_configurations, set_configuration_params, activate_configuration, import_design_table}`; `inspect` melaporkan `configurations`; MCP `set_params {configuration}` (tanpa tool baru); `ducad-cli build --config | --all-configs` (subfolder per varian + matriks varian × check, kode 3 bila ada yang gagal) dan `ducad-cli config`.
+- [x] **Sheet metal.** `ducad-core/src/sheet_metal.rs` (model data, bend allowance/deduction, k-factor per material, tabel bend deduction CSV, penampang flange, pola datar + deteksi tumpang-tindih) dan `ducad-engine/src/compute/sheet_metal.rs`. Op `base_flange`, `edge_flange`, `hem`, `jog`, `unfold`, `fold`, `flat_pattern`; checks `min_bend_radius`, `min_flange_length`; DXF bentangan berlayer `OUTLINE`/`BEND_UP`/`BEND_DOWN` (`ducad-io/src/flat_dxf.rs`, `build --formats flat`). Tidak ada fungsi kernel baru: tekukan = penampang busur yang di-extrude lalu di-union.
+- [x] **GD&T & toleransi.** `ducad-core/src/iso286.rs` (IT01–IT18 s.d. 500 mm; lubang D E F G H JS K M N P; poros d e f g h js k m n p r s), `ducad-core/src/drawing_annot.rs` (toleransi dimensi, feature control frame 14 karakteristik ISO 1101, datum, kekasaran, tabel lubang/revisi, `tolerance_stackup`), render path vektor di PDF/SVG (`ducad-io/src/drawing/gdt.rs`). Tool `drawing` menerima `annotations`; check `tolerance_stackup` (kasus terburuk / RSS, mata rantai `plus`/`minus` atau kelas ISO).
+- [ ] **Batasan / belum:**
+  - Sheet metal: pelat dasar harus poligon bersisi lurus; flange hanya pada sisi pelat dasar (belum flange-di-atas-flange) dan selalu selebar sisi; `relief` dicatat tetapi belum memotong geometri; `flat_pattern` tidak membuat sketsa garis tekuk (garisnya ada di `detail` op dan di DXF); tampak datar otomatis di gambar kerja belum ada; tabel bend deduction kustom belum bisa dipasang lewat op.
+  - GD&T: tidak ada op `Annotate` yang tersimpan di oplog — anotasi adalah argumen tool `drawing`; DXF melewatkan anotasi; `ToleranceStackup` memakai rantai eksplisit, bukan id dimensi gambar; huruf ISO 286 di luar daftar di atas mengembalikan error. Dua temuan pada kode lama yang TIDAK diperbaiki: ekspor SVG lembar gambar tercermin sumbu-Y relatif terhadap PDF, dan blok judul PDF menulis operator `arc` yang tidak sah.
+  - Konfigurasi: `set_params {configuration}` belum tersedia pada jembatan live (`--attach`).
+  - **GUI belum ada** untuk ketiganya (adapter `modeling/operations.rs`, panel konfigurasi, editor anotasi); semuanya headless lewat oplog/CLI/MCP.
+
+
+## Status Fase P20 — Assembly industri (sebagian)
+
+- [x] **Ulir fisik.** `ducad-kernel/src/thread.rs` (`cut_iso_thread`, profil dasar ISO 68-1) + op `thread` (kosmetik secara bawaan). Pemotong dibuat per 2 putaran karena satu sapuan helix panjang menghasilkan solid rusak di OCCT. M10×1,5 sepanjang 20 mm: volume alur ±2 % dari rumus, solid valid.
+- [x] **Toolbox.** `ducad-core/src/standard_parts.rs` + op `standard_part`: ISO 4762, 4014, 4032, 7089 (M3–M12), pin ISO 2338, bearing 608/60xx/62xx. Semua 45 entri diuji valid dengan dimensi dan volume analitik; sebutan standar masuk `inspect` dan kolom baru `standard` di BOM CSV.
+- [x] **Mate lanjutan (sebagian).** `ducad-core/src/coupling.rs`: kopling kinematik `Gear { ratio }`, `Screw { pitch }`, `RackPinion { pitch_radius }` di `AssemblyTree::couplings`, dievaluasi setelah solver (`solve_assembly_with_couplings`, juga di `evaluate_motion`). Disimpan terpisah dari `MateKind` supaya 38 `match` di GUI tidak ikut berubah.
+- [x] **Exploded view (data + balon).** `AssemblyTree::explode_steps` (langkah berurutan, translasi + rotasi) melengkapi `explode_offset`; `DrawingSheet::set_bom_with_balloons` membuat satu balon per baris BOM, PDF deterministik.
+- [ ] **Belum dikerjakan:**
+  - Mate `Path`, `Cam`, `Width`.
+  - Sudut kopling dihitung relatif pose acuan dan dibungkus ke ±180°: putaran penggerak lebih dari setengah putaran dari acuan belum terlacak (perlu penghitung putaran).
+  - Studi rakitan (`Bonded`, `NoPenetration`) di `ducad-sim`.
+  - Tampak terurai otomatis di gambar kerja (yang ada: balon + tabel; proyeksi instance terurai masih tugas pemanggil).
+  - Large assembly: lazy-load, LOD/decimasi, target 500 instance.
+  - GUI untuk semua butir di atas (dialog toolbox, kopling, editor langkah urai).
+
+
 
 ## Menjalankan
 

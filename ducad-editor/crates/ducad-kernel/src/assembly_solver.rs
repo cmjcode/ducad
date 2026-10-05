@@ -599,7 +599,76 @@ pub fn evaluate_motion(
         },
         _ => return None,
     };
-    Some(solve_assembly(tree))
+    let report = solve_assembly(tree);
+    // Gear/screw/rack mengikuti pose penggerak yang baru (P20).
+    tree.apply_couplings();
+    Some(report)
+}
+
+/// Selesaikan mate lalu terapkan kopling kinematik (gear, screw,
+/// rack-pinion) — posisi SEMUA instance untuk keadaan saat ini.
+pub fn solve_assembly_with_couplings(tree: &mut AssemblyTree) -> AssemblySolveReport {
+    let report = solve_assembly(tree);
+    tree.apply_couplings();
+    report
+}
+
+#[cfg(test)]
+mod coupling_tests {
+    use super::*;
+    use ducad_core::coupling::{twist_angle, AxisLine, CouplingKind};
+
+    const Z_AXIS: AxisLine = AxisLine {
+        origin: (0.0, 0.0, 0.0),
+        dir: (0.0, 0.0, 1.0),
+    };
+
+    fn rotate_driver(tree: &mut AssemblyTree, id: AssemblyInstanceId, deg: f64) {
+        let q = DQuat::from_axis_angle(DVec3::Z, deg.to_radians());
+        tree.instances.get_mut(&id).unwrap().rotation_quat = (q.x, q.y, q.z, q.w);
+    }
+
+    /// Gate P20: gear rasio 2 → sudut keluaran = 2× masukan; screw kisar
+    /// 1,5 → 1,5 mm per putaran.
+    #[test]
+    fn mate_gear_screw_follow_the_driver() {
+        let mut tree = AssemblyTree::default();
+        let motor = tree.add_instance("motor", 1);
+        let gear = tree.add_instance("gear", 2);
+        let nut = tree.add_instance("nut", 3);
+        tree.instances.get_mut(&gear).unwrap().translation = (40.0, 0.0, 0.0);
+        let gear_axis = AxisLine {
+            origin: (40.0, 0.0, 0.0),
+            dir: (0.0, 0.0, 1.0),
+        };
+        tree.add_coupling("gear", CouplingKind::Gear { ratio: 2.0 }, motor, Z_AXIS, gear, gear_axis)
+            .unwrap();
+        tree.add_coupling("screw", CouplingKind::Screw { pitch: 1.5 }, motor, Z_AXIS, nut, Z_AXIS)
+            .unwrap();
+
+        for input in [10.0, 45.0, 80.0, -30.0] {
+            rotate_driver(&mut tree, motor, input);
+            let report = solve_assembly_with_couplings(&mut tree);
+            assert!(report.converged);
+            let q = tree.instances[&gear].rotation_quat;
+            let out = twist_angle(
+                DQuat::IDENTITY,
+                DQuat::from_xyzw(q.0, q.1, q.2, q.3),
+                DVec3::Z,
+            )
+            .to_degrees();
+            assert!((out - 2.0 * input).abs() < 1e-9, "gear {out} vs {}", 2.0 * input);
+            // Roda gigi tetap di porosnya.
+            assert!((tree.instances[&gear].translation.0 - 40.0).abs() < 1e-9);
+            let z = tree.instances[&nut].translation.2;
+            assert!((z - 1.5 * input / 360.0).abs() < 1e-9, "screw {z}");
+        }
+        // Satu putaran penuh dihitung bertahap (sudut twist dibungkus ±180°):
+        // setengah putaran → 0,75 mm.
+        rotate_driver(&mut tree, motor, 179.999);
+        solve_assembly_with_couplings(&mut tree);
+        assert!((tree.instances[&nut].translation.2 - 0.75).abs() < 1e-4);
+    }
 }
 
 /// Terapkan hasil transformasi rigid-body langsung ke geometri B-Rep `KernelShape`.

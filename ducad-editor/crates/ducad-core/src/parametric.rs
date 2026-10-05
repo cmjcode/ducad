@@ -5,9 +5,9 @@
 //! pengurutan topologis eksekusi (Topological Sort), serta propagasi dirty flag
 //! untuk rekonstruksi / regenerasi bodi solid 3D secara otomatis saat parameter diubah.
 
+use crate::HoleSpec;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use crate::HoleSpec;
 
 /// Identifier unik sebuah fitur dalam Feature Tree.
 pub type FeatureId = u32;
@@ -183,7 +183,12 @@ impl FeaturePayload {
 
     pub fn summary_text(&self) -> String {
         match self {
-            FeaturePayload::DatumPlane { offset, angle, mode_desc, .. } => {
+            FeaturePayload::DatumPlane {
+                offset,
+                angle,
+                mode_desc,
+                ..
+            } => {
                 if *offset != 0.0 {
                     format!("Offset: {:.1} mm ({})", offset, mode_desc)
                 } else if *angle != 0.0 {
@@ -192,9 +197,19 @@ impl FeaturePayload {
                     mode_desc.clone()
                 }
             }
-            FeaturePayload::Sketch { entity_count, dim_w, dim_h, shape_type, description, .. } => {
+            FeaturePayload::Sketch {
+                entity_count,
+                dim_w,
+                dim_h,
+                shape_type,
+                description,
+                ..
+            } => {
                 if let Some(h) = dim_h {
-                    format!("{shape_type} {:.1} × {:.1} mm ({} entitas)", dim_w, h, entity_count)
+                    format!(
+                        "{shape_type} {:.1} × {:.1} mm ({} entitas)",
+                        dim_w, h, entity_count
+                    )
                 } else if shape_type == "Lingkaran" || shape_type == "Busur" {
                     format!("{shape_type} R {:.1} mm ({} entitas)", dim_w, entity_count)
                 } else if shape_type == "Garis" {
@@ -209,7 +224,9 @@ impl FeaturePayload {
             FeaturePayload::Revolve { angle_deg, .. } => {
                 format!("Angle: {:.0}°", angle_deg)
             }
-            FeaturePayload::Fillet { radius, radius_end, .. } => {
+            FeaturePayload::Fillet {
+                radius, radius_end, ..
+            } => {
                 if let Some(r_end) = radius_end {
                     format!("R: {:.1} -> {:.1} mm (Var)", radius, r_end)
                 } else {
@@ -220,13 +237,24 @@ impl FeaturePayload {
                 format!("Distance: {:.1} mm", distance)
             }
             FeaturePayload::Hole { spec, .. } => {
-                format!("{:?} (Ø{:.1} mm, Depth: {:.1} mm)", spec.kind, spec.diameter, spec.depth)
+                format!(
+                    "{:?} (Ø{:.1} mm, Depth: {:.1} mm)",
+                    spec.kind, spec.diameter, spec.depth
+                )
             }
             FeaturePayload::Shell { thickness, .. } => {
                 format!("Thickness: {:.1} mm", thickness)
             }
-            FeaturePayload::Helix { radius, pitch, turns, .. } => {
-                format!("R: {:.1} mm, Pitch: {:.1} mm, Turns: {:.1}", radius, pitch, turns)
+            FeaturePayload::Helix {
+                radius,
+                pitch,
+                turns,
+                ..
+            } => {
+                format!(
+                    "R: {:.1} mm, Pitch: {:.1} mm, Turns: {:.1}",
+                    radius, pitch, turns
+                )
             }
             FeaturePayload::Boolean { op_kind, .. } => {
                 format!("Boolean {op_kind}")
@@ -253,7 +281,12 @@ pub struct FeatureNode {
 }
 
 impl FeatureNode {
-    pub fn new(id: FeatureId, name: impl Into<String>, payload: FeaturePayload, order_index: usize) -> Self {
+    pub fn new(
+        id: FeatureId,
+        name: impl Into<String>,
+        payload: FeaturePayload,
+        order_index: usize,
+    ) -> Self {
         Self {
             id,
             name: name.into(),
@@ -441,9 +474,7 @@ impl ParametricDag {
 
         // Urutkan queue awal berdasarkan order_index agar stabil
         let mut queue_vec: Vec<FeatureId> = queue.into_iter().collect();
-        queue_vec.sort_by_key(|id| {
-            self.get_feature(*id).map(|n| n.order_index).unwrap_or(0)
-        });
+        queue_vec.sort_by_key(|id| self.get_feature(*id).map(|n| n.order_index).unwrap_or(0));
         queue = queue_vec.into();
 
         let mut sorted = Vec::with_capacity(self.nodes.len());
@@ -462,9 +493,8 @@ impl ParametricDag {
                     }
                 }
                 // Urutkan ready neighbors berdasarkan order index
-                ready_neighbors.sort_by_key(|id| {
-                    self.get_feature(*id).map(|n| n.order_index).unwrap_or(0)
-                });
+                ready_neighbors
+                    .sort_by_key(|id| self.get_feature(*id).map(|n| n.order_index).unwrap_or(0));
                 for rn in ready_neighbors {
                     queue.push_back(rn);
                 }
@@ -472,7 +502,10 @@ impl ParametricDag {
         }
 
         if sorted.len() != self.nodes.len() {
-            return Err("Terdeteksi ketergantungan siklik (*cyclic dependency*) pada Feature DAG".to_string());
+            return Err(
+                "Terdeteksi ketergantungan siklik (*cyclic dependency*) pada Feature DAG"
+                    .to_string(),
+            );
         }
 
         Ok(sorted)
@@ -557,7 +590,9 @@ mod tests {
 
         assert_eq!(dag.nodes.len(), 4);
 
-        let order = dag.topological_order().expect("Topological sort should succeed");
+        let order = dag
+            .topological_order()
+            .expect("Topological sort should succeed");
         assert_eq!(order, vec![f_plane, f_sketch, f_extrude, f_fillet]);
     }
 
@@ -622,9 +657,18 @@ mod tests {
 
         // Sketch 1, Extrude 1, dan Hole 1 harus berstatus NeedsRegeneration
         assert!(dag.needs_regeneration());
-        assert_eq!(dag.get_feature(f_sketch).unwrap().status, FeatureStatus::NeedsRegeneration);
-        assert_eq!(dag.get_feature(f_extrude).unwrap().status, FeatureStatus::NeedsRegeneration);
-        assert_eq!(dag.get_feature(f_hole).unwrap().status, FeatureStatus::NeedsRegeneration);
+        assert_eq!(
+            dag.get_feature(f_sketch).unwrap().status,
+            FeatureStatus::NeedsRegeneration
+        );
+        assert_eq!(
+            dag.get_feature(f_extrude).unwrap().status,
+            FeatureStatus::NeedsRegeneration
+        );
+        assert_eq!(
+            dag.get_feature(f_hole).unwrap().status,
+            FeatureStatus::NeedsRegeneration
+        );
 
         let downstream = dag.get_downstream_dependents(f_sketch);
         assert_eq!(downstream, vec![f_extrude, f_hole]);
@@ -638,8 +682,22 @@ mod tests {
     fn test_dag_suppress_and_remove() {
         let mut dag = ParametricDag::new();
 
-        let f1 = dag.add_feature("Feature 1", FeaturePayload::Custom { kind_name: "Base".into(), description: "Base".into() }, vec![]);
-        let f2 = dag.add_feature("Feature 2", FeaturePayload::Custom { kind_name: "Sub".into(), description: "Sub".into() }, vec![f1]);
+        let f1 = dag.add_feature(
+            "Feature 1",
+            FeaturePayload::Custom {
+                kind_name: "Base".into(),
+                description: "Base".into(),
+            },
+            vec![],
+        );
+        let f2 = dag.add_feature(
+            "Feature 2",
+            FeaturePayload::Custom {
+                kind_name: "Sub".into(),
+                description: "Sub".into(),
+            },
+            vec![f1],
+        );
 
         dag.toggle_suppress(f2);
         assert!(dag.get_feature(f2).unwrap().is_suppressed);
@@ -652,7 +710,14 @@ mod tests {
     #[test]
     fn test_dag_stale_status() {
         let mut dag = ParametricDag::new();
-        let f1 = dag.add_feature("Feature 1", FeaturePayload::Custom { kind_name: "Base".into(), description: "Base".into() }, vec![]);
+        let f1 = dag.add_feature(
+            "Feature 1",
+            FeaturePayload::Custom {
+                kind_name: "Base".into(),
+                description: "Base".into(),
+            },
+            vec![],
+        );
         assert!(!dag.needs_regeneration());
 
         let node = dag.get_feature_mut(f1).unwrap();

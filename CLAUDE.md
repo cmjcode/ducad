@@ -12,14 +12,15 @@ oplog JSON yang bisa di-replay. Platform: macOS (desktop) dan iPad (iOS).
 
 Arah panah = "bergantung pada".
 
-- `ducad-core` — dokumen, body, material, undo stack, spesifikasi lubang. Tanpa kernel.
+- `ducad-core` — dokumen, body, material (visual + mekanik), undo stack, spesifikasi lubang, konfigurasi varian, model sheet metal, ISO 286 + anotasi GD&T, part standar, kopling perakitan. Tanpa kernel.
 - `ducad-sketch` — entitas 2D, constraint + solver, region tertutup, pengenal coretan (`recognize`) + inferensi constraint (`infer`). → core
 - `ducad-kernel` — satu-satunya pembungkus OpenCASCADE (`KernelShape`, `KernelMesh`). → core
 - `ducad-ink` — dokumen tinta bebas (`InkDoc`, coretan bertekanan, kuas, command, indeks spasial, eraser/lasso). Tanpa GUI/kernel. → core, sketch
 - `ducad-io` — format `.ducad`, STEP/STL/OBJ/GLB, SVG/PDF/DXF. → core, sketch, kernel, ink
-- `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render. → core, sketch, kernel, io
-- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/export/build/assist/chat/schema). → engine, assist, chat, mcp
-- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 26 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
+- `ducad-sim` — FEA linier: mesh hex voxel + tetra (Tet10), CSR + PCG, statik, frekuensi (LOBPCG), buckling, termal tunak + tegangan termal, post-proses (von Mises, faktor keamanan). Tanpa kernel/GUI (dijaga tes `sim_has_no_kernel_or_gui_dependency`).
+- `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render, studi simulasi (`sim`). → core, sketch, kernel, io, sim
+- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/sim/config/export/build/assist/chat/schema). → engine, assist, chat, mcp
+- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 27 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
 - `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core

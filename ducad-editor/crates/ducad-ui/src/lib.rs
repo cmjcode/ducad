@@ -16,6 +16,8 @@ pub mod assembly_drawer;
 pub mod canvas_hud;
 pub mod chat_panel;
 pub mod checks_panel;
+pub mod mass_properties_panel;
+pub mod sim_panel;
 pub mod cmf_drawer;
 pub mod command_palette;
 pub mod constraint_strip;
@@ -62,6 +64,14 @@ pub use chat_panel::{
     CliMeta,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
+pub use sim_panel::{
+    turbo_color, FixtureDraft, FixtureKindUi, LoadDraft, LoadKindUi, SimOverlayUi, SimPanel,
+    SimPanelData, SimPanelEvent, SimResultUi, SimRunStatus, SimStudyRow, StudyDraft,
+};
+pub use mass_properties_panel::{
+    mass_table_rows, mass_table_text, MassLengthUnit, MassPanelData, MassPanelEvent,
+    MassPropertiesPanel, MassUnit,
+};
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::CommandPalette;
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};

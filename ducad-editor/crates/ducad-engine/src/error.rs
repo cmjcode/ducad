@@ -52,6 +52,17 @@ pub enum OpErrorCode {
     BooleanNoOverlap,
     /// Profil hampir tertutup: dua ujung menggantung berdekatan.
     ProfileOpenGap,
+    // ---- P17: simulasi ----
+    /// Studi tanpa tumpuan yang cukup (matriks kekakuan singular).
+    SimUnderconstrained,
+    /// Body studi belum punya material mekanik (E, ν).
+    SimNoMaterial,
+    /// Mesh terlalu kasar untuk menangkap geometri / face yang dibebani.
+    SimMeshTooCoarse,
+    /// Solver tidak konvergen.
+    SimDiverged,
+    /// Studi dibatalkan pengguna.
+    SimCancelled,
 }
 
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]

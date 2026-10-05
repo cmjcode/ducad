@@ -113,8 +113,8 @@ same modeling code the application does.
   `>Z`, `|Z`, `#Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`, combined with
   `or` / `and` / `except`.
 * **`ducad-cli`**: `run`, `replay`, `inspect`, `check`, `oplog`, `diff`, `select`,
-  `render`, `export`, `build`, `assist`, `schema`.
-* **`ducad-mcp`**: a 20-tool **Model Context Protocol** server (JSON-RPC 2.0 over
+  `render`, `sim`, `config`, `export`, `build`, `assist`, `chat`, `schema`.
+* **`ducad-mcp`**: a 27-tool **Model Context Protocol** server (JSON-RPC 2.0 over
   stdio) so an AI agent can model, inspect, render and verify a part.
 * **Design unit tests (`Check`)**: requirements written as data — `volume`,
   `bbox_size`, `hole_count`, `min_wall`, `mass`, `clearance`, `no_interference` —
@@ -147,6 +147,29 @@ same modeling code the application does.
 * **Eval harness**: ten reference tasks with analytically computed expectations
   in `evals/`, plus a stdlib-only Python runner to measure agent pass rates.
 
+### 10. 🔬 Simulation & Industrial Features
+
+* **Mass properties & mechanical materials**: mass, volume, center of mass,
+  inertia tensor, principal axes and radius of gyration per body and per
+  assembly; a 13-entry material library (plastics, aluminium, steels, …) or
+  custom properties, assigned with the `set_material` op.
+* **Structural simulation (FEA)**: linear static stress, natural frequencies,
+  linear buckling, steady-state heat conduction and thermal stress. Hex voxel
+  mesh by default, quadratic tetrahedra (`mesh.kind: "tet"`) for curved parts.
+  Results are **engineering estimates**, not certification numbers — measured
+  accuracy is in [SIM_VALIDATION.md](ducad-editor/docs/SIM_VALIDATION.md).
+* **Configurations (design variants)**: parameter overrides, suppressed ops and
+  material overrides on top of one base design, plus CSV design tables.
+* **Sheet metal**: base flange, edge flange, hem, jog, fold/unfold and a flat
+  pattern exported as DXF with bend lines on separate layers.
+* **Tolerances & GD&T**: ISO 286 fits, GD&T symbols on drawing sheets, and a
+  tolerance stack-up check (worst case or RSS).
+* **Fasteners & assembly**: ISO standard parts (bolts, nuts, washers), cosmetic
+  or physically cut ISO threads, gear/screw/rack couplings, sequential exploded
+  steps and BOM balloons.
+
+How to drive each one: **Using Simulation & Industrial Features** below.
+
 ---
 
 ## 🏗️ Workspace Architecture Structure
@@ -163,7 +186,7 @@ DUCAD/
 │   │   ├── ducad-io/        # .ducad native format, STEP/STL/OBJ/GLB, SVG/PDF/DXF drawing sheets
 │   │   ├── ducad-engine/    # Headless modeling: compute, Op/oplog, selectors, Session, inspect, checks, diff
 │   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
-│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 20-tool MCP server over stdio (+ `--attach` live mode)
+│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 27-tool MCP server over stdio (+ `--attach` live mode)
 │   │   ├── ducad-assist/    # On-device AI assistant: backend contract, prompts, proposal-only loop
 │   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
 │   │   ├── ducad-ui/        # egui components: toolbar, context bar, HUD, drawers, checks/error/proposal cards
@@ -363,6 +386,16 @@ so P5 sits last: the live bridge builds on everything before it.
 
 Handwritten dimension OCR (P12.4) is documented but intentionally not implemented yet.
 
+### October 2026 — simulation and industrial features
+
+| Phase | What landed |
+|---|---|
+| P16 | Mass properties (inertia, principal axes), mechanical material library, `set_material`, Mass Properties panel |
+| P17 | `ducad-sim`: linear static FEA on a hex voxel mesh, `study` op, `simulate_static` tool, `ducad-cli sim`, Simulation panel |
+| P18 | Tet10 mesh, frequency / buckling / thermal / thermal-stress studies and their checks (headless only) |
+| P19 | Configurations + design tables, sheet metal + flat-pattern DXF, ISO 286 / GD&T / tolerance stack-up (headless only) |
+| P20 | ISO threads, standard-part toolbox, gear/screw/rack couplings, exploded steps, BOM balloons (headless only) |
+
 ---
 
 ## 🧭 Two Ways to Drive DuCAD
@@ -393,6 +426,161 @@ out a drawing sheet, export.
 Both paths run the *same* modeling code: the GUI's operations are thin adapters
 over `ducad_engine::compute`. Change a dimension by editing `params` and
 replaying — never by stacking new operations on top.
+
+---
+
+## 🔬 Using Simulation & Industrial Features
+
+Everything here is driven through the oplog (`*.ops.json`, `ducad-cli`, or the
+MCP tools). Two features also have a GUI panel today — **Mass Properties** and
+**Simulation (static study)**, both opened from the command palette. The other
+features have no GUI yet.
+
+Every snippet below is taken from a tested fixture in
+`ducad-editor/crates/ducad-engine/tests/fixtures/`: `mass_bracket`,
+`sim_bracket`, `sim_modes`, `sheet_box`, `toolbox_joint`. An agent gets the same
+examples and the fields of any op through MCP:
+`get_schema {"example":"sim_bracket"}` or `get_schema {"op":"study"}`.
+`ducad-cli schema` prints the full JSON Schema.
+
+`build` reads an ops file directly; `sim`, `inspect` and `config` read a
+`.ducad` part, so make one first:
+
+```bash
+ducad-cli run part.ops.json --out part.ducad
+```
+
+### Mass properties and materials
+
+```jsonc
+{"op":"set_material","id":"mat","body":"bracket","material":"al_6061_t6"}
+// or explicit properties:
+{"op":"set_material","id":"mat","body":"pin","material":{"custom":{
+  "density_g_cm3":7.85,"young_modulus_gpa":210,"poisson_ratio":0.3,
+  "yield_strength_mpa":355,"ultimate_strength_mpa":510}}}
+```
+
+```bash
+ducad-cli inspect part.ducad --mass      # mass, center of mass, inertia, principal axes
+```
+
+Checks: `mass {min_g,max_g}`, `center_of_mass {expect,tol}`,
+`moment_of_inertia {axis,min,max}`. In the app: command palette →
+**Mass Properties**.
+
+### Simulation
+
+Order: give the body a material → store a `study` op (it creates no body and
+does not run the solver) → run it → assert with checks.
+
+```jsonc
+{"op":"study","id":"tip_load","kind":"static","setup":{
+  "body":"bracket",
+  "fixtures":[{"id":"wall_back","faces":"<Y","kind":"fixed"}],
+  "loads":[{"id":"tip","faces":">Y","kind":"force","newton":[0,0,-200]}],
+  "mesh":{"cell_mm":2.5}}}
+```
+
+```bash
+ducad-cli sim part.ducad --study tip_load --out stress.png   # numbers + heatmap
+ducad-cli sim part.ducad --study modes                       # frequency / buckling / thermal: numbers only
+ducad-cli build part.ops.json --out dist/part                # also writes sim/<id>.json (+ PNG)
+```
+
+| `kind` | Extra fields | Result | Check |
+|---|---|---|---|
+| `static` (default) | — | max von Mises stress, displacement, safety factor, reactions, heatmap | `max_stress`, `max_displacement`, `min_safety_factor` |
+| `frequency` | `modes` (default 10); loads ignored | `frequencies_hz` | `min_natural_frequency {min_hz}` |
+| `buckling` | `modes` (default 3) | `load_factors` (critical load = factor × applied load) | `min_buckling_factor {min}` |
+| `thermal` | `thermal.boundary[]` | max / min temperature | `max_temperature {max_c}` |
+| `thermal_stress` | `thermal.boundary[]` + fixtures | same as `static` (stress-free at 20 °C) | same as `static` |
+
+* Fixtures: `fixed`, `roller`, `symmetry`. Loads: `force`, `pressure`, `torque`,
+  `gravity`, `bearing`, `remote`. Thermal boundaries: `temperature {celsius}`,
+  `heat_flux {w_per_mm2}`, `convection {h_w_mm2k, ambient_c}`.
+* Faces use the normal selector grammar (`<Y`, `>Z`, `all[kind=cylinder]`, …).
+* Study checks report `error` until the study has been run, and again after the
+  model or the setup changes.
+* MCP agents call the `simulate_static` tool for every kind (pass `study`, or an
+  inline `setup` + `kind` for a what-if run).
+* In the app: command palette → **Simulation (static study)** — click faces to
+  add fixtures and loads, press Run, and the heatmap is drawn on the model.
+  The panel handles static studies only.
+* Frequency studies on large tet meshes are slow (minutes above ~20,000
+  elements); start coarse.
+
+### Configurations (variants)
+
+Add variants next to `params` in the ops file:
+
+```jsonc
+{ "params": { "len": 50, "t": 5 },
+  "configurations": [
+    { "name": "long",  "params": { "len": 80 } },
+    { "name": "plain", "suppressed_ops": ["holes"] }
+  ],
+  "ops": [ /* … */ ] }
+```
+
+```bash
+ducad-cli build part.ops.json --out dist --config long     # one variant
+ducad-cli build part.ops.json --out dist --all-configs     # one subfolder each + check matrix
+ducad-cli config part.ducad --export table.csv             # design table out
+ducad-cli config part.ducad --import table.csv --activate long --out part.ducad
+```
+
+The base design is the reserved configuration `Default`. Via MCP:
+`set_params {"configuration":"long", …}`.
+
+### Sheet metal
+
+```jsonc
+{"op":"sketch","id":"blank_sk","plane":"XY","entities":[
+  {"rect":{"corner":[0,0],"w":100,"h":60,"name":"outline"}}]},
+{"op":"base_flange","id":"tray","sketch":"blank_sk","thickness":2,"bend_radius":2,"k_factor":0.44},
+{"op":"edge_flange","id":"wall_x","body":"tray","edges":"|X[len=100][z=0]","length":20},
+{"op":"flat_pattern","id":"blank","body":"tray"}
+```
+
+```bash
+ducad-cli build tray.ops.json --out dist --formats step,flat   # flat = DXF flat pattern
+```
+
+Also `hem`, `jog`, `unfold`, `fold`. Checks: `min_bend_radius {min_ratio_to_t}`,
+`min_flange_length {min}`. Limits: the base must be a straight-edged polygon, a
+flange cannot be added to another flange, and bend reliefs are not cut.
+
+### Tolerances and GD&T
+
+A stack-up is a check, with explicit limits or ISO 286 fits:
+
+```jsonc
+{"id":"gap","check":"tolerance_stackup","max_total":0.035,
+ "chain":[{"nominal":25,"fit":"H7"},{"nominal":25,"fit":"g6","reverse":true}]}
+```
+
+Add `"method":"rss"` for a statistical stack-up instead of worst case. GD&T
+frames and datum symbols go on a drawing sheet through the `annotations`
+argument of the MCP `drawing` tool.
+
+### Standard parts and threads
+
+```jsonc
+{"op":"standard_part","id":"bolt","standard":"iso4762","size":"M6","length":20,"at":[20,15,8]},
+{"op":"standard_part","id":"nut","standard":"iso4032","size":"M6","at":[20,15,-5.2]},
+{"op":"thread","id":"bolt_thread","body":"bolt","face":"all[kind=cylinder][r=3]","length":12}
+```
+
+A `thread` is cosmetic by default (recorded for the drawing and BOM); add
+`"cosmetic": false` to cut the real ISO profile. Standard parts appear in the
+BOM with their ISO designation.
+
+### Not available yet
+
+GUI for configurations, sheet metal, GD&T, standard parts and non-static
+studies; mode-shape and temperature rendering; path/cam/width mates; assembly
+(multi-body) studies; exploded projection views; large-assembly LOD. Details per
+phase: [PLAN.md](ducad-editor/docs/PLAN.md).
 
 ---
 

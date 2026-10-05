@@ -155,7 +155,11 @@ impl HoleSpec {
             HoleKind::Tapped => tap_drill,
         };
 
-        let depth = if default_depth > 0.0 { default_depth } else { 20.0 };
+        let depth = if default_depth > 0.0 {
+            default_depth
+        } else {
+            20.0
+        };
         let thread_depth = (depth - 2.0 * pitch).max(pitch * 2.0);
 
         Self {
@@ -288,7 +292,10 @@ mod tests {
             std::fs::write(path, updated).unwrap();
             return;
         }
-        assert!(doc.contains(&table), "tabel ISO di {path} basi; jalankan dengan DUCAD_UPDATE_VAULT=1");
+        assert!(
+            doc.contains(&table),
+            "tabel ISO di {path} basi; jalankan dengan DUCAD_UPDATE_VAULT=1"
+        );
         assert!(table.contains("| M5 | 0.80 | 4.20 | 5.5 | 10.0 | 5.4 | 11.2 |"));
     }
 }

@@ -156,6 +156,7 @@ impl DuCADApp {
                     if let Some(meta) = new_model.doc.bodies.get_mut(id) {
                         meta.visible = nb.visible;
                         meta.uuid = nb.uuid;
+                        meta.mechanical = nb.mechanical;
                     }
                     if let Some((base, native_feats)) = nb.round_history {
                         let features = native_feats.into_iter().map(crate::types::RoundFeature::from).collect();

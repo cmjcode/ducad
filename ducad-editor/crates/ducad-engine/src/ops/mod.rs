@@ -38,6 +38,31 @@ pub const EXAMPLES: &[(&str, &str, &str)] = &[
         include_str!("../../tests/fixtures/loft_helix.ops.json"),
         "offset-plane sketch + loft rect→circle + helix spring + mirror across a custom plane",
     ),
+    (
+        "mass_bracket",
+        include_str!("../../tests/fixtures/mass_bracket.ops.json"),
+        "set_material by library key and custom properties + transform + mass / center_of_mass / moment_of_inertia checks",
+    ),
+    (
+        "sim_bracket",
+        include_str!("../../tests/fixtures/sim_bracket.ops.json"),
+        "set_material + static study (fixed fixture, force load, mesh cell size) + max_stress / max_displacement / min_safety_factor checks",
+    ),
+    (
+        "sim_modes",
+        include_str!("../../tests/fixtures/sim_modes.ops.json"),
+        "study kinds frequency / buckling / thermal (tet mesh, temperature boundaries) / thermal_stress + min_natural_frequency / min_buckling_factor / max_temperature checks",
+    ),
+    (
+        "sheet_box",
+        include_str!("../../tests/fixtures/sheet_box.ops.json"),
+        "sheet metal tray: base_flange from a rect sketch + edge_flange on all four sides (edge selectors with [len=][z=]) + flat_pattern + min_bend_radius / min_flange_length checks",
+    ),
+    (
+        "toolbox_joint",
+        include_str!("../../tests/fixtures/toolbox_joint.ops.json"),
+        "bolted joint from the toolbox: standard_part washer / socket head cap screw / nut placed with `at` + cosmetic thread on the screw shank + no_interference check",
+    ),
 ];
 
 /// Isi contoh bernama `name` dari [`EXAMPLES`].

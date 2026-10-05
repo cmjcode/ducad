@@ -20,6 +20,7 @@ ducad-assist = { workspace = true }
 ducad-chat = { workspace = true }
 ducad-mcp = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
+ducad-sim = { workspace = true }
 ducad-io = { workspace = true }
 ducad-core = { workspace = true }
 ducad-kernel = { workspace = true }

@@ -228,6 +228,33 @@ DUCAD_SERVER_URL=http://127.0.0.1:3000 cargo run -p ducad-app
 
 ---
 
+### A11. Properti massa & material mekanik (P16)
+
+- [ ] ⌘K → "Properti Massa" membuka panel di kanan atas; tanpa body tampil "Belum ada body".
+- [ ] Buat balok 10×20×30: volume 6000 mm³, pusat massa (5, 10, 15), massa 7,2 g (preset visual bawaan).
+- [ ] Pilih material "Baja S235": massa menjadi 47,1 g; ⌘Z mengembalikannya.
+- [ ] "Kustom…" → isi rasio Poisson 0,6: tombol Terapkan mati dan alasan tampil.
+- [ ] Ganti satuan ke kg / m: semua baris ikut berubah; tombol salin menaruh tabel di papan klip.
+- [ ] Nyalakan penanda pusat massa: titik kuning + tiga sumbu utama muncul dan ikut bergerak saat body digeser.
+- [ ] Angka panel sama dengan `ducad-cli inspect BERKAS.ducad --mass` untuk berkas yang sama.
+- [ ] Simpan, tutup, buka lagi: material mekanik masih terpilih.
+
+---
+
+### A12. Simulasi statik (P17)
+
+- [ ] ⌘K → "Simulasi (studi statik)" membuka panel; tanpa studi tampil petunjuk "Tekan +".
+- [ ] Buat balok, beri material lewat panel Properti Massa. Tekan +, klik face bawah → + Tumpuan; klik face atas → + Beban (gaya 0, 0, −100 N); "Buat studi".
+- [ ] Jalankan: spinner tampil, UI tetap responsif (orbit kamera lancar), lalu von Mises maks, deformasi, faktor keamanan, dan reaksi terisi; reaksi ≈ lawan beban.
+- [ ] Viewport berwarna; ganti overlay Tegangan / Deformasi / Faktor keamanan dan legenda ikut berubah; slider skala deformasi menggeser bentuk.
+- [ ] Jalankan studi besar (sel kecil) lalu tekan Batalkan di tengah: status kembali, aplikasi tidak beku.
+- [ ] Ubah geometri body (mis. fillet): status studi menjadi "basi" dan overlay meredup sampai dijalankan ulang.
+- [ ] Body tanpa material: Jalankan memberi pesan gagal yang menyebut material.
+- [ ] Angka panel sama dengan `ducad-cli sim BERKAS.ducad` untuk berkas yang disimpan dari sesi yang sama.
+- [ ] Tombol hapus menghilangkan studi dari daftar.
+
+---
+
 ## Bagian B — Regresi inti (sebelum rilis)
 
 ### B1. Sketsa 2D

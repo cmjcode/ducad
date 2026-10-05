@@ -1,0 +1,14 @@
+{ "params": { "len": 100, "wid": 60, "t": 2, "wall": 20 },
+  "ops": [
+    {"op":"sketch","id":"blank_sk","plane":"XY","entities":[
+      {"rect":{"corner":[0,0],"w":"$len","h":"$wid","name":"outline"}}]},
+    {"op":"base_flange","id":"tray","sketch":"blank_sk","thickness":"$t","bend_radius":2,"k_factor":0.44},
+    {"op":"edge_flange","id":"wall_x","body":"tray","edges":"|X[len=100][z=0]","length":"$wall"},
+    {"op":"edge_flange","id":"wall_y","body":"tray","edges":"|Y[len=60][z=0]","length":"$wall","angle":90},
+    {"op":"flat_pattern","id":"blank","body":"tray"}
+  ],
+  "checks": [
+    {"id":"bend_ok","check":"min_bend_radius","body":"tray","min_ratio_to_t":1},
+    {"id":"grip_ok","check":"min_flange_length","body":"tray","min":8},
+    {"id":"two_bodies","check":"body_count","expect":2}
+  ] }

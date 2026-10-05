@@ -67,3 +67,25 @@ Untuk memastikan seluruh benchmark terkompilasi tanpa error di continuous integr
 cargo bench --no-run -p ducad-render
 ```
 Status: **Hijau (100% lolos kompilasi)**.
+
+## 5. Simulasi statik `ducad-sim` (P17, 2026-10-05)
+
+Diukur agent pengembang di mesin pengembang yang sedang dipakai build lain
+(bukan mesin referensi §1, tidak terisolasi) — perkiraan, bukan baseline resmi.
+Perintah: `cargo test -p ducad-sim --release --test benchmarks -- --ignored --nocapture`.
+
+| Kasus | Elemen | Waktu `run_static` | Target | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| Kantilever hex | 49.419 | **1,01 s** | < 3 s (M1) | LULUS (perkiraan) |
+| Pelat berlubang tebal 10 mm | 50.200 | **0,99 s** | < 3 s | LULUS (perkiraan) |
+| Pelat berlubang tipis 1 mm | 48.520 | **2,82 s** | < 3 s | LULUS tipis (perkiraan) |
+| iPad, 50k elemen | — | belum diukur | < 8 s | terbuka |
+
+## 6. Mesh tetra + analisis lanjutan `ducad-sim` (P18, 2026-10-05)
+
+Rilis, mesin pengembang yang sedang dipakai build lain (perkiraan). Bracket L,
+94.122 Tet10, 395 rb DOF: meshing 0,71 s; statik 6,75 s (target < 10 s,
+tercapai); 10 mode frekuensi 247 s (target < 30 s, **meleset** — aljabar blok
+padat LOBPCG mendominasi). 14 rb elemen: 18 s. Ulangi dengan
+`cargo test --release -p ducad-sim --test benchmarks -- --ignored --nocapture`.
+iPad belum diukur.

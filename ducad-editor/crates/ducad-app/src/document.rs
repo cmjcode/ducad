@@ -655,6 +655,7 @@ impl DuCADApp {
                     uuid: Some(meta.uuid.clone()),
                     visible: meta.visible,
                     material: meta.material,
+                    mechanical: meta.mechanical.clone(),
                     shape,
                     round_history,
                 }

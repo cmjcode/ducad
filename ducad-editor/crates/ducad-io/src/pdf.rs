@@ -127,6 +127,9 @@ pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
         render_callout_balloons(&mut stream, sheet);
     }
 
+    // Render Anotasi GD&T & Toleransi (tidak menulis apa pun bila kosong)
+    render_annotations(&mut stream, sheet);
+
     // Objek 1: Font Helvetica Standar
     let font1_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
     // Objek 2: Font Helvetica-Bold Standar
@@ -926,6 +929,68 @@ fn render_circle_pdf(s: &mut String, cx: f32, cy: f32, r: f32, filled_white: boo
     s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + r, cy - k, cx + k, cy - r, cx, cy - r));
     s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx - k, cy - r, cx - r, cy - k, cx - r, cy));
     s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h S Q\n", cx - r, cy + k, cx - k, cy + r, cx, cy + r));
+}
+
+/// Render anotasi GD&T/toleransi (P19). Simbol berupa path vektor dari
+/// `drawing::gdt`; hanya angka/huruf yang memakai font. Lembar tanpa anotasi
+/// tidak menambah satu byte pun ke stream.
+fn render_annotations(s: &mut String, sheet: &DrawingSheet) {
+    use crate::drawing::gdt::{annotation_geometry, PathCmd, STROKE_MM};
+
+    if sheet.annotations.is_empty() {
+        return;
+    }
+
+    let stroke_w = mm_to_pt(STROKE_MM);
+    s.push_str(&format!("q 0 0 0 RG 0 0 0 rg {stroke_w:.2} w [] 0 d 1 j 1 J\n"));
+
+    for annotation in &sheet.annotations {
+        let Some(geometry) = annotation_geometry(annotation) else {
+            continue;
+        };
+        let [ax, ay] = geometry.anchor;
+        let pt = |p: &[f32; 2]| (mm_to_pt(ax + p[0]), mm_to_pt(ay + p[1]));
+
+        for path in &geometry.paths {
+            for cmd in &path.cmds {
+                match cmd {
+                    PathCmd::Move(a) => {
+                        let (x, y) = pt(a);
+                        s.push_str(&format!("{x:.2} {y:.2} m "));
+                    }
+                    PathCmd::Line(a) => {
+                        let (x, y) = pt(a);
+                        s.push_str(&format!("{x:.2} {y:.2} l "));
+                    }
+                    PathCmd::Cubic(a, b, c) => {
+                        let (x1, y1) = pt(a);
+                        let (x2, y2) = pt(b);
+                        let (x3, y3) = pt(c);
+                        s.push_str(&format!("{x1:.2} {y1:.2} {x2:.2} {y2:.2} {x3:.2} {y3:.2} c "));
+                    }
+                    PathCmd::Close => s.push_str("h "),
+                }
+            }
+            s.push_str(if path.filled { "B\n" } else { "S\n" });
+        }
+
+        for run in &geometry.texts {
+            let font = if run.bold { "/F2" } else { "/F1" };
+            let font_pt = mm_to_pt(run.size_mm);
+            let x_mm = if run.centered {
+                run.pos[0] - crate::drawing::gdt::text_width_mm(&run.text, run.size_mm) * 0.5
+            } else {
+                run.pos[0]
+            };
+            let (x, y) = pt(&[x_mm, run.pos[1]]);
+            s.push_str(&format!(
+                "BT {font} {font_pt:.2} Tf 1 0 0 1 {x:.2} {y:.2} Tm ({}) Tj ET\n",
+                escape_pdf(&run.text)
+            ));
+        }
+    }
+
+    s.push_str("Q\n");
 }
 
 /// Menggambar panah dimensi lancip terisi (filled arrowhead).

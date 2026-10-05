@@ -381,6 +381,310 @@
             "check"
           ],
           "type": "object"
+        },
+        {
+          "description": "Exact center of mass (mm) must be within `tol` of `expect` on every axis.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "center_of_mass"
+              ],
+              "type": "string"
+            },
+            "expect": {
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "tol": {
+              "default": 0.05,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "expect"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Moment of inertia about an axis through the center of mass, in g*mm^2. Uses the body's mechanical material density (see op `set_material`) unless `density_g_cm3` is given.",
+          "properties": {
+            "axis": {
+              "$ref": "#/definitions/InertiaAxis"
+            },
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "moment_of_inertia"
+              ],
+              "type": "string"
+            },
+            "density_g_cm3": {
+              "default": null,
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "max": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "min": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "axis",
+            "body",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Maximum von Mises stress (MPa) of a study result must not exceed `max_mpa`. `study` is the id of a `study` op (`\"*\"` = the only study). Status is `error` until the study has been run (tool `simulate_static`) and again after the model or the setup changes.",
+          "properties": {
+            "check": {
+              "enum": [
+                "max_stress"
+              ],
+              "type": "string"
+            },
+            "max_mpa": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "max_mpa"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Maximum displacement magnitude (mm) of a study result must not exceed `max_mm`.",
+          "properties": {
+            "check": {
+              "enum": [
+                "max_displacement"
+              ],
+              "type": "string"
+            },
+            "max_mm": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "max_mm"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Safety factor (yield strength / max von Mises stress) of a study result must be at least `min`.",
+          "properties": {
+            "check": {
+              "enum": [
+                "min_safety_factor"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "First natural frequency (Hz) of a `frequency` study must be at least `min_hz`.",
+          "properties": {
+            "check": {
+              "enum": [
+                "min_natural_frequency"
+              ],
+              "type": "string"
+            },
+            "min_hz": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "min_hz"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Critical load factor of a `buckling` study must be at least `min` (below 1 = buckles).",
+          "properties": {
+            "check": {
+              "enum": [
+                "min_buckling_factor"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Highest temperature (deg C) of a `thermal` study must not exceed `max_c`.",
+          "properties": {
+            "check": {
+              "enum": [
+                "max_temperature"
+              ],
+              "type": "string"
+            },
+            "max_c": {
+              "$ref": "#/definitions/Num"
+            },
+            "study": {
+              "default": "*",
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "max_c"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Sheet metal: every bend's inner radius divided by the sheet thickness must be at least `min_ratio_to_t` (e.g. 1.0 for mild steel, more for hard alloys).",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "min_bend_radius"
+              ],
+              "type": "string"
+            },
+            "min_ratio_to_t": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min_ratio_to_t"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Sheet metal: the straight length of every flange must be at least `min` mm (tooling needs material to grip; a common rule is 4 x thickness).",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "min_flange_length"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Tolerance stack-up of a dimension chain: the total variation of the closing dimension must not exceed `max_total` (mm). `method` is `worst_case` (default, arithmetic sum) or `rss` (root-sum-square, statistical). No geometry is measured: the chain is given explicitly.",
+          "properties": {
+            "chain": {
+              "items": {
+                "$ref": "#/definitions/StackLink"
+              },
+              "type": "array"
+            },
+            "check": {
+              "enum": [
+                "tolerance_stackup"
+              ],
+              "type": "string"
+            },
+            "max_total": {
+              "$ref": "#/definitions/Num"
+            },
+            "method": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/StackMethod"
+                }
+              ],
+              "default": "worst_case"
+            }
+          },
+          "required": [
+            "chain",
+            "check",
+            "max_total"
+          ],
+          "type": "object"
         }
       ],
       "properties": {
@@ -397,6 +701,43 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "ConfigurationSpec": {
+      "additionalProperties": false,
+      "description": "One design variant: parameter overrides, suppressed ops and material overrides on top of the base design. The base design itself is the reserved configuration `\"Default\"`.",
+      "properties": {
+        "material_overrides": {
+          "additionalProperties": {
+            "$ref": "#/definitions/MechMaterialSpec"
+          },
+          "description": "Body name -> mechanical material used in this variant.",
+          "type": "object"
+        },
+        "name": {
+          "description": "Unique name (1-48 chars: letters, digits, space, `_`, `-`, `.`); also the build output directory name.",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "default": {},
+          "description": "Parameters overridden by this variant; all others keep their base value.",
+          "type": "object"
+        },
+        "suppressed_ops": {
+          "description": "Ids of ops skipped in this variant (e.g. an optional hole pattern).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
       "type": "object"
     },
     "ConstraintSpec": {
@@ -1310,6 +1651,60 @@
       ],
       "type": "string"
     },
+    "Fixture": {
+      "additionalProperties": false,
+      "description": "A support applied to one or more faces.",
+      "properties": {
+        "faces": {
+          "description": "Face selector (same grammar as modeling ops, e.g. \"<X\" or \"all[kind=cylinder][r=5]\").",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique id of this fixture; reaction forces are reported per id.",
+          "type": "string"
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/FixtureKind"
+            }
+          ],
+          "description": "How the selected faces are held."
+        }
+      },
+      "required": [
+        "faces",
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FixtureKind": {
+      "description": "Kind of support.",
+      "oneOf": [
+        {
+          "description": "All three displacement components are zero on the face.",
+          "enum": [
+            "fixed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Displacement along the face normal is zero; sliding in the face is free.",
+          "enum": [
+            "roller"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Symmetry plane: same constraint as `roller` (no displacement along the face normal). Use it on the cut face of a half or quarter model.",
+          "enum": [
+            "symmetry"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "HelixSection": {
       "description": "Helix section (externally tagged): `{\"circle\":{\"r\":1}}`, `{\"rect\":{\"w\":2,\"h\":1}}`, `{\"triangle\":{\"w\":1.5,\"h\":1.3}}` (V thread).",
       "oneOf": [
@@ -1454,8 +1849,362 @@
         }
       ]
     },
+    "InertiaAxis": {
+      "description": "Axis through the center of mass: a global axis or a principal axis (sorted by moment).",
+      "enum": [
+        "x",
+        "y",
+        "z",
+        "principal_min",
+        "principal_mid",
+        "principal_max"
+      ],
+      "type": "string"
+    },
+    "Load": {
+      "description": "A load. `kind` selects the load type and its parameters, for example `{\"id\":\"f1\",\"faces\":\">Z\",\"kind\":\"force\",\"newton\":[0,0,-100]}`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Total force vector in newtons, spread uniformly over the area of the selected faces.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "force"
+              ],
+              "type": "string"
+            },
+            "newton": {
+              "description": "Total force [Fx, Fy, Fz] in N.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "newton"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Uniform pressure normal to the selected faces.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "pressure"
+              ],
+              "type": "string"
+            },
+            "mpa": {
+              "description": "Pressure in MPa (N/mm^2). Positive pushes on the body (acts along the inward face normal); negative pulls.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "mpa"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Torque about an axis, applied to the selected faces as tangential forces that grow linearly with the distance from the axis. It is applied as a pure couple (zero net force), so `axis_point` documents where the axis is but does not change the resulting load.",
+          "properties": {
+            "axis_dir": {
+              "description": "Axis direction (need not be normalised); right-hand rule.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "axis_point": {
+              "description": "A point on the torque axis, mm.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "torque"
+              ],
+              "type": "string"
+            },
+            "newton_mm": {
+              "description": "Torque magnitude in N*mm.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "axis_dir",
+            "axis_point",
+            "kind",
+            "newton_mm"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Gravity (or any uniform acceleration) acting on the whole body. Uses the body's material density. `faces` must be omitted.",
+          "properties": {
+            "dir": {
+              "description": "Direction the acceleration points to, e.g. [0,0,-1].",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "g": {
+              "description": "Acceleration magnitude in m/s^2 (9.81 for standard gravity).",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "enum": [
+                "gravity"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "dir",
+            "g",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bearing load on a cylindrical face: a total force distributed as a cosine-shaped pressure over the half of the cylinder that the load pushes against.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "bearing"
+              ],
+              "type": "string"
+            },
+            "newton": {
+              "description": "Total force [Fx, Fy, Fz] in N; normally perpendicular to the cylinder axis.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "newton"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A force acting at a remote point, transferred to the selected faces as the statically equivalent force plus moment.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "remote"
+              ],
+              "type": "string"
+            },
+            "newton": {
+              "description": "Force [Fx, Fy, Fz] in N.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "point": {
+              "description": "Point where the force acts, mm.",
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "newton",
+            "point"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "faces": {
+          "description": "Face selector the load acts on. Required for every kind except `gravity`, which acts on the whole body.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Unique id of this load.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
     "MaterialSel": {
       "type": "string"
+    },
+    "MechMaterialSpec": {
+      "anyOf": [
+        {
+          "description": "Key of a built-in or per-file library material (case-insensitive).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "custom": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MechPropsSpec"
+                }
+              ],
+              "description": "Explicit isotropic material properties."
+            }
+          },
+          "required": [
+            "custom"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Mechanical material: a library key string, or `{\"custom\": {...}}` with explicit properties."
+    },
+    "MechPropsSpec": {
+      "additionalProperties": false,
+      "description": "Isotropic material properties at room temperature.",
+      "properties": {
+        "density_g_cm3": {
+          "description": "Density in g/cm^3 (> 0).",
+          "format": "double",
+          "type": "number"
+        },
+        "poisson_ratio": {
+          "description": "Poisson ratio, strictly between 0 and 0.5.",
+          "format": "double",
+          "type": "number"
+        },
+        "thermal_conductivity_w_mk": {
+          "default": 0.0,
+          "description": "Thermal conductivity in W/(m*K); default 0.",
+          "format": "double",
+          "type": "number"
+        },
+        "thermal_expansion_per_k": {
+          "default": 0.0,
+          "description": "Linear thermal expansion coefficient in 1/K; default 0.",
+          "format": "double",
+          "type": "number"
+        },
+        "ultimate_strength_mpa": {
+          "description": "Ultimate tensile strength in MPa (> 0).",
+          "format": "double",
+          "type": "number"
+        },
+        "yield_strength_mpa": {
+          "description": "Yield strength in MPa (> 0, at most `ultimate_strength_mpa`).",
+          "format": "double",
+          "type": "number"
+        },
+        "young_modulus_gpa": {
+          "description": "Young's modulus in GPa (> 0).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "density_g_cm3",
+        "poisson_ratio",
+        "ultimate_strength_mpa",
+        "yield_strength_mpa",
+        "young_modulus_gpa"
+      ],
+      "type": "object"
+    },
+    "MeshKind": {
+      "description": "Mesh type.",
+      "oneOf": [
+        {
+          "description": "Voxel hexahedral mesh (engineering estimate, about +/-10 %).",
+          "enum": [
+            "hex"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Conforming quadratic tetrahedral mesh (Tet10): follows curved faces and gives better stress near holes and fillets. Falls back to hex with warning `SIM_MESH_FALLBACK_HEX` when the body cannot be meshed.",
+          "enum": [
+            "tet"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "MeshSettings": {
+      "additionalProperties": false,
+      "description": "Mesh controls. With neither `cell_mm` nor `target_elems` the cell size starts at 1/40 of the largest bounding-box dimension and is adapted so the mesh has between 20,000 and 200,000 elements.",
+      "properties": {
+        "cell_mm": {
+          "description": "Explicit cell edge length in mm. Cells are stretched slightly per axis so the grid fits the bounding box exactly. Takes precedence over `target_elems`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/MeshKind"
+            }
+          ],
+          "default": "hex",
+          "description": "Mesh type; only \"hex\" is supported for now."
+        },
+        "target_elems": {
+          "description": "Approximate number of elements to aim for when `cell_mm` is omitted.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "MirrorPlane": {
       "anyOf": [
@@ -2541,6 +3290,553 @@
             "op"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Assign a mechanical material (density, Young's modulus, Poisson ratio, yield strength) to a body. Drives `mass_g`, the inertia tensor, the `mass`/`moment_of_inertia` checks and simulation studies. Does not change the body's appearance or geometry.",
+          "properties": {
+            "body": {
+              "description": "Name of the body to assign the material to.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "material": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/MechMaterialSpec"
+                }
+              ],
+              "description": "Library key (`abs`, `pa6`, `pc`, `al_6061_t6`, `al_7075_t6`, `s235`, `s355`, `aisi_304`, `aisi_1045`, `ti_6al_4v`, `brass`, `copper`, `soda_lime_glass`) or `{\"custom\": {\"density_g_cm3\": 7.85, \"young_modulus_gpa\": 210, \"poisson_ratio\": 0.3, \"yield_strength_mpa\": 355, \"ultimate_strength_mpa\": 510}}`."
+            },
+            "op": {
+              "enum": [
+                "set_material"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "material",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: create the base plate of a folded part from a sketch whose closed region is a straight-sided polygon. The body remembers thickness, bend radius and k-factor for later `edge_flange` / `hem` / `jog` / `unfold` / `flat_pattern` ops.",
+          "properties": {
+            "bend_radius": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Default inner bend radius in mm; default = thickness."
+            },
+            "id": {
+              "type": "string"
+            },
+            "k_factor": {
+              "default": null,
+              "description": "Neutral-axis k-factor (0..1) used for bend allowance BA = angle * (R + k*t); default 0.44.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "base_flange"
+              ],
+              "type": "string"
+            },
+            "sketch": {
+              "description": "Id of the sketch holding exactly one closed polygon (line segments only).",
+              "type": "string"
+            },
+            "thickness": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Sheet thickness in mm (> 0); the plate grows along the sketch plane normal."
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "sketch",
+            "thickness"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: bend a flange up from one or more free straight edges of the base flange. The flange spans the full edge. Flanges on flanges are not supported yet.",
+          "properties": {
+            "angle": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Bend angle in degrees (default 90). Positive bends toward the sketch normal, negative away from it; magnitude in (0, 180]."
+            },
+            "body": {
+              "description": "Name of a body created by `base_flange`.",
+              "type": "string"
+            },
+            "edges": {
+              "description": "Edge selector resolving to outer straight edges of the base plate (top or bottom rim).",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "length": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Straight length of the flange after the bend, in mm."
+            },
+            "op": {
+              "enum": [
+                "edge_flange"
+              ],
+              "type": "string"
+            },
+            "radius": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inner bend radius; default = the body's default bend radius."
+            },
+            "relief": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ReliefSpec"
+                }
+              ],
+              "default": "none",
+              "description": "Bend relief shape recorded for manufacturing notes: `none` (default), `rect`, `obround`. Not yet cut into the geometry."
+            }
+          },
+          "required": [
+            "body",
+            "edges",
+            "id",
+            "length",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: fold an edge back on itself by 180 degrees (a hem).",
+          "properties": {
+            "body": {
+              "description": "Name of a body created by `base_flange`.",
+              "type": "string"
+            },
+            "edges": {
+              "description": "Edge selector (same rules as `edge_flange`).",
+              "type": "string"
+            },
+            "gap": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Gap between the lip and the plate in mm (inner bend radius = gap / 2); default = thickness (an open hem)."
+            },
+            "id": {
+              "type": "string"
+            },
+            "length": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Length of the returned lip in mm."
+            },
+            "op": {
+              "enum": [
+                "hem"
+              ],
+              "type": "string"
+            },
+            "up": {
+              "default": true,
+              "description": "`true` folds toward the sketch normal (default), `false` away from it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "body",
+            "edges",
+            "id",
+            "length",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: two opposite bends that offset the edge strip to a parallel plane (a jog).",
+          "properties": {
+            "angle": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Bend angle of both bends in degrees (default 90), in (0, 90]."
+            },
+            "body": {
+              "description": "Name of a body created by `base_flange`.",
+              "type": "string"
+            },
+            "edges": {
+              "description": "Edge selector (same rules as `edge_flange`).",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "length": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Length of the flat strip after the jog, in mm."
+            },
+            "offset": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "description": "Offset between the plate and the jogged strip in mm; positive = toward the sketch normal."
+            },
+            "op": {
+              "enum": [
+                "jog"
+              ],
+              "type": "string"
+            },
+            "radius": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Inner bend radius; default = the body's default bend radius."
+            }
+          },
+          "required": [
+            "body",
+            "edges",
+            "id",
+            "length",
+            "offset",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: replace the folded body by its flat blank (bend allowance applied). Undo with `fold`.",
+          "properties": {
+            "body": {
+              "description": "Name of a sheet metal body.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "unfold"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: fold an unfolded body back into its bent shape.",
+          "properties": {
+            "body": {
+              "description": "Name of a sheet metal body that was unfolded.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "fold"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sheet metal: create a new body `id` holding the flat blank of `body` (the folded body is kept). The outcome `detail` lists the bend lines; export the blank with `ducad-cli build --formats flat`.",
+          "properties": {
+            "body": {
+              "description": "Name of a sheet metal body.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "op": {
+              "enum": [
+                "flat_pattern"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Insert a standard part from the toolbox as a new body `id`: axis along +Z, seating plane at `at` (screws: underside of the head, shank toward -Z; nuts, washers, bearings and pins: bottom face). Threads are cosmetic (plain shank). The BOM lists the standard designation.",
+          "properties": {
+            "at": {
+              "default": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "description": "Position of the seating point [x,y,z]; default origin. Rotate with op `transform`.",
+              "items": {
+                "$ref": "#/definitions/Num"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "length": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Nominal length in mm; required for screws and pins, not allowed otherwise."
+            },
+            "op": {
+              "enum": [
+                "standard_part"
+              ],
+              "type": "string"
+            },
+            "size": {
+              "description": "Screws, nuts, washers: `M3`, `M4`, `M5`, `M6`, `M8`, `M10`, `M12`. Pins: diameter `2`..`12`. Bearings: `608`, `6000`, `6001`, `6002`, `6200`, `6201`, `6202`, `6204`, `6205`.",
+              "type": "string"
+            },
+            "standard": {
+              "description": "`iso4762` (socket head cap screw), `iso4014` (hex bolt), `iso4032` (hex nut), `iso7089` (plain washer), `iso2338` (parallel pin), `bearing` (deep groove ball bearing).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "size",
+            "standard"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Thread on an external cylindrical face (ISO metric 60 degree profile). `cosmetic: true` (default) only records the thread for notes; `cosmetic: false` cuts the helical groove into the body (slow: about a second per ten turns).",
+          "properties": {
+            "body": {
+              "description": "Name of the body to modify.",
+              "type": "string"
+            },
+            "cosmetic": {
+              "default": true,
+              "description": "`true` (default): record only. `false`: cut real thread geometry.",
+              "type": "boolean"
+            },
+            "face": {
+              "description": "Face selector resolving to exactly one cylindrical face (the shank).",
+              "type": "string"
+            },
+            "from_end": {
+              "default": false,
+              "description": "Start from the other end of the cylinder.",
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "left_handed": {
+              "default": false,
+              "description": "Left-hand thread.",
+              "type": "boolean"
+            },
+            "length": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Threaded length in mm measured from the start end; default = whole cylinder."
+            },
+            "op": {
+              "enum": [
+                "thread"
+              ],
+              "type": "string"
+            },
+            "pitch": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Thread pitch in mm; default = ISO coarse pitch for the cylinder diameter (M2-M12)."
+            }
+          },
+          "required": [
+            "body",
+            "face",
+            "id",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Store a simulation study (fixtures, loads, mesh settings) in the design. Creates no body and does not run the solver: run it with tool `simulate_static` (or `ducad-cli sim`), then assert on the result with checks `max_stress`, `max_displacement`, `min_safety_factor` (kinds `static`, `thermal_stress`), `min_natural_frequency` (`frequency`), `min_buckling_factor` (`buckling`) or `max_temperature` (`thermal`). The body needs a mechanical material (op `set_material`) before the study can run.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/StudyKind"
+                }
+              ],
+              "default": "static",
+              "description": "Study type; default `static`."
+            },
+            "modes": {
+              "description": "Number of modes for kinds `frequency` (default 10) and `buckling` (default 3); 1..=40.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "study"
+              ],
+              "type": "string"
+            },
+            "setup": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SimSetup"
+                }
+              ],
+              "description": "Body, fixtures, loads and mesh settings. `frequency` ignores loads; `thermal` uses only `body` and `mesh` (fixtures and loads may be empty lists)."
+            },
+            "thermal": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ThermalSetup"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Thermal boundary conditions; required for kinds `thermal` and `thermal_stress`."
+            }
+          },
+          "required": [
+            "id",
+            "op",
+            "setup"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -2838,6 +4134,15 @@
       ],
       "description": "Profile selection: `\"all\"`, `{\"names\": [...]}` (sketch entity names), or `{\"at\": [u, v]}` (smallest region containing the point)."
     },
+    "ReliefSpec": {
+      "description": "Bend relief shape.",
+      "enum": [
+        "none",
+        "rect",
+        "obround"
+      ],
+      "type": "string"
+    },
     "RotateSpec": {
       "additionalProperties": false,
       "properties": {
@@ -2943,6 +4248,47 @@
         }
       ]
     },
+    "SimSetup": {
+      "additionalProperties": false,
+      "description": "Linear static study setup: which body to analyse, how it is held (fixtures) and what acts on it (loads). Units: mm, N, MPa, m/s^2.",
+      "properties": {
+        "body": {
+          "description": "Name of the body to analyse (the id of the op that created it).",
+          "type": "string"
+        },
+        "fixtures": {
+          "description": "Supports. At least one is required; together they must block all six rigid-body motions, otherwise the run fails with SIM_UNDERCONSTRAINED.",
+          "items": {
+            "$ref": "#/definitions/Fixture"
+          },
+          "type": "array"
+        },
+        "loads": {
+          "description": "Loads applied to the body. All loads act together in one load case.",
+          "items": {
+            "$ref": "#/definitions/Load"
+          },
+          "type": "array"
+        },
+        "mesh": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/MeshSettings"
+            }
+          ],
+          "default": {
+            "kind": "hex"
+          },
+          "description": "Mesh controls. Omit to let the solver pick a cell size automatically."
+        }
+      },
+      "required": [
+        "body",
+        "fixtures",
+        "loads"
+      ],
+      "type": "object"
+    },
     "SplitKeep": {
       "enum": [
         "both",
@@ -2950,6 +4296,101 @@
         "negative"
       ],
       "type": "string"
+    },
+    "StackLink": {
+      "additionalProperties": false,
+      "description": "One link of a tolerance chain. Give either `plus`/`minus` (amounts above/below nominal, both normally >= 0) or an ISO 286 `fit` class such as `\"H7\"` or `\"g6\"`. `reverse: true` for a link that runs against the chain direction (its nominal is subtracted).",
+      "properties": {
+        "fit": {
+          "default": null,
+          "description": "ISO 286 tolerance class (holes: D E F G H JS K M N P; shafts: d e f g h js k m n p r s).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minus": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Num"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "nominal": {
+          "$ref": "#/definitions/Num"
+        },
+        "plus": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Num"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reverse": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "nominal"
+      ],
+      "type": "object"
+    },
+    "StackMethod": {
+      "description": "Stack-up method.",
+      "enum": [
+        "worst_case",
+        "rss"
+      ],
+      "type": "string"
+    },
+    "StudyKind": {
+      "description": "Simulation study type.",
+      "oneOf": [
+        {
+          "description": "Linear static stress analysis.",
+          "enum": [
+            "static"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Natural frequencies (Hz) of the body held by the fixtures; loads are ignored.",
+          "enum": [
+            "frequency"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Linear buckling: load factors that multiply the applied loads at the onset of buckling.",
+          "enum": [
+            "buckling"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Steady-state heat conduction: temperature field from the `thermal` boundary conditions.",
+          "enum": [
+            "thermal"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Steady-state conduction followed by a static study loaded by thermal expansion (plus any mechanical loads); the stress-free reference temperature is 20 degrees Celsius.",
+          "enum": [
+            "thermal_stress"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "StyleSpec": {
       "additionalProperties": false,
@@ -3054,14 +4495,137 @@
         }
       ],
       "description": "Sweep path: id of a sketch holding an open chain (lines/arcs/splines), or `{\"points\": [[x,y,z], ...]}` 3D polyline."
+    },
+    "ThermalBc": {
+      "description": "A thermal boundary condition on one or more faces, for example `{\"id\":\"hot\",\"faces\":\"<X\",\"kind\":\"temperature\",\"celsius\":120}`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Fixed temperature on the faces.",
+          "properties": {
+            "celsius": {
+              "description": "Temperature in degrees Celsius.",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "enum": [
+                "temperature"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "celsius",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Prescribed heat flux through the faces.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "heat_flux"
+              ],
+              "type": "string"
+            },
+            "w_per_mm2": {
+              "description": "Heat flux in W/mm^2. Positive heats the body (flows into it).",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "w_per_mm2"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Convection to a fluid at ambient temperature.",
+          "properties": {
+            "ambient_c": {
+              "description": "Ambient fluid temperature in degrees Celsius.",
+              "format": "double",
+              "type": "number"
+            },
+            "h_w_mm2k": {
+              "description": "Film coefficient in W/(mm^2*K). 1 W/(m^2*K) = 1e-6 W/(mm^2*K).",
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "enum": [
+                "convection"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ambient_c",
+            "h_w_mm2k",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "faces": {
+          "description": "Face selector (same grammar as modeling ops).",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique id of this boundary condition.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "faces",
+        "id"
+      ],
+      "type": "object"
+    },
+    "ThermalSetup": {
+      "additionalProperties": false,
+      "description": "Steady-state thermal study setup: boundary conditions on faces. Faces without a boundary condition are insulated. At least one `temperature` or `convection` boundary is required. Units: degrees Celsius, W, mm.",
+      "properties": {
+        "boundary": {
+          "description": "Thermal boundary conditions.",
+          "items": {
+            "$ref": "#/definitions/ThermalBc"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "boundary"
+      ],
+      "type": "object"
     }
   },
   "description": "Ops file content: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",
   "properties": {
+    "active_configuration": {
+      "description": "Variant to activate after loading; default is the base design (`\"Default\"`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "checks": {
       "description": "Optional design checks (P7 format); `ducad-cli run` installs them into `design.checks` before running the ops.",
       "items": {
         "$ref": "#/definitions/CheckItem"
+      },
+      "type": "array"
+    },
+    "configurations": {
+      "description": "Optional design variants; `ducad-cli build --all-configs` builds every one of them.",
+      "items": {
+        "$ref": "#/definitions/ConfigurationSpec"
       },
       "type": "array"
     },

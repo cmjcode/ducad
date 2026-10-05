@@ -24,6 +24,16 @@ impl DuCADApp {
                 PaletteAction::ToggleAgentBridge,
             ),
             (
+                ducad_i18n::t!("mass-open"),
+                String::new(),
+                PaletteAction::ToggleMassPanel,
+            ),
+            (
+                ducad_i18n::t!("sim-open"),
+                String::new(),
+                PaletteAction::ToggleSimPanel,
+            ),
+            (
                 crate::mode::AppMode::Vector.label().to_string(),
                 "⌘+Shift+4".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
@@ -446,6 +456,8 @@ impl DuCADApp {
             PaletteAction::OpenAssist => self.open_assist_dialog(),
             PaletteAction::OpenChat => self.open_chat(),
             PaletteAction::ToggleAgentBridge => self.toggle_agent_bridge(ctx),
+            PaletteAction::ToggleMassPanel => self.mass.panel_open = !self.mass.panel_open,
+            PaletteAction::ToggleSimPanel => self.sim.panel_open = !self.sim.panel_open,
             PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),
             PaletteAction::ConvertToClosedObjects => {
                 self.convert_to_closed_objects();

@@ -1,0 +1,13 @@
+{ "params": { "t": 8 },
+  "ops": [
+    {"op":"primitive","id":"plate","shape":{"box":{"size":[40,30,"$t"]}}},
+    {"op":"hole","id":"bore","body":"plate","face":">Z","at_world":[[20,15,8]],"spec":{"iso":"M6"}},
+    {"op":"standard_part","id":"washer","standard":"iso7089","size":"M6","at":[20,15,"$t"]},
+    {"op":"standard_part","id":"bolt","standard":"iso4762","size":"M6","length":20,"at":[20,15,"$t + 1.6"]},
+    {"op":"standard_part","id":"nut","standard":"iso4032","size":"M6","at":[20,15,-5.2]},
+    {"op":"thread","id":"bolt_thread","body":"bolt","face":"all[kind=cylinder][r=3]","length":12}
+  ],
+  "checks": [
+    {"id":"four_parts","check":"body_count","expect":4},
+    {"id":"bolt_clears_plate","check":"no_interference","bodies":["plate","bolt"]}
+  ] }

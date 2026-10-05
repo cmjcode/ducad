@@ -2,6 +2,7 @@ pub mod assist;
 pub mod build;
 pub mod chat;
 pub mod check;
+pub mod config;
 pub mod diff;
 pub mod export;
 pub mod inspect;
@@ -10,6 +11,7 @@ pub mod render;
 pub mod replay;
 pub mod run;
 pub mod select;
+pub mod sim;
 
 use std::path::Path;
 

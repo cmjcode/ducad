@@ -158,3 +158,51 @@ fn check_items_round_trip_in_design() {
     let back: Vec<CheckItem> = serde_json::from_value(json).unwrap();
     assert_eq!(back, c);
 }
+
+/// P19: tumpukan toleransi — kasus terburuk vs RSS, kelas ISO 286, arah balik.
+#[test]
+fn tolerance_stackup_worst_case_rss_and_iso_fit() {
+    let s = Session::new();
+    let checks: Vec<ducad_engine::check::CheckItem> = serde_json::from_str(
+        r#"[
+        {"id":"wc_ok","check":"tolerance_stackup","max_total":0.61,
+         "chain":[{"nominal":20,"plus":0.1,"minus":0.1},{"nominal":30,"plus":0.1,"minus":0.1},
+                  {"nominal":15,"plus":0.1,"minus":0.1,"reverse":true}]},
+        {"id":"wc_tight","check":"tolerance_stackup","max_total":0.5,
+         "chain":[{"nominal":20,"plus":0.1,"minus":0.1},{"nominal":30,"plus":0.1,"minus":0.1},
+                  {"nominal":15,"plus":0.1,"minus":0.1,"reverse":true}]},
+        {"id":"rss_ok","check":"tolerance_stackup","max_total":0.5,"method":"rss",
+         "chain":[{"nominal":20,"plus":0.1,"minus":0.1},{"nominal":30,"plus":0.1,"minus":0.1},
+                  {"nominal":15,"plus":0.1,"minus":0.1,"reverse":true}]},
+        {"id":"fit","check":"tolerance_stackup","max_total":0.035,
+         "chain":[{"nominal":25,"fit":"H7"},{"nominal":25,"fit":"g6","reverse":true}]},
+        {"id":"bad","check":"tolerance_stackup","max_total":1,
+         "chain":[{"nominal":25,"fit":"H7","plus":0.1}]},
+        {"id":"unknown_fit","check":"tolerance_stackup","max_total":1,
+         "chain":[{"nominal":25,"fit":"Q7"}]}
+    ]"#,
+    )
+    .unwrap();
+    let r = s.run_checks(Some(&checks));
+    let status: Vec<CheckStatus> = r.results.iter().map(|c| c.status).collect();
+    assert_eq!(
+        status,
+        [
+            CheckStatus::Pass,
+            CheckStatus::Fail,
+            CheckStatus::Pass,
+            CheckStatus::Pass,
+            CheckStatus::Error,
+            CheckStatus::Error
+        ],
+        "{:?}",
+        r.results
+    );
+    // Nominal penutup 20 + 30 − 15 = 35; kasus terburuk 0.6; RSS 2·√(3·0.01) ≈ 0.3464.
+    assert_eq!(r.results[0].measured["nominal"], 35.0);
+    assert_eq!(r.results[0].measured["total"], 0.6);
+    assert_eq!(r.results[2].measured["total"], 0.3464);
+    // 25H7/g6: celah 0.007 … 0.041 → pita 0.034.
+    assert_eq!(r.results[3].measured["total"], 0.034);
+    assert_eq!(r.results[3].measured["worst_case"][0], 0.041);
+}

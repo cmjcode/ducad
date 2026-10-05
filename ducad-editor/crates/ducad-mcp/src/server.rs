@@ -19,7 +19,7 @@ const INVALID_PARAMS: i64 = -32602;
 /// Tambahan `instructions` khusus mode `--attach`.
 pub const ATTACH_INSTRUCTIONS: &str = " LIVE MODE: you are connected to the DUCAD app that is open right now; every change is visible to the user immediately and each `run_ops`/`set_params`/`replace_op`/`remove_op` is one undo step. `new_part`/`open_part`/`close_part`, `undo`/`redo`, `export`, `diff`, and `list_parts` are not available (ask the user to do it in the app). `propose_ops` shows the user a colored preview and only returns after the user presses Accept/Reject; `accept_proposal` is not available to agents. When the user says \"this\"/\"the selected one\", call `get_selection`; `document_info` gives the document state; after creating geometry, call `set_view` so the result is visible; `screenshot` shows what the user sees.";
 
-pub const INSTRUCTIONS: &str = "DUCAD is a parametric B-rep CAD. Units: mm, angles in degrees. Workflow: (1) call `get_schema` with no arguments once: a summary of every op kind (required/optional fields), the selector cheatsheet, and the list of tested examples; get one kind in detail with `get_schema {\"op\":\"hole\"}` and a full example with `{\"example\":\"flange\"}`; (2) `new_part` or `open_part`; (3) turn the user's requirements into checks with `set_checks` before modeling; (4) `run_ops` with `dry_run: true` to validate, then without `dry_run`; (5) `inspect`, `run_checks`, and `render_view` to verify the result against the spec; (6) `save_part`. Bodies are referenced by the `id` of the op that created them; a boolean consumes bodies `a` and `b` (use the boolean's `id` afterwards). Faces/edges are referenced with selectors such as `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; test a selector with `query_geometry` before using it. A `run_ops` batch is atomic: if one op fails the whole batch is rolled back and `error` explains the cause, `op_index`, and a `hint`; when `error.fixes` is present, resend the batch with `patched_op` replacing the failed op. Change dimensions with `set_params`; fix an existing op with `replace_op` and drop it with `remove_op` (both replay the oplog) — do not stack corrective ops or undo repeatedly. Full guide + error code table: resource `ducad://guide`. Reply to the user in their own language.";
+pub const INSTRUCTIONS: &str = "DUCAD is a parametric B-rep CAD. Units: mm, angles in degrees. Workflow: (1) call `get_schema` with no arguments once: a summary of every op kind (required/optional fields), the selector cheatsheet, and the list of tested examples; get one kind in detail with `get_schema {\"op\":\"hole\"}` and a full example with `{\"example\":\"flange\"}`; (2) `new_part` or `open_part`; (3) turn the user's requirements into checks with `set_checks` before modeling; (4) `run_ops` with `dry_run: true` to validate, then without `dry_run`; (5) `inspect`, `run_checks`, and `render_view` to verify the result against the spec; (6) `save_part`. Bodies are referenced by the `id` of the op that created them; a boolean consumes bodies `a` and `b` (use the boolean's `id` afterwards). Faces/edges are referenced with selectors such as `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; test a selector with `query_geometry` before using it. A `run_ops` batch is atomic: if one op fails the whole batch is rolled back and `error` explains the cause, `op_index`, and a `hint`; when `error.fixes` is present, resend the batch with `patched_op` replacing the failed op. Change dimensions with `set_params`; fix an existing op with `replace_op` and drop it with `remove_op` (both replay the oplog) — do not stack corrective ops or undo repeatedly. Strength questions: give the body a mechanical material with op `set_material`, store fixtures and loads with op `study`, then call `simulate_static` (max von Mises stress, displacement, safety factor, color-map image) and assert with checks `max_stress` / `max_displacement` / `min_safety_factor`; a study `kind` of `frequency`, `buckling`, `thermal` or `thermal_stress` gives natural frequencies, buckling load factors or temperatures (checks `min_natural_frequency` / `min_buckling_factor` / `max_temperature`); results are engineering estimates (about +/-10 % on the default voxel mesh). Full guide + error code table: resource `ducad://guide`. Reply to the user in their own language.";
 
 /// Satu part terbuka.
 pub struct Part {
@@ -521,6 +521,13 @@ mod tests {
         let expected =
             60.0 * 40.0 * 8.0 - 4.0 * (1.0 - pi / 4.0) * 9.0 * 8.0 - 4.0 * pi * 2.75 * 2.75 * 8.0;
         assert!((v - expected).abs() / expected < 1e-3, "{v}");
+        // P16: properti massa ikut di `inspect` tanpa tool baru.
+        let body = &text(&r)["bodies"][0];
+        let inertia = body["inertia_com"].as_array().expect("inertia_com");
+        assert_eq!(inertia.len(), 3);
+        assert!(inertia[2][2].as_f64().unwrap() > inertia[0][0].as_f64().unwrap());
+        assert_eq!(body["center_of_mass"][2], 4.0);
+        assert_eq!(body["principal_moments"].as_array().unwrap().len(), 3);
 
         let r = call(&mut s, 7, "render_view", json!({ "view": "iso" }));
         assert_eq!(r["content"][1]["type"], "image");
@@ -643,6 +650,137 @@ mod tests {
         let kinds = &find("run_ops")["inputSchema"]["properties"]["ops"]["items"]["properties"]
             ["op"]["enum"];
         assert!(kinds.as_array().unwrap().contains(&json!("helix")));
+    }
+
+    /// P17: `simulate_static` — error terstruktur tanpa fixture, lalu studi
+    /// tersimpan yang memberi hasil + gambar dan menghidupkan check tegangan.
+    #[test]
+    fn simulate_static_reports_errors_and_results() {
+        let (mut s, _dir) = server();
+        assert_eq!(call(&mut s, 1, "new_part", json!({}))["isError"], false);
+        let r = call(
+            &mut s,
+            2,
+            "run_ops",
+            json!({ "ops": [
+                { "op": "primitive", "id": "bar", "shape": { "box": { "size": [10, 10, 40] } } },
+                { "op": "set_material", "id": "mat", "body": "bar", "material": "s235" }
+            ] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+
+        let load = json!({ "id": "pull", "faces": ">Z", "kind": "force", "newton": [0, 0, 1000] });
+        let free = json!({ "body": "bar", "fixtures": [], "loads": [load], "mesh": { "cell_mm": 2.5 } });
+        let r = call(&mut s, 3, "simulate_static", json!({ "setup": free }));
+        assert_eq!(r["isError"], true, "{r}");
+        let e = &text(&r)["error"];
+        assert_eq!(e["code"], "sim_underconstrained");
+        assert!(e["hint"].as_str().unwrap().contains("fixture"));
+        assert!(e["message"].as_str().unwrap().is_ascii());
+
+        let setup = json!({ "body": "bar",
+            "fixtures": [{ "id": "base", "faces": "<Z", "kind": "fixed" }],
+            "loads": [load], "mesh": { "cell_mm": 2.5 } });
+        let r = call(
+            &mut s,
+            4,
+            "run_ops",
+            json!({ "ops": [{ "op": "study", "id": "pull_test", "setup": setup }] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            5,
+            "set_checks",
+            json!({ "checks": [{ "check": "max_stress", "max_mpa": 30 }] }),
+        );
+        assert_eq!(text(&r)["error"], 1, "belum dijalankan → error: {r}");
+
+        let r = call(&mut s, 6, "simulate_static", json!({}));
+        assert_eq!(r["isError"], false, "{r}");
+        let out = text(&r);
+        assert_eq!(out["study"], "pull_test");
+        // Tarik aksial 1000 N pada 100 mm² → 10 MPa nominal.
+        let sigma = out["max_von_mises_mpa"].as_f64().unwrap();
+        assert!(sigma > 8.0 && sigma < 20.0, "{sigma}");
+        assert!(out["safety_factor"].as_f64().unwrap() > 10.0);
+        assert_eq!(out["checks"]["pass"], 1, "{out}");
+        assert!(out.get("nodal_field").is_none());
+        assert_eq!(r["content"][1]["mimeType"], "image/png");
+
+        let r = call(&mut s, 7, "render_view", json!({ "overlay": "displacement", "view": "front" }));
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(r["content"][1]["type"], "image");
+        let r = call(&mut s, 8, "render_view", json!({ "deform_scale": 2 }));
+        assert_eq!(r["isError"], true);
+
+        // P18: jenis studi lain lewat tool yang sama (nama lama tetap).
+        let r = call(
+            &mut s,
+            9,
+            "simulate_static",
+            json!({ "setup": setup, "kind": "frequency", "modes": 2 }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let out = text(&r);
+        assert_eq!(out["kind"], "frequency");
+        let hz = out["frequencies_hz"].as_array().unwrap();
+        assert_eq!(hz.len(), 2);
+        assert!(hz[0].as_f64().unwrap() > 1000.0, "{out}");
+        assert!(r["content"].as_array().unwrap().len() == 1, "tanpa gambar");
+
+        let hot = json!({ "boundary": [
+            { "id": "hot", "faces": "<Z", "kind": "temperature", "celsius": 80 },
+            { "id": "air", "faces": ">Z", "kind": "convection", "h_w_mm2k": 2e-5, "ambient_c": 25 }
+        ] });
+        let r = call(
+            &mut s,
+            10,
+            "simulate_static",
+            json!({ "setup": setup, "kind": "thermal", "thermal": hot }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let out = text(&r);
+        assert!((out["max_temperature_c"].as_f64().unwrap() - 80.0).abs() < 1e-6);
+        let coolest = out["min_temperature_c"].as_f64().unwrap();
+        assert!(coolest > 25.0 && coolest < 80.0, "{coolest}");
+
+        // `kind` tidak boleh menimpa studi tersimpan.
+        let r = call(&mut s, 11, "simulate_static", json!({ "kind": "buckling" }));
+        assert_eq!(r["isError"], true, "{r}");
+        assert!(text(&r)["error"]["message"].as_str().unwrap().is_ascii());
+    }
+
+    /// P19: `set_params {configuration}` membuat/mengaktifkan varian dan
+    /// `inspect` mendaftarkannya.
+    #[test]
+    fn set_params_switches_configurations() {
+        let (mut s, _dir) = server();
+        assert_eq!(call(&mut s, 1, "new_part", json!({}))["isError"], false);
+        let r = call(&mut s, 1, "set_params", json!({ "params": { "w": 20 } }));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            2,
+            "run_ops",
+            json!({ "ops": [{ "op": "primitive", "id": "blk", "shape": { "box": { "size": ["$w", 10, 5] } } }] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&mut s, 3, "set_params", json!({ "params": { "w": 40 }, "configuration": "wide" }));
+        assert_eq!(r["isError"], false, "{r}");
+        let sum = text(&call(&mut s, 4, "inspect", json!({})));
+        assert_eq!(sum["bodies"][0]["size"][0], 40.0);
+        assert_eq!(sum["active_configuration"], "wide");
+        assert_eq!(sum["configurations"][0]["params"]["w"], 40.0);
+        // Param dasar tetap 20: kembali ke Default mengembalikannya.
+        let r = call(&mut s, 5, "set_params", json!({ "configuration": "Default" }));
+        assert_eq!(r["isError"], false, "{r}");
+        let sum = text(&call(&mut s, 6, "inspect", json!({})));
+        assert_eq!(sum["bodies"][0]["size"][0], 20.0);
+        assert!(sum.get("active_configuration").is_none());
+        let r = call(&mut s, 7, "set_params", json!({ "configuration": "ghost" }));
+        assert_eq!(r["isError"], true);
+        assert_eq!(text(&r)["error"]["code"], "unknown_ref");
     }
 
     #[test]
@@ -871,6 +1009,35 @@ mod tests {
         );
         assert_eq!(r["isError"], false, "{r}");
         assert!(dir.join("blok.pdf").metadata().unwrap().len() > 500);
+        // P19: anotasi GD&T/toleransi menambah isi PDF; anotasi tak sah ditolak.
+        let plain = dir.join("blok.pdf").metadata().unwrap().len();
+        let r = call(
+            &mut s,
+            8,
+            "drawing",
+            json!({ "format": "pdf", "path": "blok-gdt.pdf", "annotations": [
+                { "type": "datum_feature", "position": [40, 40], "datum": { "label": "A" } },
+                { "type": "feature_control_frame", "position": [60, 40], "frame": {
+                    "symbol": "position", "value": 0.1, "diameter_zone": true,
+                    "modifiers": ["mmc"], "datums": ["A"] } },
+                { "type": "dimension_tolerance", "position": [80, 60], "dimension": {
+                    "nominal": 25, "tolerance": { "fit": "H7" }, "diameter": true } }
+            ] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(text(&r)["annotations"], 3);
+        assert!(dir.join("blok-gdt.pdf").metadata().unwrap().len() > plain);
+        let r = call(
+            &mut s,
+            8,
+            "drawing",
+            json!({ "format": "pdf", "path": "bad.pdf", "annotations": [
+                { "type": "feature_control_frame", "position": [60, 40], "frame": {
+                    "symbol": "flatness", "value": 0.05, "datums": ["A"] } }
+            ] }),
+        );
+        assert_eq!(r["isError"], true, "flatness tidak boleh berdatum: {r}");
+        assert!(!dir.join("bad.pdf").exists());
         let r = call(
             &mut s,
             9,

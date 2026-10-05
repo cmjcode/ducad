@@ -1,0 +1,15 @@
+[package]
+name = "ducad-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# Simulasi FEA statik linier. Sengaja tanpa kernel CAD dan tanpa GUI: masukan
+# hanya mesh permukaan + indeks face. Dijaga tes
+# `sim_has_no_kernel_or_gui_dependency`.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }

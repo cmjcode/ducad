@@ -199,7 +199,7 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, err: OpError, batch: &[O
         pa.x,
         pa.y
     );
-    let params = core.meta.design.params.clone();
+    let params = core.meta.design.effective_params();
     out.fixes = verified_fixes(&sketch_op, vec![(label, patch)], |patched| {
         verify(patched, op, &frame, &params)
     });

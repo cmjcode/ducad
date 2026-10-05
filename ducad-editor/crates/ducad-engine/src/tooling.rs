@@ -25,6 +25,7 @@ use ducad_kernel::SurfaceKind;
 
 /// Tool yang bisa dijalankan hanya dengan [`SessionCore`].
 pub const CORE_TOOLS: &[&str] = &[
+    "simulate_static",
     "run_ops",
     "inspect",
     "query_geometry",
@@ -241,6 +242,12 @@ pub fn call_core_tool(
                 bodies: Option<Vec<String>>,
                 #[serde(default)]
                 save_svg: Option<String>,
+                #[serde(default)]
+                overlay: Option<crate::sim::Overlay>,
+                #[serde(default)]
+                study: Option<String>,
+                #[serde(default)]
+                deform_scale: Option<f64>,
             }
             let a: A = args(a)?;
             let _ = a.session;
@@ -250,6 +257,42 @@ pub fn call_core_tool(
                 .map(|p| paths.resolve(p))
                 .transpose()?;
             let (w, h) = (a.width.unwrap_or(800), a.height.unwrap_or(600));
+            if let Some(overlay) = a.overlay {
+                let id = crate::sim::pick_study(core.meta, a.study.as_deref())?;
+                let report = crate::sim::run_study(core, &id, &ducad_sim::CancelToken::new())?;
+                let setup = crate::sim::setup_of(core.meta, &id)?;
+                let (geo, yield_mpa) = crate::sim::study_body(core.model, core.meta, &setup)?;
+                let svg = crate::sim::render_study_svg(
+                    geo,
+                    &report,
+                    &crate::sim::StudyRenderOptions {
+                        view: a.view,
+                        width: w,
+                        height: h,
+                        overlay,
+                        deform_scale: a.deform_scale,
+                        yield_mpa,
+                    },
+                )?;
+                if let Some(p) = &svg_path {
+                    std::fs::write(p, &svg).map_err(|e| {
+                        OpError::new(
+                            OpErrorCode::Io,
+                            format!("failed to write {}: {e}", p.display()),
+                        )
+                    })?;
+                }
+                return Ok(ToolOut {
+                    payload: json!({ "study": id, "overlay": overlay, "svg_path": svg_path }),
+                    image_png: png_of(&svg, w, h)?,
+                    is_error: false,
+                });
+            }
+            if a.study.is_some() || a.deform_scale.is_some() {
+                return Err(OpError::invalid(
+                    "`study` and `deform_scale` need `overlay` (stress, displacement or safety_factor)",
+                ));
+            }
             let options = RenderOptions {
                 view: a.view,
                 width: w,
@@ -276,6 +319,111 @@ pub fn call_core_tool(
                 image_png: png,
                 is_error: false,
             })
+        }
+        "simulate_static" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                #[serde(default)]
+                study: Option<String>,
+                #[serde(default)]
+                setup: Option<ducad_sim::SimSetup>,
+                #[serde(default)]
+                kind: Option<crate::ops::StudyKind>,
+                #[serde(default)]
+                thermal: Option<ducad_sim::ThermalSetup>,
+                #[serde(default)]
+                modes: Option<u32>,
+                #[serde(default)]
+                overlay: crate::sim::Overlay,
+                #[serde(default)]
+                view: View,
+                #[serde(default)]
+                deform_scale: Option<f64>,
+                #[serde(default)]
+                width: Option<u32>,
+                #[serde(default)]
+                height: Option<u32>,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            if a.study.is_some() && a.setup.is_some() {
+                return Err(OpError::invalid(
+                    "pass either `study` (id of a study op) or an inline `setup`, not both",
+                ));
+            }
+            let cancel = ducad_sim::CancelToken::new();
+            let (label, def, outcome) = match a.setup {
+                Some(setup) => {
+                    let def = crate::sim::StudyDef {
+                        kind: a.kind.unwrap_or_default(),
+                        setup,
+                        thermal: a.thermal,
+                        modes: a.modes,
+                    };
+                    let outcome = crate::sim::run_def(core.model, core.meta, &def, &cancel)?;
+                    (None, def, outcome)
+                }
+                None => {
+                    if a.kind.is_some() || a.thermal.is_some() || a.modes.is_some() {
+                        return Err(OpError::invalid(
+                            "`kind`, `thermal` and `modes` only apply to an inline `setup`; a stored study carries its own",
+                        ));
+                    }
+                    let id = crate::sim::pick_study(core.meta, a.study.as_deref())?;
+                    let outcome = crate::sim::run_study_any(core, &id, &cancel)?;
+                    let def = crate::sim::def_of(core.meta, &id)?;
+                    (Some(id), def, outcome)
+                }
+            };
+            let setup = def.setup.clone();
+            let mut payload = outcome.to_json()?;
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("study".into(), json!(label));
+                obj.insert("body".into(), json!(setup.body));
+                obj.insert("kind".into(), json!(def.kind.name()));
+            }
+            let mut out = ToolOut::ok(payload);
+            // Hanya studi tegangan yang punya medan untuk diwarnai.
+            if let Some(report) = outcome.stress() {
+                let (geo, yield_mpa) = crate::sim::study_body(core.model, core.meta, &setup)?;
+                let (w, h) = (a.width.unwrap_or(800), a.height.unwrap_or(600));
+                let svg = crate::sim::render_study_svg(
+                    geo,
+                    report,
+                    &crate::sim::StudyRenderOptions {
+                        view: a.view,
+                        width: w,
+                        height: h,
+                        overlay: a.overlay,
+                        deform_scale: a.deform_scale,
+                        yield_mpa,
+                    },
+                )?;
+                if let Some(obj) = out.payload.as_object_mut() {
+                    obj.insert("yield_mpa".into(), json!(yield_mpa));
+                    obj.insert(
+                        "accuracy".into(),
+                        json!("engineering estimate (about +/-10 % on the default hex voxel mesh; a tet mesh follows curved faces better)"),
+                    );
+                }
+                out.image_png = png_of(&svg, w, h)?;
+            }
+            // Check yang bergantung pada studi kini bisa dievaluasi.
+            if let (Some(obj), false) = (
+                out.payload.as_object_mut(),
+                core.meta.design.checks.is_empty(),
+            ) {
+                let checks = core.meta.design.checks.clone();
+                let results = crate::check::run_checks(core, &checks);
+                obj.insert(
+                    "checks".into(),
+                    to_value(crate::check::CheckSummary::from_results(results))?,
+                );
+            }
+            Ok(out)
         }
         "get_oplog" => {
             let a: SessionArg = args(a)?;
@@ -344,9 +492,13 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         material: Option<String>,
         #[serde(default)]
         notes: Vec<String>,
+        #[serde(default)]
+        annotations: Vec<ducad_core::drawing_annot::Annotation>,
     }
     let a: A = args(a)?;
     let _ = a.session;
+    ducad_core::drawing_annot::validate_annotations(&a.annotations)
+        .map_err(|e| OpError::invalid(format!("invalid drawing annotation: {e}")))?;
     let paper = match a
         .paper
         .as_deref()
@@ -365,7 +517,7 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         }
     };
     let path = paths.resolve(&a.path)?;
-    let mut notes = crate::drawing_auto::hole_notes(&core.meta.design, &core.meta.design.params);
+    let mut notes = crate::drawing_auto::hole_notes(&core.meta.design, &core.meta.design.effective_params());
     notes.extend(a.notes);
     let info = crate::drawing_auto::TitleInfo {
         title: a.title.unwrap_or_default(),
@@ -373,7 +525,9 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         material: a.material.unwrap_or_default(),
         ..Default::default()
     };
-    let sheet = crate::drawing_auto::auto_sheet(core, paper, &info, &notes)?;
+    let mut sheet = crate::drawing_auto::auto_sheet(core, paper, &info, &notes)?;
+    let annotation_count = a.annotations.len();
+    sheet.annotations = a.annotations;
     let io = |e: anyhow::Error| {
         OpError::new(
             OpErrorCode::Io,
@@ -392,7 +546,7 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
     }
     let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     Ok(ToolOut::ok(
-        json!({ "path": path, "bytes": bytes, "notes": notes }),
+        json!({ "path": path, "bytes": bytes, "notes": notes, "annotations": annotation_count }),
     ))
 }
 
@@ -447,6 +601,7 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
             uuid: ducad_core::new_part_uuid(),
             visible: true,
             material: ducad_core::Material::default(),
+            mechanical: None,
             step,
             round_history: None,
         });
@@ -663,6 +818,12 @@ pub const ERROR_GUIDE: &str = "\
 | constraint_unsolved / over_constrained | conflicting sketch constraints | remove one constraint |
 | oplog_stale | model changed outside the oplog | bodies adopted as base_bodies; replan from inspect |
 | proposal_stale | model changed since propose_ops | create a new proposal |
+| sim_underconstrained | study has no fixture, or fixtures leave a rigid-body motion free | add a `fixed` fixture on at least one face |
+| sim_no_material | study body has no mechanical material (E, nu) | run op set_material on the body first |
+| sim_mesh_too_coarse | cells are larger than a wall or miss a loaded/fixed face | lower setup.mesh.cell_mm or raise mesh.target_elems |
+| sim_diverged | solver did not converge | look for nearly disconnected or very thin regions; use a finer mesh |
+| sim_cancelled | study was cancelled | run it again |
+| (warning) SIM_MESH_FALLBACK_HEX | the tet mesher could not mesh the body; the hex voxel mesh was used | accept the hex result, or change `mesh.cell_mm` so walls are at least two cells thick |
 ";
 
 /// Anti-pola yang paling sering membuat agent berputar-putar.

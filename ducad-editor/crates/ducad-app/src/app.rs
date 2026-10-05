@@ -136,6 +136,10 @@ pub struct DuCADApp {
     pub pending_proposal: Option<crate::proposal_ui::ProposalView>,
     /// Hasil checks desain untuk panel & top bar (P7.5).
     pub checks: crate::checks_ui::ChecksState,
+    /// Panel properti massa (P16).
+    pub mass: crate::mass_ui::MassState,
+    /// Studi simulasi (P17).
+    pub sim: crate::sim_ui::SimState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
     /// Panel chat AI (P13.3).
@@ -516,6 +520,8 @@ impl DuCADApp {
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
+            mass: crate::mass_ui::MassState::default(),
+            sim: crate::sim_ui::SimState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -818,6 +824,8 @@ impl DuCADApp {
             bridge: crate::agent_bridge::AgentBridge::default(),
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
+            mass: crate::mass_ui::MassState::default(),
+            sim: crate::sim_ui::SimState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -1671,6 +1679,7 @@ impl eframe::App for DuCADApp {
         // layout compact ↔ penuh (tombol muncul/hilang) setiap kali diklik.
         let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
 
+        self.refresh_sim();
         self.refresh_checks(&ctx);
         let check_rows = self.check_rows();
         let checks_summary = (!check_rows.is_empty()).then(|| ducad_ui::checks_summary(&check_rows));
@@ -1870,6 +1879,45 @@ impl eframe::App for DuCADApp {
                     Some(ducad_ui::ChecksPanelEvent::RowClicked(i)) => self.focus_check(i),
                     Some(ducad_ui::ChecksPanelEvent::Close) => self.checks.panel_open = false,
                     None => {}
+                }
+            }
+
+            if self.sim.panel_open {
+                // Kiri atas area kerja, di bawah top bar.
+                let top = topbar_resp.response.rect.max.y + 8.0;
+                let data = self.sim_panel_data();
+                let mut panel = std::mem::take(&mut self.sim.panel);
+                let panel_event = egui::Area::new(egui::Id::new("ducad-sim-panel-area"))
+                    .fixed_pos(egui::pos2(screen_rect.min.x + 72.0, top))
+                    .pivot(egui::Align2::LEFT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| panel.show(ui, &data))
+                    .inner;
+                self.sim.panel = panel;
+                if let Some(ev) = panel_event {
+                    self.handle_sim_panel_event(ev, &ctx);
+                }
+            }
+
+            if self.mass.panel_open {
+                // Di kiri panel Checks bila keduanya terbuka.
+                let top = topbar_resp.response.rect.max.y + 8.0;
+                let right = if self.checks.panel_open {
+                    screen_rect.max.x - 16.0 - (ducad_ui::theme::BOTTOM_RIGHT_PANEL_WIDTH + 84.0)
+                } else {
+                    screen_rect.max.x - 16.0
+                };
+                let data = self.mass_panel_data();
+                let mut panel = std::mem::take(&mut self.mass.panel);
+                let panel_event = egui::Area::new(egui::Id::new("ducad-mass-panel-area"))
+                    .fixed_pos(egui::pos2(right, top))
+                    .pivot(egui::Align2::RIGHT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| panel.show(ui, &data))
+                    .inner;
+                self.mass.panel = panel;
+                if let Some(ev) = panel_event {
+                    self.handle_mass_panel_event(ev);
                 }
             }
 

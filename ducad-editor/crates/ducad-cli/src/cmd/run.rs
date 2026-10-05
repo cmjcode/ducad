@@ -64,7 +64,17 @@ pub fn exec(a: Args) -> CliResult {
     if !file.checks.is_empty() {
         session.set_checks(file.checks);
     }
-    let report = session.run(file.ops, a.dry_run);
+    let mut report = session.run(file.ops, a.dry_run);
+    if report.committed {
+        // Varian dari berkas ops dipasang setelah op-nya ada di oplog.
+        if let Some(r) = session
+            .apply_configuration_specs(&file.configurations, file.active_configuration.as_deref())?
+        {
+            if !r.committed {
+                report = r;
+            }
+        }
+    }
     print_json(&report)?;
     if let Some(p) = &a.report {
         write_json(p, &report)?;

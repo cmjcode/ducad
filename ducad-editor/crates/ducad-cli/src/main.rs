@@ -87,6 +87,10 @@ enum Command {
     Select(cmd::select::Args),
     /// Render tampak part ke SVG/PNG.
     Render(cmd::render::Args),
+    /// Daftar/ekspor/impor konfigurasi varian (design table CSV).
+    Config(cmd::config::Args),
+    /// Jalankan studi simulasi statik (tegangan, deformasi, faktor keamanan).
+    Sim(cmd::sim::Args),
     /// Ekspor part ke STEP/STL/OBJ/GLB.
     Export(cmd::export::Args),
     /// Bangun artefak manufaktur + laporan untuk CI (kode 3 bila check gagal).
@@ -113,6 +117,8 @@ fn main() -> ExitCode {
         Command::Diff(a) => cmd::diff::exec(a),
         Command::Select(a) => cmd::select::exec(a),
         Command::Render(a) => cmd::render::exec(a),
+        Command::Sim(a) => cmd::sim::exec(a),
+        Command::Config(a) => cmd::config::exec(a),
         Command::Export(a) => cmd::export::exec(a),
         Command::Build(a) => cmd::build::exec(a),
         Command::Assist(a) => cmd::assist::exec(a),

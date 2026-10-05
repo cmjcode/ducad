@@ -4,8 +4,12 @@
 //! kepala gambar (title block), tata letak multi-tampak (Front, Top, Right, Isometric),
 //! dan anotasi dimensi otomatis.
 
+use ducad_core::drawing_annot::Annotation;
 use ducad_kernel::{HlrDrawing, HlrGeometricFeature, ProjectedViewKind};
 use serde::{Deserialize, Serialize};
+
+pub mod exploded;
+pub mod gdt;
 
 /// Ukuran kertas standar gambar teknik ISO 216.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -248,6 +252,10 @@ pub struct DrawingSheet {
     pub manual_dimensions: Vec<DimensionAnnotation>,
     #[serde(default)]
     pub custom_texts: Vec<TextAnnotation>,
+    /// Anotasi GD&T/toleransi (P19): toleransi dimensi, bingkai kontrol fitur,
+    /// datum, kekasaran, tabel lubang/revisi. Digambar oleh ekspor PDF dan SVG.
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
 }
 
 impl DrawingSheet {
@@ -272,10 +280,18 @@ impl DrawingSheet {
             auto_dimensions: Vec::new(),
             manual_dimensions: Vec::new(),
             custom_texts: Vec::new(),
+            annotations: Vec::new(),
         };
 
         sheet.auto_layout();
         sheet
+    }
+
+    /// Memvalidasi seluruh anotasi GD&T/toleransi lembar ini (aturan ISO 1101,
+    /// kelas ISO 286, label datum ganda). Ekspor tidak memanggilnya: anotasi
+    /// yang tidak sah tetap digambar apa adanya.
+    pub fn validate_annotations(&self) -> Result<(), String> {
+        ducad_core::drawing_annot::validate_annotations(&self.annotations)
     }
 
     /// Menghitung tata letak posisi tampak (Front, Top, Right, Isometric) dan skala yang pas dengan kertas

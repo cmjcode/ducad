@@ -16,7 +16,7 @@ use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::inspect::{summarize_state, Summary};
 use crate::model::{
     AddMultipleSolidsCommand, AddSolidCommand, BodyGeometry, BooleanCommand, BooleanKind,
-    DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand,
+    DeleteBodyCommand, ModelDoc, ReplaceGeometryCommand, SetBodyMechanicalCommand,
 };
 use crate::ops::sketch::{build_sketch, resolve_plane, ResolvedPlane};
 use crate::ops::{
@@ -44,6 +44,36 @@ pub struct DesignDoc {
     /// Sidik jari geometri setelah op terakhir (P1.7).
     #[serde(default)]
     pub fingerprint: String,
+    /// Konfigurasi varian (P19). Kosong = hanya "Default".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configurations: Vec<ducad_core::Configuration>,
+    /// Nama konfigurasi aktif; `None` = "Default" (tanpa penimpaan).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_configuration: Option<String>,
+}
+
+impl DesignDoc {
+    /// Konfigurasi aktif, bila ada dan dikenal.
+    pub fn active(&self) -> Option<&ducad_core::Configuration> {
+        let name = self.active_configuration.as_deref()?;
+        self.configurations.iter().find(|c| c.name == name)
+    }
+
+    /// Parameter dasar ditimpa parameter konfigurasi aktif — inilah yang
+    /// dipakai setiap evaluasi `$nama`.
+    pub fn effective_params(&self) -> Params {
+        let mut params = self.params.clone();
+        if let Some(cfg) = self.active() {
+            params.extend(cfg.params.iter().map(|(k, v)| (k.clone(), *v)));
+        }
+        params
+    }
+
+    /// Op `id` dinonaktifkan oleh konfigurasi aktif.
+    pub fn is_suppressed(&self, id: &str) -> bool {
+        self.active()
+            .is_some_and(|c| c.suppressed_ops.iter().any(|s| s == id))
+    }
 }
 
 impl Default for DesignDoc {
@@ -55,6 +85,8 @@ impl Default for DesignDoc {
             checks: Vec::new(),
             base_bodies: Vec::new(),
             fingerprint: String::new(),
+            configurations: Vec::new(),
+            active_configuration: None,
         }
     }
 }
@@ -108,6 +140,39 @@ pub struct SessionMeta {
     /// Dipakai penamaan body per-objek: menebak dari pola `e<n>` salah untuk
     /// nama eksplisit seperti `"e5"`.
     pub auto_named: BTreeMap<String, std::collections::BTreeSet<EntityId>>,
+    /// Id studi → hasil simulasi terakhir + tanda tangannya (P17). Tidak
+    /// disimpan ke berkas.
+    pub sim_results: BTreeMap<String, crate::sim::StudyResult>,
+    /// Hasil studi frekuensi/buckling/termal (P18), dengan tanda tangan yang
+    /// sama artinya dengan `sim_results`.
+    pub analysis_results: BTreeMap<String, crate::sim::AnalysisResult>,
+    /// Nama body → model sheet metal-nya (P19); dibangun ulang saat replay.
+    pub sheet_metal: BTreeMap<String, SheetMetalState>,
+    /// Nama body → sebutan part standar untuk BOM (P20).
+    pub standard_parts: BTreeMap<String, String>,
+    /// Nama body → ulir yang tercatat (kosmetik maupun fisik) (P20).
+    pub threads: BTreeMap<String, Vec<ThreadNote>>,
+}
+
+/// Catatan satu ulir pada body.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ThreadNote {
+    pub id: String,
+    /// Mis. `"M10x1.5"`.
+    pub designation: String,
+    pub length: f64,
+    pub left_handed: bool,
+    pub cosmetic: bool,
+}
+
+/// Keadaan sheet metal satu body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheetMetalState {
+    pub model: ducad_core::SheetMetalModel,
+    /// Bidang sketsa pelat dasar.
+    pub frame: PlaneFrame,
+    /// Body sedang berbentuk pola datar (`unfold`).
+    pub unfolded: bool,
 }
 
 /// Pinjaman state sesi — logika `run`/`body`/`sketch` ditulis di sini agar
@@ -422,10 +487,6 @@ impl SessionCore<'_> {
         Ok((sketch, frame))
     }
 
-    fn params(&self) -> &Params {
-        &self.meta.design.params
-    }
-
     fn summary(&self) -> Summary {
         summarize_state(self.model, self.sketches, self.meta, None, false, 0)
     }
@@ -483,9 +544,23 @@ impl SessionCore<'_> {
 
         let mut failure: Option<OpError> = None;
         for (i, op) in ops.iter().enumerate() {
-            let result = self
-                .check_id(op, &used)
-                .and_then(|_| self.apply(op, i, &mut new_sketches));
+            // Op yang di-suppress konfigurasi aktif tetap tercatat di oplog
+            // (id-nya terpakai) tetapi tidak diterapkan.
+            let result = self.check_id(op, &used).and_then(|_| {
+                if self.meta.design.is_suppressed(op.id()) {
+                    return Ok(OpOutcome {
+                        op_index: i,
+                        op_id: op.id().to_string(),
+                        kind: op.kind(),
+                        created: Vec::new(),
+                        modified: Vec::new(),
+                        removed: Vec::new(),
+                        warnings: vec!["suppressed".to_string()],
+                        detail: serde_json::Value::Null,
+                    });
+                }
+                self.apply(op, i, &mut new_sketches)
+            });
             match result {
                 Ok(outcome) => {
                     used.insert(op.id().to_string());
@@ -537,6 +612,67 @@ impl SessionCore<'_> {
             checks,
         };
         (report, inspected)
+    }
+
+    /// Model sheet metal body `name`, atau error yang menjelaskan caranya.
+    fn sheet_state(&self, name: &str) -> OpResult<&SheetMetalState> {
+        self.meta.sheet_metal.get(name).ok_or_else(|| {
+            let known: Vec<&str> = self.meta.sheet_metal.keys().map(String::as_str).collect();
+            OpError::invalid(format!(
+                "body '{name}' bukan part sheet metal (yang ada: {known:?})"
+            ))
+            .with_hint("sheet metal ops only work on a body created by op base_flange")
+            .with_context(serde_json::json!({ "body": name, "sheet_metal_bodies": known }))
+        })
+    }
+
+    /// Tambah flange (rantai `segments`) pada setiap sisi pelat dasar yang
+    /// ditunjuk selector `edges`, lalu ganti geometri body. Beberapa sisi →
+    /// id flange `id`, `id_2`, ….
+    fn add_flanges(
+        &mut self,
+        id: &str,
+        body: &str,
+        edges: &str,
+        relief: ducad_core::ReliefKind,
+        label: &'static str,
+        segments: impl Fn(&ducad_core::SheetMetalModel) -> OpResult<Vec<ducad_core::BendSegment>>,
+    ) -> OpResult<()> {
+        let (bid, geo) = self.body(body)?;
+        let state = self.sheet_state(body)?.clone();
+        if state.unfolded {
+            return Err(OpError::invalid(format!(
+                "body '{body}' sedang terbentang; jalankan op fold dulu"
+            )));
+        }
+        let picked = crate::select::select_edges(&geo.shape, edges)?;
+        let all = ducad_kernel::enumerate_edges(&geo.shape);
+        let infos: Vec<ducad_kernel::EdgeInfo> = picked
+            .iter()
+            .filter_map(|i| all.iter().find(|e| e.index == *i).cloned())
+            .collect();
+        let sides = compute::sheet_metal::match_base_edges(&state.model, &state.frame, &infos)?;
+        let mut model = state.model.clone();
+        let chain = segments(&model)?;
+        for (n, edge) in sides.iter().enumerate() {
+            model.flanges.push(ducad_core::Flange {
+                id: if n == 0 {
+                    id.to_string()
+                } else {
+                    format!("{id}_{}", n + 1)
+                },
+                edge: *edge,
+                segments: chain.clone(),
+                relief,
+            });
+        }
+        model.validate().map_err(OpError::invalid)?;
+        let new_geo = compute::sheet_metal::folded(&model, &state.frame)?;
+        self.exec(Box::new(ReplaceGeometryCommand::new(label, bid, new_geo)));
+        if let Some(s) = self.meta.sheet_metal.get_mut(body) {
+            s.model = model;
+        }
+        Ok(())
     }
 
     fn check_id(&self, op: &Op, used: &HashSet<String>) -> OpResult<()> {
@@ -599,7 +735,7 @@ impl SessionCore<'_> {
             warnings: Vec::new(),
             detail: serde_json::Value::Null,
         };
-        let params = self.params().clone();
+        let params = self.meta.design.effective_params();
         match op {
             Op::Sketch {
                 id,
@@ -1037,6 +1173,331 @@ impl SessionCore<'_> {
                 )));
                 out.modified.push(body.clone());
             }
+            Op::SetMaterial { id: _, body, material } => {
+                let (bid, _) = self.body(body)?;
+                let source = resolve_mechanical(material, &self.model.doc.material_library)?;
+                self.exec(Box::new(SetBodyMechanicalCommand::new(
+                    "Material",
+                    bid,
+                    Some(source),
+                )));
+                out.modified.push(body.clone());
+            }
+            Op::BaseFlange {
+                id,
+                sketch,
+                thickness,
+                bend_radius,
+                k_factor,
+            } => {
+                let t = eval(thickness, &params)?;
+                let radius = bend_radius
+                    .as_ref()
+                    .map(|r| eval(r, &params))
+                    .transpose()?
+                    .unwrap_or(t);
+                let (sk, frame) = self.sketch(sketch)?;
+                let frame = *frame;
+                let mut profiles = compute::resolve_profiles(sk, &ProfilePick::AllRegions)?;
+                if profiles.len() != 1 {
+                    return Err(OpError::invalid(format!(
+                        "sketch '{sketch}' untuk base_flange harus berisi tepat 1 region tertutup (ditemukan {})",
+                        profiles.len()
+                    )));
+                }
+                let outline = compute::sheet_metal::outline_from_profile(&profiles.remove(0))?;
+                let model = ducad_core::SheetMetalModel {
+                    outline,
+                    thickness: t,
+                    default_radius: radius,
+                    k_factor: k_factor.unwrap_or(ducad_core::DEFAULT_K_FACTOR),
+                    flanges: Vec::new(),
+                    bend_table: ducad_core::BendTable::default(),
+                };
+                let geo = compute::sheet_metal::folded(&model, &frame)?;
+                self.exec(Box::new(
+                    AddSolidCommand::new("BaseFlange", geo).with_body_name(id.clone()),
+                ));
+                self.meta.sheet_metal.insert(
+                    id.clone(),
+                    SheetMetalState {
+                        model,
+                        frame,
+                        unfolded: false,
+                    },
+                );
+                out.created.push(id.clone());
+            }
+            Op::EdgeFlange {
+                id,
+                body,
+                edges,
+                length,
+                angle,
+                radius,
+                relief,
+            } => {
+                let angle = angle
+                    .as_ref()
+                    .map(|a| eval(a, &params))
+                    .transpose()?
+                    .unwrap_or(90.0);
+                let length = eval(length, &params)?;
+                let radius = radius.as_ref().map(|r| eval(r, &params)).transpose()?;
+                let relief = match relief {
+                    crate::ops::ReliefSpec::None => ducad_core::ReliefKind::None,
+                    crate::ops::ReliefSpec::Rect => ducad_core::ReliefKind::Rect,
+                    crate::ops::ReliefSpec::Obround => ducad_core::ReliefKind::Obround,
+                };
+                self.add_flanges(id, body, edges, relief, "EdgeFlange", |model| {
+                    Ok(vec![ducad_core::BendSegment {
+                        angle_deg: angle,
+                        radius: radius.unwrap_or(model.default_radius),
+                        length,
+                    }])
+                })?;
+                out.modified.push(body.clone());
+            }
+            Op::Hem {
+                id,
+                body,
+                edges,
+                length,
+                gap,
+                up,
+            } => {
+                let length = eval(length, &params)?;
+                let gap = gap.as_ref().map(|g| eval(g, &params)).transpose()?;
+                let sign = if *up { 1.0 } else { -1.0 };
+                self.add_flanges(id, body, edges, ducad_core::ReliefKind::None, "Hem", |model| {
+                    let gap = gap.unwrap_or(model.thickness);
+                    if gap < 0.0 {
+                        return Err(OpError::invalid(format!("gap hem harus >= 0 (dapat {gap})")));
+                    }
+                    Ok(vec![ducad_core::BendSegment {
+                        angle_deg: 180.0 * sign,
+                        radius: gap / 2.0,
+                        length,
+                    }])
+                })?;
+                out.modified.push(body.clone());
+            }
+            Op::Jog {
+                id,
+                body,
+                edges,
+                offset,
+                length,
+                angle,
+                radius,
+            } => {
+                let offset = eval(offset, &params)?;
+                let length = eval(length, &params)?;
+                let angle = angle
+                    .as_ref()
+                    .map(|a| eval(a, &params))
+                    .transpose()?
+                    .unwrap_or(90.0);
+                let radius = radius.as_ref().map(|r| eval(r, &params)).transpose()?;
+                if !(angle > 0.0 && angle <= 90.0) {
+                    return Err(OpError::invalid(format!(
+                        "sudut jog harus 0 < sudut <= 90 (dapat {angle})"
+                    )));
+                }
+                self.add_flanges(id, body, edges, ducad_core::ReliefKind::None, "Jog", |model| {
+                    let r = radius.unwrap_or(model.default_radius);
+                    let a = angle.to_radians();
+                    // offset = (2R + t)(1 − cos a) + s·sin a → panjang miring s.
+                    let from_bends = (2.0 * r + model.thickness) * (1.0 - a.cos());
+                    let slant = (offset.abs() - from_bends) / a.sin();
+                    if slant < -1e-9 {
+                        return Err(OpError::invalid(format!(
+                            "offset jog {offset} mm terlalu kecil untuk radius {r} dan sudut {angle}° (minimum {from_bends:.3} mm)"
+                        ))
+                        .with_context(serde_json::json!({ "min_offset": from_bends })));
+                    }
+                    let sign = if offset >= 0.0 { 1.0 } else { -1.0 };
+                    Ok(vec![
+                        ducad_core::BendSegment {
+                            angle_deg: angle * sign,
+                            radius: r,
+                            length: slant.max(0.0),
+                        },
+                        ducad_core::BendSegment {
+                            angle_deg: -angle * sign,
+                            radius: r,
+                            length,
+                        },
+                    ])
+                })?;
+                out.modified.push(body.clone());
+            }
+            Op::Unfold { id: _, body } | Op::Fold { id: _, body } => {
+                let unfold = matches!(op, Op::Unfold { .. });
+                let (bid, _) = self.body(body)?;
+                let state = self.sheet_state(body)?.clone();
+                if state.unfolded == unfold {
+                    return Err(OpError::invalid(format!(
+                        "body '{body}' sudah dalam keadaan {}",
+                        if unfold { "terbentang" } else { "terlipat" }
+                    )));
+                }
+                let geo = if unfold {
+                    compute::sheet_metal::flat(&state.model, &state.frame)?
+                } else {
+                    compute::sheet_metal::folded(&state.model, &state.frame)?
+                };
+                self.exec(Box::new(ReplaceGeometryCommand::new(
+                    if unfold { "Unfold" } else { "Fold" },
+                    bid,
+                    geo,
+                )));
+                if let Some(s) = self.meta.sheet_metal.get_mut(body) {
+                    s.unfolded = unfold;
+                }
+                out.modified.push(body.clone());
+            }
+            Op::FlatPattern { id, body } => {
+                self.body(body)?;
+                let state = self.sheet_state(body)?.clone();
+                let pattern = state.model.flat_pattern().map_err(OpError::invalid)?;
+                let geo = compute::sheet_metal::flat(&state.model, &state.frame)?;
+                self.exec(Box::new(
+                    AddSolidCommand::new("FlatPattern", geo).with_body_name(id.clone()),
+                ));
+                out.created.push(id.clone());
+                out.detail = serde_json::json!({
+                    "flat_area_mm2": crate::inspect::round4(state.model.flat_area()),
+                    "bend_lines": pattern.bend_lines.iter().map(|b| serde_json::json!({
+                        "flange": b.flange,
+                        "a": b.a.map(crate::inspect::round4),
+                        "b": b.b.map(crate::inspect::round4),
+                        "direction": if b.up { "up" } else { "down" },
+                        "angle_deg": b.angle_deg,
+                        "radius": b.radius,
+                    })).collect::<Vec<_>>(),
+                });
+            }
+            Op::StandardPart {
+                id,
+                standard,
+                size,
+                length,
+                at,
+            } => {
+                let kind = ducad_core::StandardKind::from_key(standard).ok_or_else(|| {
+                    let known: Vec<&str> =
+                        ducad_core::StandardKind::ALL.iter().map(|s| s.key()).collect();
+                    OpError::invalid(format!(
+                        "standar '{standard}' tidak dikenal (pilihan: {})",
+                        known.join(", ")
+                    ))
+                    .with_context(serde_json::json!({ "standards": known }))
+                })?;
+                let length = length.as_ref().map(|l| eval(l, &params)).transpose()?;
+                let part = ducad_core::standard_part(kind, size, length).map_err(|e| {
+                    OpError::invalid(e).with_context(serde_json::json!({ "sizes": kind.sizes() }))
+                })?;
+                let geo = compute::standard::standard_part(&part.shape, eval_arr(at, &params)?)?;
+                self.exec(Box::new(
+                    AddSolidCommand::new("StandardPart", geo).with_body_name(id.clone()),
+                ));
+                self.meta
+                    .standard_parts
+                    .insert(id.clone(), part.designation.clone());
+                out.created.push(id.clone());
+                out.detail = serde_json::json!({ "designation": part.designation });
+            }
+            Op::Thread {
+                id,
+                body,
+                face,
+                pitch,
+                length,
+                from_end,
+                left_handed,
+                cosmetic,
+            } => {
+                let (bid, geo) = self.body(body)?;
+                let picked = crate::select::select_faces(&geo.shape, face)?;
+                let faces = ducad_kernel::enumerate_faces(&geo.shape);
+                let [index] = picked[..] else {
+                    return Err(OpError::invalid(format!(
+                        "selector face ulir harus menunjuk tepat 1 face (dapat {})",
+                        picked.len()
+                    )));
+                };
+                let info = faces
+                    .iter()
+                    .find(|f| f.index == index)
+                    .ok_or_else(|| OpError::invalid("face ulir tidak ditemukan"))?;
+                let (mut start, mut dir, span, major_d) = compute::standard::cylinder_span(info)?;
+                let pitch = match pitch.as_ref().map(|p| eval(p, &params)).transpose()? {
+                    Some(p) => p,
+                    None => compute::standard::coarse_pitch(major_d).ok_or_else(|| {
+                        OpError::invalid(format!(
+                            "diameter {major_d:.3} mm bukan ukuran ulir kasar ISO M2–M12; isi `pitch`"
+                        ))
+                    })?,
+                };
+                let length = length
+                    .as_ref()
+                    .map(|l| eval(l, &params))
+                    .transpose()?
+                    .unwrap_or(span);
+                if !(length > 0.0 && length <= span + 1e-6) {
+                    return Err(OpError::invalid(format!(
+                        "panjang ulir {length} mm harus di antara 0 dan panjang silinder {span:.3} mm"
+                    ))
+                    .with_context(serde_json::json!({ "cylinder_length": span })));
+                }
+                if *from_end {
+                    for a in 0..3 {
+                        start[a] += dir[a] * span;
+                        dir[a] = -dir[a];
+                    }
+                }
+                if !*cosmetic {
+                    let new_geo = compute::standard::thread(
+                        &geo.shape,
+                        start,
+                        dir,
+                        major_d,
+                        pitch,
+                        length,
+                        *left_handed,
+                    )?;
+                    self.exec(Box::new(ReplaceGeometryCommand::new("Thread", bid, new_geo)));
+                    out.modified.push(body.clone());
+                }
+                let designation = format!("M{}x{}", crate::inspect::round4(major_d), pitch);
+                self.meta.threads.entry(body.clone()).or_default().push(ThreadNote {
+                    id: id.clone(),
+                    designation: designation.clone(),
+                    length: crate::inspect::round4(length),
+                    left_handed: *left_handed,
+                    cosmetic: *cosmetic,
+                });
+                out.detail = serde_json::json!({ "designation": designation, "cosmetic": cosmetic });
+            }
+            Op::Study {
+                id: _,
+                kind,
+                setup,
+                thermal,
+                modes,
+            } => {
+                crate::sim::validate_study(
+                    self.model,
+                    self.meta,
+                    &crate::sim::StudyDef {
+                        kind: *kind,
+                        setup: setup.clone(),
+                        thermal: thermal.clone(),
+                        modes: *modes,
+                    },
+                )?;
+            }
             Op::Delete { id, body } => {
                 let (bid, _) = self.body(body)?;
                 self.exec(Box::new(DeleteBodyCommand::new(bid)));
@@ -1393,6 +1854,36 @@ impl SessionCore<'_> {
     }
 }
 
+/// Ubah spesifikasi material mekanik op menjadi `MaterialSource`, menolak
+/// kunci pustaka tak dikenal dan nilai kustom yang tidak fisik.
+pub fn resolve_mechanical(
+    spec: &crate::ops::MechMaterialSpec,
+    custom: &[(String, ducad_core::MechanicalProperties)],
+) -> OpResult<ducad_core::MaterialSource> {
+    match spec {
+        crate::ops::MechMaterialSpec::Key(key) => {
+            let source = ducad_core::MaterialSource::Library(key.to_ascii_lowercase());
+            if source.resolve(custom).is_some() {
+                return Ok(source);
+            }
+            let mut keys: Vec<String> = custom.iter().map(|(k, _)| k.clone()).collect();
+            keys.extend(ducad_core::material_library().iter().map(|m| m.key.to_string()));
+            Err(OpError::invalid(format!(
+                "material mekanik '{key}' tidak dikenal (pilihan: {})",
+                keys.join(", ")
+            ))
+            .with_context(serde_json::json!({ "material": key, "library": keys })))
+        }
+        crate::ops::MechMaterialSpec::Custom { custom: props } => {
+            let props = ducad_core::MechanicalProperties::from(*props);
+            props
+                .validate()
+                .map_err(|e| OpError::invalid(format!("material kustom tidak valid: {e}")))?;
+            Ok(ducad_core::MaterialSource::Custom(props))
+        }
+    }
+}
+
 /// Nama preset material yang dikenal [`resolve_material`].
 pub const MATERIAL_PRESETS: &[&str] = &[
     "matte_plastic",
@@ -1714,6 +2205,32 @@ impl Session {
         }
     }
 
+    /// Jalankan studi `id` dari oplog (hasil di-cache per tanda tangan).
+    pub fn run_study(
+        &mut self,
+        id: &str,
+        cancel: &ducad_sim::CancelToken,
+    ) -> OpResult<std::sync::Arc<ducad_sim::SimReport>> {
+        crate::sim::run_study(&mut self.core(), id, cancel)
+    }
+
+    /// Jalankan semua studi di oplog, urut kemunculan.
+    pub fn run_all_studies(
+        &mut self,
+        cancel: &ducad_sim::CancelToken,
+    ) -> Vec<(String, OpResult<crate::sim::StudyOutcome>)> {
+        crate::sim::run_all_studies(&mut self.core(), cancel)
+    }
+
+    /// Jalankan studi `id` jenis apa pun (statik, frekuensi, buckling, termal).
+    pub fn run_study_any(
+        &mut self,
+        id: &str,
+        cancel: &ducad_sim::CancelToken,
+    ) -> OpResult<crate::sim::StudyOutcome> {
+        crate::sim::run_study_any(&mut self.core(), id, cancel)
+    }
+
     pub fn model(&self) -> &ModelDoc {
         &self.model
     }
@@ -1783,6 +2300,7 @@ impl Session {
             if let Some(b) = s.model.doc.bodies.get_mut(id) {
                 b.visible = nb.visible;
                 b.uuid = nb.uuid.clone();
+                b.mechanical = nb.mechanical.clone();
             }
             s.model.geometry.insert(id, BodyGeometry::from_shape(shape));
         }
@@ -1794,6 +2312,16 @@ impl Session {
         let report = s.run(ops, false);
         if let Some(e) = report.error.clone() {
             return Err(e);
+        }
+        // Penimpaan material konfigurasi aktif (setelah semua op).
+        if let Some(cfg) = s.meta.design.active().cloned() {
+            for (body, source) in &cfg.material_overrides {
+                if let Some(id) = find_body(&s.model, body) {
+                    if let Some(b) = s.model.doc.bodies.get_mut(id) {
+                        b.mechanical = Some(source.clone());
+                    }
+                }
+            }
         }
         Ok((s, report))
     }
@@ -1858,6 +2386,7 @@ impl Session {
                 let keep = DesignDoc {
                     params: design.params.clone(),
                     checks: design.checks.clone(),
+                    configurations: design.configurations.clone(),
                     ..DesignDoc::default()
                 };
                 let stale_warning = || vec!["oplog_stale".to_string()];
@@ -1895,6 +2424,11 @@ impl Session {
             if let Some(id) = find_body(&self.model, &nb.name) {
                 if let Some(b) = self.model.doc.bodies.get_mut(id) {
                     b.uuid = nb.uuid.clone();
+                    // Material mekanik yang dipilih di GUI tidak tercatat di
+                    // oplog; berkas adalah keadaan terakhirnya.
+                    if nb.mechanical.is_some() {
+                        b.mechanical = nb.mechanical.clone();
+                    }
                 }
             }
         }
@@ -1952,6 +2486,7 @@ impl Session {
                 uuid: Some(b.uuid.clone()),
                 visible: b.visible,
                 material: b.material,
+                mechanical: b.mechanical.clone(),
                 shape,
                 round_history: None,
             })
@@ -1990,12 +2525,196 @@ impl Session {
         out
     }
 
-    /// Ganti params lalu replay penuh; gagal → sesi lama utuh.
+    /// Daftar konfigurasi; berkas tanpa konfigurasi → satu "Default".
+    /// "Default" (tanpa penimpaan) selalu ada di urutan pertama.
+    pub fn configurations(&self) -> Vec<ducad_core::Configuration> {
+        let mut out = vec![ducad_core::Configuration::named(
+            ducad_core::DEFAULT_CONFIGURATION,
+        )];
+        out.extend(self.meta.design.configurations.iter().cloned());
+        out
+    }
+
+    /// Nama konfigurasi aktif (`"Default"` bila tidak ada).
+    pub fn active_configuration(&self) -> &str {
+        self.meta
+            .design
+            .active()
+            .map(|c| c.name.as_str())
+            .unwrap_or(ducad_core::DEFAULT_CONFIGURATION)
+    }
+
+    fn check_configuration(&self, cfg: &ducad_core::Configuration) -> OpResult<()> {
+        if !ducad_core::valid_configuration_name(&cfg.name)
+            || cfg.name.eq_ignore_ascii_case(ducad_core::DEFAULT_CONFIGURATION)
+        {
+            return Err(OpError::invalid(format!(
+                "configuration name '{}' is not allowed (1-48 chars of letters, digits, space, '_', '-', '.'; \"Default\" is reserved)",
+                cfg.name
+            )));
+        }
+        let known: Vec<&str> = self.meta.design.oplog.iter().map(|o| o.id()).collect();
+        if let Some(bad) = cfg.suppressed_ops.iter().find(|s| !known.contains(&s.as_str())) {
+            return Err(OpError::new(
+                OpErrorCode::UnknownRef,
+                format!("configuration '{}' suppresses unknown op '{bad}'", cfg.name),
+            )
+            .with_context(serde_json::json!({ "ops": known })));
+        }
+        if let Some((k, v)) = cfg.params.iter().find(|(_, v)| !v.is_finite()) {
+            return Err(OpError::invalid(format!(
+                "configuration '{}': param '{k}' = {v} is not a finite number",
+                cfg.name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Ganti seluruh daftar konfigurasi (mis. impor design table). Bila
+    /// konfigurasi aktif hilang dari daftar, sesi kembali ke "Default".
+    pub fn set_configurations(
+        &mut self,
+        configs: Vec<ducad_core::Configuration>,
+    ) -> OpResult<BatchReport> {
+        let mut seen = std::collections::BTreeSet::new();
+        for c in &configs {
+            self.check_configuration(c)?;
+            if !seen.insert(c.name.clone()) {
+                return Err(OpError::new(
+                    OpErrorCode::DuplicateId,
+                    format!("configuration '{}' is listed twice", c.name),
+                ));
+            }
+        }
+        let active = self
+            .meta
+            .design
+            .active_configuration
+            .clone()
+            .filter(|a| configs.iter().any(|c| &c.name == a));
+        self.swap_rebuilt(DesignDoc {
+            configurations: configs,
+            active_configuration: active,
+            ..self.meta.design.clone()
+        })
+    }
+
+    /// Tambah/perbarui satu konfigurasi (param digabung ke yang lama) lalu
+    /// aktifkan. Dipakai `set_params {configuration}`.
+    pub fn set_configuration_params(&mut self, name: &str, params: Params) -> OpResult<BatchReport> {
+        if name.eq_ignore_ascii_case(ducad_core::DEFAULT_CONFIGURATION) {
+            let mut merged = self.meta.design.params.clone();
+            merged.extend(params);
+            return self.swap_rebuilt(DesignDoc {
+                params: merged,
+                active_configuration: None,
+                ..self.meta.design.clone()
+            });
+        }
+        let mut configs = self.meta.design.configurations.clone();
+        match configs.iter_mut().find(|c| c.name == name) {
+            Some(existing) => existing.params.extend(params),
+            None => {
+                let mut cfg = ducad_core::Configuration::named(name);
+                cfg.params = params;
+                self.check_configuration(&cfg)?;
+                configs.push(cfg);
+            }
+        }
+        self.swap_rebuilt(DesignDoc {
+            configurations: configs,
+            active_configuration: Some(name.to_string()),
+            ..self.meta.design.clone()
+        })
+    }
+
+    /// Aktifkan konfigurasi `name` (`"Default"` = tanpa penimpaan) dan
+    /// replay penuh. Nama tak dikenal → `UnknownRef`.
+    pub fn activate_configuration(&mut self, name: &str) -> OpResult<BatchReport> {
+        let active = if name.eq_ignore_ascii_case(ducad_core::DEFAULT_CONFIGURATION) {
+            None
+        } else if self.meta.design.configurations.iter().any(|c| c.name == name) {
+            Some(name.to_string())
+        } else {
+            let known: Vec<String> = self.configurations().into_iter().map(|c| c.name).collect();
+            return Err(OpError::new(
+                OpErrorCode::UnknownRef,
+                format!("configuration '{name}' does not exist (available: {known:?})"),
+            )
+            .with_context(serde_json::json!({ "configuration": name, "available": known })));
+        };
+        self.swap_rebuilt(DesignDoc {
+            active_configuration: active,
+            ..self.meta.design.clone()
+        })
+    }
+
+    /// Pasang konfigurasi dari berkas ops (`OpFile.configurations`) dan
+    /// aktifkan `active` bila diisi. Tanpa konfigurasi → tidak berbuat apa-apa.
+    pub fn apply_configuration_specs(
+        &mut self,
+        specs: &[crate::ops::ConfigurationSpec],
+        active: Option<&str>,
+    ) -> OpResult<Option<BatchReport>> {
+        if specs.is_empty() && active.is_none() {
+            return Ok(None);
+        }
+        let library = self.model.doc.material_library.clone();
+        let mut configs = Vec::with_capacity(specs.len());
+        for spec in specs {
+            let mut cfg = ducad_core::Configuration::named(spec.name.clone());
+            cfg.params = spec.params.clone();
+            cfg.suppressed_ops = spec.suppressed_ops.clone();
+            for (body, material) in &spec.material_overrides {
+                cfg.material_overrides
+                    .insert(body.clone(), resolve_mechanical(material, &library)?);
+            }
+            configs.push(cfg);
+        }
+        let report = self.set_configurations(configs)?;
+        if !report.committed {
+            return Ok(Some(report));
+        }
+        match active {
+            Some(name) => self.activate_configuration(name).map(Some),
+            None => Ok(Some(report)),
+        }
+    }
+
+    /// Design table CSV semua konfigurasi (tanpa "Default").
+    pub fn design_table_csv(&self) -> String {
+        ducad_core::design_table_to_csv(&self.meta.design.configurations)
+    }
+
+    /// Ganti konfigurasi dari design table CSV. Penimpaan material
+    /// konfigurasi bernama sama dipertahankan (CSV tidak memuatnya).
+    pub fn import_design_table(&mut self, csv: &str) -> OpResult<BatchReport> {
+        let mut configs = ducad_core::design_table_from_csv(csv)
+            .map_err(|e| OpError::invalid(format!("design table tidak valid: {e}")))?;
+        for cfg in &mut configs {
+            if let Some(old) = self
+                .meta
+                .design
+                .configurations
+                .iter()
+                .find(|c| c.name == cfg.name)
+            {
+                cfg.material_overrides = old.material_overrides.clone();
+            }
+        }
+        self.set_configurations(configs)
+    }
+
+    /// Ganti params DASAR lalu replay penuh; gagal → sesi lama utuh.
     pub fn set_params(&mut self, p: Params) -> OpResult<BatchReport> {
-        let design = DesignDoc {
+        self.swap_rebuilt(DesignDoc {
             params: p,
             ..self.meta.design.clone()
-        };
+        })
+    }
+
+    /// Replay `design` di sesi baru; sukses → gantikan sesi ini.
+    fn swap_rebuilt(&mut self, design: DesignDoc) -> OpResult<BatchReport> {
         match Self::rebuild(design) {
             Ok((mut s, report)) => {
                 s.meta.batches = std::mem::take(&mut self.meta.batches);

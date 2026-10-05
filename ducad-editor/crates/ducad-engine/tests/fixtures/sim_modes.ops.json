@@ -1,0 +1,35 @@
+{ "params": { "len": 100, "w": 10, "t": 5 },
+  "ops": [
+    {"op":"primitive","id":"beam","shape":{"box":{"size":["$len","$w","$t"]}}},
+    {"op":"set_material","id":"beam_mat","body":"beam","material":"al_6061_t6"},
+    {"op":"study","id":"modes","kind":"frequency","modes":3,"setup":{
+      "body":"beam",
+      "fixtures":[{"id":"root","faces":"<X","kind":"fixed"}],
+      "loads":[],
+      "mesh":{"cell_mm":2.5}}},
+    {"op":"study","id":"column","kind":"buckling","modes":1,"setup":{
+      "body":"beam",
+      "fixtures":[{"id":"root","faces":"<X","kind":"fixed"}],
+      "loads":[{"id":"push","faces":">X","kind":"force","newton":[-500,0,0]}],
+      "mesh":{"cell_mm":2.5}}},
+    {"op":"study","id":"heat","kind":"thermal","setup":{
+      "body":"beam","fixtures":[],"loads":[],
+      "mesh":{"kind":"tet","cell_mm":4}},
+      "thermal":{"boundary":[
+        {"id":"hot","faces":"<X","kind":"temperature","celsius":100},
+        {"id":"cold","faces":">X","kind":"temperature","celsius":20}]}},
+    {"op":"study","id":"clamped_hot","kind":"thermal_stress","setup":{
+      "body":"beam",
+      "fixtures":[{"id":"left","faces":"<X","kind":"fixed"},{"id":"right","faces":">X","kind":"fixed"}],
+      "loads":[],
+      "mesh":{"cell_mm":2.5}},
+      "thermal":{"boundary":[
+        {"id":"hot","faces":"<X","kind":"temperature","celsius":60},
+        {"id":"warm","faces":">X","kind":"temperature","celsius":60}]}}
+  ],
+  "checks": [
+    {"id":"above_motor","check":"min_natural_frequency","study":"modes","min_hz":300},
+    {"id":"no_buckling","check":"min_buckling_factor","min":2},
+    {"id":"not_too_hot","check":"max_temperature","max_c":101},
+    {"id":"thermal_stress_ok","check":"max_stress","study":"clamped_hot","max_mpa":250}
+  ] }

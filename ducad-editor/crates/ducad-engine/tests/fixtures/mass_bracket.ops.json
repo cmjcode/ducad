@@ -1,0 +1,17 @@
+{ "params": { "len": 50, "depth": 30, "t": 5, "wall_h": 30, "pin_r": 4, "pin_h": 20 },
+  "ops": [
+    {"op":"primitive","id":"base","shape":{"box":{"size":["$len","$depth","$t"]}}},
+    {"op":"primitive","id":"wall","shape":{"box":{"size":["$len","$t","$wall_h"]}}},
+    {"op":"boolean","id":"bracket","kind":"union","a":"base","b":"wall"},
+    {"op":"set_material","id":"bracket_mat","body":"bracket","material":"al_6061_t6"},
+    {"op":"primitive","id":"pin","shape":{"cylinder":{"r":"$pin_r","h":"$pin_h"}}},
+    {"op":"transform","id":"pin_pos","body":"pin","translate":[25,20,5]},
+    {"op":"set_material","id":"pin_mat","body":"pin","material":{"custom":{
+      "density_g_cm3":7.85,"young_modulus_gpa":210,"poisson_ratio":0.3,
+      "yield_strength_mpa":355,"ultimate_strength_mpa":510}}}
+  ],
+  "checks": [
+    {"id":"bracket_mass","check":"mass","body":"bracket","min_g":37.0,"max_g":37.3},
+    {"id":"pin_on_centerline","check":"center_of_mass","body":"pin","expect":[25,20,15],"tol":0.01},
+    {"id":"pin_spin_inertia","check":"moment_of_inertia","body":"pin","axis":"principal_min","min":62,"max":64}
+  ] }

@@ -3461,3 +3461,98 @@ fn test_pick_face_index_maps_to_exact_mesh_triangles() {
     let anchor = hit.gizmo_anchor();
     assert!((anchor.0 - 50.0).abs() < 1e-6 && (anchor.1 - 50.0).abs() < 1e-6);
 }
+
+// ── P16: properti massa ────────────────────────────────────────────────
+
+fn assert_rel(actual: f64, expected: f64, tol: f64, what: &str) {
+    let denom = expected.abs().max(1e-12);
+    assert!(
+        ((actual - expected) / denom).abs() < tol,
+        "{what}: {actual} != {expected}"
+    );
+}
+
+#[test]
+fn mass_properties_box_matches_closed_form() {
+    let _l = lock_test();
+    let (a, b, c) = (10.0, 20.0, 30.0);
+    let shape = make_box(a, b, c, false).unwrap();
+    let mp = shape.mass_properties();
+    let v = a * b * c;
+    assert_rel(mp.volume_mm3, v, 1e-9, "volume");
+    for (got, want) in mp.centroid.iter().zip([5.0, 10.0, 15.0]) {
+        assert_rel(*got, want, 1e-9, "centroid");
+    }
+    let i = mp.inertia_com();
+    assert_rel(i[0][0], v * (b * b + c * c) / 12.0, 1e-6, "Ixx");
+    assert_rel(i[1][1], v * (a * a + c * c) / 12.0, 1e-6, "Iyy");
+    assert_rel(i[2][2], v * (a * a + b * b) / 12.0, 1e-6, "Izz");
+    for (r, s) in [(0, 1), (0, 2), (1, 2)] {
+        assert!(i[r][s].abs() < 1e-6 * i[0][0], "produk inersia {r}{s}: {}", i[r][s]);
+    }
+    // Terhadap origin: teorema sumbu sejajar, termasuk produk inersia.
+    assert_rel(mp.inertia_origin[0][0], v * (b * b + c * c) / 3.0, 1e-6, "Ixx origin");
+    assert_rel(mp.inertia_origin[0][1], -v * (a / 2.0) * (b / 2.0), 1e-6, "Ixy origin");
+}
+
+#[test]
+fn mass_properties_sphere_has_equal_principal_moments() {
+    let _l = lock_test();
+    let r = 7.0;
+    let mp = make_sphere(r).unwrap().mass_properties();
+    let v = 4.0 / 3.0 * std::f64::consts::PI * r.powi(3);
+    assert_rel(mp.volume_mm3, v, 1e-6, "volume");
+    let (m, _) = mp.principal();
+    for k in m {
+        assert_rel(k, 0.4 * v * r * r, 1e-6, "momen bola");
+    }
+}
+
+#[test]
+fn mass_properties_cylinder_principal_axis_is_cylinder_axis() {
+    let _l = lock_test();
+    let (r, h) = (4.0, 50.0);
+    let upright = make_cylinder(r, h).unwrap();
+    // Miringkan supaya sumbu utama tidak kebetulan sejajar sumbu global.
+    let ang = 30.0_f64.to_radians();
+    let tilted = rotate_shape(&upright, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), ang).unwrap();
+    let mp = tilted.mass_properties();
+    let v = std::f64::consts::PI * r * r * h;
+    let (m, ax) = mp.principal();
+    // Silinder ramping: momen terkecil di sumbu silinder.
+    assert_rel(m[0], 0.5 * v * r * r, 1e-6, "momen aksial");
+    assert_rel(m[1], v * (3.0 * r * r + h * h) / 12.0, 1e-6, "momen lateral");
+    assert_rel(m[2], m[1], 1e-6, "momen lateral kembar");
+    let expect = [0.0, -ang.sin(), ang.cos()];
+    let dot: f64 = ax[0].iter().zip(expect).map(|(p, q)| p * q).sum();
+    assert!(dot.abs() > 1.0 - 1e-9, "sumbu utama {:?} vs {:?}", ax[0], expect);
+}
+
+// ── P20: ulir fisik ISO ────────────────────────────────────────────────
+
+#[test]
+fn thread_iso_m10_removes_profile_volume() {
+    let _l = lock_test();
+    let (d, pitch, length) = (10.0, 1.5, 20.0);
+    let rod = make_cylinder(d / 2.0, 30.0).unwrap();
+    let plain = rod.volume().abs();
+    let threaded = cut_iso_thread(&rod, [0.0, 0.0, 5.0], [0.0, 0.0, 1.0], d, pitch, length, false)
+        .unwrap();
+    assert!(threaded.is_valid(), "solid berulir harus valid");
+    let removed = plain - threaded.volume().abs();
+    let expected = IsoThreadProfile::new(pitch).removed_volume(d, length);
+    // Profil dasar ISO 68-1: 0.3045·P² per penampang.
+    assert_rel(IsoThreadProfile::new(pitch).area(), 0.304_46 * pitch * pitch, 1e-3, "luas profil");
+    assert_rel(removed, expected, 0.02, "volume alur ulir");
+
+    // Ulir kiri: volume sama, bentuk berbeda (cermin).
+    let left = cut_iso_thread(&rod, [0.0, 0.0, 5.0], [0.0, 0.0, 1.0], d, pitch, length, true)
+        .unwrap();
+    assert!(left.is_valid());
+    assert_rel(plain - left.volume().abs(), expected, 0.02, "volume ulir kiri");
+
+    // Masukan tak masuk akal ditolak, bukan panik.
+    assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], d, 20.0, 40.0, false).is_err());
+    assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], d, pitch, 0.5, false).is_err());
+    assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], -1.0, pitch, 5.0, false).is_err());
+}

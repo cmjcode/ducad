@@ -773,9 +773,75 @@ pub fn export_drawing_sheet_svg_string(sheet: &DrawingSheet) -> Result<String> {
         out.push_str("  </g>\n");
     }
 
+    // 8. Anotasi GD&T & Toleransi (tidak menulis apa pun bila kosong)
+    write_sheet_annotations(&mut out, sheet);
+
     out.push_str("</svg>\n");
 
     Ok(out)
+}
+
+/// Menulis anotasi GD&T/toleransi (P19) sebagai path vektor dari
+/// `drawing::gdt` — geometri yang sama dengan ekspor PDF.
+///
+/// Ekspor SVG lembar ini memakai koordinat kertas langsung sebagai koordinat
+/// SVG (Y ke bawah), jadi hanya offset lokal simbol yang dibalik supaya
+/// simbol dan teks tetap tegak di titik jangkarnya.
+fn write_sheet_annotations(out: &mut String, sheet: &DrawingSheet) {
+    use crate::drawing::gdt::{annotation_geometry, PathCmd, STROKE_MM};
+
+    if sheet.annotations.is_empty() {
+        return;
+    }
+
+    out.push_str(r##"  <!-- Anotasi GDT dan Toleransi -->"##);
+    out.push('\n');
+    out.push_str(&format!(
+        r##"  <g id="annotations" fill="none" stroke="#111827" stroke-width="{STROKE_MM:.2}" stroke-linecap="round" stroke-linejoin="round">"##
+    ));
+    out.push('\n');
+
+    for annotation in &sheet.annotations {
+        let Some(geometry) = annotation_geometry(annotation) else {
+            continue;
+        };
+        let [ax, ay] = geometry.anchor;
+        let pt = |p: &[f32; 2]| format!("{:.3} {:.3}", ax + p[0], ay - p[1]);
+
+        for path in &geometry.paths {
+            let mut d = String::new();
+            for cmd in &path.cmds {
+                if !d.is_empty() {
+                    d.push(' ');
+                }
+                match cmd {
+                    PathCmd::Move(a) => d.push_str(&format!("M {}", pt(a))),
+                    PathCmd::Line(a) => d.push_str(&format!("L {}", pt(a))),
+                    PathCmd::Cubic(a, b, c) => {
+                        d.push_str(&format!("C {} {} {}", pt(a), pt(b), pt(c)))
+                    }
+                    PathCmd::Close => d.push('Z'),
+                }
+            }
+            let fill = if path.filled { r##" fill="#111827""## } else { "" };
+            out.push_str(&format!("    <path d=\"{d}\"{fill} />\n"));
+        }
+
+        for run in &geometry.texts {
+            let anchor = if run.centered { r#" text-anchor="middle""# } else { "" };
+            let weight = if run.bold { r#" font-weight="bold""# } else { "" };
+            out.push_str(&format!(
+                r##"    <text x="{x:.2}" y="{y:.2}" font-size="{fs:.2}"{weight}{anchor} fill="#111827" stroke="none">{txt}</text>
+"##,
+                x = ax + run.pos[0],
+                y = ay - run.pos[1],
+                fs = run.size_mm,
+                txt = escape_xml(&run.text)
+            ));
+        }
+    }
+
+    out.push_str("  </g>\n");
 }
 
 // ---------------------------------------------------------------------------

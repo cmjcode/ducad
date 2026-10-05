@@ -119,6 +119,9 @@ pub struct NativeBody {
     pub visible: bool,
     #[serde(default)]
     pub material: ducad_core::Material,
+    /// Material mekanik (P16); berkas lama tanpa field ini tetap terbaca.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanical: Option<ducad_core::MaterialSource>,
     /// Teks STEP AP214 lengkap (bukan mesh) — lihat catatan modul.
     pub step: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,6 +136,8 @@ pub struct ExportBody<'a> {
     pub uuid: Option<String>,
     pub visible: bool,
     pub material: ducad_core::Material,
+    /// Material mekanik (P16), bila sudah dipilih.
+    pub mechanical: Option<ducad_core::MaterialSource>,
     pub shape: &'a KernelShape,
     pub round_history: Option<(&'a KernelShape, Vec<NativeRoundFeature>)>,
 }
@@ -165,6 +170,8 @@ pub struct LoadedBody {
     pub uuid: String,
     pub visible: bool,
     pub material: ducad_core::Material,
+    /// Material mekanik (P16), bila tersimpan di berkas.
+    pub mechanical: Option<ducad_core::MaterialSource>,
     pub shape: KernelShape,
     pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>)>,
 }
@@ -231,6 +238,7 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
                 uuid: b.uuid.clone().unwrap_or_else(ducad_core::new_part_uuid),
                 visible: b.visible,
                 material: b.material,
+                mechanical: b.mechanical.clone(),
                 step: b
                     .shape
                     .to_step_string()
@@ -272,6 +280,7 @@ pub fn serialize_to_json(
             uuid: None,
             visible: *vis,
             material: *mat,
+            mechanical: None,
             shape,
             round_history: None,
         })
@@ -312,6 +321,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
                 uuid: b.uuid,
                 visible: b.visible,
                 material: b.material,
+                mechanical: b.mechanical,
                 shape,
                 round_history,
             })
@@ -376,6 +386,7 @@ pub fn save_multi_plane(
             uuid: None,
             visible: *vis,
             material: *mat,
+            mechanical: None,
             shape,
             round_history: None,
         })
@@ -505,6 +516,7 @@ mod tests {
             uuid,
             visible: true,
             material: ducad_core::Material::default(),
+            mechanical: None,
             shape,
             round_history: None,
         }
@@ -681,6 +693,7 @@ mod tests {
             name: "Filleted Box",
             visible: true,
             material: ducad_core::Material::default(),
+            mechanical: None,
             shape: &filleted_shape,
             round_history: Some((&base_shape, vec![feature])),
         };

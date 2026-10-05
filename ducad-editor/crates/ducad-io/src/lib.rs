@@ -11,6 +11,7 @@
 
 pub mod drawing;
 pub mod dxf;
+pub mod flat_dxf;
 pub mod glb;
 pub mod mesh_export;
 pub mod external;

@@ -35,7 +35,7 @@ pub(super) fn diagnose(core: &mut SessionCore, op: &Op, err: OpError) -> OpError
     if err.code != OpErrorCode::KernelFailed {
         return err;
     }
-    let Ok(r) = eval(value, &core.meta.design.params) else {
+    let Ok(r) = eval(value, &core.meta.design.effective_params()) else {
         return err;
     };
     let Ok((_, geo)) = core.body(body) else {

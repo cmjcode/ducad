@@ -14,6 +14,7 @@ pub mod hlr;
 pub mod hlr_exact;
 pub mod hole;
 pub mod interference;
+pub mod mass;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
@@ -24,6 +25,7 @@ pub mod section;
 pub mod shape;
 pub mod step;
 pub mod thickness;
+pub mod thread;
 pub mod topo;
 pub mod vector_snapshot;
 
@@ -68,7 +70,8 @@ pub use advanced::{
 };
 pub use assembly_solver::{
     apply_mate_transform_to_shape, evaluate_motion, solve_angle, solve_assembly,
-    solve_assembly_with_drag, solve_coincident, solve_concentric, AssemblySolveReport,
+    solve_assembly_with_couplings, solve_assembly_with_drag, solve_coincident, solve_concentric,
+    AssemblySolveReport,
     solve_single_mate, MateTransformResult,
 };
 pub use csg::{
@@ -98,6 +101,7 @@ pub use interference::{
     check_clearance, compute_mesh_centroid, compute_mesh_volume, compute_pair_interference,
     detect_interference, BodyClash, ClearanceResult,
 };
+pub use mass::{principal_axes, shift_from_centroid, shift_to_centroid, MassProperties};
 pub use mesh::KernelMesh;
 pub use modify::{
     chamfer_all, chamfer_edges, chamfer_vertex, circular_pattern_shape, create_rib,
@@ -121,5 +125,6 @@ pub use shape::{
     translate_shape, KernelShape,
 };
 pub use step::write_step_compound;
+pub use thread::{cut_iso_thread, IsoThreadProfile};
 pub use thickness::{min_wall_thickness, ray_hit_distance, WallReport, DEFAULT_WALL_SAMPLES};
 pub use topo::{enumerate_edges, enumerate_faces, EdgeInfo, EdgeKind, FaceInfo};

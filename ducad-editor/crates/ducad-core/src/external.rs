@@ -426,12 +426,8 @@ mod tests {
         let mut r = sample_ref();
         r.last_absolute_path = Some("/lama/bracket.ducad".to_string());
         let fs = fake_fs(&[]);
-        let out = resolve_external_with(
-            &r,
-            Path::new("/proyek"),
-            &[PathBuf::from("/pustaka")],
-            &fs,
-        );
+        let out =
+            resolve_external_with(&r, Path::new("/proyek"), &[PathBuf::from("/pustaka")], &fs);
         match out {
             ResolveOutcome::Missing { tried } => {
                 assert_eq!(tried.len(), 3, "relatif + absolut + folder pencarian");
@@ -459,10 +455,7 @@ mod tests {
     fn unchanged_file_is_detected_without_reloading() {
         let p = temp_file("unchanged", b"isi part");
         let stamp = SourceStamp::of(&p).unwrap();
-        assert_eq!(
-            check_source_state(Some(&stamp), &p),
-            SourceState::Unchanged
-        );
+        assert_eq!(check_source_state(Some(&stamp), &p), SourceState::Unchanged);
         let _ = std::fs::remove_file(&p);
     }
 
@@ -493,10 +486,7 @@ mod tests {
         std::fs::write(&p, b"radius=20.0").unwrap();
         // Paksa metadata terlihat berbeda supaya jalur hash dipakai.
         stamp.modified_unix -= 5;
-        assert_eq!(
-            check_source_state(Some(&stamp), &p),
-            SourceState::Changed
-        );
+        assert_eq!(check_source_state(Some(&stamp), &p), SourceState::Changed);
         let _ = std::fs::remove_file(&p);
     }
 

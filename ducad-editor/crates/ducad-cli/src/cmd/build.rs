@@ -17,8 +17,10 @@ use serde::Serialize;
 use super::write_json;
 use crate::{CliError, CliResult, Exit};
 
-const ALL_FORMATS: [&str; 9] = ["step", "stl", "obj", "glb", "pdf", "svg", "dxf", "png", "bom"];
-const BOM_HEADER: &str = "item,part,qty,material,volume_mm3,mass_g,file";
+const ALL_FORMATS: [&str; 10] = [
+    "step", "stl", "obj", "glb", "pdf", "svg", "dxf", "png", "bom", "flat",
+];
+const BOM_HEADER: &str = "item,part,qty,material,volume_mm3,mass_g,file,standard";
 /// Batas baris tabel di `report.md` agar tetap ±60 baris.
 const MD_MAX_ROWS: usize = 15;
 
@@ -29,7 +31,8 @@ pub struct Args {
     /// Folder keluaran (dibuat bila belum ada).
     #[arg(long)]
     out: PathBuf,
-    /// Daftar format dipisah koma: step,stl,obj,glb,pdf,svg,dxf,png,bom.
+    /// Daftar format dipisah koma: step,stl,obj,glb,pdf,svg,dxf,png,bom,flat
+    /// (`flat` = DXF pola bentangan tiap body sheet metal).
     #[arg(long, value_delimiter = ',', default_value = "step,stl,pdf,png,bom")]
     formats: Vec<String>,
     /// Ukuran kertas gambar kerja: a4 | a3 (lanskap).
@@ -49,6 +52,13 @@ pub struct Args {
     /// Lewati checks desain.
     #[arg(long)]
     no_checks: bool,
+    /// Bangun satu konfigurasi varian (nama; "Default" = desain dasar).
+    #[arg(long, conflicts_with = "all_configs")]
+    config: Option<String>,
+    /// Bangun SEMUA konfigurasi, masing-masing ke subfolder bernama
+    /// konfigurasi itu, plus ringkasan matriks di folder keluaran.
+    #[arg(long)]
+    all_configs: bool,
 }
 
 fn parse_paper(s: &str) -> Result<PaperSize, String> {
@@ -137,8 +147,39 @@ struct Report {
     bodies: Vec<BodyRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     checks: Option<CheckSummary>,
+    /// Hasil studi simulasi (`Op::Study`), urut oplog.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sim: Vec<StudyRow>,
     artifacts: Vec<Artifact>,
     warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct StudyRow {
+    id: String,
+    /// `static` | `frequency` | `buckling` | `thermal` | `thermal_stress`.
+    kind: &'static str,
+    /// `ok` | `failed`.
+    status: &'static str,
+    /// Frekuensi natural pertama (studi frekuensi), Hz.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_frequency_hz: Option<f64>,
+    /// Faktor tekuk kritis (studi buckling).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    buckling_factor: Option<f64>,
+    /// Suhu maksimum (studi termal), °C.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_temperature_c: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_von_mises_mpa: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_displacement_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    safety_factor: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<serde_json::Value>,
+    /// Berkas di bawah `sim/`.
+    files: Vec<String>,
 }
 
 fn io_err(path: &Path, e: impl std::fmt::Display) -> CliError {
@@ -156,8 +197,9 @@ fn material_label(m: ducad_core::MaterialPreset) -> String {
         .unwrap_or_default()
 }
 
-fn mass_g(volume_mm3: f64, m: ducad_core::MaterialPreset) -> Option<f64> {
-    m.density_g_cm3().map(|rho| volume_mm3 / 1000.0 * rho)
+/// Massa dari densitas body: material mekanik bila ada, selain itu preset.
+fn mass_g(volume_mm3: f64, density_g_cm3: Option<f64>) -> Option<f64> {
+    density_g_cm3.map(|rho| volume_mm3 / 1000.0 * rho)
 }
 
 type VisibleBody<'a> = (&'a ducad_core::Body, &'a ducad_engine::model::BodyGeometry);
@@ -191,7 +233,7 @@ fn body_rows(s: &Session) -> Vec<BodyRow> {
             BodyRow {
                 name: b.name.clone(),
                 volume_mm3: round2(volume),
-                mass_g: mass_g(volume, b.material.preset).map(round2),
+                mass_g: mass_g(volume, s.model().doc.density_of(b)).map(round2),
                 bbox,
             }
         })
@@ -221,19 +263,32 @@ fn bom_csv(s: &Session, file: &str) -> String {
     for (i, key) in order.iter().enumerate() {
         let members = &groups[key];
         let (first, volume) = members[0];
-        let preset = first.material.preset;
-        let mass = mass_g(volume, preset)
+        // Material mekanik (bila dipilih) lebih bermakna di BOM daripada preset visual.
+        let material = first
+            .mechanical
+            .as_ref()
+            .map(|m| m.label())
+            .unwrap_or_else(|| material_label(first.material.preset));
+        let mass = mass_g(volume, s.model().doc.density_of(first))
             .map(|m| format!("{m:.2}"))
             .unwrap_or_default();
+        // Sebutan standar (mis. "ISO 4762 - M6 x 20") untuk part toolbox.
+        let standard = s
+            .meta()
+            .standard_parts
+            .get(&first.name)
+            .cloned()
+            .unwrap_or_default();
         out.push_str(&format!(
-            "{},{},{},{},{:.2},{},{}\n",
+            "{},{},{},{},{:.2},{},{},{}\n",
             i + 1,
             csv(&first.name),
             members.len(),
-            csv(&material_label(preset)),
+            csv(&material),
             volume,
             mass,
-            csv(file)
+            csv(file),
+            csv(&standard)
         ));
     }
     out
@@ -302,6 +357,31 @@ fn report_md(r: &Report, title: &str) -> String {
             md.push_str(&format!("| | … {} check lagi | | |\n", c.results.len() - MD_MAX_ROWS));
         }
     }
+    if !r.sim.is_empty() {
+        md.push_str("\n## Simulasi — estimasi teknik (sekitar ±10 % pada mesh hex bawaan)\n\n| Studi | Jenis | Status | von Mises maks (MPa) | Deformasi maks (mm) | Faktor keamanan | Frekuensi 1 (Hz) | Faktor tekuk | Suhu maks (°C) |\n|---|---|---|---:|---:|---:|---:|---:|---:|\n");
+        let cell = |v: Option<f64>, digits: usize| {
+            v.map(|x| format!("{x:.digits$}")).unwrap_or("—".into())
+        };
+        for st in r.sim.iter().take(MD_MAX_ROWS) {
+            md.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                st.id,
+                st.kind,
+                st.status,
+                cell(st.max_von_mises_mpa, 3),
+                cell(st.max_displacement_mm, 5),
+                cell(st.safety_factor, 2),
+                cell(st.first_frequency_hz, 2),
+                cell(st.buckling_factor, 3),
+                cell(st.max_temperature_c, 2)
+            ));
+        }
+        for st in r.sim.iter().take(MD_MAX_ROWS) {
+            if let Some(png) = st.files.iter().find(|f| f.ends_with(".png")) {
+                md.push_str(&format!("\n![{}](sim/{png})\n", st.id));
+            }
+        }
+    }
     if !r.artifacts.is_empty() {
         md.push_str("\n## Artefak\n\n");
         for a in &r.artifacts {
@@ -357,10 +437,16 @@ fn load(input: &Path) -> Result<Loaded, CliError> {
         s.set_checks(file.checks);
     }
     let report = s.run(file.ops, false);
-    Ok(match report.error {
-        Some(e) => (Err(e), "ops"),
-        None => (Ok(s), "ops"),
-    })
+    if let Some(e) = report.error {
+        return Ok((Err(e), "ops"));
+    }
+    match s.apply_configuration_specs(&file.configurations, file.active_configuration.as_deref()) {
+        Ok(Some(r)) if r.error.is_some() => Ok((Err(r.error.unwrap_or_else(|| {
+            ducad_engine::OpError::invalid("konfigurasi gagal diterapkan")
+        })), "ops")),
+        Ok(_) => Ok((Ok(s), "ops")),
+        Err(e) => Ok((Err(e), "ops")),
+    }
 }
 
 fn stem_of(input: &Path) -> String {
@@ -377,7 +463,114 @@ fn stem_of(input: &Path) -> String {
     name
 }
 
+/// Baris matriks `--all-configs`.
+#[derive(Serialize)]
+struct ConfigRow {
+    name: String,
+    /// `ok` | `checks_failed` | `failed`.
+    status: String,
+    exit: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checks: Option<serde_json::Value>,
+}
+
+/// `--all-configs`: satu build per konfigurasi (termasuk "Default") ke
+/// `out/<nama>/`, lalu `out/report.json` + `out/report.md` berisi matriks
+/// konfigurasi × check. Kode keluar = yang terburuk.
+fn exec_all_configs(a: Args) -> CliResult {
+    let (loaded, _) = load(&a.input)?;
+    let names: Vec<String> = match loaded {
+        Ok(s) => s.configurations().into_iter().map(|c| c.name).collect(),
+        // Biarkan build tunggal menulis laporan gagalnya.
+        Err(_) => vec![ducad_core::DEFAULT_CONFIGURATION.to_string()],
+    };
+    std::fs::create_dir_all(&a.out).map_err(|e| io_err(&a.out, e))?;
+    let mut rows = Vec::new();
+    let mut worst = Exit::Ok;
+    for name in names {
+        let out = a.out.join(&name);
+        let single = Args {
+            input: a.input.clone(),
+            out: out.clone(),
+            formats: a.formats.clone(),
+            paper: a.paper,
+            title: a.title.clone(),
+            part_number: a.part_number.clone(),
+            author: a.author.clone(),
+            revision: a.revision.clone(),
+            date: a.date.clone(),
+            no_checks: a.no_checks,
+            config: Some(name.clone()),
+            all_configs: false,
+        };
+        let exit = exec(single)?;
+        if exit as u8 > worst as u8 {
+            worst = exit;
+        }
+        let report: serde_json::Value = std::fs::read_to_string(out.join("report.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        rows.push(ConfigRow {
+            name,
+            status: report["status"].as_str().unwrap_or("failed").to_string(),
+            exit: exit as u8,
+            checks: report.get("checks").cloned(),
+        });
+    }
+    write_json(&a.out.join("report.json"), &serde_json::json!({ "configurations": rows }))?;
+
+    // Matriks konfigurasi × check (id check sebagai kolom, urut kemunculan).
+    let mut ids: Vec<String> = Vec::new();
+    let cell = |row: &ConfigRow, id: &str| -> &'static str {
+        let results = row.checks.as_ref().and_then(|c| c["results"].as_array());
+        let found = results.and_then(|rs| {
+            rs.iter().find(|r| {
+                r["id"].as_str().or(r["kind"].as_str()) == Some(id)
+            })
+        });
+        match found.and_then(|r| r["status"].as_str()) {
+            Some("pass") => "✅",
+            Some("fail") => "❌",
+            Some(_) => "⚠️",
+            None => "—",
+        }
+    };
+    for row in &rows {
+        if let Some(results) = row.checks.as_ref().and_then(|c| c["results"].as_array()) {
+            for r in results {
+                if let Some(id) = r["id"].as_str().or(r["kind"].as_str()) {
+                    if !ids.iter().any(|x| x == id) {
+                        ids.push(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let title = a.title.clone().unwrap_or_else(|| stem_of(&a.input));
+    let mut md = format!("# DUCAD build — {title} (semua konfigurasi)\n\n| Konfigurasi | Status |");
+    for id in ids.iter().take(MD_MAX_ROWS) {
+        md.push_str(&format!(" {id} |"));
+    }
+    md.push_str("\n|---|---|");
+    md.push_str(&"---|".repeat(ids.len().min(MD_MAX_ROWS)));
+    md.push('\n');
+    for row in &rows {
+        md.push_str(&format!("| [{0}]({0}/report.md) | {1} |", row.name, row.status));
+        for id in ids.iter().take(MD_MAX_ROWS) {
+            md.push_str(&format!(" {} |", cell(row, id)));
+        }
+        md.push('\n');
+    }
+    let p = a.out.join("report.md");
+    std::fs::write(&p, md).map_err(|e| io_err(&p, e))?;
+    Ok(worst)
+}
+
 pub fn exec(a: Args) -> CliResult {
+    if a.all_configs {
+        return exec_all_configs(a);
+    }
     for f in &a.formats {
         if !ALL_FORMATS.contains(&f.as_str()) {
             return Err(CliError::usage(format!(
@@ -405,13 +598,28 @@ pub fn exec(a: Args) -> CliResult {
         error: None,
         bodies: Vec::new(),
         checks: None,
+        sim: Vec::new(),
         artifacts: Vec::new(),
         warnings: Vec::new(),
     };
 
     let (loaded, mode) = load(&a.input)?;
     report.load = mode;
-    let s = match loaded {
+    // Varian yang diminta diaktifkan sebelum apa pun diukur/diekspor.
+    let loaded = match (loaded, &a.config) {
+        (Ok(mut s), Some(name)) => match s.activate_configuration(name) {
+            Ok(r) => match r.error {
+                Some(e) => Err(e),
+                None => Ok(s),
+            },
+            Err(e) if e.code == OpErrorCode::UnknownRef => {
+                return Err(CliError::usage(e.message));
+            }
+            Err(e) => Err(e),
+        },
+        (other, _) => other,
+    };
+    let mut s = match loaded {
         Ok(s) => s,
         Err(e) => {
             report.status = "failed";
@@ -428,6 +636,76 @@ pub fn exec(a: Args) -> CliResult {
             .push("oplog basi: part diadopsi dari body berkas, bukan hasil replay".into());
     }
     report.bodies = body_rows(&s);
+
+    // Studi dijalankan sebelum checks: `max_stress` dkk. butuh hasilnya.
+    let mut sim_files: Vec<PathBuf> = Vec::new();
+    let studies = s.run_all_studies(&ducad_sim::CancelToken::new());
+    if !studies.is_empty() {
+        let dir = a.out.join("sim");
+        std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+        for (id, result) in studies {
+            let mut row = StudyRow {
+                id: id.clone(),
+                kind: ducad_engine::sim::def_of(s.meta(), &id)
+                    .map(|d| d.kind.name())
+                    .unwrap_or("static"),
+                status: "ok",
+                first_frequency_hz: None,
+                buckling_factor: None,
+                max_temperature_c: None,
+                max_von_mises_mpa: None,
+                max_displacement_mm: None,
+                safety_factor: None,
+                error: None,
+                files: Vec::new(),
+            };
+            match result {
+                Ok(ducad_engine::sim::StudyOutcome::Analysis(r)) => {
+                    use ducad_engine::sim::AnalysisReport;
+                    match r.as_ref() {
+                        AnalysisReport::Frequency(f) => {
+                            row.first_frequency_hz = f.frequencies_hz.first().copied()
+                        }
+                        AnalysisReport::Buckling(b) => {
+                            row.buckling_factor = b.load_factors.first().copied()
+                        }
+                        AnalysisReport::Thermal(t) => {
+                            row.max_temperature_c = Some(t.max_temperature_c)
+                        }
+                    }
+                    let json = dir.join(format!("{id}.json"));
+                    write_json(&json, r.as_ref())?;
+                    row.files = vec![format!("{id}.json")];
+                    sim_files.push(json);
+                }
+                Ok(ducad_engine::sim::StudyOutcome::Stress(r)) => {
+                    row.max_von_mises_mpa = Some(r.max_von_mises_mpa);
+                    row.max_displacement_mm = Some(r.max_displacement_mm);
+                    row.safety_factor = Some(r.safety_factor);
+                    let json = dir.join(format!("{id}.json"));
+                    write_json(&json, r.as_ref())?;
+                    let png = dir.join(format!("{id}-stress.png"));
+                    super::sim::write_heatmap(
+                        &s,
+                        &id,
+                        &r,
+                        ducad_engine::sim::Overlay::Stress,
+                        &png,
+                    )?;
+                    row.files = vec![format!("{id}.json"), format!("{id}-stress.png")];
+                    sim_files.extend([json, png]);
+                }
+                Err(e) => {
+                    row.status = "failed";
+                    report
+                        .warnings
+                        .push(format!("studi '{id}' gagal: {}", e.message));
+                    row.error = serde_json::to_value(&e).ok();
+                }
+            }
+            report.sim.push(row);
+        }
+    }
 
     if !a.no_checks && !s.design().checks.is_empty() {
         let summary = s.run_checks(None);
@@ -474,7 +752,7 @@ pub fn exec(a: Args) -> CliResult {
             material,
             revision: a.revision.clone(),
         };
-        let notes = hole_notes(s.design(), &s.design().params);
+        let notes = hole_notes(s.design(), &s.design().effective_params());
         let sheet = auto_sheet_model(s.model(), a.paper, &info, &notes)?;
         let draw_err = |p: &Path, e: anyhow::Error| io_err(p, format!("{e:#}"));
         if has("pdf") {
@@ -509,6 +787,20 @@ pub fn exec(a: Args) -> CliResult {
         written.push(p);
     }
 
+    if has("flat") {
+        // Satu DXF pola bentangan per body sheet metal (urut nama).
+        for (body, state) in &s.meta().sheet_metal {
+            let flat = state
+                .model
+                .flat_pattern()
+                .map_err(|e| CliError::usage(format!("pola datar '{body}': {e}")))?;
+            let p = a.out.join(format!("{stem}-{body}-flat.dxf"));
+            std::fs::write(&p, ducad_io::flat_dxf::flat_pattern_dxf(&flat))
+                .map_err(|e| io_err(&p, e))?;
+            written.push(p);
+        }
+    }
+
     if has("bom") {
         let p = a.out.join(format!("{stem}-bom.csv"));
         let file = if has("step") {
@@ -527,6 +819,15 @@ pub fn exec(a: Args) -> CliResult {
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
+        report.artifacts.push(Artifact { file, bytes });
+    }
+    for p in &sim_files {
+        let bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        let file = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| format!("sim/{n}"))
+            .unwrap_or_default();
         report.artifacts.push(Artifact { file, bytes });
     }
     write_reports(&a.out, &report, &title)?;

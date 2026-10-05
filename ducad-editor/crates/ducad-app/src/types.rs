@@ -256,6 +256,10 @@ pub enum FileOp {
 
 #[derive(Debug, Clone, Copy)]
 pub enum PaletteAction {
+    /// Buka/tutup panel properti massa (P16).
+    ToggleMassPanel,
+    /// Buka/tutup panel simulasi (P17).
+    ToggleSimPanel,
     SetTool(ToolKind),
     CreateDatumPlane,
     OpenRevolveDialog,

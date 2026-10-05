@@ -23,7 +23,7 @@ pub enum View {
 
 impl View {
     /// (arah `eye − target` belum dinormalisasi, `up`).
-    fn direction_up(self) -> (Vec3, Vec3) {
+    pub(crate) fn direction_up(self) -> (Vec3, Vec3) {
         match self {
             View::Iso => (Vec3::new(1.0, -1.0, 1.0), Vec3::Z),
             View::Front => (Vec3::new(0.0, -1.0, 0.0), Vec3::Z),

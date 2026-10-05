@@ -341,6 +341,50 @@ impl Command<ModelDoc> for SetBodyMaterialCommand {
     }
 }
 
+/// Ganti material MEKANIK satu body (P16, `Op::SetMaterial`). Simetris
+/// seperti [`SetBodyMaterialCommand`]: apply/revert menukar nilai.
+pub struct SetBodyMechanicalCommand {
+    label: &'static str,
+    id: BodyId,
+    pending: Option<Option<ducad_core::MaterialSource>>,
+}
+
+impl SetBodyMechanicalCommand {
+    pub fn new(
+        label: &'static str,
+        id: BodyId,
+        mechanical: Option<ducad_core::MaterialSource>,
+    ) -> Self {
+        Self {
+            label,
+            id,
+            pending: Some(mechanical),
+        }
+    }
+
+    fn swap(&mut self, model: &mut ModelDoc) {
+        if let Some(incoming) = self.pending.take() {
+            if let Some(body) = model.doc.bodies.get_mut(self.id) {
+                let previous = std::mem::replace(&mut body.mechanical, incoming);
+                self.pending = Some(previous);
+                model.doc.dirty = true;
+            }
+        }
+    }
+}
+
+impl Command<ModelDoc> for SetBodyMechanicalCommand {
+    fn name(&self) -> &str {
+        self.label
+    }
+    fn apply(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+    fn revert(&mut self, model: &mut ModelDoc) {
+        self.swap(model);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanKind {
     Union,
@@ -448,6 +492,10 @@ impl Command<ModelDoc> for BooleanCommand {
             return;
         };
         let result_id = model.doc.add_body(self.result_name.clone());
+        // Hasil boolean mewarisi material mekanik body target (P16).
+        if let Some(body) = model.doc.bodies.get_mut(result_id) {
+            body.mechanical = a_body.mechanical.clone();
+        }
         model.geometry.insert(result_id, result_geo);
         self.state = Some(BooleanState::Applied {
             result_id,
@@ -591,6 +639,9 @@ impl Command<ModelDoc> for SplitBodyCommand {
 
         for (name, geo) in new_bodies {
             let id = model.doc.add_body(name.clone());
+            if let Some(body) = model.doc.bodies.get_mut(id) {
+                body.mechanical = orig_body.mechanical.clone();
+            }
             model.geometry.insert(id, geo);
             result_ids.push(id);
             result_names.push(name);

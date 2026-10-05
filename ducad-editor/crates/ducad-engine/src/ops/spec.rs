@@ -327,6 +327,180 @@ pub enum Op {
         #[serde(default)]
         keep: SplitKeep,
     },
+    /// Assign a mechanical material (density, Young's modulus, Poisson ratio, yield strength) to a
+    /// body. Drives `mass_g`, the inertia tensor, the `mass`/`moment_of_inertia` checks and
+    /// simulation studies. Does not change the body's appearance or geometry.
+    SetMaterial {
+        id: String,
+        /// Name of the body to assign the material to.
+        body: String,
+        /// Library key (`abs`, `pa6`, `pc`, `al_6061_t6`, `al_7075_t6`, `s235`, `s355`, `aisi_304`,
+        /// `aisi_1045`, `ti_6al_4v`, `brass`, `copper`, `soda_lime_glass`) or
+        /// `{"custom": {"density_g_cm3": 7.85, "young_modulus_gpa": 210, "poisson_ratio": 0.3,
+        /// "yield_strength_mpa": 355, "ultimate_strength_mpa": 510}}`.
+        material: MechMaterialSpec,
+    },
+    /// Sheet metal: create the base plate of a folded part from a sketch whose closed region is a
+    /// straight-sided polygon. The body remembers thickness, bend radius and k-factor for later
+    /// `edge_flange` / `hem` / `jog` / `unfold` / `flat_pattern` ops.
+    BaseFlange {
+        id: String,
+        /// Id of the sketch holding exactly one closed polygon (line segments only).
+        sketch: String,
+        /// Sheet thickness in mm (> 0); the plate grows along the sketch plane normal.
+        thickness: Num,
+        /// Default inner bend radius in mm; default = thickness.
+        #[serde(default)]
+        bend_radius: Option<Num>,
+        /// Neutral-axis k-factor (0..1) used for bend allowance BA = angle * (R + k*t); default
+        /// 0.44.
+        #[serde(default)]
+        k_factor: Option<f64>,
+    },
+    /// Sheet metal: bend a flange up from one or more free straight edges of the base flange. The
+    /// flange spans the full edge. Flanges on flanges are not supported yet.
+    EdgeFlange {
+        id: String,
+        /// Name of a body created by `base_flange`.
+        body: String,
+        /// Edge selector resolving to outer straight edges of the base plate (top or bottom rim).
+        edges: String,
+        /// Straight length of the flange after the bend, in mm.
+        length: Num,
+        /// Bend angle in degrees (default 90). Positive bends toward the sketch normal, negative
+        /// away from it; magnitude in (0, 180].
+        #[serde(default)]
+        angle: Option<Num>,
+        /// Inner bend radius; default = the body's default bend radius.
+        #[serde(default)]
+        radius: Option<Num>,
+        /// Bend relief shape recorded for manufacturing notes: `none` (default), `rect`,
+        /// `obround`. Not yet cut into the geometry.
+        #[serde(default)]
+        relief: ReliefSpec,
+    },
+    /// Sheet metal: fold an edge back on itself by 180 degrees (a hem).
+    Hem {
+        id: String,
+        /// Name of a body created by `base_flange`.
+        body: String,
+        /// Edge selector (same rules as `edge_flange`).
+        edges: String,
+        /// Length of the returned lip in mm.
+        length: Num,
+        /// Gap between the lip and the plate in mm (inner bend radius = gap / 2); default =
+        /// thickness (an open hem).
+        #[serde(default)]
+        gap: Option<Num>,
+        /// `true` folds toward the sketch normal (default), `false` away from it.
+        #[serde(default = "default_true")]
+        up: bool,
+    },
+    /// Sheet metal: two opposite bends that offset the edge strip to a parallel plane (a jog).
+    Jog {
+        id: String,
+        /// Name of a body created by `base_flange`.
+        body: String,
+        /// Edge selector (same rules as `edge_flange`).
+        edges: String,
+        /// Offset between the plate and the jogged strip in mm; positive = toward the sketch normal.
+        offset: Num,
+        /// Length of the flat strip after the jog, in mm.
+        length: Num,
+        /// Bend angle of both bends in degrees (default 90), in (0, 90].
+        #[serde(default)]
+        angle: Option<Num>,
+        /// Inner bend radius; default = the body's default bend radius.
+        #[serde(default)]
+        radius: Option<Num>,
+    },
+    /// Sheet metal: replace the folded body by its flat blank (bend allowance applied). Undo with
+    /// `fold`.
+    Unfold {
+        id: String,
+        /// Name of a sheet metal body.
+        body: String,
+    },
+    /// Sheet metal: fold an unfolded body back into its bent shape.
+    Fold {
+        id: String,
+        /// Name of a sheet metal body that was unfolded.
+        body: String,
+    },
+    /// Sheet metal: create a new body `id` holding the flat blank of `body` (the folded body is
+    /// kept). The outcome `detail` lists the bend lines; export the blank with
+    /// `ducad-cli build --formats flat`.
+    FlatPattern {
+        id: String,
+        /// Name of a sheet metal body.
+        body: String,
+    },
+    /// Insert a standard part from the toolbox as a new body `id`: axis along +Z, seating plane
+    /// at `at` (screws: underside of the head, shank toward -Z; nuts, washers, bearings and pins:
+    /// bottom face). Threads are cosmetic (plain shank). The BOM lists the standard designation.
+    StandardPart {
+        id: String,
+        /// `iso4762` (socket head cap screw), `iso4014` (hex bolt), `iso4032` (hex nut),
+        /// `iso7089` (plain washer), `iso2338` (parallel pin), `bearing` (deep groove ball
+        /// bearing).
+        standard: String,
+        /// Screws, nuts, washers: `M3`, `M4`, `M5`, `M6`, `M8`, `M10`, `M12`. Pins: diameter
+        /// `2`..`12`. Bearings: `608`, `6000`, `6001`, `6002`, `6200`, `6201`, `6202`, `6204`,
+        /// `6205`.
+        size: String,
+        /// Nominal length in mm; required for screws and pins, not allowed otherwise.
+        #[serde(default)]
+        length: Option<Num>,
+        /// Position of the seating point [x,y,z]; default origin. Rotate with op `transform`.
+        #[serde(default)]
+        at: [Num; 3],
+    },
+    /// Thread on an external cylindrical face (ISO metric 60 degree profile). `cosmetic: true`
+    /// (default) only records the thread for notes; `cosmetic: false` cuts the helical groove
+    /// into the body (slow: about a second per ten turns).
+    Thread {
+        id: String,
+        /// Name of the body to modify.
+        body: String,
+        /// Face selector resolving to exactly one cylindrical face (the shank).
+        face: String,
+        /// Thread pitch in mm; default = ISO coarse pitch for the cylinder diameter (M2-M12).
+        #[serde(default)]
+        pitch: Option<Num>,
+        /// Threaded length in mm measured from the start end; default = whole cylinder.
+        #[serde(default)]
+        length: Option<Num>,
+        /// Start from the other end of the cylinder.
+        #[serde(default)]
+        from_end: bool,
+        /// Left-hand thread.
+        #[serde(default)]
+        left_handed: bool,
+        /// `true` (default): record only. `false`: cut real thread geometry.
+        #[serde(default = "default_true")]
+        cosmetic: bool,
+    },
+    /// Store a simulation study (fixtures, loads, mesh settings) in the design. Creates no body
+    /// and does not run the solver: run it with tool `simulate_static` (or `ducad-cli sim`), then
+    /// assert on the result with checks `max_stress`, `max_displacement`, `min_safety_factor`
+    /// (kinds `static`, `thermal_stress`), `min_natural_frequency` (`frequency`),
+    /// `min_buckling_factor` (`buckling`) or `max_temperature` (`thermal`).
+    /// The body needs a mechanical material (op `set_material`) before the study can run.
+    Study {
+        id: String,
+        /// Study type; default `static`.
+        #[serde(default)]
+        kind: StudyKind,
+        /// Body, fixtures, loads and mesh settings. `frequency` ignores loads; `thermal` uses
+        /// only `body` and `mesh` (fixtures and loads may be empty lists).
+        setup: ducad_sim::SimSetup,
+        /// Thermal boundary conditions; required for kinds `thermal` and `thermal_stress`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thermal: Option<ducad_sim::ThermalSetup>,
+        /// Number of modes for kinds `frequency` (default 10) and `buckling` (default 3); 1..=40.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        modes: Option<u32>,
+    },
 }
 
 impl Op {
@@ -350,7 +524,18 @@ impl Op {
             | Op::Draft { id, .. }
             | Op::Mirror { id, .. }
             | Op::Scale { id, .. }
-            | Op::Split { id, .. } => id,
+            | Op::Split { id, .. }
+            | Op::SetMaterial { id, .. }
+            | Op::Study { id, .. }
+            | Op::BaseFlange { id, .. }
+            | Op::EdgeFlange { id, .. }
+            | Op::Hem { id, .. }
+            | Op::Jog { id, .. }
+            | Op::Unfold { id, .. }
+            | Op::Fold { id, .. }
+            | Op::FlatPattern { id, .. }
+            | Op::StandardPart { id, .. }
+            | Op::Thread { id, .. } => id,
         }
     }
 
@@ -376,6 +561,120 @@ impl Op {
             Op::Mirror { .. } => "mirror",
             Op::Scale { .. } => "scale",
             Op::Split { .. } => "split",
+            Op::SetMaterial { .. } => "set_material",
+            Op::Study { .. } => "study",
+            Op::BaseFlange { .. } => "base_flange",
+            Op::EdgeFlange { .. } => "edge_flange",
+            Op::Hem { .. } => "hem",
+            Op::Jog { .. } => "jog",
+            Op::Unfold { .. } => "unfold",
+            Op::Fold { .. } => "fold",
+            Op::FlatPattern { .. } => "flat_pattern",
+            Op::StandardPart { .. } => "standard_part",
+            Op::Thread { .. } => "thread",
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Bend relief shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReliefSpec {
+    #[default]
+    None,
+    Rect,
+    Obround,
+}
+
+/// Simulation study type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StudyKind {
+    /// Linear static stress analysis.
+    #[default]
+    Static,
+    /// Natural frequencies (Hz) of the body held by the fixtures; loads are ignored.
+    Frequency,
+    /// Linear buckling: load factors that multiply the applied loads at the onset of buckling.
+    Buckling,
+    /// Steady-state heat conduction: temperature field from the `thermal` boundary conditions.
+    Thermal,
+    /// Steady-state conduction followed by a static study loaded by thermal expansion (plus any
+    /// mechanical loads); the stress-free reference temperature is 20 degrees Celsius.
+    ThermalStress,
+}
+
+impl StudyKind {
+    /// Nama JSON jenis studi.
+    pub fn name(self) -> &'static str {
+        match self {
+            StudyKind::Static => "static",
+            StudyKind::Frequency => "frequency",
+            StudyKind::Buckling => "buckling",
+            StudyKind::Thermal => "thermal",
+            StudyKind::ThermalStress => "thermal_stress",
+        }
+    }
+
+    /// Jenis yang menghasilkan `SimReport` (tegangan + deformasi).
+    pub fn has_stress(self) -> bool {
+        matches!(self, StudyKind::Static | StudyKind::ThermalStress)
+    }
+
+    /// Jenis yang memakai syarat batas termal.
+    pub fn is_thermal(self) -> bool {
+        matches!(self, StudyKind::Thermal | StudyKind::ThermalStress)
+    }
+}
+
+/// Mechanical material: a library key string, or `{"custom": {...}}` with explicit properties.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum MechMaterialSpec {
+    /// Key of a built-in or per-file library material (case-insensitive).
+    Key(String),
+    Custom {
+        /// Explicit isotropic material properties.
+        custom: MechPropsSpec,
+    },
+}
+
+/// Isotropic material properties at room temperature.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MechPropsSpec {
+    /// Density in g/cm^3 (> 0).
+    pub density_g_cm3: f64,
+    /// Young's modulus in GPa (> 0).
+    pub young_modulus_gpa: f64,
+    /// Poisson ratio, strictly between 0 and 0.5.
+    pub poisson_ratio: f64,
+    /// Yield strength in MPa (> 0, at most `ultimate_strength_mpa`).
+    pub yield_strength_mpa: f64,
+    /// Ultimate tensile strength in MPa (> 0).
+    pub ultimate_strength_mpa: f64,
+    /// Linear thermal expansion coefficient in 1/K; default 0.
+    #[serde(default)]
+    pub thermal_expansion_per_k: f64,
+    /// Thermal conductivity in W/(m*K); default 0.
+    #[serde(default)]
+    pub thermal_conductivity_w_mk: f64,
+}
+
+impl From<MechPropsSpec> for ducad_core::MechanicalProperties {
+    fn from(p: MechPropsSpec) -> Self {
+        Self {
+            density_g_cm3: p.density_g_cm3,
+            young_modulus_gpa: p.young_modulus_gpa,
+            poisson_ratio: p.poisson_ratio,
+            yield_strength_mpa: p.yield_strength_mpa,
+            ultimate_strength_mpa: p.ultimate_strength_mpa,
+            thermal_expansion_per_k: p.thermal_expansion_per_k,
+            thermal_conductivity_w_mk: p.thermal_conductivity_w_mk,
         }
     }
 }
@@ -819,6 +1118,25 @@ pub enum ConstraintSpec {
     },
 }
 
+/// One design variant: parameter overrides, suppressed ops and material overrides on top of the
+/// base design. The base design itself is the reserved configuration `"Default"`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigurationSpec {
+    /// Unique name (1-48 chars: letters, digits, space, `_`, `-`, `.`); also the build output
+    /// directory name.
+    pub name: String,
+    /// Parameters overridden by this variant; all others keep their base value.
+    #[serde(default)]
+    pub params: Params,
+    /// Ids of ops skipped in this variant (e.g. an optional hole pattern).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suppressed_ops: Vec<String>,
+    /// Body name -> mechanical material used in this variant.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub material_overrides: std::collections::BTreeMap<String, MechMaterialSpec>,
+}
+
 /// Ops file content: `{ "params": {...}, "ops": [...], "checks"?: [...] }`.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -830,6 +1148,12 @@ pub struct OpFile {
     /// before running the ops.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<crate::check::CheckItem>,
+    /// Optional design variants; `ducad-cli build --all-configs` builds every one of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub configurations: Vec<ConfigurationSpec>,
+    /// Variant to activate after loading; default is the base design (`"Default"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_configuration: Option<String>,
 }
 
 /// JSON Schema `OpFile`. Salinannya disimpan di `schema/ops.schema.json`.

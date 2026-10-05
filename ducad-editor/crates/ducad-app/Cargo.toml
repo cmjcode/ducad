@@ -30,6 +30,7 @@ ducad-io = { workspace = true }
 ducad-ui = { workspace = true }
 ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
+ducad-sim = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-assist = { workspace = true }
 ducad-chat = { workspace = true }

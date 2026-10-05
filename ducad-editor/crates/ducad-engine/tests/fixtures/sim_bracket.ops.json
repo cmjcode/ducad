@@ -1,0 +1,17 @@
+{ "params": { "len": 50, "depth": 30, "t": 5, "wall_h": 30 },
+  "ops": [
+    {"op":"primitive","id":"base","shape":{"box":{"size":["$len","$depth","$t"]}}},
+    {"op":"primitive","id":"wall","shape":{"box":{"size":["$len","$t","$wall_h"]}}},
+    {"op":"boolean","id":"bracket","kind":"union","a":"base","b":"wall"},
+    {"op":"set_material","id":"bracket_mat","body":"bracket","material":"al_6061_t6"},
+    {"op":"study","id":"tip_load","kind":"static","setup":{
+      "body":"bracket",
+      "fixtures":[{"id":"wall_back","faces":"<Y","kind":"fixed"}],
+      "loads":[{"id":"tip","faces":">Y","kind":"force","newton":[0,0,-200]}],
+      "mesh":{"cell_mm":2.5}}}
+  ],
+  "checks": [
+    {"id":"stress_ok","check":"max_stress","study":"tip_load","max_mpa":120},
+    {"id":"stiff_enough","check":"max_displacement","study":"tip_load","max_mm":0.5},
+    {"id":"safe","check":"min_safety_factor","study":"tip_load","min":2}
+  ] }

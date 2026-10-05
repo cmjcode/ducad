@@ -43,6 +43,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "import_step",
     "diff",
     "list_parts",
+    "simulate_static",
 ];
 
 /// Tool yang bisa menimpa/membuang sesuatu (anotasi MCP `destructiveHint`).
@@ -66,6 +67,7 @@ const IDEMPOTENT_TOOLS: &[&str] = &[
     "render_view",
     "set_view",
     "select",
+    "simulate_static",
 ];
 
 fn session_prop() -> Value {
@@ -148,14 +150,16 @@ pub fn definitions() -> Vec<Value> {
         v
     };
     let set_checks = with_check_defs(schema(
-        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items.clone() } }),
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items } }),
         &["checks"],
     ));
-    let run_checks = with_check_defs(schema(
-        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items,
-                "description": "Optional; without it the design checks installed by set_checks are used." } }),
+    // Skema check lengkap hanya dimuat sekali (di `set_checks`) supaya
+    // `tools/list` tetap ringkas; engine tetap memvalidasi setiap item.
+    let run_checks = schema(
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": { "type": "object" },
+                "description": "Optional; same item format as `checks` of set_checks. Without it the design checks installed by set_checks are used." } }),
         &[],
-    ));
+    );
     let view = json!({ "type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "bottom"] });
     let example_names: Vec<&str> = EXAMPLES.iter().map(|(n, _, _)| *n).collect();
     vec![
@@ -194,8 +198,9 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "set_params",
             "Set params",
-            &format!("Change params (merged into the existing params), then replay the whole oplog. The right way to change dimensions written as \"$name\". {BATCH_RESULT}"),
-            schema(json!({ "session": session_prop(), "params": params_prop() }), &["params"]),
+            &format!("Change params (merged into the existing params), then replay the whole oplog. The right way to change dimensions written as \"$name\". With `configuration`, the params are stored as overrides of that design variant (created if missing) and the variant becomes active; `configuration` alone just switches variant (\"Default\" = base design). `inspect` lists the variants in `configurations` and reports the effective params. {BATCH_RESULT}"),
+            schema(json!({ "session": session_prop(), "params": params_prop(),
+                           "configuration": { "type": "string", "description": "Design variant to write to and activate; \"Default\" is the base design." } }), &[]),
         ),
         tool(
             "replace_op",
@@ -227,7 +232,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "inspect",
             "Inspect part",
-            "Part summary: volume, mass (mass_g, from the material density), area, bbox/size, centroid, face/edge counts per body, material, sketches (entities, closed regions, DOF), params. topology:true lists faces/edges (index, kind, point, normal).",
+            "Part summary: volume, mass (mass_g, from the material density), center_of_mass, inertia tensor (inertia_com, principal_moments/axes, g*mm^2), area, bbox/size, centroid, face/edge counts per body, material, sketches (entities, closed regions, DOF), params. topology:true lists faces/edges (index, kind, point, normal).",
             schema(
                 json!({ "session": session_prop(), "body": { "type": "string", "description": "Limit to one body." },
                         "topology": { "type": "boolean" },
@@ -254,13 +259,37 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "render_view",
             "Render view",
-            "Render a view of the part as a PNG image (optionally save the SVG) for visual verification.",
+            "Render a view of the part as a PNG image (optionally save the SVG) for visual verification. With `overlay`, render a study result as a color map instead (runs the study if its result is missing or stale).",
             schema(
-                json!({ "session": session_prop(), "view": view, "hidden_lines": { "type": "boolean" },
+                json!({ "session": session_prop(), "view": view.clone(), "hidden_lines": { "type": "boolean" },
                         "width": { "type": "integer", "minimum": 16, "maximum": 4096 },
                         "height": { "type": "integer", "minimum": 16, "maximum": 4096 },
                         "bodies": { "type": "array", "items": { "type": "string" } },
-                        "save_svg": { "type": "string" } }),
+                        "save_svg": { "type": "string" },
+                        "overlay": { "type": "string", "enum": ["stress", "displacement", "safety_factor"],
+                                     "description": "Color the body by a study result: von Mises stress (MPa), displacement magnitude (mm) or safety factor." },
+                        "study": { "type": "string", "description": "Id of the study op to show; may be omitted when the design has exactly one study. Needs `overlay`." },
+                        "deform_scale": { "type": "number", "minimum": 0,
+                                          "description": "Multiplier for the drawn deformation; 0 = undeformed, omitted = automatic (largest displacement drawn as 5 % of the model size). Needs `overlay`." } }),
+                &[],
+            ),
+        ),
+        tool(
+            "simulate_static",
+            "Simulate study",
+            "Run a simulation study. Kinds `static` (default) and `thermal_stress` return max von Mises stress (MPa) + location, max displacement (mm), safety factor, reactions per fixture and a color-map PNG; `frequency` returns `frequencies_hz`, `buckling` returns `load_factors` (critical load = factor x applied load), `thermal` returns max/min temperature (no image for these three). Pass `study` (id of a stored `study` op; cached, feeds the study checks) or an inline `setup` (+ `kind`, `thermal`, `modes`) for a what-if run. The body needs op set_material. Results are engineering estimates (about +/-10 % on the default hex mesh; `mesh.kind: \"tet\"` follows curved faces but frequency runs above ~20,000 tets take minutes). Fields: get_schema {\"op\":\"study\"}.",
+            schema(
+                json!({ "session": session_prop(),
+                        "study": { "type": "string", "description": "Id of a study op in the design; may be omitted when there is exactly one." },
+                        "setup": { "type": "object", "description": "Inline study setup {body, fixtures:[{id,faces,kind}], loads:[{id,faces,kind,…}], mesh?:{kind?,cell_mm?|target_elems?}}; same shape as the `setup` of a study op." },
+                        "kind": { "type": "string", "enum": ["static", "frequency", "buckling", "thermal", "thermal_stress"], "description": "Study kind for an inline `setup`; default static." },
+                        "thermal": { "type": "object", "description": "Inline thermal boundaries {boundary:[{id,faces,kind,…}]}; same shape as `thermal` of a study op." },
+                        "modes": { "type": "integer", "minimum": 1, "maximum": 40, "description": "Mode count for inline frequency (default 10) / buckling (default 3)." },
+                        "overlay": { "type": "string", "enum": ["stress", "displacement", "safety_factor"], "description": "Quantity shown in the returned image; default stress." },
+                        "view": view,
+                        "deform_scale": { "type": "number", "minimum": 0, "description": "Multiplier for the drawn deformation; 0 = undeformed, omitted = automatic." },
+                        "width": { "type": "integer", "minimum": 16, "maximum": 4096 },
+                        "height": { "type": "integer", "minimum": 16, "maximum": 4096 } }),
                 &[],
             ),
         ),
@@ -298,7 +327,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "set_checks",
             "Set checks",
-            "Replace the whole list of design checks (user requirements: volume, bbox_size, hole_count, min_wall, clearance, …) and evaluate them now. Write them before modeling; every later BatchReport includes their results.",
+            "Replace the whole list of design checks (user requirements: volume, bbox_size, hole_count, min_wall, clearance, mass, center_of_mass, moment_of_inertia, …) and evaluate them now. Write them before modeling; every later BatchReport includes their results.",
             set_checks,
         ),
         tool(
@@ -338,7 +367,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "drawing",
             "Drawing",
-            "Automatic engineering drawing (front/top/right/iso views + dimensions + hole notes) to PDF/SVG/DXF.",
+            "Automatic engineering drawing (front/top/right/iso views + dimensions + hole notes) to PDF/SVG/DXF. Optional `annotations` add toleranced dimensions (plus/minus or ISO 286 fit), GD&T feature control frames, datum features, surface finish, hole and revision tables at sheet positions in mm (PDF/SVG only; DXF skips them).",
             schema(
                 json!({ "session": session_prop(),
                         "format": { "type": "string", "enum": ["pdf", "svg", "dxf"] },
@@ -346,7 +375,9 @@ pub fn definitions() -> Vec<Value> {
                         "paper": { "type": "string", "enum": ["a4", "a4-portrait", "a3", "a3-portrait"] },
                         "title": { "type": "string" }, "part_number": { "type": "string" },
                         "material": { "type": "string" },
-                        "notes": { "type": "array", "items": { "type": "string" } } }),
+                        "notes": { "type": "array", "items": { "type": "string" } },
+                        "annotations": { "type": "array", "items": { "type": "object" },
+                            "description": "Each item has `type` and `position` [x,y] in sheet mm. Examples: {\"type\":\"feature_control_frame\",\"position\":[60,40],\"frame\":{\"symbol\":\"position\",\"value\":0.1,\"diameter_zone\":true,\"modifiers\":[\"mmc\"],\"datums\":[\"A\",\"B\"]}}; {\"type\":\"dimension_tolerance\",\"position\":[80,60],\"dimension\":{\"nominal\":25,\"tolerance\":{\"fit\":\"H7\"},\"diameter\":true}}; {\"type\":\"datum_feature\",\"position\":[30,30],\"datum\":{\"label\":\"A\"}}; {\"type\":\"surface_finish\",\"position\":[90,30],\"finish\":{\"ra_um\":1.6}}. GD&T symbols: straightness, flatness, circularity, cylindricity, profile_of_line, profile_of_surface, perpendicularity, angularity, parallelism, position, concentricity, symmetry, circular_runout, total_runout." } }),
                 &["format", "path"],
             ),
         ),
@@ -581,13 +612,23 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             struct A {
                 #[serde(default)]
                 session: Option<String>,
+                #[serde(default)]
                 params: Params,
+                #[serde(default)]
+                configuration: Option<String>,
             }
             let a: A = args(a)?;
             let (_, part) = server.pick(a.session.as_deref())?;
-            let mut params = part.session.design().params.clone();
-            params.extend(a.params);
-            let report = part.session.set_params(params)?;
+            let report = match a.configuration.as_deref() {
+                // Hanya berpindah varian.
+                Some(name) if a.params.is_empty() => part.session.activate_configuration(name)?,
+                Some(name) => part.session.set_configuration_params(name, a.params)?,
+                None => {
+                    let mut params = part.session.design().params.clone();
+                    params.extend(a.params);
+                    part.session.set_params(params)?
+                }
+            };
             let is_error = report.error.is_some();
             Ok(ToolOut {
                 payload: to_value(report)?,

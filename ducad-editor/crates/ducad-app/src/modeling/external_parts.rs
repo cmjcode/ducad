@@ -381,6 +381,7 @@ mod tests {
             uuid: None,
             visible: true,
             material: ducad_core::Material::default(),
+            mechanical: None,
             shape: &shape,
             round_history: None,
         };
