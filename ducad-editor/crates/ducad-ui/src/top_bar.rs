@@ -15,6 +15,7 @@ use crate::theme::{
 use crate::touch::{TouchDesignConfig, TouchDesignMode};
 use ducad_cloud::DucadAccount;
 use ducad_i18n::{current_language, t, Language};
+use egui::containers::menu::MenuConfig;
 use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
 use egui_icons::icons::{
     ICON_AUTO_AWESOME, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
@@ -24,6 +25,9 @@ use egui_icons::icons::{
 };
 
 use ducad_core::LengthUnit;
+
+/// Jarak vertikal antara tepi bawah top bar dan menu hamburger (px).
+const MENU_GAP_BELOW_BAR: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopBarFileOp {
@@ -167,7 +171,11 @@ impl TopBar {
         let is_tight = avail_w < 780.0;
         let item_gap = if is_tight { 2.0 } else { 4.0 };
 
-        glass_frame().show(ui, |ui| {
+        let bar_frame = glass_frame();
+        let bar_margin = bar_frame.inner_margin;
+        bar_frame.show(ui, |ui| {
+            // Rect LUAR bar (termasuk inner margin frame) — anchor menu hamburger.
+            let bar_outer_rect = ui.max_rect() + bar_margin;
             // Kunci tinggi minimum widget interaktif header ke nilai tetap.
             // `apply_with_touch` (dipanggil `App` tiap mode sentuh berganti)
             // mengubah `interact_size.y` GLOBAL ke 36/40/44 px per mode — dan itu
@@ -188,11 +196,30 @@ impl TopBar {
             // seperti `horizontal` yang rata-atas.
             ui.horizontal_centered(|ui| {
                 // 1. Hamburger Menu Button (Three Lines) - New, Open, Save, Import
-                ui.menu_button(
+                //
+                // Bukan `ui.menu_button`: popup bawaan egui menempel ke rect tombol
+                // (gap 0, rata kiri tombol) sehingga menu tampak menabrak bar dan
+                // menjorok ke kanan dari tepi bar. Di sini anchor = tepi LUAR bar
+                // (kiri bar, bawah bar) + gap kecil supaya menu rapi sejajar bar.
+                // Tag `MenuConfig` wajib agar `ui.menu_button` di dalamnya menjadi
+                // submenu dan `ui.close()` menutup menu ini.
+                let menu_btn = ui.add(egui::Button::new(
                     RichText::new(ICON_MENU.codepoint)
                         .size(icon_sz)
                         .color(TEXT_PRIMARY),
-                    |ui| {
+                ));
+                let menu_anchor = egui::Rect::from_min_max(
+                    egui::pos2(bar_outer_rect.left(), menu_btn.rect.top()),
+                    egui::pos2(menu_btn.rect.right(), bar_outer_rect.bottom()),
+                );
+                egui::Popup::menu(&menu_btn)
+                    .anchor(menu_anchor)
+                    .gap(MENU_GAP_BELOW_BAR)
+                    .info(
+                        egui::UiStackInfo::new(egui::UiKind::Menu)
+                            .with_tag_value(MenuConfig::MENU_CONFIG_TAG, MenuConfig::new()),
+                    )
+                    .show(|ui| {
                         if ui
                             .button(format!("{} {}", ICON_NOTE_ADD.codepoint, t!("menu-new")))
                             .clicked()
@@ -320,10 +347,8 @@ impl TopBar {
                                 ui.close();
                             }
                         }
-                    },
-                )
-                .response
-                .on_hover_text(t!("menu-file"));
+                    });
+                menu_btn.on_hover_text(t!("menu-file"));
 
                 ui.add_space(2.0);
 

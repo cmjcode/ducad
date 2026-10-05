@@ -29,7 +29,14 @@ pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(255, 149, 0); // #ff9500 (S
 pub const ACCENT_GREEN: Color32 = Color32::from_rgb(48, 209, 88); // #30d158 (Success / Constraint OK)
 pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(175, 82, 222); // #af52de (Picked point)
 pub const BG_CANVAS: Color32 = Color32::from_rgb(18, 19, 22); // Deep charcoal 3D viewport
-pub const BG_PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(16, 18, 22, 145); // ~57% translucent glass
+/// Latar panel/drawer/toolbar kaca. Dulu ~57% — grid dan geometri viewport
+/// tembus jelas di balik teks sehingga mengganggu; kini ~84%, masih sedikit
+/// kaca tapi konten di belakang hanya samar.
+pub const BG_PANEL_DARK: Color32 = Color32::from_rgba_premultiplied(16, 18, 22, 215);
+/// Latar popup/menu/window mengambang. Jauh lebih pekat (~92%) daripada panel
+/// kaca: menu yang menumpuk di atas viewport 3D harus menutup grid/geometri di
+/// belakangnya agar teks item terbaca, bukan "transparan tembus" seperti panel.
+pub const BG_POPUP_DARK: Color32 = Color32::from_rgba_premultiplied(20, 22, 27, 235);
 pub const BG_CARD_DARK: Color32 = Color32::from_rgba_premultiplied(26, 30, 38, 160); // Card fill (~63%)
 pub const BG_HOVER_DARK: Color32 = Color32::from_rgba_premultiplied(40, 45, 56, 160); // Hover fill (~63%)
 pub const BORDER_SUBTLE: Color32 = Color32::from_rgba_premultiplied(50, 56, 68, 130); // Thin glass border
@@ -66,7 +73,9 @@ impl ThemeMode {
             ThemeMode::Dark => {
                 let mut v = Visuals::dark();
                 v.panel_fill = BG_PANEL_DARK;
-                v.window_fill = BG_PANEL_DARK;
+                // `window_fill` dipakai egui untuk SEMUA Frame::menu / Frame::popup /
+                // Window — sengaja lebih pekat daripada `panel_fill` (lihat BG_POPUP_DARK).
+                v.window_fill = BG_POPUP_DARK;
                 v.faint_bg_color = BG_CARD_DARK;
                 v.extreme_bg_color = Color32::from_rgb(12, 13, 15);
                 v.window_stroke = Stroke::new(1.0, BORDER_SUBTLE);
@@ -269,6 +278,35 @@ mod tests {
         let k = 1.0 - src.a() as f32 / 255.0;
         let ch = |s: u8, d: u8| (s as f32 + d as f32 * k).round().clamp(0.0, 255.0) as u8;
         Color32::from_rgb(ch(src.r(), dst.r()), ch(src.g(), dst.g()), ch(src.b(), dst.b()))
+    }
+
+    /// Penjaga regresi: latar popup/menu (`window_fill`, dipakai Frame::menu,
+    /// Frame::popup, dan Window) harus jauh lebih pekat daripada panel kaca.
+    /// Dulu sama-sama ~57% sehingga grid viewport tembus di balik item menu.
+    #[test]
+    fn popup_fill_is_nearly_opaque_in_dark_mode() {
+        let v = ThemeMode::Dark.visuals();
+        let fill = v.window_fill;
+        assert!(
+            fill.r() <= fill.a() && fill.g() <= fill.a() && fill.b() <= fill.a(),
+            "window_fill {fill:?} bukan premultiplied valid"
+        );
+        assert!(
+            fill.a() >= 230,
+            "window_fill alpha {} < 230: menu masih tembus pandang",
+            fill.a()
+        );
+        assert!(
+            fill.a() > v.panel_fill.a(),
+            "popup harus lebih pekat daripada panel"
+        );
+        assert!(
+            v.panel_fill.a() >= 200,
+            "panel_fill alpha {} < 200: panel kaca masih terlalu tembus",
+            v.panel_fill.a()
+        );
+        assert_eq!(BG_POPUP_DARK, fill);
+        assert_eq!(ThemeMode::Light.visuals().window_fill.a(), 255);
     }
 
     /// Penjaga regresi: teks item terpilih (`selection.stroke`) harus kontras

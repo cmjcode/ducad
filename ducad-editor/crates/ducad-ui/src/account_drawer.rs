@@ -10,7 +10,7 @@ use egui_icons::icons::{
 };
 
 use crate::theme::{
-    ACCENT_BLUE, BG_CARD_DARK, BG_PANEL_DARK, BORDER_SUBTLE,
+    ACCENT_BLUE, BG_CARD_DARK, BG_POPUP_DARK, BORDER_SUBTLE,
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 
@@ -46,7 +46,7 @@ impl AccountDrawer {
             .fixed_pos(popup_pos)
             .show(ctx, |ui| {
                 Frame::popup(ui.style())
-                    .fill(BG_PANEL_DARK)
+                    .fill(BG_POPUP_DARK)
                     .corner_radius(CornerRadius::same(12))
                     .stroke(Stroke::new(1.0, BORDER_SUBTLE))
                     .shadow(egui::epaint::Shadow {
