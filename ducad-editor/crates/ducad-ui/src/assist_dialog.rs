@@ -45,14 +45,16 @@ impl AssistDialog {
         }
         let mut event = None;
         let mut open = true;
-        egui::Window::new(t!("assist-title"))
+        let assist_title = t!("assist-title");
+        let assist_area_id = egui::Id::new(assist_title.as_str());
+        egui::Window::new(assist_title.as_str())
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .default_width(420.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .frame(glass_frame())
-            .show(ctx, |ui| {
+            .frame(glass_frame().transparent_flat())
+            .show(ctx, |ui| crate::theme::glass_window(ui, assist_area_id, |ui| {
                 ui.set_max_width(420.0);
                 let badge = if state.backend.is_empty() {
                     t!("assist-no-backend")
@@ -116,7 +118,7 @@ impl AssistDialog {
                         .size(10.0)
                         .color(TEXT_SECONDARY),
                 );
-            });
+            }));
         if !open {
             state.open = false;
             return Some(AssistDialogEvent::Close);

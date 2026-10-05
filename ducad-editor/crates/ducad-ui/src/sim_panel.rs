@@ -390,7 +390,7 @@ impl SimPanel {
                 ui.label(RichText::new(&f.faces).monospace().color(TEXT_PRIMARY));
                 ComboBox::from_id_salt(("ducad-sim-fixture", i))
                     .selected_text(f.kind.label())
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         for kind in [
                             FixtureKindUi::Fixed,
                             FixtureKindUi::Roller,
@@ -398,7 +398,7 @@ impl SimPanel {
                         ] {
                             ui.selectable_value(&mut f.kind, kind, kind.label());
                         }
-                    });
+                    }));
                 if ui.small_button(ICON_DELETE.codepoint).clicked() {
                     drop_fixture = Some(i);
                 }
@@ -441,11 +441,11 @@ impl SimPanel {
                     ui.label(RichText::new(&l.faces).monospace().color(TEXT_PRIMARY));
                     ComboBox::from_id_salt(("ducad-sim-load", i))
                         .selected_text(l.kind.label())
-                        .show_ui(ui, |ui| {
+                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                             for kind in [LoadKindUi::Force, LoadKindUi::Pressure] {
                                 ui.selectable_value(&mut l.kind, kind, kind.label());
                             }
-                        });
+                        }));
                 } else {
                     ui.label(RichText::new(l.kind.label()).color(TEXT_PRIMARY));
                 }
@@ -540,7 +540,7 @@ impl SimPanel {
             ui.checkbox(&mut self.show_overlay, t!("sim-show-overlay"));
             ComboBox::from_id_salt("ducad-sim-overlay")
                 .selected_text(self.overlay.label())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for overlay in [
                         SimOverlayUi::Stress,
                         SimOverlayUi::Displacement,
@@ -548,7 +548,7 @@ impl SimPanel {
                     ] {
                         ui.selectable_value(&mut self.overlay, overlay, overlay.label());
                     }
-                });
+                }));
         });
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.auto_deform, t!("sim-deform-auto"));

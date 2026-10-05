@@ -12,6 +12,7 @@ ducad-kernel = { workspace = true }
 ducad-io = { workspace = true }
 ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
+ducad-glass = { workspace = true }
 egui = { workspace = true }
 glam = { workspace = true }
 egui_icons = { workspace = true }

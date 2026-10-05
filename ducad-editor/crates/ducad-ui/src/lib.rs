@@ -1,5 +1,5 @@
 //! Komponen UI bersama DUCAD bergaya Shapr3D (Floating Canvas-First UI):
-//! - Tema glassmorphism gelap & token warna Shapr3D (`theme`)
+//! - Tema Liquid Glass gelap & token warna Shapr3D (`theme`; material di crate `ducad-glass`)
 //! - Interactive 3D ViewCube & Orientation Gizmo (`viewcube`)
 //! - Bilah alat vertikal mengambang di sisi kiri (`left_toolbar`)
 //! - Outliner drawer pohon item (`items_drawer`)
@@ -109,10 +109,16 @@ pub use revolve_dialog::{
 };
 pub use theme::{
     apply as apply_theme, apply_with_touch, card_frame, dimension_pill_frame, glass_frame,
-    pill_frame, ThemeMode, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS,
+    pill_frame, popup_frame, toolbar_frame, glass_menu, glass_window, ThemeMode, ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, ACCENT_PURPLE, BG_CANVAS,
     BG_CARD_DARK, BG_HOVER_DARK, BG_PANEL_DARK, BG_POPUP_DARK, BORDER_SUBTLE, BOTTOM_RIGHT_PANEL_WIDTH,
     ICON_SIZE_DEFAULT, MIN_TOUCH_TARGET, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
     TOUCH_TARGET_IPAD,
+};
+// Material Liquid Glass (crate `ducad-glass`): aplikasi memasang backdrop GPU
+// dan mengisi `GlassRuntime`; widget di sini cukup memakai `glass_frame()`.
+pub use ducad_glass::{
+    runtime as glass_runtime, set_runtime as set_glass_runtime, GlassFrame, GlassMaterial,
+    GlassMode, GlassPreset, GlassRuntime,
 };
 pub use tool_guides::ToolGuides;
 pub use tool_popups::{

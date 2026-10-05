@@ -163,6 +163,13 @@ pub struct DuCADApp {
 
     pub language: ducad_i18n::Language,
     pub theme: ThemeMode,
+    /// Tema Liquid Glass pada panel (⚙ / command palette). Nyala bawaan.
+    pub liquid_glass: bool,
+    /// "Kurangi transparansi": panel datar pekat walau Liquid Glass nyala.
+    pub reduce_transparency: bool,
+    /// Backdrop GPU Liquid Glass terpasang di `callback_resources` (false
+    /// pada app tanpa GPU yang dipakai tes).
+    pub glass_gpu_ready: bool,
     pub icon_size: f32,
     pub palette: CommandPalette,
     pub radial_menu: RadialMenu,
@@ -432,11 +439,18 @@ impl DuCADApp {
             render_state.target_format,
             Some(ducad_render::wgpu::TextureFormat::Depth32Float),
         );
-        render_state
-            .renderer
-            .write()
-            .callback_resources
-            .insert(scene);
+        // Backdrop Liquid Glass: format sama dengan `SceneRenderer`, karena
+        // blit dan panel kaca digambar di render pass egui yang sama.
+        let glass_backdrop = ducad_glass::GlassBackdrop::new(
+            &render_state.device,
+            render_state.target_format,
+            Some(ducad_render::wgpu::TextureFormat::Depth32Float),
+        );
+        {
+            let mut renderer = render_state.renderer.write();
+            renderer.callback_resources.insert(scene);
+            renderer.callback_resources.insert(glass_backdrop);
+        }
 
         let theme = ThemeMode::default();
         ducad_ui::apply_theme(&cc.egui_ctx, theme);
@@ -541,6 +555,9 @@ impl DuCADApp {
 
             language: ducad_i18n::Language::default(),
             theme,
+            liquid_glass: true,
+            reduce_transparency: false,
+            glass_gpu_ready: true,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
             radial_menu: RadialMenu::default(),
@@ -847,6 +864,9 @@ impl DuCADApp {
 
             language: ducad_i18n::Language::default(),
             theme: ThemeMode::default(),
+            liquid_glass: true,
+            reduce_transparency: false,
+            glass_gpu_ready: false,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
             palette: CommandPalette::default(),
             radial_menu: RadialMenu::default(),
@@ -1413,6 +1433,8 @@ impl DuCADApp {
         ui.painter().add(egui_wgpu::Callback::new_paint_callback(
             rect,
             ViewportCallback {
+                rect,
+                glass: ducad_glass::runtime(ui.ctx()).uses_gpu(),
                 ink_layers,
                 active_ink,
                 is_2d_canvas: matches!(
@@ -1517,6 +1539,18 @@ impl eframe::App for DuCADApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Keadaan Liquid Glass untuk frame ini. Kaca menyampel scene 3D, jadi
+        // dimatikan saat lembar gambar 2D menutupi viewport (panel di atasnya
+        // akan "menembus" kertas dan memperlihatkan scene di baliknya).
+        ducad_glass::set_runtime(
+            &ctx,
+            ducad_glass::GlassRuntime {
+                enabled: self.liquid_glass,
+                gpu: self.glass_gpu_ready && !self.drawing_sheet_state.is_open,
+                reduce_transparency: self.reduce_transparency,
+            },
+        );
 
         // Animasi orbit kamera isometrik (M3.4)
         if let Some(ref anim) = self.camera_animation {
@@ -1788,6 +1822,12 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::ToggleTheme => {
                                 self.theme = self.theme.toggled();
                                 ducad_ui::apply_theme(&ctx, self.theme);
+                            }
+                            TopBarEvent::ToggleLiquidGlass => {
+                                self.liquid_glass = !self.liquid_glass;
+                            }
+                            TopBarEvent::ToggleReduceTransparency => {
+                                self.reduce_transparency = !self.reduce_transparency;
                             }
                             TopBarEvent::OpenCommandPalette => {
                                 self.palette.open();
@@ -4556,9 +4596,14 @@ fn round_floating_icon_btn(
     let icon_sz = icon_size.clamp(12.0, 18.0);
     let btn_side = (icon_sz + 18.0).max(34.0);
     let size = egui::Vec2::splat(btn_side);
-    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-
+    // Respons diambil dari rect yang akan ditempati tombol, sebelum
+    // menggambar, supaya warna hover/aktif tersedia saat melukis.
+    let id = ui.next_auto_id().with("round-glass-btn");
+    let rect = egui::Rect::from_min_size(ui.cursor().min, size);
+    let resp = ui.interact(rect, id, egui::Sense::click());
     let is_hovered = resp.hovered();
+    let radius = egui::CornerRadius::same((btn_side / 2.0).round() as u8);
+
     let bg_color = if is_active {
         egui::Color32::from_rgba_premultiplied(18, 48, 88, 160)
     } else if is_hovered {
@@ -4566,20 +4611,31 @@ fn round_floating_icon_btn(
     } else {
         ducad_ui::BG_PANEL_DARK
     };
-
     let stroke_color = if is_active || is_hovered {
         ducad_ui::ACCENT_BLUE
     } else {
         ducad_ui::BORDER_SUBTLE
     };
 
-    ui.painter().rect(
-        rect,
-        egui::CornerRadius::same((btn_side / 2.0).round() as u8),
-        bg_color,
-        egui::Stroke::new(if is_active || is_hovered { 1.5 } else { 1.0 }, stroke_color),
-        egui::StrokeKind::Inside,
-    );
+    // Kaca bulat (preset Pill); tanpa GPU jatuh ke isian datar lama.
+    ducad_ui::GlassFrame::preset(ducad_ui::GlassPreset::Pill, ducad_ui::GlassMode::Dark)
+        .corner_radius(radius)
+        .fill(bg_color)
+        .stroke(egui::Stroke::new(1.0, stroke_color))
+        .show(ui, |ui| {
+            let inner = size - egui::Vec2::splat(2.0);
+            ui.set_min_size(inner);
+            ui.set_max_size(inner);
+        });
+    if is_active || is_hovered {
+        // Cincin aksen tipis di atas kaca menandai tombol aktif/hover.
+        ui.painter().rect_stroke(
+            rect,
+            radius,
+            egui::Stroke::new(1.5, ducad_ui::ACCENT_BLUE),
+            egui::StrokeKind::Inside,
+        );
+    }
 
     let icon_color = if is_active || is_hovered {
         egui::Color32::WHITE

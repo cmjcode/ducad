@@ -561,11 +561,11 @@ fn axis_combo(ui: &mut Ui, salt: &str, axis: &mut usize) {
     ComboBox::from_id_salt(salt)
         .width(40.0)
         .selected_text(["X", "Y", "Z"][(*axis).min(2)])
-        .show_ui(ui, |ui| {
+        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
             for (i, name) in ["X", "Y", "Z"].iter().enumerate() {
                 ui.selectable_value(axis, i, *name);
             }
-        });
+        }));
 }
 
 fn instance_combo(ui: &mut Ui, salt: &str, instances: &[(u64, String)], slot: &mut usize) {
@@ -577,11 +577,11 @@ fn instance_combo(ui: &mut Ui, salt: &str, instances: &[(u64, String)], slot: &m
     ComboBox::from_id_salt(salt)
         .width(110.0)
         .selected_text(current)
-        .show_ui(ui, |ui| {
+        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
             for (i, (_, n)) in instances.iter().enumerate() {
                 ui.selectable_value(slot, i, n);
             }
-        });
+        }));
 }
 
 impl IndustryPanel {
@@ -714,11 +714,11 @@ impl IndustryPanel {
             ui.add(TextEdit::singleline(&mut draft.id).desired_width(110.0));
             ComboBox::from_id_salt("ind-study-kind")
                 .selected_text(draft.kind.label())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for k in AdvStudyKind::ALL {
                         ui.selectable_value(&mut draft.kind, k, k.label());
                     }
-                });
+                }));
         });
         let picked = data.picked_face.clone();
         let pick_hint = picked.clone().unwrap_or_else(|| t!("ind-pick-face"));
@@ -789,11 +789,11 @@ impl IndustryPanel {
                     ComboBox::from_id_salt(("ind-bc", i))
                         .width(96.0)
                         .selected_text(bc.kind.label())
-                        .show_ui(ui, |ui| {
+                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                             for k in ThermalBcUi::ALL {
                                 ui.selectable_value(&mut bc.kind, k, k.label());
                             }
-                        });
+                        }));
                     ui.add(DragValue::new(&mut bc.value).speed(0.5));
                     let unit = match bc.kind {
                         ThermalBcUi::Temperature => "°C",
@@ -1067,11 +1067,11 @@ impl IndustryPanel {
             ui.add(TextEdit::singleline(&mut self.feat_id).desired_width(90.0));
             ComboBox::from_id_salt("ind-sheet-kind")
                 .selected_text(self.feat_kind.label())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for k in SheetFeatureUi::ALL {
                         ui.selectable_value(&mut self.feat_kind, k, k.label());
                     }
-                });
+                }));
         });
         ui.horizontal(|ui| {
             ui.label(
@@ -1256,11 +1256,11 @@ impl IndustryPanel {
                 ui.horizontal(|ui| {
                     ComboBox::from_id_salt("ind-gdt-symbol")
                         .selected_text(self.annot_symbol.name())
-                        .show_ui(ui, |ui| {
+                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                             for s in GdtSymbol::ALL {
                                 ui.selectable_value(&mut self.annot_symbol, s, s.name());
                             }
-                        });
+                        }));
                     ui.add(DragValue::new(&mut self.annot_value).speed(0.01));
                     ui.checkbox(&mut self.annot_diameter, t!("ind-gdt-diameter"));
                 });
@@ -1371,11 +1371,11 @@ impl IndustryPanel {
             let before = self.std_kind;
             ComboBox::from_id_salt("ind-std-kind")
                 .selected_text(self.std_kind.standard_number())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for k in StandardKind::ALL {
                         ui.selectable_value(&mut self.std_kind, k, k.standard_number());
                     }
-                });
+                }));
             let sizes = self.std_kind.sizes();
             if before != self.std_kind || !sizes.contains(&self.std_size.as_str()) {
                 self.std_size = sizes.first().copied().unwrap_or_default().to_string();
@@ -1383,11 +1383,11 @@ impl IndustryPanel {
             ComboBox::from_id_salt("ind-std-size")
                 .width(70.0)
                 .selected_text(self.std_size.clone())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for s in sizes {
                         ui.selectable_value(&mut self.std_size, s.to_string(), s);
                     }
-                });
+                }));
         });
         ui.horizontal(|ui| {
             if self.std_kind.needs_length() {
@@ -1495,11 +1495,11 @@ impl IndustryPanel {
         ui.horizontal(|ui| {
             ComboBox::from_id_salt("ind-cp-kind")
                 .selected_text(self.cp_kind.label())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for k in CouplingKindUi::ALL {
                         ui.selectable_value(&mut self.cp_kind, k, k.label());
                     }
-                });
+                }));
             num(ui, self.cp_kind.value_label(), &mut self.cp_value, 0.1);
         });
         ui.horizontal(|ui| {

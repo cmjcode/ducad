@@ -23,6 +23,7 @@ ducad-ink = { path = "crates/ducad-ink" }
 ducad-chat = { path = "crates/ducad-chat" }
 ducad-mcp = { path = "crates/ducad-mcp" }
 ducad-sim = { path = "crates/ducad-sim" }
+ducad-glass = { path = "crates/ducad-glass" }
 
 dirs = "6.0"
 fluent-bundle = "0.16"

@@ -158,7 +158,13 @@ impl CommandPalette {
                 fill: colors.bg,
                 stroke: Stroke::new(1.0, colors.border),
             })
-            .show(ctx, |ui| {
+            .show(ctx, |ui| crate::theme::popup_frame()
+                .inner_margin(Margin::ZERO)
+                .corner_radius(CornerRadius::same(12))
+                .shadow(egui::Shadow::NONE)
+                .fill(colors.bg)
+                .stroke(Stroke::new(1.0, colors.border))
+                .paint_behind(ui, Margin::ZERO, |ui| {
                 ui.set_width(width);
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
 
@@ -285,7 +291,7 @@ impl CommandPalette {
                             footer_label(ui, &t!("cmd-hint-close"), &colors);
                         });
                     });
-            });
+            }));
 
         if result.is_some() || modal.should_close() {
             self.close();

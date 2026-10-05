@@ -108,7 +108,7 @@ impl TextPopup {
                 egui::ComboBox::from_id_salt("text_font_family_combo")
                     .selected_text(RichText::new(current_label).size(11.0))
                     .width(140.0)
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         for preset in ducad_sketch::FontPreset::all() {
                             if ui
                                 .selectable_value(&mut state.font_preset, *preset, preset.display_name())
@@ -117,7 +117,7 @@ impl TextPopup {
                                 state.custom_font_name = None;
                             }
                         }
-                    });
+                    }));
             });
         });
 

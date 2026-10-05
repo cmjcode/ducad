@@ -1095,7 +1095,14 @@ impl CanvasHud {
             return None;
         }
 
-        let pos = Pos2::new(canvas_rect.min.x + 16.0, canvas_rect.max.y - 16.0);
+        // Bila kartu panduan tool sedang tampil di pojok kiri bawah, pill digeser
+        // ke sebelah kanannya (garis bawah keduanya sejajar, margin 16 px).
+        let margin = crate::tool_guides::ToolGuides::CORNER_MARGIN;
+        let left = match crate::tool_guides::ToolGuides::active_card_rect(ui.ctx()) {
+            Some(card) => card.max.x + 12.0,
+            None => canvas_rect.min.x + margin,
+        };
+        let pos = Pos2::new(left, canvas_rect.max.y - margin);
         let mut event = None;
 
         egui::Area::new(egui::Id::new("ducad-hud-status-area"))
@@ -2288,7 +2295,7 @@ impl CanvasHud {
                                 .color(TEXT_PRIMARY),
                         )
                         .width(80.0)
-                        .show_ui(ui, |ui| {
+                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                             for dir in &[
                                 DraftPullDir::PosZ,
                                 DraftPullDir::NegZ,
@@ -2308,7 +2315,7 @@ impl CanvasHud {
                                     hud_action = Some(DraftHudAction::SetPullDir(*dir));
                                 }
                             }
-                        });
+                        }));
 
                     ui.separator();
                     // Tombol Eksekusi Draft Angle (Commit)
@@ -2381,7 +2388,7 @@ impl CanvasHud {
                             .color(TEXT_PRIMARY),
                     )
                     .width(85.0)
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         for pln in &[
                             SplitPlaneKind::XY,
                             SplitPlaneKind::XZ,
@@ -2399,7 +2406,7 @@ impl CanvasHud {
                                 hud_action = Some(SplitHudAction::SetPlane(*pln));
                             }
                         }
-                    });
+                    }));
 
                 ui.separator();
 
@@ -2519,7 +2526,7 @@ impl CanvasHud {
                                 RichText::new(&current_label).size(10.5).color(TEXT_PRIMARY),
                             )
                             .width(85.0)
-                            .show_ui(ui, |ui| {
+                            .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                                 for (idx, name) in plane_names {
                                     if ui
                                         .selectable_value(
@@ -2532,7 +2539,7 @@ impl CanvasHud {
                                         hud_action = Some(DatumPlaneHudAction::SetBasePlane(*idx));
                                     }
                                 }
-                            });
+                            }));
 
                         ui.separator();
 
@@ -3044,7 +3051,7 @@ impl CanvasHud {
                                         .color(TEXT_PRIMARY),
                                 )
                                 .width(90.0)
-                                .show_ui(ui, |ui| {
+                                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                                     for ax in &[
                                         PatternAxisPreset::Z,
                                         PatternAxisPreset::Y,
@@ -3061,7 +3068,7 @@ impl CanvasHud {
                                             hud_action = Some(PatternHudAction::SetAxis(*ax));
                                         }
                                     }
-                                });
+                                }));
                         }
                     }
                 }

@@ -174,7 +174,7 @@ impl HolePopup {
             egui::ComboBox::from_id_salt("hole_wizard_select_combobox")
                 .width(DRAWER_W - 8.0)
                 .selected_text(RichText::new(&selected_text).size(10.0).color(TEXT_PRIMARY))
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for (idx, label) in &state.available_holes {
                         if ui
                             .selectable_value(&mut state.selected_hole_idx, Some(*idx), RichText::new(label).size(9.5))
@@ -183,7 +183,7 @@ impl HolePopup {
                             state.selected_hole_idx = Some(*idx);
                         }
                     }
-                });
+                }));
 
             ui.add_space(2.0);
             ui.separator();

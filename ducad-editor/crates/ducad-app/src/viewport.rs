@@ -7,8 +7,22 @@ use eframe::egui;
 use eframe::egui_wgpu;
 use glam::{DVec2, Mat4, Vec3};
 
+/// Warna latar viewport di tekstur offscreen Liquid Glass. Sama dengan warna
+/// bersih bawaan eframe (`App::clear_color`) yang selama ini terlihat di balik
+/// scene, tetapi opak — tekstur itu di-blit menimpa viewport apa adanya.
+pub fn viewport_clear_color() -> [f32; 4] {
+    let [r, g, b, _] =
+        egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32();
+    [r, g, b, 1.0]
+}
+
 /// Callback render wgpu di viewport egui.
 pub struct ViewportCallback {
+    /// Rect viewport (point egui) — ukuran tekstur offscreen Liquid Glass.
+    pub rect: egui::Rect,
+    /// Render scene ke backdrop Liquid Glass lalu blit (true), atau langsung
+    /// ke surface seperti sebelum ada tema kaca (false).
+    pub glass: bool,
     /// Batch layer tinta baru — `None` = tidak berubah, pakai buffer GPU lama.
     pub ink_layers: Option<Vec<ducad_render::InkLayerBatch>>,
     /// Pembaruan inkremental buffer coretan aktif.
@@ -43,8 +57,8 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         &self,
         device: &egui_wgpu::wgpu::Device,
         queue: &egui_wgpu::wgpu::Queue,
-        _screen: &egui_wgpu::ScreenDescriptor,
-        _encoder: &mut egui_wgpu::wgpu::CommandEncoder,
+        screen: &egui_wgpu::ScreenDescriptor,
+        encoder: &mut egui_wgpu::wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         if let Some(scene) = resources.get_mut::<SceneRenderer>() {
@@ -79,6 +93,23 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
             scene.set_draft_config(self.draft_config);
             scene.prepare(queue, self.view_proj, self.eye);
         }
+        if self.glass {
+            // Backdrop dikeluarkan sebentar dari peta sumber daya supaya bisa
+            // dipinjam mutable bersamaan dengan `SceneRenderer` (immutable).
+            if let Some(mut backdrop) = resources.remove::<ducad_glass::GlassBackdrop>() {
+                if let Some(scene) = resources.get::<SceneRenderer>() {
+                    backdrop.render_scene(
+                        device,
+                        encoder,
+                        self.rect,
+                        screen,
+                        viewport_clear_color(),
+                        |rpass| scene.paint(rpass),
+                    );
+                }
+                resources.insert(backdrop);
+            }
+        }
         Vec::new()
     }
 
@@ -88,6 +119,14 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         rpass: &mut egui_wgpu::wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
+        if self.glass {
+            if let Some(backdrop) = resources.get::<ducad_glass::GlassBackdrop>() {
+                if backdrop.has_scene() {
+                    backdrop.blit(rpass);
+                    return;
+                }
+            }
+        }
         if let Some(scene) = resources.get::<SceneRenderer>() {
             scene.paint(rpass);
         }

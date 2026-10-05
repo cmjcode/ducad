@@ -302,14 +302,14 @@ impl PropertiesPanelState {
 
                 ComboBox::from_id_salt("prop_fill_rule")
                     .selected_text(cur_rule)
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         if ui.selectable_label(cur_rule == "Non-Zero", "Non-Zero (Biasa)").clicked() {
                             event = Some(PropertiesPanelEvent::SetField(StyleField::FillRule(FillRule::NonZero)));
                         }
                         if ui.selectable_label(cur_rule == "Even-Odd", "Even-Odd (Alternatif)").clicked() {
                             event = Some(PropertiesPanelEvent::SetField(StyleField::FillRule(FillRule::EvenOdd)));
                         }
-                    });
+                    }));
             });
 
             ui.separator();
@@ -393,7 +393,7 @@ impl PropertiesPanelState {
                     };
                     ComboBox::from_id_salt("prop_stroke_cap")
                         .selected_text(cap_text)
-                        .show_ui(ui, |ui| {
+                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                             if ui.selectable_label(stroke.cap == LineCap::Butt, "Butt").clicked() {
                                 let mut st = stroke.clone();
                                 st.cap = LineCap::Butt;
@@ -409,7 +409,7 @@ impl PropertiesPanelState {
                                 st.cap = LineCap::Square;
                                 event = Some(PropertiesPanelEvent::SetField(StyleField::Stroke(Some(st))));
                             }
-                        });
+                        }));
                 });
             }
 
@@ -445,7 +445,7 @@ impl PropertiesPanelState {
 
                 ComboBox::from_id_salt("prop_blend_mode")
                     .selected_text(blend_text)
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         if ui.selectable_label(blend_text == "Normal", "Normal").clicked() {
                             event = Some(PropertiesPanelEvent::SetField(StyleField::Blend(BlendMode::Normal)));
                         }
@@ -455,7 +455,7 @@ impl PropertiesPanelState {
                         if ui.selectable_label(blend_text == "Screen", "Screen").clicked() {
                             event = Some(PropertiesPanelEvent::SetField(StyleField::Blend(BlendMode::Screen)));
                         }
-                    });
+                    }));
             });
         });
 

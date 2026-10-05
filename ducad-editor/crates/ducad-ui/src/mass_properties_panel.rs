@@ -299,7 +299,7 @@ impl MassPropertiesPanel {
             ComboBox::from_id_salt("ducad-mass-material")
                 .selected_text(selected_text)
                 .width(PANEL_W - 110.0)
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for m in ducad_core::material_library() {
                         if ui
                             .selectable_label(current == Some(m.key), m.name)
@@ -318,7 +318,7 @@ impl MassPropertiesPanel {
                                 .unwrap_or(ducad_core::material_library()[0].props),
                         );
                     }
-                });
+                }));
         });
         if let Some(draft) = &mut self.custom_draft {
             Grid::new("ducad-mass-custom")

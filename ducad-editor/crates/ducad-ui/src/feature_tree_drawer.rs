@@ -900,12 +900,12 @@ impl FeatureTreeDrawer {
                             let selected = self.branch_filter.clone().unwrap_or_else(|| all.clone());
                             egui::ComboBox::from_id_salt("ducad-history-branch-filter")
                                 .selected_text(RichText::new(selected).size(9.0))
-                                .show_ui(ui, |ui| {
+                                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                                     ui.selectable_value(&mut self.branch_filter, None, all.clone());
                                     for b in &branches {
                                         ui.selectable_value(&mut self.branch_filter, Some(b.to_string()), *b);
                                     }
-                                });
+                                }));
                         }
 
                         if filtered_activities.is_empty() {

@@ -11,13 +11,38 @@ use egui::{
 
 use crate::left_toolbar::ToolbarTool;
 use crate::theme::{
-    ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE, BORDER_SUBTLE,
+    ACCENT_BLUE, ACCENT_GREEN, ACCENT_ORANGE,
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 
 pub struct ToolGuides;
 
 impl ToolGuides {
+    /// Jarak kartu panduan dari tepi kiri & bawah kanvas (sama dengan pill status
+    /// di `CanvasHud::show_status_pill`, sehingga garis bawahnya sejajar).
+    pub const CORNER_MARGIN: f32 = 16.0;
+
+    fn card_rect_id() -> egui::Id {
+        egui::Id::new("ducad-tool-guide-card-rect")
+    }
+
+    /// Simpan rect kartu beserta nomor frame, agar widget HUD lain (pill status)
+    /// yang dirender setelahnya dalam frame yang sama bisa menghindari kartu.
+    fn publish_card_rect(ctx: &egui::Context, rect: Rect) {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data_mut(|d| d.insert_temp(Self::card_rect_id(), (frame, rect)));
+    }
+
+    /// Rect kartu panduan yang sudah dirender pada frame ini, bila ada.
+    /// Mengembalikan `None` saat tidak ada panduan aktif (tool Select, dsb.),
+    /// termasuk pada frame pertama setelah panduan hilang — tanpa frame basi.
+    pub fn active_card_rect(ctx: &egui::Context) -> Option<Rect> {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data(|d| d.get_temp::<(u64, Rect)>(Self::card_rect_id()))
+            .filter(|(f, _)| *f == frame)
+            .map(|(_, r)| r)
+    }
+
     /// Render kartu tutorial animasi untuk tool yang sedang aktif di pojok kiri bawah kanvas.
     pub fn render_tool_guide(
         ui: &mut Ui,
@@ -34,11 +59,11 @@ impl ToolGuides {
 
         ui.ctx().request_repaint();
 
-        // Posisi kartu: pojok kiri bawah kanvas, di atas status bar
+        // Posisi kartu: tepat di pojok kiri bawah kanvas (pill status bergeser ke kanannya).
         let card_width = 310.0;
         let card_height = 148.0;
-        let margin_bottom = 44.0;
-        let margin_left = 68.0; // Di sebelah kanan left toolbar
+        let margin_bottom = Self::CORNER_MARGIN;
+        let margin_left = Self::CORNER_MARGIN;
 
         let card_rect = Rect::from_min_size(
             Pos2::new(
@@ -47,21 +72,17 @@ impl ToolGuides {
             ),
             Vec2::new(card_width, card_height),
         );
+        Self::publish_card_rect(ui.ctx(), card_rect);
 
         let painter = ui.painter_at(card_rect);
 
         // Latar belakang kartu semi-transparan modern dengan border halus
-        painter.rect_filled(
-            card_rect,
-            8.0,
-            Color32::from_rgba_premultiplied(12, 14, 18, 230),
-        );
-        painter.rect_stroke(
-            card_rect,
-            8.0,
-            Stroke::new(1.0, BORDER_SUBTLE),
-            StrokeKind::Inside,
-        );
+        // Kartu kaca (Liquid Glass); tanpa GPU: isian datar pekat seperti dulu.
+        crate::theme::glass_frame()
+            .corner_radius(egui::CornerRadius::same(8))
+            .shadow(egui::Shadow::NONE)
+            .fill(Color32::from_rgba_premultiplied(12, 14, 18, 230))
+            .paint(ui, card_rect);
 
         // 2. Render konten diagram animasi sesuai tool
         match tool {
@@ -114,8 +135,9 @@ impl ToolGuides {
 
         let card_width = 320.0;
         let card_height = 152.0;
-        let margin_bottom = 44.0;
-        let margin_left = 68.0;
+        // Tepat di pojok kiri bawah; pill status bergeser ke kanan kartu.
+        let margin_bottom = Self::CORNER_MARGIN;
+        let margin_left = Self::CORNER_MARGIN;
 
         let card_rect = Rect::from_min_size(
             Pos2::new(
@@ -124,20 +146,16 @@ impl ToolGuides {
             ),
             Vec2::new(card_width, card_height),
         );
+        Self::publish_card_rect(ui.ctx(), card_rect);
 
         let painter = ui.painter_at(card_rect);
 
-        painter.rect_filled(
-            card_rect,
-            8.0,
-            Color32::from_rgba_premultiplied(12, 14, 18, 230),
-        );
-        painter.rect_stroke(
-            card_rect,
-            8.0,
-            Stroke::new(1.0, BORDER_SUBTLE),
-            StrokeKind::Inside,
-        );
+        // Kartu kaca (Liquid Glass); tanpa GPU: isian datar pekat seperti dulu.
+        crate::theme::glass_frame()
+            .corner_radius(egui::CornerRadius::same(8))
+            .shadow(egui::Shadow::NONE)
+            .fill(Color32::from_rgba_premultiplied(12, 14, 18, 230))
+            .paint(ui, card_rect);
 
         match mode {
             crate::canvas_hud::DatumPlaneMode::Offset => {
@@ -3153,5 +3171,29 @@ impl ToolGuides {
         };
 
         Self::draw_cursor(painter, cursor_pos, is_clicking, time);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rect kartu hanya berlaku pada frame ia dirender; frame berikutnya tanpa
+    /// kartu harus mengembalikan `None` agar pill status kembali ke pojok.
+    #[test]
+    fn card_rect_only_visible_in_same_frame() {
+        let ctx = egui::Context::default();
+        let rect = Rect::from_min_size(Pos2::new(16.0, 100.0), Vec2::new(310.0, 148.0));
+        let raw = egui::RawInput::default();
+
+        let mut out = ctx.run_ui(raw.clone(), |ctx| {
+            ToolGuides::publish_card_rect(ctx, rect);
+            assert_eq!(ToolGuides::active_card_rect(ctx), Some(rect));
+        });
+        out.textures_delta.clear();
+        let mut out = ctx.run_ui(raw, |ctx| {
+            assert_eq!(ToolGuides::active_card_rect(ctx), None);
+        });
+        out.textures_delta.clear();
     }
 }

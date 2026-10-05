@@ -24,7 +24,8 @@ Arah panah = "bergantung pada".
 - `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
-- `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun.
+- `ducad-glass` — material Liquid Glass untuk panel: `GlassFrame` (pengganti `egui::Frame`), `GlassBackdrop` (scene offscreen + blur + shader lensa), preset material. Hanya egui/egui_wgpu (dijaga tes `glass_has_no_app_or_ui_dependency`). Lihat `docs/adr/0006-liquid-glass.md`.
+- `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun. (`ducad-ui` → glass)
 - `ducad-app` — GUI (binary `ducad`); operasi modeling = adapter tipis di atas `ducad_engine::compute`. → semua di atas
 
 Aturan: **`ducad-engine` tidak boleh bergantung pada egui/eframe/wgpu/

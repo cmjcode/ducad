@@ -344,6 +344,22 @@ impl DuCADApp {
                 PaletteAction::ToggleTheme,
             ),
             (
+                format!(
+                    "Liquid Glass: {}",
+                    if self.liquid_glass { "Matikan" } else { "Nyalakan" }
+                ),
+                String::new(),
+                PaletteAction::ToggleLiquidGlass,
+            ),
+            (
+                format!(
+                    "Kurangi Transparansi: {}",
+                    if self.reduce_transparency { "Matikan" } else { "Nyalakan" }
+                ),
+                String::new(),
+                PaletteAction::ToggleReduceTransparency,
+            ),
+            (
                 "Mode Sentuh: Pencil & Jari (Hibrida)".to_string(),
                 "Touch".to_string(),
                 PaletteAction::SetTouchDesignMode(ducad_ui::TouchDesignMode::PencilAndFinger),
@@ -461,6 +477,12 @@ impl DuCADApp {
             PaletteAction::ToggleTheme => {
                 self.theme = self.theme.toggled();
                 ducad_ui::apply_theme(ctx, self.theme);
+            }
+            PaletteAction::ToggleLiquidGlass => {
+                self.liquid_glass = !self.liquid_glass;
+            }
+            PaletteAction::ToggleReduceTransparency => {
+                self.reduce_transparency = !self.reduce_transparency;
             }
             PaletteAction::ToggleZebraView => {
                 self.zebra_config.enabled = !self.zebra_config.enabled;

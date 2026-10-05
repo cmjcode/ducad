@@ -1,0 +1,17 @@
+[package]
+name = "ducad-glass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+egui = { workspace = true }
+# wgpu diambil dari re-export `egui_wgpu::wgpu` supaya versinya selalu sama
+# persis dengan egui (pola yang sama dengan `ducad-render`).
+egui_wgpu = { workspace = true }
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+# Hanya untuk tes pipeline GPU (meminta adapter wgpu secara sinkron).
+pollster = "0.4"

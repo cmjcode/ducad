@@ -1634,6 +1634,7 @@ dependencies = [
  "ducad-cloud",
  "ducad-core",
  "ducad-engine",
+ "ducad-glass",
  "ducad-i18n",
  "ducad-ink",
  "ducad-io",
@@ -1764,6 +1765,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ducad-glass"
+version = "0.2.1"
+dependencies = [
+ "bytemuck",
+ "egui",
+ "egui-wgpu",
+ "pollster 0.4.0",
+]
+
+[[package]]
 name = "ducad-i18n"
 version = "0.2.1"
 dependencies = [
@@ -1882,6 +1893,7 @@ version = "0.2.1"
 dependencies = [
  "ducad-cloud",
  "ducad-core",
+ "ducad-glass",
  "ducad-i18n",
  "ducad-io",
  "ducad-kernel",

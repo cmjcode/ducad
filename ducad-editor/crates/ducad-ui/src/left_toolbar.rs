@@ -6,7 +6,7 @@
 //! menu utilitas seperti History (riwayat & undo/redo) dan Pengukuran.
 
 use crate::theme::{
-    glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
+    toolbar_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
@@ -104,9 +104,7 @@ impl LeftToolbar {
         let icon_sz = self.icon_size.clamp(12.0, 18.0);
         let btn_width = (icon_sz + 14.0).max(30.0);
 
-        glass_frame()
-            .inner_margin(Margin::same(4))
-            .corner_radius(CornerRadius::same(8))
+        toolbar_frame()
             .show(ui, |ui| {
                 ui.spacing_mut().interact_size.y = btn_width;
                 ui.set_width(btn_width);

@@ -1154,11 +1154,11 @@ impl AssemblyDrawer {
                                         .unwrap_or_else(|| "Pilih mate".to_string());
                                     egui::ComboBox::from_id_salt("motion_mate")
                                         .selected_text(RichText::new(label).size(9.5))
-                                        .show_ui(ui, |ui| {
+                                        .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                                             for m in &numeric_mates {
                                                 ui.selectable_value(&mut self.motion_mate_selected, Some(m.id), &m.name);
                                             }
-                                        });
+                                        }));
                                     ui.label(RichText::new("dari").size(9.5).color(TEXT_SECONDARY));
                                     ui.add(egui::TextEdit::singleline(&mut self.motion_from_input).desired_width(40.0));
                                     ui.label(RichText::new("ke").size(9.5).color(TEXT_SECONDARY));

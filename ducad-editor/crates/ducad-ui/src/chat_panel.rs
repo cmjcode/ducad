@@ -603,7 +603,7 @@ fn cli_settings_ui(
             };
             egui::ComboBox::from_id_salt(("chat-cli-effort", i))
                 .selected_text(shown)
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     ui.selectable_value(
                         &mut c.effort,
                         String::new(),
@@ -612,7 +612,7 @@ fn cli_settings_ui(
                     for e in &meta.efforts {
                         ui.selectable_value(&mut c.effort, e.clone(), e.as_str());
                     }
-                });
+                }));
         });
     }
     ui.horizontal(|ui| {
@@ -690,11 +690,11 @@ fn api_settings_ui(
             let before = form.preset;
             egui::ComboBox::from_id_salt("chat-preset")
                 .selected_text(PRESETS.get(form.preset).copied().unwrap_or_default())
-                .show_ui(ui, |ui| {
+                .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                     for (i, p) in PRESETS.iter().enumerate() {
                         ui.selectable_value(&mut form.preset, i, *p);
                     }
-                });
+                }));
             if form.preset != before {
                 *event = Some(ChatPanelEvent::PresetChanged(form.preset));
             }
@@ -766,11 +766,11 @@ impl ChatPanel {
                         egui::ComboBox::from_id_salt("chat-target")
                             .width(160.0)
                             .selected_text(RichText::new(shown).size(11.0))
-                            .show_ui(ui, |ui| {
+                            .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                                 for (i, t) in state.targets.iter().enumerate() {
                                     ui.selectable_value(&mut state.target_idx, i, t.as_str());
                                 }
-                            });
+                            }));
                         if state.target_idx != before {
                             event = Some(ChatPanelEvent::TargetChanged(state.target_idx));
                         }
@@ -951,7 +951,7 @@ fn sidebar_frame() -> egui::Frame {
         inner_margin: egui::Margin::symmetric(10, 8),
         corner_radius: egui::CornerRadius::ZERO,
         shadow: egui::Shadow::NONE,
-        ..glass_frame()
+        ..glass_frame().flat()
     }
 }
 

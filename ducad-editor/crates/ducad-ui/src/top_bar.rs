@@ -18,8 +18,8 @@ use ducad_i18n::{current_language, t, Language};
 use egui::containers::menu::MenuConfig;
 use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_AUTO_AWESOME, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
-    ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_PALETTE, ICON_PERSON,
+    ICON_AUTO_AWESOME, ICON_BLUR_ON, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
+    ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_OPACITY, ICON_PALETTE, ICON_PERSON,
     ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN,
     ICON_TEXTURE, ICON_UPLOAD,
 };
@@ -57,6 +57,10 @@ pub enum TopBarEvent {
     HomeClicked,
     File(TopBarFileOp),
     ToggleTheme,
+    /// Nyalakan/matikan material Liquid Glass.
+    ToggleLiquidGlass,
+    /// Nyalakan/matikan "Kurangi transparansi" (panel datar pekat).
+    ToggleReduceTransparency,
     OpenCommandPalette,
     SetUnit(LengthUnit),
     SetLanguage(Language),
@@ -219,7 +223,7 @@ impl TopBar {
                         egui::UiStackInfo::new(egui::UiKind::Menu)
                             .with_tag_value(MenuConfig::MENU_CONFIG_TAG, MenuConfig::new()),
                     )
-                    .show(|ui| {
+                    .show(|ui| crate::theme::glass_menu(ui, |ui| {
                         if ui
                             .button(format!("{} {}", ICON_NOTE_ADD.codepoint, t!("menu-new")))
                             .clicked()
@@ -315,7 +319,7 @@ impl TopBar {
                             );
                             let max_h = ui.ctx().content_rect().height() * 0.6;
                             for group in &state.command_groups {
-                                ui.menu_button(format!("{} {}", group.icon, group.title), |ui| {
+                                ui.menu_button(format!("{} {}", group.icon, group.title), |ui| crate::theme::glass_menu(ui, |ui| {
                                     ui.set_min_width(260.0);
                                     egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
                                         for cmd in &group.items {
@@ -329,7 +333,7 @@ impl TopBar {
                                             }
                                         }
                                     });
-                                });
+                                }));
                             }
                             ui.separator();
                             if ui
@@ -347,7 +351,7 @@ impl TopBar {
                                 ui.close();
                             }
                         }
-                    });
+                    }));
                 menu_btn.on_hover_text(t!("menu-file"));
 
                 ui.add_space(2.0);
@@ -667,7 +671,7 @@ impl TopBar {
                     ui.add_space(2.0);
                     ui.menu_button(
                         RichText::new(ICON_CATEGORY.codepoint).size(icon_sz).color(TEXT_PRIMARY),
-                        |ui| {
+                        |ui| crate::theme::glass_menu(ui, |ui| {
                             ui.set_min_width(170.0);
                             let m_title = t!("hud-show-dimensions");
                             let m_chk = if state.is_measure_active { "✔ " } else { "  " };
@@ -694,7 +698,7 @@ impl TopBar {
                                     ui.close();
                                 }
                             }
-                        },
+                        }),
                     ).response.on_hover_text("Menu Alat Tambahan (Ukuran, Zebra, Gambar 2D, Assembly)");
                 }
 
@@ -762,13 +766,42 @@ impl TopBar {
                         RichText::new(ICON_SETTINGS.codepoint)
                             .size(icon_sz)
                             .color(TEXT_PRIMARY),
-                        |ui| {
+                        |ui| crate::theme::glass_menu(ui, |ui| {
                             if ui
                                 .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
                                 .clicked()
                             {
                                 event = Some(TopBarEvent::ToggleTheme);
                                 ui.close();
+                            }
+                            // Liquid Glass: keadaan dibaca dari runtime yang diisi aplikasi.
+                            let glass = ducad_glass::runtime(ui.ctx());
+                            let mut glass_on = glass.enabled;
+                            if ui
+                                .checkbox(
+                                    &mut glass_on,
+                                    format!("{} {}", ICON_BLUR_ON.codepoint, t!("menu-liquid-glass")),
+                                )
+                                .changed()
+                            {
+                                event = Some(TopBarEvent::ToggleLiquidGlass);
+                            }
+                            let mut reduce = glass.reduce_transparency;
+                            if ui
+                                .add_enabled(
+                                    glass.enabled,
+                                    egui::Checkbox::new(
+                                        &mut reduce,
+                                        format!(
+                                            "{} {}",
+                                            ICON_OPACITY.codepoint,
+                                            t!("menu-reduce-transparency")
+                                        ),
+                                    ),
+                                )
+                                .changed()
+                            {
+                                event = Some(TopBarEvent::ToggleReduceTransparency);
                             }
                             if ui
                                 .button(format!(
@@ -790,7 +823,7 @@ impl TopBar {
                                     t!("lang-current"),
                                     current_language().display_name()
                                 ),
-                                |ui| {
+                                |ui| crate::theme::glass_menu(ui, |ui| {
                                     for lang in Language::all() {
                                         let is_sel = current_language() == *lang;
                                         let prefix = if is_sel { "✔ " } else { "   " };
@@ -802,7 +835,7 @@ impl TopBar {
                                             ui.close();
                                         }
                                     }
-                                },
+                                }),
                             );
                             ui.separator();
                             // Icon size selector
@@ -812,7 +845,7 @@ impl TopBar {
                                     t!("settings-icon-size"),
                                     icon_sz
                                 ),
-                                |ui| {
+                                |ui| crate::theme::glass_menu(ui, |ui| {
                                     for (label, size) in [
                                         ("14 px (Kecil)", 14.0),
                                         ("16 px (Sedang)", 16.0),
@@ -825,7 +858,7 @@ impl TopBar {
                                             ui.close();
                                         }
                                     }
-                                },
+                                }),
                             );
                             ui.separator();
                             ui.menu_button(
@@ -834,7 +867,7 @@ impl TopBar {
                                     t!("topbar-unit", unit = state.current_unit.suffix()),
                                     state.current_unit.suffix()
                                 ),
-                                |ui| {
+                                |ui| crate::theme::glass_menu(ui, |ui| {
                                     for unit in [
                                         LengthUnit::Millimeters,
                                         LengthUnit::Centimeters,
@@ -851,7 +884,7 @@ impl TopBar {
                                             ui.close();
                                         }
                                     }
-                                },
+                                }),
                             );
                             ui.separator();
                             // Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
@@ -861,7 +894,7 @@ impl TopBar {
                                     state.touch_config.mode.icon(),
                                     state.touch_config.mode.label()
                                 ),
-                                |ui| {
+                                |ui| crate::theme::glass_menu(ui, |ui| {
                                     ui.label(
                                         RichText::new("Interaksi Layar Sentuh & Stylus:")
                                             .strong()
@@ -894,9 +927,9 @@ impl TopBar {
                                         event = Some(TopBarEvent::TogglePalmRejection);
                                         ui.close();
                                     }
-                                },
+                                }),
                             );
-                        },
+                        }),
                     )
                     .response
                     .on_hover_text(t!("menu-settings"));
@@ -958,7 +991,7 @@ impl TopBar {
                         RichText::new(ICON_SHARE.codepoint)
                             .size(icon_sz)
                             .color(ACCENT_BLUE),
-                        |ui| {
+                        |ui| crate::theme::glass_menu(ui, |ui| {
                             if ui
                                 .button(format!(
                                     "{} {}",
@@ -1071,7 +1104,7 @@ impl TopBar {
                                 event = Some(TopBarEvent::File(TopBarFileOp::ExportSvg));
                                 ui.close();
                             }
-                        },
+                        }),
                     )
                     .response
                     .on_hover_text(t!("topbar-share"));

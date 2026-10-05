@@ -3,6 +3,7 @@
 //! Diterapkan sekali lewat [`apply`] saat startup, lalu lagi tiap kali
 //! [`ThemeMode`] berubah (toggle tema dari toolbar/command palette/settings).
 
+use ducad_glass::{GlassFrame, GlassMaterial, GlassMode, GlassPreset};
 use egui::{Color32, CornerRadius, Frame, Margin, Stroke, Style, Vec2, Visuals};
 
 /// Tinggi minimum widget interaktif (tombol, checkbox, combo box, dst),
@@ -127,21 +128,74 @@ impl ThemeMode {
     }
 }
 
-/// Helper frame glassmorphism untuk panel mengambang Shapr3D.
-pub fn glass_frame() -> Frame {
-    Frame {
-        inner_margin: Margin::symmetric(10, 5),
-        outer_margin: Margin::ZERO,
-        corner_radius: CornerRadius::same(10),
-        shadow: egui::Shadow {
+/// Frame panel mengambang (drawer, panel, bar atas) bermaterial Liquid Glass.
+///
+/// Saat backdrop GPU aktif (`ducad_glass::set_runtime`), panel digambar
+/// sebagai kaca: latar viewport dibelokkan di rim, diburamkan, dan ditint.
+/// Tanpa GPU (tes headless, "Kurangi transparansi") panel memakai isian datar
+/// `BG_PANEL_DARK` seperti sebelumnya. Untuk tempat yang menuntut
+/// `egui::Frame` (mis. `Window::frame`), pakai `glass_frame().flat()`.
+pub fn glass_frame() -> GlassFrame {
+    GlassFrame::preset(GlassPreset::Panel, GlassMode::Dark)
+        .inner_margin(Margin::symmetric(10, 5))
+        .corner_radius(CornerRadius::same(10))
+        .shadow(egui::Shadow {
             offset: [0, 3],
             blur: 12,
             spread: 0,
             color: Color32::from_black_alpha(70),
-        },
-        fill: BG_PANEL_DARK,
-        stroke: Stroke::new(1.0, BORDER_SUBTLE),
-    }
+        })
+        .fill(BG_PANEL_DARK)
+        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+}
+
+/// Frame bilah alat berisi ikon: kaca sedikit lebih bening daripada panel teks.
+pub fn toolbar_frame() -> GlassFrame {
+    glass_frame()
+        .inner_margin(Margin::same(4))
+        .corner_radius(CornerRadius::same(8))
+        .material(GlassMaterial::preset(GlassPreset::Toolbar, GlassMode::Dark))
+}
+
+/// Frame popup/menu bermaterial kaca paling pekat (preset `Popup`): menumpuk
+/// di atas apa saja, jadi isinya harus paling mudah dibaca.
+pub fn popup_frame() -> GlassFrame {
+    GlassFrame::preset(GlassPreset::Popup, GlassMode::Dark)
+        .inner_margin(Margin::same(6))
+        .corner_radius(CornerRadius::same(8))
+        .fill(BG_POPUP_DARK)
+        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+}
+
+/// Jadikan isi menu/popup egui (`ui.menu_button`, `ComboBox::show_ui`,
+/// `Popup::show`, `Modal::show`) berlatar kaca: panggil di dalam closure
+/// kontennya. Kaca dilukis menutupi isian frame bawaan egui (margin dan
+/// radius diambil dari `Style` sehingga rect-nya sama persis); tanpa GPU
+/// hasilnya identik dengan tampilan lama.
+pub fn glass_menu<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let (margin, radius) = {
+        let style = ui.style();
+        (style.spacing.menu_margin, style.visuals.menu_corner_radius)
+    };
+    popup_frame()
+        .inner_margin(margin)
+        .corner_radius(radius)
+        .shadow(egui::Shadow::NONE)
+        .paint_behind(ui, Margin::ZERO, add_contents)
+}
+
+/// Jadikan isi `egui::Window` berlatar kaca (termasuk title bar). `area_id`
+/// = `egui::Id::new(judul)` kecuali window memakai `.id(..)`. Pasang
+/// `.frame(glass_frame().transparent_flat())` pada window-nya.
+pub fn glass_window<R>(
+    ui: &mut egui::Ui,
+    area_id: egui::Id,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    glass_frame()
+        .shadow(egui::Shadow::NONE)
+        .material(GlassMaterial::preset(GlassPreset::Popup, GlassMode::Dark))
+        .paint_behind_window(ui, area_id, add_contents)
 }
 
 /// Helper frame untuk kartu-kartu di dalam inspector / outliner.
@@ -157,20 +211,19 @@ pub fn card_frame() -> Frame {
 }
 
 /// Helper frame untuk kapsul / pill mengambang (mis. Normal to Sketch, status bar pill).
-pub fn pill_frame() -> Frame {
-    Frame {
-        inner_margin: Margin::symmetric(12, 5),
-        outer_margin: Margin::ZERO,
-        corner_radius: CornerRadius::same(14),
-        shadow: egui::Shadow {
+/// Material kaca paling bening dan paling responsif terhadap sentuhan.
+pub fn pill_frame() -> GlassFrame {
+    GlassFrame::preset(GlassPreset::Pill, GlassMode::Dark)
+        .inner_margin(Margin::symmetric(12, 5))
+        .corner_radius(CornerRadius::same(14))
+        .shadow(egui::Shadow {
             offset: [0, 2],
             blur: 8,
             spread: 0,
             color: Color32::from_black_alpha(70),
-        },
-        fill: BG_PANEL_DARK,
-        stroke: Stroke::new(1.0, BORDER_SUBTLE),
-    }
+        })
+        .fill(BG_PANEL_DARK)
+        .stroke(Stroke::new(1.0, BORDER_SUBTLE))
 }
 
 /// Helper frame untuk badge dimensi putih kontras di kanvas.
@@ -257,6 +310,48 @@ mod tests {
             });
         });
         output.textures_delta.clear();
+    }
+
+    fn has_gpu_callback(shape: &egui::Shape) -> bool {
+        match shape {
+            egui::Shape::Callback(_) => true,
+            egui::Shape::Vec(v) => v.iter().any(has_gpu_callback),
+            _ => false,
+        }
+    }
+
+    /// Render semua frame kaca tema; mengembalikan apakah ada callback GPU.
+    fn render_glass_frames(ctx: &egui::Context) -> bool {
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            for frame in [glass_frame(), pill_frame(), toolbar_frame()] {
+                frame.show(ui, |ui| ui.label("DUCAD"));
+            }
+        });
+        output.textures_delta.clear();
+        output.shapes.iter().any(|s| has_gpu_callback(&s.shape))
+    }
+
+    /// Penjaga Liquid Glass: tanpa backdrop GPU (tes headless, GPU belum siap)
+    /// atau dengan "Kurangi transparansi", panel HARUS jatuh ke isian datar
+    /// pekat lama — transparansi tanpa blur membuat teks tak terbaca.
+    #[test]
+    fn glass_frames_fall_back_to_flat_fill_without_gpu() {
+        use ducad_glass::GlassRuntime;
+        for frame in [glass_frame(), pill_frame(), toolbar_frame()] {
+            assert_eq!(frame.flat().fill, BG_PANEL_DARK);
+            assert_eq!(frame.flat().stroke, Stroke::new(1.0, BORDER_SUBTLE));
+        }
+
+        let ctx = egui::Context::default();
+        apply(&ctx, ThemeMode::Dark);
+        assert!(!render_glass_frames(&ctx), "bawaan (runtime kosong) harus datar");
+
+        let on = GlassRuntime { enabled: true, gpu: true, reduce_transparency: false };
+        ducad_glass::set_runtime(&ctx, GlassRuntime { reduce_transparency: true, ..on });
+        assert!(!render_glass_frames(&ctx), "kurangi transparansi harus datar");
+
+        ducad_glass::set_runtime(&ctx, on);
+        assert!(render_glass_frames(&ctx), "runtime aktif harus memakai kaca GPU");
     }
 
     /// Luminansi relatif (sRGB → linear) untuk rasio kontras WCAG.

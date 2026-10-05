@@ -63,14 +63,14 @@ impl DuCADApp {
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
             .unwrap_or_else(|| format!("{} {}", t!("tool-coincident"), egui_icons::icons::ICON_ARROW_DROP_DOWN.codepoint));
-        ui.menu_button(active_label, |ui| {
+        ui.menu_button(active_label, |ui| ducad_ui::glass_menu(ui, |ui| {
             for (kind, label) in point_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
                     self.set_tool(kind);
                     ui.close();
                 }
             }
-        });
+        }));
 
         let measure_dist = t!("tool-measure");
         let measure_ang = t!("tool-measure-angle");
@@ -83,19 +83,19 @@ impl DuCADApp {
             .find(|(kind, _)| *kind == self.tool)
             .map(|(_, label)| format!("● {label}"))
             .unwrap_or_else(|| format!("📏 {} {}", t!("tool-measure"), egui_icons::icons::ICON_ARROW_DROP_DOWN.codepoint));
-        ui.menu_button(measure_active_label, |ui| {
+        ui.menu_button(measure_active_label, |ui| ducad_ui::glass_menu(ui, |ui| {
             for (kind, label) in measure_tools {
                 if ui.selectable_label(self.tool == kind, label).clicked() {
                     self.set_tool(kind);
                     ui.close();
                 }
             }
-        });
+        }));
     }
 
     #[allow(dead_code)]
     pub fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(format!("📄 {}", t!("menu-file")), |ui| {
+        ui.menu_button(format!("📄 {}", t!("menu-file")), |ui| ducad_ui::glass_menu(ui, |ui| {
             if ui.button(t!("menu-new")).clicked() {
                 self.new_document();
                 ui.close();
@@ -114,7 +114,7 @@ impl DuCADApp {
                 ui.close();
             }
             ui.separator();
-            ui.menu_button(t!("menu-import"), |ui| {
+            ui.menu_button(t!("menu-import"), |ui| ducad_ui::glass_menu(ui, |ui| {
                 if ui.button(t!("menu-import-step")).clicked() {
                     self.import_step();
                     ui.close();
@@ -123,8 +123,8 @@ impl DuCADApp {
                     self.import_dxf();
                     ui.close();
                 }
-            });
-            ui.menu_button(t!("menu-export"), |ui| {
+            }));
+            ui.menu_button(t!("menu-export"), |ui| ducad_ui::glass_menu(ui, |ui| {
                 if ui.button(t!("menu-export-step")).clicked() {
                     self.export_step();
                     ui.close();
@@ -149,13 +149,13 @@ impl DuCADApp {
                     self.export_sketch_svg();
                     ui.close();
                 }
-            });
-        });
+            }));
+        }));
     }
 
     #[allow(dead_code)]
     pub fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(format!("⚙ {}", t!("menu-settings")), |ui| {
+        ui.menu_button(format!("⚙ {}", t!("menu-settings")), |ui| ducad_ui::glass_menu(ui, |ui| {
             ui.label(t!("menu-theme"));
             if ui.button(self.theme.label()).clicked() {
                 self.theme = self.theme.toggled();
@@ -165,7 +165,7 @@ impl DuCADApp {
             ui.separator();
             ui.menu_button(
                 format!("🌐 {} ({})", t!("lang-current"), current_language().display_name()),
-                |ui| {
+                |ui| ducad_ui::glass_menu(ui, |ui| {
                     for lang in Language::all() {
                         let is_sel = current_language() == *lang;
                         let prefix = if is_sel { "✔ " } else { "   " };
@@ -175,7 +175,7 @@ impl DuCADApp {
                             ui.close();
                         }
                     }
-                },
+                }),
             );
 
             ui.separator();
@@ -197,6 +197,6 @@ impl DuCADApp {
                         }
                     });
             });
-        });
+        }));
     }
 }

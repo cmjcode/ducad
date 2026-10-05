@@ -271,6 +271,10 @@ pub enum PaletteAction {
     ModelRedo,
     DeleteSelection,
     ToggleTheme,
+    /// Nyalakan/matikan material Liquid Glass pada panel.
+    ToggleLiquidGlass,
+    /// Nyalakan/matikan "Kurangi transparansi".
+    ToggleReduceTransparency,
     ToggleZebraView,
     ToggleStudioLighting,
     ToggleConstruction,
@@ -391,6 +395,8 @@ impl PaletteAction {
             | PaletteAction::ModelRedo
             | PaletteAction::DeleteSelection => PaletteGroup::Edit,
             PaletteAction::ToggleTheme
+            | PaletteAction::ToggleLiquidGlass
+            | PaletteAction::ToggleReduceTransparency
             | PaletteAction::ToggleStudioLighting
             | PaletteAction::SetTouchDesignMode(_)
             | PaletteAction::TogglePalmRejection => PaletteGroup::View,

@@ -1493,7 +1493,7 @@ impl DrawingSheetView {
                 ui.label(RichText::new("Kertas:").size(11.0).color(TEXT_SECONDARY));
                 egui::ComboBox::from_id_salt("paper_size_combo")
                     .selected_text(sheet.paper_size.label())
-                    .show_ui(ui, |ui| {
+                    .show_ui(ui, |ui| crate::theme::glass_menu(ui, |ui| {
                         if ui.selectable_label(sheet.paper_size == PaperSize::A4Landscape, PaperSize::A4Landscape.label()).clicked() {
                             sheet.paper_size = PaperSize::A4Landscape;
                             sheet.auto_layout();
@@ -1510,7 +1510,7 @@ impl DrawingSheetView {
                             sheet.paper_size = PaperSize::A3Portrait;
                             sheet.auto_layout();
                         }
-                    });
+                    }));
 
                 // C. Skala Gambar Mode Sliding Panjang & Halus (Bisa langsung diklik untuk ketik angka)
                 ui.label(RichText::new("Skala:").size(11.0).color(TEXT_SECONDARY));

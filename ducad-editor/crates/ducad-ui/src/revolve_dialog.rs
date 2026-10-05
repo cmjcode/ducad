@@ -91,14 +91,15 @@ impl RevolveDialog {
         let mut is_open = state.is_open;
 
         let window_title = t!("revolve-dialog-window-title");
-        let window_response = Window::new(window_title)
+        let window_area_id = egui::Id::new(window_title.as_str());
+        let window_response = Window::new(window_title.as_str())
             .open(&mut is_open)
             .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, 0.0))
             .resizable(false)
             .collapsible(false)
-            .frame(glass_frame())
+            .frame(glass_frame().transparent_flat())
             .fixed_size(Vec2::new(420.0, 480.0))
-            .show(ctx, |ui| {
+            .show(ctx, |ui| crate::theme::glass_window(ui, window_area_id, |ui| {
                 ui.add_space(4.0);
 
                 // Header Info
@@ -313,7 +314,7 @@ impl RevolveDialog {
                         }
                     }
                 });
-            });
+            }));
 
         // ESC listener
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -386,14 +387,16 @@ impl AlertModal {
         let mut is_open = state.is_open;
         let mut closed = false;
 
-        Window::new(format!("⚠️ {}", state.title))
+        let alert_title = format!("⚠️ {}", state.title);
+        let alert_area_id = egui::Id::new(alert_title.as_str());
+        Window::new(alert_title.as_str())
             .open(&mut is_open)
             .anchor(Align2::CENTER_CENTER, Vec2::new(0.0, 0.0))
             .resizable(false)
             .collapsible(false)
-            .frame(glass_frame())
+            .frame(glass_frame().transparent_flat())
             .fixed_size(Vec2::new(400.0, 260.0))
-            .show(ctx, |ui| {
+            .show(ctx, |ui| crate::theme::glass_window(ui, alert_area_id, |ui| {
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
@@ -457,7 +460,7 @@ impl AlertModal {
                         closed = true;
                     }
                 });
-            });
+            }));
 
         if closed || !is_open {
             state.is_open = false;
