@@ -166,6 +166,13 @@ pub struct TopBarState {
 pub struct TopBar;
 
 impl TopBar {
+    /// Tinggi baris isi top bar (di dalam margin frame) untuk `icon_size`.
+    /// Dipakai juga kepala sidebar Chat AI supaya barisnya sama tinggi dan
+    /// ikonnya sejajar dengan tombol top bar di sebelah kirinya.
+    pub fn bar_height(icon_size: f32) -> f32 {
+        (icon_size.clamp(12.0, 18.0) + 14.0).max(30.0)
+    }
+
     /// Render modern top bar. Mengembalikan `Option<TopBarEvent>`.
     pub fn show(ui: &mut Ui, state: &mut TopBarState) -> Option<TopBarEvent> {
         let mut event = None;
@@ -192,7 +199,7 @@ impl TopBar {
             // tombol header memakai `icon_size` (lihat `header_icon_btn`), jadi mengikat
             // bar ke touch target hanya bikin tingginya melompat 36/40/44 px tiap mode
             // sentuh di-cycle tanpa memperbesar area sentuh satu tombol pun.
-            let bar_h = (icon_sz + 14.0).max(30.0);
+            let bar_h = Self::bar_height(icon_sz);
             ui.set_height(bar_h);
             // `horizontal_centered` (bukan `horizontal`) supaya baris tombol dipusatkan
             // vertikal di dalam `bar_h`. `set_height` di atas mengunci max height ui,

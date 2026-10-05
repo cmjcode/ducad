@@ -193,5 +193,18 @@ fn send_button_stays_inside_panel() {
             r.max.y <= win.max.y - 4.0 && r.min.y >= win.min.y,
             "{name}: tombol harus di dalam jendela: tombol {r:?}, jendela {win:?}"
         );
+        // Regresi: `ScrollArea` composer pernah memakai `min_scrolled_height`
+        // bawaan (64 px) sehingga kartu membengkak, jendela lebih tinggi dari
+        // layar, lalu egui mendorongnya ke y = 0 — tepi atasnya tidak lagi
+        // sejajar top bar (y = 10) dan composer terpotong tepi bawah layar.
+        assert!(
+            (win.min.y - 10.0).abs() < 0.5,
+            "{name}: tepi atas jendela harus sejajar top bar (y = 10): {win:?}"
+        );
+        assert!(
+            win.max.y <= 900.0 - 10.0 + 0.5,
+            "{name}: jendela harus berakhir ≥ 10 px di atas tepi layar: {win:?}"
+        );
     }
 }
+

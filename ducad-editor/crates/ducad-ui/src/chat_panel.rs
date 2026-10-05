@@ -781,11 +781,14 @@ impl ChatPanel {
         let max_w = (screen.width() * 0.6).max(SIDEBAR_MIN_W);
         let default_w = Self::default_width(&ctx);
         let glass = sidebar_glass();
-        // Tinggi isi = tinggi layar dikurangi margin tepi dan margin frame.
+        // Tinggi isi = tinggi layar dikurangi margin tepi, margin frame, dan
+        // garis tepi frame (atas + bawah). Bila isi lebih tinggi dari ini,
+        // egui mendorong jendela ke y = 0 dan memotong bagian bawahnya.
         let content_h = (screen.height()
             - 2.0 * CHROME_MARGIN_Y
-            - f32::from(glass.inner_margin.top + glass.inner_margin.bottom))
-        .max(200.0);
+            - f32::from(glass.inner_margin.top + glass.inner_margin.bottom)
+            - 2.0 * glass.stroke.width)
+            .max(200.0);
         egui::Window::new(t!("chat-title"))
             .id(Self::area_id())
             .title_bar(false)
@@ -803,10 +806,10 @@ impl ChatPanel {
                     ui.set_height(content_h);
                     // Satu baris kepala: pemilih model di kiri, ikon bulat
                     // (chat baru, riwayat, pengaturan, tutup) di kanan. Tingginya
-                    // dikunci ke `HEADER_ROW_H` supaya sejajar dengan baris tombol
+                    // dikunci ke `header_row_h()` supaya sejajar dengan baris tombol
                     // top bar yang berdiri di sebelah kirinya.
                     ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), HEADER_ROW_H),
+                        egui::vec2(ui.available_width(), header_row_h()),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
                             if state.targets.len() > 1 && !state.busy {
@@ -1031,9 +1034,16 @@ impl ChatPanel {
                     let inner = ui
                         .scope_builder(egui::UiBuilder::new().max_rect(composer_rect), |ui| {
                             card.show(ui, |ui| {
+                                // `min_scrolled_height` bawaan egui = 64 px: begitu isi
+                                // perlu bergulir, area gulir dipaksa setinggi itu, kartu
+                                // membengkak, jendela meluap ke bawah layar dan egui
+                                // mendorongnya ke y = 0 (tepi atas tidak lagi sejajar
+                                // top bar, composer terpotong). Margin TextEdit juga
+                                // dinolkan supaya `rows` baris pas persis di `text_h`.
                                 let resp = egui::ScrollArea::vertical()
                                     .id_salt("chat-composer-scroll")
                                     .max_height(text_h)
+                                    .min_scrolled_height(0.0)
                                     .auto_shrink([false, false])
                                     .stick_to_bottom(true)
                                     .show(ui, |ui| {
@@ -1041,6 +1051,7 @@ impl ChatPanel {
                                             egui::TextEdit::multiline(&mut state.input)
                                                 .id(composer_id)
                                                 .frame(egui::Frame::NONE)
+                                                .margin(egui::Margin::ZERO)
                                                 .hint_text(
                                                     RichText::new(t!("chat-hint"))
                                                         .size(COMPOSER_FONT_PX)
@@ -1197,10 +1208,13 @@ const SIDEBAR_DEFAULT_W: f32 = 360.0;
 /// keduanya sama dengan jarak ke tepi layar.
 const CHROME_MARGIN_X: f32 = 12.0;
 const CHROME_MARGIN_Y: f32 = 10.0;
-/// Tinggi baris kepala sidebar = tinggi isi top bar (`bar_h`, minimal 30 px
-/// di `top_bar.rs`) sehingga, dengan frame dan margin dalam yang sama, ikon
-/// kepala sidebar berdiri sejajar dengan tombol top bar di sebelah kirinya.
-const HEADER_ROW_H: f32 = 30.0;
+/// Tinggi baris kepala sidebar = tinggi isi top bar (`TopBar::bar_height`
+/// pada ukuran ikon bawaan, 32 px) sehingga, dengan frame dan margin dalam
+/// yang sama, ikon kepala sidebar berdiri sejajar dengan tombol top bar di
+/// sebelah kirinya. Pernah dikunci 30 px sehingga 2 px lebih pendek.
+fn header_row_h() -> f32 {
+    crate::top_bar::TopBar::bar_height(crate::theme::ICON_SIZE_DEFAULT)
+}
 
 /// Kaca sidebar: material, sudut, DAN margin dalam yang sama persis dengan
 /// top bar (`glass_frame()`), tanpa bayangan ganda (bayangan sudah dilukis
@@ -1234,7 +1248,11 @@ mod tests {
     fn sidebar_margins_match_top_bar_chrome() {
         assert_eq!(CHROME_MARGIN_X, 12.0);
         assert_eq!(CHROME_MARGIN_Y, 10.0);
-        assert_eq!(HEADER_ROW_H, 30.0);
+        assert_eq!(
+            header_row_h(),
+            crate::top_bar::TopBar::bar_height(crate::theme::ICON_SIZE_DEFAULT)
+        );
+        assert_eq!(header_row_h(), 32.0);
     }
 
     #[test]
