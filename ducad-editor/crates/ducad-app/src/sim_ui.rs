@@ -54,6 +54,13 @@ pub struct SimState {
     picked_cache: Option<(PickKey, Option<String>)>,
 }
 
+impl SimState {
+    /// Setidaknya satu studi sudah selesai dihitung (dipakai tutorial).
+    pub fn has_results(&self) -> bool {
+        !self.views.is_empty()
+    }
+}
+
 fn overlay_of(ui: SimOverlayUi) -> Overlay {
     match ui {
         SimOverlayUi::Stress => Overlay::Stress,

@@ -1558,63 +1558,168 @@ ind-failed = Failed: { $why }
 
 # Welcome tutorial (onboarding)
 onboard-restart = Tutorial: start over
-onboard-start = Start tutorial
+onboard-chat-demo-ask = Make a 40 mm L bracket
+onboard-chat-demo-reply = Bracket created.
+onboard-help-title = Tutorial
+onboard-help-desc = Open the DUCAD intro tour from the start
+extrude-needs-selection = Extrude: first select a closed sketch profile or a solid face with the Select tool.
 onboard-skip-all = Skip tutorial
 onboard-skip-step = Skip this step
 onboard-back = Back
 onboard-next = Next
-onboard-next-locked = Try the action first, then this button unlocks.
+onboard-next-locked = Do the step on the model first, then this button unlocks.
 onboard-finish = Start designing
-onboard-done = Well done! Continue to the next step.
-onboard-progress = Step { $current } of { $total }
+onboard-done = Done. Continue to the next step.
+onboard-progress = { $chapter } - Step { $current } of { $total }
+onboard-overview-progress = { $chapter } - Meet DUCAD { $current }/{ $total }
+onboard-next-chapter = Continue to the next chapter
+onboard-stop-here = Stop here
+onboard-bootstrap-done = The starting geometry for this chapter was built from the previous chapter's result.
+onboard-bootstrap-failed = The starting geometry for this chapter could not be built; do the previous chapter first.
 onboard-welcome-title = Welcome to DUCAD
-onboard-welcome-body = In a few minutes you will build your first 3D part. Each step shows an animated example, then it is your turn to try it.
-onboard-welcome-point-sketch = Precise 2D sketches with dimensions and constraints.
-onboard-welcome-point-solid = Turn sketches into solids: extrude, push-pull, fillet, shell.
-onboard-welcome-point-ai = Ask Chat AI to model or change a part for you.
-onboard-rect-title = Draw a rectangle
-onboard-rect-body = Sketches are the base of every part. Pick the Rectangle tool in the left bar (R key), click one corner on the canvas, then click the opposite corner.
-onboard-rect-try = Draw one rectangle on the canvas.
-onboard-circle-title = Add a circle
-onboard-circle-body = Pick the Circle tool (C key), click a center point inside the rectangle, then click again to set the radius. This circle becomes a hole.
-onboard-circle-try = Draw one circle inside the rectangle.
-onboard-extrude-title = Make it solid with Extrude
-onboard-extrude-body = Press Esc to return to the Select tool, click inside the closed profile, then click Extrude on the bar that appears at the bottom and set the distance.
-onboard-extrude-try = Extrude your sketch into a 3D solid.
-onboard-navigate-title = Look from every angle
-onboard-navigate-body = Drag with the middle button (or the left button while Select is active) to orbit. Shift + drag pans, scroll zooms. On a trackpad or iPad use two fingers.
+onboard-welcome-body = This tutorial builds one part from start to production-ready: a Ø240 mm brake disc. Every step adds something to the disc, and only unlocks after you have done it yourself.
+onboard-chapter-beginner = Chapter 1: Beginner
+onboard-chapter-beginner-desc = Meet the DUCAD screen, then build the disc: circle, extrude, center bore, chamfer.
+onboard-chapter-beginner-start = Start Chapter 1
+onboard-chapter-intermediate = Chapter 2: Intermediate
+onboard-chapter-intermediate-desc = Five bolt holes and twelve vents: sketch on a face, pattern, cut, fillet, measure.
+onboard-chapter-intermediate-start = Start Chapter 2
+onboard-chapter-advanced = Chapter 3: Advanced
+onboard-chapter-advanced-desc = A hollow threaded hub, then section, material, simulation, drawing, STEP, AI agent.
+onboard-chapter-advanced-start = Start Chapter 3
+onboard-ov-topbar-title = The top bar
+onboard-ov-topbar-body = Left: the file menu (new, open, save, import, export) and the document name. Middle: the mode button and command search. Right: help, share/export, touch mode, Chat AI, settings, and account.
+onboard-ov-toolbar-title = The left toolbar
+onboard-ov-toolbar-body = Tools that create something new. Its contents follow the mode: in 2D Sketch you get line, rectangle, circle, slot; in 3D you get reference planes, section, sweep, helix. The top tool is always Select (Esc).
+onboard-ov-mode-title = 2D Sketch and 3D modes
+onboard-ov-mode-body = DUCAD works in two modes. 2D Sketch draws flat profiles on a plane; 3D shapes solids. This button (pencil icon) switches modes; { $modkey }+Shift+2 and { $modkey }+Shift+3 work too. After the first extrude, DUCAD switches to 3D by itself.
+onboard-ov-viewcube-title = Navigation and the ViewCube
+onboard-ov-viewcube-body = Orbit: drag with the middle button (or the left button while Select is active). Pan: Shift + drag. Zoom: scroll. On a trackpad or iPad use two fingers. Click a ViewCube face for the Top, Front, or Right view.
+onboard-ov-context-title = The action bar at the bottom
+onboard-ov-context-body = Fillet, extrude, shell, Hole Wizard, and pattern have no icon in the left toolbar. They appear in the bottom bar after you click something with Select: a sketch line or profile, a solid face, an edge, or a body. Select first, then the actions show up.
+onboard-ov-palette-title = The command palette
+onboard-ov-palette-body = Every DUCAD command is searchable from one place: press { $modkey }+Shift+P (or the magnifier icon), type part of a name, then Enter. In Chapter 2 you will use it to measure.
+onboard-ov-help-title = Help and Chat AI
+onboard-ov-help-body = The question-mark icon reopens this tutorial anytime. The sparkle icon opens Chat AI, which can model parts from plain sentences; its setup comes at the end of Chapter 3. Now let's build the disc.
+onboard-disc-circle-title = The Ø240 disc circle
+onboard-disc-circle-body = 1. Pick the Circle tool in the left toolbar (C key).
+    2. Click the center point in the middle of the grid (where the red and green axes cross).
+    3. Type 120 and press Enter: radius 120 mm, diameter 240 mm.
+onboard-disc-circle-try = Draw a circle of radius 120 mm on the Top plane.
+onboard-disc-extrude-title = Extrude into a disc
+onboard-disc-extrude-body = 1. Press Esc to return to the Select tool.
+    2. Click inside the circle: the profile highlights and a gizmo arrow appears at its center.
+    3. Drag the arrow up, or click its number, type 6, and press Enter.
+    DUCAD switches to 3D mode by itself.
+onboard-disc-extrude-try = Extrude the circle 6 mm thick.
+onboard-navigate-title = Look at the disc from every side
+onboard-navigate-body = Drag with the middle button to orbit, Shift + drag to pan, scroll to zoom. Also try clicking the "Front" face of the ViewCube to see the 6 mm thickness from the side, then orbit again.
 onboard-navigate-try = Orbit, pan, or zoom the view.
-onboard-pushpull-title = Push and pull a face
-onboard-pushpull-body = Click a face of the solid, choose Extrude on the bottom bar, then drag the arrow or type a distance. Positive values add material, negative values cut.
-onboard-pushpull-try = Pull or push one face of the solid.
-onboard-fillet-title = Round a corner with Fillet
-onboard-fillet-body = There is no fillet icon in the left bar. With the Select tool still active, click exactly on one corner point of the rectangle. A radius handle appears at that corner: drag it, or type a value and press Enter. The F shortcut opens the Fillet 2D tool.
-onboard-fillet-try = Round one corner of the rectangle.
-onboard-mode-title = Two modes: 2D Sketch and 3D
-onboard-mode-body = DUCAD has two working modes. In 2D Sketch mode you draw flat shapes; the left bar holds the drawing tools. In 3D mode you shape solids; the left bar changes its contents. The mode button in the top bar (pencil icon) switches between them.
-onboard-mode-try = Click the mode button to enter 3D, then click it again to return to Sketch.
-onboard-palette-title = Find any command
-onboard-palette-body = The command palette lists every DUCAD feature. Open it with { $modkey }+Shift+P, type a command name, then press Enter.
-onboard-palette-try = Open the command palette.
-onboard-chat-title = Set up an agent for Chat AI
-onboard-chat-body = Chat AI models parts from plain sentences, but it needs a one-time setup. 1) Open the Chat AI panel. 2) Click the gear icon in the panel and tick "Allow external AI". 3) Pick an agent at the top left of the panel: an API provider (enter its API key), or a CLI agent such as Claude Code. 4) For a CLI agent press "Detect" then "Test connection"; agy and gemini also need "Register DUCAD MCP" once.
-onboard-chat-try = Open the Chat AI panel. You can finish the agent setup later.
-onboard-chat-demo-ask = Make a 40 mm L bracket
-onboard-chat-demo-reply = Bracket created.
-onboard-save-title = Save your work
-onboard-save-body = Press { $modkey }+S to save a .ducad file. It keeps your sketches, solids, and history; STEP, STL, and PDF export live in the File menu.
+onboard-bore-circle-title = Sketch the center bore on the top face
+onboard-bore-circle-body = 1. With Select, click the top face of the disc: it highlights and the action bar appears at the bottom.
+    2. Click "Sketsa di Face" (sketch on face): the sketch plane moves onto that face.
+    3. Circle tool (C), click the disc center, type 30, Enter.
+onboard-bore-circle-try = Start a sketch on the top face and draw a circle of radius 30 mm.
+onboard-bore-cut-title = Cut the bore through
+onboard-bore-cut-body = 1. Esc, then click inside the small circle.
+    2. Drag the gizmo arrow DOWN until it passes through the disc, or click its number and type -6.
+    Pointing into the solid means cutting: the material inside the profile is removed.
+onboard-bore-cut-try = Cut the Ø60 bore through the disc.
+onboard-rim-chamfer-title = Chamfer the outer edge
+onboard-rim-chamfer-body = 1. Make sure you are in 3D mode (mode button in the top bar).
+    2. Click the top outer edge of the disc: a handle appears with a Fillet/Chamfer style HUD.
+    3. Choose Chamfer, then drag the handle or type 1 and press Enter.
+onboard-rim-chamfer-try = Chamfer the outer edge by 1 mm.
+onboard-save-title = Save the disc
+onboard-save-body = Press { $modkey }+S and name it brake-disc.ducad. The file keeps your sketches, solids, and history; Chapter 2 continues from here.
 onboard-save-try = Save this document.
-onboard-tour-title = You have the basics
-onboard-tour-body = There is much more to explore when you are ready:
+onboard-end-beginner-title = Chapter 1 done: the disc is built
+onboard-end-beginner-body = You drew, extruded, sketched on a solid face, cut through, and chamfered. In Chapter 2 the disc gets five bolt holes and twelve vent slots.
+onboard-bolt-circle-title = The first bolt circle
+onboard-bolt-circle-body = 1. Click the top face with Select, then "Sketsa di Face" on the bottom bar.
+    2. Circle tool (C): click a point 45 mm to the right of the center (follow the grid), type 5, Enter.
+    This Ø10 circle is the pattern for the other four holes.
+onboard-bolt-circle-try = Draw a circle of radius 5 mm at 45 mm from the center.
+onboard-bolt-pattern-title = Circular pattern of five holes
+onboard-bolt-pattern-body = 1. Esc, click the bolt circle.
+    2. Click "Pattern" on the bottom bar.
+    3. In the top HUD choose Circular, count 5, angle 360°, center at the disc center, then Apply (Enter).
+onboard-bolt-pattern-try = Multiply the circle into five with a circular pattern.
+onboard-bolt-cut-title = Cut the five bolt holes
+onboard-bolt-cut-body = 1. Esc, then select all five circles: Shift + click each one, or drag a selection box.
+    2. Drag the gizmo arrow down through the disc (or type -6).
+onboard-bolt-cut-try = Cut all five circles through the disc.
+onboard-vent-slot-title = The first vent slot
+onboard-vent-slot-body = 1. Pick the Slot tool in the left toolbar.
+    2. Click a point at radius 80 mm, then a point at radius 110 mm along the same radial line.
+    3. Type width 6 and press Enter.
+onboard-vent-slot-try = Draw one radial slot 30 mm long.
+onboard-vent-pattern-title = Pattern of twelve vents
+onboard-vent-pattern-body = 1. Esc, select the four slot segments (drag a selection box around them).
+    2. "Pattern" on the bottom bar: Circular, count 12, angle 360°, disc center, Apply.
+onboard-vent-pattern-try = Multiply the slot into twelve.
+onboard-vent-cut-title = Cut all the vents
+onboard-vent-cut-body = Select all slots with a selection box (leave the outer circle out), then drag the gizmo arrow down through the disc.
+onboard-vent-cut-try = Cut all twelve slots through the disc.
+onboard-bore-fillet-title = Fillet the bore edge
+onboard-bore-fillet-body = 1. Switch to 3D mode.
+    2. Click the top edge of the center bore: a handle appears.
+    3. Make sure the style is Fillet, then drag the handle or type 2 and press Enter.
+onboard-bore-fillet-try = Fillet the bore edge by 2 mm.
+onboard-measure-title = Measure the bolt spacing
+onboard-measure-body = 1. Open the command palette ({ $modkey }+Shift+P), type "ukur", run "Ukur Jarak" (measure distance).
+    2. Click the centers of two neighboring bolt holes.
+    The distance shows on the canvas and in the status pill.
+onboard-measure-try = Measure one distance on the disc.
+onboard-rename-title = Name the body
+onboard-rename-body = 1. Click the folder button in the icon row at the bottom right: the Items list opens.
+    2. Click the disc body, choose Rename, type "Cakram", Enter.
+    The name carries into the drawing sheet and exports.
+onboard-rename-try = Rename the body to Cakram.
+onboard-end-intermediate-title = Chapter 2 done: a vented disc
+onboard-end-intermediate-body = The disc now has five bolt holes, twelve vents, and smooth edges. In Chapter 3 it gets a hollow hub, then gets checked and prepared for production.
+onboard-hub-extrude-title = The hub on top of the disc
+onboard-hub-extrude-body = 1. Click the top face of the disc, "Sketsa di Face".
+    2. Circle (C) at the center, radius 60, Enter.
+    3. Esc, click inside the circle, drag the gizmo arrow UP 25 mm.
+onboard-hub-extrude-try = Extrude a Ø120 hub 25 mm upward.
+onboard-hub-shell-title = Shell: hollow the hub
+onboard-hub-shell-body = 1. In 3D mode, click the top face of the hub.
+    2. Click "Shell" on the bottom bar.
+    3. Set the wall thickness to 4 mm, then Enter. The clicked face becomes the opening.
+onboard-hub-shell-try = Shell the hub with 4 mm walls.
+onboard-hub-hole-title = A threaded hole with Hole Wizard
+onboard-hub-hole-body = 1. Click the top ring of the hub (the flat face that remains).
+    2. "Hole Wizard" on the bottom bar: a dialog opens at the bottom right.
+    3. Choose Tapped M8, through, then Apply.
+onboard-hub-hole-try = Create one M8 threaded hole with Hole Wizard.
+onboard-section-title = Section: look inside
+onboard-section-body = In 3D mode click the Section View tool in the left toolbar. The disc is cut open so the hub cavity, the threaded hole, and the vents are visible. Click again to turn it off.
+onboard-section-try = Turn on Section View.
+onboard-material-title = Material and mass
+onboard-material-body = 1. Command palette, run "Properti Massa" (mass properties).
+    2. In the panel, pick Steel as the material of the Cakram body.
+    Mass, volume, and center of mass are computed right away.
+onboard-material-try = Give the body a mechanical material.
+onboard-sim-title = Simulation: braking load
+onboard-sim-body = 1. Command palette, run "Simulasi (studi statik)".
+    2. Press +. Click the inside of one bolt hole, + Fixture. Click the friction zone on the top face, + Load 500 N downward.
+    3. Create the study, then Run. Look at von Mises stress and the safety factor.
+onboard-sim-try = Run one static study to completion.
+onboard-drawing-title = 2D drawing sheet to PDF
+onboard-drawing-body = 1. Share icon in the top bar, choose "2D Drawing Sheet".
+    2. A sheet with top, front, side, and isometric views is generated.
+    3. Click Export PDF, save it, then close the sheet.
+onboard-drawing-try = Export the drawing sheet to PDF.
+onboard-step-title = Export STEP for manufacturing
+onboard-step-body = Share icon in the top bar, choose "Export STEP". STEP files open in every other CAD/CAM system; STL for 3D printing is in the same menu.
+onboard-step-try = Export the disc to STEP.
+onboard-chat-title = Set up an agent for Chat AI
+onboard-chat-body = Chat AI changes parts from plain sentences, but needs a one-time setup. 1) Open the Chat AI panel. 2) Click the gear icon in the panel and tick "Allow external AI". 3) Pick an agent at the top left of the panel: an API provider (enter its API key) or a CLI agent such as Claude Code. 4) For a CLI agent press "Detect" then "Test connection". Once ready, try: "add a 0.5 mm chamfer to all bolt holes".
+onboard-chat-try = Open the Chat AI panel. You can finish the agent setup later.
+onboard-tour-title = The brake disc is production-ready
+onboard-tour-body = From one circle to STEP and a drawing sheet: you have used the full DUCAD flow. Still left to explore:
+onboard-tour-shapes = More shapes: Revolve, Loft, Sweep, Helix, Boolean, and embossed text.
 onboard-tour-vector = Vector and Ink modes for Bezier curves and freehand strokes.
-onboard-tour-sim = Simulation: static stress, frequency, buckling, and thermal.
-onboard-tour-drawing = 2D drawing sheets with PDF, DXF, and SVG export.
-onboard-tour-industry = Industry features: sheet metal, ISO tolerances, GD&T, assembly.
 onboard-tour-agent = Agent Bridge so external AI agents can model through MCP.
 onboard-tour-reopen = You can reopen this tutorial anytime from the help button at the top right or the command palette.
-onboard-help-title = Tutorial
-onboard-help-desc = Open the DUCAD intro tour from the start
-onboard-select-title = Meet the Select tool
-onboard-select-body = You have a rectangle, now select it. The Select tool (the cursor icon at the top of the left bar, Esc key) is where almost every edit starts. Fillet, extrude, and other actions have no icon of their own in the left bar: click a line, a corner point, or a face with Select, and its handles and action bar appear.
-onboard-select-try = Press Esc, then click one line of the rectangle.
-extrude-needs-selection = Extrude: first select a closed sketch profile or a solid face with the Select tool.

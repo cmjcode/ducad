@@ -212,6 +212,7 @@ impl DuCADApp {
                     .and_then(|n| n.to_str())
                     .unwrap_or("model.step");
                 self.file_status = Some(ducad_i18n::t!("file-exported-step", name = name));
+                self.onboarding.note_exported("step");
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -838,6 +839,7 @@ impl DuCADApp {
                     .and_then(|n| n.to_str())
                     .unwrap_or("drawing.pdf");
                 self.file_status = Some(ducad_i18n::t!("file-exported-pdf", name = name));
+                self.onboarding.note_exported("pdf");
             }
             Err(e) => {
                 let err_str = e.to_string();

@@ -1558,63 +1558,168 @@ ind-failed = Gagal: { $why }
 
 # Tutorial selamat datang (onboarding)
 onboard-restart = Tutorial: mulai dari awal
-onboard-start = Mulai tutorial
+onboard-chat-demo-ask = Buat braket L 40 mm
+onboard-chat-demo-reply = Braket dibuat.
+onboard-help-title = Tutorial
+onboard-help-desc = Buka tur pengenalan DUCAD dari awal
+extrude-needs-selection = Extrude: pilih dulu profil sketsa tertutup atau satu sisi solid dengan tool Pilih.
 onboard-skip-all = Lewati tutorial
 onboard-skip-step = Lewati langkah ini
 onboard-back = Kembali
 onboard-next = Lanjut
-onboard-next-locked = Coba dulu aksinya, lalu tombol ini aktif.
+onboard-next-locked = Kerjakan dulu langkahnya pada model, lalu tombol ini aktif.
 onboard-finish = Mulai mendesain
-onboard-done = Berhasil! Lanjut ke langkah berikutnya.
-onboard-progress = Langkah { $current } dari { $total }
+onboard-done = Berhasil. Lanjut ke langkah berikutnya.
+onboard-progress = { $chapter } - Langkah { $current } dari { $total }
+onboard-overview-progress = { $chapter } - Kenali DUCAD { $current }/{ $total }
+onboard-next-chapter = Lanjut ke bab berikutnya
+onboard-stop-here = Cukup dulu
+onboard-bootstrap-done = Geometri awal bab ini dibuat otomatis dari hasil bab sebelumnya.
+onboard-bootstrap-failed = Geometri awal bab ini gagal dibuat; kerjakan bab sebelumnya dulu.
 onboard-welcome-title = Selamat datang di DUCAD
-onboard-welcome-body = Dalam beberapa menit Anda akan membuat part 3D pertama. Setiap langkah punya animasi contoh, lalu giliran Anda mencobanya.
-onboard-welcome-point-sketch = Sketsa 2D presisi dengan dimensi dan constraint.
-onboard-welcome-point-solid = Ubah sketsa jadi solid: extrude, tarik sisi, fillet, shell.
-onboard-welcome-point-ai = Minta Chat AI memodelkan atau mengubah part untuk Anda.
-onboard-rect-title = Gambar persegi panjang
-onboard-rect-body = Sketsa adalah dasar setiap part. Pilih tool Persegi di bilah kiri (tombol R), klik satu sudut di kanvas, lalu klik sudut seberangnya.
-onboard-rect-try = Gambar satu persegi panjang di kanvas.
-onboard-circle-title = Tambahkan lingkaran
-onboard-circle-body = Pilih tool Lingkaran (tombol C), klik titik pusat di dalam persegi, lalu klik lagi untuk menentukan radius. Lingkaran ini akan menjadi lubang.
-onboard-circle-try = Gambar satu lingkaran di dalam persegi.
-onboard-extrude-title = Jadikan solid dengan Extrude
-onboard-extrude-body = Tekan Esc untuk kembali ke tool Pilih, klik di dalam profil tertutup, lalu klik Extrude pada bilah yang muncul di bagian bawah dan tentukan jaraknya.
-onboard-extrude-try = Extrude sketsa Anda menjadi solid 3D.
-onboard-navigate-title = Lihat dari segala arah
-onboard-navigate-body = Seret dengan klik tengah (atau klik kiri saat tool Pilih aktif) untuk orbit. Shift + seret untuk menggeser, gulir untuk zoom. Di trackpad atau iPad pakai dua jari.
+onboard-welcome-body = Tutorial ini mengerjakan satu part dari awal sampai siap produksi: rem cakram Ø240 mm. Setiap langkah menambah sesuatu pada cakram, dan baru bisa dilanjutkan setelah Anda mengerjakannya sendiri.
+onboard-chapter-beginner = Bab 1: Pemula
+onboard-chapter-beginner-desc = Kenali layar DUCAD, lalu buat piringan: lingkaran, extrude, lubang poros, chamfer.
+onboard-chapter-beginner-start = Mulai Bab 1
+onboard-chapter-intermediate = Bab 2: Menengah
+onboard-chapter-intermediate-desc = Lima lubang baut dan dua belas ventilasi: sketsa di sisi, pattern, potong, fillet, ukur.
+onboard-chapter-intermediate-start = Mulai Bab 2
+onboard-chapter-advanced = Bab 3: Mahir
+onboard-chapter-advanced-desc = Hub berongga dengan ulir, lalu irisan, material, simulasi, gambar kerja, STEP, agent AI.
+onboard-chapter-advanced-start = Mulai Bab 3
+onboard-ov-topbar-title = Bilah atas
+onboard-ov-topbar-body = Kiri: menu berkas (baru, buka, simpan, impor, ekspor) dan nama dokumen. Tengah: tombol mode dan pencarian perintah. Kanan: bantuan, bagikan/ekspor, mode sentuh, Chat AI, pengaturan, dan akun.
+onboard-ov-toolbar-title = Bilah alat kiri
+onboard-ov-toolbar-body = Tool untuk membuat sesuatu yang belum ada. Isinya mengikuti mode: di Sketsa 2D ada garis, persegi, lingkaran, slot; di 3D ada bidang referensi, irisan, sweep, helix. Paling atas selalu tool Pilih (Esc).
+onboard-ov-mode-title = Mode Sketsa 2D dan 3D
+onboard-ov-mode-body = DUCAD bekerja dalam dua mode. Sketsa 2D untuk menggambar profil datar di sebuah bidang; 3D untuk membentuk solid. Tombol ini (ikon pensil) berpindah mode; { $modkey }+Shift+2 dan { $modkey }+Shift+3 juga bisa. Setelah extrude pertama, DUCAD pindah ke 3D sendiri.
+onboard-ov-viewcube-title = Navigasi dan ViewCube
+onboard-ov-viewcube-body = Orbit: seret klik tengah (atau klik kiri saat tool Pilih aktif). Geser: Shift + seret. Zoom: gulir. Di trackpad atau iPad pakai dua jari. Klik sisi ViewCube untuk tampak Atas, Depan, atau Kanan.
+onboard-ov-context-title = Bilah aksi di bawah
+onboard-ov-context-body = Fillet, extrude, shell, Hole Wizard, dan pattern tidak punya ikon di bilah kiri. Semuanya muncul di bilah bawah setelah Anda mengeklik sesuatu dengan tool Pilih: garis atau profil sketsa, sisi solid, tepi, atau body. Pilih dulu, baru aksinya tampil.
+onboard-ov-palette-title = Palet perintah
+onboard-ov-palette-body = Semua perintah DUCAD bisa dicari dari satu tempat: tekan { $modkey }+Shift+P (atau ikon kaca pembesar), ketik sebagian namanya, lalu Enter. Nanti di Bab 2 Anda memakainya untuk mengukur.
+onboard-ov-help-title = Bantuan dan Chat AI
+onboard-ov-help-body = Ikon tanda tanya membuka tutorial ini lagi kapan saja. Ikon bintang membuka Chat AI yang bisa memodelkan part dari kalimat biasa; penyiapannya ada di akhir Bab 3. Sekarang mari membuat cakramnya.
+onboard-disc-circle-title = Lingkaran piringan Ø240
+onboard-disc-circle-body = 1. Pilih tool Lingkaran di bilah kiri (tombol C).
+    2. Klik titik pusat di tengah grid (perpotongan sumbu merah dan hijau).
+    3. Ketik 120 lalu Enter: radius 120 mm, diameter 240 mm.
+onboard-disc-circle-try = Gambar lingkaran radius 120 mm di bidang Top.
+onboard-disc-extrude-title = Extrude menjadi piringan
+onboard-disc-extrude-body = 1. Tekan Esc untuk kembali ke tool Pilih.
+    2. Klik di dalam lingkaran: profil tersorot dan panah gizmo muncul di tengahnya.
+    3. Seret panah ke atas, atau klik angkanya dan ketik 6, lalu Enter.
+    DUCAD otomatis pindah ke mode 3D.
+onboard-disc-extrude-try = Extrude lingkaran setebal 6 mm.
+onboard-navigate-title = Lihat piringan dari segala sisi
+onboard-navigate-body = Seret dengan klik tengah untuk orbit, Shift + seret untuk geser, gulir untuk zoom. Coba juga klik sisi "Front" pada ViewCube untuk melihat ketebalan 6 mm dari samping, lalu orbit lagi.
 onboard-navigate-try = Putar, geser, atau zoom tampilan.
-onboard-pushpull-title = Tarik sisi (push-pull)
-onboard-pushpull-body = Klik salah satu sisi solid, pilih Extrude pada bilah bawah, lalu seret panahnya atau ketik jarak. Nilai positif menambah material, negatif memotong.
-onboard-pushpull-try = Tarik atau dorong satu sisi solid.
-onboard-fillet-title = Bulatkan sudut dengan Fillet
-onboard-fillet-body = Tidak ada ikon fillet di bilah kiri. Dengan tool Pilih masih aktif, klik tepat di salah satu titik sudut persegi. Gagang radius muncul di sudut itu: seret gagangnya, atau ketik nilai lalu tekan Enter. Pintasan F membuka tool Fillet 2D.
-onboard-fillet-try = Bulatkan satu sudut persegi.
-onboard-mode-title = Dua mode: Sketsa 2D dan 3D
-onboard-mode-body = DUCAD punya dua mode kerja. Di mode Sketsa 2D Anda menggambar bentuk datar; bilah kiri berisi tool gambar. Di mode 3D Anda membentuk solid; bilah kiri berganti isi. Tombol mode di bilah atas (ikon pensil) berpindah di antara keduanya.
-onboard-mode-try = Klik tombol mode untuk masuk 3D, lalu klik lagi untuk kembali ke Sketsa.
-onboard-palette-title = Cari perintah apa saja
-onboard-palette-body = Palet perintah memuat semua fitur DUCAD. Buka dengan { $modkey }+Shift+P, ketik nama perintah, lalu tekan Enter.
-onboard-palette-try = Buka palet perintah.
-onboard-chat-title = Siapkan agent untuk Chat AI
-onboard-chat-body = Chat AI memodelkan part dari kalimat biasa, tetapi perlu disiapkan sekali. 1) Buka panel Chat AI. 2) Klik ikon roda gigi di panel, lalu centang "Izinkan AI eksternal". 3) Pilih agent di pojok kiri atas panel: provider API (isi kunci API), atau CLI agent seperti Claude Code. 4) Untuk CLI agent tekan "Deteksi" lalu "Uji koneksi"; agy dan gemini juga butuh "Daftarkan MCP DUCAD" sekali.
-onboard-chat-try = Buka panel Chat AI. Penyiapan agent bisa dilanjutkan nanti.
-onboard-chat-demo-ask = Buat braket L 40 mm
-onboard-chat-demo-reply = Braket dibuat.
-onboard-save-title = Simpan pekerjaan Anda
-onboard-save-body = Tekan { $modkey }+S untuk menyimpan berkas .ducad. Berkas ini memuat sketsa, solid, dan riwayatnya; ekspor STEP, STL, dan PDF ada di menu Berkas.
+onboard-bore-circle-title = Sketsa lubang poros di sisi atas
+onboard-bore-circle-body = 1. Dengan tool Pilih, klik sisi atas piringan: sisi tersorot dan bilah aksi muncul di bawah.
+    2. Klik "Sketsa di Face": bidang sketsa pindah ke sisi itu.
+    3. Tool Lingkaran (C), klik pusat piringan, ketik 30, Enter.
+onboard-bore-circle-try = Buat sketsa di sisi atas dan gambar lingkaran radius 30 mm.
+onboard-bore-cut-title = Potong tembus lubang poros
+onboard-bore-cut-body = 1. Esc, lalu klik di dalam lingkaran kecil.
+    2. Seret panah gizmo ke BAWAH sampai menembus piringan, atau klik angkanya dan ketik -6.
+    Arah ke dalam solid berarti memotong: material di dalam profil terbuang.
+onboard-bore-cut-try = Potong lubang Ø60 menembus piringan.
+onboard-rim-chamfer-title = Chamfer tepi luar
+onboard-rim-chamfer-body = 1. Pastikan mode 3D (tombol mode di bilah atas).
+    2. Klik tepi luar atas piringan: gagang muncul beserta HUD gaya Fillet/Chamfer.
+    3. Pilih Chamfer, lalu seret gagang atau ketik 1 dan Enter.
+onboard-rim-chamfer-try = Chamfer 1 mm pada tepi luar piringan.
+onboard-save-title = Simpan piringan
+onboard-save-body = Tekan { $modkey }+S dan beri nama rem-cakram.ducad. Berkas ini memuat sketsa, solid, dan riwayatnya; Bab 2 melanjutkan dari sini.
 onboard-save-try = Simpan dokumen ini.
-onboard-tour-title = Dasar-dasarnya sudah Anda kuasai
-onboard-tour-body = Masih banyak yang bisa dijelajahi saat Anda siap:
+onboard-end-beginner-title = Bab 1 selesai: piringan jadi
+onboard-end-beginner-body = Anda sudah menggambar, meng-extrude, membuat sketsa di sisi solid, memotong tembus, dan memberi chamfer. Di Bab 2 piringan ini mendapat lima lubang baut dan dua belas slot ventilasi.
+onboard-bolt-circle-title = Lingkaran baut pertama
+onboard-bolt-circle-body = 1. Klik sisi atas piringan dengan tool Pilih, lalu "Sketsa di Face" di bilah bawah.
+    2. Tool Lingkaran (C): klik titik 45 mm di kanan pusat (ikuti grid), ketik 5, Enter.
+    Lingkaran Ø10 ini adalah pola untuk keempat lubang lainnya.
+onboard-bolt-circle-try = Gambar lingkaran radius 5 mm pada radius 45 mm dari pusat.
+onboard-bolt-pattern-title = Pattern sirkular lima lubang
+onboard-bolt-pattern-body = 1. Esc, klik lingkaran baut tadi.
+    2. Klik "Pattern" di bilah bawah.
+    3. Di HUD atas pilih Sirkular, jumlah 5, sudut 360°, pusat di pusat piringan, lalu Terapkan (Enter).
+onboard-bolt-pattern-try = Perbanyak lingkaran menjadi lima dengan pattern sirkular.
+onboard-bolt-cut-title = Potong lima lubang baut
+onboard-bolt-cut-body = 1. Esc, lalu pilih kelima lingkaran: Shift + klik satu per satu, atau seret kotak seleksi.
+    2. Seret panah gizmo ke bawah menembus piringan (atau ketik -6).
+onboard-bolt-cut-try = Potong kelima lingkaran menembus piringan.
+onboard-vent-slot-title = Slot ventilasi pertama
+onboard-vent-slot-body = 1. Pilih tool Slot di bilah kiri.
+    2. Klik titik pada radius 80 mm, lalu titik pada radius 110 mm searah jari-jari.
+    3. Ketik lebar 6 lalu Enter.
+onboard-vent-slot-try = Gambar satu slot radial sepanjang 30 mm.
+onboard-vent-pattern-title = Pattern dua belas ventilasi
+onboard-vent-pattern-body = 1. Esc, pilih keempat segmen slot (seret kotak seleksi di sekitarnya).
+    2. "Pattern" di bilah bawah: Sirkular, jumlah 12, sudut 360°, pusat piringan, Terapkan.
+onboard-vent-pattern-try = Perbanyak slot menjadi dua belas.
+onboard-vent-cut-title = Potong semua ventilasi
+onboard-vent-cut-body = Pilih semua slot dengan kotak seleksi (jangan ikutkan lingkaran luar), lalu seret panah gizmo ke bawah menembus piringan.
+onboard-vent-cut-try = Potong kedua belas slot menembus piringan.
+onboard-bore-fillet-title = Fillet tepi lubang poros
+onboard-bore-fillet-body = 1. Masuk mode 3D.
+    2. Klik tepi atas lubang poros: gagang muncul.
+    3. Pastikan gaya Fillet, lalu seret gagang atau ketik 2 dan Enter.
+onboard-bore-fillet-try = Fillet 2 mm pada tepi lubang poros.
+onboard-measure-title = Ukur jarak antar lubang baut
+onboard-measure-body = 1. Buka palet perintah ({ $modkey }+Shift+P), ketik "ukur", jalankan "Ukur Jarak".
+    2. Klik pusat dua lubang baut yang bersebelahan.
+    Jaraknya tampil di kanvas dan di pil status bawah.
+onboard-measure-try = Ukur satu jarak pada piringan.
+onboard-rename-title = Beri nama body
+onboard-rename-body = 1. Klik tombol folder di baris ikon kanan bawah: daftar Item terbuka.
+    2. Klik body piringan, pilih Ganti Nama, ketik "Cakram", Enter.
+    Nama ini ikut ke gambar kerja dan ekspor.
+onboard-rename-try = Ganti nama body menjadi Cakram.
+onboard-end-intermediate-title = Bab 2 selesai: cakram berventilasi
+onboard-end-intermediate-body = Cakram kini punya lima lubang baut, dua belas ventilasi, dan tepi yang halus. Di Bab 3 ia mendapat hub berongga, lalu diperiksa dan disiapkan untuk produksi.
+onboard-hub-extrude-title = Hub di atas cakram
+onboard-hub-extrude-body = 1. Klik sisi atas cakram, "Sketsa di Face".
+    2. Lingkaran (C) di pusat, radius 60, Enter.
+    3. Esc, klik di dalam lingkaran, seret panah gizmo ke ATAS 25 mm.
+onboard-hub-extrude-try = Extrude hub Ø120 setinggi 25 mm ke atas.
+onboard-hub-shell-title = Shell: hub berongga
+onboard-hub-shell-body = 1. Mode 3D, klik sisi atas hub.
+    2. Klik "Shell" di bilah bawah.
+    3. Atur tebal dinding 4 mm, lalu Enter. Sisi yang diklik menjadi bukaan.
+onboard-hub-shell-try = Shell hub dengan dinding 4 mm.
+onboard-hub-hole-title = Lubang ulir dengan Hole Wizard
+onboard-hub-hole-body = 1. Klik cincin atas hub (sisi datar yang tersisa).
+    2. "Hole Wizard" di bilah bawah: dialog muncul di kanan bawah.
+    3. Pilih Tapped M8, tembus, lalu Terapkan.
+onboard-hub-hole-try = Buat satu lubang ulir M8 dengan Hole Wizard.
+onboard-section-title = Irisan: lihat bagian dalam
+onboard-section-body = Di mode 3D klik tool Tampilan Irisan di bilah kiri. Cakram terbelah sehingga rongga hub, lubang ulir, dan ventilasi terlihat. Klik lagi untuk mematikannya.
+onboard-section-try = Nyalakan Tampilan Irisan.
+onboard-material-title = Material dan massa
+onboard-material-body = 1. Palet perintah, jalankan "Properti Massa".
+    2. Di panel, pilih material Baja untuk body Cakram.
+    Massa, volume, dan pusat massa langsung dihitung.
+onboard-material-try = Beri body material mekanik.
+onboard-sim-title = Simulasi: beban pengereman
+onboard-sim-body = 1. Palet perintah, jalankan "Simulasi (studi statik)".
+    2. Tekan +. Klik sisi dalam satu lubang baut, + Tumpuan. Klik zona gesek sisi atas, + Beban 500 N ke bawah.
+    3. Buat studi, lalu Jalankan. Lihat tegangan von Mises dan faktor keamanan.
+onboard-sim-try = Jalankan satu studi statik sampai selesai.
+onboard-drawing-title = Gambar kerja 2D ke PDF
+onboard-drawing-body = 1. Ikon bagikan di bilah atas, pilih "Gambar Kerja 2D".
+    2. Lembar dengan tampak atas, depan, samping, dan isometrik dibuat otomatis.
+    3. Klik Ekspor PDF, simpan, lalu tutup lembar.
+onboard-drawing-try = Ekspor gambar kerja ke PDF.
+onboard-step-title = Ekspor STEP untuk manufaktur
+onboard-step-body = Ikon bagikan di bilah atas, pilih "Ekspor STEP". Berkas STEP dibaca semua CAD/CAM lain; STL untuk cetak 3D ada di menu yang sama.
+onboard-step-try = Ekspor cakram ke STEP.
+onboard-chat-title = Siapkan agent untuk Chat AI
+onboard-chat-body = Chat AI mengubah part dari kalimat biasa, tetapi perlu disiapkan sekali. 1) Buka panel Chat AI. 2) Klik ikon roda gigi di panel, centang "Izinkan AI eksternal". 3) Pilih agent di kiri atas panel: provider API (isi kunci API) atau CLI agent seperti Claude Code. 4) Untuk CLI agent tekan "Deteksi" lalu "Uji koneksi". Setelah siap, coba: "tambah chamfer 0,5 mm pada semua lubang baut".
+onboard-chat-try = Buka panel Chat AI. Penyiapan agent bisa dilanjutkan nanti.
+onboard-tour-title = Rem cakram siap produksi
+onboard-tour-body = Dari satu lingkaran sampai STEP dan gambar kerja: Anda sudah memakai alur lengkap DUCAD. Yang masih bisa dijelajahi:
+onboard-tour-shapes = Bentuk lain: Revolve, Loft, Sweep, Helix, Boolean, dan teks timbul.
 onboard-tour-vector = Mode Vektor dan Tinta untuk kurva Bezier dan coretan bebas.
-onboard-tour-sim = Simulasi: tegangan statik, frekuensi, buckling, dan termal.
-onboard-tour-drawing = Lembar gambar teknik 2D dengan ekspor PDF, DXF, dan SVG.
-onboard-tour-industry = Fitur industri: sheet metal, toleransi ISO, GD&T, perakitan.
 onboard-tour-agent = Agent Bridge agar agent AI eksternal memodelkan lewat MCP.
 onboard-tour-reopen = Tutorial ini bisa dibuka lagi kapan saja lewat tombol bantuan di kanan atas atau palet perintah.
-onboard-help-title = Tutorial
-onboard-help-desc = Buka tur pengenalan DUCAD dari awal
-onboard-select-title = Kenali tool Pilih
-onboard-select-body = Persegi sudah ada, sekarang pilih. Tool Pilih (ikon kursor paling atas di bilah kiri, tombol Esc) adalah awal hampir semua pengeditan. Fillet, extrude, dan aksi lain tidak punya ikon sendiri di bilah kiri: klik garis, titik sudut, atau sisi dengan tool Pilih, lalu gagang dan bilah aksinya muncul.
-onboard-select-try = Tekan Esc, lalu klik salah satu garis persegi.
-extrude-needs-selection = Extrude: pilih dulu profil sketsa tertutup atau satu sisi solid dengan tool Pilih.

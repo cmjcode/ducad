@@ -128,6 +128,7 @@ impl ToolGuides {
         match tool {
             ToolbarTool::Rectangle => Self::render_rectangle_anim(painter, rect, 0, time),
             ToolbarTool::Circle => Self::render_circle_anim(painter, rect, 0, time),
+            ToolbarTool::Slot => Self::render_slot_anim(painter, rect, 0, time),
             ToolbarTool::Extrude => Self::render_extrude_anim(painter, rect, true, time),
             _ => {}
         }

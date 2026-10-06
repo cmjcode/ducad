@@ -1,14 +1,17 @@
-//! Tutorial selamat datang: penanda "sudah pernah dibuka" dan deteksi aksi.
+//! Tutorial selamat datang: penanda "sudah pernah dibuka", deteksi hasil tiap
+//! langkah, dan geometri awal tiap bab.
 //!
-//! Widgetnya (`ducad_ui::Onboarding`) murni egui. Modul ini menjawab dua hal
-//! yang hanya diketahui aplikasi: apakah ini pertama kali DUCAD dibuka
-//! (`$HOME/.ducad/onboarding.json`), dan apakah pengguna benar-benar sudah
-//! mencoba aksi pelajaran yang sedang tampil.
+//! Widgetnya (`ducad_ui::Onboarding`) murni egui. Modul ini menjawab apa yang
+//! hanya diketahui aplikasi: apakah ini pertama kali DUCAD dibuka
+//! (`$HOME/.ducad/onboarding.json`), dan apakah geometri benar-benar berubah
+//! seperti yang diminta langkah yang sedang tampil (body bertambah, volume
+//! berkurang, lingkaran bertambah, dan seterusnya).
 
 use std::path::{Path, PathBuf};
 
-use ducad_ui::{Onboarding, OnboardingEvent, OnboardingGoal, OnboardingState};
+use ducad_ui::{Onboarding, OnboardingChapter, OnboardingEvent, OnboardingGoal, OnboardingState};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::app::DuCADApp;
 
@@ -60,20 +63,25 @@ impl OnboardingPrefs {
     }
 }
 
-/// Potret keadaan aplikasi; pelajaran lulus bila potret sekarang berbeda dari
-/// potret saat pelajaran mulai tampil.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+/// Potret keadaan aplikasi. Sebuah langkah lulus bila potret sekarang berbeda
+/// dari potret saat langkah itu mulai tampil, sesuai `OnboardingGoal`-nya.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Probe {
-    pub entities: usize,
     pub circles: usize,
     pub arcs: usize,
     pub bodies: usize,
+    /// Jumlah volume semua body (mm³); dihitung hanya saat model berubah.
+    pub volume: f64,
+    /// Nama semua body, terurut; berubah = ada yang diganti nama.
+    pub names: Vec<String>,
+    pub materials: usize,
     pub camera: [f32; 6],
     pub sketching: bool,
-    pub palette_open: bool,
+    pub plane_z: f32,
+    pub measurements: usize,
+    pub section: bool,
+    pub sim_results: bool,
     pub chat_open: bool,
-    /// Tool Pilih aktif dan ada entitas, sudut, sisi, atau body yang terpilih.
-    pub picked: bool,
 }
 
 /// State tutorial milik aplikasi.
@@ -82,11 +90,13 @@ pub struct OnboardingCtl {
     /// `None` = tidak dipersist (tes).
     path: Option<PathBuf>,
     baseline: Option<Probe>,
-    /// Nama command model yang dieksekusi sejak pelajaran ini tampil.
+    /// Volume terakhir yang dihitung; dihitung ulang bila `volume_dirty`.
+    volume: f64,
+    volume_dirty: bool,
+    /// Nama command model yang dieksekusi sejak langkah ini tampil.
     model_commands: Vec<String>,
     saved: bool,
-    /// Mode 2D/3D sempat berganti sejak pelajaran ini tampil.
-    mode_flipped: bool,
+    exported: Vec<&'static str>,
 }
 
 impl OnboardingCtl {
@@ -113,15 +123,17 @@ impl OnboardingCtl {
             state: OnboardingState::default(),
             path: None,
             baseline: None,
+            volume: 0.0,
+            volume_dirty: true,
             model_commands: Vec::new(),
             saved: false,
-            mode_flipped: false,
+            exported: Vec::new(),
         }
     }
 
     /// Dipanggil `execute_model_command` untuk tiap command model.
     pub fn note_model_command(&mut self, name: &str) {
-        // Di luar tutorial tidak ada yang membaca daftar ini.
+        self.volume_dirty = true;
         if self.state.open {
             self.model_commands.push(name.to_string());
         }
@@ -132,11 +144,20 @@ impl OnboardingCtl {
         self.saved = true;
     }
 
+    /// Dipanggil setelah ekspor berhasil (`"step"`, `"pdf"`).
+    pub fn note_exported(&mut self, format: &str) {
+        match format {
+            "step" => self.exported.push("step"),
+            "pdf" => self.exported.push("pdf"),
+            _ => {}
+        }
+    }
+
     fn reset_step_tracking(&mut self) {
         self.baseline = None;
         self.model_commands.clear();
         self.saved = false;
-        self.mode_flipped = false;
+        self.exported.clear();
     }
 
     fn ran(&self, names: &[&str]) -> bool {
@@ -146,21 +167,35 @@ impl OnboardingCtl {
     }
 
     fn goal_met(&self, goal: OnboardingGoal, base: &Probe, now: &Probe) -> bool {
+        // Toleransi volume: perubahan nyata selalu jauh di atas 1 mm³.
+        const EPS: f64 = 1.0;
         match goal {
             OnboardingGoal::None => true,
-            OnboardingGoal::DrawRectangle => now.entities > base.entities,
-            OnboardingGoal::UseSelect => now.picked,
-            OnboardingGoal::DrawCircle => now.circles > base.circles,
-            OnboardingGoal::Extrude => self.ran(&["Extrude"]) || now.bodies > base.bodies,
+            OnboardingGoal::Circle => now.circles > base.circles,
+            OnboardingGoal::ExtrudeBody => now.bodies > base.bodies,
             OnboardingGoal::Navigate => camera_moved(&base.camera, &now.camera),
-            OnboardingGoal::PushPull => self.ran(&["Extrude Face", "Cut Face", "Cut Extrude"]),
-            // Fillet sudut sketsa menambah satu busur; fillet tepi solid juga diterima.
-            OnboardingGoal::Fillet => now.arcs > base.arcs || self.ran(&["Fillet", "Chamfer"]),
-            // Harus berakhir di mode Sketsa: pelajaran berikutnya menggambar.
-            OnboardingGoal::ToggleMode => self.mode_flipped && now.sketching,
-            OnboardingGoal::OpenPalette => now.palette_open,
-            OnboardingGoal::OpenChat => now.chat_open,
+            // Bidang sketsa di atas alas (sisi atas solid) dan lingkaran baru di sana.
+            OnboardingGoal::CircleOnFace => {
+                now.sketching && now.plane_z > 0.5 && now.circles > base.circles
+            }
+            OnboardingGoal::Cut => now.volume < base.volume - EPS,
+            OnboardingGoal::Chamfer => self.ran(&["Chamfer"]),
             OnboardingGoal::Save => self.saved,
+            OnboardingGoal::MoreCircles(n) => now.circles >= base.circles + n,
+            OnboardingGoal::Slot => now.arcs >= base.arcs + 2,
+            OnboardingGoal::MoreArcs(n) => now.arcs >= base.arcs + n,
+            OnboardingGoal::Fillet => self.ran(&["Fillet"]),
+            OnboardingGoal::Measure => now.measurements > base.measurements,
+            OnboardingGoal::Rename => now.names != base.names && now.bodies == base.bodies,
+            OnboardingGoal::AddVolume => now.volume > base.volume + EPS,
+            OnboardingGoal::Shell => self.ran(&["Shell", "Shell Face"]),
+            OnboardingGoal::Hole => self.ran(&["Hole Wizard"]),
+            OnboardingGoal::Section => now.section,
+            OnboardingGoal::Material => now.materials > base.materials,
+            OnboardingGoal::SimResult => now.sim_results && !base.sim_results,
+            OnboardingGoal::ExportPdf => self.exported.contains(&"pdf"),
+            OnboardingGoal::ExportStep => self.exported.contains(&"step"),
+            OnboardingGoal::OpenChat => now.chat_open,
         }
     }
 
@@ -186,11 +221,49 @@ fn camera_moved(base: &[f32; 6], now: &[f32; 6]) -> bool {
     rotated || zoomed || panned
 }
 
+/// Geometri awal Bab 2: cakram Ø240×6 dengan lubang poros Ø60 dan chamfer
+/// tepi atas (hasil Bab 1). Dijalankan lewat oplog engine.
+const CHAPTER2_START_OPS: &str = r#"[
+  {"op": "primitive", "id": "disc", "shape": {"cylinder": {"r": 120, "h": 6}}, "at": [0, 0, 0]},
+  {"op": "primitive", "id": "bore", "shape": {"cylinder": {"r": 30, "h": 6}}, "at": [0, 0, 0]},
+  {"op": "boolean", "id": "cakram", "kind": "subtract", "a": "disc", "b": "bore"},
+  {"op": "chamfer", "id": "rim", "body": "cakram", "edges": "of(>Z)", "distance": 1}
+]"#;
+
+/// Geometri awal Bab 3: Bab 2 ditambah lima lubang baut dan dua belas
+/// ventilasi. `pattern` dengan `merge` menyatukan salinan ke body asalnya,
+/// jadi yang dikurangkan tetap `bolt` dan `vent`.
+const CHAPTER3_START_OPS: &str = r#"[
+  {"op": "primitive", "id": "disc", "shape": {"cylinder": {"r": 120, "h": 6}}, "at": [0, 0, 0]},
+  {"op": "primitive", "id": "bore", "shape": {"cylinder": {"r": 30, "h": 6}}, "at": [0, 0, 0]},
+  {"op": "boolean", "id": "cakram", "kind": "subtract", "a": "disc", "b": "bore"},
+  {"op": "primitive", "id": "bolt", "shape": {"cylinder": {"r": 5, "h": 6}}, "at": [45, 0, 0]},
+  {"op": "pattern", "id": "bolts", "body": "bolt", "merge": true,
+   "kind": {"circular": {"pivot": [0, 0, 0], "axis": [0, 0, 1], "count": 5, "angle_deg": 360}}},
+  {"op": "boolean", "id": "cakram2", "kind": "subtract", "a": "cakram", "b": "bolt"},
+  {"op": "primitive", "id": "vent", "shape": {"cylinder": {"r": 4, "h": 6}}, "at": [95, 0, 0]},
+  {"op": "pattern", "id": "vents", "body": "vent", "merge": true,
+   "kind": {"circular": {"pivot": [0, 0, 0], "axis": [0, 0, 1], "count": 12, "angle_deg": 360}}},
+  {"op": "boolean", "id": "cakram3", "kind": "subtract", "a": "cakram2", "b": "vent"},
+  {"op": "chamfer", "id": "rim", "body": "cakram3", "edges": "of(>Z)", "distance": 1}
+]"#;
+
 impl DuCADApp {
-    pub(crate) fn onboarding_probe(&self) -> Probe {
+    pub(crate) fn onboarding_probe(&mut self) -> Probe {
+        if self.onboarding.volume_dirty {
+            self.onboarding.volume = self.model.geometry.values().map(|g| g.shape.volume()).sum();
+            self.onboarding.volume_dirty = false;
+        }
         let sketch = self.sketch();
+        let mut names: Vec<String> = self
+            .model
+            .doc
+            .bodies
+            .values()
+            .map(|b| b.name.clone())
+            .collect();
+        names.sort_unstable();
         Probe {
-            entities: sketch.entities.iter().count(),
             circles: sketch
                 .entities
                 .iter()
@@ -202,6 +275,15 @@ impl DuCADApp {
                 .filter(|(_, e)| matches!(e, ducad_sketch::Entity::Arc { .. }))
                 .count(),
             bodies: self.model.doc.bodies.len(),
+            volume: self.onboarding.volume,
+            names,
+            materials: self
+                .model
+                .doc
+                .bodies
+                .values()
+                .filter(|b| b.mechanical.is_some())
+                .count(),
             camera: [
                 self.camera.yaw,
                 self.camera.pitch,
@@ -211,37 +293,76 @@ impl DuCADApp {
                 self.camera.target.z,
             ],
             sketching: self.is_sketching,
-            palette_open: self.palette.is_open(),
+            plane_z: self.active_plane.origin.z,
+            measurements: self.measurements.len(),
+            section: self.section_enabled,
+            sim_results: self.sim.has_results(),
             chat_open: self.chat.panel.open,
-            picked: self.tool == crate::types::ToolKind::Select
-                && (!self.selected.is_empty()
-                    || self.active_sketch_corner.is_some()
-                    || self.active_face.is_some()
-                    || !self.selected_bodies.is_empty()),
         }
     }
 
-    /// Buka tutorial dari awal (palet perintah / burger menu).
+    /// Buka tutorial dari awal (tombol bantuan, palet perintah, burger menu).
     pub fn start_onboarding(&mut self) {
         self.onboarding.state.restart();
         self.onboarding.reset_step_tracking();
     }
 
-    /// Perbarui status "sudah dicoba" pelajaran yang sedang tampil.
+    /// Bab 2 dan 3 melanjutkan hasil bab sebelumnya. Bila kanvas kosong saat
+    /// bab itu dimulai (pengguna melompat dari kartu sambutan), geometri
+    /// awalnya dibangun lewat oplog engine supaya langkah-langkahnya tetap
+    /// bisa dikerjakan.
+    pub(crate) fn onboarding_bootstrap_chapter(&mut self) {
+        let step = self.onboarding.state.step;
+        let chapter = self.onboarding.state.current().chapter;
+        if step != chapter.first_step() || !self.model.doc.bodies.is_empty() {
+            return;
+        }
+        let ops = match chapter {
+            OnboardingChapter::Beginner => return,
+            OnboardingChapter::Intermediate => CHAPTER2_START_OPS,
+            OnboardingChapter::Advanced => CHAPTER3_START_OPS,
+        };
+        let ops: serde_json::Value = match serde_json::from_str(ops) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("oplog awal bab tutorial rusak: {e}");
+                return;
+            }
+        };
+        // Mode "selalu usulkan" menahan run_ops sampai disetujui; geometri
+        // awal harus langsung ada, jadi dilewati dalam mode itu.
+        if self.bridge.force_propose {
+            return;
+        }
+        match self.agent_call_local("run_ops", json!({ "ops": ops })) {
+            Some(out) if !out.is_error => {
+                self.onboarding.volume_dirty = true;
+                self.is_sketching = false;
+                self.left_toolbar.is_sketching = false;
+                self.model_status = Some(ducad_i18n::t!("onboard-bootstrap-done"));
+            }
+            Some(out) => {
+                log::warn!("geometri awal bab tutorial gagal: {}", out.payload);
+                self.model_status = Some(ducad_i18n::t!("onboard-bootstrap-failed"));
+            }
+            None => {}
+        }
+    }
+
+    /// Perbarui status "sudah dikerjakan" langkah yang sedang tampil.
     pub(crate) fn onboarding_track(&mut self) {
         if !self.onboarding.state.open {
             return;
         }
         let now = self.onboarding_probe();
         let animating = self.camera_animation.is_some();
-        let base = self.onboarding.baseline.get_or_insert(now);
+        let base = self.onboarding.baseline.get_or_insert_with(|| now.clone());
         if animating {
             // Kamera yang bergerak sendiri (mis. ke isometrik setelah extrude)
             // bukan aksi pengguna.
             base.camera = now.camera;
         }
-        let base = *base;
-        self.onboarding.mode_flipped |= now.sketching != base.sketching;
+        let base = base.clone();
         let goal = self.onboarding.state.current().goal;
         if !self.onboarding.state.done
             && goal != OnboardingGoal::None
@@ -253,13 +374,21 @@ impl DuCADApp {
 
     /// Dipanggil sekali per frame setelah seluruh chrome dirender.
     pub fn onboarding_frame(&mut self, ctx: &egui::Context, bounds: egui::Rect) {
-        // Lembar gambar 2D menutupi kanvas; tutorial menunggu sampai ditutup.
-        if !self.onboarding.state.open || self.drawing_sheet_state.is_open {
+        if !self.onboarding.state.open {
             return;
         }
+        // Deteksi tetap jalan saat lembar gambar 2D terbuka (mengekspor PDF
+        // dari sana adalah salah satu langkah); kartunya menunggu sampai
+        // lembar ditutup.
         self.onboarding_track();
+        if self.drawing_sheet_state.is_open {
+            return;
+        }
         match Onboarding::show(ctx, bounds, &mut self.onboarding.state) {
-            Some(OnboardingEvent::StepChanged) => self.onboarding.reset_step_tracking(),
+            Some(OnboardingEvent::StepChanged) => {
+                self.onboarding.reset_step_tracking();
+                self.onboarding_bootstrap_chapter();
+            }
             Some(OnboardingEvent::Dismissed | OnboardingEvent::Finished) => {
                 self.onboarding.reset_step_tracking();
                 self.onboarding.persist_completed();
@@ -296,10 +425,21 @@ mod tests {
         let mut app = DuCADApp::new_for_test();
         app.start_onboarding();
         app.onboarding.state.go_to(step_of(goal));
-        // Frame pertama pelajaran hanya mengambil potret awal.
+        // Frame pertama langkah hanya mengambil potret awal.
         app.onboarding_track();
         assert!(!app.onboarding.state.done);
         app
+    }
+
+    fn add_box(app: &mut DuCADApp, id: &str, size: [f64; 3]) {
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [{ "op": "primitive", "id": id, "shape": { "box": { "size": size } } }] }),
+            )
+            .expect("balasan langsung");
+        assert!(!out.is_error, "{}", out.payload);
+        app.onboarding.volume_dirty = true;
     }
 
     #[test]
@@ -339,118 +479,213 @@ mod tests {
     }
 
     #[test]
-    fn model_command_passes_matching_lesson_only() {
-        let mut app = app_at(OnboardingGoal::Fillet);
-        app.onboarding.note_model_command("Extrude");
+    fn chapter_one_is_overview_then_build_steps() {
+        let goals: Vec<_> = ONBOARDING_STEPS[1..]
+            .iter()
+            .take_while(|s| s.kind != OnboardingStepKind::ChapterEnd)
+            .map(|s| (s.kind, s.goal))
+            .collect();
+        assert_eq!(
+            goals[0],
+            (OnboardingStepKind::Overview, OnboardingGoal::None)
+        );
+        assert_eq!(
+            goals[1..].iter().map(|g| g.1).collect::<Vec<_>>(),
+            [
+                OnboardingGoal::Circle,
+                OnboardingGoal::ExtrudeBody,
+                OnboardingGoal::Navigate,
+                OnboardingGoal::CircleOnFace,
+                OnboardingGoal::Cut,
+                OnboardingGoal::Chamfer,
+                OnboardingGoal::Save,
+            ]
+        );
+    }
+
+    #[test]
+    fn geometry_goals_follow_real_changes() {
+        // Extrude = body bertambah.
+        let mut app = app_at(OnboardingGoal::ExtrudeBody);
+        add_box(&mut app, "a", [10.0, 10.0, 10.0]);
         app.onboarding_track();
-        assert!(!app.onboarding.state.done, "extrude bukan fillet");
+        assert!(app.onboarding.state.done, "body bertambah");
+
+        // Potong = volume berkurang; menambah body bukan potongan.
+        let mut app = DuCADApp::new_for_test();
+        add_box(&mut app, "a", [10.0, 10.0, 10.0]);
+        app.start_onboarding();
+        app.onboarding.state.go_to(step_of(OnboardingGoal::Cut));
+        app.onboarding_track();
+        add_box(&mut app, "b", [5.0, 5.0, 5.0]);
+        app.onboarding_track();
+        assert!(
+            !app.onboarding.state.done,
+            "volume bertambah bukan potongan"
+        );
+        let out = app
+            .agent_call_local(
+                "run_ops",
+                json!({ "ops": [{ "op": "boolean", "id": "c", "kind": "subtract", "a": "a", "b": "b" }] }),
+            )
+            .expect("balasan langsung");
+        assert!(!out.is_error, "{}", out.payload);
+        app.onboarding.volume_dirty = true;
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "volume berkurang");
+
+        // Hub = volume bertambah.
+        let mut app = DuCADApp::new_for_test();
+        add_box(&mut app, "a", [10.0, 10.0, 10.0]);
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(step_of(OnboardingGoal::AddVolume));
+        app.onboarding_track();
+        add_box(&mut app, "b", [5.0, 5.0, 5.0]);
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "volume bertambah");
+    }
+
+    #[test]
+    fn model_commands_pass_matching_lessons_only() {
+        let mut app = app_at(OnboardingGoal::Chamfer);
         app.onboarding.note_model_command("Fillet");
         app.onboarding_track();
+        assert!(!app.onboarding.state.done, "fillet bukan chamfer");
+        app.onboarding.note_model_command("Chamfer");
+        app.onboarding_track();
         assert!(app.onboarding.state.done);
+
+        for (goal, cmd) in [
+            (OnboardingGoal::Fillet, "Fillet"),
+            (OnboardingGoal::Shell, "Shell"),
+            (OnboardingGoal::Hole, "Hole Wizard"),
+        ] {
+            let mut app = app_at(goal);
+            app.onboarding.note_model_command(cmd);
+            app.onboarding_track();
+            assert!(app.onboarding.state.done, "{cmd}");
+        }
     }
 
     #[test]
     fn commands_before_the_lesson_do_not_count() {
-        let mut app = app_at(OnboardingGoal::Extrude);
-        app.onboarding.note_model_command("Extrude");
+        let mut app = app_at(OnboardingGoal::Chamfer);
+        app.onboarding.note_model_command("Chamfer");
         app.onboarding_track();
         assert!(app.onboarding.state.done);
-
-        // Pindah langkah menghapus jejak: extrude tadi tidak meluluskan push-pull.
-        app.onboarding
-            .state
-            .go_to(step_of(OnboardingGoal::PushPull));
+        app.onboarding.state.go_to(step_of(OnboardingGoal::Fillet));
         app.onboarding.reset_step_tracking();
         app.onboarding_track();
         assert!(!app.onboarding.state.done);
-        app.onboarding.note_model_command("Extrude Face");
+    }
+
+    #[test]
+    fn sketch_goals_need_the_right_plane_and_entities() {
+        let mut app = app_at(OnboardingGoal::CircleOnFace);
+        let circle = || ducad_sketch::Entity::circle(glam::DVec2::ZERO, 5.0);
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Circle",
+            vec![circle()],
+        )));
+        app.onboarding_track();
+        assert!(!app.onboarding.state.done, "masih di bidang alas");
+        app.active_plane = ducad_render::SketchPlane::from_origin_normal(
+            glam::Vec3::new(0.0, 0.0, 6.0),
+            glam::Vec3::Z,
+        );
+        app.is_sketching = true;
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "lingkaran di sisi atas");
+
+        let mut app = app_at(OnboardingGoal::MoreCircles(4));
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Pattern",
+            vec![circle(), circle(), circle()],
+        )));
+        app.onboarding_track();
+        assert!(!app.onboarding.state.done, "baru tiga salinan");
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Pattern",
+            vec![circle()],
+        )));
         app.onboarding_track();
         assert!(app.onboarding.state.done);
     }
 
     #[test]
-    fn state_changes_pass_their_lessons() {
+    fn state_goals_pass_on_their_actions() {
         let mut app = app_at(OnboardingGoal::Navigate);
         app.camera.yaw += 0.3;
         app.onboarding_track();
         assert!(app.onboarding.state.done, "orbit");
 
-        let mut app = app_at(OnboardingGoal::OpenPalette);
-        app.palette.open();
+        let mut app = app_at(OnboardingGoal::Navigate);
+        app.start_camera_animation_to_isometric(10_000);
+        app.camera.yaw += 0.5;
         app.onboarding_track();
-        assert!(app.onboarding.state.done, "palet");
+        assert!(!app.onboarding.state.done, "animasi kamera bukan navigasi");
+
+        let mut app = app_at(OnboardingGoal::Section);
+        app.section_enabled = true;
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "irisan");
 
         let mut app = app_at(OnboardingGoal::Save);
         app.onboarding.note_saved();
         app.onboarding_track();
         assert!(app.onboarding.state.done, "simpan");
-    }
 
-    #[test]
-    fn basics_come_first_and_fillet_follows_the_rectangle() {
-        assert_eq!(step_of(OnboardingGoal::ToggleMode), 1);
-        assert_eq!(step_of(OnboardingGoal::DrawRectangle), 2);
-        assert_eq!(step_of(OnboardingGoal::UseSelect), 3);
-        assert_eq!(step_of(OnboardingGoal::Fillet), 4);
-    }
+        let mut app = app_at(OnboardingGoal::ExportStep);
+        app.onboarding.note_exported("pdf");
+        app.onboarding_track();
+        assert!(!app.onboarding.state.done, "pdf bukan step");
+        app.onboarding.note_exported("step");
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "step");
 
-    #[test]
-    fn select_lesson_needs_select_tool_and_a_pick() {
-        let mut app = app_at(OnboardingGoal::UseSelect);
-        app.tool = crate::types::ToolKind::Rectangle;
-        app.active_sketch_corner =
-            Some((Default::default(), Default::default(), glam::DVec2::ZERO));
-        app.onboarding_track();
-        assert!(!app.onboarding.state.done, "tool lain masih aktif");
-        app.tool = crate::types::ToolKind::Select;
-        app.onboarding_track();
-        assert!(app.onboarding.state.done);
-    }
-
-    #[test]
-    fn mode_lesson_must_end_in_sketch_mode() {
-        let mut app = app_at(OnboardingGoal::ToggleMode);
-        assert!(app.is_sketching);
-        app.is_sketching = false;
-        app.onboarding_track();
-        assert!(!app.onboarding.state.done, "masih di 3D");
-        app.is_sketching = true;
-        app.onboarding_track();
-        assert!(app.onboarding.state.done);
-    }
-
-    #[test]
-    fn palette_demo_command_exists_in_the_real_palette() {
         let mut app = DuCADApp::new_for_test();
-        let actions = app.palette_actions();
-        let hit = actions
-            .iter()
-            .find(|(label, _, _)| label == ducad_ui::PALETTE_DEMO_COMMAND)
-            .expect("perintah demo ada di palet");
-        assert!(matches!(
-            hit.2,
-            crate::types::PaletteAction::ExtrudeSelection
-        ));
-        // Hanya satu perintah yang cocok dengan kata yang diketik di animasi.
-        assert_eq!(
-            actions
-                .iter()
-                .filter(|(label, _, _)| label.to_lowercase().contains("extrude"))
-                .count(),
-            1
-        );
-        // Tanpa seleksi: tidak panik, hanya memberi petunjuk.
-        app.extrude_from_palette();
-        assert!(app.model_status.is_some());
+        add_box(&mut app, "a", [10.0, 10.0, 10.0]);
+        app.start_onboarding();
+        app.onboarding.state.go_to(step_of(OnboardingGoal::Rename));
+        app.onboarding_track();
+        for b in app.model.doc.bodies.values_mut() {
+            b.name = "Cakram".to_string();
+        }
+        app.onboarding_track();
+        assert!(app.onboarding.state.done, "ganti nama");
     }
 
     #[test]
-    fn camera_animation_is_not_user_navigation() {
-        let mut app = app_at(OnboardingGoal::Navigate);
-        app.start_camera_animation_to_isometric(10_000);
-        app.camera.yaw += 0.5;
-        app.onboarding_track();
-        assert!(!app.onboarding.state.done);
+    fn later_chapters_bootstrap_their_geometry() {
+        for chapter in [OnboardingChapter::Intermediate, OnboardingChapter::Advanced] {
+            let mut app = DuCADApp::new_for_test();
+            app.start_onboarding();
+            app.onboarding.state.go_to(chapter.first_step());
+            app.onboarding_bootstrap_chapter();
+            assert!(
+                !app.model.doc.bodies.is_empty(),
+                "{}: geometri awal dibuat",
+                chapter.key()
+            );
+            assert!(!app.is_sketching, "mulai di mode 3D");
+            let volume: f64 = app.model.geometry.values().map(|g| g.shape.volume()).sum();
+            // Cakram Ø240×6 pejal ≈ 271.000 mm³; lubang-lubang menguranginya.
+            assert!(
+                volume > 150_000.0 && volume < 271_500.0,
+                "{}: {volume}",
+                chapter.key()
+            );
+        }
+        // Bab 1 dan kanvas yang sudah berisi tidak disentuh.
+        let mut app = DuCADApp::new_for_test();
+        app.start_onboarding();
+        app.onboarding
+            .state
+            .go_to(OnboardingChapter::Beginner.first_step());
+        app.onboarding_bootstrap_chapter();
+        assert!(app.model.doc.bodies.is_empty());
     }
 
     #[test]
@@ -471,5 +706,28 @@ mod tests {
         }
         assert!(app.onboarding.state.open);
         assert_eq!(app.onboarding.state.step, 0);
+    }
+
+    #[test]
+    fn palette_demo_command_exists_in_the_real_palette() {
+        let mut app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        let hit = actions
+            .iter()
+            .find(|(label, _, _)| label == ducad_ui::PALETTE_DEMO_COMMAND)
+            .expect("perintah demo ada di palet");
+        assert!(matches!(
+            hit.2,
+            crate::types::PaletteAction::ExtrudeSelection
+        ));
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|(label, _, _)| label.to_lowercase().contains("extrude"))
+                .count(),
+            1
+        );
+        app.extrude_from_palette();
+        assert!(app.model_status.is_some());
     }
 }

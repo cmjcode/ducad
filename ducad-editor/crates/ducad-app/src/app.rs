@@ -1926,6 +1926,11 @@ impl eframe::App for DuCADApp {
                     }
                 });
             topbar_rect = Some(topbar_resp.response.rect);
+            ducad_ui::Onboarding::publish_target(
+                &ctx,
+                ducad_ui::OnboardingTarget::TopBar,
+                topbar_resp.response.rect,
+            );
 
             if self.checks.panel_open {
                 let top = topbar_resp.response.rect.max.y + 8.0;
@@ -2006,7 +2011,7 @@ impl eframe::App for DuCADApp {
             self.left_toolbar.icon_size = self.icon_size;
             let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
             self.left_toolbar_content_sig = Some(self.is_sketching);
-            egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
+            let left_toolbar_resp = egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
                 .fixed_pos(egui::pos2(12.0, screen_rect.center().y))
                 .pivot(egui::Align2::LEFT_CENTER)
                 .constrain_to(screen_rect)
@@ -2043,6 +2048,11 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+            ducad_ui::Onboarding::publish_target(
+                &ctx,
+                ducad_ui::OnboardingTarget::LeftToolbar,
+                left_toolbar_resp.response.rect,
+            );
         }
 
         let entities_2d: Vec<Entity2dItemInfo> = self
@@ -3293,6 +3303,11 @@ impl eframe::App for DuCADApp {
                             "Properties Dokumen (Objek 2D & Solid Body 3D)",
                             self.icon_size,
                         );
+                        ducad_ui::Onboarding::publish_target(
+                            ui.ctx(),
+                            ducad_ui::OnboardingTarget::ItemsButton,
+                            folder_resp.rect,
+                        );
                         if folder_resp.clicked() {
                             if is_folder_active {
                                 self.items_drawer_open = false;
@@ -3330,7 +3345,7 @@ impl eframe::App for DuCADApp {
             let viewcube_y = (topbar_bottom_y + viewcube_margin_top + 42.0).max(102.0);
             let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
             let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
-            egui::Area::new(egui::Id::new("ducad-viewcube-area"))
+            let viewcube_resp = egui::Area::new(egui::Id::new("ducad-viewcube-area"))
                 .fixed_pos(viewcube_pos - egui::vec2(42.0, 42.0))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
@@ -3353,6 +3368,11 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+            ducad_ui::Onboarding::publish_target(
+                &ctx,
+                ducad_ui::OnboardingTarget::ViewCube,
+                viewcube_resp.response.rect,
+            );
         }
 
 

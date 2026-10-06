@@ -991,7 +991,7 @@ impl TopBar {
                     ui.add_space(item_gap);
 
                     // Sebelah kiri Settings: Export / Share Icon Button
-                    ui.menu_button(
+                    let share_resp = ui.menu_button(
                         RichText::new(ICON_SHARE.codepoint)
                             .size(icon_sz)
                             .color(ACCENT_BLUE),
@@ -1112,6 +1112,11 @@ impl TopBar {
                     )
                     .response
                     .on_hover_text(t!("topbar-share"));
+                    crate::onboarding::Onboarding::publish_target(
+                        ui.ctx(),
+                        crate::onboarding::OnboardingTarget::ShareButton,
+                        share_resp.rect,
+                    );
 
                     ui.add_space(item_gap);
 
@@ -1128,6 +1133,11 @@ impl TopBar {
                         Some(&help_sub),
                         None,
                         None,
+                    );
+                    crate::onboarding::Onboarding::publish_target(
+                        ui.ctx(),
+                        crate::onboarding::OnboardingTarget::HelpButton,
+                        help_btn.rect,
                     );
                     if help_btn.clicked() {
                         event = Some(TopBarEvent::StartTutorial);

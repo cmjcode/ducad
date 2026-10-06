@@ -16,9 +16,20 @@ cargo run -p ducad-app
 
 ## 🎓 Tutorial Selamat Datang
 
-Saat DuCAD dibuka pertama kali, tutorial interaktif memandu Anda membuat part 3D pertama:
-mengenal mode 2D/3D, menggambar persegi, memilihnya dengan tool Pilih, membulatkan sudutnya (fillet), lingkaran, extrude, navigasi kamera, tarik sisi,
-palet perintah, menyimpan berkas, dan terakhir penyiapan agent Chat AI.
+Saat DuCAD dibuka pertama kali, tutorial interaktif mengerjakan satu part dari awal sampai
+siap produksi: **rem cakram Ø240 mm**. Setiap langkah menambah sesuatu pada cakram dan hanya
+terbuka setelah geometrinya benar-benar berubah. Tiga bab yang saling menyambung:
+
+1. **Pemula** — langkah 0 "Kenali DUCAD" (tur layar: bilah atas, bilah kiri, mode, ViewCube,
+   bilah aksi, palet, bantuan), lalu lingkaran Ø240, extrude 6 mm, navigasi, sketsa lubang poros
+   di sisi atas, potong tembus, chamfer tepi, simpan.
+2. **Menengah** — lingkaran baut di sisi atas, pattern sirkular 5×, potong, slot ventilasi,
+   pattern 12×, potong, fillet tepi lubang poros, ukur jarak, ganti nama body.
+3. **Mahir** — hub Ø120 di atas cakram, shell 4 mm, Hole Wizard M8, tampilan irisan, material
+   dan massa, simulasi statik, gambar kerja ke PDF, ekspor STEP, penyiapan agent Chat AI.
+
+Kartu sambutan bisa melompat ke bab mana pun. Jika kanvas kosong saat Bab 2 atau 3 dimulai,
+geometri hasil bab sebelumnya dibuat otomatis lewat oplog engine.
 
 * Setiap langkah memutar animasi contoh dan menyorot tombol yang dimaksud.
 * Tombol **Lanjut** baru aktif setelah Anda benar-benar mencoba aksinya. **Lewati langkah ini** tersedia bila ingin melompat.

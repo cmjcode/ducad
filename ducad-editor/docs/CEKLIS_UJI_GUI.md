@@ -307,13 +307,21 @@ lalu buka aplikasi. `DUCAD_SKIP_ONBOARDING=1` mematikan tutorial.
 
 - [ ] Kartu sambutan muncul di tengah, latar meredup, semua ikon terender (bukan kotak).
 - [ ] Tombol bahasa di kartu sambutan mengganti teks kartu dan seluruh aplikasi.
-- [ ] "Mulai tutorial" membuka pelajaran 1 (mode 2D/3D); kartu ada di kanan atas dan bisa digeser.
-- [ ] Tombol mode disorot cincin oranye berdenyut dan tetap bisa diklik; pelajaran lulus setelah
-  masuk 3D lalu kembali ke Sketsa.
-- [ ] Pelajaran 3 (tool Pilih, setelah persegi) lulus setelah satu garis persegi diklik.
-- [ ] "Lanjut" nonaktif sampai aksi dicoba; setelah lulus muncul tanda centang hijau.
-- [ ] Persegi, fillet sudut persegi, lingkaran, Extrude, navigasi, tarik sisi, palet, simpan, dan
-  Chat AI (langkah terakhir, berisi penyiapan agent) masing-masing lulus hanya setelah aksinya dilakukan.
+- [ ] Kartu sambutan menampilkan tiga bab; "Mulai Bab 1/2/3" melompat ke langkah pertama bab itu.
+- [ ] Bab 1 langkah 0 (tur layar, 7 halaman): tiap halaman menyorot bagian UI yang benar (bilah atas,
+  bilah kiri, tombol mode, ViewCube, palet, tombol bantuan) dan "Lanjut" berpindah halaman dulu.
+- [ ] Kepala kartu menulis nama bab dan "Langkah n dari m"; kartu di kanan atas dan bisa digeser.
+- [ ] "Lanjut" nonaktif sampai geometrinya berubah; setelah lulus muncul centang hijau.
+- [ ] Bab 1: lingkaran R120, extrude 6 (otomatis ke 3D), orbit, "Sketsa di Face" + lingkaran R30,
+  potong tembus (volume berkurang), chamfer tepi luar, simpan.
+- [ ] Bab 2 dari kartu sambutan dengan kanvas kosong: cakram berlubang poros muncul otomatis, mode 3D.
+- [ ] Bab 2: lingkaran baut, pattern 5× (lulus hanya setelah ≥4 salinan), potong, slot, pattern 12×,
+  potong, fillet lubang poros, Ukur Jarak via palet, ganti nama body.
+- [ ] Bab 3 dari kartu sambutan: cakram dengan lubang baut dan ventilasi muncul otomatis.
+- [ ] Bab 3: hub extrude (volume bertambah), Shell, Hole Wizard, irisan, material (Properti Massa),
+  simulasi sampai ada hasil, PDF dari lembar gambar (kartu tersembunyi selama lembar terbuka),
+  ekspor STEP, Chat AI.
+- [ ] Kartu akhir bab menawarkan "Lanjut ke bab berikutnya" dan "Cukup dulu".
 - [ ] Animasi kamera otomatis setelah extrude TIDAK meluluskan pelajaran navigasi.
 - [ ] Kartu tidak menutupi bilah konteks bawah, kartu panduan tool, maupun sidebar Chat AI.
 - [ ] "Lewati langkah ini" maju satu langkah; tombol tutup menutup tutorial.

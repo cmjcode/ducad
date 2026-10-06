@@ -89,12 +89,12 @@ fn welcome_card_is_visible_and_starts_the_first_lesson() {
     let shown = settle(&ctx, &mut st);
     assert!(has(&shown, &t!("onboard-welcome-title")));
 
-    let event = click(&ctx, &mut st, &t!("onboard-start"));
+    let event = click(&ctx, &mut st, &t!("onboard-chapter-beginner-start"));
     assert_eq!(event, Some(OnboardingEvent::StepChanged));
     assert_eq!(st.step, 1);
     let lesson = settle(&ctx, &mut st);
-    assert!(has(&lesson, &t!("onboard-mode-title")));
-    assert!(has(&lesson, &t!("onboard-mode-try")));
+    assert!(has(&lesson, &t!("onboard-ov-topbar-title")));
+    assert!(has(&lesson, &t!("onboard-ov-topbar-body")));
 }
 
 #[test]
@@ -102,11 +102,11 @@ fn next_is_locked_until_the_action_was_tried() {
     let ctx = egui::Context::default();
     let mut st = OnboardingState {
         open: true,
-        step: 1,
-        done: false,
+        step: 2,
+        ..Default::default()
     };
     assert_eq!(click(&ctx, &mut st, &t!("onboard-next")), None);
-    assert_eq!(st.step, 1, "belum dicoba: tidak boleh maju");
+    assert_eq!(st.step, 2, "belum dicoba: tidak boleh maju");
 
     st.done = true;
     let shown = settle(&ctx, &mut st);
@@ -115,7 +115,7 @@ fn next_is_locked_until_the_action_was_tried() {
         click(&ctx, &mut st, &t!("onboard-next")),
         Some(OnboardingEvent::StepChanged)
     );
-    assert_eq!(st.step, 2);
+    assert_eq!(st.step, 3);
     assert!(!st.done, "langkah baru terkunci lagi");
 }
 
@@ -125,7 +125,7 @@ fn skip_step_advances_and_close_dismisses() {
     let mut st = OnboardingState {
         open: true,
         step: 3,
-        done: false,
+        ..Default::default()
     };
     assert_eq!(
         click(&ctx, &mut st, &t!("onboard-skip-step")),
@@ -151,7 +151,8 @@ fn every_step_renders_and_the_last_one_finishes() {
     for (i, step) in ONBOARDING_STEPS.iter().enumerate() {
         st.go_to(i);
         let shown = settle(&ctx, &mut st);
-        let title = t!(&format!("onboard-{}-title", step.key));
+        let key = step.pages.first().map(|p| p.key).unwrap_or(step.key);
+        let title = t!(&format!("onboard-{key}-title"));
         assert!(has(&shown, &title), "langkah {} tidak tergambar", step.key);
         // Kartu tidak boleh keluar dari layar.
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
@@ -168,4 +169,25 @@ fn every_step_renders_and_the_last_one_finishes() {
         Some(OnboardingEvent::Finished)
     );
     assert!(!st.open);
+}
+
+#[test]
+fn overview_pages_advance_before_the_step_changes() {
+    let ctx = egui::Context::default();
+    let mut st = OnboardingState {
+        open: true,
+        step: 1,
+        ..Default::default()
+    };
+    let pages = ONBOARDING_STEPS[1].pages.len();
+    assert!(pages > 1);
+    for i in 1..pages {
+        assert_eq!(click(&ctx, &mut st, &t!("onboard-next")), None);
+        assert_eq!((st.step, st.page), (1, i));
+    }
+    assert_eq!(
+        click(&ctx, &mut st, &t!("onboard-next")),
+        Some(OnboardingEvent::StepChanged)
+    );
+    assert_eq!((st.step, st.page), (2, 0));
 }

@@ -105,10 +105,14 @@ aplikasi berjalan.
 
 ## Tutorial selamat datang (onboarding)
 
-Selesai 2026-10-06 (urutan: mode 2D/3D, persegi, tool Pilih, fillet sudut sketsa, ...). Widget `ducad-ui/src/onboarding.rs` (kartu sambutan, 10
-pelajaran beranimasi, tur fitur lanjutan, sorotan tombol) dan adapter
-`ducad-app/src/onboarding_ui.rs` (penanda first-run `~/.ducad/onboarding.json`,
-deteksi aksi lewat potret keadaan + nama command model). Dijaga tes
+Selesai 2026-10-06. Satu proyek berkelanjutan, rem cakram Ø240, dalam tiga
+bab (Pemula: tur layar + piringan; Menengah: lubang baut + ventilasi; Mahir:
+hub, verifikasi, ekspor, agent AI). Tiap langkah lulus hanya bila geometri
+atau keadaan berubah sesuai tujuannya (`OnboardingGoal`: body bertambah,
+volume berkurang, lingkaran/busur bertambah, nama command model, dsb.). Bab 2
+dan 3 membangun geometri awalnya lewat oplog engine bila kanvas kosong. Widget
+`ducad-ui/src/onboarding.rs`, adapter `ducad-app/src/onboarding_ui.rs`,
+penanda first-run `~/.ducad/onboarding.json`. Dijaga tes
 `ducad-ui/tests/onboarding_render.rs` dan tes unit `onboarding_ui`. Yang belum
 diverifikasi otomatis: tata letak kartu pelajaran di aplikasi berjalan dan di
 iPad (ceklis A14).

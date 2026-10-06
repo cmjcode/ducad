@@ -466,6 +466,13 @@ impl DuCADApp {
     }
 
     /// Jalankan satu metode jembatan langsung (dipakai tes proposal).
+    /// Jalankan satu tool jembatan dari dalam proses tanpa klien (dipakai
+    /// tutorial untuk membangun geometri awal bab). Balasan tertunda dibuang.
+    pub(crate) fn agent_call_local(&mut self, method: &str, params: Value) -> Option<ToolOut> {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        self.agent_call(method, params, 0, &tx)
+    }
+
     #[cfg(test)]
     pub(crate) fn agent_call_for_test(
         &mut self,

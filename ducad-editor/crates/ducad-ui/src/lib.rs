@@ -103,8 +103,9 @@ pub use items_drawer::{
 pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
 pub use onboarding::{
-    Onboarding, OnboardingEvent, OnboardingGoal, OnboardingState, OnboardingStep,
-    OnboardingStepKind, OnboardingTarget, PALETTE_DEMO_COMMAND, STEPS as ONBOARDING_STEPS,
+    Onboarding, OnboardingChapter, OnboardingEvent, OnboardingGoal, OnboardingState,
+    OnboardingStep, OnboardingStepKind, OnboardingTarget, OverviewPage, MOD_KEY,
+    PALETTE_DEMO_COMMAND, STEPS as ONBOARDING_STEPS,
 };
 pub use planes_drawer::{PlaneItemInfo, PlanesDrawer, PlanesDrawerEvent};
 pub use radial_menu::RadialMenu;
