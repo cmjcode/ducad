@@ -286,6 +286,13 @@ pub struct DuCADApp {
     pub unit: LengthUnit,
 
     pub extruding_from_gizmo: bool,
+    /// Drag gizmo extrude profil sudah dilepas tetapi belum di-commit: pratinjau,
+    /// handle, dan label tinggi tetap tampil supaya nilai presisi bisa diketik
+    /// (Enter/tombol centang = commit, Esc/tombol silang = batal).
+    pub gizmo_staged: bool,
+    /// Popup input gizmo berikutnya harus menyeleksi seluruh teks sekali
+    /// (dipakai bersama oleh semua popup gizmo — hanya satu yang terbuka).
+    pub gizmo_edit_select_all: bool,
     pub gizmo_distance: f64,
     pub gizmo_dimension_editing: bool,
     pub gizmo_edit_input: String,
@@ -293,6 +300,8 @@ pub struct DuCADApp {
     pub gizmo_target_body: Option<BodyId>,
 
     pub extruding_face_from_gizmo: bool,
+    /// Drag gizmo tarik-sisi sudah dilepas, menunggu commit/batal (lihat `gizmo_staged`).
+    pub face_gizmo_staged: bool,
     pub face_gizmo_distance: f64,
     pub face_gizmo_dimension_editing: bool,
     pub face_gizmo_edit_input: String,
@@ -654,13 +663,16 @@ impl DuCADApp {
             unit: LengthUnit::Millimeters,
 
             extruding_from_gizmo: false,
-            gizmo_distance: 20.0,
+            gizmo_staged: false,
+            gizmo_edit_select_all: false,
+            gizmo_distance: 0.0,
             gizmo_dimension_editing: false,
-            gizmo_edit_input: "20".to_string(),
+            gizmo_edit_input: "0".to_string(),
             gizmo_is_cutting: false,
             gizmo_target_body: None,
 
             extruding_face_from_gizmo: false,
+            face_gizmo_staged: false,
             face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
             face_gizmo_edit_input: "0".to_string(),
@@ -964,13 +976,16 @@ impl DuCADApp {
             unit: LengthUnit::Millimeters,
 
             extruding_from_gizmo: false,
-            gizmo_distance: 20.0,
+            gizmo_staged: false,
+            gizmo_edit_select_all: false,
+            gizmo_distance: 0.0,
             gizmo_dimension_editing: false,
-            gizmo_edit_input: "20".to_string(),
+            gizmo_edit_input: "0".to_string(),
             gizmo_is_cutting: false,
             gizmo_target_body: None,
 
             extruding_face_from_gizmo: false,
+            face_gizmo_staged: false,
             face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
             face_gizmo_edit_input: "0".to_string(),
@@ -1157,8 +1172,44 @@ impl DuCADApp {
     }
 
     /// Saat gizmo extrude/push-pull mulai di-drag di mode sketsa, otomatis pindah ke mode 3D
-    /// supaya hasil extrude langsung terlihat tanpa harus menekan Cmd+Shift+3 manual.
+    /// supaya hasil extrude langsung terlihat tanpa harus menekan ⌘⌥3 manual.
     pub fn auto_enter_3d_mode_on_extrude_drag(&mut self) {
+        if self.is_sketching {
+            self.is_sketching = false;
+            self.left_toolbar.is_sketching = false;
+            self.set_tool(ToolKind::Select);
+        }
+    }
+
+    /// Lepaskan kunci kamera `Ortho2D` milik mode Vektor/Tinta: kembali ke
+    /// mode Sketsa CAD (yang kameranya bebas diorbit). Dipanggil oleh tombol
+    /// pensil/kotak di header, Esc, dan shortcut mode, supaya pengguna yang
+    /// lupa shortcut tetap punya jalan keluar yang jelas.
+    pub fn release_camera_lock(&mut self) {
+        use crate::mode::AppMode;
+        if matches!(self.app_mode, AppMode::Vector | AppMode::Ink) {
+            self.set_app_mode(AppMode::Sketch);
+        }
+        if matches!(self.camera.mode(), ducad_render::CameraMode::Ortho2D { .. }) {
+            self.camera.set_mode(ducad_render::CameraMode::Orbit);
+        }
+    }
+
+    /// Masuk mode menggambar sketsa (tombol pensil, ⌘⌥2, palette, tombol S):
+    /// lepas kunci kamera lalu hadapkan kamera ke bidang aktif.
+    pub fn enter_sketching(&mut self) {
+        self.release_camera_lock();
+        if !self.is_sketching {
+            self.is_sketching = true;
+            self.left_toolbar.is_sketching = true;
+            self.camera.orient_to_plane(&self.active_plane);
+        }
+    }
+
+    /// Keluar ke tampilan 3D (tombol kotak, ⌘⌥3, palette, Esc): lepas kunci
+    /// kamera dan kembalikan tool ke Select.
+    pub fn exit_sketching(&mut self) {
+        self.release_camera_lock();
         if self.is_sketching {
             self.is_sketching = false;
             self.left_toolbar.is_sketching = false;
@@ -1189,9 +1240,23 @@ impl DuCADApp {
                 // Tool vektor hanya aktif saat sketching.
                 self.is_sketching = true;
                 self.left_toolbar.is_sketching = true;
+                // Beri tahu pengguna bahwa kamera terkunci dan bagaimana keluar;
+                // tanpa ini perpindahan lewat shortcut terjadi diam-diam.
+                self.model_status = Some(ducad_i18n::t!(
+                    "mode-camera-locked",
+                    mode = new_mode.label()
+                ));
             }
             AppMode::Solid => self.camera.set_mode(ducad_render::CameraMode::Orbit),
-            AppMode::Sketch => {}
+            AppMode::Sketch => {
+                // Keluar dari Vektor/Tinta harus melepas kunci `Ortho2D`;
+                // bila tidak, orbit dan view cube diam-diam tidak berpengaruh
+                // dan pengguna "terjebak" di tampilan Top. Yaw/pitch sudah
+                // searah bidang, jadi pandangan tetap tegak lurus sampai diputar.
+                if matches!(old_mode, AppMode::Vector | AppMode::Ink) {
+                    self.camera.set_mode(ducad_render::CameraMode::Orbit);
+                }
+            }
         }
         let tool = self.mode_last_tool[new_mode.index()].unwrap_or(ToolKind::Select);
         if tool != self.tool {
@@ -1204,6 +1269,71 @@ impl DuCADApp {
                 let _ = self.regenerate_parametric_model();
             }
         }
+    }
+
+    /// Terapkan aksi kontrol % zoom dari header (lihat `TopBarZoom`).
+    pub fn apply_topbar_zoom(&mut self, zoom: ducad_ui::TopBarZoom) {
+        use ducad_ui::{TopBarZoom, ZOOM_STEP};
+        let vp_h = self.last_viewport_size[1];
+        match zoom {
+            TopBarZoom::In => self.camera.zoom(ZOOM_STEP),
+            TopBarZoom::Out => self.camera.zoom(1.0 / ZOOM_STEP),
+            TopBarZoom::Percent(p) => self.camera.set_zoom_percent(p, vp_h),
+            TopBarZoom::Fit => self.zoom_fit(),
+        }
+    }
+
+    /// Pas seluruh body yang terlihat + sketsa aktif ke layar. Tanpa geometri
+    /// sama sekali, kembalikan ke zoom 100% di sekitar titik asal.
+    pub fn zoom_fit(&mut self) {
+        let [vp_w, vp_h] = self.last_viewport_size;
+        let aspect = if vp_h > 1.0 { vp_w / vp_h } else { 16.0 / 9.0 };
+        match self.scene_bounds() {
+            Some((min, max)) => self.camera.fit_bounds(min, max, aspect),
+            None => {
+                self.camera.target = glam::Vec3::ZERO;
+                self.camera.set_zoom_percent(100.0, vp_h);
+            }
+        }
+    }
+
+    /// Kotak pembungkus dunia dari semua body terlihat dan entitas sketsa
+    /// aktif (dipetakan lewat bidang sketsa aktif). `None` bila kosong.
+    fn scene_bounds(&self) -> Option<(glam::Vec3, glam::Vec3)> {
+        let mut lo = glam::Vec3::splat(f32::INFINITY);
+        let mut hi = glam::Vec3::splat(f32::NEG_INFINITY);
+        let mut found = false;
+
+        for (id, body) in self.model.doc.bodies.iter() {
+            if !body.visible {
+                continue;
+            }
+            let Some(geo) = self.model.geometry.get(id) else {
+                continue;
+            };
+            if let Some((bmin, bmax)) = geo.mesh.bounding_box() {
+                lo = lo.min(glam::Vec3::from(bmin));
+                hi = hi.max(glam::Vec3::from(bmax));
+                found = true;
+            }
+        }
+
+        if let Some((smin, smax)) = self.sketch_set.active_sketch().bounding_box() {
+            let corners = [
+                smin,
+                glam::DVec2::new(smax.x, smin.y),
+                smax,
+                glam::DVec2::new(smin.x, smax.y),
+            ];
+            for c in corners {
+                let w = self.active_plane.to_world(c, 0.0);
+                lo = lo.min(w);
+                hi = hi.max(w);
+                found = true;
+            }
+        }
+
+        (found && lo.is_finite() && hi.is_finite()).then_some((lo, hi))
     }
 
     /// Mulai animasi rotasi kamera menuju tampilan isometrik (M3.4).
@@ -1237,12 +1367,7 @@ impl DuCADApp {
         self.handle_radial_menu(ui, &response);
 
         let is_near_gizmo = self.check_near_gizmo(rect, response.hover_pos());
-        if is_near_gizmo
-            || self.extruding_from_gizmo
-            || self.extruding_face_from_gizmo
-            || self.filleting_vertex_from_gizmo
-            || self.filleting_edge_from_gizmo
-        {
+        if is_near_gizmo || self.gizmo_pointer_dragging() {
             let arrow_opt = if let Some(c) = self.selected_closed_region_centroid() {
                 let (_, arrow) =
                     self.project_screen_drag_to_extrude_axis(rect, c, egui::Vec2::ZERO);
@@ -1308,9 +1433,7 @@ impl DuCADApp {
             );
 
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
-                self.extruding_face_from_gizmo = true;
-                self.face_gizmo_distance = 0.0;
-                self.auto_enter_3d_mode_on_extrude_drag();
+                self.begin_face_gizmo_drag();
             }
 
             if self.extruding_face_from_gizmo
@@ -1330,12 +1453,7 @@ impl DuCADApp {
             }
 
             if self.extruding_face_from_gizmo && response.drag_stopped() {
-                if self.face_gizmo_distance.abs() > 0.1 {
-                    self.extrude_active_face(self.face_gizmo_distance);
-                }
-                self.extruding_face_from_gizmo = false;
-                self.face_gizmo_distance = 0.0;
-                self.face_gizmo_edit_input = "0".to_string();
+                self.stage_face_gizmo_extrusion();
             }
         }
 
@@ -1345,11 +1463,7 @@ impl DuCADApp {
 
         if let Some(c) = self.selected_closed_region_centroid() {
             if is_near_gizmo && response.drag_started_by(egui::PointerButton::Primary) {
-                self.extruding_from_gizmo = true;
-                if self.gizmo_distance == 0.0 {
-                    self.gizmo_distance = 20.0;
-                }
-                self.auto_enter_3d_mode_on_extrude_drag();
+                self.begin_gizmo_drag();
             }
 
             if self.extruding_from_gizmo && response.dragged_by(egui::PointerButton::Primary) {
@@ -1363,7 +1477,7 @@ impl DuCADApp {
             }
 
             if self.extruding_from_gizmo && response.drag_stopped() {
-                self.commit_gizmo_extrusion();
+                self.stage_gizmo_extrusion();
             }
         }
 
@@ -1383,10 +1497,7 @@ impl DuCADApp {
         ) || self.touch_config.single_finger_navigates())
             && !radial_active
             && !is_near_gizmo
-            && !self.extruding_from_gizmo
-            && !self.extruding_face_from_gizmo
-            && !self.filleting_vertex_from_gizmo
-            && !self.filleting_edge_from_gizmo;
+            && !self.gizmo_pointer_dragging();
         self.handle_navigation(ui, &response, rect, allow_primary_orbit);
         self.handle_sketch_input(ui, &response, rect, raw_cursor);
 
@@ -1614,37 +1725,28 @@ impl eframe::App for DuCADApp {
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::A)) {
             self.toggle_chat();
         }
-        let mode_sketch_pressed = ctx.input(|i| {
-            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num2)
-        });
-        let mode_3d_pressed = ctx.input(|i| {
-            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num3)
-        });
-        // Jalan masuk mode Vektor & Tinta (sebelumnya hanya bisa dicapai dari tes).
-        let mode_vector_pressed = ctx.input(|i| {
-            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num4)
-        });
-        let mode_ink_pressed = ctx.input(|i| {
-            i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Num5)
-        });
+        // Shortcut mode memakai ⌘⌥ (Cmd+Alt), BUKAN ⌘⇧: di macOS ⌘⇧3/4/5 adalah
+        // screenshot & rekam layar sistem, sehingga pengguna yang mengambil
+        // screenshot tanpa sengaja pindah ke mode Vektor/Tinta dan kameranya
+        // terkunci di tampilan Top.
+        let mode_key = |i: &egui::InputState, key: egui::Key| {
+            i.modifiers.command && i.modifiers.alt && !i.modifiers.shift && i.key_pressed(key)
+        };
+        let mode_sketch_pressed = ctx.input(|i| mode_key(i, egui::Key::Num2));
+        let mode_3d_pressed = ctx.input(|i| mode_key(i, egui::Key::Num3));
+        let mode_vector_pressed = ctx.input(|i| mode_key(i, egui::Key::Num4));
+        let mode_ink_pressed = ctx.input(|i| mode_key(i, egui::Key::Num5));
         if mode_vector_pressed {
             self.set_app_mode(crate::mode::AppMode::Vector);
         }
         if mode_ink_pressed {
             self.set_app_mode(crate::mode::AppMode::Ink);
         }
-        if mode_sketch_pressed && self.app_mode != crate::mode::AppMode::Sketch {
-            self.set_app_mode(crate::mode::AppMode::Sketch);
+        if mode_sketch_pressed {
+            self.enter_sketching();
         }
-        if mode_sketch_pressed && !self.is_sketching {
-            self.is_sketching = true;
-            self.left_toolbar.is_sketching = true;
-            self.camera.orient_to_plane(&self.active_plane);
-        }
-        if mode_3d_pressed && self.is_sketching {
-            self.is_sketching = false;
-            self.left_toolbar.is_sketching = false;
-            self.set_tool(ToolKind::Select);
+        if mode_3d_pressed {
+            self.exit_sketching();
         }
 
         let undo_pressed = ctx.input(|i| {
@@ -1739,6 +1841,7 @@ impl eframe::App for DuCADApp {
             command_groups: Self::topbar_command_groups(&palette_actions),
             document_name: doc_name,
             status_saved: is_saved,
+            zoom_percent: self.camera.zoom_percent(self.last_viewport_size[1]),
             current_unit: self.model.doc.unit,
             is_sketching: self.is_sketching,
             items_drawer_open: self.items_drawer_open,
@@ -1791,6 +1894,7 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::HomeClicked => {
                                 self.new_document();
                             }
+                            TopBarEvent::Zoom(zoom) => self.apply_topbar_zoom(zoom),
                             TopBarEvent::SetUnit(u) => {
                                 self.unit = u;
                                 self.model.doc.unit = u;
@@ -1850,16 +1954,8 @@ impl eframe::App for DuCADApp {
                             TopBarEvent::ToggleAccountDrawer => {
                                 self.account_drawer_open = !self.account_drawer_open;
                             }
-                            TopBarEvent::EnterSketching => {
-                                self.is_sketching = true;
-                                self.left_toolbar.is_sketching = true;
-                                self.camera.orient_to_plane(&self.active_plane);
-                            }
-                            TopBarEvent::ExitSketching => {
-                                self.is_sketching = false;
-                                self.left_toolbar.is_sketching = false;
-                                self.set_tool(ToolKind::Select);
-                            }
+                            TopBarEvent::EnterSketching => self.enter_sketching(),
+                            TopBarEvent::ExitSketching => self.exit_sketching(),
                             TopBarEvent::SelectSketchPlane(idx) => {
                                 self.set_sketch_plane_by_index(idx);
                             }
@@ -2184,11 +2280,16 @@ impl eframe::App for DuCADApp {
             screen_avail_h
         };
 
-        // 1. Folder / Items Drawer (Pojok Kanan Bawah, tepat di atas tombol)
+        // Semua drawer kanan bawah dijangkar di sebelah kiri rail ikon vertikal
+        // (`drawer_right_x`), bukan di tepi layar, supaya tidak menutupi rail.
+        let drawer_right_x = screen_rect.max.x - self.drawer_right_inset();
+
+        // 1. Folder / Items Drawer (Pojok Kanan Bawah, tepat di atas pil zoom
+        //    mengambang: 16 px margin + 34 px tinggi pil + 12 px celah)
         let mut folder_top_y = None;
         let folder_bottom_y = screen_rect.max.y - 62.0;
         if self.items_drawer_open {
-            let folder_pos = egui::pos2(screen_rect.max.x - 16.0, folder_bottom_y);
+            let folder_pos = egui::pos2(drawer_right_x, folder_bottom_y);
 
             let area_resp = egui::Area::new(egui::Id::new("ducad-items-drawer-area"))
                 .fixed_pos(folder_pos)
@@ -2561,7 +2662,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let planes_pos = egui::pos2(screen_rect.max.x - 16.0, planes_bottom_y);
+            let planes_pos = egui::pos2(drawer_right_x, planes_bottom_y);
 
             let all_planes_info: Vec<PlaneItemInfo> = self
                 .all_planes()
@@ -2639,7 +2740,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let feat_pos = egui::pos2(screen_rect.max.x - 16.0, feat_bottom_y);
+            let feat_pos = egui::pos2(drawer_right_x, feat_bottom_y);
 
             let feat_area_resp = egui::Area::new(egui::Id::new("ducad-feature-tree-drawer-area"))
                 .fixed_pos(feat_pos)
@@ -2765,7 +2866,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let assem_pos = egui::pos2(screen_rect.max.x - 16.0, assem_bottom_y);
+            let assem_pos = egui::pos2(drawer_right_x, assem_bottom_y);
 
             let assem_area_resp = egui::Area::new(egui::Id::new("ducad-assembly-drawer-area"))
                 .fixed_pos(assem_pos)
@@ -2989,7 +3090,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let draft_pos = egui::pos2(screen_rect.max.x - 16.0, draft_bottom_y);
+            let draft_pos = egui::pos2(drawer_right_x, draft_bottom_y);
 
             let mut draft_state = ducad_ui::DraftPopupState {
                 pull_dir: self.draft_config.pull_dir,
@@ -3040,7 +3141,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let cmf_pos = egui::pos2(screen_rect.max.x - 16.0, cmf_bottom_y);
+            let cmf_pos = egui::pos2(drawer_right_x, cmf_bottom_y);
 
             let (cur_mat, body_name, count) = if let Some(&bid) = self.selected_bodies.iter().next() {
                 if let Some(b) = self.model.doc.bodies.get(bid) {
@@ -3111,7 +3212,7 @@ impl eframe::App for DuCADApp {
             } else {
                 folder_bottom_y
             };
-            let lighting_pos = egui::pos2(screen_rect.max.x - 16.0, lighting_bottom_y);
+            let lighting_pos = egui::pos2(drawer_right_x, lighting_bottom_y);
 
             let preset_ui = match self.studio_config.preset {
                 ducad_render::StudioPreset::CleanStudio => ducad_ui::StudioLightingPresetUi::CleanStudio,
@@ -3200,32 +3301,36 @@ impl eframe::App for DuCADApp {
             folder_bottom_y
         };
 
-        // 2. Floating Buttons Bar di Pojok Kanan Bawah (Lighting, CMF Material, Draft Analysis, History, Folder)
+        // 2. Rail ikon vertikal di sisi kanan (Lighting, CMF, Draft, Assembly, Feature Tree,
+        //    Planes, Folder). Dulu bar horizontal di pojok kanan bawah yang berebut ruang
+        //    dengan context action bar; kini bergaya sama dengan toolbar kiri.
         if !self.drawing_sheet_state.is_open {
-            let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+            let rail_pos = egui::pos2(screen_rect.max.x - RIGHT_RAIL_MARGIN, screen_rect.center().y);
             let icon_sz = self.icon_size.clamp(12.0, 18.0);
-            let btn_side = (icon_sz + 18.0).max(34.0);
-            egui::Area::new(egui::Id::new("ducad-bottom-right-floating-btns"))
-                .fixed_pos(btns_pos)
-                .pivot(egui::Align2::RIGHT_BOTTOM)
+            let btn_side = ducad_ui::rail_button_side(icon_sz);
+            egui::Area::new(egui::Id::new("ducad-right-rail"))
+                .fixed_pos(rail_pos)
+                .pivot(egui::Align2::RIGHT_CENTER)
+                .constrain_to(screen_rect)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    // Kunci tinggi minimum widget interaktif & tinggi bar ke nilai tetap (`btn_side`).
-                    // `apply_with_touch` mengubah `interact_size.y` global ke 36/40/44 px per mode sentuh,
-                    // sehingga tanpa kunci ini baris membesar dan pivot RIGHT_BOTTOM menyebabkan tombol
-                    // melompat/bergerak naik-turun setiap kali mode sentuh di-klik.
-                    ui.spacing_mut().interact_size.y = btn_side;
-                    ui.set_height(btn_side);
-                    ui.horizontal_centered(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
+                    ducad_ui::toolbar_frame().show(ui, |ui| {
+                        // Kunci tinggi interaktif ke `btn_side`: `apply_with_touch` mengubah
+                        // `interact_size.y` global per mode sentuh, dan tanpa kunci ini rail
+                        // membesar/melompat setiap kali mode sentuh di-klik.
+                        ui.spacing_mut().interact_size.y = btn_side;
+                        ui.set_width(btn_side);
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.5);
 
                         // Tombol Studio Lighting & SSAO
-                        let lighting_resp = round_floating_icon_btn(
+                        let lighting_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                            self.icon_size,
                             self.lighting_drawer_open,
                             "Studio Lighting & Bayangan Kontak Lantai (SSAO)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if lighting_resp.clicked() {
                             self.lighting_drawer_open = !self.lighting_drawer_open;
@@ -3233,60 +3338,70 @@ impl eframe::App for DuCADApp {
                         }
 
                         // Tombol Preset Industri & CMF Material
-                        let cmf_resp = round_floating_icon_btn(
+                        let cmf_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_PALETTE.codepoint,
+                            self.icon_size,
                             self.cmf_drawer_open,
                             "Preset Material Industri & CMF (Warna & Finishing)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if cmf_resp.clicked() {
                             self.cmf_drawer_open = !self.cmf_drawer_open;
                         }
 
                         // Tombol Draft Analysis (Kiri dari History)
-                        let draft_resp = round_floating_icon_btn(
+                        let draft_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_ARCHITECTURE.codepoint,
+                            self.icon_size,
                             self.draft_config.enabled,
                             "Draft Analysis (Heatmap Sudut Kemiringan / Draft Angle)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if draft_resp.clicked() {
                             self.draft_config.enabled = !self.draft_config.enabled;
                         }
 
                         // Tombol Assembly (Pohon Perakitan & Mate) — urutannya mengikuti tumpukan drawer
-                        let assem_resp = round_floating_icon_btn(
+                        let assem_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_CATEGORY.codepoint,
+                            self.icon_size,
                             self.assembly_drawer_open,
                             &ducad_i18n::t!("topbar-assembly-tooltip"),
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if assem_resp.clicked() {
                             self.assembly_drawer_open = !self.assembly_drawer_open;
                         }
 
                         // Tombol Feature Tree & Riwayat Desain (Pohon Parametrik & Snapshot)
-                        let feat_tree_resp = round_floating_icon_btn(
+                        let feat_tree_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_TIMELINE.codepoint,
+                            self.icon_size,
                             self.feature_tree_drawer_open,
                             "Feature Tree & Riwayat Desain (Pohon Parametrik & Time-Travel)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if feat_tree_resp.clicked() {
                             self.feature_tree_drawer_open = !self.feature_tree_drawer_open;
                         }
 
                         // Tombol Reference Planes (Kiri dari Folder)
-                        let planes_resp = round_floating_icon_btn(
+                        let planes_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_LAYERS_OFF.codepoint,
+                            self.icon_size,
                             self.planes_drawer_open,
                             "Daftar Bidang Referensi 3D (Reference Planes)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         if planes_resp.clicked() {
                             self.planes_drawer_open = !self.planes_drawer_open;
@@ -3296,12 +3411,14 @@ impl eframe::App for DuCADApp {
                         let is_folder_active = self.items_drawer_open
                             && (!self.is_sketching
                                 || self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Objects);
-                        let folder_resp = round_floating_icon_btn(
+                        let folder_resp = ducad_ui::rail_square_btn(
                             ui,
                             egui_icons::icons::ICON_FOLDER.codepoint,
+                            self.icon_size,
                             is_folder_active,
                             "Properties Dokumen (Objek 2D & Solid Body 3D)",
-                            self.icon_size,
+                            None,
+                            None,
                         );
                         ducad_ui::Onboarding::publish_target(
                             ui.ctx(),
@@ -3321,13 +3438,15 @@ impl eframe::App for DuCADApp {
                             let is_tune_active = self.items_drawer_open
                                 && (self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Properties
                                     || self.items_drawer.active_tab == ducad_ui::ItemsDrawerTab::Layers);
-                            let vector_panel_resp = round_floating_icon_btn(
-                                ui,
-                                egui_icons::icons::ICON_TUNE.codepoint,
-                                is_tune_active,
-                                "Panel Properti Gaya & Layer Vektor",
-                                self.icon_size,
-                            );
+                            let vector_panel_resp = ducad_ui::rail_square_btn(
+                            ui,
+                            egui_icons::icons::ICON_TUNE.codepoint,
+                            self.icon_size,
+                            is_tune_active,
+                            "Panel Properti Gaya & Layer Vektor",
+                            None,
+                            None,
+                        );
                             if vector_panel_resp.clicked() {
                                 if is_tune_active {
                                     self.items_drawer_open = false;
@@ -3339,6 +3458,101 @@ impl eframe::App for DuCADApp {
                         }
                     });
                 });
+
+            // 3. Pil zoom di pojok kanan bawah (dipindah dari header): satu kapsul kaca
+            //    berisi −, persentase, + . Drawer menumpuk di atasnya (`folder_bottom_y`).
+            {
+                let pill_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
+                let pill_h = (icon_sz + 18.0).max(34.0);
+                egui::Area::new(egui::Id::new("ducad-bottom-right-zoom-pill"))
+                    .fixed_pos(pill_pos)
+                    .pivot(egui::Align2::RIGHT_BOTTOM)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| {
+                        // Kunci tinggi ke `pill_h` supaya pil tidak melompat saat mode sentuh berubah.
+                        ui.spacing_mut().interact_size.y = pill_h;
+                        let radius = egui::CornerRadius::same((pill_h / 2.0).round() as u8);
+                        ducad_ui::GlassFrame::preset(ducad_ui::GlassPreset::Pill, ducad_ui::GlassMode::Dark)
+                            .corner_radius(radius)
+                            .fill(ducad_ui::BG_PANEL_DARK)
+                            .stroke(egui::Stroke::new(1.0, ducad_ui::BORDER_SUBTLE))
+                            .inner_margin(egui::Margin::symmetric(4, 0))
+                            .show(ui, |ui| {
+                                ui.set_height(pill_h - 2.0);
+                                ui.horizontal_centered(|ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+
+                                    let zoom_out = zoom_pill_segment(
+                                        ui,
+                                        egui_icons::icons::ICON_ZOOM_OUT.codepoint,
+                                        icon_sz,
+                                        pill_h - 2.0,
+                                        &ducad_i18n::t!("topbar-zoom-out"),
+                                    );
+                                    if zoom_out.clicked() {
+                                        self.apply_topbar_zoom(ducad_ui::TopBarZoom::Out);
+                                    }
+
+                                    let zoom_percent = self.camera.zoom_percent(self.last_viewport_size[1]);
+                                    let zoom_text = ducad_ui::format_zoom_percent(zoom_percent);
+                                    let zoom_btn = zoom_pill_segment(
+                                        ui,
+                                        &zoom_text,
+                                        (pill_h * 0.3).clamp(9.0, 11.5),
+                                        pill_h - 2.0,
+                                        &ducad_i18n::t!("topbar-zoom-hint"),
+                                    );
+                                    if zoom_btn.double_clicked() {
+                                        self.apply_topbar_zoom(ducad_ui::TopBarZoom::Fit);
+                                    }
+                                    let mut zoom_pick: Option<ducad_ui::TopBarZoom> = None;
+                                    egui::Popup::menu(&zoom_btn).gap(8.0).show(|ui| {
+                                        ducad_ui::glass_menu(ui, |ui| {
+                                            ui.set_min_width(190.0);
+                                            for preset in ducad_ui::ZOOM_PRESETS {
+                                                let label = if (preset - 100.0).abs() < f32::EPSILON {
+                                                    ducad_i18n::t!("topbar-zoom-actual")
+                                                } else {
+                                                    ducad_ui::format_zoom_percent(preset)
+                                                };
+                                                let is_current = (zoom_percent - preset).abs() < 0.5;
+                                                if ui.selectable_label(is_current, label).clicked() {
+                                                    zoom_pick = Some(ducad_ui::TopBarZoom::Percent(preset));
+                                                    ui.close();
+                                                }
+                                            }
+                                            ui.separator();
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    egui_icons::icons::ICON_FIT_SCREEN.codepoint,
+                                                    ducad_i18n::t!("topbar-zoom-fit")
+                                                ))
+                                                .clicked()
+                                            {
+                                                zoom_pick = Some(ducad_ui::TopBarZoom::Fit);
+                                                ui.close();
+                                            }
+                                        })
+                                    });
+                                    if let Some(z) = zoom_pick {
+                                        self.apply_topbar_zoom(z);
+                                    }
+
+                                    let zoom_in = zoom_pill_segment(
+                                        ui,
+                                        egui_icons::icons::ICON_ZOOM_IN.codepoint,
+                                        icon_sz,
+                                        pill_h - 2.0,
+                                        &ducad_i18n::t!("topbar-zoom-in"),
+                                    );
+                                    if zoom_in.clicked() {
+                                        self.apply_topbar_zoom(ducad_ui::TopBarZoom::In);
+                                    }
+                                });
+                            });
+                    });
+            }
 
             let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0);
             let viewcube_margin_top = 16.0;
@@ -3888,7 +4102,7 @@ impl eframe::App for DuCADApp {
             let valid = self.node_constraint_actions();
             let count = self.vector_state.node_selection.len();
             let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-strip"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - 56.0, screen_rect.center().y))
+                .fixed_pos(egui::pos2(screen_rect.max.x - 40.0 - self.drawer_right_inset(), screen_rect.center().y))
                 .pivot(egui::Align2::RIGHT_CENTER)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
@@ -4095,11 +4309,7 @@ impl eframe::App for DuCADApp {
                             {
                                 match act {
                                     ContextAction::Extrude => {
-                                        self.extruding_face_from_gizmo = true;
-                                        self.face_gizmo_distance = 0.0;
-                                        self.face_gizmo_dimension_editing = true;
-                                        self.face_gizmo_edit_input = "".to_string();
-                                        self.auto_enter_3d_mode_on_extrude_drag();
+                                        self.open_face_gizmo_precise_input();
                                     }
                                     ContextAction::SketchOnFace => {
                                         self.sketch_on_active_face();
@@ -4618,72 +4828,46 @@ impl DuCADApp {
     }
 }
 
-/// Helper tombol lingkaran mengambang di pojok kanan bawah bergaya Shapr3D.
-fn round_floating_icon_btn(
+/// Jarak rail ikon kanan dari tepi kanan layar (sejajar toolbar kiri yang 12 px).
+const RIGHT_RAIL_MARGIN: f32 = 12.0;
+
+impl DuCADApp {
+    /// Jarak tepi kanan layar ke tepi kanan popup/drawer: margin rail + lebar rail
+    /// (tombol + inner margin bingkai 4 px per sisi) + celah 8 px.
+    pub(crate) fn drawer_right_inset(&self) -> f32 {
+        RIGHT_RAIL_MARGIN + ducad_ui::rail_button_side(self.icon_size) + 8.0 + 8.0
+    }
+}
+
+/// Satu segmen di dalam pil zoom pojok kanan bawah: ikon atau teks tanpa bingkai
+/// sendiri, dengan sorotan bulat saat hover supaya tiga segmen terbaca satu grup.
+fn zoom_pill_segment(
     ui: &mut egui::Ui,
-    icon: &'static str,
-    is_active: bool,
+    label: &str,
+    font_size: f32,
+    height: f32,
     tooltip: &str,
-    icon_size: f32,
 ) -> egui::Response {
-    let icon_sz = icon_size.clamp(12.0, 18.0);
-    let btn_side = (icon_sz + 18.0).max(34.0);
-    let size = egui::Vec2::splat(btn_side);
-    // Respons diambil dari rect yang akan ditempati tombol, sebelum
-    // menggambar, supaya warna hover/aktif tersedia saat melukis.
-    let id = ui.next_auto_id().with("round-glass-btn");
-    let rect = egui::Rect::from_min_size(ui.cursor().min, size);
-    let resp = ui.interact(rect, id, egui::Sense::click());
-    let is_hovered = resp.hovered();
-    let radius = egui::CornerRadius::same((btn_side / 2.0).round() as u8);
-
-    let bg_color = if is_active {
-        egui::Color32::from_rgba_premultiplied(18, 48, 88, 160)
-    } else if is_hovered {
-        egui::Color32::from_rgba_premultiplied(38, 44, 58, 160)
-    } else {
-        ducad_ui::BG_PANEL_DARK
-    };
-    let stroke_color = if is_active || is_hovered {
-        ducad_ui::ACCENT_BLUE
-    } else {
-        ducad_ui::BORDER_SUBTLE
-    };
-
-    // Kaca bulat (preset Pill); tanpa GPU jatuh ke isian datar lama.
-    ducad_ui::GlassFrame::preset(ducad_ui::GlassPreset::Pill, ducad_ui::GlassMode::Dark)
-        .corner_radius(radius)
-        .fill(bg_color)
-        .stroke(egui::Stroke::new(1.0, stroke_color))
-        .show(ui, |ui| {
-            let inner = size - egui::Vec2::splat(2.0);
-            ui.set_min_size(inner);
-            ui.set_max_size(inner);
-        });
-    if is_active || is_hovered {
-        // Cincin aksen tipis di atas kaca menandai tombol aktif/hover.
-        ui.painter().rect_stroke(
-            rect,
-            radius,
-            egui::Stroke::new(1.5, ducad_ui::ACCENT_BLUE),
-            egui::StrokeKind::Inside,
+    let is_text = label.chars().count() > 1;
+    let width = if is_text { (height * 1.3).max(44.0) } else { height };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        if resp.hovered() {
+            ui.painter().rect_filled(
+                rect.shrink(3.0),
+                egui::CornerRadius::same((height / 2.0).round() as u8),
+                egui::Color32::from_rgba_premultiplied(38, 44, 58, 160),
+            );
+        }
+        let color = if resp.hovered() { egui::Color32::WHITE } else { ducad_ui::ACCENT_BLUE };
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(font_size),
+            color,
         );
     }
-
-    let icon_color = if is_active || is_hovered {
-        egui::Color32::WHITE
-    } else {
-        ducad_ui::ACCENT_BLUE
-    };
-
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        icon,
-        egui::FontId::proportional(icon_sz),
-        icon_color,
-    );
-
     resp.on_hover_text(tooltip)
 }
 
@@ -4819,7 +5003,7 @@ mod tests {
     }
 
     #[test]
-    fn posisi_tombol_kanan_bawah_stabil_saat_mode_sentuh_di_cycle() {
+    fn posisi_rail_kanan_stabil_saat_mode_sentuh_di_cycle() {
         use ducad_ui::{apply_with_touch, ThemeMode, TouchDesignMode};
 
         let measure_btn_rect = |mode: TouchDesignMode| -> egui::Rect {
@@ -4836,23 +5020,24 @@ mod tests {
 
             for _ in 0..2 {
                 let mut output = ctx.run_ui(Default::default(), |ctx| {
-                    let btns_pos = egui::pos2(screen_rect.max.x - 16.0, screen_rect.max.y - 16.0);
-                    let icon_sz = 18.0f32.clamp(12.0, 18.0);
-                    let btn_side = (icon_sz + 18.0).max(34.0);
-                    egui::Area::new(egui::Id::new("test-bottom-right-btns"))
-                        .fixed_pos(btns_pos)
-                        .pivot(egui::Align2::RIGHT_BOTTOM)
+                    let rail_pos = egui::pos2(screen_rect.max.x - RIGHT_RAIL_MARGIN, screen_rect.center().y);
+                    let btn_side = ducad_ui::rail_button_side(18.0);
+                    egui::Area::new(egui::Id::new("test-right-rail"))
+                        .fixed_pos(rail_pos)
+                        .pivot(egui::Align2::RIGHT_CENTER)
                         .show(ctx, |ui| {
-                            ui.spacing_mut().interact_size.y = btn_side;
-                            ui.set_height(btn_side);
-                            let scope = ui.horizontal_centered(|ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
-                                round_floating_icon_btn(
+                            let scope = ducad_ui::toolbar_frame().show(ui, |ui| {
+                                ui.spacing_mut().interact_size.y = btn_side;
+                                ui.set_width(btn_side);
+                                ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.5);
+                                ducad_ui::rail_square_btn(
                                     ui,
                                     egui_icons::icons::ICON_LIGHTBULB_ON.codepoint,
+                                    18.0,
                                     false,
                                     "Test",
-                                    18.0,
+                                    None,
+                                    None,
                                 );
                             });
                             measured_rect = scope.response.rect;

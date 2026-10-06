@@ -1,8 +1,8 @@
 //! Modern Top Bar & Title Header bergaya Shapr3D dengan Material Icons.
 //!
 //! Menampilkan bar atas mengambang minimalis dengan nama dokumen,
-//! indikator status sinkronisasi/simpan, tombol aksi Share/Export biru,
-//! menu Berkas, dan Pengaturan — plus (sejak reorganisasi toolbar) kontrol
+//! indikator status sinkronisasi/simpan, dan burger menu (Berkas, Impor,
+//! Ekspor, semua perintah, Pengaturan) — plus (sejak reorganisasi toolbar) kontrol
 //! yang selalu tersedia di kedua mode (Sketch & 3D): mode switcher, Items,
 //! Search, Sketch Plane selector (khusus saat Sketch Mode), Section View,
 //! Measurements, dan Delete. Kontrol yang hanya relevan di satu mode
@@ -52,9 +52,42 @@ pub enum TopBarFileOp {
     OpenDrawingSheet,
 }
 
+/// Aksi dari kontrol % zoom di header (kiri, di sebelah nama dokumen).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TopBarZoom {
+    /// Perbesar satu langkah (`ZOOM_STEP`).
+    In,
+    /// Perkecil satu langkah (`ZOOM_STEP`).
+    Out,
+    /// Atur ke persentase tertentu; 100 = ukuran sebenarnya (1 mm = 1 mm layar).
+    Percent(f32),
+    /// Pas seluruh model/sketsa ke layar.
+    Fit,
+}
+
+/// Faktor zoom satu klik tombol +/− di header.
+pub const ZOOM_STEP: f32 = 1.25;
+
+/// Preset persentase yang ditawarkan menu zoom.
+pub const ZOOM_PRESETS: [f32; 6] = [25.0, 50.0, 100.0, 200.0, 400.0, 800.0];
+
+/// Teks indikator zoom: bilangan bulat untuk >= 10%, satu desimal di bawahnya,
+/// dan `--%` bila nilainya tidak finit.
+pub fn format_zoom_percent(percent: f32) -> String {
+    if !percent.is_finite() {
+        "--%".to_string()
+    } else if percent >= 10.0 {
+        format!("{}%", percent.round() as i64)
+    } else {
+        format!("{percent:.1}%")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TopBarEvent {
     HomeClicked,
+    /// Kontrol % zoom viewport.
+    Zoom(TopBarZoom),
     File(TopBarFileOp),
     ToggleTheme,
     /// Nyalakan/matikan material Liquid Glass.
@@ -118,6 +151,9 @@ pub struct TopBarCommandGroup {
 pub struct TopBarState {
     pub document_name: String,
     pub status_saved: bool,
+    /// Persentase zoom viewport saat ini (100 = ukuran sebenarnya); dihitung
+    /// caller dari kamera + tinggi viewport, lihat `OrbitCamera::zoom_percent`.
+    pub zoom_percent: f32,
     pub current_unit: LengthUnit,
     pub icon_size: f32,
     /// True saat Sketch Mode aktif — mengontrol apakah tombol Sketch Plane
@@ -286,6 +322,10 @@ impl TopBar {
                                 }
                             }),
                         );
+                        ui.menu_button(
+                            format!("{} {}", ICON_SHARE.codepoint, t!("menu-export")),
+                            |ui| crate::theme::glass_menu(ui, |ui| export_menu_items(ui, &mut event)),
+                        );
                         ui.separator();
                         if ui
                             .button(format!(
@@ -340,7 +380,21 @@ impl TopBar {
                                 ui.close();
                             }
                         }
+                        ui.separator();
+                        ui.menu_button(
+                            format!("{} {}", ICON_SETTINGS.codepoint, t!("menu-settings")),
+                            |ui| crate::theme::glass_menu(ui, |ui| {
+                                settings_menu_items(ui, state, icon_sz, &mut event)
+                            }),
+                        );
                     }));
+                // Target tutorial "Share" kini menunjuk burger menu, tempat
+                // submenu Ekspor berada.
+                crate::onboarding::Onboarding::publish_target(
+                    ui.ctx(),
+                    crate::onboarding::OnboardingTarget::ShareButton,
+                    menu_btn.rect,
+                );
                 menu_btn.on_hover_text(t!("menu-file"));
 
                 ui.add_space(2.0);
@@ -381,6 +435,7 @@ impl TopBar {
                     .on_hover_text(&state.document_name);
                 });
 
+                // Kontrol zoom kini pil mengambang di pojok kanan bawah (`app.rs`), bukan di header.
                 ui.add_space(item_gap);
                 ui.separator();
                 ui.add_space(item_gap);
@@ -390,14 +445,14 @@ impl TopBar {
                     (
                         ICON_EDIT.codepoint,
                         t!("topbar-sketch-mode"),
-                        "⌘+Shift+3",
+                        "⌘+Alt+3",
                         t!("topbar-switch-to-solid"),
                     )
                 } else {
                     (
                         ICON_CUBE_OUTLINE.codepoint,
                         t!("topbar-solid-mode"),
-                        "⌘+Shift+2",
+                        "⌘+Alt+2",
                         t!("topbar-switch-to-sketch"),
                     )
                 };
@@ -760,180 +815,6 @@ impl TopBar {
 
                     ui.add_space(4.0);
 
-                    // Sisi sebelah kiri Akun: Settings Icon Button
-                    ui.menu_button(
-                        RichText::new(ICON_SETTINGS.codepoint)
-                            .size(icon_sz)
-                            .color(TEXT_PRIMARY),
-                        |ui| crate::theme::glass_menu(ui, |ui| {
-                            if ui
-                                .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::ToggleTheme);
-                                ui.close();
-                            }
-                            // Liquid Glass: keadaan dibaca dari runtime yang diisi aplikasi.
-                            let glass = ducad_glass::runtime(ui.ctx());
-                            let mut glass_on = glass.enabled;
-                            if ui
-                                .checkbox(
-                                    &mut glass_on,
-                                    format!("{} {}", ICON_BLUR_ON.codepoint, t!("menu-liquid-glass")),
-                                )
-                                .changed()
-                            {
-                                event = Some(TopBarEvent::ToggleLiquidGlass);
-                            }
-                            let mut reduce = glass.reduce_transparency;
-                            if ui
-                                .add_enabled(
-                                    glass.enabled,
-                                    egui::Checkbox::new(
-                                        &mut reduce,
-                                        format!(
-                                            "{} {}",
-                                            ICON_OPACITY.codepoint,
-                                            t!("menu-reduce-transparency")
-                                        ),
-                                    ),
-                                )
-                                .changed()
-                            {
-                                event = Some(TopBarEvent::ToggleReduceTransparency);
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {} (⌘K / ⌘⇧P)",
-                                    ICON_SEARCH.codepoint,
-                                    t!("menu-command-palette")
-                                 ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::OpenCommandPalette);
-                                ui.close();
-                            }
-                            ui.separator();
-                            // Language selector
-                            ui.menu_button(
-                                format!(
-                                    "{} {} ({})",
-                                    ICON_LANGUAGE.codepoint,
-                                    t!("lang-current"),
-                                    current_language().display_name()
-                                ),
-                                |ui| crate::theme::glass_menu(ui, |ui| {
-                                    for lang in Language::all() {
-                                        let is_sel = current_language() == *lang;
-                                        let prefix = if is_sel { "✔ " } else { "   " };
-                                        if ui
-                                            .button(format!("{}{}", prefix, lang.display_name()))
-                                            .clicked()
-                                        {
-                                            event = Some(TopBarEvent::SetLanguage(*lang));
-                                            ui.close();
-                                        }
-                                    }
-                                }),
-                            );
-                            ui.separator();
-                            // Icon size selector
-                            ui.menu_button(
-                                format!(
-                                    "🔘 {} ({:.0}px)",
-                                    t!("settings-icon-size"),
-                                    icon_sz
-                                ),
-                                |ui| crate::theme::glass_menu(ui, |ui| {
-                                    for (label, size) in [
-                                        ("14 px (Kecil)", 14.0),
-                                        ("16 px (Sedang)", 16.0),
-                                        ("18 px (Standar)", 18.0),
-                                    ] {
-                                        let is_sel = (icon_sz - size).abs() < 0.1;
-                                        let prefix = if is_sel { "✔ " } else { "   " };
-                                        if ui.button(format!("{}{}", prefix, label)).clicked() {
-                                            event = Some(TopBarEvent::SetIconSize(size));
-                                            ui.close();
-                                        }
-                                    }
-                                }),
-                            );
-                            ui.separator();
-                            ui.menu_button(
-                                format!(
-                                    "📏 {} ({})",
-                                    t!("topbar-unit", unit = state.current_unit.suffix()),
-                                    state.current_unit.suffix()
-                                ),
-                                |ui| crate::theme::glass_menu(ui, |ui| {
-                                    for unit in [
-                                        LengthUnit::Millimeters,
-                                        LengthUnit::Centimeters,
-                                        LengthUnit::Meters,
-                                        LengthUnit::Inches,
-                                    ] {
-                                        let is_sel = state.current_unit == unit;
-                                        let prefix = if is_sel { "✔ " } else { "   " };
-                                        if ui
-                                            .button(format!("{}{}", prefix, unit.label()))
-                                            .clicked()
-                                        {
-                                            event = Some(TopBarEvent::SetUnit(unit));
-                                            ui.close();
-                                        }
-                                    }
-                                }),
-                            );
-                            ui.separator();
-                            // Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
-                            ui.menu_button(
-                                format!(
-                                    "{} Mode Sentuh / Pencil ({})",
-                                    state.touch_config.mode.icon(),
-                                    state.touch_config.mode.label()
-                                ),
-                                |ui| crate::theme::glass_menu(ui, |ui| {
-                                    ui.label(
-                                        RichText::new("Interaksi Layar Sentuh & Stylus:")
-                                            .strong()
-                                            .size(10.5)
-                                            .color(TEXT_SECONDARY),
-                                    );
-                                    for m in [
-                                        TouchDesignMode::PencilAndFinger,
-                                        TouchDesignMode::PencilOnly,
-                                        TouchDesignMode::FingerDesign,
-                                    ] {
-                                        let is_sel = state.touch_config.mode == m;
-                                        let prefix = if is_sel { "✔ " } else { "   " };
-                                        if ui
-                                            .button(format!("{}{}", prefix, m.label()))
-                                            .on_hover_text(m.description())
-                                            .clicked()
-                                        {
-                                            event = Some(TopBarEvent::SetTouchDesignMode(m));
-                                            ui.close();
-                                        }
-                                    }
-                                    ui.separator();
-                                    let mut pr = state.touch_config.palm_rejection;
-                                    if ui
-                                        .checkbox(&mut pr, "🛡️ Tolak Telapak Tangan (Palm Rejection)")
-                                        .on_hover_text("Mengabaikan sentuhan telapak tangan saat menggambar dengan Apple Pencil")
-                                        .clicked()
-                                    {
-                                        event = Some(TopBarEvent::TogglePalmRejection);
-                                        ui.close();
-                                    }
-                                }),
-                            );
-                        }),
-                    )
-                    .response
-                    .on_hover_text(t!("menu-settings"));
-
-                    ui.add_space(item_gap);
 
                     // Sebelah kiri Settings: Chat AI (P13.3) — buka/tutup sidebar kanan.
                     let chat_title = t!("chat-title");
@@ -990,136 +871,6 @@ impl TopBar {
 
                     ui.add_space(item_gap);
 
-                    // Sebelah kiri Settings: Export / Share Icon Button
-                    let share_resp = ui.menu_button(
-                        RichText::new(ICON_SHARE.codepoint)
-                            .size(icon_sz)
-                            .color(ACCENT_BLUE),
-                        |ui| crate::theme::glass_menu(ui, |ui| {
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_PICTURE_AS_PDF.codepoint,
-                                    t!("menu-drawing-sheet")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::OpenDrawingSheet);
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_PICTURE_AS_PDF.codepoint,
-                                    t!("menu-export-pdf")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportPdf));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_PICTURE_AS_PDF.codepoint,
-                                    t!("menu-export-drawing-svg")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportDrawingSvg));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_PICTURE_AS_PDF.codepoint,
-                                    t!("menu-export-vector-snapshot")
-                                ))
-                                .clicked()
-                            {
-                                event =
-                                    Some(TopBarEvent::File(TopBarFileOp::ExportVectorSnapshot));
-                                ui.close();
-                            }
-                            ui.separator();
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-step")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportStep));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-stl")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-obj")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-glb")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportGlb));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-dxf")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportDxf));
-                                ui.close();
-                            }
-                            if ui
-                                .button(format!(
-                                    "{} {}",
-                                    ICON_UPLOAD.codepoint,
-                                    t!("menu-export-svg")
-                                ))
-                                .clicked()
-                            {
-                                event = Some(TopBarEvent::File(TopBarFileOp::ExportSvg));
-                                ui.close();
-                            }
-                        }),
-                    )
-                    .response
-                    .on_hover_text(t!("topbar-share"));
-                    crate::onboarding::Onboarding::publish_target(
-                        ui.ctx(),
-                        crate::onboarding::OnboardingTarget::ShareButton,
-                        share_resp.rect,
-                    );
-
-                    ui.add_space(item_gap);
-
                     // Paling kiri di kelompok kanan: buka tutorial selamat datang.
                     let help_title = t!("onboard-help-title");
                     let help_sub = t!("onboard-help-desc");
@@ -1148,6 +899,295 @@ impl TopBar {
 
         event
     }
+}
+
+/// Isi submenu "Ekspor" di burger menu (dulu tombol Share/Export terpisah
+/// di header kanan).
+fn export_menu_items(ui: &mut Ui, event: &mut Option<TopBarEvent>) {
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-drawing-sheet")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::OpenDrawingSheet);
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-pdf")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportPdf));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-drawing-svg")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportDrawingSvg));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_PICTURE_AS_PDF.codepoint,
+                t!("menu-export-vector-snapshot")
+            ))
+            .clicked()
+        {
+            *event =
+                Some(TopBarEvent::File(TopBarFileOp::ExportVectorSnapshot));
+            ui.close();
+        }
+        ui.separator();
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-step")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportStep));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-stl")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportStl));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-obj")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportObj));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-glb")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportGlb));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-dxf")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportDxf));
+            ui.close();
+        }
+        if ui
+            .button(format!(
+                "{} {}",
+                ICON_UPLOAD.codepoint,
+                t!("menu-export-svg")
+            ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::File(TopBarFileOp::ExportSvg));
+            ui.close();
+        }
+}
+
+/// Isi submenu "Pengaturan" di burger menu (dulu tombol ⚙ terpisah di
+/// header kanan): tema, Liquid Glass, bahasa, ukuran ikon, satuan, mode sentuh.
+fn settings_menu_items(
+    ui: &mut Ui,
+    state: &TopBarState,
+    icon_sz: f32,
+    event: &mut Option<TopBarEvent>,
+) {
+        if ui
+            .button(format!("{} {}", ICON_PALETTE.codepoint, t!("menu-theme")))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::ToggleTheme);
+            ui.close();
+        }
+        // Liquid Glass: keadaan dibaca dari runtime yang diisi aplikasi.
+        let glass = ducad_glass::runtime(ui.ctx());
+        let mut glass_on = glass.enabled;
+        if ui
+            .checkbox(
+                &mut glass_on,
+                format!("{} {}", ICON_BLUR_ON.codepoint, t!("menu-liquid-glass")),
+            )
+            .changed()
+        {
+            *event = Some(TopBarEvent::ToggleLiquidGlass);
+        }
+        let mut reduce = glass.reduce_transparency;
+        if ui
+            .add_enabled(
+                glass.enabled,
+                egui::Checkbox::new(
+                    &mut reduce,
+                    format!(
+                        "{} {}",
+                        ICON_OPACITY.codepoint,
+                        t!("menu-reduce-transparency")
+                    ),
+                ),
+            )
+            .changed()
+        {
+            *event = Some(TopBarEvent::ToggleReduceTransparency);
+        }
+        if ui
+            .button(format!(
+                "{} {} (⌘K / ⌘⇧P)",
+                ICON_SEARCH.codepoint,
+                t!("menu-command-palette")
+             ))
+            .clicked()
+        {
+            *event = Some(TopBarEvent::OpenCommandPalette);
+            ui.close();
+        }
+        ui.separator();
+        // Language selector
+        ui.menu_button(
+            format!(
+                "{} {} ({})",
+                ICON_LANGUAGE.codepoint,
+                t!("lang-current"),
+                current_language().display_name()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
+                for lang in Language::all() {
+                    let is_sel = current_language() == *lang;
+                    let prefix = if is_sel { "✔ " } else { "   " };
+                    if ui
+                        .button(format!("{}{}", prefix, lang.display_name()))
+                        .clicked()
+                    {
+                        *event = Some(TopBarEvent::SetLanguage(*lang));
+                        ui.close();
+                    }
+                }
+            }),
+        );
+        ui.separator();
+        // Icon size selector
+        ui.menu_button(
+            format!(
+                "🔘 {} ({:.0}px)",
+                t!("settings-icon-size"),
+                icon_sz
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
+                for (label, size) in [
+                    ("14 px (Kecil)", 14.0),
+                    ("16 px (Sedang)", 16.0),
+                    ("18 px (Standar)", 18.0),
+                ] {
+                    let is_sel = (icon_sz - size).abs() < 0.1;
+                    let prefix = if is_sel { "✔ " } else { "   " };
+                    if ui.button(format!("{}{}", prefix, label)).clicked() {
+                        *event = Some(TopBarEvent::SetIconSize(size));
+                        ui.close();
+                    }
+                }
+            }),
+        );
+        ui.separator();
+        ui.menu_button(
+            format!(
+                "📏 {} ({})",
+                t!("topbar-unit", unit = state.current_unit.suffix()),
+                state.current_unit.suffix()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
+                for unit in [
+                    LengthUnit::Millimeters,
+                    LengthUnit::Centimeters,
+                    LengthUnit::Meters,
+                    LengthUnit::Inches,
+                ] {
+                    let is_sel = state.current_unit == unit;
+                    let prefix = if is_sel { "✔ " } else { "   " };
+                    if ui
+                        .button(format!("{}{}", prefix, unit.label()))
+                        .clicked()
+                    {
+                        *event = Some(TopBarEvent::SetUnit(unit));
+                        ui.close();
+                    }
+                }
+            }),
+        );
+        ui.separator();
+        // Konfigurasi Touch Design (Apple Pencil vs Sentuhan Jari)
+        ui.menu_button(
+            format!(
+                "{} Mode Sentuh / Pencil ({})",
+                state.touch_config.mode.icon(),
+                state.touch_config.mode.label()
+            ),
+            |ui| crate::theme::glass_menu(ui, |ui| {
+                ui.label(
+                    RichText::new("Interaksi Layar Sentuh & Stylus:")
+                        .strong()
+                        .size(10.5)
+                        .color(TEXT_SECONDARY),
+                );
+                for m in [
+                    TouchDesignMode::PencilAndFinger,
+                    TouchDesignMode::PencilOnly,
+                    TouchDesignMode::FingerDesign,
+                ] {
+                    let is_sel = state.touch_config.mode == m;
+                    let prefix = if is_sel { "✔ " } else { "   " };
+                    if ui
+                        .button(format!("{}{}", prefix, m.label()))
+                        .on_hover_text(m.description())
+                        .clicked()
+                    {
+                        *event = Some(TopBarEvent::SetTouchDesignMode(m));
+                        ui.close();
+                    }
+                }
+                ui.separator();
+                let mut pr = state.touch_config.palm_rejection;
+                if ui
+                    .checkbox(&mut pr, "🛡️ Tolak Telapak Tangan (Palm Rejection)")
+                    .on_hover_text("Mengabaikan sentuhan telapak tangan saat menggambar dengan Apple Pencil")
+                    .clicked()
+                {
+                    *event = Some(TopBarEvent::TogglePalmRejection);
+                    ui.close();
+                }
+            }),
+        );
 }
 
 /// Tombol ikon kompak untuk header, dengan kartu tooltip hover berisi
@@ -1214,6 +1254,21 @@ fn header_icon_btn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_zoom_percent_rounds_and_guards() {
+        assert_eq!(format_zoom_percent(100.0), "100%");
+        assert_eq!(format_zoom_percent(133.4), "133%");
+        assert_eq!(format_zoom_percent(7.26), "7.3%");
+        assert_eq!(format_zoom_percent(f32::NAN), "--%");
+        assert_eq!(format_zoom_percent(f32::INFINITY), "--%");
+    }
+
+    #[test]
+    fn zoom_presets_include_actual_size_and_ascend() {
+        assert!(ZOOM_PRESETS.contains(&100.0));
+        assert!(ZOOM_PRESETS.windows(2).all(|w| w[0] < w[1]));
+    }
     use crate::theme::{apply, apply_with_touch, ThemeMode};
 
     fn dummy_state(mode: TouchDesignMode) -> TopBarState {
@@ -1222,6 +1277,7 @@ mod tests {
         TopBarState {
             document_name: "Untitled.ducad".to_string(),
             status_saved: false,
+            zoom_percent: 100.0,
             current_unit: LengthUnit::Millimeters,
             icon_size: crate::theme::ICON_SIZE_DEFAULT,
             is_sketching: false,

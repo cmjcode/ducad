@@ -327,6 +327,7 @@ impl DuCADApp {
             "Trim" => ("Potong Garis (Trim)", format!("Memotong segmen garis di Bidang {}", plane_label)),
             "Offset" => ("Offset Garis / Kurva", format!("Menduplikasi garis sejajar di Bidang {}", plane_label)),
             "Mirror" => ("Cermin Sketsa (Mirror)", format!("Mencerminkan entitas sketsa di Bidang {}", plane_label)),
+            "Project Edges" => ("Proyeksi Tepi Face", format!("Memproyeksikan batas sisi objek sebagai garis konstruksi di Bidang {}", plane_label)),
             "Delete" => ("Hapus Entitas Sketsa", format!("Menghapus elemen 2D di Bidang {}", plane_label)),
             "Move" => ("Geser Sketsa 2D", format!("Memindahkan posisi elemen di Bidang {}", plane_label)),
             _ => ("Aktivitas Sketsa 2D", format!("{} di Bidang {}", name, plane_label)),

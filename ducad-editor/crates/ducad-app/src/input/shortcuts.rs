@@ -40,17 +40,17 @@ impl DuCADApp {
             ),
             (
                 crate::mode::AppMode::Vector.label().to_string(),
-                "⌘+Shift+4".to_string(),
+                "⌘+Alt+4".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
             ),
             (
                 crate::mode::AppMode::Ink.label().to_string(),
-                "⌘+Shift+5".to_string(),
+                "⌘+Alt+5".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Ink),
             ),
             (
                 crate::mode::AppMode::Sketch.label().to_string(),
-                "⌘+Shift+2".to_string(),
+                "⌘+Alt+2".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Sketch),
             ),
             (
@@ -325,12 +325,12 @@ impl DuCADApp {
             ),
             (
                 "Mode Sketch (2D)".to_string(),
-                "⌘+Shift+2".to_string(),
+                "⌘+Alt+2".to_string(),
                 PaletteAction::EnterSketching,
             ),
             (
                 "Mode 3D".to_string(),
-                "⌘+Shift+3".to_string(),
+                "⌘+Alt+3".to_string(),
                 PaletteAction::ExitSketching,
             ),
             (
@@ -453,11 +453,7 @@ impl DuCADApp {
     /// Sisi solid terpilih = tarik sisi; profil sketsa terpilih = extrude.
     pub fn extrude_from_palette(&mut self) {
         if self.active_face.is_some() {
-            self.extruding_face_from_gizmo = true;
-            self.face_gizmo_distance = 0.0;
-            self.face_gizmo_dimension_editing = true;
-            self.face_gizmo_edit_input = String::new();
-            self.auto_enter_3d_mode_on_extrude_drag();
+            self.open_face_gizmo_precise_input();
         } else if !self.selected.is_empty() {
             self.extrude_selected();
         } else {
@@ -470,16 +466,8 @@ impl DuCADApp {
             PaletteAction::SetTool(kind) => self.set_tool(kind),
             PaletteAction::OpenRevolveDialog => self.open_revolve_dialog(),
             PaletteAction::SetSketchPlane(kind) => self.set_sketch_plane(kind),
-            PaletteAction::EnterSketching => {
-                self.is_sketching = true;
-                self.left_toolbar.is_sketching = true;
-                self.camera.orient_to_plane(&self.active_plane);
-            }
-            PaletteAction::ExitSketching => {
-                self.is_sketching = false;
-                self.left_toolbar.is_sketching = false;
-                self.set_tool(ToolKind::Select);
-            }
+            PaletteAction::EnterSketching => self.enter_sketching(),
+            PaletteAction::ExitSketching => self.exit_sketching(),
             PaletteAction::Undo => {
                 self.undo();
             }

@@ -234,6 +234,27 @@ impl SketchPlane {
         })
     }
 
+    /// Bangun `SketchPlane` dari `origin`, `normal`, dan petunjuk arah sumbu U.
+    ///
+    /// `u_hint` (mis. tepi lurus terpanjang sebuah face) diproyeksikan ke bidang
+    /// sehingga sumbu U sketsa sejajar tepi itu — kebiasaan CAD komersial agar
+    /// dimensi horizontal/vertikal mengikuti bentuk face, bukan sumbu dunia.
+    /// Bila `u_hint` sejajar normal atau nol, jatuh ke [`Self::from_origin_normal`].
+    pub fn from_origin_normal_u(origin: Vec3, normal: Vec3, u_hint: Vec3) -> Self {
+        let base = Self::from_origin_normal(origin, normal);
+        let n = base.normal;
+        let u = (u_hint - n * u_hint.dot(n)).normalize_or_zero();
+        if u.length_squared() < 1e-6 {
+            return base;
+        }
+        let v = n.cross(u).normalize();
+        Self {
+            u_axis: u,
+            v_axis: v,
+            ..base
+        }
+    }
+
     /// Bangun `SketchPlane` pada posisi sembarang dari `origin` dan `normal`.
     pub fn from_origin_normal(origin: Vec3, normal: Vec3) -> Self {
         let norm = normal.normalize_or_zero();
@@ -378,6 +399,23 @@ mod tests {
         // 45 degrees rotated around X axis from +Z
         let expected_normal = Vec3::new(0.0, -45f32.to_radians().sin(), 45f32.to_radians().cos()).normalize();
         assert!((angled.normal - expected_normal).length() < 1e-4);
+    }
+
+    #[test]
+    fn from_origin_normal_u_aligns_u_axis_with_hint() {
+        let origin = Vec3::new(1.0, 2.0, 3.0);
+        let hint = Vec3::new(1.0, 1.0, 5.0); // komponen Z dibuang oleh proyeksi
+        let plane = SketchPlane::from_origin_normal_u(origin, Vec3::Z, hint);
+        assert_eq!(plane.origin, origin);
+        let expect_u = Vec3::new(1.0, 1.0, 0.0).normalize();
+        assert!((plane.u_axis - expect_u).length() < 1e-5, "{:?}", plane.u_axis);
+        assert!(plane.u_axis.dot(plane.normal).abs() < 1e-6);
+        assert!(plane.v_axis.dot(plane.u_axis).abs() < 1e-6);
+        assert!((plane.u_axis.cross(plane.v_axis) - plane.normal).length() < 1e-5);
+
+        // Petunjuk sejajar normal → sama seperti tanpa petunjuk.
+        let fallback = SketchPlane::from_origin_normal_u(origin, Vec3::Z, Vec3::Z);
+        assert_eq!(fallback, SketchPlane::from_origin_normal(origin, Vec3::Z));
     }
 
     #[test]

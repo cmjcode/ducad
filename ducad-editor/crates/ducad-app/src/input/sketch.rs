@@ -151,6 +151,13 @@ impl DuCADApp {
             self.picking_mode = PickMode::None;
         }
         self.tool = tool;
+        // Ganti tool = batalkan extrude/tarik-sisi yang masih menunggu konfirmasi.
+        if self.extruding_from_gizmo {
+            self.cancel_gizmo_extrusion();
+        }
+        if self.extruding_face_from_gizmo {
+            self.cancel_face_gizmo_extrusion();
+        }
         self.pending_points.clear();
         self.pending_point_refs.clear();
         self.offset_source = None;
@@ -203,7 +210,21 @@ impl DuCADApp {
         }
     }
 
-    /// Eksekusi commit Fillet 2D atau Chamfer 2D saat drag gizmo sudut 2D selesai atau angka dimasukkan.
+    /// Batalkan gizmo fillet/chamfer sudut 2D yang sedang menunggu nilai tanpa
+    /// mengubah sketsa.
+    pub fn cancel_sketch_corner_gizmo(&mut self) {
+        let was_active = self.active_sketch_corner.is_some();
+        self.active_sketch_corner = None;
+        self.active_sketch_fillet_arc = None;
+        self.sketch_corner_gizmo_active = false;
+        self.sketch_corner_dimension_editing = false;
+        self.gizmo_edit_select_all = false;
+        if was_active {
+            self.model_status = Some("Fillet/Chamfer 2D dibatalkan".to_string());
+        }
+    }
+
+    /// Eksekusi commit Fillet 2D atau Chamfer 2D saat angka presisi di-Enter / ✓ ditekan.
     pub fn commit_sketch_corner_fillet_or_chamfer(&mut self) {
         if let Some((id1, id2, _corner)) = self.active_sketch_corner {
             let r = self.sketch_corner_gizmo_radius;
@@ -1008,16 +1029,14 @@ impl DuCADApp {
                 } else if !self.selected.is_empty() {
                     self.selected.clear();
                 } else if self.is_sketching {
-                    self.is_sketching = false;
-                    self.left_toolbar.is_sketching = false;
+                    // Esc juga melepas kunci kamera Ortho2D (mode Vektor/Tinta).
+                    self.exit_sketching();
                 } else {
                     self.set_tool(ToolKind::Select);
                 }
             }
             if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::S)) && !self.is_sketching {
-                self.is_sketching = true;
-                self.left_toolbar.is_sketching = true;
-                self.camera.orient_to_plane(&self.active_plane);
+                self.enter_sketching();
             }
             if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::P)) && !self.is_sketching {
                 self.set_tool(ToolKind::Pattern);
@@ -1695,7 +1714,7 @@ impl DuCADApp {
                                 self.selected.insert(*id);
                             }
                         }
-                        self.gizmo_distance = 20.0;
+                        self.gizmo_distance = 0.0;
                         self.gizmo_edit_input = format!(
                             "{:.0}",
                             self.unit.to_display_val(self.gizmo_distance)
@@ -1737,7 +1756,7 @@ impl DuCADApp {
                                 } else {
                                     self.selected.insert(hit);
                                 }
-                                self.gizmo_distance = 20.0;
+                                self.gizmo_distance = 0.0;
                                 self.gizmo_edit_input = format!(
                                     "{:.0}",
                                     self.unit.to_display_val(self.gizmo_distance)

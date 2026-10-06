@@ -13,9 +13,19 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Stroke, StrokeKind, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_3D_ROTATION, ICON_CHECK, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_FOUNDATION,
+    ICON_3D_ROTATION, ICON_CHECK, ICON_CLOSE, ICON_DRIVE_FILE_RENAME_OUTLINE, ICON_FOUNDATION,
     ICON_LIGHTBULB_ON, ICON_LOCK, ICON_STRAIGHTEN, ICON_TEXTURE,
 };
+
+/// Aksi tombol konfirmasi gizmo yang menunggu nilai presisi (lihat
+/// [`CanvasHud::render_gizmo_confirm_buttons`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GizmoConfirmAction {
+    /// Terapkan nilai yang tampil.
+    Commit,
+    /// Batalkan operasi, model tidak berubah.
+    Cancel,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StudioLightingPresetUi {
@@ -1311,6 +1321,74 @@ impl CanvasHud {
         response
     }
 
+    /// Sepasang tombol bulat ✓ (commit) dan ✕ (batal) di kanan sebuah pill
+    /// dimensi gizmo yang sedang menunggu konfirmasi nilai presisi. Ikon memakai
+    /// font ikon project (bukan glyph Unicode) agar tidak tampil kotak.
+    pub fn render_gizmo_confirm_buttons(
+        ui: &mut Ui,
+        id_salt: &str,
+        pill_rect: Rect,
+    ) -> Option<GizmoConfirmAction> {
+        if !pill_rect.is_finite() || pill_rect.width() <= 0.0 {
+            return None;
+        }
+        const BTN_D: f32 = 22.0;
+        const GAP: f32 = 6.0;
+        let mut action = None;
+        let center_y = pill_rect.center().y;
+        let commit_center = Pos2::new(pill_rect.right() + GAP + BTN_D * 0.5, center_y);
+        let cancel_center = Pos2::new(commit_center.x + BTN_D + GAP * 0.5, center_y);
+
+        let specs = [
+            (
+                "commit",
+                commit_center,
+                ICON_CHECK.codepoint,
+                ACCENT_BLUE,
+                Color32::WHITE,
+                GizmoConfirmAction::Commit,
+                "Terapkan (Enter)",
+            ),
+            (
+                "cancel",
+                cancel_center,
+                ICON_CLOSE.codepoint,
+                Color32::from_rgba_premultiplied(250, 250, 252, 245),
+                Color32::from_rgb(90, 90, 100),
+                GizmoConfirmAction::Cancel,
+                "Batal (Esc)",
+            ),
+        ];
+        for (name, center, icon, fill, fg, act, tip) in specs {
+            let rect = Rect::from_center_size(center, Vec2::splat(BTN_D));
+            let id = ui.id().with(("ducad-gizmo-confirm", id_salt, name));
+            ui.advance_cursor_after_rect(rect);
+            let resp = ui.interact(rect, id, egui::Sense::click()).on_hover_text(tip);
+            let hovered = resp.hovered();
+            let painter = ui.painter();
+            painter.circle_filled(center, BTN_D * 0.5, fill);
+            painter.circle_stroke(
+                center,
+                BTN_D * 0.5,
+                Stroke::new(
+                    if hovered { 1.8 } else { 1.0 },
+                    if hovered { ACCENT_BLUE } else { Color32::from_gray(185) },
+                ),
+            );
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                icon,
+                FontId::proportional(13.0),
+                fg,
+            );
+            if resp.clicked() {
+                action = Some(act);
+            }
+        }
+        action
+    }
+
     /// Render badge dimensi interaktif yang DIPUTAR sejajar arah garis pengukuran
     /// (dengan border biru bila aktif / hover) yang dapat diklik untuk memasukkan angka presisi.
     pub fn render_interactive_dimension_pill_aligned(
@@ -1482,19 +1560,29 @@ impl CanvasHud {
         response
     }
 
-    /// Area sense-drag utk gizmo panah dua-sisi push/pull/extrude/rounding
+    /// Area sense-drag utk gizmo panah dua-sisi push/pull/extrude/rounding.
+    ///
+    /// `id_salt` WAJIB unik per handle dan stabil antar-frame. Id tidak boleh
+    /// memakai id otomatis egui (`allocate_rect`) karena id itu bergantung pada
+    /// jumlah widget yang dialokasikan sebelumnya di frame tersebut; bila jumlah
+    /// itu berubah di tengah drag (mis. overlay sketch berhenti digambar saat
+    /// aplikasi otomatis pindah ke mode 3D), egui kehilangan drag yang sedang
+    /// berjalan dan `drag_stopped()` tidak pernah dilaporkan.
     pub fn render_draggable_double_arrow_handle(
         ui: &mut Ui,
+        id_salt: impl std::hash::Hash + std::fmt::Debug,
         pos_2d: Pos2,
         is_dragging: bool,
         dir_2d: Option<Vec2>,
     ) -> egui::Response {
+        let id = ui.id().with(("ducad-double-arrow-handle", id_salt));
         if !pos_2d.x.is_finite() || !pos_2d.y.is_finite() {
-            return ui.allocate_rect(egui::Rect::NOTHING, egui::Sense::hover());
+            return ui.interact(egui::Rect::NOTHING, id, egui::Sense::hover());
         }
         // Area interaktif diperbesar agar sangat mudah disentuh & di-drag
         let rect = egui::Rect::from_center_size(pos_2d, Vec2::splat(52.0));
-        let response = ui.allocate_rect(rect, egui::Sense::drag());
+        ui.advance_cursor_after_rect(rect);
+        let response = ui.interact(rect, id, egui::Sense::drag());
         let is_hovered = response.hovered();
 
         let dir_u = match dir_2d {

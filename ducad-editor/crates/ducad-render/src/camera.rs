@@ -250,7 +250,54 @@ impl OrbitCamera {
             self.set_preset(plane.camera_preset());
         }
     }
+
+    /// Persentase zoom relatif terhadap "ukuran sebenarnya" (100% = 1 mm model
+    /// tampil 1 mm di layar, asumsi 96 titik/inci) untuk tinggi viewport
+    /// `viewport_h_px`. Dipakai indikator % zoom di header.
+    pub fn zoom_percent(&self, viewport_h_px: f32) -> f32 {
+        self.px_per_mm(viewport_h_px.max(1.0)) / PX_PER_MM_ACTUAL_SIZE * 100.0
+    }
+
+    /// Atur zoom ke `percent` (lihat `zoom_percent`) sambil mempertahankan
+    /// `target` di tengah layar. Nilai tidak finit atau <= 0 diabaikan; jarak
+    /// tetap dibatasi oleh `zoom_at`.
+    pub fn set_zoom_percent(&mut self, percent: f32, viewport_h_px: f32) {
+        if !percent.is_finite() || percent <= 0.0 {
+            return;
+        }
+        let current = self.zoom_percent(viewport_h_px);
+        if current <= 0.0 || !current.is_finite() {
+            return;
+        }
+        self.zoom(percent / current);
+    }
+
+    /// Geser `target` ke pusat kotak `(min, max)` dan atur jarak supaya seluruh
+    /// kotak muat di viewport beraspek `aspect` dengan sedikit margin. Orientasi
+    /// (yaw/pitch/mode) tidak berubah. Kotak degenerate (titik) diberi radius
+    /// minimum supaya tidak zoom tak hingga.
+    pub fn fit_bounds(&mut self, min: Vec3, max: Vec3, aspect: f32) {
+        if !(min.is_finite() && max.is_finite()) {
+            return;
+        }
+        let lo = min.min(max);
+        let hi = min.max(max);
+        self.target = (lo + hi) * 0.5;
+        // Bola pembungkus: aman untuk orientasi kamera apa pun.
+        let radius = ((hi - lo).length() * 0.5).max(1.0);
+        // Sumbu layar tersempit yang membatasi: bila aspect < 1 (portrait),
+        // lebar setengah layar = half_h * aspect harus >= radius.
+        let half_h = radius / aspect.clamp(0.01, 1.0) * FIT_MARGIN;
+        let distance = half_h / (self.fov_y * 0.5).tan();
+        self.distance = distance.clamp(0.5, 150_000.0);
+    }
 }
+
+/// Piksel (titik egui) per milimeter pada zoom 100%: 96 titik/inci ÷ 25,4 mm/inci.
+pub const PX_PER_MM_ACTUAL_SIZE: f32 = 96.0 / 25.4;
+
+/// Margin tambahan saat "pas ke layar" supaya objek tidak menempel tepi.
+const FIT_MARGIN: f32 = 1.15;
 
 #[cfg(test)]
 mod tests {
@@ -276,6 +323,62 @@ mod tests {
             cam.zoom(10.0);
         }
         assert!(cam.distance >= 0.5);
+    }
+
+    #[test]
+    fn zoom_percent_roundtrips_through_set_zoom_percent() {
+        let mut cam = OrbitCamera::default();
+        let vp_h = 900.0;
+        cam.set_zoom_percent(100.0, vp_h);
+        assert!((cam.zoom_percent(vp_h) - 100.0).abs() < 1e-2);
+        // 100% = 1 mm model tampil ~3,78 px.
+        assert!((cam.px_per_mm(vp_h) - PX_PER_MM_ACTUAL_SIZE).abs() < 1e-3);
+
+        cam.set_zoom_percent(250.0, vp_h);
+        assert!((cam.zoom_percent(vp_h) - 250.0).abs() < 1e-2);
+
+        // Target tidak bergeser: zoom dipusatkan di tengah layar.
+        assert!(cam.target.length() < 1e-6);
+    }
+
+    #[test]
+    fn set_zoom_percent_ignores_invalid_values() {
+        let mut cam = OrbitCamera::default();
+        let before = cam.distance;
+        cam.set_zoom_percent(0.0, 900.0);
+        cam.set_zoom_percent(-5.0, 900.0);
+        cam.set_zoom_percent(f32::NAN, 900.0);
+        assert_eq!(cam.distance, before);
+    }
+
+    #[test]
+    fn fit_bounds_centers_target_and_contains_box() {
+        let mut cam = OrbitCamera::default();
+        let min = Vec3::new(-10.0, -20.0, 0.0);
+        let max = Vec3::new(30.0, 20.0, 50.0);
+        cam.fit_bounds(min, max, 16.0 / 9.0);
+        assert!((cam.target - Vec3::new(10.0, 0.0, 25.0)).length() < 1e-4);
+        // Setiap sudut kotak harus berada di dalam frustum (NDC dalam [-1, 1]).
+        let vp = cam.view_proj(16.0 / 9.0);
+        for &x in &[min.x, max.x] {
+            for &y in &[min.y, max.y] {
+                for &z in &[min.z, max.z] {
+                    let clip = vp * Vec3::new(x, y, z).extend(1.0);
+                    let ndc = clip.truncate() / clip.w;
+                    assert!(ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0, "sudut di luar layar: {ndc:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fit_bounds_handles_degenerate_box() {
+        let mut cam = OrbitCamera::default();
+        cam.fit_bounds(Vec3::ONE, Vec3::ONE, 1.0);
+        assert!(cam.distance.is_finite() && cam.distance >= 0.5);
+        let d = cam.distance;
+        cam.fit_bounds(Vec3::NAN, Vec3::ONE, 1.0);
+        assert_eq!(cam.distance, d);
     }
 
     #[test]

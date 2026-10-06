@@ -8,14 +8,32 @@ use ducad_sketch::{
 };
 
 use ducad_i18n::t;
-use ducad_ui::{CanvasHud, MateHudAction, RoundingHudAction, RoundingHudStyle, ToolGuides};
+use ducad_ui::{
+    CanvasHud, GizmoConfirmAction, MateHudAction, RoundingHudAction, RoundingHudStyle, ToolGuides,
+};
 use eframe::egui;
 use glam::{DVec2, Vec3};
 use slotmap::Key;
 
 use crate::app::DuCADApp;
+use crate::overlay::GIZMO_IDLE_HEIGHT_MM;
 use crate::types::{RoundKind, ToolKind};
 use crate::viewport::{pixel_tolerance_to_world, screen_to_plane_point, world_to_screen_pos};
+
+/// Hasil satu frame popup angka gizmo (`DuCADApp::show_gizmo_value_popup`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GizmoPopupOutcome {
+    /// Popup masih terbuka, belum ada keputusan.
+    Open,
+    /// Enter dengan angka valid (satuan tampilan).
+    Commit(f64),
+    /// Enter tetapi teks bukan angka.
+    Invalid,
+    /// Esc ditekan.
+    Cancel,
+    /// Fokus hilang (klik di luar) — tutup popup saja.
+    Dismiss,
+}
 
 impl DuCADApp {
     pub fn screen_line_angle(&self, rect: egui::Rect, a: DVec2, b: DVec2) -> f32 {
@@ -228,6 +246,107 @@ impl DuCADApp {
         false
     }
 
+    /// Dimensi radius lingkaran yang SELALU tampil di mode sketch (tidak bergantung
+    /// "Tampilkan Semua Ukuran"), digambar dengan gaya garis ukur gambar teknik agar
+    /// jelas ini ukuran dan bukan geometri: garis radius kuning (warna sama dengan
+    /// ruler/measure) dari pusat ke keliling searah sumbu-U bidang aktif, titik kecil
+    /// di pusat, panah di ujung menunjuk ke keliling, dan pill "R nilai" sejajar garis
+    /// dengan offset tegak lurus supaya tidak menutupi garisnya. Untuk lingkaran yang
+    /// tampak kecil di layar, pill dibawa ke luar lingkaran lewat garis leader. Klik
+    /// pill → ketik radius baru → lingkaran di-update presisi lewat
+    /// `commit_dimension_pill_edit`.
+    pub fn render_circle_radius_dimensions(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        if !self.is_sketching {
+            return;
+        }
+        let circles: Vec<(EntityId, DVec2, f64)> = self
+            .sketch()
+            .entities
+            .iter()
+            .filter(|(id, _)| !self.sketch().is_hidden(*id))
+            .filter_map(|(id, e)| match e {
+                Entity::Circle { center, radius, .. } => Some((id, *center, *radius)),
+                _ => None,
+            })
+            .collect();
+        if circles.is_empty() {
+            return;
+        }
+
+        // Warna identik dengan garis ruler/measure (`COLOR_MEASURE` di ducad-render).
+        let line_color = egui::Color32::from_rgba_premultiplied(255, 242, 90, 230);
+        let stroke = egui::Stroke::new(1.2, line_color);
+        const ARROW_LEN: f32 = 9.0;
+        const ARROW_HALF_W: f32 = 3.5;
+        const PILL_OFFSET: f32 = 16.0;
+        const LEADER_LEN: f32 = 34.0;
+        const MIN_INLINE_RADIUS_PX: f32 = 60.0;
+        let mut commit: Option<(EntityId, f64)> = None;
+
+        for (id, center, radius) in circles {
+            let edge = center + DVec2::new(radius, 0.0);
+            let c_3d = self.active_plane.to_world(center, 0.0);
+            let e_3d = self.active_plane.to_world(edge, 0.0);
+            let (Some(c_2d), Some(e_2d)) = (
+                world_to_screen_pos(&self.camera, rect, c_3d),
+                world_to_screen_pos(&self.camera, rect, e_3d),
+            ) else {
+                continue;
+            };
+            let delta = e_2d - c_2d;
+            if !delta.x.is_finite() || !delta.y.is_finite() || delta.length() < 1.0 {
+                continue;
+            }
+            let dir = delta.normalized();
+            let normal = egui::vec2(-dir.y, dir.x);
+
+            let painter = ui.painter();
+            painter.line_segment([c_2d, e_2d], stroke);
+            painter.circle_filled(c_2d, 2.0, line_color);
+            // Panah di ujung menunjuk KELUAR ke keliling lingkaran.
+            let base = e_2d - dir * ARROW_LEN;
+            painter.add(egui::Shape::convex_polygon(
+                vec![e_2d, base + normal * ARROW_HALF_W, base - normal * ARROW_HALF_W],
+                line_color,
+                egui::Stroke::NONE,
+            ));
+
+            // Pill: sejajar garis, digeser tegak lurus (ke arah "atas" layar) dari titik
+            // tengah; bila radius kecil di layar, ditarik keluar lewat leader.
+            let up_normal = if normal.y <= 0.0 { normal } else { -normal };
+            let mid = c_2d.lerp(e_2d, 0.5);
+            let pos_2d = if delta.length() >= MIN_INLINE_RADIUS_PX {
+                mid + up_normal * PILL_OFFSET
+            } else {
+                let leader_end = e_2d + dir * LEADER_LEN;
+                painter.line_segment([e_2d, leader_end], stroke);
+                leader_end + dir * 8.0
+            };
+            let angle = self.screen_line_angle(rect, center, edge);
+
+            let text = format!("R {}", self.unit.format_precise(radius));
+            let is_editing = self.editing_dimension_entity == Some(id);
+            let resp = ui
+                .push_id(("ducad-dim-pill-circle-radius", id.data().as_ffi()), |ui| {
+                    CanvasHud::render_interactive_dimension_pill_aligned(
+                        ui, pos_2d, angle, &text, is_editing,
+                    )
+                })
+                .inner;
+            if resp.clicked() && !is_editing {
+                self.editing_dimension_entity = Some(id);
+                self.editing_dimension_input = format!("{:.2}", self.unit.to_display_val(radius));
+            }
+            if is_editing {
+                self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
+            }
+        }
+
+        if let Some((id, radius_mm)) = commit {
+            self.commit_dimension_pill_edit(id, radius_mm);
+        }
+    }
+
     pub fn render_all_element_dimensions(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         const COINCIDENCE_POS_EPS: f32 = 1e-3;
         const COINCIDENCE_LEN_EPS: f64 = 1e-3;
@@ -379,6 +498,9 @@ impl DuCADApp {
                         }
                     }
                 }
+                // Di mode sketch, lingkaran sudah punya dimensi radius permanen
+                // (`render_circle_radius_dimensions`) — jangan gambar pill R ganda.
+                Entity::Circle { .. } if self.is_sketching => {}
                 Entity::Circle { center, radius, .. } => {
                     let edge_pt = *center + DVec2::new(*radius, 0.0);
                     let label_3d = self.active_plane.to_world(edge_pt, 0.0);
@@ -716,6 +838,80 @@ impl DuCADApp {
         }
     }
 
+    /// Popup kotak angka presisi di bawah pill gizmo (extrude profil, tarik
+    /// sisi, fillet/chamfer vertex/edge/sudut sketsa). Satu implementasi untuk
+    /// semua gizmo agar perilakunya seragam: fokus otomatis, teks terseleksi
+    /// penuh bila `select_all` (sekali), Enter = `Commit(nilai_tampilan)`,
+    /// Esc = `Cancel`, klik di luar = `Dismiss` (popup tertutup, operasi tetap
+    /// menunggu). Nilai dikembalikan dalam satuan tampilan; pemanggil yang
+    /// mengubahnya ke mm internal.
+    fn show_gizmo_value_popup(
+        ui: &mut egui::Ui,
+        id_salt: &'static str,
+        pill_pos: egui::Pos2,
+        input: &mut String,
+        select_all: &mut bool,
+    ) -> GizmoPopupOutcome {
+        let popup_rect = egui::Rect::from_center_size(
+            pill_pos + egui::vec2(0.0, 28.0),
+            egui::vec2(100.0, 32.0),
+        );
+        let mut outcome = GizmoPopupOutcome::Open;
+        egui::Area::new(egui::Id::new(id_salt))
+            .fixed_pos(popup_rect.min)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    let output = egui::TextEdit::singleline(input)
+                        .desired_width(84.0)
+                        .show(ui);
+                    let resp = output.response;
+                    resp.request_focus();
+                    if *select_all {
+                        *select_all = false;
+                        let mut state = output.state;
+                        let len = input.chars().count();
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                            egui::text::CCursor::new(0),
+                            egui::text::CCursor::new(len),
+                        )));
+                        state.store(ui.ctx(), resp.id);
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        outcome = GizmoPopupOutcome::Cancel;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        outcome = match input.trim().replace(',', ".").parse::<f64>() {
+                            Ok(v) if v.is_finite() => GizmoPopupOutcome::Commit(v),
+                            _ => GizmoPopupOutcome::Invalid,
+                        };
+                    } else if resp.lost_focus() {
+                        outcome = GizmoPopupOutcome::Dismiss;
+                    }
+                });
+            });
+        outcome
+    }
+
+    /// Bila pengguna mulai mengetik angka saat sebuah gizmo menunggu konfirmasi
+    /// dan tidak ada widget yang fokus, kembalikan teks itu agar popup dibuka
+    /// dengan karakter pertama sudah terisi (ketik langsung tanpa klik pill).
+    fn typed_number_prefix(ui: &egui::Ui) -> Option<String> {
+        if ui.ctx().memory(|m| m.focused().is_some()) {
+            return None;
+        }
+        ui.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Text(t)
+                    if !t.is_empty()
+                        && t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == ',') =>
+                {
+                    Some(t.clone())
+                }
+                _ => None,
+            })
+        })
+    }
+
     pub fn dynamic_input_ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -746,6 +942,8 @@ impl DuCADApp {
         if self.show_all_dimensions {
             self.render_all_element_dimensions(ui, rect);
         }
+        // Lingkaran: garis + ukuran radius selalu tampil saat sketching.
+        self.render_circle_radius_dimensions(ui, rect);
         self.paint_sim_overlay(ui, rect);
         self.paint_mass_marker(ui, rect);
 
@@ -1460,7 +1658,7 @@ impl DuCADApp {
                         let handle_x_3d = centroid_3d + dir_x * (self.pattern_pitch_x as f32);
                         if let Some(handle_x_2d) = world_to_screen_pos(&self.camera, rect, handle_x_3d) {
                             let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_x, egui::Vec2::ZERO);
-                            let resp_x = CanvasHud::render_draggable_double_arrow_handle(ui, handle_x_2d, false, arrow_vec_opt);
+                            let resp_x = CanvasHud::render_draggable_double_arrow_handle(ui, "pattern-pitch-x", handle_x_2d, false, arrow_vec_opt);
                             if resp_x.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_x, resp_x.drag_delta());
                                 self.pattern_pitch_x = (self.pattern_pitch_x + delta_mm).max(1.0);
@@ -1518,7 +1716,7 @@ impl DuCADApp {
                         let handle_y_3d = centroid_3d + dir_y * (self.pattern_pitch_y as f32);
                         if let Some(handle_y_2d) = world_to_screen_pos(&self.camera, rect, handle_y_3d) {
                             let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_y, egui::Vec2::ZERO);
-                            let resp_y = CanvasHud::render_draggable_double_arrow_handle(ui, handle_y_2d, false, arrow_vec_opt);
+                            let resp_y = CanvasHud::render_draggable_double_arrow_handle(ui, "pattern-pitch-y", handle_y_2d, false, arrow_vec_opt);
                             if resp_y.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_y, resp_y.drag_delta());
                                 self.pattern_pitch_y = (self.pattern_pitch_y + delta_mm).max(1.0);
@@ -1577,7 +1775,7 @@ impl DuCADApp {
                             let handle_z_3d = centroid_3d + dir_z * (self.pattern_pitch_z as f32);
                             if let Some(handle_z_2d) = world_to_screen_pos(&self.camera, rect, handle_z_3d) {
                                 let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_z, egui::Vec2::ZERO);
-                                let resp_z = CanvasHud::render_draggable_double_arrow_handle(ui, handle_z_2d, false, arrow_vec_opt);
+                                let resp_z = CanvasHud::render_draggable_double_arrow_handle(ui, "pattern-pitch-z", handle_z_2d, false, arrow_vec_opt);
                                 if resp_z.dragged() {
                                     let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, centroid_3d, dir_z, resp_z.drag_delta());
                                     self.pattern_pitch_z = (self.pattern_pitch_z + delta_mm).max(1.0);
@@ -1749,7 +1947,7 @@ impl DuCADApp {
                         let rad_handle_3d = pivot_3d + rad_dir * (self.pattern_circ_radius as f32);
                         if let Some(rad_handle_2d) = world_to_screen_pos(&self.camera, rect, rad_handle_3d) {
                             let (_, arrow_vec_opt) = self.project_screen_drag_to_world_axis(rect, pivot_3d, rad_dir, egui::Vec2::ZERO);
-                            let resp_rad = CanvasHud::render_draggable_double_arrow_handle(ui, rad_handle_2d, false, arrow_vec_opt);
+                            let resp_rad = CanvasHud::render_draggable_double_arrow_handle(ui, "pattern-circ-radius", rad_handle_2d, false, arrow_vec_opt);
                             if resp_rad.dragged() {
                                 let (delta_mm, _) = self.project_screen_drag_to_world_axis(rect, pivot_3d, rad_dir, resp_rad.drag_delta());
                                 self.pattern_circ_radius = (self.pattern_circ_radius + delta_mm).max(0.5);
@@ -2103,10 +2301,20 @@ impl DuCADApp {
 
         if self.tool == ToolKind::Select {
             if let Some(centroid) = self.selected_closed_region_centroid() {
+                // Pengaman drag yatim: bila tombol sudah dilepas tetapi
+                // `drag_stopped()` tidak pernah sampai (mis. widget handle
+                // dibuat ulang dengan id lain), commit/reset agar pointer tidak
+                // terkunci di mode geser.
+                if self.extruding_from_gizmo
+                    && !self.gizmo_staged
+                    && !ui.input(|i| i.pointer.any_down())
+                {
+                    self.stage_gizmo_extrusion();
+                }
                 let z_pos = if self.extruding_from_gizmo {
                 self.gizmo_distance
             } else {
-                18.0
+                GIZMO_IDLE_HEIGHT_MM
             };
             let handle_3d = self.active_plane.to_world(centroid, z_pos as f32);
 
@@ -2119,21 +2327,19 @@ impl DuCADApp {
 
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
+                    "extrude-profile",
                     handle_2d,
                     self.extruding_from_gizmo,
                     arrow_vec_opt,
                 );
 
                 if handle_resp.drag_started() {
-                    self.extruding_from_gizmo = true;
-                    if self.gizmo_distance == 0.0 {
-                        self.gizmo_distance = 20.0;
-                    }
-                    self.auto_enter_3d_mode_on_extrude_drag();
+                    self.begin_gizmo_drag();
                 }
 
                 if handle_resp.dragged() {
                     self.extruding_from_gizmo = true;
+                    self.gizmo_staged = false;
                     let (delta_mm, _) = self.project_screen_drag_to_extrude_axis(
                         rect,
                         centroid,
@@ -2143,56 +2349,105 @@ impl DuCADApp {
                     self.update_gizmo_boolean_detection();
                 }
 
+                // Lepas drag = TAHAN (staged), bukan commit: handle, pratinjau,
+                // dan label tinggi tetap tampil untuk input nilai presisi.
                 if handle_resp.drag_stopped() {
-                    self.commit_gizmo_extrusion();
+                    self.stage_gizmo_extrusion();
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = self.unit.format(self.gizmo_distance.abs());
-                let pill_resp = CanvasHud::render_interactive_dimension_pill(
-                    ui,
-                    pill_pos,
-                    &text,
-                    self.gizmo_dimension_editing,
-                );
-                if pill_resp.clicked() {
-                    self.gizmo_dimension_editing = !self.gizmo_dimension_editing;
-                    self.gizmo_edit_input = format!(
-                        "{:.0}",
-                        self.unit.to_display_val(self.gizmo_distance)
+                // Label jarak baru muncul setelah handle benar-benar digeser;
+                // saat objek baru dipilih belum ada angka yang ditampilkan.
+                let show_pill = self.gizmo_dimension_editing
+                    || (self.extruding_from_gizmo && self.gizmo_distance.abs() > 1e-4);
+                if show_pill {
+                    let text = self.unit.format(self.gizmo_distance.abs());
+                    let pill_resp = CanvasHud::render_interactive_dimension_pill(
+                        ui,
+                        pill_pos,
+                        &text,
+                        self.gizmo_dimension_editing,
                     );
+                    if pill_resp.clicked() && !self.gizmo_dimension_editing {
+                        self.gizmo_dimension_editing = true;
+                        self.gizmo_edit_select_all = true;
+                        self.gizmo_edit_input =
+                            Self::format_gizmo_input(self.unit, self.gizmo_distance);
+                    }
+                    if self.gizmo_staged {
+                        match CanvasHud::render_gizmo_confirm_buttons(
+                            ui,
+                            "extrude-profile",
+                            pill_resp.rect,
+                        ) {
+                            Some(GizmoConfirmAction::Commit) => {
+                                self.update_gizmo_boolean_detection();
+                                self.commit_gizmo_extrusion();
+                            }
+                            Some(GizmoConfirmAction::Cancel) => self.cancel_gizmo_extrusion(),
+                            None => {}
+                        }
+                    }
+                }
+
+                if self.gizmo_staged && !self.gizmo_dimension_editing {
+                    if let Some(prefix) = Self::typed_number_prefix(ui) {
+                        self.gizmo_dimension_editing = true;
+                        self.gizmo_edit_input = prefix;
+                        self.gizmo_edit_select_all = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.update_gizmo_boolean_detection();
+                        self.commit_gizmo_extrusion();
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.cancel_gizmo_extrusion();
+                    }
                 }
 
                 if self.gizmo_dimension_editing {
-                    let popup_rect = egui::Rect::from_center_size(
-                        pill_pos + egui::vec2(0.0, 28.0),
-                        egui::vec2(100.0, 32.0),
-                    );
-                    egui::Area::new(egui::Id::new("ducad-gizmo-edit-popup"))
-                        .fixed_pos(popup_rect.min)
-                        .order(egui::Order::Foreground)
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                let resp = ui.text_edit_singleline(&mut self.gizmo_edit_input);
-                                resp.request_focus();
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    self.gizmo_dimension_editing = false;
-                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                    if let Ok(val) =
-                                        self.gizmo_edit_input.trim().parse::<f64>()
-                                    {
-                                        self.gizmo_distance = self.unit.to_internal_mm(val);
-                                        self.commit_gizmo_extrusion();
-                                    }
-                                    self.gizmo_dimension_editing = false;
-                                } else if resp.lost_focus() {
-                                    self.gizmo_dimension_editing = false;
-                                }
-                                });
-                            });
+                    match Self::show_gizmo_value_popup(
+                        ui,
+                        "ducad-gizmo-edit-popup",
+                        pill_pos,
+                        &mut self.gizmo_edit_input,
+                        &mut self.gizmo_edit_select_all,
+                    ) {
+                        GizmoPopupOutcome::Commit(val) => {
+                            let dist = self.unit.to_internal_mm(val);
+                            if dist.abs() <= 0.1 {
+                                self.cancel_gizmo_extrusion();
+                            } else {
+                                // Tanda nilai ketikan mengikuti arah drag: angka
+                                // positif = arah handle saat ini.
+                                self.gizmo_distance = if dist < 0.0 {
+                                    dist
+                                } else if self.gizmo_distance < 0.0 {
+                                    -dist
+                                } else {
+                                    dist
+                                };
+                                self.extruding_from_gizmo = true;
+                                self.update_gizmo_boolean_detection();
+                                self.commit_gizmo_extrusion();
+                            }
+                        }
+                        GizmoPopupOutcome::Invalid => {
+                            self.model_status = Some("Nilai tinggi tidak valid".to_string());
+                        }
+                        GizmoPopupOutcome::Cancel => {
+                            if self.gizmo_staged {
+                                self.cancel_gizmo_extrusion();
+                            } else {
+                                self.gizmo_dimension_editing = false;
+                            }
+                        }
+                        GizmoPopupOutcome::Dismiss => {
+                            self.gizmo_dimension_editing = false;
+                        }
+                        GizmoPopupOutcome::Open => {}
                     }
                 }
             }
+        }
         }
 
         if self.active_vertex.is_none() && self.active_edge.is_none() && self.active_sketch_corner.is_none() {
@@ -2222,19 +2477,19 @@ impl DuCADApp {
 
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
+                    "extrude-face",
                     handle_2d,
                     self.extruding_face_from_gizmo,
                     arrow_vec_opt,
                 );
 
                 if handle_resp.drag_started() {
-                    self.extruding_face_from_gizmo = true;
-                    self.face_gizmo_distance = 0.0;
-                    self.auto_enter_3d_mode_on_extrude_drag();
+                    self.begin_face_gizmo_drag();
                 }
 
                 if handle_resp.dragged() {
                     self.extruding_face_from_gizmo = true;
+                    self.face_gizmo_staged = false;
                     let (delta_mm, _) = self.project_screen_drag_to_world_axis(
                         rect,
                         c_base,
@@ -2242,20 +2497,14 @@ impl DuCADApp {
                         handle_resp.drag_delta(),
                     );
                     self.face_gizmo_distance += delta_mm;
-                    self.face_gizmo_edit_input = format!(
-                        "{:.0}",
-                        self.unit.to_display_val(self.face_gizmo_distance)
-                    );
+                    self.face_gizmo_edit_input =
+                        Self::format_gizmo_input(self.unit, self.face_gizmo_distance);
                     ui.ctx().request_repaint();
                 }
 
+                // Lepas drag = tahan (staged) untuk input presisi, bukan commit.
                 if handle_resp.drag_stopped() {
-                    if self.face_gizmo_distance.abs() > 0.1 {
-                        self.extrude_active_face(self.face_gizmo_distance);
-                    }
-                    self.extruding_face_from_gizmo = false;
-                    self.face_gizmo_distance = 0.0;
-                    self.face_gizmo_edit_input = "0".to_string();
+                    self.stage_face_gizmo_extrusion();
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
@@ -2269,46 +2518,75 @@ impl DuCADApp {
                     &text,
                     self.face_gizmo_dimension_editing,
                 );
-                if pill_resp.clicked() {
-                    self.face_gizmo_dimension_editing = !self.face_gizmo_dimension_editing;
+                if pill_resp.clicked() && !self.face_gizmo_dimension_editing {
+                    self.face_gizmo_dimension_editing = true;
+                    self.gizmo_edit_select_all = true;
                     self.face_gizmo_edit_input = if self.face_gizmo_distance.abs() < 1e-4 {
-                        "".to_string()
+                        String::new()
                     } else {
-                        format!(
-                            "{:.0}",
-                            self.unit.to_display_val(self.face_gizmo_distance)
-                        )
+                        Self::format_gizmo_input(self.unit, self.face_gizmo_distance)
                     };
+                }
+                if self.face_gizmo_staged {
+                    match CanvasHud::render_gizmo_confirm_buttons(
+                        ui,
+                        "extrude-face",
+                        pill_resp.rect,
+                    ) {
+                        Some(GizmoConfirmAction::Commit) => self.commit_face_gizmo_extrusion(),
+                        Some(GizmoConfirmAction::Cancel) => self.cancel_face_gizmo_extrusion(),
+                        None => {}
+                    }
+                }
+
+                if self.face_gizmo_staged && !self.face_gizmo_dimension_editing {
+                    if let Some(prefix) = Self::typed_number_prefix(ui) {
+                        self.face_gizmo_dimension_editing = true;
+                        self.face_gizmo_edit_input = prefix;
+                        self.gizmo_edit_select_all = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        self.commit_face_gizmo_extrusion();
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.cancel_face_gizmo_extrusion();
+                    }
                 }
 
                 if self.face_gizmo_dimension_editing {
-                    let popup_rect = egui::Rect::from_center_size(
-                        pill_pos + egui::vec2(0.0, 28.0),
-                        egui::vec2(100.0, 32.0),
-                    );
-                    egui::Area::new(egui::Id::new("ducad-face-gizmo-edit-popup"))
-                        .fixed_pos(popup_rect.min)
-                        .order(egui::Order::Foreground)
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                let resp = ui.text_edit_singleline(&mut self.face_gizmo_edit_input);
-                                resp.request_focus();
-                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                    self.face_gizmo_dimension_editing = false;
-                                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                    if let Ok(val) =
-                                        self.face_gizmo_edit_input.trim().parse::<f64>()
-                                    {
-                                        let dist = self.unit.to_internal_mm(val);
-                                        self.face_gizmo_distance = dist;
-                                        self.extrude_active_face(dist);
-                                    }
-                                    self.face_gizmo_dimension_editing = false;
-                                } else if resp.lost_focus() {
-                                    self.face_gizmo_dimension_editing = false;
-                                }
-                            });
-                        });
+                    match Self::show_gizmo_value_popup(
+                        ui,
+                        "ducad-face-gizmo-edit-popup",
+                        pill_pos,
+                        &mut self.face_gizmo_edit_input,
+                        &mut self.gizmo_edit_select_all,
+                    ) {
+                        GizmoPopupOutcome::Commit(val) => {
+                            let dist = self.unit.to_internal_mm(val);
+                            // Angka positif mengikuti arah drag saat ini; angka
+                            // negatif eksplisit = potong/cekung.
+                            self.face_gizmo_distance = if dist < 0.0 {
+                                dist
+                            } else if self.face_gizmo_distance < 0.0 {
+                                -dist
+                            } else {
+                                dist
+                            };
+                            self.commit_face_gizmo_extrusion();
+                        }
+                        GizmoPopupOutcome::Invalid => {
+                            self.model_status = Some("Nilai jarak tidak valid".to_string());
+                        }
+                        GizmoPopupOutcome::Cancel => {
+                            if self.face_gizmo_staged || self.extruding_face_from_gizmo {
+                                self.cancel_face_gizmo_extrusion();
+                            } else {
+                                self.face_gizmo_dimension_editing = false;
+                            }
+                        }
+                        GizmoPopupOutcome::Dismiss => {
+                            self.face_gizmo_dimension_editing = false;
+                        }
+                        GizmoPopupOutcome::Open => {}
+                    }
                 }
             }
         }
@@ -2328,6 +2606,7 @@ impl DuCADApp {
 
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
+                    "fillet-vertex",
                     handle_2d,
                     self.filleting_vertex_from_gizmo,
                     arrow_vec_opt,
@@ -2420,9 +2699,57 @@ impl DuCADApp {
                 } else {
                     format!("C {}", self.unit.format(-self.vertex_gizmo_radius))
                 };
-                CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
+                let pill_resp = CanvasHud::render_interactive_dimension_pill(
+                    ui,
+                    pill_pos,
+                    &pill_text,
+                    self.vertex_gizmo_dimension_editing,
+                );
+                if pill_resp.clicked() && !self.vertex_gizmo_dimension_editing {
+                    self.vertex_gizmo_dimension_editing = true;
+                    self.gizmo_edit_select_all = true;
+                    self.vertex_gizmo_edit_input =
+                        Self::format_gizmo_input(self.unit, self.vertex_gizmo_radius.abs());
+                }
+                if self.vertex_gizmo_dimension_editing {
+                    match Self::show_gizmo_value_popup(
+                        ui,
+                        "ducad-vertex-gizmo-edit-popup",
+                        pill_pos,
+                        &mut self.vertex_gizmo_edit_input,
+                        &mut self.gizmo_edit_select_all,
+                    ) {
+                        GizmoPopupOutcome::Commit(val) => {
+                            let mag = self.unit.to_internal_mm(val).abs();
+                            let signed_r = match self.round_gizmo_style {
+                                crate::types::RoundStyle::Chamfer => -mag,
+                                crate::types::RoundStyle::Fillet => mag,
+                            };
+                            self.vertex_gizmo_dimension_editing = false;
+                            if mag < Self::ROUND_SHARP_MM {
+                                self.clear_round_gizmo(RoundKind::Vertex);
+                            } else if self.update_round_preview_cache(RoundKind::Vertex, signed_r) {
+                                self.vertex_gizmo_radius = signed_r;
+                                self.commit_vertex_fillet();
+                            } else {
+                                self.model_status =
+                                    Some("Radius itu tidak bisa diterapkan pada vertex ini".to_string());
+                            }
+                            self.filleting_vertex_from_gizmo = false;
+                        }
+                        GizmoPopupOutcome::Invalid => {
+                            self.model_status = Some("Nilai radius tidak valid".to_string());
+                        }
+                        GizmoPopupOutcome::Cancel | GizmoPopupOutcome::Dismiss => {
+                            self.vertex_gizmo_dimension_editing = false;
+                        }
+                        GizmoPopupOutcome::Open => {}
+                    }
+                }
 
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if self.vertex_gizmo_dimension_editing {
+                    // Enter/Esc sudah ditangani popup.
+                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     eprintln!(
                         "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
                         Key::Enter pressed for vertex rounding (radius={:.2}mm)",
@@ -2557,6 +2884,7 @@ impl DuCADApp {
 
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
+                    "fillet-edge",
                     handle_2d,
                     self.filleting_edge_from_gizmo,
                     arrow_vec_opt,
@@ -2649,9 +2977,57 @@ impl DuCADApp {
                 } else {
                     format!("C {}", self.unit.format(-self.edge_gizmo_radius))
                 };
-                CanvasHud::render_interactive_dimension_pill(ui, pill_pos, &pill_text, false);
+                let pill_resp = CanvasHud::render_interactive_dimension_pill(
+                    ui,
+                    pill_pos,
+                    &pill_text,
+                    self.edge_gizmo_dimension_editing,
+                );
+                if pill_resp.clicked() && !self.edge_gizmo_dimension_editing {
+                    self.edge_gizmo_dimension_editing = true;
+                    self.gizmo_edit_select_all = true;
+                    self.edge_gizmo_edit_input =
+                        Self::format_gizmo_input(self.unit, self.edge_gizmo_radius.abs());
+                }
+                if self.edge_gizmo_dimension_editing {
+                    match Self::show_gizmo_value_popup(
+                        ui,
+                        "ducad-edge-gizmo-edit-popup",
+                        pill_pos,
+                        &mut self.edge_gizmo_edit_input,
+                        &mut self.gizmo_edit_select_all,
+                    ) {
+                        GizmoPopupOutcome::Commit(val) => {
+                            let mag = self.unit.to_internal_mm(val).abs();
+                            let signed_r = match self.round_gizmo_style {
+                                crate::types::RoundStyle::Chamfer => -mag,
+                                crate::types::RoundStyle::Fillet => mag,
+                            };
+                            self.edge_gizmo_dimension_editing = false;
+                            if mag < Self::ROUND_SHARP_MM {
+                                self.clear_round_gizmo(RoundKind::Edge);
+                            } else if self.update_round_preview_cache(RoundKind::Edge, signed_r) {
+                                self.edge_gizmo_radius = signed_r;
+                                self.commit_edge_fillet_single();
+                            } else {
+                                self.model_status =
+                                    Some("Radius itu tidak bisa diterapkan pada tepi ini".to_string());
+                            }
+                            self.filleting_edge_from_gizmo = false;
+                        }
+                        GizmoPopupOutcome::Invalid => {
+                            self.model_status = Some("Nilai radius tidak valid".to_string());
+                        }
+                        GizmoPopupOutcome::Cancel | GizmoPopupOutcome::Dismiss => {
+                            self.edge_gizmo_dimension_editing = false;
+                        }
+                        GizmoPopupOutcome::Open => {}
+                    }
+                }
 
-                if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if self.edge_gizmo_dimension_editing {
+                    // Enter/Esc sudah ditangani popup.
+                } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     eprintln!(
                         "[FILLET-CHAMFER][ACTION] >>> [FUNCTION: CanvasHud / dimensions.rs] \
                         Key::Enter pressed for edge rounding (radius={:.2}mm)",
@@ -3305,6 +3681,7 @@ impl DuCADApp {
 
                 let handle_resp = CanvasHud::render_draggable_double_arrow_handle(
                     ui,
+                    ("sketch-corner", id1.data().as_ffi(), id2.data().as_ffi()),
                     handle_2d,
                     is_this_corner_active && self.sketch_corner_gizmo_active,
                     arrow_vec_opt,
@@ -3334,19 +3711,35 @@ impl DuCADApp {
                     );
                 }
 
+                // Lepas drag = tahan untuk input presisi (Enter/centang commit, Esc/silang batal).
                 if is_this_corner_active && handle_resp.drag_stopped() {
-                    self.commit_sketch_corner_fillet_or_chamfer();
+                    if self.sketch_corner_gizmo_radius.abs() < 0.1 {
+                        self.cancel_sketch_corner_gizmo();
+                    } else {
+                        self.sketch_corner_gizmo_active = true;
+                        self.sketch_corner_dimension_editing = true;
+                        self.gizmo_edit_select_all = true;
+                        self.sketch_corner_edit_input = Self::format_gizmo_input(
+                            self.unit,
+                            self.sketch_corner_gizmo_radius.abs(),
+                        );
+                        let kind = if self.sketch_corner_gizmo_radius >= 0.0 { "Fillet" } else { "Chamfer" };
+                        self.model_status = Some(format!(
+                            "{kind} 2D {} — ketik nilai presisi lalu Enter untuk terapkan, atau Esc untuk batal",
+                            self.unit.format(self.sketch_corner_gizmo_radius.abs())
+                        ));
+                    }
                 }
 
                 if is_this_corner_active && self.sketch_corner_gizmo_active && !self.sketch_corner_dimension_editing {
-                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if let Some(prefix) = Self::typed_number_prefix(ui) {
+                        self.sketch_corner_dimension_editing = true;
+                        self.sketch_corner_edit_input = prefix;
+                        self.gizmo_edit_select_all = false;
+                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         self.commit_sketch_corner_fillet_or_chamfer();
                     } else if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                        self.active_sketch_corner = None;
-                        self.active_sketch_fillet_arc = None;
-                        self.sketch_corner_gizmo_active = false;
-                        self.sketch_corner_dimension_editing = false;
-                        self.model_status = Some("Fillet/Chamfer 2D dibatalkan".to_string());
+                        self.cancel_sketch_corner_gizmo();
                     }
                 }
 
@@ -3377,52 +3770,64 @@ impl DuCADApp {
                         is_this_corner_active && self.sketch_corner_dimension_editing,
                     );
 
-                    if pill_resp.clicked() {
+                    if pill_resp.clicked() && !(is_this_corner_active && self.sketch_corner_dimension_editing) {
                         self.active_sketch_corner = Some((id1, id2, corner_2d));
                         self.active_sketch_fillet_arc = arc_id_opt;
                         self.sketch_corner_gizmo_radius = display_r;
                         self.sketch_corner_gizmo_active = true;
-                        self.sketch_corner_dimension_editing = !self.sketch_corner_dimension_editing;
-                        self.sketch_corner_edit_input = format!(
-                            "{:.1}",
-                            self.unit.to_display_val(display_r.abs())
-                        );
+                        self.sketch_corner_dimension_editing = true;
+                        self.gizmo_edit_select_all = true;
+                        self.sketch_corner_edit_input =
+                            Self::format_gizmo_input(self.unit, display_r.abs());
+                    }
+
+                    if is_this_corner_active && self.sketch_corner_gizmo_active {
+                        match CanvasHud::render_gizmo_confirm_buttons(
+                            ui,
+                            "sketch-corner",
+                            pill_resp.rect,
+                        ) {
+                            Some(GizmoConfirmAction::Commit) => {
+                                self.commit_sketch_corner_fillet_or_chamfer();
+                            }
+                            Some(GizmoConfirmAction::Cancel) => self.cancel_sketch_corner_gizmo(),
+                            None => {}
+                        }
                     }
 
                     if is_this_corner_active && self.sketch_corner_dimension_editing {
-                        let popup_rect = egui::Rect::from_center_size(
-                            pill_pos + egui::vec2(0.0, 28.0),
-                            egui::vec2(100.0, 32.0),
-                        );
-                        egui::Area::new(egui::Id::new("ducad-sketch-corner-gizmo-edit-popup"))
-                            .fixed_pos(popup_rect.min)
-                            .order(egui::Order::Foreground)
-                            .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    let resp =
-                                        ui.text_edit_singleline(&mut self.sketch_corner_edit_input);
-                                    resp.request_focus();
-                                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                                        self.sketch_corner_dimension_editing = false;
-                                    } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                                        if let Ok(val) =
-                                            self.sketch_corner_edit_input.trim().parse::<f64>()
-                                        {
-                                            let target_r = self.unit.to_internal_mm(val).max(0.0);
-                                            self.sketch_corner_gizmo_radius =
-                                                if self.sketch_corner_gizmo_radius < 0.0 {
-                                                    -target_r
-                                                } else {
-                                                    target_r
-                                                };
-                                            self.commit_sketch_corner_fillet_or_chamfer();
-                                        }
-                                        self.sketch_corner_dimension_editing = false;
-                                    } else if resp.lost_focus() {
-                                        self.sketch_corner_dimension_editing = false;
-                                    }
-                                });
-                            });
+                        match Self::show_gizmo_value_popup(
+                            ui,
+                            "ducad-sketch-corner-gizmo-edit-popup",
+                            pill_pos,
+                            &mut self.sketch_corner_edit_input,
+                            &mut self.gizmo_edit_select_all,
+                        ) {
+                            GizmoPopupOutcome::Commit(val) => {
+                                let target_r = self.unit.to_internal_mm(val).abs();
+                                self.sketch_corner_gizmo_radius =
+                                    if self.sketch_corner_gizmo_radius < 0.0 {
+                                        -target_r
+                                    } else {
+                                        target_r
+                                    };
+                                self.commit_sketch_corner_fillet_or_chamfer();
+                            }
+                            GizmoPopupOutcome::Invalid => {
+                                self.model_status = Some("Nilai radius tidak valid".to_string());
+                            }
+                            GizmoPopupOutcome::Cancel => {
+                                if self.sketch_corner_gizmo_active {
+                                    self.cancel_sketch_corner_gizmo();
+                                } else {
+                                    self.sketch_corner_dimension_editing = false;
+                                }
+                            }
+                            GizmoPopupOutcome::Dismiss => {
+                                self.sketch_corner_dimension_editing = false;
+                            }
+                            GizmoPopupOutcome::Open => {}
+                        }
                     }
                 }
             }

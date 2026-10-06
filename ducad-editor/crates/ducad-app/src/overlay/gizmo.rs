@@ -200,14 +200,159 @@ impl DuCADApp {
                 self.selected.clear();
             }
         }
+        self.reset_gizmo_extrusion_state();
+    }
+
+    /// Mulai drag handle extrude profil. Bila sedang menunggu konfirmasi
+    /// (`gizmo_staged`), drag melanjutkan dari tinggi yang ada; bila belum,
+    /// mulai dari tinggi handle idle supaya handle tidak melompat dari pointer.
+    pub fn begin_gizmo_drag(&mut self) {
+        // Idempoten: kanvas dan widget handle bisa sama-sama melaporkan
+        // drag_started di frame yang sama; hanya inisialisasi saat belum aktif.
+        if !self.extruding_from_gizmo {
+            self.gizmo_distance = crate::overlay::GIZMO_IDLE_HEIGHT_MM;
+        }
+        self.extruding_from_gizmo = true;
+        self.gizmo_staged = false;
+        self.gizmo_dimension_editing = false;
+        self.auto_enter_3d_mode_on_extrude_drag();
+    }
+
+    /// Drag gizmo extrude profil dilepas: JANGAN langsung commit. Pratinjau,
+    /// handle, dan label tinggi tetap tampil dan popup nilai dibuka dengan angka
+    /// terseleksi, sehingga pengguna bisa langsung mengetik tinggi presisi.
+    /// Enter/tombol centang meng-commit, Esc/tombol silang membatalkan, handle masih bisa digeser lagi.
+    pub fn stage_gizmo_extrusion(&mut self) {
+        if !self.extruding_from_gizmo {
+            return;
+        }
+        if self.gizmo_distance.abs() <= 0.1 {
+            // Drag tak berarti (klik saja): kembali ke keadaan idle.
+            self.cancel_gizmo_extrusion();
+            return;
+        }
+        self.gizmo_staged = true;
+        self.gizmo_edit_input = Self::format_gizmo_input(self.unit, self.gizmo_distance);
+        self.gizmo_dimension_editing = true;
+        self.gizmo_edit_select_all = true;
+        self.model_status = Some(format!(
+            "Tinggi extrude {} — ketik nilai presisi lalu Enter untuk terapkan, atau Esc untuk batal",
+            self.unit.format(self.gizmo_distance.abs())
+        ));
+    }
+
+    /// Batalkan extrude profil yang sedang digeser/menunggu konfirmasi tanpa
+    /// mengubah model. Seleksi profil dipertahankan.
+    pub fn cancel_gizmo_extrusion(&mut self) {
+        let was_active = self.extruding_from_gizmo;
+        self.reset_gizmo_extrusion_state();
+        if was_active {
+            self.model_status = Some("Extrude dibatalkan".to_string());
+        }
+    }
+
+    fn reset_gizmo_extrusion_state(&mut self) {
         self.extruding_from_gizmo = false;
+        self.gizmo_staged = false;
+        self.gizmo_dimension_editing = false;
+        self.gizmo_edit_select_all = false;
         self.gizmo_is_cutting = false;
         self.gizmo_target_body = None;
-        self.gizmo_distance = 20.0;
-        self.gizmo_edit_input = format!(
-            "{:.0}",
-            self.unit.to_display_val(self.gizmo_distance)
-        );
+        self.gizmo_distance = 0.0;
+        self.gizmo_edit_input = Self::format_gizmo_input(self.unit, self.gizmo_distance);
+    }
+
+    /// Format nilai jarak (mm internal) untuk kotak input gizmo: bulat bila
+    /// bilangan bulat, selain itu satu desimal — agar angka hasil drag mudah
+    /// dibaca dan ditimpa.
+    pub fn format_gizmo_input(unit: ducad_core::LengthUnit, value_mm: f64) -> String {
+        let v = unit.to_display_val(value_mm);
+        if (v - v.round()).abs() < 1e-6 {
+            format!("{:.0}", v)
+        } else {
+            format!("{:.1}", v)
+        }
+    }
+
+    /// Mulai drag handle tarik-sisi (push/pull). Melanjutkan jarak yang ada
+    /// bila sedang menunggu konfirmasi.
+    pub fn begin_face_gizmo_drag(&mut self) {
+        if !self.extruding_face_from_gizmo {
+            self.face_gizmo_distance = 0.0;
+        }
+        self.extruding_face_from_gizmo = true;
+        self.face_gizmo_staged = false;
+        self.face_gizmo_dimension_editing = false;
+        self.auto_enter_3d_mode_on_extrude_drag();
+    }
+
+    /// Tombol Extrude di bilah konteks/palet saat sebuah sisi aktif: langsung
+    /// buka input presisi (jarak 0) tanpa perlu drag.
+    pub fn open_face_gizmo_precise_input(&mut self) {
+        self.extruding_face_from_gizmo = true;
+        self.face_gizmo_staged = true;
+        self.face_gizmo_distance = 0.0;
+        self.face_gizmo_dimension_editing = true;
+        self.face_gizmo_edit_input = String::new();
+        self.gizmo_edit_select_all = true;
+        self.auto_enter_3d_mode_on_extrude_drag();
+    }
+
+    /// Drag gizmo tarik-sisi dilepas: tahan pratinjau + handle + label, buka
+    /// popup nilai (lihat `stage_gizmo_extrusion`).
+    pub fn stage_face_gizmo_extrusion(&mut self) {
+        if !self.extruding_face_from_gizmo {
+            return;
+        }
+        if self.face_gizmo_distance.abs() <= 0.1 {
+            self.cancel_face_gizmo_extrusion();
+            return;
+        }
+        self.face_gizmo_staged = true;
+        self.face_gizmo_edit_input = Self::format_gizmo_input(self.unit, self.face_gizmo_distance);
+        self.face_gizmo_dimension_editing = true;
+        self.gizmo_edit_select_all = true;
+        let verb = if self.face_gizmo_distance < 0.0 { "Potong sisi" } else { "Tarik sisi" };
+        self.model_status = Some(format!(
+            "{verb} {} — ketik nilai presisi lalu Enter untuk terapkan, atau Esc untuk batal",
+            self.unit.format(self.face_gizmo_distance.abs())
+        ));
+    }
+
+    /// Commit tarik-sisi dengan `face_gizmo_distance` saat ini, lalu reset gizmo.
+    pub fn commit_face_gizmo_extrusion(&mut self) {
+        if self.face_gizmo_distance.abs() > 0.1 {
+            self.extrude_active_face(self.face_gizmo_distance);
+        }
+        self.reset_face_gizmo_state();
+    }
+
+    /// Batalkan tarik-sisi yang sedang digeser/menunggu konfirmasi.
+    pub fn cancel_face_gizmo_extrusion(&mut self) {
+        let was_active = self.extruding_face_from_gizmo;
+        self.reset_face_gizmo_state();
+        if was_active {
+            self.model_status = Some("Tarik sisi dibatalkan".to_string());
+        }
+    }
+
+    fn reset_face_gizmo_state(&mut self) {
+        self.extruding_face_from_gizmo = false;
+        self.face_gizmo_staged = false;
+        self.face_gizmo_dimension_editing = false;
+        self.gizmo_edit_select_all = false;
+        self.face_gizmo_distance = 0.0;
+        self.face_gizmo_edit_input = "0".to_string();
+    }
+
+    /// Benar hanya saat pointer sedang MENGGESER sebuah gizmo (bukan saat
+    /// menunggu konfirmasi). Dipakai untuk kursor resize dan memblokir orbit —
+    /// saat staged, kanvas boleh di-orbit untuk memeriksa pratinjau.
+    pub fn gizmo_pointer_dragging(&self) -> bool {
+        (self.extruding_from_gizmo && !self.gizmo_staged)
+            || (self.extruding_face_from_gizmo && !self.face_gizmo_staged)
+            || self.filleting_vertex_from_gizmo
+            || self.filleting_edge_from_gizmo
     }
 
     /// Cek apakah posisi mouse saat ini berada dekat dengan gizmo panah atau dasar profil.

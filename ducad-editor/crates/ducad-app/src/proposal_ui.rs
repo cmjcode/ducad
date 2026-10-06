@@ -188,7 +188,7 @@ impl DuCADApp {
             accept: ducad_i18n::t!("proposal-accept"),
             reject: ducad_i18n::t!("proposal-reject"),
         };
-        match ducad_ui::ProposalCard::show(ctx, &state) {
+        match ducad_ui::ProposalCard::show(ctx, &state, self.drawer_right_inset()) {
             Some(ducad_ui::ProposalCardEvent::Accept) => self.accept_pending_proposal(),
             Some(ducad_ui::ProposalCardEvent::Reject) => {
                 if let Some(mut p) = self.pending_proposal.take() {

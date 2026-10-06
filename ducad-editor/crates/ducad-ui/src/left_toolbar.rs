@@ -379,8 +379,6 @@ impl LeftToolbar {
                 // ==================== MODE 3D SOLID ====================
                 let datum_title = t!("tool-datum-plane");
                 let datum_desc = t!("tool-datum-plane-desc");
-                let section_title = t!("tool-section");
-                let section_desc = t!("tool-section-desc");
                 let sweep_title = t!("tool-sweep");
                 let sweep_desc = t!("tool-sweep-desc");
                 let helix_title = t!("tool-helix");
@@ -388,6 +386,8 @@ impl LeftToolbar {
                 let draft_title = t!("tool-draft-angle");
                 let draft_desc = t!("tool-draft-angle-desc");
 
+                let section_title = t!("tool-section");
+                let section_desc = t!("tool-section-desc");
                 let tools_3d: &[(ToolbarTool, &str, &str, Option<&str>, Option<&str>)] = &[
                     (
                         ToolbarTool::DatumPlane,
@@ -451,11 +451,30 @@ fn publish_tool_rect(ui: &Ui, tool: ToolbarTool, rect: egui::Rect) {
     );
 }
 
+/// Sisi tombol persegi rail (toolbar kiri maupun rail kanan) untuk ukuran ikon tertentu.
+pub fn rail_button_side(icon_size: f32) -> f32 {
+    (icon_size.clamp(12.0, 18.0) + 14.0).max(30.0)
+}
+
+/// Tombol persegi bergaya toolbar kiri untuk rail vertikal lain (mis. rail kanan),
+/// supaya kedua rail terlihat satu keluarga: latar, cincin aktif, dan kartu tooltip sama.
+pub fn rail_square_btn(
+    ui: &mut Ui,
+    icon: &str,
+    icon_size: f32,
+    is_active: bool,
+    title: &str,
+    shortcut: Option<&str>,
+    subtitle: Option<&str>,
+) -> egui::Response {
+    square_btn(ui, icon, icon_size.clamp(12.0, 18.0), is_active, title, shortcut, subtitle, None, None)
+}
+
 /// Helper fungsi untuk menggambar tombol bujur sangkar (square button) dengan tooltip hover yang elegan.
 #[allow(clippy::too_many_arguments)]
 fn square_btn(
     ui: &mut Ui,
-    icon: &'static str,
+    icon: &str,
     icon_size: f32,
     is_active: bool,
     title: &str,

@@ -1156,12 +1156,28 @@ impl DuCADApp {
     }
 
     /// Jadikan permukaan sisi 3D yang aktif sebagai bidang sketsa baru.
+    ///
+    /// Seperti CAD komersial: bidang sketsa diletakkan TEPAT di permukaan face
+    /// (bukan di bidang dasar), sumbu U mengikuti tepi lurus terpanjang face,
+    /// dan batas face diproyeksikan sebagai geometri konstruksi untuk referensi
+    /// snap/dimensi. Bidang didaftarkan sebagai datum plane `Custom(id)` agar
+    /// penyimpanan sketsa, overlay, kursor, dan extrude memakai bidang yang sama;
+    /// bila face yang sama dipilih lagi, datum lamanya dipakai ulang.
     pub fn sketch_on_active_face(&mut self) {
-        let Some((_target_id, _ray, hit)) = &self.active_face else {
+        let Some((target_id, ray, hit)) = self.active_face.take() else {
             self.model_status =
                 Some("Pilih salah satu sisi (face) objek terlebih dahulu".to_string());
             return;
         };
+        if hit.surface_kind != ducad_kernel::SurfaceKind::Plane {
+            self.active_face = Some((target_id, ray, hit));
+            self.model_status = Some(
+                "Sketsa di Face hanya untuk sisi datar — pilih sisi planar, atau buat bidang referensi"
+                    .to_string(),
+            );
+            return;
+        }
+
         let origin = Vec3::new(
             hit.centroid.0 as f32,
             hit.centroid.1 as f32,
@@ -1172,12 +1188,49 @@ impl DuCADApp {
             hit.normal.1 as f32,
             hit.normal.2 as f32,
         );
-        self.active_plane = SketchPlane::from_origin_normal(origin, normal);
-        self.is_sketching = true;
-        self.left_toolbar.is_sketching = true;
-        self.camera.orient_to_plane(&self.active_plane);
-        self.active_face = None;
-        self.model_status = Some("Sketsa aktif pada permukaan sisi objek".to_string());
+        let boundary: Vec<glam::DVec3> = hit
+            .boundary_points
+            .iter()
+            .map(|p| glam::DVec3::new(p.0, p.1, p.2))
+            .collect();
+        let plane = match super::face_sketch::longest_straight_edge_dir(&boundary) {
+            Some(u_hint) => SketchPlane::from_origin_normal_u(origin, normal, u_hint),
+            None => SketchPlane::from_origin_normal(origin, normal),
+        };
+
+        let existing = self
+            .datum_planes
+            .iter()
+            .find(|dp| {
+                (dp.plane.origin - plane.origin).length() < 1e-3
+                    && dp.plane.normal.dot(plane.normal) > 0.9999
+            })
+            .map(|dp| dp.id);
+        let (id, is_new) = match existing {
+            Some(id) => (id, false),
+            None => {
+                let name = format!("Sisi {}", self.datum_plane_counter + 1);
+                (self.create_datum_plane(name, plane), true)
+            }
+        };
+        self.set_sketch_plane(ducad_render::PlaneKind::Custom(id));
+
+        if is_new {
+            let projected = super::face_sketch::project_boundary(&self.active_plane, &boundary);
+            if !projected.is_empty() {
+                self.execute_sketch_command(Box::new(
+                    ducad_sketch::commands::InsertEntities::new("Project Edges", projected),
+                ));
+            }
+        }
+        self.model_status = Some(format!(
+            "Sketsa aktif pada permukaan sisi objek (bidang '{}')",
+            self.datum_planes
+                .iter()
+                .find(|dp| dp.id == id)
+                .map(|dp| dp.name.as_str())
+                .unwrap_or("Sisi")
+        ));
     }
 
     /// Hapus semua body terpilih.

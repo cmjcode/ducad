@@ -88,6 +88,49 @@ mod tests {
         assert!(matches!(app.camera.mode(), CameraMode::Ortho2D { .. }));
     }
 
+    /// Regresi: keluar dari Tinta/Vektor lewat mode Sketsa (⌘⌥2, palette,
+    /// atau otomatis setelah "Close Objects") sempat meninggalkan kamera di
+    /// `Ortho2D`, sehingga orbit dan view cube tidak berpengaruh.
+    #[test]
+    fn leaving_ink_via_sketch_unlocks_orbit() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_app_mode(AppMode::Ink);
+        assert!(matches!(app.camera.mode(), CameraMode::Ortho2D { .. }));
+        app.set_app_mode(AppMode::Sketch);
+        assert!(
+            matches!(app.camera.mode(), CameraMode::Orbit),
+            "Tinta → Sketsa harus melepas kunci Ortho2D"
+        );
+        let yaw_before = app.camera.yaw;
+        app.camera.orbit(40.0, 0.0);
+        assert_ne!(app.camera.yaw, yaw_before, "orbit harus berpengaruh lagi");
+
+        app.set_app_mode(AppMode::Vector);
+        assert!(matches!(app.camera.mode(), CameraMode::Ortho2D { .. }));
+        app.set_app_mode(AppMode::Sketch);
+        assert!(matches!(app.camera.mode(), CameraMode::Orbit));
+    }
+
+    /// Tombol pensil/kotak di header dan Esc (semua lewat `enter_sketching`/
+    /// `exit_sketching`) harus melepas kunci kamera tanpa perlu tahu shortcut.
+    #[test]
+    fn pencil_and_box_buttons_release_camera_lock() {
+        let mut app = DuCADApp::new_for_test();
+        app.set_app_mode(AppMode::Vector);
+        assert!(app.model_status.as_deref().is_some_and(|s| s.contains("3D")),
+            "masuk mode Vektor harus memberi tahu cara keluar");
+        app.exit_sketching();
+        assert_eq!(app.app_mode, AppMode::Sketch);
+        assert!(matches!(app.camera.mode(), CameraMode::Orbit));
+        assert!(!app.is_sketching);
+
+        app.set_app_mode(AppMode::Ink);
+        app.enter_sketching();
+        assert_eq!(app.app_mode, AppMode::Sketch);
+        assert!(matches!(app.camera.mode(), CameraMode::Orbit));
+        assert!(app.is_sketching);
+    }
+
     #[test]
     fn set_mode_is_reachable_from_palette() {
         let app = DuCADApp::new_for_test();

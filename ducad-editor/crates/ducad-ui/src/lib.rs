@@ -55,7 +55,8 @@ pub use account_drawer::{AccountDrawer, AccountDrawerEvent};
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
     BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DatumPlaneHudAction, DatumPlaneMode,
-    DraftHudAction, DraftInspectionHudAction, DraftPullDir, LoftHudAction, MateHudAction,
+    DraftHudAction, DraftInspectionHudAction, DraftPullDir, GizmoConfirmAction, LoftHudAction,
+    MateHudAction,
     PatternAxisPreset, PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent,
     RevolveHudAction, RibHudAction, RoundingHudAction, RoundingHudStyle, ShellHudAction,
     SlotHudAction, SplitHudAction, SplitMode, SplitPlaneKind, StudioHudAction,
@@ -100,7 +101,7 @@ pub use items_drawer::{
     BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent, ItemsDrawerTab,
     VectorDrawerContext,
 };
-pub use left_toolbar::{LeftToolbar, ToolbarEvent, ToolbarTool};
+pub use left_toolbar::{rail_button_side, rail_square_btn, LeftToolbar, ToolbarEvent, ToolbarTool};
 pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
 pub use onboarding::{
     Onboarding, OnboardingChapter, OnboardingEvent, OnboardingGoal, OnboardingState,
@@ -137,6 +138,7 @@ pub use tool_popups::{
 };
 pub use top_bar::{
     TopBar, TopBarCommand, TopBarCommandGroup, TopBarEvent, TopBarFileOp, TopBarState,
+    TopBarZoom, ZOOM_PRESETS, ZOOM_STEP, format_zoom_percent,
 };
 pub use touch::{TouchDesignConfig, TouchDesignMode};
 pub use viewcube::{ViewCube, ViewCubeAction};

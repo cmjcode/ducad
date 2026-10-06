@@ -70,7 +70,14 @@ topbar-measurements = Measurements
 topbar-delete-tooltip = Delete Selected (Del / Backspace)
 topbar-switch-to-sketch = Switch to 2D Sketch Mode
 topbar-switch-to-solid = Switch to 3D Solid Mode
+mode-camera-locked = { $mode }: camera is locked to the plane. Press Esc, the pencil/box button in the header, or ⌘+Alt+3 to return to 3D.
 topbar-unit = Unit: { $unit }
+topbar-zoom-tooltip = Zoom: { $percent }% (100% = actual size)
+topbar-zoom-hint = Click for zoom options; scroll or pinch in the viewport to zoom
+topbar-zoom-in = Zoom In
+topbar-zoom-out = Zoom Out
+topbar-zoom-actual = Actual Size (100%)
+topbar-zoom-fit = Fit to Screen
 
 # Planes
 plane-top = Top (XY)
@@ -1588,11 +1595,11 @@ onboard-chapter-advanced = Chapter 3: Advanced
 onboard-chapter-advanced-desc = A hollow threaded hub, then section, material, simulation, drawing, STEP, AI agent.
 onboard-chapter-advanced-start = Start Chapter 3
 onboard-ov-topbar-title = The top bar
-onboard-ov-topbar-body = Left: the file menu (new, open, save, import, export) and the document name. Middle: the mode button and command search. Right: help, share/export, touch mode, Chat AI, settings, and account.
+onboard-ov-topbar-body = Left: the main menu (three-line icon: new, open, save, import, export, all commands, settings) and the document name. Middle: the mode button and command search. Right: help, touch mode, Chat AI, and account.
 onboard-ov-toolbar-title = The left toolbar
 onboard-ov-toolbar-body = Tools that create something new. Its contents follow the mode: in 2D Sketch you get line, rectangle, circle, slot; in 3D you get reference planes, section, sweep, helix. The top tool is always Select (Esc).
 onboard-ov-mode-title = 2D Sketch and 3D modes
-onboard-ov-mode-body = DUCAD works in two modes. 2D Sketch draws flat profiles on a plane; 3D shapes solids. This button (pencil icon) switches modes; { $modkey }+Shift+2 and { $modkey }+Shift+3 work too. After the first extrude, DUCAD switches to 3D by itself.
+onboard-ov-mode-body = DUCAD works in two modes. 2D Sketch draws flat profiles on a plane; 3D shapes solids. This button (pencil icon) switches modes; { $modkey }+Alt+2 and { $modkey }+Alt+3 work too. After the first extrude, DUCAD switches to 3D by itself.
 onboard-ov-viewcube-title = Navigation and the ViewCube
 onboard-ov-viewcube-body = Orbit: drag with the middle button (or the left button while Select is active). Pan: Shift + drag. Zoom: scroll. On a trackpad or iPad use two fingers. Click a ViewCube face for the Top, Front, or Right view.
 onboard-ov-context-title = The action bar at the bottom
@@ -1707,12 +1714,12 @@ onboard-sim-body = 1. Command palette, run "Simulasi (studi statik)".
     3. Create the study, then Run. Look at von Mises stress and the safety factor.
 onboard-sim-try = Run one static study to completion.
 onboard-drawing-title = 2D drawing sheet to PDF
-onboard-drawing-body = 1. Share icon in the top bar, choose "2D Drawing Sheet".
+onboard-drawing-body = 1. Main menu (three-line icon) in the top bar, choose "2D Drawing Sheet".
     2. A sheet with top, front, side, and isometric views is generated.
     3. Click Export PDF, save it, then close the sheet.
 onboard-drawing-try = Export the drawing sheet to PDF.
 onboard-step-title = Export STEP for manufacturing
-onboard-step-body = Share icon in the top bar, choose "Export STEP". STEP files open in every other CAD/CAM system; STL for 3D printing is in the same menu.
+onboard-step-body = Main menu (three-line icon) in the top bar, Export submenu, choose "STEP". STEP files open in every other CAD/CAM system; STL for 3D printing is in the same menu.
 onboard-step-try = Export the disc to STEP.
 onboard-chat-title = Set up an agent for Chat AI
 onboard-chat-body = Chat AI changes parts from plain sentences, but needs a one-time setup. 1) Open the Chat AI panel. 2) Click the gear icon in the panel and tick "Allow external AI". 3) Pick an agent at the top left of the panel: an API provider (enter its API key) or a CLI agent such as Claude Code. 4) For a CLI agent press "Detect" then "Test connection". Once ready, try: "add a 0.5 mm chamfer to all bolt holes".

@@ -814,3 +814,98 @@ fn regenerate_does_not_mark_unsupported_feature_valid() {
         ducad_core::parametric::FeatureStatus::Error(_)
     ));
 }
+
+/// "Sketsa di Face" harus menaruh bidang sketsa DI permukaan face (bukan di
+/// bidang dasar), mendaftarkannya sebagai datum plane sendiri, memproyeksikan
+/// tepi face sebagai konstruksi, dan tidak menumpuk datum bila face yang sama
+/// dipilih lagi. Regresi: bidang dari face dulu berjenis `Top`, sehingga
+/// lingkaran yang digambar tersimpan dan tergambar di Z=0.
+#[test]
+fn sketch_on_face_puts_plane_on_the_face_and_reuses_datum() {
+    use ducad_render::PlaneKind;
+
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit.clone()));
+
+    app.sketch_on_active_face();
+
+    assert!(app.is_sketching);
+    assert!(app.active_face.is_none());
+    let plane = app.active_plane;
+    assert!(matches!(plane.kind, PlaneKind::Custom(_)), "{:?}", plane.kind);
+    assert!((plane.origin.z - 8.0).abs() < 1e-4, "origin {:?}", plane.origin);
+    assert!(plane.normal.z > 0.999, "normal {:?}", plane.normal);
+    // Sumbu U mengikuti tepi terpanjang (30 mm searah X).
+    assert!(plane.u_axis.x.abs() > 0.999, "u {:?}", plane.u_axis);
+    assert_eq!(app.datum_planes.len(), 1);
+    let idx = app.active_plane_index();
+    assert_eq!(idx, 3, "slot datum pertama");
+    assert_eq!(app.plane_for_index(idx), plane, "overlay memakai bidang yang sama");
+
+    // Tepi face terproyeksi sebagai 4 garis konstruksi di bidang face.
+    let projected: Vec<&Entity> = app.sketch_at_index(idx).entities.values().collect();
+    assert_eq!(projected.len(), 4, "{projected:?}");
+    assert!(projected.iter().all(|e| e.is_construction()));
+    let max_abs = projected
+        .iter()
+        .flat_map(|e| match e {
+            Entity::Line { start, end, .. } => vec![*start, *end],
+            _ => vec![],
+        })
+        .map(|p| p.abs().max_element())
+        .fold(0.0, f64::max);
+    assert!((max_abs - 15.0).abs() < 1e-4, "{max_abs}");
+
+    // Lingkaran yang digambar masuk ke sketsa bidang face, bukan bidang Top.
+    app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+        "Circle",
+        vec![Entity::circle(DVec2::ZERO, 3.0)],
+    )));
+    assert_eq!(app.sketch_at_index(idx).entities.len(), 5);
+    assert_eq!(app.sketch_at_index(0).entities.len(), 0, "bidang Top tetap kosong");
+    let world = app.active_plane.to_world(DVec2::ZERO, 0.0);
+    assert!((world - glam::Vec3::new(15.0, 5.0, 8.0)).length() < 1e-3, "{world:?}");
+
+    // Face yang sama dipilih lagi → datum lama dipakai ulang, tanpa proyeksi ganda.
+    app.exit_sketching();
+    app.active_face = Some((id, ray, hit));
+    app.sketch_on_active_face();
+    assert_eq!(app.datum_planes.len(), 1);
+    assert_eq!(app.active_plane_index(), idx);
+    assert_eq!(app.sketch_at_index(idx).entities.len(), 5);
+}
+
+/// Sisi lengkung ditolak dengan pesan, face tetap aktif untuk operasi lain.
+#[test]
+fn sketch_on_face_rejects_non_planar_face() {
+    let mut app = DuCADApp::new_for_test();
+    let geo = ducad_engine::compute::primitive(
+        &ducad_engine::compute::PrimitiveShape::Cylinder { r: 10.0, h: 20.0 },
+        [0.0; 3],
+    )
+    .unwrap();
+    let id = app.model.doc.add_body("Cyl");
+    app.model.geometry.insert(id, geo);
+    let ray = PickRay {
+        origin: (100.0, 0.0, 10.0),
+        dir: (-1.0, 0.0, 0.0),
+    };
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("sisi silinder");
+    assert_eq!(hit.surface_kind, ducad_kernel::SurfaceKind::Cylinder);
+    app.active_face = Some((id, ray, hit));
+    app.exit_sketching();
+    let plane_before = app.active_plane;
+
+    app.sketch_on_active_face();
+
+    assert!(!app.is_sketching, "mode sketsa tidak boleh aktif");
+    assert_eq!(app.active_plane, plane_before, "bidang aktif tidak berubah");
+    assert!(app.active_face.is_some(), "face tetap aktif untuk operasi lain");
+    assert!(app.datum_planes.is_empty());
+    assert!(app.model_status.as_deref().unwrap_or("").contains("datar"));
+}

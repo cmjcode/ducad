@@ -70,7 +70,14 @@ topbar-measurements = Pengukuran
 topbar-delete-tooltip = Hapus Pilihan (Del / Backspace)
 topbar-switch-to-sketch = Beralih ke Mode Sketsa 2D
 topbar-switch-to-solid = Beralih ke Mode Solid 3D
+mode-camera-locked = { $mode }: kamera terkunci ke bidang. Tekan Esc, tombol pensil/kotak di header, atau ⌘+Alt+3 untuk kembali ke 3D.
 topbar-unit = Satuan: { $unit }
+topbar-zoom-tooltip = Zoom: { $percent }% (100% = ukuran sebenarnya)
+topbar-zoom-hint = Klik untuk opsi zoom; gulir atau cubit di viewport untuk zoom
+topbar-zoom-in = Perbesar
+topbar-zoom-out = Perkecil
+topbar-zoom-actual = Ukuran Sebenarnya (100%)
+topbar-zoom-fit = Pas ke Layar
 
 # Planes
 plane-top = Atas (XY)
@@ -1588,11 +1595,11 @@ onboard-chapter-advanced = Bab 3: Mahir
 onboard-chapter-advanced-desc = Hub berongga dengan ulir, lalu irisan, material, simulasi, gambar kerja, STEP, agent AI.
 onboard-chapter-advanced-start = Mulai Bab 3
 onboard-ov-topbar-title = Bilah atas
-onboard-ov-topbar-body = Kiri: menu berkas (baru, buka, simpan, impor, ekspor) dan nama dokumen. Tengah: tombol mode dan pencarian perintah. Kanan: bantuan, bagikan/ekspor, mode sentuh, Chat AI, pengaturan, dan akun.
+onboard-ov-topbar-body = Kiri: menu utama (ikon tiga garis: baru, buka, simpan, impor, ekspor, semua perintah, pengaturan) dan nama dokumen. Tengah: tombol mode dan pencarian perintah. Kanan: bantuan, mode sentuh, Chat AI, dan akun.
 onboard-ov-toolbar-title = Bilah alat kiri
 onboard-ov-toolbar-body = Tool untuk membuat sesuatu yang belum ada. Isinya mengikuti mode: di Sketsa 2D ada garis, persegi, lingkaran, slot; di 3D ada bidang referensi, irisan, sweep, helix. Paling atas selalu tool Pilih (Esc).
 onboard-ov-mode-title = Mode Sketsa 2D dan 3D
-onboard-ov-mode-body = DUCAD bekerja dalam dua mode. Sketsa 2D untuk menggambar profil datar di sebuah bidang; 3D untuk membentuk solid. Tombol ini (ikon pensil) berpindah mode; { $modkey }+Shift+2 dan { $modkey }+Shift+3 juga bisa. Setelah extrude pertama, DUCAD pindah ke 3D sendiri.
+onboard-ov-mode-body = DUCAD bekerja dalam dua mode. Sketsa 2D untuk menggambar profil datar di sebuah bidang; 3D untuk membentuk solid. Tombol ini (ikon pensil) berpindah mode; { $modkey }+Alt+2 dan { $modkey }+Alt+3 juga bisa. Setelah extrude pertama, DUCAD pindah ke 3D sendiri.
 onboard-ov-viewcube-title = Navigasi dan ViewCube
 onboard-ov-viewcube-body = Orbit: seret klik tengah (atau klik kiri saat tool Pilih aktif). Geser: Shift + seret. Zoom: gulir. Di trackpad atau iPad pakai dua jari. Klik sisi ViewCube untuk tampak Atas, Depan, atau Kanan.
 onboard-ov-context-title = Bilah aksi di bawah
@@ -1707,12 +1714,12 @@ onboard-sim-body = 1. Palet perintah, jalankan "Simulasi (studi statik)".
     3. Buat studi, lalu Jalankan. Lihat tegangan von Mises dan faktor keamanan.
 onboard-sim-try = Jalankan satu studi statik sampai selesai.
 onboard-drawing-title = Gambar kerja 2D ke PDF
-onboard-drawing-body = 1. Ikon bagikan di bilah atas, pilih "Gambar Kerja 2D".
+onboard-drawing-body = 1. Menu utama (ikon tiga garis) di bilah atas, pilih "Gambar Kerja 2D".
     2. Lembar dengan tampak atas, depan, samping, dan isometrik dibuat otomatis.
     3. Klik Ekspor PDF, simpan, lalu tutup lembar.
 onboard-drawing-try = Ekspor gambar kerja ke PDF.
 onboard-step-title = Ekspor STEP untuk manufaktur
-onboard-step-body = Ikon bagikan di bilah atas, pilih "Ekspor STEP". Berkas STEP dibaca semua CAD/CAM lain; STL untuk cetak 3D ada di menu yang sama.
+onboard-step-body = Menu utama (ikon tiga garis) di bilah atas, submenu Ekspor, pilih "STEP". Berkas STEP dibaca semua CAD/CAM lain; STL untuk cetak 3D ada di menu yang sama.
 onboard-step-try = Ekspor cakram ke STEP.
 onboard-chat-title = Siapkan agent untuk Chat AI
 onboard-chat-body = Chat AI mengubah part dari kalimat biasa, tetapi perlu disiapkan sekali. 1) Buka panel Chat AI. 2) Klik ikon roda gigi di panel, centang "Izinkan AI eksternal". 3) Pilih agent di kiri atas panel: provider API (isi kunci API) atau CLI agent seperti Claude Code. 4) Untuk CLI agent tekan "Deteksi" lalu "Uji koneksi". Setelah siap, coba: "tambah chamfer 0,5 mm pada semua lubang baut".

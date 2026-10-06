@@ -13,10 +13,7 @@ impl DuCADApp {
         let delta = response.drag_delta();
         let modifiers = ui.input(|i| i.modifiers);
 
-        let is_gizmo_dragging = self.extruding_from_gizmo
-            || self.extruding_face_from_gizmo
-            || self.filleting_vertex_from_gizmo
-            || self.filleting_edge_from_gizmo;
+        let is_gizmo_dragging = self.gizmo_pointer_dragging();
 
         // Pada mode PencilOnly, sentuhan 1 jari khusus untuk memutar/navigasi kanvas
         let allow_orbit = (allow_primary_orbit || self.touch_config.single_finger_navigates())

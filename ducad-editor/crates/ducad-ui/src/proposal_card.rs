@@ -27,10 +27,16 @@ pub enum ProposalCardEvent {
 pub struct ProposalCard;
 
 impl ProposalCard {
-    pub fn show(ctx: &egui::Context, state: &ProposalCardState) -> Option<ProposalCardEvent> {
+    /// `right_inset` = jarak dari tepi kanan layar; aplikasi menambahkan lebar
+    /// rail ikon kanan supaya kartu tidak menutupi rail.
+    pub fn show(
+        ctx: &egui::Context,
+        state: &ProposalCardState,
+        right_inset: f32,
+    ) -> Option<ProposalCardEvent> {
         let mut event = None;
         egui::Area::new(egui::Id::new("ducad-proposal-card"))
-            .anchor(Align2::RIGHT_BOTTOM, Vec2::new(-16.0, -96.0))
+            .anchor(Align2::RIGHT_BOTTOM, Vec2::new(-right_inset, -96.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 glass_frame().show(ui, |ui| {
