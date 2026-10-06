@@ -38,7 +38,7 @@ ducad-chat = { workspace = true }
 ducad-mcp = { workspace = true }
 # Pustaka MNEMONIC headless (fitur `gui` MATI): `VaultService` dipanggil
 # langsung, bukan lewat server MCP. Lihat fitur `memory` di atas.
-mnemonic = { path = "../../../../MNEMONIC", default-features = false, optional = true }
+mnemonic = { git = "https://github.com/cmjcode/mnemonic", branch = "main", default-features = false, optional = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 egui_wgpu = { workspace = true }
