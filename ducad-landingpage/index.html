@@ -38,6 +38,10 @@
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3zM14 3v4h4M9 12h6M9 16h6"/></symbol>
     <symbol id="i-terminal" viewBox="0 0 24 24"><path d="M3 5h18v14H3V5zM7 10l3 2.5L7 15M12.5 15H17"/></symbol>
     <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 11h12v9H6v-9zM8.5 11V8a3.5 3.5 0 017 0v3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 17v3h16v-3"/></symbol>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M15.5 3.5c-.2 1.6-1.4 3-3 3.1.1-1.6 1.4-3 3-3.1zM12.3 8.1c1.1 0 2-.7 3.3-.7 1.2 0 2.5.6 3.3 1.8-2.9 1.6-2.4 5.8.5 7-1 2.2-2.5 4.3-4 4.3-1.3 0-1.6-.8-3.1-.8s-1.9.8-3.1.8c-1.7 0-4.2-3.8-4.2-7.6 0-3.4 2.1-5.5 4.3-5.5 1.3 0 2.1.7 3 .7z"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.5l7.5-1v7H3v-6zM12 4.3L21 3v8.5h-9V4.3zM3 12.5h7.5v7L3 18.5v-6zM12 12.5h9V21l-9-1.3v-7.2z"/></symbol>
+    <symbol id="i-linux" viewBox="0 0 24 24"><path d="M12 3c-2.4 0-3.6 1.9-3.6 4.4 0 1.3-.3 2.1-1 3.2-1 1.5-2.1 3.3-2.1 5.3 0 .9.3 1.6.8 2.2M12 3c2.4 0 3.6 1.9 3.6 4.4 0 1.3.3 2.1 1 3.2 1 1.5 2.1 3.3 2.1 5.3 0 .9-.3 1.6-.8 2.2M6.1 18.1c-1 .5-2.1 1.3-1.8 2.1.3.9 2.3.6 3.6.3 1.2-.3 1.7-1 1.4-1.9M17.9 18.1c1 .5 2.1 1.3 1.8 2.1-.3.9-2.3.6-3.6.3-1.2-.3-1.7-1-1.4-1.9M9.3 18.6c.7.8 1.6 1.2 2.7 1.2s2-.4 2.7-1.2M9.5 11.5c0 1.4 1.1 2.6 2.5 2.6s2.5-1.2 2.5-2.6M10.6 7.5h.01M13.4 7.5h.01"/></symbol>
     <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M18 11.2c0 3.3-3 4.3-6 4.3H8.2"/></symbol>
   </defs>
 </svg>
@@ -57,6 +61,7 @@
       <a href="#semua-fitur" data-i18n="nav.semuaFitur">All Features</a>
       <a href="#agent" data-i18n="nav.agent">Agents</a>
       <a href="#mengapa" data-i18n="nav.mengapa">Why DuCAD</a>
+      <a href="#download" data-i18n="nav.download">Download</a>
       <a href="#mulai" data-i18n="nav.mulai">Get Started</a>
     </nav>
 
@@ -66,7 +71,7 @@
         <button type="button" class="lang-switch__btn" data-lang-btn="id">ID</button>
       </div>
       <a class="btn btn--ghost btn--sm" href="https://github.com/cmjcode/ducad" target="_blank" rel="noopener" data-i18n="nav.github">GitHub</a>
-      <a class="btn btn--primary btn--sm" href="#mulai" data-i18n="nav.ctaMulai">Get Started</a>
+      <a class="btn btn--primary btn--sm" href="#download" data-i18n="nav.ctaDownload">Download</a>
       <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu" data-i18n-aria="nav.toggleAria">
         <span></span><span></span><span></span>
       </button>
@@ -88,8 +93,8 @@
       </p>
 
       <div class="hero__cta">
-        <a class="btn btn--primary btn--lg" href="https://github.com/cmjcode/ducad" target="_blank" rel="noopener" data-i18n="hero.ctaPrimary">View on GitHub</a>
-        <a class="btn btn--outline btn--lg" href="#fitur"><span data-i18n="hero.ctaSecondary">Explore features</span><svg class="icon icon--sm"><use href="#i-arrow-down"/></svg></a>
+        <a class="btn btn--primary btn--lg" href="#download"><svg class="icon icon--sm"><use href="#i-download"/></svg><span data-i18n="hero.ctaPrimary">Download for macOS, Windows &amp; Linux</span></a>
+        <a class="btn btn--outline btn--lg" href="https://github.com/cmjcode/ducad" target="_blank" rel="noopener" data-i18n="hero.ctaSecondary">View on GitHub</a>
       </div>
 
       <div class="hero__stage">
@@ -356,8 +361,42 @@
     </div>
   </section>
 
+  <!-- ============ DOWNLOAD ============ -->
+  <section class="section" id="download">
+    <div class="container">
+      <div class="section__head reveal">
+        <p class="eyebrow" data-i18n="download.eyebrow">Download</p>
+        <h2 data-i18n="download.h2">Get DuCAD for your desktop</h2>
+        <p class="section__lead" data-i18n="download.lead">Prebuilt binaries for every release. Pick your platform — each link opens the latest GitHub release, where the installer for that system is attached.</p>
+      </div>
+
+      <div class="download-grid">
+        <a class="card download-card reveal" href="https://github.com/cmjcode/ducad/releases/tag/latest" target="_blank" rel="noopener">
+          <svg class="icon card__icon"><use href="#i-apple"/></svg>
+          <h3>macOS</h3>
+          <p data-i18n="download.macDesc">Apple Silicon (arm64). Grab the macOS build from the latest release.</p>
+          <span class="download-card__cta"><svg class="icon icon--sm"><use href="#i-download"/></svg><span data-i18n="download.macBtn">Download for macOS</span></span>
+        </a>
+        <a class="card download-card reveal reveal--delay" href="https://github.com/cmjcode/ducad/releases/tag/latest" target="_blank" rel="noopener">
+          <svg class="icon card__icon"><use href="#i-windows"/></svg>
+          <h3>Windows</h3>
+          <p data-i18n="download.winDesc">Windows 10 and 11, 64-bit. Grab the Windows build from the latest release.</p>
+          <span class="download-card__cta"><svg class="icon icon--sm"><use href="#i-download"/></svg><span data-i18n="download.winBtn">Download for Windows</span></span>
+        </a>
+        <a class="card download-card reveal reveal--delay" href="https://github.com/cmjcode/ducad/releases/tag/latest" target="_blank" rel="noopener">
+          <svg class="icon card__icon"><use href="#i-linux"/></svg>
+          <h3>Linux</h3>
+          <p data-i18n="download.linuxDesc">x86-64 distributions. Grab the Linux build from the latest release.</p>
+          <span class="download-card__cta"><svg class="icon icon--sm"><use href="#i-download"/></svg><span data-i18n="download.linuxBtn">Download for Linux</span></span>
+        </a>
+      </div>
+
+      <p class="download-note" data-i18n="download.note">All downloads are hosted on the <a href="https://github.com/cmjcode/ducad/releases" target="_blank" rel="noopener">GitHub Releases</a> page. Prefer to build it yourself? See <a href="#mulai">Get Started</a> below.</p>
+    </div>
+  </section>
+
   <!-- ============ GET STARTED ============ -->
-  <section class="section" id="mulai">
+  <section class="section section--alt" id="mulai">
     <div class="container split">
       <div class="reveal">
         <p class="eyebrow" data-i18n="mulai.eyebrow">Get Started</p>
@@ -411,6 +450,7 @@ make install-agent-tools</code></pre>
       <a href="#fitur" data-i18n="nav.fitur">Features</a>
       <a href="#agent" data-i18n="nav.agent">Agents</a>
       <a href="#mengapa" data-i18n="nav.mengapa">Why DuCAD</a>
+      <a href="#download" data-i18n="nav.download">Download</a>
       <a href="#mulai" data-i18n="nav.mulai">Get Started</a>
     </div>
 
