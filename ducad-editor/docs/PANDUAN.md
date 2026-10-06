@@ -14,6 +14,20 @@ cargo run -p ducad-app
 
 ---
 
+## 🎓 Tutorial Selamat Datang
+
+Saat DuCAD dibuka pertama kali, tutorial interaktif memandu Anda membuat part 3D pertama:
+mengenal mode 2D/3D, menggambar persegi, memilihnya dengan tool Pilih, membulatkan sudutnya (fillet), lingkaran, extrude, navigasi kamera, tarik sisi,
+palet perintah, menyimpan berkas, dan terakhir penyiapan agent Chat AI.
+
+* Setiap langkah memutar animasi contoh dan menyorot tombol yang dimaksud.
+* Tombol **Lanjut** baru aktif setelah Anda benar-benar mencoba aksinya. **Lewati langkah ini** tersedia bila ingin melompat.
+* Kartu tutorial bisa digeser bila menutupi area kerja.
+* Buka lagi kapan saja lewat tombol bantuan (ikon tanda tanya) di kanan atas, atau lewat Command Palette (`Ctrl/Cmd+K`) → **Tutorial: mulai dari awal**.
+* Status tersimpan di `~/.ducad/onboarding.json`. Variabel lingkungan `DUCAD_SKIP_ONBOARDING=1` mematikan tutorial (CI, demo).
+
+---
+
 ## 🧭 Navigasi Kamera & ViewCube
 
 | Aksi | Kontrol Mouse / Trackpad |

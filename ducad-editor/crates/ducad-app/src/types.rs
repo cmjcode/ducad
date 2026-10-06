@@ -297,6 +297,10 @@ pub enum PaletteAction {
     ConvertToClosedObjects,
     /// Nyalakan/matikan opsi kuas "Bentuk Pintar".
     ToggleInkSmartShape,
+    /// Buka tutorial selamat datang dari awal.
+    StartTutorial,
+    /// Extrude profil sketsa terpilih, atau tarik sisi solid terpilih.
+    ExtrudeSelection,
 }
 
 /// Grup perintah di command palette dan burger menu; urutan varian =
@@ -384,7 +388,8 @@ impl PaletteAction {
                 | ToolKind::Boolean
                 | ToolKind::DatumPlane,
             )
-            | PaletteAction::OpenRevolveDialog => PaletteGroup::Solid,
+            | PaletteAction::OpenRevolveDialog
+            | PaletteAction::ExtrudeSelection => PaletteGroup::Solid,
             PaletteAction::SetTool(_)
             | PaletteAction::ToggleConstruction
             | PaletteAction::ConvertToClosedObjects
@@ -399,7 +404,8 @@ impl PaletteAction {
             | PaletteAction::ToggleReduceTransparency
             | PaletteAction::ToggleStudioLighting
             | PaletteAction::SetTouchDesignMode(_)
-            | PaletteAction::TogglePalmRejection => PaletteGroup::View,
+            | PaletteAction::TogglePalmRejection
+            | PaletteAction::StartTutorial => PaletteGroup::View,
         }
     }
 }

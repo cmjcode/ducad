@@ -32,6 +32,7 @@ pub mod live_tools;
 #[cfg(feature = "memory")]
 pub mod memory;
 pub mod mode;
+pub mod onboarding_ui;
 pub mod model;
 pub mod modeling;
 pub mod overlay;

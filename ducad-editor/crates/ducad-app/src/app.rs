@@ -254,6 +254,8 @@ pub struct DuCADApp {
     pub account_drawer_open: bool,
     pub account_button_rect: egui::Rect,
     pub server_url: String,
+    /// Tutorial selamat datang (tampil saat aplikasi dibuka pertama kali).
+    pub onboarding: crate::onboarding_ui::OnboardingCtl,
     pub left_toolbar_content_sig: Option<bool>,
     pub inspector_content_sig: Option<InspectorContentSig>,
     pub prop_input_p1_x: String,
@@ -772,6 +774,7 @@ impl DuCADApp {
             account_drawer_open: false,
             account_button_rect: egui::Rect::NOTHING,
             server_url: ducad_cloud::detect_server_url(),
+            onboarding: crate::onboarding_ui::OnboardingCtl::load(),
         }
     }
 
@@ -1081,6 +1084,7 @@ impl DuCADApp {
             account_drawer_open: false,
             account_button_rect: egui::Rect::NOTHING,
             server_url: ducad_cloud::detect_server_url(),
+            onboarding: crate::onboarding_ui::OnboardingCtl::disabled(),
         }
     }
 
@@ -1912,6 +1916,7 @@ impl eframe::App for DuCADApp {
                             }
                             TopBarEvent::OpenAssist => self.open_assist_dialog(),
                             TopBarEvent::ToggleChat => self.toggle_chat(),
+                            TopBarEvent::StartTutorial => self.start_onboarding(),
                             TopBarEvent::RunCommand(idx) => {
                                 if let Some((_, _, action)) = palette_actions.get(idx) {
                                     self.run_palette_action(&ctx, *action);
@@ -3885,7 +3890,7 @@ impl eframe::App for DuCADApp {
         let has_body_sel = !self.selected_bodies.is_empty() && !has_face_sel;
 
         if !self.drawing_sheet_state.is_open && (has_sketch_sel || has_face_sel || has_body_sel) {
-            egui::Area::new(egui::Id::new("ducad-context-action-bar-area"))
+            let context_bar = egui::Area::new(egui::Id::new("ducad-context-action-bar-area"))
                 .fixed_pos(egui::pos2(screen_center_x, screen_rect.max.y - 18.0))
                 .pivot(egui::Align2::CENTER_BOTTOM)
                 .order(egui::Order::Foreground)
@@ -4154,6 +4159,11 @@ impl eframe::App for DuCADApp {
                         }
                     }
                 });
+            ducad_ui::Onboarding::publish_target(
+                &ctx,
+                ducad_ui::OnboardingTarget::ContextBar,
+                context_bar.response.rect,
+            );
         }
 
         // =========================================================================
@@ -4308,6 +4318,7 @@ impl eframe::App for DuCADApp {
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
         self.proposal_frame(&ctx);
+        self.onboarding_frame(&ctx, screen_rect);
         self.freehand_tick();
     }
 }

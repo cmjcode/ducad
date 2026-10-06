@@ -122,6 +122,22 @@ impl ToolGuides {
         }
     }
 
+    /// Animasi demonstrasi sebuah tool di dalam `rect`, tanpa kartu dan tanpa
+    /// keadaan tool aktif. Dipakai tutorial selamat datang (`onboarding`).
+    pub(crate) fn paint_demo(painter: &egui::Painter, rect: Rect, tool: ToolbarTool, time: f64) {
+        match tool {
+            ToolbarTool::Rectangle => Self::render_rectangle_anim(painter, rect, 0, time),
+            ToolbarTool::Circle => Self::render_circle_anim(painter, rect, 0, time),
+            ToolbarTool::Extrude => Self::render_extrude_anim(painter, rect, true, time),
+            _ => {}
+        }
+    }
+
+    /// Kursor animasi yang sama dengan kartu panduan tool.
+    pub(crate) fn paint_cursor(painter: &egui::Painter, pos: Pos2, is_clicking: bool, time: f64) {
+        Self::draw_cursor(painter, pos, is_clicking, time);
+    }
+
     /// Render kartu tutorial animasi khusus untuk Datum Plane (Offset, Angled, 3-Point)
     pub fn render_datum_plane_guide(
         ui: &mut Ui,

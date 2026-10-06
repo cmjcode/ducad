@@ -17,7 +17,7 @@ use egui_icons::icons::{
     ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE, ICON_TITLE,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ToolbarTool {
     Select,
     // 2D Tools
@@ -125,6 +125,7 @@ impl LeftToolbar {
                     None,
                     None,
                 );
+                publish_tool_rect(ui, ToolbarTool::Select, sel_btn.rect);
                 if sel_btn.clicked() {
                     event = Some(ToolbarEvent::SelectTool(ToolbarTool::Select));
                 }
@@ -237,6 +238,7 @@ impl LeftToolbar {
                     let btn = square_btn(
                         ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None,
                     );
+                    publish_tool_rect(ui, *tool, btn.rect);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -368,6 +370,7 @@ impl LeftToolbar {
                     let is_active = current_tool == *tool;
                     let btn =
                         square_btn(ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None);
+                    publish_tool_rect(ui, *tool, btn.rect);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -427,6 +430,7 @@ impl LeftToolbar {
                     let is_active = current_tool == *tool;
                     let btn =
                         square_btn(ui, icon, icon_sz, is_active, title, *shortcut, *subtitle, None, None);
+                    publish_tool_rect(ui, *tool, btn.rect);
                     if btn.clicked() {
                         event = Some(ToolbarEvent::SelectTool(*tool));
                     }
@@ -436,6 +440,15 @@ impl LeftToolbar {
 
         event
     }
+}
+
+/// Umumkan letak tombol tool supaya tutorial selamat datang bisa menyorotnya.
+fn publish_tool_rect(ui: &Ui, tool: ToolbarTool, rect: egui::Rect) {
+    crate::onboarding::Onboarding::publish_target(
+        ui.ctx(),
+        crate::onboarding::OnboardingTarget::Tool(tool),
+        rect,
+    );
 }
 
 /// Helper fungsi untuk menggambar tombol bujur sangkar (square button) dengan tooltip hover yang elegan.

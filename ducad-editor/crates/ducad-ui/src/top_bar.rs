@@ -18,7 +18,7 @@ use ducad_i18n::{current_language, t, Language};
 use egui::containers::menu::MenuConfig;
 use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_AUTO_AWESOME, ICON_BLUR_ON, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN,
+    ICON_AUTO_AWESOME, ICON_BLUR_ON, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_HELP,
     ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_OPACITY, ICON_PALETTE, ICON_PERSON,
     ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN,
     ICON_TEXTURE, ICON_UPLOAD,
@@ -88,6 +88,8 @@ pub enum TopBarEvent {
     OpenAssist,
     /// Buka/tutup sidebar Chat AI (P13.3).
     ToggleChat,
+    /// Buka tutorial selamat datang dari awal (tombol bantuan).
+    StartTutorial,
     /// Jalankan perintah palette; nilainya `TopBarCommand::index`.
     RunCommand(usize),
 }
@@ -268,42 +270,22 @@ impl TopBar {
                             ui.close();
                         }
                         ui.separator();
-                        if ui
-                            .button(format!(
-                                "{} {} {}",
-                                ICON_DOWNLOAD.codepoint,
-                                t!("menu-import"),
-                                t!("menu-import-step")
-                            ))
-                            .clicked()
-                        {
-                            event = Some(TopBarEvent::File(TopBarFileOp::ImportStep));
-                            ui.close();
-                        }
-                        if ui
-                            .button(format!(
-                                "{} {} {}",
-                                ICON_DOWNLOAD.codepoint,
-                                t!("menu-import"),
-                                t!("menu-import-stl")
-                            ))
-                            .clicked()
-                        {
-                            event = Some(TopBarEvent::File(TopBarFileOp::ImportStl));
-                            ui.close();
-                        }
-                        if ui
-                            .button(format!(
-                                "{} {} {}",
-                                ICON_DOWNLOAD.codepoint,
-                                t!("menu-import"),
-                                t!("menu-import-dxf")
-                            ))
-                            .clicked()
-                        {
-                            event = Some(TopBarEvent::File(TopBarFileOp::ImportDxf));
-                            ui.close();
-                        }
+                        ui.menu_button(
+                            format!("{} {}", ICON_DOWNLOAD.codepoint, t!("menu-import")),
+                            |ui| crate::theme::glass_menu(ui, |ui| {
+                                let items = [
+                                    (t!("menu-import-step"), TopBarFileOp::ImportStep),
+                                    (t!("menu-import-stl"), TopBarFileOp::ImportStl),
+                                    (t!("menu-import-dxf"), TopBarFileOp::ImportDxf),
+                                ];
+                                for (label, op) in items {
+                                    if ui.button(label).clicked() {
+                                        event = Some(TopBarEvent::File(op));
+                                        ui.close();
+                                    }
+                                }
+                            }),
+                        );
                         ui.separator();
                         if ui
                             .button(format!(
@@ -430,6 +412,11 @@ impl TopBar {
                     Some(Color32::from_rgba_premultiplied(18, 42, 85, 100)),
                     Some(ACCENT_BLUE),
                 );
+                crate::onboarding::Onboarding::publish_target(
+                    ui.ctx(),
+                    crate::onboarding::OnboardingTarget::ModeButton,
+                    mode_btn.rect,
+                );
                 if mode_btn.clicked() {
                     event = Some(if state.is_sketching {
                         TopBarEvent::ExitSketching
@@ -450,6 +437,11 @@ impl TopBar {
                     Some(&search_sub),
                     None,
                     None,
+                );
+                crate::onboarding::Onboarding::publish_target(
+                    ui.ctx(),
+                    crate::onboarding::OnboardingTarget::PaletteButton,
+                    search_btn.rect,
                 );
                 if search_btn.clicked() {
                     event = Some(TopBarEvent::OpenSearch);
@@ -957,6 +949,11 @@ impl TopBar {
                         None,
                         None,
                     );
+                    crate::onboarding::Onboarding::publish_target(
+                        ui.ctx(),
+                        crate::onboarding::OnboardingTarget::ChatButton,
+                        chat_btn.rect,
+                    );
                     if chat_btn.clicked() {
                         event = Some(TopBarEvent::ToggleChat);
                     }
@@ -1115,6 +1112,26 @@ impl TopBar {
                     )
                     .response
                     .on_hover_text(t!("topbar-share"));
+
+                    ui.add_space(item_gap);
+
+                    // Paling kiri di kelompok kanan: buka tutorial selamat datang.
+                    let help_title = t!("onboard-help-title");
+                    let help_sub = t!("onboard-help-desc");
+                    let help_btn = header_icon_btn(
+                        ui,
+                        ICON_HELP.codepoint,
+                        icon_sz,
+                        false,
+                        &help_title,
+                        None,
+                        Some(&help_sub),
+                        None,
+                        None,
+                    );
+                    if help_btn.clicked() {
+                        event = Some(TopBarEvent::StartTutorial);
+                    }
                 });
             });
         });

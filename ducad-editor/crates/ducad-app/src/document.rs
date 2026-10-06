@@ -367,6 +367,7 @@ impl DuCADApp {
 
         self.model_undo.execute(cmd, &mut self.model);
         self.clear_redo_except(crate::types::UndoTarget::Model);
+        self.onboarding.note_model_command(&name);
         self.record_activity(
             ducad_ui::ActivityKindUi::Solid3D,
             action_title,

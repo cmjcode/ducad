@@ -224,6 +224,11 @@ impl DuCADApp {
                 PaletteAction::ToggleConstruction,
             ),
             (
+                ducad_ui::PALETTE_DEMO_COMMAND.to_string(),
+                String::new(),
+                PaletteAction::ExtrudeSelection,
+            ),
+            (
                 "Revolve (Putar 3D)".to_string(),
                 "V".to_string(),
                 PaletteAction::OpenRevolveDialog,
@@ -393,6 +398,11 @@ impl DuCADApp {
                 String::new(),
                 PaletteAction::ToggleInkSmartShape,
             ),
+            (
+                ducad_i18n::t!("onboard-restart"),
+                String::new(),
+                PaletteAction::StartTutorial,
+            ),
         ];
         if !self.selected.is_empty() {
             actions.push((
@@ -437,6 +447,22 @@ impl DuCADApp {
             })
             .filter(|g| !g.items.is_empty())
             .collect()
+    }
+
+    /// Perintah palet "Extrude": sama dengan tombol Extrude di bilah konteks.
+    /// Sisi solid terpilih = tarik sisi; profil sketsa terpilih = extrude.
+    pub fn extrude_from_palette(&mut self) {
+        if self.active_face.is_some() {
+            self.extruding_face_from_gizmo = true;
+            self.face_gizmo_distance = 0.0;
+            self.face_gizmo_dimension_editing = true;
+            self.face_gizmo_edit_input = String::new();
+            self.auto_enter_3d_mode_on_extrude_drag();
+        } else if !self.selected.is_empty() {
+            self.extrude_selected();
+        } else {
+            self.model_status = Some(ducad_i18n::t!("extrude-needs-selection"));
+        }
     }
 
     pub fn run_palette_action(&mut self, ctx: &egui::Context, action: PaletteAction) {
@@ -532,6 +558,8 @@ impl DuCADApp {
             PaletteAction::ToggleInkSmartShape => {
                 self.ink_state.smart_shape = !self.ink_state.smart_shape;
             }
+            PaletteAction::StartTutorial => self.start_onboarding(),
+            PaletteAction::ExtrudeSelection => self.extrude_from_palette(),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection {

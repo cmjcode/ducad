@@ -91,6 +91,7 @@ impl DuCADApp {
                     .unwrap_or("model.ducad");
                 self.file_status = Some(ducad_i18n::t!("file-saved-to", name = name));
                 self.current_file_path = Some(path);
+                self.onboarding.note_saved();
             }
             Err(e) => {
                 let err_str = e.to_string();

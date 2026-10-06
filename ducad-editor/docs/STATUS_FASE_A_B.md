@@ -103,6 +103,18 @@ aplikasi berjalan.
 
 ---
 
+## Tutorial selamat datang (onboarding)
+
+Selesai 2026-10-06 (urutan: mode 2D/3D, persegi, tool Pilih, fillet sudut sketsa, ...). Widget `ducad-ui/src/onboarding.rs` (kartu sambutan, 10
+pelajaran beranimasi, tur fitur lanjutan, sorotan tombol) dan adapter
+`ducad-app/src/onboarding_ui.rs` (penanda first-run `~/.ducad/onboarding.json`,
+deteksi aksi lewat potret keadaan + nama command model). Dijaga tes
+`ducad-ui/tests/onboarding_render.rs` dan tes unit `onboarding_ui`. Yang belum
+diverifikasi otomatis: tata letak kartu pelajaran di aplikasi berjalan dan di
+iPad (ceklis A14).
+
+---
+
 ## Urutan yang disarankan berikutnya
 
 1. **P0.4** binding `BRepTools_History` — kini penghalang terbesar:

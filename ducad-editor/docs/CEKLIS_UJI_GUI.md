@@ -300,6 +300,29 @@ Buka: ⌘K → "Fitur Industri". Membukanya menutup panel Simulasi (sudut yang s
 
 ---
 
+### A14. Tutorial selamat datang (first-run)
+
+Persiapan: hapus `~/.ducad/onboarding.json` (atau jalankan dengan `HOME` kosong),
+lalu buka aplikasi. `DUCAD_SKIP_ONBOARDING=1` mematikan tutorial.
+
+- [ ] Kartu sambutan muncul di tengah, latar meredup, semua ikon terender (bukan kotak).
+- [ ] Tombol bahasa di kartu sambutan mengganti teks kartu dan seluruh aplikasi.
+- [ ] "Mulai tutorial" membuka pelajaran 1 (mode 2D/3D); kartu ada di kanan atas dan bisa digeser.
+- [ ] Tombol mode disorot cincin oranye berdenyut dan tetap bisa diklik; pelajaran lulus setelah
+  masuk 3D lalu kembali ke Sketsa.
+- [ ] Pelajaran 3 (tool Pilih, setelah persegi) lulus setelah satu garis persegi diklik.
+- [ ] "Lanjut" nonaktif sampai aksi dicoba; setelah lulus muncul tanda centang hijau.
+- [ ] Persegi, fillet sudut persegi, lingkaran, Extrude, navigasi, tarik sisi, palet, simpan, dan
+  Chat AI (langkah terakhir, berisi penyiapan agent) masing-masing lulus hanya setelah aksinya dilakukan.
+- [ ] Animasi kamera otomatis setelah extrude TIDAK meluluskan pelajaran navigasi.
+- [ ] Kartu tidak menutupi bilah konteks bawah, kartu panduan tool, maupun sidebar Chat AI.
+- [ ] "Lewati langkah ini" maju satu langkah; tombol tutup menutup tutorial.
+- [ ] Setelah selesai atau dilewati, membuka ulang aplikasi tidak menampilkan tutorial lagi.
+- [ ] Tombol bantuan (ikon tanda tanya, kiri tombol bagikan) dan palet perintah → "Tutorial: mulai dari awal" membuka kartu sambutan lagi.
+- [ ] iPad / jendela sempit: kartu tetap di dalam layar dan tombolnya nyaman disentuh.
+
+---
+
 ## Bagian B — Regresi inti (sebelum rilis)
 
 ### B1. Sketsa 2D
