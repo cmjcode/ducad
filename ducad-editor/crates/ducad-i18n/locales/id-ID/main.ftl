@@ -629,6 +629,14 @@ status-prompt-section = Tampilan Irisan: atur bidang potongan solid 3D
 status-prompt-history = Riwayat: lihat jejak langkah modeling dan lakukan Undo / Redo (H)
 
 # Tool Guides Detailed Steps & Tips
+guide-sheet-section-header = Panduan Section (Garis Potong):
+guide-sheet-section-step-1 = 1. Klik titik awal pada Tampak Depan/Atas/Kanan
+guide-sheet-section-step-2 = 2. Klik titik akhir (Shift+klik = potongan bertingkat)
+guide-sheet-section-tip = Arah pandang = sisi kiri arah garis. Esc untuk batal.
+guide-sheet-dim-header = Panduan Dimensi Asosiatif:
+guide-sheet-dim-step-1 = 1. Klik pusat lingkaran atau ujung tepi
+guide-sheet-dim-step-2 = 2. Klik titik kedua di tampak yang sama
+guide-sheet-dim-tip = Dimensi menempel ke fitur dan ikut berubah saat ukuran diubah.
 guide-line-header = Panduan Line (Garis):
 guide-line-step-1 = 1. Klik Titik Awal
 guide-line-step-2 = 2. Tarik & Klik Titik Akhir

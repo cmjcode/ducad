@@ -331,6 +331,39 @@ lalu buka aplikasi. `DUCAD_SKIP_ONBOARDING=1` mematikan tutorial.
 
 ---
 
+### A15. Lembar gambar produksi (P21, acuan valve body)
+
+Persiapan: `ducad-cli run crates/ducad-engine/tests/fixtures/valve_body.ops.json --out /tmp/valve.ducad`
+lalu buka `/tmp/valve.ducad` dan masuk ke Lembar Gambar. (Catatan: nomor A14
+sudah dipakai tutorial, jadi skenario "A14" di rencana P21 ada di sini.)
+
+- [ ] Lembar tersimpan terbuka apa adanya: A3, skala 1:2, Tampak Depan + Atas, Section A-A
+  (bertingkat) dan B-B, dua render berbayang di kolom kanan, tiga catatan di atas kepala gambar.
+- [ ] Lingkaran halus saat diperbesar (bukan poligon); grid zona 8…1 dan A…F; semua ikon terender.
+- [ ] Judul Section B-B menulis "SCALE 1:2"; tampak lain tidak menulis skala.
+- [ ] Dimensi otomatis memuat Ø42, Ø60, Ø98, Ø146, `4×Ø14 PCD Ø130` (dengan lingkaran PCD), 88, 120,
+  166, `2×45°`, `5×45°`, R5; tidak ada teks dimensi yang saling menimpa.
+- [ ] Klik kanan sebuah tampak → menu skala (1:1, 1:2, 1:5, 2:1, kustom, ikuti lembar); judulnya
+  ikut menulis "SCALE …" dan dimensi tetap menampilkan nilai model.
+- [ ] Alat Section (ikon belah / tombol S): klik dua titik di Tampak Atas → potongan berlabel huruf
+  berikutnya muncul; kartu panduan tampil di kiri bawah; Shift+klik membuat potongan bertingkat;
+  Esc membatalkan.
+- [ ] Sorot huruf garis potong → tombol balik arah dan tombol hapus muncul; balik arah mencerminkan
+  tampak potongan; hapus menghilangkan garis potong, tampak, dan dimensinya.
+- [ ] Alat dimensi (M): klik pusat dua lubang → dimensi linear bernilai model; mode Ø: klik pusat
+  lalu tepi lubang → `Ø14`. Geser dimensi: garis/teksnya mengikuti kursor.
+- [ ] "Regenerasi dimensi otomatis" mengembalikan dimensi otomatis ke tata letak bawaan.
+- [ ] "Sisipkan render 3D" menambah render berbayang dari arah kamera viewport; render bisa digeser.
+- [ ] Geser sebuah tampak: dimensi miliknya ikut bergerak, dimensi tampak lain diam.
+- [ ] Tutup lembar, ubah param `bore_d` menjadi 45 (panel properti / `set_params`), buka lembar:
+  lencana "Lembar kedaluwarsa" muncul; klik → `Ø42` menjadi `Ø45`, posisi dimensi lain tetap.
+- [ ] Simpan, tutup aplikasi, buka lagi: posisi tampak, dimensi yang digeser, teks bebas, dan potongan
+  tambahan kembali persis.
+- [ ] Ekspor PDF dan SVG: tampilan sama dengan kanvas (tidak tercermin), render berbayang ikut.
+  Ekspor DXF: tanpa gambar raster, layer VISIBLE/HIDDEN/CENTERLINE/DIMENSIONS/SECTION terisi.
+
+---
+
 ## Bagian B — Regresi inti (sebelum rilis)
 
 ### B1. Sketsa 2D

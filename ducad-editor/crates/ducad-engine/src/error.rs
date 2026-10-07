@@ -65,6 +65,11 @@ pub enum OpErrorCode {
     SimDiverged,
     /// Studi dibatalkan pengguna.
     SimCancelled,
+    // ---- P21: gambar kerja ----
+    /// Bidang potong tidak memotong body mana pun.
+    DrawingSectionEmpty,
+    /// Dua potongan memakai huruf label yang sama.
+    DrawingSectionLabelDup,
 }
 
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]

@@ -139,7 +139,7 @@ impl DetailExtractor {
 
         // 1. Klip seluruh segmen garis tampak, tersembunyi, siluet, dan arsir
         let mut clipped_segments = Vec::new();
-        for seg in &parent_view.segments {
+        for seg in &parent_view.tessellated_segments() {
             if let Some((cp1, cp2)) = clip_segment_to_circle(seg.start, seg.end, center, r) {
                 clipped_segments.push(HlrSegment2D {
                     start: cp1,
@@ -165,7 +165,7 @@ impl DetailExtractor {
         let mut detail_features = Vec::new();
         for feat in &parent_view.features {
             match feat {
-                HlrGeometricFeature::Circle { center: c, radius } => {
+                HlrGeometricFeature::Circle { center: c, radius, .. } => {
                     let d = ((c[0] - center[0]).powi(2) + (c[1] - center[1]).powi(2)).sqrt();
                     if d <= r + radius {
                         detail_features.push(feat.clone());
@@ -198,6 +198,14 @@ impl DetailExtractor {
                         detail_features.push(feat.clone());
                     }
                 }
+                HlrGeometricFeature::Chamfer { start, end, .. } => {
+                    let inside = |p: &[f32; 2]| (p[0] - center[0]).hypot(p[1] - center[1]) <= r;
+                    if inside(start) && inside(end) {
+                        detail_features.push(feat.clone());
+                    }
+                }
+                // Dimensi Ø sisi silinder butuh kedua siluet utuh; tidak dibawa ke detail.
+                HlrGeometricFeature::CylinderSide { .. } => {}
             }
         }
 
@@ -215,6 +223,7 @@ impl DetailExtractor {
             width_mm: r * 2.0,
             height_mm: r * 2.0,
             depth_mm: parent_view.depth_mm,
+            ..ProjectedView::default()
         };
 
         DetailViewData {
@@ -301,10 +310,12 @@ mod tests {
             features: vec![HlrGeometricFeature::Circle {
                 center: [50.0, 25.0],
                 radius: 5.0,
+                edge: None,
             }],
             width_mm: 100.0,
             height_mm: 50.0,
             depth_mm: 30.0,
+            ..ProjectedView::default()
         };
 
         let indicator = DetailIndicator::new(

@@ -473,8 +473,174 @@ pub fn call_core_tool(
     }
 }
 
-/// `drawing`: gambar kerja 4 tampak + dimensi otomatis → PDF/SVG/DXF.
+/// Satu dimensi eksplisit dari tool `drawing`: selector geometri yang sama
+/// dengan `query_geometry`, dipetakan ke rujukan fitur tampak.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DimensionSelector {
+    /// `diameter`, `radius`, atau `hole_pattern`.
+    #[serde(rename = "type")]
+    kind: String,
+    /// Selector face silinder, mis. `all[kind=cylinder][r=7]`.
+    select: String,
+    /// `front`, `top`, `right`, `section_a`, …
+    view: String,
+    /// Body yang dicari; default = semua body terlihat.
+    #[serde(default)]
+    body: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DimensionsArg {
+    Text(String),
+    List(Vec<DimensionSelector>),
+}
+
+/// Ubah selector dimensi menjadi `DimensionRef` pada gambar `drawing`.
+fn resolve_dimension_selectors(
+    core: &SessionCore,
+    drawing: &ducad_kernel::HlrDrawing,
+    items: &[DimensionSelector],
+) -> OpResult<Vec<ducad_core::drawing_annot::DimensionRef>> {
+    use ducad_core::drawing_annot::{DimensionRef, FeatureRef};
+    use ducad_kernel::ProjectedViewKind as K;
+    let mut out = Vec::new();
+    for item in items {
+        let kind = ducad_io::drawing::parse_view_key(&item.view).ok_or_else(|| {
+            OpError::invalid(format!(
+                "unknown view '{}' in dimensions (front, top, right, section_<letter>)",
+                item.view
+            ))
+        })?;
+        // Sumbu gambar tampak di ruang model.
+        let (right, up) = match kind {
+            K::Section(c) => {
+                let s = drawing.section(c).ok_or_else(|| {
+                    OpError::invalid(format!("view '{}' is not on this sheet", item.view))
+                })?;
+                (
+                    glam::Vec3::from_array(s.config.u_axis),
+                    glam::Vec3::from_array(s.config.v_axis),
+                )
+            }
+            K::Front | K::Top | K::Right => {
+                let (_, r, u) = kind.camera_vectors();
+                (r, u)
+            }
+            _ => {
+                return Err(OpError::invalid(format!(
+                    "dimensions cannot be placed on view '{}'",
+                    item.view
+                )))
+            }
+        };
+        let toward = right.cross(up);
+        let view = ducad_io::drawing::auto_dim::view_ref(kind);
+
+        let names: Vec<String> = match &item.body {
+            Some(b) => vec![b.clone()],
+            None => {
+                let mut v: Vec<String> = core
+                    .model
+                    .doc
+                    .bodies
+                    .values()
+                    .filter(|b| b.visible)
+                    .map(|b| b.name.clone())
+                    .collect();
+                v.sort();
+                v
+            }
+        };
+        let mut circles: Vec<FeatureRef> = Vec::new();
+        let mut refs: Vec<DimensionRef> = Vec::new();
+        for name in &names {
+            let (_, geo) = core.body(name)?;
+            let idx = match select_faces(&geo.shape, &item.select) {
+                Ok(idx) => idx,
+                Err(e) if e.code == OpErrorCode::SelectorEmpty && item.body.is_none() => continue,
+                Err(e) => return Err(e),
+            };
+            let faces = ducad_kernel::enumerate_faces(&geo.shape);
+            for i in idx {
+                let face = &faces[i];
+                let (Some(radius), Some((pt, dir))) = (face.radius, face.axis) else {
+                    continue;
+                };
+                let p = glam::vec3(pt[0] as f32, pt[1] as f32, pt[2] as f32);
+                let d = glam::vec3(dir[0] as f32, dir[1] as f32, dir[2] as f32);
+                if d.dot(toward).abs() > 0.999 {
+                    let fr = FeatureRef {
+                        view,
+                        edge: None,
+                        center: [p.dot(right), p.dot(up)],
+                        radius: radius as f32,
+                    };
+                    if !circles.iter().any(|c| {
+                        (c.center[0] - fr.center[0]).hypot(c.center[1] - fr.center[1]) < 0.01
+                            && (c.radius - fr.radius).abs() < 0.01
+                    }) {
+                        circles.push(fr);
+                    }
+                } else if d.dot(toward).abs() < 1e-3 {
+                    // Tampak samping: rentang aksial dari kotak pembatas face.
+                    let (lo, hi) = face.bbox;
+                    let corners = [lo, hi].map(|c| glam::vec3(c[0] as f32, c[1] as f32, c[2] as f32));
+                    let t: Vec<f32> = corners.iter().map(|c| (*c - p).dot(d)).collect();
+                    let (a, b) = (p + d * t[0].min(t[1]), p + d * t[0].max(t[1]));
+                    refs.push(DimensionRef::CylinderDiameter {
+                        view,
+                        axis_a: [a.dot(right), a.dot(up)],
+                        axis_b: [b.dot(right), b.dot(up)],
+                        radius: radius as f32,
+                    });
+                }
+            }
+        }
+        match item.kind.as_str() {
+            "hole_pattern" => {
+                if circles.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::SelectorEmpty,
+                        format!("dimension selector '{}' matches no circle facing view '{}'", item.select, item.view),
+                    ));
+                }
+                out.push(DimensionRef::HolePattern { circles });
+            }
+            "diameter" => {
+                if circles.is_empty() && refs.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::SelectorEmpty,
+                        format!("dimension selector '{}' matches no cylinder in view '{}'", item.select, item.view),
+                    ));
+                }
+                out.extend(circles.into_iter().map(|circle| DimensionRef::Diameter { circle }));
+                out.extend(refs);
+            }
+            "radius" => {
+                if circles.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::SelectorEmpty,
+                        format!("dimension selector '{}' matches no arc facing view '{}'", item.select, item.view),
+                    ));
+                }
+                out.extend(circles.into_iter().map(|arc| DimensionRef::Radius { arc }));
+            }
+            other => {
+                return Err(OpError::invalid(format!(
+                    "unknown dimension type '{other}' (diameter, radius, hole_pattern)"
+                )))
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `drawing`: lembar gambar (tampak, potongan, dimensi, render berbayang) →
+/// PDF/SVG/DXF. `name` merujuk lembar tersimpan; `save` menyimpannya.
 fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpResult<ToolOut> {
+    use ducad_io::drawing::{DimensionPolicy, DrawingSpec, ScaleSpec, SectionSpec, ShadedSpec, ViewSet};
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct A {
@@ -482,6 +648,10 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         session: Option<String>,
         format: String,
         path: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        save: bool,
         #[serde(default)]
         paper: Option<String>,
         #[serde(default)]
@@ -491,63 +661,157 @@ fn drawing_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpRe
         #[serde(default)]
         material: Option<String>,
         #[serde(default)]
-        notes: Vec<String>,
+        notes: Option<Vec<String>>,
         #[serde(default)]
-        annotations: Vec<ducad_core::drawing_annot::Annotation>,
+        annotations: Option<Vec<ducad_core::drawing_annot::Annotation>>,
+        #[serde(default)]
+        sections: Option<Vec<SectionSpec>>,
+        #[serde(default)]
+        views: Option<ViewSet>,
+        #[serde(default)]
+        scale: Option<ScaleSpec>,
+        #[serde(default)]
+        shaded: Option<Vec<ShadedSpec>>,
+        #[serde(default)]
+        dimensions: Option<DimensionsArg>,
+        #[serde(default)]
+        hidden_lines: Option<bool>,
     }
     let a: A = args(a)?;
     let _ = a.session;
-    ducad_core::drawing_annot::validate_annotations(&a.annotations)
-        .map_err(|e| OpError::invalid(format!("invalid drawing annotation: {e}")))?;
-    let paper = match a
-        .paper
-        .as_deref()
-        .unwrap_or("a3")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "a4" => ducad_io::drawing::PaperSize::A4Landscape,
-        "a4-portrait" => ducad_io::drawing::PaperSize::A4Portrait,
-        "a3" => ducad_io::drawing::PaperSize::A3Landscape,
-        "a3-portrait" => ducad_io::drawing::PaperSize::A3Portrait,
-        other => {
+    if let Some(annotations) = &a.annotations {
+        ducad_core::drawing_annot::validate_annotations(annotations)
+            .map_err(|e| OpError::invalid(format!("invalid drawing annotation: {e}")))?;
+    }
+
+    // Titik awal: lembar tersimpan bernama `name`, atau spec bawaan.
+    let stored = a.name.as_deref().and_then(|n| core.meta.design.drawing(n).cloned());
+    let from_store = stored.is_some();
+    let mut spec = stored.unwrap_or_else(|| DrawingSpec {
+        name: a.name.clone().unwrap_or_else(|| "sheet1".to_string()),
+        ..DrawingSpec::default()
+    });
+    if spec.name.trim().is_empty() {
+        return Err(OpError::invalid("drawing 'name' must not be empty"));
+    }
+    if let Some(paper) = &a.paper {
+        spec.paper = ducad_io::drawing::parse_paper(paper).ok_or_else(|| {
+            OpError::invalid(format!(
+                "unknown paper '{paper}' (a4, a4-portrait, a3, a3-portrait)"
+            ))
+        })?;
+    }
+    if let Some(v) = a.title {
+        spec.title.title = v;
+    }
+    if let Some(v) = a.part_number {
+        spec.title.part_number = v;
+    }
+    if let Some(v) = a.material {
+        spec.title.material = v;
+    }
+    if let Some(v) = a.sections {
+        spec.sections = Some(v);
+    }
+    if let Some(v) = a.views {
+        spec.views = v;
+    }
+    if let Some(v) = a.scale {
+        spec.scale = v;
+    }
+    if let Some(v) = a.shaded {
+        spec.shaded = v;
+    }
+    if let Some(v) = a.hidden_lines {
+        spec.hidden_lines = v;
+    }
+    let mut selectors: Option<Vec<DimensionSelector>> = None;
+    match a.dimensions {
+        Some(DimensionsArg::Text(t)) if t.eq_ignore_ascii_case("auto") => spec.dimensions = DimensionPolicy::Auto,
+        Some(DimensionsArg::Text(t)) if t.eq_ignore_ascii_case("none") => spec.dimensions = DimensionPolicy::None,
+        Some(DimensionsArg::Text(t)) => {
             return Err(OpError::invalid(format!(
-                "unknown paper '{other}' (a4, a4-portrait, a3, a3-portrait)"
+                "invalid dimensions '{t}' (\"auto\", \"none\", or a list of {{type, select, view}})"
             )))
         }
+        Some(DimensionsArg::List(list)) => selectors = Some(list),
+        None => {}
+    }
+    // Catatan lubang otomatis hanya untuk lembar baru; lembar tersimpan
+    // sudah memuat catatannya sendiri.
+    let mut notes = if from_store {
+        spec.notes.clone()
+    } else {
+        crate::drawing_auto::hole_notes(&core.meta.design, &core.meta.design.effective_params())
     };
-    let path = paths.resolve(&a.path)?;
-    let mut notes = crate::drawing_auto::hole_notes(&core.meta.design, &core.meta.design.effective_params());
-    notes.extend(a.notes);
-    let info = crate::drawing_auto::TitleInfo {
-        title: a.title.unwrap_or_default(),
-        part_number: a.part_number.unwrap_or_default(),
-        material: a.material.unwrap_or_default(),
-        ..Default::default()
-    };
-    let mut sheet = crate::drawing_auto::auto_sheet(core, paper, &info, &notes)?;
-    let annotation_count = a.annotations.len();
-    sheet.annotations = a.annotations;
-    let io = |e: anyhow::Error| {
-        OpError::new(
-            OpErrorCode::Io,
-            format!("failed to write {}: {e:#}", path.display()),
-        )
-    };
-    match a.format.to_ascii_lowercase().as_str() {
-        "pdf" => ducad_io::pdf::export_pdf(&sheet, &path).map_err(io)?,
-        "svg" => ducad_io::svg::export_drawing_sheet_svg(&sheet, &path).map_err(io)?,
-        "dxf" => ducad_io::dxf::export_drawing_sheet(&sheet, &path).map_err(io)?,
-        other => {
-            return Err(OpError::invalid(format!(
-                "unknown drawing format '{other}' (pdf, svg, dxf)"
-            )))
+    if let Some(extra) = a.notes {
+        if from_store {
+            notes = extra;
+        } else {
+            notes.extend(extra);
         }
     }
+    spec.notes = notes.clone();
+
+    let path = paths.resolve(&a.path)?;
+    // Sidik jari geometri KINI (bukan `design.fingerprint`, yang hanya
+    // diperbarui saat simpan): kunci cache HLR dan penanda kedaluwarsa.
+    let fingerprint = crate::session::fingerprint(core.model);
+    let mut output = if let Some(items) = &selectors {
+        // Dua langkah: bangun lembar tanpa dimensi untuk mendapat geometri
+        // tampak, lalu petakan selector ke rujukan fitur.
+        let mut probe = spec.clone();
+        probe.dimensions = DimensionPolicy::None;
+        let mut out = crate::drawing_auto::build_sheet(core.model, &probe, Some(&fingerprint))?;
+        let refs = resolve_dimension_selectors(core, &out.sheet.drawing, items)?;
+        spec.dimensions = DimensionPolicy::Only(refs.clone());
+        out.sheet.dimension_policy = DimensionPolicy::Only(refs);
+        out.sheet.generate_auto_dimensions();
+        out
+    } else {
+        crate::drawing_auto::build_sheet(core.model, &spec, Some(&fingerprint))?
+    };
+
+    let annotation_count = match a.annotations {
+        Some(list) => {
+            output.sheet.annotations = list;
+            output.sheet.annotations.len()
+        }
+        None => output.sheet.annotations.len(),
+    };
+    output
+        .warnings
+        .extend(crate::drawing_auto::write_sheet(&output.sheet, &a.format, &path)?);
+
+    if a.save {
+        let mut to_store = spec.clone();
+        if !output.sheet.annotations.is_empty() {
+            let mut layout = to_store.layout.take().unwrap_or_default();
+            layout.annotations = output.sheet.annotations.clone();
+            to_store.layout = Some(layout);
+        }
+        core.meta.design.upsert_drawing(to_store);
+    }
+    core.meta.drawing_rendered.insert(spec.name.clone(), fingerprint);
+
+    let sheet = &output.sheet;
     let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    Ok(ToolOut::ok(
-        json!({ "path": path, "bytes": bytes, "notes": notes, "annotations": annotation_count }),
-    ))
+    let dims: Vec<&str> = sheet.auto_dimensions.iter().map(|d| d.text.as_str()).collect();
+    Ok(ToolOut::ok(json!({
+        "path": path,
+        "bytes": bytes,
+        "name": spec.name,
+        "saved": a.save,
+        "scale": ducad_io::drawing::format_scale_ratio(sheet.scale),
+        "views": sheet.view_placements.iter().filter(|p| p.visible)
+            .map(|p| ducad_io::drawing::view_key(p.kind)).collect::<Vec<_>>(),
+        "sections": sheet.drawing.sections.iter().map(|s| s.label.clone()).collect::<Vec<_>>(),
+        "shaded": sheet.shaded.len(),
+        "dimensions": dims,
+        "notes": notes,
+        "annotations": annotation_count,
+        "warnings": output.warnings,
+    })))
 }
 
 /// `import_step`: body dari berkas STEP. Isi STEP disimpan di
@@ -824,6 +1088,11 @@ pub const ERROR_GUIDE: &str = "\
 | sim_mesh_too_coarse | cells are larger than a wall or miss a loaded/fixed face | lower setup.mesh.cell_mm or raise mesh.target_elems |
 | sim_diverged | solver did not converge | look for nearly disconnected or very thin regions; use a finer mesh |
 | sim_cancelled | study was cancelled | run it again |
+| drawing_section_empty | a `drawing` section plane/path does not cut any visible body | change the section `offset` or `path` (mm, relative to the bounding-box centre) so it passes through material |
+| drawing_section_label_dup | two `drawing` sections use the same letter | give every section a different single-letter `label` |
+| (warning) HLR_EXACT_FALLBACK | exact hidden-line removal failed for a view; the mesh fallback was used, so circles are polylines and that view has no associative dimensions | accept it, or simplify the offending fillets/blends |
+| (warning) DRAWING_SECTION_EMPTY | the default section A-A does not cut the part | pass explicit `sections`, or `sections: []` to drop it |
+| (warning) DRAWING_DXF_NO_RASTER | DXF cannot embed shaded renders | use pdf or svg for sheets with `shaded` |
 | (warning) SIM_MESH_FALLBACK_HEX | the tet mesher could not mesh the body; the hex voxel mesh was used | accept the hex result, or change `mesh.cell_mm` so walls are at least two cells thick |
 ";
 

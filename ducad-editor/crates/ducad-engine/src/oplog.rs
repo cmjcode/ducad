@@ -35,7 +35,12 @@ pub fn to_git_text(design: &DesignDoc) -> String {
     let mut out = String::from("{\n");
     out.push_str(&format!("  \"params\": {},\n", compact(&design.params)));
     write_array(&mut out, "ops", &design.oplog, false);
-    write_array(&mut out, "checks", &design.checks, true);
+    // `drawings` hanya ditulis bila ada, supaya berkas lama tidak berubah.
+    let has_drawings = !design.drawings.is_empty();
+    write_array(&mut out, "checks", &design.checks, !has_drawings);
+    if has_drawings {
+        write_array(&mut out, "drawings", &design.drawings, true);
+    }
     out.push_str("}\n");
     out
 }

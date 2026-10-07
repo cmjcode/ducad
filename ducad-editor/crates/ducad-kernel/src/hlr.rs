@@ -23,8 +23,8 @@ pub enum ProjectedViewKind {
     Right,
     /// Tampak Isometrik 3D (Axonometric Isometric View).
     Isometric,
-    /// Tampak Potongan Melintang A-A (Section View A-A).
-    SectionAA,
+    /// Tampak Potongan (Section View) berlabel huruf, mis. `Section('A')` = A-A.
+    Section(char),
     /// Tampak Detail Pembesar (Detail View, mis. 'B', 'C').
     Detail(char),
 }
@@ -36,7 +36,7 @@ impl ProjectedViewKind {
             ProjectedViewKind::Top => "TAMPAK ATAS".to_string(),
             ProjectedViewKind::Right => "TAMPAK SAMPING KANAN".to_string(),
             ProjectedViewKind::Isometric => "TAMPAK ISOMETRIK 3D".to_string(),
-            ProjectedViewKind::SectionAA => "TAMPAK POTONGAN A-A".to_string(),
+            ProjectedViewKind::Section(c) => format!("TAMPAK POTONGAN {c}-{c}"),
             ProjectedViewKind::Detail(c) => format!("TAMPAK DETAIL {c}"),
         }
     }
@@ -47,7 +47,7 @@ impl ProjectedViewKind {
             ProjectedViewKind::Top => "TOP VIEW".to_string(),
             ProjectedViewKind::Right => "RIGHT SIDE VIEW".to_string(),
             ProjectedViewKind::Isometric => "ISOMETRIC 3D VIEW".to_string(),
-            ProjectedViewKind::SectionAA => "SECTION A-A".to_string(),
+            ProjectedViewKind::Section(c) => format!("SECTION {c}-{c}"),
             ProjectedViewKind::Detail(c) => format!("DETAIL VIEW {c}"),
         }
     }
@@ -61,7 +61,7 @@ impl ProjectedViewKind {
                 // Screen X: +X, Screen Y: +Y, View Dir: -Z (Kedalaman: +Z)
                 (vec3(0.0, 0.0, -1.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0))
             }
-            ProjectedViewKind::Front | ProjectedViewKind::SectionAA | ProjectedViewKind::Detail(_) => {
+            ProjectedViewKind::Front | ProjectedViewKind::Section(_) | ProjectedViewKind::Detail(_) => {
                 // Kamera di -Y melihat ke +Y (bidang XZ)
                 // Screen X: +X, Screen Y: +Z, View Dir: +Y (Kedalaman: -Y)
                 (vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0))
@@ -123,18 +123,107 @@ impl HlrSegment2D {
     }
 }
 
-/// Fitur geometris khusus (lingkaran, busur, ellips, sudut) untuk anotasi dimensi teknik otomatis.
+/// Busur/lingkaran analitik 2D hasil HLR eksak (P21.3). Selalu berlawanan
+/// arah jarum jam dari `start_deg` ke `end_deg`; lingkaran penuh = 0..360.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HlrArc2D {
+    pub center: [f32; 2],
+    pub radius: f32,
+    pub start_deg: f32,
+    pub end_deg: f32,
+    pub kind: HlrLineKind,
+    /// Indeks edge topologi asal (urutan `enumerate_edges`, berlanjut antar
+    /// body dalam urutan body gambar). `None` untuk tampak potongan.
+    #[serde(default)]
+    pub edge: Option<u32>,
+}
+
+impl HlrArc2D {
+    pub fn sweep_deg(&self) -> f32 {
+        (self.end_deg - self.start_deg).clamp(0.0, 360.0)
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.sweep_deg() >= 359.9
+    }
+
+    pub fn point_at(&self, deg: f32) -> [f32; 2] {
+        let a = deg.to_radians();
+        [
+            self.center[0] + self.radius * a.cos(),
+            self.center[1] + self.radius * a.sin(),
+        ]
+    }
+
+    /// Kotak pembatas busur (memperhitungkan titik ekstrem 0/90/180/270°).
+    pub fn bounds(&self) -> ([f32; 2], [f32; 2]) {
+        if self.is_full() {
+            return (
+                [self.center[0] - self.radius, self.center[1] - self.radius],
+                [self.center[0] + self.radius, self.center[1] + self.radius],
+            );
+        }
+        let mut pts = vec![self.point_at(self.start_deg), self.point_at(self.end_deg)];
+        let mut q = (self.start_deg / 90.0).ceil() * 90.0;
+        while q < self.end_deg {
+            pts.push(self.point_at(q));
+            q += 90.0;
+        }
+        let mut lo = [f32::MAX; 2];
+        let mut hi = [f32::MIN; 2];
+        for p in pts {
+            lo = [lo[0].min(p[0]), lo[1].min(p[1])];
+            hi = [hi[0].max(p[0]), hi[1].max(p[1])];
+        }
+        (lo, hi)
+    }
+
+    /// Titik-titik polyline pendekatan busur, langkah sudut ≤ `step_deg`.
+    /// Untuk penampil yang tidak punya primitif busur (egui, klip detail).
+    pub fn polyline(&self, step_deg: f32) -> Vec<[f32; 2]> {
+        let sweep = self.sweep_deg();
+        let n = ((sweep / step_deg.max(0.5)).ceil() as usize).max(2);
+        (0..=n)
+            .map(|i| self.point_at(self.start_deg + sweep * i as f32 / n as f32))
+            .collect()
+    }
+}
+
+/// Fitur geometris khusus (lingkaran, busur, ellips, sudut, chamfer, sisi
+/// silinder) untuk anotasi dimensi teknik otomatis.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HlrGeometricFeature {
     Circle {
         center: [f32; 2],
         radius: f32,
+        /// Indeks edge topologi asal bila diketahui (HLR eksak).
+        #[serde(default)]
+        edge: Option<u32>,
     },
     Arc {
         center: [f32; 2],
         radius: f32,
         start_angle: f32,
         end_angle: f32,
+        #[serde(default)]
+        edge: Option<u32>,
+    },
+    /// Chamfer yang tampak dari samping sebagai garis miring pendek:
+    /// `length` × `angle_deg` (mis. 2 × 45°).
+    Chamfer {
+        start: [f32; 2],
+        end: [f32; 2],
+        length: f32,
+        angle_deg: f32,
+    },
+    /// Permukaan silinder (poros/lubang) yang sumbunya sejajar bidang gambar:
+    /// sumber dimensi Ø linear pada tampak samping/potongan.
+    CylinderSide {
+        axis_start: [f32; 2],
+        axis_end: [f32; 2],
+        radius: f32,
+        /// Apakah garis siluetnya tampak di tampak ini.
+        visible: bool,
     },
     Ellipse {
         center: [f32; 2],
@@ -163,9 +252,55 @@ pub struct ProjectedView {
     pub width_mm: f32,
     pub height_mm: f32,
     pub depth_mm: f32,
+    /// Busur/lingkaran analitik (HLR eksak). TIDAK digandakan di `segments`.
+    #[serde(default)]
+    pub arcs: Vec<HlrArc2D>,
+    /// Sejajar `segments`: indeks edge topologi asal tiap segmen lurus.
+    /// Kosong pada jalur mesh dan tampak potongan.
+    #[serde(default)]
+    pub edge_refs: Vec<Option<u32>>,
+    /// `true` bila tampak ini berasal dari HLR eksak OCCT.
+    #[serde(default)]
+    pub exact: bool,
+}
+
+impl Default for ProjectedView {
+    fn default() -> Self {
+        Self {
+            kind: ProjectedViewKind::Front,
+            title: String::new(),
+            bounds_min: [0.0, 0.0],
+            bounds_max: [100.0, 100.0],
+            segments: Vec::new(),
+            centerlines: Vec::new(),
+            features: Vec::new(),
+            width_mm: 0.0,
+            height_mm: 0.0,
+            depth_mm: 0.0,
+            arcs: Vec::new(),
+            edge_refs: Vec::new(),
+            exact: false,
+        }
+    }
 }
 
 impl ProjectedView {
+    /// Seluruh garis sebagai segmen lurus: `segments` + busur yang dicacah.
+    pub fn tessellated_segments(&self) -> Vec<HlrSegment2D> {
+        let mut out = self.segments.clone();
+        for arc in &self.arcs {
+            let pts = arc.polyline(6.0);
+            for w in pts.windows(2) {
+                out.push(HlrSegment2D {
+                    start: w[0],
+                    end: w[1],
+                    kind: arc.kind,
+                });
+            }
+        }
+        out
+    }
+
     pub fn size_2d(&self) -> [f32; 2] {
         let w = (self.bounds_max[0] - self.bounds_min[0]).abs();
         let h = (self.bounds_max[1] - self.bounds_min[1]).abs();
@@ -187,14 +322,37 @@ pub struct HlrDrawing {
     pub top: ProjectedView,
     pub right: ProjectedView,
     pub isometric: ProjectedView,
+    /// Tampak potongan (A-A, B-B, …) beserta garis potong di tampak induknya.
     #[serde(default)]
-    pub section_a: Option<ProjectedView>,
-    #[serde(default)]
-    pub cutting_plane: Option<crate::section::CuttingLineIndicator>,
+    pub sections: Vec<crate::section::SectionView>,
     #[serde(default)]
     pub detail_views: Vec<crate::detail::DetailViewData>,
     pub model_bbox_min: [f32; 3],
     pub model_bbox_max: [f32; 3],
+    /// Peringatan berkode (mis. `HLR_EXACT_FALLBACK: …`, `DRAWING_SECTION_EMPTY: A`).
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// Opsi ekstraksi gambar kerja.
+#[derive(Debug, Clone)]
+pub struct DrawingOptions {
+    /// Potongan yang diminta. Kosong + `default_section` = satu A-A di tengah
+    /// model (perilaku lama).
+    pub sections: Vec<crate::section::SectionRequest>,
+    pub default_section: bool,
+    /// Pakai HLR eksak OCCT (jatuh ke HLR mesh bila gagal).
+    pub exact: bool,
+}
+
+impl Default for DrawingOptions {
+    fn default() -> Self {
+        Self {
+            sections: Vec::new(),
+            default_section: true,
+            exact: true,
+        }
+    }
 }
 
 impl HlrDrawing {
@@ -206,13 +364,34 @@ impl HlrDrawing {
         )
     }
 
+    /// Tampak potongan berlabel `label`.
+    pub fn section(&self, label: char) -> Option<&crate::section::SectionView> {
+        self.sections
+            .iter()
+            .find(|s| s.label.starts_with(label))
+    }
+
+    /// Garis potong yang harus digambar pada tampak `parent`.
+    pub fn cutting_lines_on(
+        &self,
+        parent: ProjectedViewKind,
+    ) -> impl Iterator<Item = &crate::section::CuttingLineIndicator> {
+        self.sections
+            .iter()
+            .filter(move |s| s.parent == parent)
+            .map(|s| &s.cutting_line)
+    }
+
     pub fn view_by_kind(&self, kind: ProjectedViewKind) -> &ProjectedView {
         match kind {
             ProjectedViewKind::Front => &self.front,
             ProjectedViewKind::Top => &self.top,
             ProjectedViewKind::Right => &self.right,
             ProjectedViewKind::Isometric => &self.isometric,
-            ProjectedViewKind::SectionAA => self.section_a.as_ref().unwrap_or(&self.front),
+            ProjectedViewKind::Section(c) => self
+                .section(c)
+                .map(|s| &s.view)
+                .unwrap_or(&self.front),
             ProjectedViewKind::Detail(c) => {
                 if let Some(dv) = self.detail_views.iter().find(|d| d.indicator.label == c) {
                     &dv.view
@@ -242,6 +421,16 @@ impl HlrExtractor {
         meshes: &[&KernelMesh],
         sketch_segments: &[(Vec3, Vec3)],
     ) -> HlrDrawing {
+        Self::extract_drawing_with(shapes, meshes, sketch_segments, &DrawingOptions::default())
+    }
+
+    /// Ekstraksi gambar kerja dengan potongan eksplisit dan pilihan jalur HLR.
+    pub fn extract_drawing_with(
+        shapes: &[&KernelShape],
+        meshes: &[&KernelMesh],
+        sketch_segments: &[(Vec3, Vec3)],
+        options: &DrawingOptions,
+    ) -> HlrDrawing {
         let _guard = lock_kernel();
 
         let merged_mesh = KernelMesh::merge(meshes);
@@ -262,36 +451,127 @@ impl HlrExtractor {
             bbox_min = [0.0, 0.0, 0.0];
             bbox_max = [100.0, 100.0, 100.0];
         }
+        let bbox = (bbox_min, bbox_max);
 
-        let front = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Front, (bbox_min, bbox_max));
-        let top = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Top, (bbox_min, bbox_max));
-        let right = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Right, (bbox_min, bbox_max));
-        let isometric = Self::extract_view(shapes, &merged_mesh, sketch_segments, ProjectedViewKind::Isometric, (bbox_min, bbox_max));
+        let mut warnings = Vec::new();
+        let mut view = |kind: ProjectedViewKind| {
+            Self::extract_view_internal(shapes, &merged_mesh, sketch_segments, kind, bbox, options.exact, &mut warnings)
+        };
+        let front = view(ProjectedViewKind::Front);
+        let top = view(ProjectedViewKind::Top);
+        let right = view(ProjectedViewKind::Right);
+        let isometric = view(ProjectedViewKind::Isometric);
 
-        // Ekstraksi Section View A-A menggunakan BRepAlgoAPI_Section dan 45° ISO/ANSI Hatch
-        let section_config = crate::section::SectionPlaneConfig::from_model_bbox_center_y(bbox_min, bbox_max);
-        let (section_a, cutting_plane) = crate::section::SectionExtractor::extract_section_view_internal(
-            shapes,
-            meshes,
-            &section_config,
-            (bbox_min, bbox_max),
-        );
+        let mut requests = options.sections.clone();
+        if requests.is_empty() && options.default_section {
+            requests.push(crate::section::SectionRequest::from_axis(
+                "A",
+                crate::section::SectionAxis::Y,
+                0.0,
+                false,
+                bbox,
+            ));
+        }
+        let mut sections = Vec::new();
+        for req in &requests {
+            match crate::section::SectionExtractor::extract_internal(shapes, meshes, req, bbox, options.exact) {
+                Ok((section, mut warn)) => {
+                    warnings.append(&mut warn);
+                    sections.push(section);
+                }
+                Err(e) => warnings.push(e),
+            }
+        }
 
         HlrDrawing {
             front,
             top,
             right,
             isometric,
-            section_a: Some(section_a),
-            cutting_plane: Some(cutting_plane),
+            sections,
             detail_views: Vec::new(),
             model_bbox_min: bbox_min,
             model_bbox_max: bbox_max,
+            warnings,
         }
     }
 
     /// Ekstraksi satu tampak spesifik.
+    ///
+    /// Jalur mesh murni (tanpa HLR eksak); dipertahankan sebagai fallback dan
+    /// untuk pemanggil yang hanya punya mesh.
     pub fn extract_view(
+        shapes: &[&KernelShape],
+        mesh: &KernelMesh,
+        sketch_segments: &[(Vec3, Vec3)],
+        view_kind: ProjectedViewKind,
+        model_bbox: ([f32; 3], [f32; 3]),
+    ) -> ProjectedView {
+        Self::extract_view_mesh(shapes, mesh, sketch_segments, view_kind, model_bbox)
+    }
+
+    /// Satu tampak: HLR eksak bila `exact` dan ada B-rep, selain itu HLR mesh.
+    /// Pemanggil sudah memegang `lock_kernel()`.
+    pub(crate) fn extract_view_internal(
+        shapes: &[&KernelShape],
+        mesh: &KernelMesh,
+        sketch_segments: &[(Vec3, Vec3)],
+        view_kind: ProjectedViewKind,
+        model_bbox: ([f32; 3], [f32; 3]),
+        exact: bool,
+        warnings: &mut Vec<String>,
+    ) -> ProjectedView {
+        if exact && !shapes.is_empty() {
+            let (_, right_vec, up_vec) = view_kind.camera_vectors();
+            let occ: Vec<&opencascade::primitives::Shape> = shapes.iter().map(|s| s.inner()).collect();
+            let sources = crate::hlr_sheet::source_edges(&occ);
+            let started = std::time::Instant::now();
+            if let Some(mut lines) = crate::hlr_sheet::exact_lines(&occ, right_vec, up_vec, true, Some(&sources)) {
+                if started.elapsed().as_secs_f32() > 10.0 {
+                    warnings.push(format!(
+                        "HLR_EXACT_SLOW: {} took {:.1} s",
+                        view_kind.title_en(),
+                        started.elapsed().as_secs_f32()
+                    ));
+                }
+                for (p1, p2) in sketch_segments {
+                    let a = [p1.dot(right_vec), p1.dot(up_vec)];
+                    let b = [p2.dot(right_vec), p2.dot(up_vec)];
+                    if (a[0] - b[0]).hypot(a[1] - b[1]) > 0.02 {
+                        lines.segments.push(HlrSegment2D { start: a, end: b, kind: HlrLineKind::Visible });
+                        lines.edge_refs.push(None);
+                    }
+                }
+                let diag = (Vec3::from_array(model_bbox.1) - Vec3::from_array(model_bbox.0)).length();
+                let (features, centerlines) =
+                    crate::hlr_sheet::exact_features(&occ, &lines, right_vec, up_vec, diag);
+                let (bounds_min, bounds_max) =
+                    crate::hlr_sheet::lines_bounds(&lines).unwrap_or(([0.0, 0.0], [100.0, 100.0]));
+                return ProjectedView {
+                    kind: view_kind,
+                    title: view_kind.title_id(),
+                    bounds_min,
+                    bounds_max,
+                    segments: lines.segments,
+                    centerlines,
+                    features,
+                    width_mm: (model_bbox.1[0] - model_bbox.0[0]).abs(),
+                    height_mm: (model_bbox.1[2] - model_bbox.0[2]).abs(),
+                    depth_mm: (model_bbox.1[1] - model_bbox.0[1]).abs(),
+                    arcs: lines.arcs,
+                    edge_refs: lines.edge_refs,
+                    exact: true,
+                };
+            }
+            warnings.push(format!(
+                "HLR_EXACT_FALLBACK: exact hidden-line removal failed for {}; mesh HLR used (circles become polylines)",
+                view_kind.title_en()
+            ));
+        }
+        Self::extract_view_mesh(shapes, mesh, sketch_segments, view_kind, model_bbox)
+    }
+
+    fn extract_view_mesh(
         shapes: &[&KernelShape],
         mesh: &KernelMesh,
         sketch_segments: &[(Vec3, Vec3)],
@@ -452,6 +732,7 @@ impl HlrExtractor {
             width_mm: dx,
             height_mm: dz,
             depth_mm: dy,
+            ..ProjectedView::default()
         }
     }
 }
@@ -835,7 +1116,7 @@ fn extract_geometric_features(
                 if let Some(feat) = fit_curve_feature(&pts_2d) {
                     // Hindari duplikasi jika sudah ada fitur serupa di titik pusat yang sama
                     let is_dup = features.iter().any(|f| match (f, &feat) {
-                        (HlrGeometricFeature::Circle { center: c1, radius: r1 }, HlrGeometricFeature::Circle { center: c2, radius: r2 }) => {
+                        (HlrGeometricFeature::Circle { center: c1, radius: r1, .. }, HlrGeometricFeature::Circle { center: c2, radius: r2, .. }) => {
                             (c1[0] - c2[0]).hypot(c1[1] - c2[1]) < 1.0 && (r1 - r2).abs() < 1.0
                         }
                         (HlrGeometricFeature::Arc { center: c1, radius: r1, .. }, HlrGeometricFeature::Arc { center: c2, radius: r2, .. }) => {
@@ -874,7 +1155,7 @@ fn extract_geometric_features(
                     }
                     if max_r > 1.0 {
                         let is_dup = features.iter().any(|f| match f {
-                            HlrGeometricFeature::Circle { center, radius } => {
+                            HlrGeometricFeature::Circle { center, radius, .. } => {
                                 (center[0] - cu).hypot(center[1] - cv) < 1.0 && (radius - max_r).abs() < 1.0
                             }
                             _ => false,
@@ -883,6 +1164,7 @@ fn extract_geometric_features(
                             features.push(HlrGeometricFeature::Circle {
                                 center: [cu, cv],
                                 radius: max_r,
+                                edge: None,
                             });
                         }
                     }
@@ -988,6 +1270,7 @@ fn fit_curve_feature(pts: &[[f32; 2]]) -> Option<HlrGeometricFeature> {
             Some(HlrGeometricFeature::Circle {
                 center: [cx, cy],
                 radius: avg_r,
+                edge: None,
             })
         } else {
             let start_a = (first[1] - cy).atan2(first[0] - cx);
@@ -997,6 +1280,7 @@ fn fit_curve_feature(pts: &[[f32; 2]]) -> Option<HlrGeometricFeature> {
                 radius: avg_r,
                 start_angle: start_a,
                 end_angle: end_a,
+                edge: None,
             })
         }
     } else {

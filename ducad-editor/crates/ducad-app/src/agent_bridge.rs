@@ -415,6 +415,8 @@ impl DuCADApp {
         let design = DesignDoc {
             params: self.agent_meta.design.params.clone(),
             checks: self.agent_meta.design.checks.clone(),
+            // Lembar gambar bukan op: tetap berlaku walau oplog diadopsi ulang.
+            drawings: self.agent_meta.design.drawings.clone(),
             base_bodies,
             fingerprint: fp,
             ..DesignDoc::default()

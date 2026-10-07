@@ -52,10 +52,12 @@ fn sample_drawing() -> HlrDrawing {
         features: vec![HlrGeometricFeature::Circle {
             center: [w * 0.5, h * 0.5],
             radius: 6.0,
+            edge: None,
         }],
         width_mm: w,
         height_mm: h,
         depth_mm: 20.0,
+        ..ProjectedView::default()
     };
 
     HlrDrawing {
@@ -63,11 +65,11 @@ fn sample_drawing() -> HlrDrawing {
         top: view(ProjectedViewKind::Top, 50.0, 20.0),
         right: view(ProjectedViewKind::Right, 20.0, 30.0),
         isometric: view(ProjectedViewKind::Isometric, 45.0, 40.0),
-        section_a: Some(view(ProjectedViewKind::SectionAA, 50.0, 30.0)),
-        cutting_plane: None,
+        sections: Vec::new(),
         detail_views: Vec::new(),
         model_bbox_min: [0.0, 0.0, 0.0],
         model_bbox_max: [50.0, 20.0, 30.0],
+        warnings: Vec::new(),
     }
 }
 

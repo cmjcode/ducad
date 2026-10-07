@@ -40,7 +40,9 @@ fn plate_sheet_has_views_dims_notes_and_pdf() {
         );
     }
     assert!(!sheet.auto_dimensions.is_empty());
-    assert!(sheet.custom_texts.iter().any(|t| t.text.contains("4×")));
+    // P21: catatan disimpan di `sheet.notes` dan digambar di atas kepala gambar.
+    assert!(sheet.notes.iter().any(|t| t.contains("4×")));
+    assert!(sheet.auto_dimensions.iter().all(|d| d.source.is_some()));
     assert_eq!(sheet.title_block.drawing_number, "P-001");
     assert!(sheet.title_block.scale.contains(':'), "{}", sheet.title_block.scale);
     let pdf = ducad_io::pdf::generate_pdf_bytes(&sheet);

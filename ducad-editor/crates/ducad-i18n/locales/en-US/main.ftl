@@ -629,6 +629,14 @@ status-prompt-section = Section View: adjust 3D section plane
 status-prompt-history = History: view modeling steps and perform Undo / Redo (H)
 
 # Tool Guides Detailed Steps & Tips
+guide-sheet-section-header = Section Guide (Cutting Line):
+guide-sheet-section-step-1 = 1. Click the start point on the Front/Top/Right view
+guide-sheet-section-step-2 = 2. Click the end point (Shift+click = stepped section)
+guide-sheet-section-tip = The view looks to the left of the line direction. Esc cancels.
+guide-sheet-dim-header = Associative Dimension Guide:
+guide-sheet-dim-step-1 = 1. Click a circle centre or an edge endpoint
+guide-sheet-dim-step-2 = 2. Click the second point in the same view
+guide-sheet-dim-tip = The dimension sticks to the feature and follows size changes.
 guide-line-header = Line Guide:
 guide-line-step-1 = 1. Click Start Point
 guide-line-step-2 = 2. Drag & Click End Point

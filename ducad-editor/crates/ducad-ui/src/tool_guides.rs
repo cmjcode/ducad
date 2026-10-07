@@ -17,6 +17,16 @@ use crate::theme::{
 
 pub struct ToolGuides;
 
+/// Panduan alat editor lembar gambar (P21.7) — bukan `ToolbarTool` karena
+/// alat-alat ini hanya ada di dalam tampilan lembar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SheetGuide {
+    /// Alat Section: garis potong pada tampak induk.
+    Section,
+    /// Alat dimensi: dimensi asosiatif yang menempel ke fitur.
+    Dimension,
+}
+
 impl ToolGuides {
     /// Jarak kartu panduan dari tepi kiri & bawah kanvas.
     pub const CORNER_MARGIN: f32 = 16.0;
@@ -123,6 +133,88 @@ impl ToolGuides {
 
     /// Animasi demonstrasi sebuah tool di dalam `rect`, tanpa kartu dan tanpa
     /// keadaan tool aktif. Dipakai tutorial selamat datang (`onboarding`).
+    /// Kartu panduan alat lembar gambar di pojok kiri bawah kanvas.
+    /// `points` = jumlah titik yang sudah diklik.
+    pub fn render_sheet_guide(ui: &mut Ui, canvas_rect: Rect, guide: SheetGuide, points: usize, time: f64) {
+        ui.ctx().request_repaint();
+        let card_rect = Rect::from_min_size(
+            Pos2::new(
+                canvas_rect.left() + Self::CORNER_MARGIN,
+                canvas_rect.bottom() - 148.0 - Self::CORNER_MARGIN,
+            ),
+            Vec2::new(310.0, 148.0),
+        );
+        Self::publish_card_rect(ui.ctx(), card_rect);
+        let painter = ui.painter_at(card_rect);
+        crate::theme::glass_frame()
+            .corner_radius(egui::CornerRadius::same(8))
+            .shadow(egui::Shadow::NONE)
+            .fill(Color32::from_rgba_premultiplied(12, 14, 18, 230))
+            .paint(ui, card_rect);
+
+        let (header, step, tip) = match guide {
+            SheetGuide::Section => (
+                t!("guide-sheet-section-header"),
+                if points == 0 { t!("guide-sheet-section-step-1") } else { t!("guide-sheet-section-step-2") },
+                t!("guide-sheet-section-tip"),
+            ),
+            SheetGuide::Dimension => (
+                t!("guide-sheet-dim-header"),
+                if points == 0 { t!("guide-sheet-dim-step-1") } else { t!("guide-sheet-dim-step-2") },
+                t!("guide-sheet-dim-tip"),
+            ),
+        };
+        let color = if points == 0 { ACCENT_ORANGE } else { ACCENT_GREEN };
+        Self::draw_header(&painter, card_rect, &header, &step, color);
+        Self::draw_footer(&painter, card_rect, &tip);
+
+        // Diagram animasi kecil di tengah kartu.
+        let phase = (time * 0.45).fract() as f32;
+        let center = Pos2::new(card_rect.center().x, card_rect.top() + 82.0);
+        let line = Stroke::new(1.4, TEXT_PRIMARY);
+        match guide {
+            SheetGuide::Section => {
+                // Tampak induk + garis potong yang tumbuh, panah, dan huruf label.
+                let view = Rect::from_center_size(center, Vec2::new(120.0, 44.0));
+                painter.rect_stroke(view, 2.0, line, StrokeKind::Inside);
+                painter.circle_stroke(center, 12.0, line);
+                let grow = (phase * 1.6).min(1.0);
+                let a = Pos2::new(view.left() - 14.0, center.y);
+                let b = Pos2::new(a.x + (view.width() + 28.0) * grow, center.y);
+                painter.line_segment([a, b], Stroke::new(2.0, ACCENT_ORANGE));
+                if grow >= 1.0 {
+                    for x in [a.x, b.x] {
+                        let tip = Pos2::new(x, center.y - 14.0);
+                        painter.line_segment([Pos2::new(x, center.y), tip], Stroke::new(1.4, ACCENT_ORANGE));
+                        painter.line_segment([tip, tip + Vec2::new(-3.5, 6.0)], Stroke::new(1.4, ACCENT_ORANGE));
+                        painter.line_segment([tip, tip + Vec2::new(3.5, 6.0)], Stroke::new(1.4, ACCENT_ORANGE));
+                        painter.text(tip + Vec2::new(0.0, -3.0), Align2::CENTER_BOTTOM, "A", FontId::proportional(11.0), ACCENT_ORANGE);
+                    }
+                }
+                Self::draw_cursor(&painter, b + Vec2::new(4.0, 6.0), phase > 0.62 && phase < 0.8, time);
+            }
+            SheetGuide::Dimension => {
+                // Lingkaran yang membesar: leader Ø mengikuti, teksnya tetap di tempat.
+                let radius = 12.0 + 6.0 * (phase * std::f32::consts::TAU).sin().abs();
+                painter.circle_stroke(center, radius, line);
+                let dir = Vec2::new(0.72, -0.69);
+                let tip = center + dir * radius;
+                let elbow = center + dir * 44.0;
+                let dim = Stroke::new(1.2, ACCENT_BLUE);
+                painter.line_segment([tip, elbow], dim);
+                painter.line_segment([elbow, elbow + Vec2::new(46.0, 0.0)], dim);
+                painter.text(
+                    elbow + Vec2::new(4.0, -2.0),
+                    Align2::LEFT_BOTTOM,
+                    format!("Ø{:.0}", radius * 2.0),
+                    FontId::proportional(11.0),
+                    ACCENT_BLUE,
+                );
+                Self::draw_cursor(&painter, tip + Vec2::new(3.0, 3.0), phase < 0.2, time);
+            }
+        }
+    }
+
     pub(crate) fn paint_demo(painter: &egui::Painter, rect: Rect, tool: ToolbarTool, time: f64) {
         match tool {
             ToolbarTool::Rectangle => Self::render_rectangle_anim(painter, rect, 0, time),

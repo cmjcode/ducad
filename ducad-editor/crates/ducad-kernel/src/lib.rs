@@ -12,6 +12,7 @@ pub mod detail;
 pub mod helix;
 pub mod hlr;
 pub mod hlr_exact;
+mod hlr_sheet;
 pub mod hole;
 pub mod interference;
 pub mod mass;
@@ -86,8 +87,8 @@ pub use helix::{
     create_helix_wire, generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
 };
 pub use hlr::{
-    HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind, HlrSegment2D, ProjectedView,
-    ProjectedViewKind,
+    DrawingOptions, HlrArc2D, HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind,
+    HlrSegment2D, ProjectedView, ProjectedViewKind,
 };
 pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
 pub use projection::{
@@ -119,7 +120,8 @@ pub use picking::{
 pub use primitives::{make_box, make_cone, make_cylinder, make_sphere};
 pub use profile::{PathSegment, Profile, ProfileSegment};
 pub use section::{
-    generate_iso_hatch_pattern, CuttingLineIndicator, SectionExtractor, SectionPlaneConfig,
+    generate_iso_hatch_pattern, CuttingLineIndicator, SectionAxis, SectionExtractor, SectionPath,
+    SectionPlaneConfig, SectionRequest, SectionView,
 };
 pub use shape::{
     clone_shape, extract_shape_edges, make_compound, rotate_shape, scale_shape, transform_shape,

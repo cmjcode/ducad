@@ -610,6 +610,162 @@ pub fn tolerance_stackup(chain: &[(f64, f64, f64)]) -> StackupResult {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Dimensi asosiatif (P21.4)
+// ---------------------------------------------------------------------------
+
+/// Rujukan tampak pada lembar gambar. Cermin `ProjectedViewKind` milik
+/// kernel — `ducad-core` tidak bergantung pada kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewRef {
+    Front,
+    Top,
+    Right,
+    Isometric,
+    /// Tampak potongan berlabel huruf (`'A'` = A-A).
+    Section(char),
+    Detail(char),
+}
+
+/// Rujukan ke lingkaran/busur pada sebuah tampak.
+///
+/// Dicari kembali lewat `edge` (indeks edge topologi, bila ada dan masih
+/// berupa lingkaran), lalu lewat petunjuk `center`/`radius` terdekat. Karena
+/// itu rujukan tetap menempel walau radius berubah akibat `set_params`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeatureRef {
+    pub view: ViewRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<u32>,
+    /// Pusat di koordinat model 2D tampak (mm) saat rujukan dibuat.
+    pub center: [f32; 2],
+    /// Radius (mm) saat rujukan dibuat.
+    pub radius: f32,
+}
+
+/// Rujukan ke tepi lurus (atau garis chamfer) pada sebuah tampak.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeRef {
+    pub view: ViewRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<u32>,
+    /// Titik tengah tepi di koordinat model 2D tampak saat rujukan dibuat.
+    pub at: [f32; 2],
+}
+
+/// Sisi kotak pembatas tampak.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewSide {
+    Left,
+    Right,
+    Bottom,
+    Top,
+}
+
+/// Titik ukur dimensi linear.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "at", rename_all = "snake_case")]
+pub enum PointRef {
+    /// Pusat lingkaran/busur.
+    Center { feature: FeatureRef },
+    /// Ujung awal tepi.
+    EdgeStart { edge: EdgeRef },
+    /// Ujung akhir tepi.
+    EdgeEnd { edge: EdgeRef },
+    /// Titik ekstrem kotak pembatas tampak.
+    Extreme { view: ViewRef, side: ViewSide },
+    /// Titik tetap di koordinat model 2D tampak (mis. garis sumbu).
+    Point { view: ViewRef, point: [f32; 2] },
+}
+
+impl PointRef {
+    pub fn view(&self) -> ViewRef {
+        match self {
+            PointRef::Center { feature } => feature.view,
+            PointRef::EdgeStart { edge } | PointRef::EdgeEnd { edge } => edge.view,
+            PointRef::Extreme { view, .. } | PointRef::Point { view, .. } => *view,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DimDirection {
+    #[default]
+    Horizontal,
+    Vertical,
+    Aligned,
+}
+
+/// Sumber geometri sebuah dimensi. Posisi `start/end/line_pos` dimensi
+/// dihitung ulang dari sini setiap kali geometri atau skala berubah.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DimensionRef {
+    Linear {
+        a: PointRef,
+        b: PointRef,
+        #[serde(default)]
+        dir: DimDirection,
+    },
+    Diameter {
+        circle: FeatureRef,
+    },
+    Radius {
+        arc: FeatureRef,
+    },
+    Angle {
+        e1: EdgeRef,
+        e2: EdgeRef,
+    },
+    Chamfer {
+        edge: EdgeRef,
+    },
+    /// Pola lubang ber-radius sama: satu callout `n×Ød` (+ PCD bila melingkar).
+    HolePattern {
+        circles: Vec<FeatureRef>,
+    },
+    /// Ø poros/lubang pada tampak samping/potongan: jarak dua garis siluet.
+    CylinderDiameter {
+        view: ViewRef,
+        /// Ujung-ujung sumbu di koordinat model 2D tampak.
+        axis_a: [f32; 2],
+        axis_b: [f32; 2],
+        radius: f32,
+    },
+}
+
+impl DimensionRef {
+    /// Tampak tempat dimensi ini digambar.
+    pub fn view(&self) -> ViewRef {
+        match self {
+            DimensionRef::Linear { a, .. } => a.view(),
+            DimensionRef::Diameter { circle } => circle.view,
+            DimensionRef::Radius { arc } => arc.view,
+            DimensionRef::Angle { e1, .. } => e1.view,
+            DimensionRef::Chamfer { edge } => edge.view,
+            DimensionRef::HolePattern { circles } => {
+                circles.first().map(|c| c.view).unwrap_or(ViewRef::Front)
+            }
+            DimensionRef::CylinderDiameter { view, .. } => *view,
+        }
+    }
+
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            DimensionRef::Linear { .. } => "linear",
+            DimensionRef::Diameter { .. } => "diameter",
+            DimensionRef::Radius { .. } => "radius",
+            DimensionRef::Angle { .. } => "angle",
+            DimensionRef::Chamfer { .. } => "chamfer",
+            DimensionRef::HolePattern { .. } => "hole_pattern",
+            DimensionRef::CylinderDiameter { .. } => "cylinder_diameter",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,5 +1085,34 @@ mod tests {
             .stackup_link()
             .unwrap_or_else(|e| panic!("{e}"));
         assert!((link.1 - 0.021).abs() < 1e-12 && link.2.abs() < 1e-12);
+    }
+
+    #[test]
+    fn drawing_annot_dimension_ref_serde_roundtrip() {
+        let dims = vec![
+            DimensionRef::Linear {
+                a: PointRef::Extreme { view: ViewRef::Front, side: ViewSide::Left },
+                b: PointRef::Center {
+                    feature: FeatureRef { view: ViewRef::Front, edge: Some(3), center: [1.0, 2.0], radius: 7.0 },
+                },
+                dir: DimDirection::Horizontal,
+            },
+            DimensionRef::HolePattern {
+                circles: vec![FeatureRef { view: ViewRef::Section('A'), edge: None, center: [0.0, 46.0], radius: 7.0 }],
+            },
+            DimensionRef::CylinderDiameter {
+                view: ViewRef::Section('B'),
+                axis_a: [-83.0, 0.0],
+                axis_b: [83.0, 0.0],
+                radius: 21.0,
+            },
+        ];
+        let json = serde_json::to_string(&dims).unwrap();
+        assert!(json.contains(r#""type":"hole_pattern""#), "{json}");
+        assert!(json.contains(r#"{"section":"A"}"#), "{json}");
+        let back: Vec<DimensionRef> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dims);
+        assert_eq!(dims[1].view(), ViewRef::Section('A'));
+        assert_eq!(dims[2].kind_name(), "cylinder_diameter");
     }
 }

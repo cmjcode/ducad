@@ -74,6 +74,15 @@ butuh "Daftarkan MCP DUCAD" sekali di ⚙.
 PNG/BOM) + `report.json`/`report.md` secara deterministik; checks yang gagal
 menghentikan build dengan kode 3. Lihat `docs/ci/README.md`.
 
+**Gambar kerja (P21).** Lembar dideskripsikan `DrawingSpec`
+(`ducad-io/src/drawing/spec.rs`) dan disimpan di `DesignDoc.drawings` — bukan
+op (ADR `0007-drawing-spec.md`). Alurnya: `ducad-kernel` (HLR eksak
+`hlr_sheet.rs`, potongan `section.rs`) → `ducad-io/drawing` (tata letak,
+`auto_dim.rs`, display-list `scene.rs` yang dipakai PDF/SVG/DXF **dan** kanvas
+editor) → `ducad-engine/drawing_auto.rs` (`build_sheet`). Mengubah tampilan
+lembar = ubah `scene.rs`, lalu `DUCAD_UPDATE_GOLDEN=1 cargo test -p ducad-engine
+--test drawing_golden` dan perbarui hash dasar di `ducad-io/tests/gdt_pdf.rs`.
+
 Version control desain: commit `*.ops.json` sebagai sumber dan `.ducad`
 sebagai artefak. `ducad-cli oplog PART.ducad` menulis oplog satu op per
 baris; aktifkan diff git dengan `git config diff.ducad.textconv "ducad-cli oplog"`

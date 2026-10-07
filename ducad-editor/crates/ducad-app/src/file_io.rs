@@ -61,6 +61,13 @@ impl DuCADApp {
     }
 
     pub fn save_native_to(&mut self, path: PathBuf) {
+        // Lembar gambar ikut tersimpan sebagai `design.drawings` (P21.6).
+        self.capture_drawing_spec();
+        if let Some(spec) = self.drawing_spec.clone() {
+            self.sync_agent_meta();
+            self.agent_meta.design.upsert_drawing(spec);
+            self.sync_design_after_agent();
+        }
         let body_exports = self.native_export_bodies();
         let ordered = self.plane_ordered_sketches();
         match ducad_io::native::save_multi_plane_detailed_with_design_and_ink(
@@ -137,6 +144,14 @@ impl DuCADApp {
                 self.active_face = None;
 
                 self.design = loaded.design;
+                // Lembar gambar tersimpan (P21.6): dibangun ulang saat dibuka.
+                self.drawing_spec = self
+                    .design
+                    .as_ref()
+                    .and_then(|d| d.get("drawings"))
+                    .and_then(|d| serde_json::from_value::<Vec<ducad_io::drawing::DrawingSpec>>(d.clone()).ok())
+                    .and_then(|list| list.into_iter().next());
+                self.drawing_sheet_doc = None;
                 let mut new_model = ModelDoc::default();
                 for nb in loaded.bodies {
                     let geo = BodyGeometry::from_shape(nb.shape);
@@ -615,49 +630,40 @@ impl DuCADApp {
 
         let sketch_segments = self.sketch_world_segments();
 
-        let drawing = ducad_kernel::HlrExtractor::extract_drawing_with_sketch(
+        // Spec tersimpan (P21.6) menjadi sumber; tanpa spec, perilaku lama:
+        // A4 lanskap + satu potongan mengikuti panel Section.
+        let stored = self.drawing_spec.is_some();
+        let spec = self.drawing_spec.clone().unwrap_or_else(|| self.default_drawing_spec());
+        let bbox = ducad_kernel::KernelMesh::merge(&mesh_refs)
+            .bounding_box()
+            .unwrap_or(([0.0; 3], [100.0, 100.0, 100.0]));
+        let requests: Vec<ducad_kernel::SectionRequest> = spec
+            .sections
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|s| s.to_request(bbox).ok())
+            .collect();
+        let drawing = ducad_kernel::HlrExtractor::extract_drawing_with(
             &shapes,
             &mesh_refs,
             &sketch_segments,
+            &ducad_kernel::DrawingOptions {
+                sections: requests,
+                default_section: spec.sections.is_none(),
+                exact: true,
+            },
         );
 
-        let mut sheet = ducad_io::drawing::DrawingSheet::new(
-            drawing,
-            ducad_io::drawing::PaperSize::A4Landscape,
-        );
-
-        if self.section_enabled {
-            let mut sec_cfg = ducad_kernel::SectionPlaneConfig::from_model_bbox_center_y(
-                sheet.drawing.model_bbox_min,
-                sheet.drawing.model_bbox_max,
-            );
-            match self.section_axis {
-                crate::types::SectionAxis::Y => {
-                    sec_cfg.origin[1] = self.section_offset;
-                }
-                crate::types::SectionAxis::X => {
-                    sec_cfg.origin = [self.section_offset, 0.0, 0.0];
-                    sec_cfg.normal = [1.0, 0.0, 0.0];
-                    sec_cfg.u_axis = [0.0, 1.0, 0.0];
-                    sec_cfg.v_axis = [0.0, 0.0, 1.0];
-                }
-                crate::types::SectionAxis::Z => {
-                    sec_cfg.origin = [0.0, 0.0, self.section_offset];
-                    sec_cfg.normal = [0.0, 0.0, 1.0];
-                    sec_cfg.u_axis = [1.0, 0.0, 0.0];
-                    sec_cfg.v_axis = [0.0, 1.0, 0.0];
-                }
-            }
-            let (sec_view, cut_ind) = ducad_kernel::SectionExtractor::extract_section_view(
-                &shapes,
-                &mesh_refs,
-                &sec_cfg,
-                (sheet.drawing.model_bbox_min, sheet.drawing.model_bbox_max),
-            );
-            sheet.drawing.section_a = Some(sec_view);
-            sheet.drawing.cutting_plane = Some(cut_ind);
-            sheet.auto_layout();
+        let mut sheet = ducad_io::drawing::DrawingSheet::from_spec(drawing, &spec);
+        if !stored {
+            // Lembar baru: kepala gambar bawaan (bukan kosong dari spec).
+            sheet.title_block = ducad_io::drawing::TitleBlockInfo {
+                scale: sheet.title_block.scale.clone(),
+                ..Default::default()
+            };
         }
+        self.render_sheet_shaded(&mut sheet);
 
         // Tambahkan entitas sketsa profil (lingkaran, busur, ellips) secara permanen ke fitur geometris Tampak Atas
         for (_, entity) in &self.sketch().entities {
@@ -666,9 +672,10 @@ impl DuCADApp {
                     let feat = ducad_kernel::HlrGeometricFeature::Circle {
                         center: [center.x as f32, center.y as f32],
                         radius: *radius as f32,
+                        edge: None,
                     };
                     if !sheet.drawing.top.features.iter().any(|f| match f {
-                        ducad_kernel::HlrGeometricFeature::Circle { center: c, radius: r } => {
+                        ducad_kernel::HlrGeometricFeature::Circle { center: c, radius: r, .. } => {
                             (c[0] - center.x as f32).hypot(c[1] - center.y as f32) < 1.0 && (r - *radius as f32).abs() < 0.5
                         }
                         _ => false,
@@ -688,6 +695,7 @@ impl DuCADApp {
                         radius: *radius as f32,
                         start_angle: *start_angle as f32,
                         end_angle: *end_angle as f32,
+                        edge: None,
                     };
                     sheet.drawing.top.features.push(feat);
                 }
@@ -828,13 +836,235 @@ impl DuCADApp {
             }
         }
 
+        // Lembar tersimpan: BOM, balon, dan kepala gambar hasil suntingan
+        // pengguna menang atas yang dibangkitkan otomatis di atas.
+        if let Some(layout) = spec.layout.as_ref().filter(|_| stored) {
+            if let Some(bom) = &layout.bom {
+                sheet.bom_table = bom.clone();
+            }
+            sheet.balloons = layout.balloons.clone();
+            if let Some(tb) = &layout.title_block {
+                let scale = sheet.title_block.scale.clone();
+                sheet.title_block = tb.clone();
+                sheet.title_block.scale = scale;
+            }
+        }
+
         sheet
+    }
+
+    /// Spec bawaan lembar GUI: A4 lanskap, potongan mengikuti panel Section.
+    fn default_drawing_spec(&self) -> ducad_io::drawing::DrawingSpec {
+        let sections = self.section_enabled.then(|| {
+            let axis = match self.section_axis {
+                crate::types::SectionAxis::X => ducad_kernel::SectionAxis::X,
+                crate::types::SectionAxis::Y => ducad_kernel::SectionAxis::Y,
+                crate::types::SectionAxis::Z => ducad_kernel::SectionAxis::Z,
+            };
+            // Panel Section memakai posisi mutlak; spec memakai offset dari
+            // pusat kotak pembatas.
+            let meshes = self.visible_body_meshes();
+            let refs: Vec<&ducad_kernel::KernelMesh> = meshes.iter().map(|(_, m)| *m).collect();
+            let center = ducad_kernel::KernelMesh::merge(&refs)
+                .bounding_box()
+                .map(|(lo, hi)| [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5])
+                .unwrap_or([0.0; 3]);
+            let i = match axis {
+                ducad_kernel::SectionAxis::X => 0,
+                ducad_kernel::SectionAxis::Y => 1,
+                ducad_kernel::SectionAxis::Z => 2,
+            };
+            vec![ducad_io::drawing::SectionSpec {
+                label: "A".to_string(),
+                parent: if i == 2 { ducad_io::drawing::ParentView::Front } else { ducad_io::drawing::ParentView::Top },
+                axis: Some(axis),
+                offset: self.section_offset - center[i],
+                flip: false,
+                path: None,
+            }]
+        });
+        ducad_io::drawing::DrawingSpec {
+            paper: ducad_io::drawing::PaperSize::A4Landscape,
+            sections,
+            ..Default::default()
+        }
+    }
+
+    /// Isi gambar render berbayang lembar (CPU, sama dengan jalur headless).
+    fn render_sheet_shaded(&self, sheet: &mut ducad_io::drawing::DrawingSheet) {
+        if sheet.shaded.is_empty() {
+            return;
+        }
+        let bodies = self.visible_bodies_with_material();
+        let shaded: Vec<ducad_io::drawing::ShadedBody<'_>> = bodies
+            .iter()
+            .map(|(_, mat, mesh)| ducad_io::drawing::ShadedBody {
+                mesh,
+                color: [mat.base_color[0], mat.base_color[1], mat.base_color[2]],
+            })
+            .collect();
+        for view in &mut sheet.shaded {
+            let (w, h) = view.pixel_size();
+            view.image = ducad_io::drawing::render_shaded(&shaded, view.spec.camera, w, h);
+        }
+    }
+
+    /// Penanda murah "geometri berubah": jumlah body + sidik jari mesh-nya.
+    pub(crate) fn drawing_geometry_stamp(&self) -> u64 {
+        let mut stamp = 0xcbf2_9ce4_8422_2325u64;
+        for (id, body) in self.model.doc.bodies.iter() {
+            if !body.visible {
+                continue;
+            }
+            if let Some(geo) = self.model.geometry.get(id) {
+                stamp = (stamp ^ geo.mesh_fingerprint).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        stamp
+    }
+
+    /// Salin keadaan lembar yang sedang disunting ke `drawing_spec` (tata
+    /// letak, skala, tampak, catatan) supaya bisa disimpan dan dibangun ulang.
+    pub(crate) fn capture_drawing_spec(&mut self) {
+        let Some(sheet) = &self.drawing_sheet_doc else {
+            return;
+        };
+        let mut spec = self.drawing_spec.clone().unwrap_or_else(|| self.default_drawing_spec());
+        spec.paper = sheet.paper_size;
+        spec.scale = ducad_io::drawing::ScaleSpec::Fixed(sheet.scale);
+        spec.views = sheet.view_options.clone();
+        spec.hidden_lines = sheet.show_hidden_lines;
+        spec.notes = sheet.notes.clone();
+        spec.shaded = sheet.shaded.iter().map(|s| s.spec).collect();
+        // Potongan yang dihapus di editor ikut hilang dari spec.
+        let labels: Vec<String> = sheet.drawing.sections.iter().map(|s| s.label.to_ascii_uppercase()).collect();
+        match &mut spec.sections {
+            Some(list) => list.retain(|s| labels.contains(&s.label.to_ascii_uppercase())),
+            None if labels.is_empty() => spec.sections = Some(Vec::new()),
+            None => {}
+        }
+        spec.layout = Some(sheet.to_layout());
+        self.drawing_spec = Some(spec);
+    }
+
+    /// Bangun ulang lembar dari geometri terkini; tata letak pengguna dan
+    /// dimensi asosiatif dipertahankan lewat `DrawingSpec.layout`.
+    pub(crate) fn rebuild_drawing_sheet(&mut self) {
+        self.capture_drawing_spec();
+        let sheet = self.build_annotated_drawing_sheet();
+        self.drawing_sheet_geometry = self.drawing_geometry_stamp();
+        self.drawing_sheet_doc = Some(sheet);
+    }
+
+    /// Daftar potongan spec yang bisa diubah; potongan A-A bawaan
+    /// (`sections: None`) dijadikan eksplisit dulu.
+    fn drawing_sections_mut(spec: &mut ducad_io::drawing::DrawingSpec) -> &mut Vec<ducad_io::drawing::SectionSpec> {
+        spec.sections.get_or_insert_with(|| {
+            vec![ducad_io::drawing::SectionSpec {
+                label: "A".to_string(),
+                parent: ducad_io::drawing::ParentView::Top,
+                axis: Some(ducad_kernel::SectionAxis::Y),
+                offset: 0.0,
+                flip: false,
+                path: None,
+            }]
+        })
+    }
+
+    /// Alat Section: tambah potongan dari garis potong di tampak induk
+    /// (`points` = koordinat model 2D tampak itu).
+    pub(crate) fn drawing_add_section(&mut self, parent: ducad_kernel::ProjectedViewKind, points: Vec<[f32; 2]>) {
+        let Some(sheet) = &self.drawing_sheet_doc else {
+            return;
+        };
+        let parent_view = match parent {
+            ducad_kernel::ProjectedViewKind::Front => ducad_io::drawing::ParentView::Front,
+            ducad_kernel::ProjectedViewKind::Right => ducad_io::drawing::ParentView::Right,
+            _ => ducad_io::drawing::ParentView::Top,
+        };
+        // Spec menyimpan garis potong relatif pusat kotak pembatas.
+        let (lo, hi) = (sheet.drawing.model_bbox_min, sheet.drawing.model_bbox_max);
+        let center = (glam::Vec3::from_array(lo) + glam::Vec3::from_array(hi)) * 0.5;
+        let (_, right, up) = parent.camera_vectors();
+        let (cu, cv) = (center.dot(right), center.dot(up));
+        let path: Vec<[f32; 2]> = points.iter().map(|p| [p[0] - cu, p[1] - cv]).collect();
+
+        self.capture_drawing_spec();
+        let Some(mut spec) = self.drawing_spec.clone() else {
+            return;
+        };
+        let sections = Self::drawing_sections_mut(&mut spec);
+        let label = ('A'..='Z')
+            .find(|c| !sections.iter().any(|s| s.label.eq_ignore_ascii_case(&c.to_string())))
+            .unwrap_or('Z');
+        sections.push(ducad_io::drawing::SectionSpec {
+            label: label.to_string(),
+            parent: parent_view,
+            axis: None,
+            offset: 0.0,
+            flip: false,
+            path: Some(path),
+        });
+        // Tampak baru butuh tempat: tata letak tampak dihitung ulang.
+        if let Some(layout) = &mut spec.layout {
+            layout.views.clear();
+        }
+        self.drawing_spec = Some(spec);
+        let sheet = self.build_annotated_drawing_sheet();
+        let made = sheet.drawing.section(label).is_some_and(|s| s.cut_area_mm2 > 1e-6);
+        self.drawing_sheet_geometry = self.drawing_geometry_stamp();
+        self.drawing_sheet_doc = Some(sheet);
+        self.file_status = Some(if made {
+            format!("Potongan {label}-{label} ditambahkan")
+        } else {
+            format!("Potongan {label}-{label}: garis potong tidak memotong body")
+        });
+    }
+
+    /// Balik arah pandang potongan berlabel `label`.
+    pub(crate) fn drawing_flip_section(&mut self, label: char) {
+        self.capture_drawing_spec();
+        let Some(mut spec) = self.drawing_spec.clone() else {
+            return;
+        };
+        let sections = Self::drawing_sections_mut(&mut spec);
+        if let Some(s) = sections.iter_mut().find(|s| s.label.eq_ignore_ascii_case(&label.to_string())) {
+            s.flip = !s.flip;
+        }
+        self.drawing_spec = Some(spec);
+        let sheet = self.build_annotated_drawing_sheet();
+        self.drawing_sheet_geometry = self.drawing_geometry_stamp();
+        self.drawing_sheet_doc = Some(sheet);
+    }
+
+    /// Sisipkan render berbayang dari arah kamera viewport saat ini.
+    pub(crate) fn drawing_insert_shaded(&mut self) {
+        self.capture_drawing_spec();
+        let Some(mut spec) = self.drawing_spec.clone() else {
+            return;
+        };
+        let eye = (self.camera.eye() - self.camera.target).normalize_or_zero();
+        let camera = ducad_io::drawing::ShadedCamera::Custom {
+            yaw: eye.x.atan2(-eye.y).to_degrees(),
+            pitch: eye.z.clamp(-1.0, 1.0).asin().to_degrees(),
+        };
+        spec.shaded.push(ducad_io::drawing::ShadedSpec { camera, px_per_mm: 8 });
+        // Kolom render menggeser tampak lain: tata letak tampak dihitung ulang.
+        if let Some(layout) = &mut spec.layout {
+            layout.views.clear();
+            layout.shaded_centers.clear();
+        }
+        self.drawing_spec = Some(spec);
+        let sheet = self.build_annotated_drawing_sheet();
+        self.drawing_sheet_geometry = self.drawing_geometry_stamp();
+        self.drawing_sheet_doc = Some(sheet);
     }
 
     /// Membuka tampilan lembar kerja teknik 2D (Drawing Sheet).
     pub fn open_drawing_sheet(&mut self) {
         if self.drawing_sheet_doc.is_none() {
             let sheet = self.build_annotated_drawing_sheet();
+            self.drawing_sheet_geometry = self.drawing_geometry_stamp();
             self.drawing_sheet_doc = Some(sheet);
         }
         self.drawing_sheet_state.is_open = true;

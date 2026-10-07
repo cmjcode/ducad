@@ -6,10 +6,10 @@
 //! kepala gambar (title block), panah dan teks dimensi, serta simbol proyeksi sudut ketiga.
 
 use anyhow::{Context, Result};
-use ducad_kernel::{HlrLineKind, ProjectedViewKind};
 use std::io::Write;
 use std::path::Path;
 
+use crate::drawing::scene::{build_scene, text_width, Anchor, Item, Pen, Scene};
 use crate::drawing::DrawingSheet;
 
 const MM_TO_PT: f32 = 72.0 / 25.4; // 1 mm = ~2.83465 points
@@ -56,6 +56,22 @@ impl PdfWriter {
         obj_num
     }
 
+    /// Stream biner dengan entri kamus tambahan (mis. XObject gambar).
+    fn add_raw_stream(&mut self, dict: &str, data: &[u8]) -> usize {
+        let obj_num = self.offsets.len() + 1;
+        self.offsets.push(self.buffer.len());
+        let len = data.len();
+        writeln!(self.buffer, "{obj_num} 0 obj\n<< {dict} /Length {len} >>\nstream").unwrap();
+        self.buffer.extend_from_slice(data);
+        writeln!(self.buffer, "\nendstream\nendobj").unwrap();
+        obj_num
+    }
+
+    /// Nomor objek berikutnya yang akan dialokasikan.
+    fn next_object_number(&self) -> usize {
+        self.offsets.len() + 1
+    }
+
     fn finalize(mut self, root_obj: usize) -> Vec<u8> {
         let xref_offset = self.buffer.len();
         let total_objs = self.offsets.len() + 1;
@@ -84,6 +100,10 @@ pub fn export_pdf(sheet: &DrawingSheet, path: impl AsRef<Path>) -> Result<()> {
 }
 
 /// Menghasilkan raw bytes PDF vektor dari sebuah DrawingSheet.
+///
+/// Geometri berasal dari display-list bersama (`drawing::scene`), sehingga
+/// PDF dan SVG selalu identik. Gambar raster (render berbayang) disematkan
+/// sebagai XObject `/Image` ber-`/FlateDecode`.
 pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
     let mut writer = PdfWriter::new();
     writer.write_header();
@@ -92,68 +112,51 @@ pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
     let pw_pt = pw_mm * MM_TO_PT;
     let ph_pt = ph_mm * MM_TO_PT;
 
-    // 1. Render Stream Grafik
-    let mut stream = String::with_capacity(16 * 1024);
+    let scene = build_scene(sheet);
+    let mut stream = String::with_capacity(64 * 1024);
+    stream.push_str(&format!("q 1 1 1 rg 0 0 {pw_pt:.2} {ph_pt:.2} re f Q\n"));
+    let mut images: Vec<usize> = Vec::new();
+    render_scene(&mut stream, &scene, &mut images);
 
-    // Set background putih
-    stream.push_str(&format!(
-        "q 1 1 1 rg 0 0 {pw_pt:.2} {ph_pt:.2} re f Q\n"
-    ));
-
-    // Render Bingkai & Border Gambar
-    render_border_and_grid(&mut stream, sheet);
-
-    // Render Kepala Gambar (Title Block)
-    render_title_block(&mut stream, sheet);
-
-    // Render Tampak-Tampak Proyeksi
-    render_projected_views(&mut stream, sheet);
-
-    // Render Dimensi Otomatis
-    if sheet.show_dimensions {
-        render_dimensions(&mut stream, sheet);
-    }
-
-    // Render Anotasi Teks Bebas
-    render_custom_texts(&mut stream, sheet);
-
-    // Render Tabel BOM (Bill of Materials)
-    if sheet.show_bom_table {
-        render_bom_table(&mut stream, sheet);
-    }
-
-    // Render Part Callout Balloons
-    if sheet.show_balloons {
-        render_callout_balloons(&mut stream, sheet);
-    }
-
-    // Render Anotasi GD&T & Toleransi (tidak menulis apa pun bila kosong)
+    // Anotasi GD&T & Toleransi (tidak menulis apa pun bila kosong) — selalu
+    // paling akhir di content stream.
     render_annotations(&mut stream, sheet);
 
-    // Objek 1: Font Helvetica Standar
-    let font1_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-    // Objek 2: Font Helvetica-Bold Standar
-    let font2_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
-    // Objek 3: Font Courier Standar (Monospace)
-    let font3_obj = writer.add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>");
+    let encoding = "/Encoding /WinAnsiEncoding";
+    let font1_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica {encoding} >>"));
+    let font2_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold {encoding} >>"));
+    let font3_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Courier {encoding} >>"));
 
-    // Objek 4: Stream Konten Halaman
+    // Content stream harus menjadi stream PERTAMA di berkas.
     let stream_obj = writer.add_stream_object(stream.as_bytes());
 
-    // Objek 5: Objek Halaman (Page)
+    let mut xobjects = String::new();
+    for index in &images {
+        let Some(view) = sheet.shaded.get(*index) else {
+            continue;
+        };
+        let data = view.image.zlib_rgb();
+        let obj = writer.add_raw_stream(
+            &format!(
+                "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+                view.image.width, view.image.height
+            ),
+            &data,
+        );
+        xobjects.push_str(&format!("/Im{index} {obj} 0 R "));
+    }
+    let xobject_res = if xobjects.is_empty() {
+        String::new()
+    } else {
+        format!(" /XObject << {}>>", xobjects)
+    };
+
+    let pages_num = writer.next_object_number() + 1;
     let page_obj = writer.add_object(&format!(
-        "<< /Type /Page /Parent 6 0 R /MediaBox [0 0 {pw_pt:.2} {ph_pt:.2}] /Contents {stream_obj} 0 R /Resources << /Font << /F1 {font1_obj} 0 R /F2 {font2_obj} 0 R /F3 {font3_obj} 0 R >> >> >>"
+        "<< /Type /Page /Parent {pages_num} 0 R /MediaBox [0 0 {pw_pt:.2} {ph_pt:.2}] /Contents {stream_obj} 0 R /Resources << /Font << /F1 {font1_obj} 0 R /F2 {font2_obj} 0 R /F3 {font3_obj} 0 R >>{xobject_res} >> >>"
     ));
-
-    // Objek 6: Pages
-    let pages_obj = writer.add_object(&format!(
-        "<< /Type /Pages /Kids [{page_obj} 0 R] /Count 1 >>"
-    ));
-
-    // Objek 7: Catalog (Root)
-    let catalog_obj = writer.add_object(&format!(
-        "<< /Type /Catalog /Pages {pages_obj} 0 R >>"
-    ));
+    let pages_obj = writer.add_object(&format!("<< /Type /Pages /Kids [{page_obj} 0 R] /Count 1 >>"));
+    let catalog_obj = writer.add_object(&format!("<< /Type /Catalog /Pages {pages_obj} 0 R >>"));
 
     writer.finalize(catalog_obj)
 }
@@ -162,773 +165,176 @@ fn mm_to_pt(val_mm: f32) -> f32 {
     val_mm * MM_TO_PT
 }
 
-/// Menggambar garis batas luar, margin jilid 20mm, bingkai dalam 10mm, dan penanda zona grid (A-D, 1-6).
-fn render_border_and_grid(s: &mut String, sheet: &DrawingSheet) {
-    let (outer, inner) = sheet.border_rects_mm();
-
-    let ox = mm_to_pt(outer[0]);
-    let oy = mm_to_pt(outer[1]);
-    let ow = mm_to_pt(outer[2] - outer[0]);
-    let oh = mm_to_pt(outer[3] - outer[1]);
-
-    let ix = mm_to_pt(inner[0]);
-    let iy = mm_to_pt(inner[1]);
-    let iw = mm_to_pt(inner[2] - inner[0]);
-    let ih = mm_to_pt(inner[3] - inner[1]);
-
-    // Garis bingkai dalam tebal (0.7 mm)
-    s.push_str("q 0 0 0 RG [] 0 d 2.0 w\n");
-    s.push_str(&format!("{ix:.2} {iy:.2} {iw:.2} {ih:.2} re S\n"));
-
-    // Garis batas luar tipis (0.35 mm)
-    s.push_str("0.5 w\n");
-    s.push_str(&format!("{ox:.2} {oy:.2} {ow:.2} {oh:.2} re S\n"));
-
-    // Grid zona referensi gambar (1, 2, 3, 4, 5, 6 secara horizontal; A, B, C, D secara vertikal)
-    let cols = 6;
-    let rows = 4;
-    let col_w = (inner[2] - inner[0]) / cols as f32;
-    let row_h = (inner[3] - inner[1]) / rows as f32;
-
-    s.push_str("0 0 0 rg BT /F1 7 Tf\n");
-
-    // Label kolom horizontal (1..6)
-    for c in 0..cols {
-        let x_mm = inner[0] + (c as f32 + 0.5) * col_w;
-        let x_pt = mm_to_pt(x_mm);
-        let num = c + 1;
-        // Atas & Bawah
-        let y_top = mm_to_pt(inner[3] + 2.0);
-        let y_bot = mm_to_pt(inner[1] - 6.0);
-        s.push_str(&format!("1 0 0 1 {x_pt:.2} {y_top:.2} Tm ({num}) Tj\n"));
-        s.push_str(&format!("1 0 0 1 {x_pt:.2} {y_bot:.2} Tm ({num}) Tj\n"));
-    }
-
-    // Label baris vertikal (A..D)
-    let row_chars = ["D", "C", "B", "A"];
-    for r in 0..rows {
-        let y_mm = inner[1] + (r as f32 + 0.5) * row_h;
-        let y_pt = mm_to_pt(y_mm);
-        let ch = row_chars[r.min(3)];
-        // Kiri & Kanan
-        let x_left = mm_to_pt(inner[0] - 8.0);
-        let x_right = mm_to_pt(inner[2] + 2.0);
-        s.push_str(&format!("1 0 0 1 {x_left:.2} {y_pt:.2} Tm ({ch}) Tj\n"));
-        s.push_str(&format!("1 0 0 1 {x_right:.2} {y_pt:.2} Tm ({ch}) Tj\n"));
-    }
-
-    s.push_str("ET Q\n");
+fn rgb(c: [u8; 3]) -> String {
+    let f = |v: u8| {
+        let t = format!("{:.3}", v as f32 / 255.0);
+        t.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    format!("{} {} {}", f(c[0]), f(c[1]), f(c[2]))
 }
 
-/// Render Kepala Gambar (Title Block) standar ISO 7200 di pojok kanan bawah.
-fn render_title_block(s: &mut String, sheet: &DrawingSheet) {
-    let tb = sheet.title_block_rect_mm();
-    let info = &sheet.title_block;
-
-    let x0 = mm_to_pt(tb[0]);
-    let y0 = mm_to_pt(tb[1]);
-    let w = mm_to_pt(tb[2] - tb[0]);
-    let h = mm_to_pt(tb[3] - tb[1]);
-
-    // Kotak luar tebal (1.2pt)
-    s.push_str("q 0 0 0 RG 0 0 0 rg 1.2 w [] 0 d\n");
-    s.push_str(&format!("{x0:.2} {y0:.2} {w:.2} {h:.2} re S\n"));
-
-    // Garis pembagi horizontal
-    let y_div1 = mm_to_pt(tb[1] + 9.0);
-    let y_div2 = mm_to_pt(tb[1] + 18.0);
-    let y_div3 = mm_to_pt(tb[1] + 32.0);
-    s.push_str("0.5 w\n");
-    s.push_str(&format!("{x0:.2} {y_div1:.2} m {x1:.2} {y_div1:.2} l S\n", x0 = x0, x1 = x0 + w));
-    s.push_str("1.0 w\n");
-    s.push_str(&format!("{x0:.2} {y_div2:.2} m {x1:.2} {y_div2:.2} l S\n", x0 = x0, x1 = x0 + w));
-    s.push_str("0.5 w\n");
-    s.push_str(&format!("{x0:.2} {y_div3:.2} m {x1:.2} {y_div3:.2} l S\n", x0 = x0, x1 = x0 + w));
-
-    // Garis pembagi vertikal
-    let x_top = mm_to_pt(tb[0] + 95.0);
-    s.push_str(&format!("{x_top:.2} {y_div3:.2} m {x_top:.2} {y1:.2} l S\n", y1 = y0 + h));
-
-    let x_mid = mm_to_pt(tb[0] + 85.0);
-    s.push_str("1.0 w\n");
-    s.push_str(&format!("{x_mid:.2} {y_div2:.2} m {x_mid:.2} {y_div3:.2} l S\n"));
-    s.push_str("0.5 w\n");
-
-    let x_b1 = mm_to_pt(tb[0] + 45.0);
-    let x_b2 = mm_to_pt(tb[0] + 90.0);
-    let x_b3 = mm_to_pt(tb[0] + 115.0);
-    s.push_str(&format!("{x_b1:.2} {y_div1:.2} m {x_b1:.2} {y_div2:.2} l S\n"));
-    s.push_str(&format!("{x_b2:.2} {y0:.2} m {x_b2:.2} {y_div2:.2} l S\n"));
-    s.push_str(&format!("{x_b3:.2} {y_div1:.2} m {x_b3:.2} {y_div2:.2} l S\n"));
-
-    // Teks Metadata Title Block
-    s.push_str("BT\n");
-
-    // Header Perusahaan / Studio (Baris Atas)
-    s.push_str("/F2 9.5 Tf\n");
-    let tx_comp = x0 + mm_to_pt(3.0);
-    let ty_comp = y0 + mm_to_pt(39.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_comp:.2} Tm ({}) Tj\n", escape_pdf(&info.company_name)));
-
-    s.push_str("/F1 5.5 Tf\n");
-    let ty_proj_sub = y0 + mm_to_pt(34.5);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_proj_sub:.2} Tm (LEMBAR KERJA GAMBAR TEKNIK - ISO 5457) Tj\n"));
-
-    // Judul Part / Komponen Utama
-    let ty_title_lbl = y0 + mm_to_pt(28.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_title_lbl:.2} Tm (JUDUL GAMBAR / PART TITLE:) Tj\n"));
-
-    s.push_str("/F2 11 Tf\n");
-    let ty_title = y0 + mm_to_pt(21.5);
-    let proj_title = if info.project_title.is_empty() { "KOMPONEN UTAMA" } else { &info.project_title };
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_title:.2} Tm ({}) Tj\n", escape_pdf(proj_title)));
-
-    // Nomor Gambar
-    s.push_str("/F1 5.5 Tf\n");
-    let tx_dwg = x_mid + mm_to_pt(3.0);
-    let ty_dwg_lbl = y0 + mm_to_pt(28.0);
-    s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_dwg_lbl:.2} Tm (NO. GAMBAR / DWG NO:) Tj\n"));
-
-    s.push_str("/F2 9 Tf\n");
-    let ty_dwg_val = y0 + mm_to_pt(21.5);
-    s.push_str(&format!("1 0 0 1 {tx_dwg:.2} {ty_dwg_val:.2} Tm ({}) Tj\n", escape_pdf(&info.drawing_number)));
-
-    // Drafter, Tanggal, Skala, Lembar
-    s.push_str("/F1 5.5 Tf\n");
-    let ty_c1 = y0 + mm_to_pt(15.0);
-    let ty_v1 = y0 + mm_to_pt(11.0);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_c1:.2} Tm (DIGAMBAR:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.drawn_by)));
-
-    let tx_date = x_b1 + mm_to_pt(3.0);
-    s.push_str(&format!("1 0 0 1 {tx_date:.2} {ty_c1:.2} Tm (TANGGAL:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_date:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.date)));
-
-    let tx_scale = x_b2 + mm_to_pt(3.0);
-    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_c1:.2} Tm (SKALA:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.scale)));
-
-    let tx_sheet = x_b3 + mm_to_pt(3.0);
-    s.push_str(&format!("1 0 0 1 {tx_sheet:.2} {ty_c1:.2} Tm (LEMBAR:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_sheet:.2} {ty_v1:.2} Tm ({}) Tj\n", escape_pdf(&info.sheet_number)));
-
-    // Material & Toleransi
-    let ty_c2 = y0 + mm_to_pt(6.0);
-    let ty_v2 = y0 + mm_to_pt(2.5);
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_c2:.2} Tm (MATERIAL:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_comp:.2} {ty_v2:.2} Tm ({}) Tj\n", escape_pdf(&info.material)));
-
-    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_c2:.2} Tm (TOLERANSI & SATUAN:) Tj\n"));
-    s.push_str(&format!("1 0 0 1 {tx_scale:.2} {ty_v2:.2} Tm (ISO 2768-m | {}) Tj\n", escape_pdf(&info.units)));
-
-    s.push_str("ET Q\n");
-
-    // Gambar Simbol Proyeksi Sudut Ketiga di title block kanan atas
-    render_projection_symbol(s, tb[0] + 117.0, tb[1] + 38.5);
-}
-
-/// Menggambar simbol standar 3rd Angle Projection (lingkaran konsentris + kerucut terpotong).
-fn render_projection_symbol(s: &mut String, cx_mm: f32, cy_mm: f32) {
-    let cx = mm_to_pt(cx_mm);
-    let cy = mm_to_pt(cy_mm);
-    let r1 = mm_to_pt(2.0);
-    let r2 = mm_to_pt(4.0);
-    let k_w = mm_to_pt(7.0);
-    let k_h1 = mm_to_pt(4.0);
-    let k_h2 = mm_to_pt(8.0);
-
-    s.push_str("q 0 0 0 RG 0.6 w [] 0 d\n");
-    // Trapesium kerucut di sebelah kiri
-    let x_cone = cx - mm_to_pt(9.0);
+fn set_pen(s: &mut String, current: &mut Option<Pen>, pen: Pen) {
+    if *current == Some(pen) {
+        return;
+    }
+    let dash: Vec<String> = pen
+        .dash
+        .pattern_mm()
+        .iter()
+        .map(|d| format!("{:.2}", mm_to_pt(*d)))
+        .collect();
     s.push_str(&format!(
-        "{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {x3:.2} {y3:.2} l {x4:.2} {y4:.2} l h S\n",
-        x1 = x_cone,
-        y1 = cy - k_h1 * 0.5,
-        x2 = x_cone + k_w,
-        y2 = cy - k_h2 * 0.5,
-        x3 = x_cone + k_w,
-        y3 = cy + k_h2 * 0.5,
-        x4 = x_cone,
-        y4 = cy + k_h1 * 0.5,
+        "{} RG {:.2} w [{}] 0 d\n",
+        rgb(pen.color),
+        mm_to_pt(pen.width_mm),
+        dash.join(" ")
     ));
-
-    // Lingkaran konsentris di sebelah kanan
-    let x_circ = cx + mm_to_pt(6.0);
-    s.push_str(&format!("{x_circ:.2} {cy:.2} {r1:.2} 0 360 arc S\n", x_circ = x_circ, cy = cy, r1 = r1));
-    s.push_str(&format!("{x_circ:.2} {cy:.2} {r2:.2} 0 360 arc S\n", x_circ = x_circ, cy = cy, r2 = r2));
-
-    // Garis sumbu simetri simbol
-    s.push_str("[4 2 1 2] 0 d 0.3 w 0.4 0.4 0.4 RG\n");
-    let c_start = x_cone - mm_to_pt(4.0);
-    let c_end = x_circ + r2 + mm_to_pt(3.0);
-    s.push_str(&format!("{c_start:.2} {cy:.2} m {c_end:.2} {cy:.2} l S\n"));
-    s.push_str("Q\n");
+    *current = Some(pen);
 }
 
-/// Render garis-garis tampak proyeksi 2D pada posisi lembar kerja masing-masing.
-fn render_projected_views(s: &mut String, sheet: &DrawingSheet) {
-    for plc in &sheet.view_placements {
-        if !plc.visible {
+/// Lintasan busur lingkaran sebagai kurva Bézier kubik (≤ 90° per ruas).
+/// PDF tidak punya operator busur; `arc` adalah PostScript, bukan PDF.
+fn arc_path(s: &mut String, cx: f32, cy: f32, r: f32, start_deg: f32, end_deg: f32) {
+    let sweep = (end_deg - start_deg).clamp(0.0, 360.0);
+    let n = ((sweep / 90.0).ceil() as usize).max(1);
+    let step = (sweep / n as f32).to_radians();
+    let k = 4.0 / 3.0 * (step / 4.0).tan() * r;
+    let mut a = start_deg.to_radians();
+    s.push_str(&format!("{:.2} {:.2} m ", cx + r * a.cos(), cy + r * a.sin()));
+    for _ in 0..n {
+        let b = a + step;
+        let (p0x, p0y) = (cx + r * a.cos(), cy + r * a.sin());
+        let (p3x, p3y) = (cx + r * b.cos(), cy + r * b.sin());
+        s.push_str(&format!(
+            "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
+            p0x - k * a.sin(),
+            p0y + k * a.cos(),
+            p3x + k * b.sin(),
+            p3y - k * b.cos(),
+            p3x,
+            p3y
+        ));
+        a = b;
+    }
+}
+
+fn render_scene(s: &mut String, scene: &Scene, images: &mut Vec<usize>) {
+    for group in &scene.groups {
+        if group.items.is_empty() {
             continue;
         }
-
-        let view = sheet.drawing.view_by_kind(plc.kind);
-        let center_mm = plc.center_mm;
-        let scale = plc.scale;
-        let v_center = view.center_2d();
-        let view_sz = view.size_2d();
-
-        // 1. Render Judul Tampak (View Title) di bawah tampak
-        let title_x = mm_to_pt(center_mm[0] - (view_sz[0] * scale * 0.5));
-        let title_y = mm_to_pt(center_mm[1] - (view_sz[1] * scale * 0.5) - 7.5);
-        let (sub_label, scale_label) = match plc.kind {
-            ProjectedViewKind::Front => ("FRONT VIEW", format!("SKALA {}", sheet.title_block.scale)),
-            ProjectedViewKind::Top => ("TOP VIEW", format!("SKALA {}", sheet.title_block.scale)),
-            ProjectedViewKind::Right => ("RIGHT SIDE VIEW", format!("SKALA {}", sheet.title_block.scale)),
-            ProjectedViewKind::Isometric => ("ISOMETRIC 3D", format!("SKALA {}", sheet.title_block.scale)),
-            ProjectedViewKind::SectionAA => ("SECTION A-A", format!("SKALA {}", sheet.title_block.scale)),
-            ProjectedViewKind::Detail(_) => ("DETAIL VIEW", format!("SKALA {}", crate::drawing::format_scale_ratio(scale))),
-        };
-
-        s.push_str(&format!(
-            "q 0 0 0 rg BT /F2 8 Tf 1 0 0 1 {title_x:.2} {title_y:.2} Tm ({} | {}) Tj ET Q\n",
-            escape_pdf(&view.title),
-            escape_pdf(sub_label)
-        ));
-        let scale_y = title_y - mm_to_pt(3.8);
-        s.push_str(&format!(
-            "q 0.4 0.4 0.4 rg BT /F1 6.5 Tf 1 0 0 1 {title_x:.2} {scale_y:.2} Tm ({}) Tj ET Q\n",
-            escape_pdf(&scale_label)
-        ));
-
-        // 1b. Render Bingkai Lingkaran untuk Tampak Detail (Detail View Circle Border)
-        if let ProjectedViewKind::Detail(_) = plc.kind {
-            let r_pt = mm_to_pt(view_sz[0] * 0.5 * scale);
-            let cx_pt = mm_to_pt(center_mm[0]);
-            let cy_pt = mm_to_pt(center_mm[1]);
-            let k = r_pt * 0.552_284_8;
-            s.push_str("q 0 0 0 RG 1.2 w [] 0 d\n");
-            s.push_str(&format!(
-                "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                cx_pt + r_pt, cy_pt,
-                cx_pt + r_pt, cy_pt + k,
-                cx_pt + k, cy_pt + r_pt,
-                cx_pt, cy_pt + r_pt
-            ));
-            s.push_str(&format!(
-                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                cx_pt - k, cy_pt + r_pt,
-                cx_pt - r_pt, cy_pt + k,
-                cx_pt - r_pt, cy_pt
-            ));
-            s.push_str(&format!(
-                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                cx_pt - r_pt, cy_pt - k,
-                cx_pt - k, cy_pt - r_pt,
-                cx_pt, cy_pt - r_pt
-            ));
-            s.push_str(&format!(
-                "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c S Q\n",
-                cx_pt + k, cy_pt - r_pt,
-                cx_pt + r_pt, cy_pt - k,
-                cx_pt + r_pt, cy_pt
-            ));
-        }
-
-        // 2. Render Garis Sumbu (Centerlines) jika aktif
-        if sheet.show_centerlines {
-            s.push_str("q 0.1 0.6 0.2 RG 0.4 w [6 2 1 2] 0 d\n");
-            for cl in &view.centerlines {
-                let x1 = mm_to_pt(center_mm[0] + (cl.start[0] - v_center[0]) * scale);
-                let y1 = mm_to_pt(center_mm[1] + (cl.start[1] - v_center[1]) * scale);
-                let x2 = mm_to_pt(center_mm[0] + (cl.end[0] - v_center[0]) * scale);
-                let y2 = mm_to_pt(center_mm[1] + (cl.end[1] - v_center[1]) * scale);
-                s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n"));
-            }
-            s.push_str("Q\n");
-        }
-
-        // 3. Render Garis Tersembunyi (Hidden Lines) jika aktif
-        if sheet.show_hidden_lines {
-            s.push_str("q 0.3 0.3 0.35 RG 0.5 w [4 2] 0 d\n");
-            for seg in &view.segments {
-                if seg.kind == HlrLineKind::Hidden {
-                    let x1 = mm_to_pt(center_mm[0] + (seg.start[0] - v_center[0]) * scale);
-                    let y1 = mm_to_pt(center_mm[1] + (seg.start[1] - v_center[1]) * scale);
-                    let x2 = mm_to_pt(center_mm[0] + (seg.end[0] - v_center[0]) * scale);
-                    let y2 = mm_to_pt(center_mm[1] + (seg.end[1] - v_center[1]) * scale);
-                    s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n"));
+        s.push_str("q 1 j 1 J\n");
+        let mut pen_state: Option<Pen> = None;
+        for item in &group.items {
+            match item {
+                Item::Line { a, b, pen } => {
+                    set_pen(s, &mut pen_state, *pen);
+                    s.push_str(&format!(
+                        "{:.2} {:.2} m {:.2} {:.2} l S\n",
+                        mm_to_pt(a[0]),
+                        mm_to_pt(a[1]),
+                        mm_to_pt(b[0]),
+                        mm_to_pt(b[1])
+                    ));
                 }
-            }
-            s.push_str("Q\n");
-        }
-
-        // 4. Render Garis Arsir (Hatch Pattern 45°) jika aktif
-        if sheet.show_hatch {
-            s.push_str("q 0.25 0.35 0.45 RG 0.4 w [] 0 d\n");
-            for seg in &view.segments {
-                if seg.kind == HlrLineKind::Hatch {
-                    let x1 = mm_to_pt(center_mm[0] + (seg.start[0] - v_center[0]) * scale);
-                    let y1 = mm_to_pt(center_mm[1] + (seg.start[1] - v_center[1]) * scale);
-                    let x2 = mm_to_pt(center_mm[0] + (seg.end[0] - v_center[0]) * scale);
-                    let y2 = mm_to_pt(center_mm[1] + (seg.end[1] - v_center[1]) * scale);
-                    s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n"));
+                Item::Arc {
+                    center,
+                    radius,
+                    start_deg,
+                    end_deg,
+                    pen,
+                } => {
+                    set_pen(s, &mut pen_state, *pen);
+                    arc_path(s, mm_to_pt(center[0]), mm_to_pt(center[1]), mm_to_pt(*radius), *start_deg, *end_deg);
+                    s.push_str("S\n");
                 }
-            }
-            s.push_str("Q\n");
-        }
-
-        // 5. Render Garis Tampak (Visible Lines & Silhouettes)
-        s.push_str("q 0 0 0 RG 1.1 w [] 0 d 1 j 1 J\n");
-        for seg in &view.segments {
-            if seg.kind == HlrLineKind::Visible || seg.kind == HlrLineKind::Silhouette {
-                let x1 = mm_to_pt(center_mm[0] + (seg.start[0] - v_center[0]) * scale);
-                let y1 = mm_to_pt(center_mm[1] + (seg.start[1] - v_center[1]) * scale);
-                let x2 = mm_to_pt(center_mm[0] + (seg.end[0] - v_center[0]) * scale);
-                let y2 = mm_to_pt(center_mm[1] + (seg.end[1] - v_center[1]) * scale);
-                s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l S\n"));
+                Item::Circle {
+                    center,
+                    radius,
+                    pen,
+                    fill,
+                } => {
+                    let (cx, cy, r) = (mm_to_pt(center[0]), mm_to_pt(center[1]), mm_to_pt(*radius));
+                    if let Some(fill) = fill {
+                        s.push_str(&format!("{} rg ", rgb(*fill)));
+                        arc_path(s, cx, cy, r, 0.0, 360.0);
+                        s.push_str("h f\n");
+                    }
+                    set_pen(s, &mut pen_state, *pen);
+                    arc_path(s, cx, cy, r, 0.0, 360.0);
+                    s.push_str("h S\n");
+                }
+                Item::Rect { min, max, pen, fill } => {
+                    let (x, y) = (mm_to_pt(min[0]), mm_to_pt(min[1]));
+                    let (w, h) = (mm_to_pt(max[0] - min[0]), mm_to_pt(max[1] - min[1]));
+                    if let Some(fill) = fill {
+                        s.push_str(&format!("{} rg {x:.2} {y:.2} {w:.2} {h:.2} re f\n", rgb(*fill)));
+                    }
+                    if let Some(pen) = pen {
+                        set_pen(s, &mut pen_state, *pen);
+                        s.push_str(&format!("{x:.2} {y:.2} {w:.2} {h:.2} re S\n"));
+                    }
+                }
+                Item::Fill { points, color, .. } => {
+                    if points.len() < 3 {
+                        continue;
+                    }
+                    s.push_str(&format!("{} rg ", rgb(*color)));
+                    for (i, p) in points.iter().enumerate() {
+                        s.push_str(&format!(
+                            "{:.2} {:.2} {} ",
+                            mm_to_pt(p[0]),
+                            mm_to_pt(p[1]),
+                            if i == 0 { "m" } else { "l" }
+                        ));
+                    }
+                    s.push_str("h f\n");
+                }
+                Item::Text {
+                    pos,
+                    text,
+                    size_mm,
+                    bold,
+                    anchor,
+                    angle_deg,
+                    ..
+                } => {
+                    let shift = match anchor {
+                        Anchor::Start => 0.0,
+                        Anchor::Middle => -0.5 * text_width(text, *size_mm),
+                        Anchor::End => -text_width(text, *size_mm),
+                    };
+                    let (sin, cos) = angle_deg.to_radians().sin_cos();
+                    let x = mm_to_pt(pos[0] + shift * cos);
+                    let y = mm_to_pt(pos[1] + shift * sin);
+                    let font = if *bold { "/F2" } else { "/F1" };
+                    let matrix = if angle_deg.abs() < 1e-3 {
+                        format!("1 0 0 1 {x:.2} {y:.2}")
+                    } else {
+                        format!("{cos:.4} {sin:.4} {:.4} {cos:.4} {x:.2} {y:.2}", -sin)
+                    };
+                    s.push_str(&format!(
+                        "0 0 0 rg BT {font} {:.2} Tf {matrix} Tm ({}) Tj ET\n",
+                        mm_to_pt(*size_mm),
+                        escape_pdf(text)
+                    ));
+                }
+                Item::Image { min, max, index } => {
+                    if !images.contains(index) {
+                        images.push(*index);
+                    }
+                    s.push_str(&format!(
+                        "q {:.2} 0 0 {:.2} {:.2} {:.2} cm /Im{index} Do Q\n",
+                        mm_to_pt(max[0] - min[0]),
+                        mm_to_pt(max[1] - min[1]),
+                        mm_to_pt(min[0]),
+                        mm_to_pt(min[1])
+                    ));
+                }
             }
         }
         s.push_str("Q\n");
-
-        // 6. Render Indikator Garis Potong A-A pada Tampak Atas (Top View)
-        if plc.kind == ProjectedViewKind::Top {
-            if let Some(ind) = &sheet.drawing.cutting_plane {
-                let p1_x = mm_to_pt(center_mm[0] + (ind.start[0] - v_center[0]) * scale);
-                let p1_y = mm_to_pt(center_mm[1] + (ind.start[1] - v_center[1]) * scale);
-                let p2_x = mm_to_pt(center_mm[0] + (ind.end[0] - v_center[0]) * scale);
-                let p2_y = mm_to_pt(center_mm[1] + (ind.end[1] - v_center[1]) * scale);
-
-                // Garis potong tengah tipis putus-putus
-                s.push_str("q 0.1 0.1 0.1 RG 0.7 w [8 2 2 2] 0 d\n");
-                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {p2_x:.2} {p2_y:.2} l S\nQ\n"));
-
-                // Ujung tebal garis potong (Thick stroke ends ISO)
-                let end_len = mm_to_pt(6.0 * scale);
-                s.push_str("q 0 0 0 RG 1.8 w [] 0 d 1 J\n");
-                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {:.2} {p1_y:.2} l S\n", p1_x + end_len));
-                s.push_str(&format!("{p2_x:.2} {p2_y:.2} m {:.2} {p2_y:.2} l S\n", p2_x - end_len));
-                s.push_str("Q\n");
-
-                // Panah pandangan potong A-A
-                let arr_len = mm_to_pt(5.0 * scale);
-                let arr_dir_y = if ind.arrow_dir[1] >= 0.0 { arr_len } else { -arr_len };
-                s.push_str("q 0 0 0 RG 0 0 0 rg 1.2 w [] 0 d\n");
-                // Garis panah di p1
-                s.push_str(&format!("{p1_x:.2} {p1_y:.2} m {p1_x:.2} {:.2} l S\n", p1_y + arr_dir_y));
-                // Kepala panah di p1
-                let arr_head_w = mm_to_pt(1.2 * scale);
-                let arr_tip_y = p1_y + arr_dir_y;
-                let arr_base_y = arr_tip_y - (arr_dir_y * 0.4);
-                s.push_str(&format!(
-                    "{:.2} {:.2} m {p1_x:.2} {arr_tip_y:.2} l {:.2} {:.2} l b\n",
-                    p1_x - arr_head_w, arr_base_y, p1_x + arr_head_w, arr_base_y
-                ));
-
-                // Garis panah di p2
-                s.push_str(&format!("{p2_x:.2} {p2_y:.2} m {p2_x:.2} {:.2} l S\n", p2_y + arr_dir_y));
-                // Kepala panah di p2
-                s.push_str(&format!(
-                    "{:.2} {:.2} m {p2_x:.2} {arr_tip_y:.2} l {:.2} {:.2} l b\n",
-                    p2_x - arr_head_w, arr_base_y, p2_x + arr_head_w, arr_base_y
-                ));
-                s.push_str("Q\n");
-
-                // Huruf teks A tebal
-                let lbl1_x = mm_to_pt(center_mm[0] + (ind.label1_pos[0] - v_center[0]) * scale);
-                let lbl1_y = mm_to_pt(center_mm[1] + (ind.label1_pos[1] - v_center[1]) * scale);
-                let lbl2_x = mm_to_pt(center_mm[0] + (ind.label2_pos[0] - v_center[0]) * scale);
-                let lbl2_y = mm_to_pt(center_mm[1] + (ind.label2_pos[1] - v_center[1]) * scale);
-
-                s.push_str(&format!(
-                    "q 0 0 0 rg BT /F2 10 Tf 1 0 0 1 {lbl1_x:.2} {lbl1_y:.2} Tm ({}) Tj ET Q\n",
-                    escape_pdf(&ind.label)
-                ));
-                s.push_str(&format!(
-                    "q 0 0 0 rg BT /F2 10 Tf 1 0 0 1 {lbl2_x:.2} {lbl2_y:.2} Tm ({}) Tj ET Q\n",
-                    escape_pdf(&ind.label)
-                ));
-            }
-        }
-
-        // 7. Render Indikator Lingkaran Detail pada Tampak Acuan (Detail Callout Circle)
-        for det in &sheet.drawing.detail_views {
-            if det.indicator.parent_view == plc.kind {
-                let ind = &det.indicator;
-                let cx_pt = mm_to_pt(center_mm[0] + (ind.center_2d[0] - v_center[0]) * scale);
-                let cy_pt = mm_to_pt(center_mm[1] + (ind.center_2d[1] - v_center[1]) * scale);
-                let r_pt = mm_to_pt(ind.radius_mm * scale);
-                let k = r_pt * 0.552_284_8;
-
-                // Lingkaran putus-putus ISO
-                s.push_str("q 0.1 0.1 0.1 RG 0.8 w [4 2] 0 d\n");
-                s.push_str(&format!(
-                    "{:.2} {:.2} m {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                    cx_pt + r_pt, cy_pt,
-                    cx_pt + r_pt, cy_pt + k,
-                    cx_pt + k, cy_pt + r_pt,
-                    cx_pt, cy_pt + r_pt
-                ));
-                s.push_str(&format!(
-                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                    cx_pt - k, cy_pt + r_pt,
-                    cx_pt - r_pt, cy_pt + k,
-                    cx_pt - r_pt, cy_pt
-                ));
-                s.push_str(&format!(
-                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ",
-                    cx_pt - r_pt, cy_pt - k,
-                    cx_pt - k, cy_pt - r_pt,
-                    cx_pt, cy_pt - r_pt
-                ));
-                s.push_str(&format!(
-                    "{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c S Q\n",
-                    cx_pt + k, cy_pt - r_pt,
-                    cx_pt + r_pt, cy_pt - k,
-                    cx_pt + r_pt, cy_pt
-                ));
-
-                // Garis penunjuk (Leader line) & Huruf Label Detail
-                let lx_pt = mm_to_pt(center_mm[0] + (ind.label_pos[0] - v_center[0]) * scale);
-                let ly_pt = mm_to_pt(center_mm[1] + (ind.label_pos[1] - v_center[1]) * scale);
-                let rim_x = cx_pt + r_pt * std::f32::consts::FRAC_1_SQRT_2;
-                let rim_y = cy_pt + r_pt * std::f32::consts::FRAC_1_SQRT_2;
-
-                s.push_str("q 0.1 0.1 0.1 RG 0.8 w [] 0 d\n");
-                s.push_str(&format!("{rim_x:.2} {rim_y:.2} m {lx_pt:.2} {ly_pt:.2} l {:.2} {ly_pt:.2} l S Q\n", lx_pt + mm_to_pt(6.0)));
-                s.push_str(&format!(
-                    "q 0 0 0 rg BT /F2 8 Tf 1 0 0 1 {:.2} {:.2} Tm ({}) Tj ET Q\n",
-                    lx_pt + mm_to_pt(1.0), ly_pt + mm_to_pt(1.5), ind.label
-                ));
-            }
-        }
     }
-}
-
-/// Render garis dimensi teknis (extension lines, dimension line, panah berujung lancip, dan teks nilai).
-fn render_dimensions(s: &mut String, sheet: &DrawingSheet) {
-    s.push_str("q 0.1 0.25 0.7 RG 0.1 0.25 0.7 rg 0.5 w [] 0 d\n");
-
-    let dims: Vec<&crate::drawing::DimensionAnnotation> = if sheet.show_dimensions {
-        sheet.auto_dimensions.iter().chain(sheet.manual_dimensions.iter()).collect()
-    } else {
-        sheet.manual_dimensions.iter().collect()
-    };
-
-    for dim in dims {
-        let x1 = mm_to_pt(dim.start[0]);
-        let y1 = mm_to_pt(dim.start[1]);
-        let x2 = mm_to_pt(dim.end[0]);
-        let y2 = mm_to_pt(dim.end[1]);
-
-        let is_leader = dim.text.starts_with('R')
-            || dim.text.starts_with('Ø')
-            || dim.text.starts_with("Rx");
-        let is_angle = dim.text.ends_with('°');
-
-        if is_angle {
-            let tx = mm_to_pt(dim.line_pos[0]);
-            let ty = mm_to_pt(dim.line_pos[1]);
-            s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {x1:.2} {y1:.2} m {tx:.2} {ty:.2} l S\n"));
-            let text_x = tx + mm_to_pt(2.0);
-            let text_y = ty - mm_to_pt(1.0);
-            s.push_str(&format!(
-                "BT /F2 7 Tf 1 0 0 1 {text_x:.2} {text_y:.2} Tm ({}) Tj ET\n",
-                escape_pdf(&dim.text)
-            ));
-        } else if is_leader {
-            let bend_x = mm_to_pt(dim.line_pos[0]);
-            let bend_y = mm_to_pt(dim.line_pos[1]);
-            let shoulder_x = bend_x + mm_to_pt(8.0);
-
-            s.push_str(&format!("{x1:.2} {y1:.2} m {x2:.2} {y2:.2} l {bend_x:.2} {bend_y:.2} l {shoulder_x:.2} {bend_y:.2} l S\n"));
-
-            let dx = x2 - x1;
-            let dy = y2 - y1;
-            let len = (dx * dx + dy * dy).sqrt().max(1e-4);
-            render_arrow_pt(s, x2, y2, dx / len, dy / len);
-
-            let text_x = bend_x + mm_to_pt(1.0);
-            let text_y = bend_y + mm_to_pt(1.5);
-            s.push_str(&format!(
-                "BT /F2 7 Tf 1 0 0 1 {text_x:.2} {text_y:.2} Tm ({}) Tj ET\n",
-                escape_pdf(&dim.text)
-            ));
-        } else if dim.is_vertical {
-            let dim_x = mm_to_pt(dim.line_pos[0]);
-            // Garis ekstensi horizontal
-            s.push_str(&format!("{x1:.2} {y1:.2} m {dim_x:.2} {y1:.2} l S\n"));
-            s.push_str(&format!("{x2:.2} {y2:.2} m {dim_x:.2} {y2:.2} l S\n"));
-
-            // Garis dimensi vertikal
-            s.push_str(&format!("{dim_x:.2} {y1:.2} m {dim_x:.2} {y2:.2} l S\n"));
-
-            // Panah atas & bawah
-            render_arrow_pt(s, dim_x, y1, 0.0, 1.0);
-            render_arrow_pt(s, dim_x, y2, 0.0, -1.0);
-
-            // Teks dimensi diputar vertikal
-            let mid_y = (y1 + y2) * 0.5;
-            let text_x = dim_x - mm_to_pt(3.0);
-            s.push_str(&format!(
-                "BT /F2 7 Tf 0 1 -1 0 {text_x:.2} {mid_y:.2} Tm ({}) Tj ET\n",
-                escape_pdf(&dim.text)
-            ));
-        } else {
-            let dim_y = mm_to_pt(dim.line_pos[1]);
-            // Garis ekstensi vertikal
-            s.push_str(&format!("{x1:.2} {y1:.2} m {x1:.2} {dim_y:.2} l S\n"));
-            s.push_str(&format!("{x2:.2} {y2:.2} m {x2:.2} {dim_y:.2} l S\n"));
-
-            // Garis dimensi horizontal
-            s.push_str(&format!("{x1:.2} {dim_y:.2} m {x2:.2} {dim_y:.2} l S\n"));
-
-            // Panah kiri & kanan
-            render_arrow_pt(s, x1, dim_y, 1.0, 0.0);
-            render_arrow_pt(s, x2, dim_y, -1.0, 0.0);
-
-            // Teks dimensi di atas garis
-            let mid_x = (x1 + x2) * 0.5 - mm_to_pt(8.0);
-            let text_y = dim_y + mm_to_pt(1.5);
-            s.push_str(&format!(
-                "BT /F2 7 Tf 1 0 0 1 {mid_x:.2} {text_y:.2} Tm ({}) Tj ET\n",
-                escape_pdf(&dim.text)
-            ));
-        }
-    }
-
-    s.push_str("Q\n");
-}
-
-/// Render anotasi teks bebas (catatan teknis tambahan) pada lembar kerja PDF.
-fn render_custom_texts(s: &mut String, sheet: &DrawingSheet) {
-    if sheet.custom_texts.is_empty() {
-        return;
-    }
-    s.push_str("q 0 0 0 rg BT\n");
-    for note in &sheet.custom_texts {
-        if note.text.trim().is_empty() {
-            continue;
-        }
-        let x = mm_to_pt(note.position[0]);
-        let y = mm_to_pt(note.position[1]);
-        let font_pt = mm_to_pt(note.font_size);
-        s.push_str(&format!(
-            "/F2 {font_pt:.2} Tf 1 0 0 1 {x:.2} {y:.2} Tm ({}) Tj\n",
-            escape_pdf(&note.text)
-        ));
-    }
-    s.push_str("ET Q\n");
-}
-
-/// Render Tabel BOM (Bill of Materials) pada dokumen PDF sesuai standar ISO 7573.
-fn render_bom_table(s: &mut String, sheet: &DrawingSheet) {
-    if sheet.bom_table.items.is_empty() {
-        return;
-    }
-
-    let tb = sheet.bom_table_rect_mm();
-    let x1 = mm_to_pt(tb[0]);
-    let y1 = mm_to_pt(tb[1]);
-    let x2 = mm_to_pt(tb[2]);
-    let y2 = mm_to_pt(tb[3]);
-
-    let col_w_mm = sheet.bom_column_widths_mm();
-    let col_w_pt: Vec<f32> = col_w_mm.iter().map(|&w| mm_to_pt(w)).collect();
-
-    let title_h = mm_to_pt(sheet.bom_title_height_mm());
-    let header_h = mm_to_pt(sheet.bom_header_height_mm());
-    let row_h = mm_to_pt(sheet.bom_row_height_mm());
-
-    let stroke_thick = mm_to_pt(0.5);
-    let stroke_thin = mm_to_pt(0.25);
-
-    // 1. Latar Belakang Header & Judul
-    let y_title_bot = y2 - title_h;
-    let y_header_bot = y_title_bot - header_h;
-
-    // Header Judul: Abu-abu sangat muda
-    s.push_str(&format!(
-        "q 0.94 0.95 0.97 rg {x1:.2} {y_title_bot:.2} {:.2} {title_h:.2} re f Q\n",
-        x2 - x1
-    ));
-    // Header Kolom: Abu-abu muda
-    s.push_str(&format!(
-        "q 0.88 0.90 0.93 rg {x1:.2} {y_header_bot:.2} {:.2} {header_h:.2} re f Q\n",
-        x2 - x1
-    ));
-
-    // 2. Garis Luar Tebal (Outer Border)
-    s.push_str(&format!(
-        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y1:.2} {:.2} {:.2} re S Q\n",
-        x2 - x1,
-        y2 - y1
-    ));
-
-    // 3. Garis Horizontal Pembatas
-    s.push_str(&format!(
-        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y_title_bot:.2} m {x2:.2} {y_title_bot:.2} l S Q\n"
-    ));
-    s.push_str(&format!(
-        "q {stroke_thick:.2} w 0 0 0 RG {x1:.2} {y_header_bot:.2} m {x2:.2} {y_header_bot:.2} l S Q\n"
-    ));
-
-    // Garis baris data
-    for i in 1..sheet.bom_table.items.len() {
-        let y_row = y_header_bot - (i as f32 * row_h);
-        s.push_str(&format!(
-            "q {stroke_thin:.2} w 0 0 0 RG {x1:.2} {y_row:.2} m {x2:.2} {y_row:.2} l S Q\n"
-        ));
-    }
-
-    // 4. Garis Vertikal Pembagi Kolom (dari y_title_bot ke y1)
-    let mut cur_x = x1;
-    for &cw in &col_w_pt[..col_w_pt.len() - 1] {
-        cur_x += cw;
-        s.push_str(&format!(
-            "q {stroke_thin:.2} w 0 0 0 RG {cur_x:.2} {y1:.2} m {cur_x:.2} {y_title_bot:.2} l S Q\n"
-        ));
-    }
-
-    // 5. Render Teks (Judul, Header, Data)
-    s.push_str("q 0 0 0 rg BT\n");
-
-    // Judul BOM
-    let title_text = if sheet.bom_table.title.is_empty() {
-        "BILL OF MATERIALS"
-    } else {
-        &sheet.bom_table.title
-    };
-    let tx_title = x1 + mm_to_pt(4.0);
-    let ty_title = y_title_bot + mm_to_pt(1.8);
-    s.push_str(&format!(
-        "/F2 8.0 Tf 1 0 0 1 {tx_title:.2} {ty_title:.2} Tm ({}) Tj\n",
-        escape_pdf(title_text)
-    ));
-
-    // Header Kolom
-    let col_titles = ["ITEM", "PART NAME", "QTY", "MATERIAL", "DESCRIPTION"];
-    let mut h_x = x1;
-    let ty_hdr = y_header_bot + mm_to_pt(1.6);
-    for (idx, &hdr) in col_titles.iter().enumerate() {
-        let w = col_w_pt[idx];
-        let align_center = idx == 0 || idx == 2;
-        let pad_x = if align_center {
-            (w - (hdr.len() as f32 * 4.2)) * 0.5
-        } else {
-            mm_to_pt(2.0)
-        };
-        let px = h_x + pad_x.max(mm_to_pt(1.0));
-        s.push_str(&format!(
-            "/F2 6.5 Tf 1 0 0 1 {px:.2} {ty_hdr:.2} Tm ({}) Tj\n",
-            escape_pdf(hdr)
-        ));
-        h_x += w;
-    }
-
-    // Baris Data
-    for (row_idx, item) in sheet.bom_table.items.iter().enumerate() {
-        let y_row_bot = y_header_bot - ((row_idx + 1) as f32 * row_h);
-        let ty_val = y_row_bot + mm_to_pt(1.5);
-
-        let row_values = [
-            format!("{}", item.item_number),
-            item.part_name.clone(),
-            format!("{}", item.quantity),
-            item.material.clone(),
-            item.description.clone(),
-        ];
-
-        let mut r_x = x1;
-        for (col_idx, val) in row_values.iter().enumerate() {
-            let w = col_w_pt[col_idx];
-            let is_center = col_idx == 0 || col_idx == 2;
-            let pad_x = if is_center {
-                (w - (val.len() as f32 * 4.0)) * 0.5
-            } else {
-                mm_to_pt(2.0)
-            };
-            let px = r_x + pad_x.max(mm_to_pt(1.0));
-            let font = if col_idx == 0 || col_idx == 2 { "/F2 6.5 Tf" } else { "/F1 6.5 Tf" };
-            s.push_str(&format!(
-                "{font} 1 0 0 1 {px:.2} {ty_val:.2} Tm ({}) Tj\n",
-                escape_pdf(val)
-            ));
-            r_x += w;
-        }
-    }
-
-    s.push_str("ET Q\n");
-}
-
-/// Render lingkaran nomor penunjuk part (*Callout Balloons*) pada PDF.
-fn render_callout_balloons(s: &mut String, sheet: &DrawingSheet) {
-    if sheet.balloons.is_empty() {
-        return;
-    }
-
-    for balloon in &sheet.balloons {
-        let tx = mm_to_pt(balloon.target_point[0]);
-        let ty = mm_to_pt(balloon.target_point[1]);
-        let bx = mm_to_pt(balloon.balloon_pos[0]);
-        let by = mm_to_pt(balloon.balloon_pos[1]);
-        let r = mm_to_pt(balloon.radius_mm);
-
-        let dx = tx - bx;
-        let dy = ty - by;
-        let len = (dx * dx + dy * dy).sqrt().max(0.1);
-
-        // Titik potong lingkaran balon
-        let ex = bx + (dx / len) * r;
-        let ey = by + (dy / len) * r;
-
-        // 1. Garis Penunjuk (Leader line)
-        let stroke_w = mm_to_pt(0.35);
-        s.push_str(&format!(
-            "q {stroke_w:.2} w 0 0 0 RG {tx:.2} {ty:.2} m {ex:.2} {ey:.2} l S Q\n"
-        ));
-
-        // 2. Panah pada titik target geometri
-        render_arrow_pt(s, tx, ty, -dx / len, -dy / len);
-
-        // 3. Lingkaran Balon (latar putih + stroke hitam pekat)
-        render_circle_pdf(s, bx, by, r, true);
-
-        // 4. Nomor Item di Pusat Balon
-        let num_str = format!("{}", balloon.item_number);
-        let font_sz = 8.5;
-        let offset_x = (num_str.len() as f32) * 2.4;
-        let offset_y = 3.0;
-        let px = bx - offset_x;
-        let py = by - offset_y;
-
-        s.push_str("q 0 0 0 rg BT\n");
-        s.push_str(&format!(
-            "/F2 {font_sz:.2} Tf 1 0 0 1 {px:.2} {py:.2} Tm ({}) Tj\n",
-            escape_pdf(&num_str)
-        ));
-        s.push_str("ET Q\n");
-    }
-}
-
-/// Render lingkaran kurva Bezier PDF dengan opsi isi latar putih.
-fn render_circle_pdf(s: &mut String, cx: f32, cy: f32, r: f32, filled_white: bool) {
-    let k = r * 0.552_284_8;
-    if filled_white {
-        s.push_str("q 1 1 1 rg\n");
-        s.push_str(&format!("{:.2} {:.2} m ", cx, cy + r));
-        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + k, cy + r, cx + r, cy + k, cx + r, cy));
-        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + r, cy - k, cx + k, cy - r, cx, cy - r));
-        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx - k, cy - r, cx - r, cy - k, cx - r, cy));
-        s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h f Q\n", cx - r, cy + k, cx - k, cy + r, cx, cy + r));
-    }
-    let stroke_w = mm_to_pt(0.35);
-    s.push_str(&format!("q {stroke_w:.2} w 0 0 0 RG\n"));
-    s.push_str(&format!("{:.2} {:.2} m ", cx, cy + r));
-    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + k, cy + r, cx + r, cy + k, cx + r, cy));
-    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx + r, cy - k, cx + k, cy - r, cx, cy - r));
-    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c ", cx - k, cy - r, cx - r, cy - k, cx - r, cy));
-    s.push_str(&format!("{:.2} {:.2} {:.2} {:.2} {:.2} {:.2} c h S Q\n", cx - r, cy + k, cx - k, cy + r, cx, cy + r));
 }
 
 /// Render anotasi GD&T/toleransi (P19). Simbol berupa path vektor dari
@@ -993,29 +399,9 @@ fn render_annotations(s: &mut String, sheet: &DrawingSheet) {
     s.push_str("Q\n");
 }
 
-/// Menggambar panah dimensi lancip terisi (filled arrowhead).
-fn render_arrow_pt(s: &mut String, tip_x: f32, tip_y: f32, dir_x: f32, dir_y: f32) {
-    let arrow_len = mm_to_pt(2.5);
-    let arrow_half_w = mm_to_pt(0.6);
-
-    let perp_x = -dir_y;
-    let perp_y = dir_x;
-
-    let base_x = tip_x + dir_x * arrow_len;
-    let base_y = tip_y + dir_y * arrow_len;
-
-    let p1_x = base_x + perp_x * arrow_half_w;
-    let p1_y = base_y + perp_y * arrow_half_w;
-
-    let p2_x = base_x - perp_x * arrow_half_w;
-    let p2_y = base_y - perp_y * arrow_half_w;
-
-    s.push_str(&format!(
-        "{tip_x:.2} {tip_y:.2} m {p1_x:.2} {p1_y:.2} l {p2_x:.2} {p2_y:.2} l h f\n"
-    ));
-}
-
-/// Escape karakter khusus PDF string `(`, `)`, `\`.
+/// Escape string PDF: `(`, `)`, `\`, dan karakter non-ASCII ditulis sebagai
+/// oktal WinAnsi (font memakai `/WinAnsiEncoding`), sehingga `Ø`, `×`, `°`
+/// tampil benar dan stream tetap ASCII murni.
 fn escape_pdf(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 4);
     for c in text.chars() {
@@ -1023,7 +409,24 @@ fn escape_pdf(text: &str) -> String {
             '(' => out.push_str("\\("),
             ')' => out.push_str("\\)"),
             '\\' => out.push_str("\\\\"),
-            _ => out.push(c),
+            ' '..='~' => out.push(c),
+            _ => {
+                let code: u32 = match c {
+                    '\u{00A0}'..='\u{00FF}' => c as u32,
+                    '€' => 0x80,
+                    '…' => 0x85,
+                    '‘' => 0x91,
+                    '’' => 0x92,
+                    '“' => 0x93,
+                    '”' => 0x94,
+                    '•' => 0x95,
+                    '–' => 0x96,
+                    '—' => 0x97,
+                    '™' => 0x99,
+                    _ => b'?' as u32,
+                };
+                out.push_str(&format!("\\{code:03o}"));
+            }
         }
     }
     out
@@ -1067,6 +470,7 @@ mod tests {
             width_mm: 50.0,
             height_mm: 30.0,
             depth_mm: 20.0,
+            ..ProjectedView::default()
         };
 
         HlrDrawing {
@@ -1074,11 +478,11 @@ mod tests {
             top: dummy_view(ProjectedViewKind::Top),
             right: dummy_view(ProjectedViewKind::Right),
             isometric: dummy_view(ProjectedViewKind::Isometric),
-            section_a: Some(dummy_view(ProjectedViewKind::SectionAA)),
-            cutting_plane: None,
+            sections: Vec::new(),
             detail_views: Vec::new(),
             model_bbox_min: [0.0, 0.0, 0.0],
             model_bbox_max: [50.0, 30.0, 20.0],
+            warnings: Vec::new(),
         }
     }
 

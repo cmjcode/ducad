@@ -436,6 +436,11 @@ pub struct DuCADApp {
     /// State Lembar Kerja Gambar Teknik 2D (Fase 5).
     pub drawing_sheet_state: ducad_ui::DrawingSheetViewState,
     pub drawing_sheet_doc: Option<ducad_io::drawing::DrawingSheet>,
+    /// Spec lembar gambar (P21.6): sumber `drawing_sheet_doc`, ikut tersimpan
+    /// di `.ducad` lewat `design.drawings`.
+    pub drawing_spec: Option<ducad_io::drawing::DrawingSpec>,
+    /// Sidik jari geometri saat `drawing_sheet_doc` dibangun (penanda kedaluwarsa).
+    pub drawing_sheet_geometry: u64,
 
     /// State Hole Wizard & Standar Baut ISO (Fase 9.2).
     pub hole_popup_state: ducad_ui::HolePopupState,
@@ -796,6 +801,8 @@ impl DuCADApp {
 
             drawing_sheet_state: ducad_ui::DrawingSheetViewState::default(),
             drawing_sheet_doc: None,
+            drawing_spec: None,
+            drawing_sheet_geometry: 0,
             hole_popup_state: ducad_ui::HolePopupState::default(),
             editing_hole_ruler_idx: None,
             editing_hole_ruler_input: String::new(),
@@ -1114,6 +1121,8 @@ impl DuCADApp {
 
             drawing_sheet_state: ducad_ui::DrawingSheetViewState::default(),
             drawing_sheet_doc: None,
+            drawing_spec: None,
+            drawing_sheet_geometry: 0,
             hole_popup_state: ducad_ui::HolePopupState::default(),
             editing_hole_ruler_idx: None,
             editing_hole_ruler_input: String::new(),
@@ -4572,6 +4581,11 @@ impl eframe::App for DuCADApp {
                 let sheet = self.build_annotated_drawing_sheet();
                 self.drawing_sheet_doc = Some(sheet);
             }
+            // Geometri berubah sejak lembar dibuat → tandai kedaluwarsa.
+            let geometry_now = self.drawing_geometry_stamp();
+            if let Some(sheet) = &mut self.drawing_sheet_doc {
+                sheet.stale = geometry_now != self.drawing_sheet_geometry;
+            }
             if let Some(sheet) = &mut self.drawing_sheet_doc {
                 egui::Area::new(egui::Id::new("ducad-drawing-sheet-overlay"))
                     .fixed_pos(screen_rect.min)
@@ -4599,6 +4613,18 @@ impl eframe::App for DuCADApp {
                 }
                 ducad_ui::DrawingSheetEvent::ExportSvg => {
                     self.export_drawing_svg();
+                }
+                ducad_ui::DrawingSheetEvent::AddSection { parent, points } => {
+                    self.drawing_add_section(parent, points);
+                }
+                ducad_ui::DrawingSheetEvent::FlipSection(label) => {
+                    self.drawing_flip_section(label);
+                }
+                ducad_ui::DrawingSheetEvent::InsertShaded => {
+                    self.drawing_insert_shaded();
+                }
+                ducad_ui::DrawingSheetEvent::Refresh => {
+                    self.rebuild_drawing_sheet();
                 }
             }
         }

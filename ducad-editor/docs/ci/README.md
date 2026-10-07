@@ -27,7 +27,22 @@ git config diff.ducad.textconv 'ducad-cli oplog'
 ducad-cli build <PART.ducad | OPS.json> --out DIR [--formats LIST] [--paper a4|a3]
                [--title T] [--part-number PN] [--author A] [--revision R]
                [--date YYYY-MM-DD] [--no-checks]
+               [--drawing NAME] [--section LABEL:INDUK:SUMBU:OFFSET[:flip]]...
+               [--shaded iso,iso_back] [--scale auto|1:2|0.5]
 ```
+
+- **Lembar gambar (P21).** Bila part memuat lembar tersimpan
+  (`design.drawings` di `.ducad`, atau `"drawings": [...]` di OpFile), lembar
+  pertama — atau `--drawing NAME` — dirender apa adanya: tampak, potongan,
+  skala per tampak, render berbayang, catatan, dimensi asosiatif. Tanpa lembar
+  tersimpan: 4 tampak + potongan A-A + dimensi otomatis seperti sebelumnya.
+- `--section A:top:x:0` (boleh diulang) mengganti potongan; `--shaded` mengganti
+  render berbayang; `--scale` mengganti skala lembar; `--paper`, `--title`,
+  `--part-number`, `--author`, `--revision` menimpa kepala gambar. Tanggal
+  selalu dari `--date`/`SOURCE_DATE_EPOCH`.
+- Peringatan lembar (`HLR_EXACT_FALLBACK`, `DRAWING_SECTION_EMPTY`,
+  `DRAWING_DXF_NO_RASTER`) masuk `report.json.warnings`. Potongan eksplisit
+  yang tidak memotong body menghentikan build (`drawing_section_empty`).
 
 - `LIST` default `step,stl,pdf,png,bom`; pilihan: `step, stl, obj, glb, pdf, svg, dxf, png, bom`.
 - Keluaran di `DIR`: `<stem>.step|stl|obj|glb`, `<stem>-drawing.pdf|svg|dxf`,

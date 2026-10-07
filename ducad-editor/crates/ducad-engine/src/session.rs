@@ -50,9 +50,26 @@ pub struct DesignDoc {
     /// Nama konfigurasi aktif; `None` = "Default" (tanpa penimpaan).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_configuration: Option<String>,
+    /// Lembar gambar tersimpan (P21.6). Bukan op: anotasi/tata letak tidak
+    /// mengubah geometri (lihat `docs/adr/0007-drawing-spec.md`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<ducad_io::drawing::DrawingSpec>,
 }
 
 impl DesignDoc {
+    /// Lembar gambar tersimpan bernama `name`.
+    pub fn drawing(&self, name: &str) -> Option<&ducad_io::drawing::DrawingSpec> {
+        self.drawings.iter().find(|d| d.name == name)
+    }
+
+    /// Simpan/ganti lembar gambar menurut namanya.
+    pub fn upsert_drawing(&mut self, spec: ducad_io::drawing::DrawingSpec) {
+        match self.drawings.iter_mut().find(|d| d.name == spec.name) {
+            Some(slot) => *slot = spec,
+            None => self.drawings.push(spec),
+        }
+    }
+
     /// Konfigurasi aktif, bila ada dan dikenal.
     pub fn active(&self) -> Option<&ducad_core::Configuration> {
         let name = self.active_configuration.as_deref()?;
@@ -87,6 +104,7 @@ impl Default for DesignDoc {
             fingerprint: String::new(),
             configurations: Vec::new(),
             active_configuration: None,
+            drawings: Vec::new(),
         }
     }
 }
@@ -152,6 +170,9 @@ pub struct SessionMeta {
     pub standard_parts: BTreeMap<String, String>,
     /// Nama body → ulir yang tercatat (kosmetik maupun fisik) (P20).
     pub threads: BTreeMap<String, Vec<ThreadNote>>,
+    /// Nama lembar → sidik jari geometri saat terakhir dirender (P21):
+    /// berbeda dari sidik jari kini = lembar kedaluwarsa. Tidak disimpan.
+    pub drawing_rendered: BTreeMap<String, String>,
 }
 
 /// Catatan satu ulir pada body.
@@ -2392,6 +2413,7 @@ impl Session {
                     params: design.params.clone(),
                     checks: design.checks.clone(),
                     configurations: design.configurations.clone(),
+                    drawings: design.drawings.clone(),
                     ..DesignDoc::default()
                 };
                 let stale_warning = || vec!["oplog_stale".to_string()];
@@ -2984,6 +3006,16 @@ impl Session {
     /// Ganti seluruh daftar check desain.
     pub fn set_checks(&mut self, checks: Vec<crate::check::CheckItem>) {
         self.meta.design.checks = checks;
+    }
+
+    /// Ganti seluruh lembar gambar tersimpan (mis. dari `OpFile.drawings`).
+    pub fn set_drawings(&mut self, drawings: Vec<ducad_io::drawing::DrawingSpec>) {
+        self.meta.design.drawings = drawings;
+    }
+
+    /// Simpan/ganti satu lembar gambar menurut namanya.
+    pub fn save_drawing(&mut self, spec: ducad_io::drawing::DrawingSpec) {
+        self.meta.design.upsert_drawing(spec);
     }
 
     /// Evaluasi `checks` (atau `design.checks` bila `None`).

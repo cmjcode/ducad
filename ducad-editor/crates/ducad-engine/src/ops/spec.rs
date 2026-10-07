@@ -1161,6 +1161,11 @@ pub struct OpFile {
     /// Variant to activate after loading; default is the base design (`"Default"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_configuration: Option<String>,
+    /// Optional stored drawing sheets (same fields as the `drawing` tool: name, paper, title,
+    /// notes, sections, views, scale, shaded, dimensions). `ducad-cli build` renders the first one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "Vec<serde_json::Value>")]
+    pub drawings: Vec<ducad_io::drawing::DrawingSpec>,
 }
 
 /// JSON Schema `OpFile`. Salinannya disimpan di `schema/ops.schema.json`.

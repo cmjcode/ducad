@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ducad_engine::check::{CheckStatus, CheckSummary};
-use ducad_engine::drawing_auto::{auto_sheet_model, hole_notes, TitleInfo};
+use ducad_engine::drawing_auto::{build_sheet, hole_notes};
+use ducad_io::drawing::{ScaleSpec, SectionSpec, ShadedSpec};
 use ducad_engine::export::{export, normalize_step_timestamp, ExportFormat};
 use ducad_engine::ops::OpFile;
 use ducad_engine::{OpErrorCode, Session};
@@ -35,9 +36,23 @@ pub struct Args {
     /// (`flat` = DXF pola bentangan tiap body sheet metal).
     #[arg(long, value_delimiter = ',', default_value = "step,stl,pdf,png,bom")]
     formats: Vec<String>,
-    /// Ukuran kertas gambar kerja: a4 | a3 (lanskap).
-    #[arg(long, value_parser = parse_paper, default_value = "a3")]
-    paper: PaperSize,
+    /// Ukuran kertas gambar kerja: a4 | a3 (lanskap). Default: kertas lembar
+    /// tersimpan, atau a3.
+    #[arg(long, value_parser = parse_paper)]
+    paper: Option<PaperSize>,
+    /// Lembar gambar tersimpan yang dirender (default: yang pertama).
+    #[arg(long)]
+    drawing: Option<String>,
+    /// Potongan `LABEL:INDUK:SUMBU:OFFSET[:flip]`, mis. `A:top:x:0`. Boleh
+    /// diulang; menggantikan potongan lembar tersimpan.
+    #[arg(long = "section", value_parser = parse_section)]
+    sections: Vec<SectionSpec>,
+    /// Render berbayang dipisah koma: iso,iso_back.
+    #[arg(long, value_delimiter = ',', value_parser = parse_shaded)]
+    shaded: Vec<ShadedSpec>,
+    /// Skala lembar: auto | 1:2 | 0.5.
+    #[arg(long, value_parser = parse_sheet_scale)]
+    scale: Option<ScaleSpec>,
     #[arg(long)]
     title: Option<String>,
     #[arg(long)]
@@ -68,6 +83,37 @@ fn parse_paper(s: &str) -> Result<PaperSize, String> {
         "a2" => Err("kertas A2 belum didukung ducad-io (pakai a4 atau a3)".into()),
         other => Err(format!("kertas '{other}' tidak dikenal (a4|a3)")),
     }
+}
+
+fn parse_section(s: &str) -> Result<SectionSpec, String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if !(4..=5).contains(&parts.len()) {
+        return Err(format!(
+            "potongan '{s}' harus LABEL:INDUK:SUMBU:OFFSET[:flip], mis. A:top:x:0"
+        ));
+    }
+    let json = serde_json::json!({
+        "label": parts[0],
+        "parent": parts[1].to_ascii_lowercase(),
+        "axis": parts[2].to_ascii_lowercase(),
+        "offset": parts[3].parse::<f32>().map_err(|_| format!("offset '{}' bukan angka", parts[3]))?,
+        "flip": match parts.get(4).map(|f| f.to_ascii_lowercase()) {
+            None => false,
+            Some(f) if f == "flip" => true,
+            Some(f) => return Err(format!("akhiran '{f}' tidak dikenal (hanya 'flip')")),
+        },
+    });
+    serde_json::from_value(json).map_err(|e| format!("potongan '{s}' tidak valid: {e}"))
+}
+
+fn parse_shaded(s: &str) -> Result<ShadedSpec, String> {
+    serde_json::from_value(serde_json::Value::String(s.to_ascii_lowercase()))
+        .map_err(|_| format!("render '{s}' tidak dikenal (iso|iso_back)"))
+}
+
+fn parse_sheet_scale(s: &str) -> Result<ScaleSpec, String> {
+    serde_json::from_value(serde_json::Value::String(s.to_string()))
+        .map_err(|_| format!("skala '{s}' tidak valid (auto|1:2|0.5)"))
 }
 
 fn parse_date(s: &str) -> Result<String, String> {
@@ -436,6 +482,9 @@ fn load(input: &Path) -> Result<Loaded, CliError> {
     if !file.checks.is_empty() {
         s.set_checks(file.checks);
     }
+    if !file.drawings.is_empty() {
+        s.set_drawings(file.drawings);
+    }
     let report = s.run(file.ops, false);
     if let Some(e) = report.error {
         return Ok((Err(e), "ops"));
@@ -494,6 +543,10 @@ fn exec_all_configs(a: Args) -> CliResult {
             out: out.clone(),
             formats: a.formats.clone(),
             paper: a.paper,
+            drawing: a.drawing.clone(),
+            sections: a.sections.clone(),
+            shaded: a.shaded.clone(),
+            scale: a.scale,
             title: a.title.clone(),
             part_number: a.part_number.clone(),
             author: a.author.clone(),
@@ -744,16 +797,53 @@ pub fn exec(a: Args) -> CliResult {
             .first()
             .map(|(b, _)| material_label(b.material.preset))
             .unwrap_or_default();
-        let info = TitleInfo {
-            title: title.clone(),
-            part_number: a.part_number.clone().unwrap_or_else(|| stem.clone()),
-            author: a.author.clone(),
-            date: date.clone(),
-            material,
-            revision: a.revision.clone(),
+        // Lembar tersimpan (`design.drawings`) menjadi dasar; flag CLI menimpa.
+        let stored = match &a.drawing {
+            Some(name) => Some(s.design().drawing(name).cloned().ok_or_else(|| {
+                CliError::usage(format!(
+                    "lembar gambar '{name}' tidak ada di part (tersedia: {:?})",
+                    s.design().drawings.iter().map(|d| d.name.as_str()).collect::<Vec<_>>()
+                ))
+            })?),
+            None => s.design().drawings.first().cloned(),
         };
-        let notes = hole_notes(s.design(), &s.design().effective_params());
-        let sheet = auto_sheet_model(s.model(), a.paper, &info, &notes)?;
+        let from_store = stored.is_some();
+        let mut spec = stored.unwrap_or_default();
+        if let Some(paper) = a.paper {
+            spec.paper = paper;
+        }
+        if !from_store || a.title.is_some() || spec.title.title.is_empty() {
+            spec.title.title = title.clone();
+        }
+        if a.part_number.is_some() || spec.title.part_number.is_empty() {
+            spec.title.part_number = a.part_number.clone().unwrap_or_else(|| stem.clone());
+        }
+        if !a.author.is_empty() || !from_store {
+            spec.title.author = a.author.clone();
+        }
+        // Tanggal selalu dari build (SOURCE_DATE_EPOCH) supaya deterministik.
+        spec.title.date = date.clone();
+        if spec.title.material.is_empty() {
+            spec.title.material = material;
+        }
+        if !from_store || spec.title.revision.is_empty() {
+            spec.title.revision = a.revision.clone();
+        }
+        if !from_store {
+            spec.notes = hole_notes(s.design(), &s.design().effective_params());
+        }
+        if !a.sections.is_empty() {
+            spec.sections = Some(a.sections.clone());
+        }
+        if !a.shaded.is_empty() {
+            spec.shaded = a.shaded.clone();
+        }
+        if let Some(scale) = a.scale {
+            spec.scale = scale;
+        }
+        let output = build_sheet(s.model(), &spec, Some(&s.design().fingerprint))?;
+        report.warnings.extend(output.warnings.iter().cloned());
+        let sheet = output.sheet;
         let draw_err = |p: &Path, e: anyhow::Error| io_err(p, format!("{e:#}"));
         if has("pdf") {
             let p = a.out.join(format!("{stem}-drawing.pdf"));

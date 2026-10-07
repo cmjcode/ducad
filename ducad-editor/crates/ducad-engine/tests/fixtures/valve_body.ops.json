@@ -1,0 +1,65 @@
+{ "params": { "bore_d": 42, "body_d": 98, "flange_d": 146, "flange_t": 16, "pcd": 130, "bolt_d": 14,
+              "length": 166, "top_h": 88, "cbore_d": 60, "cbore_depth": 25, "oval_len": 166,
+              "top_bolt_d": 11, "top_bolt_x": 25, "top_bolt_y": 60, "c_bore": 5, "c_top": 2, "fillet_r": 5 },
+  "ops": [
+    {"op":"sketch","id":"run_sk","plane":"XZ","entities":[
+      {"polyline":{"closed":true,"name":"run","points":[
+        ["-$length/2",0],["-$length/2","$flange_d/2"],["-$length/2+$flange_t","$flange_d/2"],
+        ["-$length/2+$flange_t","$body_d/2"],["$length/2-$flange_t","$body_d/2"],
+        ["$length/2-$flange_t","$flange_d/2"],["$length/2","$flange_d/2"],["$length/2",0]]}}]},
+    {"op":"revolve","id":"body","sketch":"run_sk","axis":"u"},
+    {"op":"primitive","id":"branch","shape":{"cylinder":{"r":"$body_d/2","h":"$top_h"}}},
+    {"op":"boolean","id":"valve","kind":"union","a":"body","b":"branch"},
+    {"op":"sketch","id":"oval_sk","plane":{"base":"XY","offset":"$top_h-$flange_t"},"entities":[
+      {"slot":{"from":[0,"-($oval_len-$body_d)/2"],"to":[0,"($oval_len-$body_d)/2"],"r":"$body_d/2","name":"oval"}}]},
+    {"op":"extrude","id":"top_flange","sketch":"oval_sk","distance":"$flange_t","mode":"add","target":"valve"},
+    {"op":"fillet","id":"neck_fillet","body":"valve","radius":"$fillet_r",
+     "edges":"all[kind=circle][r=49][x=67] or all[kind=circle][r=49][x=-67]"},
+    {"op":"sketch","id":"run_bore_sk","plane":"XZ","entities":[
+      {"polyline":{"closed":true,"name":"run_bore","points":[
+        ["-$length/2-1",0],["-$length/2-1","$bore_d/2+$c_bore+1"],["-$length/2+$c_bore","$bore_d/2"],
+        ["$length/2-$c_bore","$bore_d/2"],["$length/2+1","$bore_d/2+$c_bore+1"],["$length/2+1",0]]}}]},
+    {"op":"revolve","id":"run_bore","sketch":"run_bore_sk","axis":"u","mode":"cut","target":"valve"},
+    {"op":"sketch","id":"top_bore_sk","plane":"XZ","entities":[
+      {"polyline":{"closed":true,"name":"top_bore","points":[
+        [0,0],["$bore_d/2",0],["$bore_d/2","$top_h-$cbore_depth"],["$cbore_d/2","$top_h-$cbore_depth"],
+        ["$cbore_d/2","$top_h-$c_top"],["$cbore_d/2+$c_top+1","$top_h+1"],[0,"$top_h+1"]]}}]},
+    {"op":"revolve","id":"top_bore","sketch":"top_bore_sk","axis":"v","mode":"cut","target":"valve"},
+    {"op":"hole","id":"bolts_right","body":"valve","face":">X",
+     "at_world":[["$length/2","$pcd*0.35355339","$pcd*0.35355339"],["$length/2","-$pcd*0.35355339","$pcd*0.35355339"],
+                 ["$length/2","-$pcd*0.35355339","-$pcd*0.35355339"],["$length/2","$pcd*0.35355339","-$pcd*0.35355339"]],
+     "spec":{"diameter":"$bolt_d","depth":"$flange_t"}},
+    {"op":"hole","id":"bolts_left","body":"valve","face":"<X",
+     "at_world":[["-$length/2","$pcd*0.35355339","$pcd*0.35355339"],["-$length/2","-$pcd*0.35355339","$pcd*0.35355339"],
+                 ["-$length/2","-$pcd*0.35355339","-$pcd*0.35355339"],["-$length/2","$pcd*0.35355339","-$pcd*0.35355339"]],
+     "spec":{"diameter":"$bolt_d","depth":"$flange_t"}},
+    {"op":"hole","id":"bolts_top","body":"valve","face":">Z",
+     "at_world":[["$top_bolt_x","$top_bolt_y","$top_h"],["-$top_bolt_x","$top_bolt_y","$top_h"],
+                 ["-$top_bolt_x","-$top_bolt_y","$top_h"],["$top_bolt_x","-$top_bolt_y","$top_h"]],
+     "spec":{"diameter":"$top_bolt_d","depth":"$flange_t"}},
+    {"op":"set_material","id":"mat","body":"valve","material":{"custom":{
+      "density_g_cm3":7.98,"young_modulus_gpa":193,"poisson_ratio":0.27,
+      "yield_strength_mpa":170,"ultimate_strength_mpa":485}}}
+  ],
+  "checks": [
+    {"id":"one_body","check":"body_count","expect":1},
+    {"id":"envelope","check":"bbox_size","body":"valve","expect":[166,166,161],"tol":0.1},
+    {"id":"flange_bolt_axes","check":"hole_count","body":"valve","diameter":14,"expect":4},
+    {"id":"wall","check":"min_wall","body":"valve","min":0.9},
+    {"id":"vol","check":"volume","body":"valve","expect":1613551.5,"tol_pct":0.5}
+  ],
+  "drawings": [
+    { "name": "sheet1", "paper": "A3Landscape", "scale": "1:2",
+      "title": { "title": "Valve Body", "part_number": "VB-001", "material": "AISI 316L", "revision": "A" },
+      "notes": ["ALL DIMENSIONS ARE IN MILLIMETERS.",
+                "CORNER RADIUS ARE 5 mm UNLESS OTHERWISE SPECIFIED.",
+                "DRAWING SCALE 1:2."],
+      "sections": [
+        { "label": "A", "parent": "top", "path": [[0, -95], [0, 28], [75, 28], [75, 95]] },
+        { "label": "B", "parent": "top", "path": [[-95, 0], [95, 0]] }
+      ],
+      "views": { "right": { "visible": false }, "isometric": { "visible": false }, "section_b": { "scale": 0.5 } },
+      "shaded": ["iso", { "camera": { "custom": { "yaw": 135, "pitch": -25 } }, "px_per_mm": 8 }],
+      "dimensions": "auto",
+      "hidden_lines": false }
+  ] }

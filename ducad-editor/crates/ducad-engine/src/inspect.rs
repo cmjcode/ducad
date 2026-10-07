@@ -36,6 +36,18 @@ pub struct Summary {
     /// Konfigurasi varian selain "Default" (P19).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub configurations: Vec<ConfigurationReport>,
+    /// Lembar gambar tersimpan (P21.6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<DrawingReport>,
+}
+
+/// Satu lembar gambar tersimpan di ringkasan.
+#[derive(Debug, Clone, Serialize)]
+pub struct DrawingReport {
+    #[serde(flatten)]
+    pub summary: crate::drawing_auto::DrawingSummary,
+    /// Geometri berubah sejak lembar ini terakhir dirender di sesi ini.
+    pub stale: bool,
 }
 
 /// Satu konfigurasi varian di ringkasan.
@@ -515,6 +527,22 @@ pub(crate) fn summarize_state(
                 suppressed_ops: c.suppressed_ops.clone(),
             })
             .collect(),
+        drawings: {
+            // Sidik jari hanya dihitung bila memang ada lembar yang pernah dirender.
+            let current = (!meta.drawing_rendered.is_empty() && !meta.design.drawings.is_empty())
+                .then(|| crate::session::fingerprint(model));
+            meta.design
+                .drawings
+                .iter()
+                .map(|d| DrawingReport {
+                    summary: crate::drawing_auto::summarize(d),
+                    stale: match (meta.drawing_rendered.get(&d.name), &current) {
+                        (Some(rendered), Some(now)) => rendered != now,
+                        _ => false,
+                    },
+                })
+                .collect()
+        },
         oplog_len: meta.design.oplog.len(),
         warnings: meta.warnings.clone(),
         assembly,

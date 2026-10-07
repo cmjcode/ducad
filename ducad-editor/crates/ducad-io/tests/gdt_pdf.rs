@@ -71,10 +71,12 @@ fn sample_drawing() -> HlrDrawing {
         features: vec![HlrGeometricFeature::Circle {
             center: [w * 0.5, h * 0.5],
             radius: 6.0,
+            edge: None,
         }],
         width_mm: w,
         height_mm: h,
         depth_mm: 20.0,
+        ..ProjectedView::default()
     };
 
     HlrDrawing {
@@ -82,11 +84,11 @@ fn sample_drawing() -> HlrDrawing {
         top: view(ProjectedViewKind::Top, 50.0, 20.0),
         right: view(ProjectedViewKind::Right, 20.0, 30.0),
         isometric: view(ProjectedViewKind::Isometric, 45.0, 40.0),
-        section_a: Some(view(ProjectedViewKind::SectionAA, 50.0, 30.0)),
-        cutting_plane: None,
+        sections: Vec::new(),
         detail_views: Vec::new(),
         model_bbox_min: [0.0, 0.0, 0.0],
         model_bbox_max: [50.0, 20.0, 30.0],
+        warnings: Vec::new(),
     }
 }
 
@@ -100,6 +102,7 @@ fn baseline_sheet() -> DrawingSheet {
         line_pos: [65.0, 52.0],
         is_vertical: false,
         text: "50.00 mm".to_string(),
+        ..Default::default()
     });
     sheet.custom_texts.push(TextAnnotation {
         position: [30.0, 250.0],
@@ -122,10 +125,13 @@ fn baseline_sheet() -> DrawingSheet {
     sheet
 }
 
-/// Hash ekspor `baseline_sheet()` yang direkam SEBELUM field `annotations`
-/// dan kode gambar anotasi ditambahkan (P19).
-const BASELINE_PDF: (u64, usize) = (0x1900_f117_8900_c7f8, 9639);
-const BASELINE_SVG: (u64, usize) = (0xa8bb_c41f_48be_50a7, 15296);
+/// Hash ekspor `baseline_sheet()` TANPA anotasi. Direkam ulang pada P21.0:
+/// lembar kini digambar lewat display-list bersama (`drawing::scene`),
+/// operator `arc` yang tak sah di PDF diganti kurva Bézier, dan SVG tidak
+/// lagi tercermin sumbu-Y. Yang dijaga tes ini tetap sama: menambah anotasi
+/// tidak boleh mengubah satu byte pun dari lembar tanpa anotasi.
+const BASELINE_PDF: (u64, usize) = (0xb4a7_0fc8_8a66_ee23, 11174);
+const BASELINE_SVG: (u64, usize) = (0xde5b_5eaf_aab1_3e60, 18902);
 
 const MM_TO_PT: f32 = 72.0 / 25.4;
 
@@ -493,10 +499,11 @@ fn gdt_pdf_all_annotation_kinds_render_in_pdf_and_svg() {
     );
     assert!(group.trim_end().ends_with("</g>\n</svg>"));
     assert!(!plain_svg.contains("id=\"annotations\""));
-    // Jangkar bingkai (100, 200): di SVG lembar ini Y kertas dipakai langsung,
-    // offset lokal dibalik (tinggi 7 mm -> y = 193).
-    assert!(group.contains("M 100.000 200.000 L "));
-    assert!(group.contains(" 193.000 Z"));
+    // Jangkar bingkai (100, 200) mm dari pojok kiri-BAWAH kertas A3 (tinggi
+    // 297): di SVG y = 297 − 200 = 97, dan tinggi bingkai 7 mm -> y = 90.
+    // Sebelum P21.0 SVG lembar tercermin sumbu-Y terhadap PDF.
+    assert!(group.contains("M 100.000 97.000 L "));
+    assert!(group.contains(" 90.000 Z"));
 }
 
 #[test]

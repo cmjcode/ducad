@@ -69,6 +69,48 @@ pub struct DesignDiff {
     pub ops: Vec<OpChange>,
     pub bodies: Vec<BodyDiff>,
     pub warnings: Vec<String>,
+    /// Perubahan lembar gambar tersimpan (P21.6): jumlah/label saja.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<DrawingChange>,
+}
+
+/// Perubahan satu lembar gambar: `added`, `removed`, atau `changed`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct DrawingChange {
+    pub name: String,
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old: Option<crate::drawing_auto::DrawingSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new: Option<crate::drawing_auto::DrawingSummary>,
+}
+
+fn diff_drawings(a: &crate::session::DesignDoc, b: &crate::session::DesignDoc) -> Vec<DrawingChange> {
+    let names: BTreeSet<&String> = a
+        .drawings
+        .iter()
+        .chain(b.drawings.iter())
+        .map(|d| &d.name)
+        .collect();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let old = a.drawing(name).map(crate::drawing_auto::summarize);
+            let new = b.drawing(name).map(crate::drawing_auto::summarize);
+            let status = match (&old, &new) {
+                (None, Some(_)) => "added",
+                (Some(_), None) => "removed",
+                (Some(x), Some(y)) if x != y => "changed",
+                _ => return None,
+            };
+            Some(DrawingChange {
+                name: name.clone(),
+                status,
+                old,
+                new,
+            })
+        })
+        .collect()
 }
 
 impl DesignDiff {
@@ -77,6 +119,7 @@ impl DesignDiff {
         self.params.is_empty()
             && self.ops.is_empty()
             && self.bodies.iter().all(|b| b.status == "unchanged")
+            && self.drawings.is_empty()
     }
 }
 
@@ -356,6 +399,7 @@ pub fn diff(a: &Session, b: &Session, geometric: bool) -> (DesignDiff, DiffShape
             ops,
             bodies,
             warnings,
+            drawings: diff_drawings(da, db),
         },
         shapes,
     )

@@ -1858,7 +1858,8 @@ fn test_hlr_extract_views_cylinder() {
     let drawing = HlrExtractor::extract_drawing(&[&shape], &[&mesh]);
 
     assert!(!drawing.front.segments.is_empty());
-    assert!(!drawing.top.segments.is_empty());
+    // HLR eksak (P21.3): tutup silinder adalah busur analitik, bukan segmen.
+    assert!(!drawing.top.arcs.is_empty());
 
     let (dim_x, dim_y, dim_z) = drawing.model_dimensions();
     assert!((dim_x - 30.0).abs() < 1.0, "Diameter silinder X ~30mm");
@@ -2185,7 +2186,7 @@ fn test_section_view_brep_slice_and_hatch_generation() {
         ([0.0, 0.0, 0.0], [60.0, 40.0, 30.0]),
     );
 
-    assert_eq!(section_view.kind, ProjectedViewKind::SectionAA);
+    assert_eq!(section_view.kind, ProjectedViewKind::Section('A'));
     assert!(!section_view.segments.is_empty(), "Tampak potongan harus memiliki segmen");
 
     // Periksa adanya garis batas irisan (Visible) dan garis arsir (Hatch)
@@ -3678,4 +3679,298 @@ fn is_valid_on_empty_compound_does_not_abort() {
     let empty = KernelShape::empty();
     // Cukup: pemanggilan selesai tanpa SIGABRT.
     let _ = empty.is_valid();
+}
+
+// ---------------------------------------------------------------------------
+// P21: HLR eksak untuk lembar gambar + multi-section
+// ---------------------------------------------------------------------------
+
+fn p21_box(min: (f64, f64, f64), max: (f64, f64, f64)) -> crate::shape::KernelShape {
+    crate::shape::KernelShape::from_inner(opencascade::primitives::Shape::box_from_corners(
+        glam::dvec3(min.0, min.1, min.2),
+        glam::dvec3(max.0, max.1, max.2),
+    ))
+}
+
+fn p21_cyl(p: (f64, f64, f64), dir: (f64, f64, f64), r: f64, h: f64) -> crate::shape::KernelShape {
+    crate::shape::KernelShape::from_inner(opencascade::primitives::Shape::cylinder(
+        glam::dvec3(p.0, p.1, p.2),
+        r,
+        glam::dvec3(dir.0, dir.1, dir.2),
+        h,
+    ))
+}
+
+fn p21_drawing(
+    shapes: &[&crate::shape::KernelShape],
+    sections: Vec<crate::section::SectionRequest>,
+) -> HlrDrawing {
+    let meshes: Vec<KernelMesh> = shapes.iter().map(|s| s.tessellate()).collect();
+    let mesh_refs: Vec<&KernelMesh> = meshes.iter().collect();
+    HlrExtractor::extract_drawing_with(
+        shapes,
+        &mesh_refs,
+        &[],
+        &crate::hlr::DrawingOptions {
+            sections,
+            default_section: false,
+            exact: true,
+        },
+    )
+}
+
+#[test]
+fn exact_sheet_view_matches_projection_convention() {
+    // Balok x∈[0,10], y∈[0,20], z∈[0,30] + lubang buta Ø3 di muka y=0
+    // (menghadap kamera Tampak Depan). Lubang harus TAMPAK di Depan, dan
+    // koordinat gambar = (x, z).
+    let _guard = lock_test();
+    let solid = crate::csg::subtract(
+        &p21_box((0.0, 0.0, 0.0), (10.0, 20.0, 30.0)),
+        &p21_cyl((3.0, -1.0, 22.0), (0.0, 1.0, 0.0), 1.5, 5.0),
+    )
+    .unwrap();
+    let drawing = p21_drawing(&[&solid], Vec::new());
+    assert!(drawing.warnings.is_empty(), "{:?}", drawing.warnings);
+
+    let front = &drawing.front;
+    assert!(front.exact);
+    assert!((front.bounds_min[0] - 0.0).abs() < 1e-3 && (front.bounds_max[0] - 10.0).abs() < 1e-3);
+    assert!((front.bounds_min[1] - 0.0).abs() < 1e-3 && (front.bounds_max[1] - 30.0).abs() < 1e-3);
+    let hole = front
+        .arcs
+        .iter()
+        .find(|a| a.kind == HlrLineKind::Visible && a.is_full())
+        .expect("lubang di muka depan harus tampak sebagai lingkaran penuh");
+    assert!((hole.center[0] - 3.0).abs() < 1e-3 && (hole.center[1] - 22.0).abs() < 1e-3);
+    assert!((hole.radius - 1.5).abs() < 1e-3);
+    assert!(hole.edge.is_some(), "busur harus merujuk edge topologi asal");
+
+    // Tampak Kanan memandang −X: sumbu gambar (y, z); lubang tersembunyi di sana.
+    let right = &drawing.right;
+    assert!((right.bounds_max[0] - 20.0).abs() < 1e-3 && (right.bounds_max[1] - 30.0).abs() < 1e-3);
+    assert!(right.segments.iter().any(|s| s.kind == HlrLineKind::Hidden));
+    // Setiap segmen lurus tepi balok punya rujukan edge.
+    assert_eq!(front.edge_refs.len(), front.segments.len());
+    assert!(front.edge_refs.iter().any(|e| e.is_some()));
+}
+
+#[test]
+fn exact_sheet_cylinder_top_is_one_full_arc() {
+    let _guard = lock_test();
+    let cyl = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 10.0,
+        },
+        30.0,
+    )
+    .unwrap();
+    let mesh = cyl.tessellate();
+    let drawing = p21_drawing(&[&cyl], Vec::new());
+    let top = &drawing.top;
+    let visible_full: Vec<_> = top
+        .arcs
+        .iter()
+        .filter(|a| a.kind != HlrLineKind::Hidden && a.is_full())
+        .collect();
+    assert_eq!(visible_full.len(), 1, "tepat satu lingkaran penuh tampak: {:?}", top.arcs);
+    assert!((visible_full[0].radius - 10.0).abs() < 1e-3);
+    assert!(
+        top.segments.iter().all(|s| s.kind == HlrLineKind::Hidden) || top.segments.is_empty(),
+        "tidak boleh ada poligon pengganti lingkaran: {} segmen",
+        top.segments.len()
+    );
+    let mesh_top = HlrExtractor::extract_view(
+        &[&cyl],
+        &mesh,
+        &[],
+        ProjectedViewKind::Top,
+        (drawing.model_bbox_min, drawing.model_bbox_max),
+    );
+    assert!(top.segments.len() < mesh_top.segments.len());
+    // Fitur lingkaran Ø20 + tanda pusat.
+    assert!(top.features.iter().any(|f| matches!(
+        f,
+        HlrGeometricFeature::Circle { radius, .. } if (radius - 10.0).abs() < 1e-3
+    )));
+    assert_eq!(top.centerlines.len(), 2);
+    // Dari depan: sisi silinder + sumbu.
+    assert!(drawing.front.features.iter().any(|f| matches!(
+        f,
+        HlrGeometricFeature::CylinderSide { radius, visible: true, .. } if (radius - 10.0).abs() < 1e-3
+    )));
+}
+
+#[test]
+fn section_plane_offset_changes_cut_analytically() {
+    // Balok 60×40×30 berlubang tembus Ø10 sepanjang Z di tengah.
+    let _guard = lock_test();
+    let solid = crate::csg::subtract(
+        &p21_box((0.0, 0.0, 0.0), (60.0, 40.0, 30.0)),
+        &p21_cyl((30.0, 20.0, -1.0), (0.0, 0.0, 1.0), 5.0, 32.0),
+    )
+    .unwrap();
+    let bbox = ([0.0, 0.0, 0.0], [60.0, 40.0, 30.0]);
+    let through = crate::section::SectionRequest::from_axis("A", crate::section::SectionAxis::Y, 0.0, false, bbox);
+    let beside = crate::section::SectionRequest::from_axis("B", crate::section::SectionAxis::Y, 10.0, false, bbox);
+    let drawing = p21_drawing(&[&solid], vec![through, beside]);
+    assert!(drawing.warnings.is_empty(), "{:?}", drawing.warnings);
+    assert_eq!(drawing.sections.len(), 2);
+
+    let a = drawing.section('A').unwrap();
+    let b = drawing.section('B').unwrap();
+    // Melalui lubang: dua persegi 25×30. Di samping lubang: satu persegi 60×30.
+    assert!((a.cut_area_mm2 - 1500.0).abs() < 0.5, "luas A = {}", a.cut_area_mm2);
+    assert!((b.cut_area_mm2 - 1800.0).abs() < 0.5, "luas B = {}", b.cut_area_mm2);
+    assert!((a.cut_length_mm - 220.0).abs() < 0.5, "keliling A = {}", a.cut_length_mm);
+    assert!((b.cut_length_mm - 180.0).abs() < 0.5, "keliling B = {}", b.cut_length_mm);
+    assert!(a.view.segments.iter().any(|s| s.kind == HlrLineKind::Hatch));
+    assert_eq!(a.view.kind, ProjectedViewKind::Section('A'));
+    assert_eq!(a.parent, ProjectedViewKind::Top);
+    // Garis potong mendatar di Tampak Atas pada y = 20 dan y = 30, panah ke +Y.
+    assert!((a.cutting_line.start[1] - 20.0).abs() < 1e-3);
+    assert!((b.cutting_line.start[1] - 30.0).abs() < 1e-3);
+    assert!((a.cutting_line.arrow_dir[1] - 1.0).abs() < 1e-4);
+    // Lubang terbelah tampak sebagai sisi silinder Ø10 di A, tidak di B.
+    let has_bore = |v: &ProjectedView| {
+        v.features.iter().any(|f| matches!(
+            f,
+            HlrGeometricFeature::CylinderSide { radius, visible: true, .. } if (radius - 5.0).abs() < 1e-3
+        ))
+    };
+    assert!(has_bore(&a.view));
+    assert!(!has_bore(&b.view));
+
+    // Bidang di luar body → peringatan DRAWING_SECTION_EMPTY.
+    let outside = crate::section::SectionRequest::from_axis("C", crate::section::SectionAxis::Y, 100.0, false, bbox);
+    let empty = p21_drawing(&[&solid], vec![outside]);
+    assert!(empty.warnings.iter().any(|w| w.starts_with("DRAWING_SECTION_EMPTY")));
+}
+
+#[test]
+fn stepped_section_shows_both_offset_holes() {
+    // Dua lubang buta sepanjang Y pada kedalaman berbeda; hanya potongan
+    // bertingkat yang memotong keduanya sekaligus.
+    let _guard = lock_test();
+    let block = p21_box((0.0, 0.0, 0.0), (80.0, 40.0, 30.0));
+    let with_h1 = crate::csg::subtract(&block, &p21_cyl((20.0, -1.0, 15.0), (0.0, 1.0, 0.0), 4.0, 16.0)).unwrap();
+    let solid = crate::csg::subtract(&with_h1, &p21_cyl((60.0, 25.0, 15.0), (0.0, 1.0, 0.0), 4.0, 16.0)).unwrap();
+
+    let stepped = crate::section::SectionRequest::from_path(
+        "A",
+        crate::section::SectionPath {
+            points: vec![[-5.0, 10.0], [40.0, 10.0], [40.0, 30.0], [85.0, 30.0]],
+            parent: ProjectedViewKind::Top,
+        },
+    );
+    let straight = crate::section::SectionRequest::through_points("B", [-5.0, 10.0], [85.0, 10.0], ProjectedViewKind::Top);
+    let drawing = p21_drawing(&[&solid], vec![stepped, straight]);
+    assert!(drawing.warnings.is_empty(), "{:?}", drawing.warnings);
+
+    let centers = |v: &ProjectedView| {
+        let mut c: Vec<i32> = v
+            .arcs
+            .iter()
+            .filter(|a| a.is_full() && (a.radius - 4.0).abs() < 1e-3)
+            .map(|a| a.center[0].round() as i32)
+            .collect();
+        c.sort();
+        c.dedup();
+        c
+    };
+    let a = drawing.section('A').unwrap();
+    let b = drawing.section('B').unwrap();
+    assert_eq!(centers(&a.view), vec![20, 60], "potongan bertingkat memotong dua lubang");
+    assert_eq!(centers(&b.view), vec![20], "potongan lurus hanya memotong satu");
+    // Garis potong bersiku: 4 titik, ujungnya dilebihkan melewati part.
+    assert_eq!(a.cutting_line.polyline().len(), 4);
+    assert!(a.cutting_line.start[0] <= -8.0 && a.cutting_line.end[0] >= 88.0);
+    // Siku tidak digambar sebagai garis tegak di x = 40.
+    assert!(!a.view.segments.iter().any(|s| {
+        s.kind == HlrLineKind::Visible && (s.start[0] - 40.0).abs() < 1e-2 && (s.end[0] - 40.0).abs() < 1e-2
+    }));
+
+    // Ruas miring ditolak.
+    let bad = crate::section::SectionRequest::from_path(
+        "C",
+        crate::section::SectionPath {
+            points: vec![[0.0, 0.0], [40.0, 0.0], [60.0, 20.0]],
+            parent: ProjectedViewKind::Top,
+        },
+    );
+    let drawing = p21_drawing(&[&solid], vec![bad]);
+    assert!(drawing.sections.is_empty());
+    assert!(drawing.warnings.iter().any(|w| w.starts_with("DRAWING_SECTION_PATH")));
+}
+
+#[test]
+fn section_hatch_alternates_between_touching_bodies() {
+    let _guard = lock_test();
+    let left = p21_box((0.0, 0.0, 0.0), (20.0, 20.0, 20.0));
+    let right = p21_box((20.0, 0.0, 0.0), (40.0, 20.0, 20.0));
+    let bbox = ([0.0, 0.0, 0.0], [40.0, 20.0, 20.0]);
+    let req = crate::section::SectionRequest::from_axis("A", crate::section::SectionAxis::Y, 0.0, false, bbox);
+    let drawing = p21_drawing(&[&left, &right], vec![req]);
+    let view = &drawing.section('A').unwrap().view;
+    let slope_sign = |s: &HlrSegment2D| ((s.end[0] - s.start[0]) * (s.end[1] - s.start[1])).signum();
+    let left_signs: Vec<f32> = view
+        .segments
+        .iter()
+        .filter(|s| s.kind == HlrLineKind::Hatch && s.start[0].max(s.end[0]) <= 20.01)
+        .map(slope_sign)
+        .collect();
+    let right_signs: Vec<f32> = view
+        .segments
+        .iter()
+        .filter(|s| s.kind == HlrLineKind::Hatch && s.start[0].min(s.end[0]) >= 19.99)
+        .map(slope_sign)
+        .collect();
+    assert!(!left_signs.is_empty() && !right_signs.is_empty());
+    assert!(left_signs.iter().all(|s| *s > 0.0), "body kiri diarsir 45°");
+    assert!(right_signs.iter().all(|s| *s < 0.0), "body kanan diarsir 135°");
+}
+
+#[test]
+fn exact_sheet_detects_chamfer_and_fillet_in_section() {
+    // Poros Ø40 × 30 dengan chamfer 2×45° di tepi atas dan lubang Ø10.
+    let _guard = lock_test();
+    let shaft = extrude_profile(
+        &Profile::Circle {
+            center: (0.0, 0.0),
+            radius: 20.0,
+        },
+        30.0,
+    )
+    .unwrap();
+    let edges = crate::topo::enumerate_edges(&shaft);
+    let top_circle = edges
+        .iter()
+        .find(|e| e.kind == crate::topo::EdgeKind::Circle && e.mid[2] > 29.0)
+        .expect("tepi lingkaran atas")
+        .index;
+    let chamfered = crate::modify::chamfer_edges_by_index(&shaft, 2.0, &[top_circle]).unwrap();
+    let drawing = p21_drawing(&[&chamfered], Vec::new());
+    let chamfer = drawing
+        .front
+        .features
+        .iter()
+        .find_map(|f| match f {
+            HlrGeometricFeature::Chamfer { length, angle_deg, .. } => Some((*length, *angle_deg)),
+            _ => None,
+        })
+        .expect("chamfer harus terdeteksi di Tampak Depan");
+    assert!((chamfer.0 - 2.0).abs() < 1e-2 && (chamfer.1 - 45.0).abs() < 0.1, "{chamfer:?}");
+    // Di Tampak Atas chamfer tampak sebagai dua lingkaran konsentris Ø40 dan Ø36.
+    let mut radii: Vec<i32> = drawing
+        .top
+        .features
+        .iter()
+        .filter_map(|f| match f {
+            HlrGeometricFeature::Circle { radius, .. } => Some(radius.round() as i32),
+            _ => None,
+        })
+        .collect();
+    radii.sort();
+    assert_eq!(radii, vec![18, 20]);
 }

@@ -1843,11 +1843,13 @@ name = "ducad-io"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "ducad-core",
  "ducad-ink",
  "ducad-kernel",
  "ducad-sketch",
  "glam",
+ "miniz_oxide",
  "proptest",
  "serde",
  "serde_json",

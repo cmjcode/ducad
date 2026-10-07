@@ -64,6 +64,9 @@ pub fn exec(a: Args) -> CliResult {
     if !file.checks.is_empty() {
         session.set_checks(file.checks);
     }
+    if !file.drawings.is_empty() {
+        session.set_drawings(file.drawings);
+    }
     let mut report = session.run(file.ops, a.dry_run);
     if report.committed {
         // Varian dari berkas ops dipasang setelah op-nya ada di oplog.
