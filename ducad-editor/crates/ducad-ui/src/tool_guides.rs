@@ -18,15 +18,14 @@ use crate::theme::{
 pub struct ToolGuides;
 
 impl ToolGuides {
-    /// Jarak kartu panduan dari tepi kiri & bawah kanvas (sama dengan pill status
-    /// di `CanvasHud::show_status_pill`, sehingga garis bawahnya sejajar).
+    /// Jarak kartu panduan dari tepi kiri & bawah kanvas.
     pub const CORNER_MARGIN: f32 = 16.0;
 
     fn card_rect_id() -> egui::Id {
         egui::Id::new("ducad-tool-guide-card-rect")
     }
 
-    /// Simpan rect kartu beserta nomor frame, agar widget HUD lain (pill status)
+    /// Simpan rect kartu beserta nomor frame, agar widget HUD lain
     /// yang dirender setelahnya dalam frame yang sama bisa menghindari kartu.
     fn publish_card_rect(ctx: &egui::Context, rect: Rect) {
         let frame = ctx.cumulative_frame_nr();
@@ -59,7 +58,7 @@ impl ToolGuides {
 
         ui.ctx().request_repaint();
 
-        // Posisi kartu: tepat di pojok kiri bawah kanvas (pill status bergeser ke kanannya).
+        // Posisi kartu: tepat di pojok kiri bawah kanvas.
         let card_width = 310.0;
         let card_height = 148.0;
         let margin_bottom = Self::CORNER_MARGIN;
@@ -152,7 +151,7 @@ impl ToolGuides {
 
         let card_width = 320.0;
         let card_height = 152.0;
-        // Tepat di pojok kiri bawah; pill status bergeser ke kanan kartu.
+        // Tepat di pojok kiri bawah.
         let margin_bottom = Self::CORNER_MARGIN;
         let margin_left = Self::CORNER_MARGIN;
 
@@ -3196,7 +3195,7 @@ mod tests {
     use super::*;
 
     /// Rect kartu hanya berlaku pada frame ia dirender; frame berikutnya tanpa
-    /// kartu harus mengembalikan `None` agar pill status kembali ke pojok.
+    /// kartu harus mengembalikan `None` agar widget lain tidak menghindari kartu basi.
     #[test]
     fn card_rect_only_visible_in_same_frame() {
         let ctx = egui::Context::default();

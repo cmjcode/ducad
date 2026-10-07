@@ -26,7 +26,8 @@ Arah panah = "bergantung pada".
 - `ducad-render` — renderer wgpu viewport. → core
 - `ducad-glass` — material Liquid Glass untuk panel: `GlassFrame` (pengganti `egui::Frame`), `GlassBackdrop` (scene offscreen + blur + shader lensa), preset material. Hanya egui/egui_wgpu (dijaga tes `glass_has_no_app_or_ui_dependency`). Lihat `docs/adr/0006-liquid-glass.md`.
 - `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun. (`ducad-ui` → glass)
-- `ducad-app` — GUI (binary `ducad`); operasi modeling = adapter tipis di atas `ducad_engine::compute`. → semua di atas
+- `ducad-app` — GUI (lib + binary `ducad`); operasi modeling = adapter tipis di atas `ducad_engine::compute`. Keputusan "ini tablet" dan jalur data per platform hanya lewat `platform.rs`; perilaku tablet (autosave, picker asinkron, Pencil) di `mobile.rs`; UIKit di `apple_ios.rs`. → semua di atas
+- `ducad-android` — `cdylib` `android_main` (GameActivity) di atas `ducad-app`; kosong di platform lain. Proyek Gradle di `android/`. Lihat `docs/TABLET.md`.
 
 Aturan: **`ducad-engine` tidak boleh bergantung pada egui/eframe/wgpu/
 ducad-render/ducad-ui/rfd** (dijaga tes `engine_has_no_gui_dependency`).

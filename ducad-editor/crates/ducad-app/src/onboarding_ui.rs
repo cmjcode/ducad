@@ -28,18 +28,9 @@ pub struct OnboardingPrefs {
 }
 
 impl OnboardingPrefs {
-    #[cfg(target_os = "ios")]
+    /// `<data_dir>/onboarding.json` (lihat `platform::data_dir`).
     pub fn default_path() -> PathBuf {
-        crate::file_io::ios_documents_dir().join("onboarding.json")
-    }
-
-    /// `$HOME/.ducad/onboarding.json`.
-    #[cfg(not(target_os = "ios"))]
-    pub fn default_path() -> PathBuf {
-        match std::env::var_os("HOME") {
-            Some(h) => PathBuf::from(h).join(".ducad").join("onboarding.json"),
-            None => PathBuf::from("onboarding.json"),
-        }
+        crate::platform::data_dir().join("onboarding.json")
     }
 
     /// Berkas tidak ada = pertama kali dibuka. Berkas rusak diperlakukan sama

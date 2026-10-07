@@ -120,18 +120,10 @@ impl HistoryDb {
         self.branch.clone()
     }
 
-    #[cfg(target_os = "ios")]
+    /// `<data_dir>/ducad_history.db` (desktop `$HOME/.ducad`, tablet di
+    /// dalam sandbox aplikasi; lihat `platform::data_dir`).
     pub(crate) fn resolve_db_path() -> PathBuf {
-        crate::file_io::ios_documents_dir().join("ducad_history.db")
-    }
-
-    #[cfg(not(target_os = "ios"))]
-    pub(crate) fn resolve_db_path() -> PathBuf {
-        if let Some(home) = std::env::var_os("HOME") {
-            let p = PathBuf::from(home).join(".ducad").join("ducad_history.db");
-            return p;
-        }
-        PathBuf::from("ducad_history.db")
+        crate::platform::data_dir().join("ducad_history.db")
     }
 
     /// Catat aktivitas baru ke SQLite bersama snapshot dokumen JSON, dan batasi maksimal 100 entri terbaru.

@@ -6,7 +6,8 @@
 //! menu utilitas seperti History (riwayat & undo/redo) dan Pengukuran.
 
 use crate::theme::{
-    toolbar_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
+    toolbar_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_SECONDARY,
 };
 use ducad_i18n::t;
 use egui::{Color32, CornerRadius, Frame, Margin, RichText, Stroke, StrokeKind, Ui, Vec2};
@@ -468,6 +469,29 @@ pub fn rail_square_btn(
     subtitle: Option<&str>,
 ) -> egui::Response {
     square_btn(ui, icon, icon_size.clamp(12.0, 18.0), is_active, title, shortcut, subtitle, None, None)
+}
+
+/// Tombol rail yang bisa dinonaktifkan (mis. Undo saat riwayat kosong): ikon
+/// diredupkan dan klik diabaikan, tetapi tooltip tetap tampil agar pengguna
+/// tahu shortcut-nya. Tidak pernah "aktif" (bukan toggle).
+pub fn rail_square_btn_enabled(
+    ui: &mut Ui,
+    icon: &str,
+    icon_size: f32,
+    enabled: bool,
+    title: &str,
+    shortcut: Option<&str>,
+    subtitle: Option<&str>,
+) -> egui::Response {
+    let fg = if enabled { None } else { Some(TEXT_MUTED) };
+    let resp = ui
+        .add_enabled_ui(enabled, |ui| {
+            square_btn(ui, icon, icon_size.clamp(12.0, 18.0), false, title, shortcut, subtitle, None, fg)
+        })
+        .inner;
+    // `on_hover_ui` di dalam `square_btn` tidak tampil saat widget nonaktif,
+    // jadi beri tooltip khusus-nonaktif agar judulnya tetap terbaca.
+    resp.on_disabled_hover_text(title)
 }
 
 /// Helper fungsi untuk menggambar tombol bujur sangkar (square button) dengan tooltip hover yang elegan.

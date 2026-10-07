@@ -1,5 +1,4 @@
 use ducad_core::BodyId;
-use ducad_kernel::SurfaceKind;
 use ducad_render::sketch::TransformGizmoPart;
 use ducad_render::SketchPlane;
 use ducad_sketch::{
@@ -57,26 +56,6 @@ impl DuCADApp {
                 angle
             }
             _ => 0.0,
-        }
-    }
-
-    pub fn format_face_gizmo_dimension_text(
-        &self,
-        surface_kind: SurfaceKind,
-        distance: f64,
-    ) -> String {
-        let formatted = self.unit.format(distance);
-        if matches!(
-            surface_kind,
-            SurfaceKind::Cylinder | SurfaceKind::Cone | SurfaceKind::Sphere
-        ) {
-            if distance >= 0.0 {
-                format!("ΔR +{formatted}")
-            } else {
-                format!("ΔR {formatted}")
-            }
-        } else {
-            formatted
         }
     }
 
@@ -2459,7 +2438,6 @@ impl DuCADApp {
                     hit.pull_dir.1 as f32,
                     hit.pull_dir.2 as f32,
                 );
-                let surface_kind = hit.surface_kind;
                 let z_pos = if self.extruding_face_from_gizmo {
                     self.face_gizmo_distance as f32
                 } else {
@@ -2497,8 +2475,8 @@ impl DuCADApp {
                         handle_resp.drag_delta(),
                     );
                     self.face_gizmo_distance += delta_mm;
-                    self.face_gizmo_edit_input =
-                        Self::format_gizmo_input(self.unit, self.face_gizmo_distance);
+                    self.face_gizmo_edit_input = self.face_gizmo_input_text();
+                    self.refresh_face_cut_preview();
                     ui.ctx().request_repaint();
                 }
 
@@ -2508,10 +2486,7 @@ impl DuCADApp {
                 }
 
                 let pill_pos = handle_2d + egui::vec2(0.0, -32.0);
-                let text = self.format_face_gizmo_dimension_text(
-                    surface_kind,
-                    self.face_gizmo_distance,
-                );
+                let text = self.face_gizmo_dimension_text();
                 let pill_resp = CanvasHud::render_interactive_dimension_pill(
                     ui,
                     pill_pos,
@@ -2521,10 +2496,12 @@ impl DuCADApp {
                 if pill_resp.clicked() && !self.face_gizmo_dimension_editing {
                     self.face_gizmo_dimension_editing = true;
                     self.gizmo_edit_select_all = true;
-                    self.face_gizmo_edit_input = if self.face_gizmo_distance.abs() < 1e-4 {
+                    self.face_gizmo_edit_input = if self.face_gizmo_distance.abs() < 1e-4
+                        && self.face_gizmo_base_dimension().is_none()
+                    {
                         String::new()
                     } else {
-                        Self::format_gizmo_input(self.unit, self.face_gizmo_distance)
+                        self.face_gizmo_input_text()
                     };
                 }
                 if self.face_gizmo_staged {
@@ -2560,17 +2537,12 @@ impl DuCADApp {
                         &mut self.gizmo_edit_select_all,
                     ) {
                         GizmoPopupOutcome::Commit(val) => {
-                            let dist = self.unit.to_internal_mm(val);
-                            // Angka positif mengikuti arah drag saat ini; angka
-                            // negatif eksplisit = potong/cekung.
-                            self.face_gizmo_distance = if dist < 0.0 {
-                                dist
-                            } else if self.face_gizmo_distance < 0.0 {
-                                -dist
-                            } else {
-                                dist
-                            };
-                            self.commit_face_gizmo_extrusion();
+                            // Angka = ukuran hasil (tinggi/radius akhir) bila dasar
+                            // diketahui; lihat `apply_face_gizmo_typed_value`.
+                            match self.apply_face_gizmo_typed_value(val) {
+                                Ok(()) => self.commit_face_gizmo_extrusion(),
+                                Err(msg) => self.model_status = Some(msg),
+                            }
                         }
                         GizmoPopupOutcome::Invalid => {
                             self.model_status = Some("Nilai jarak tidak valid".to_string());

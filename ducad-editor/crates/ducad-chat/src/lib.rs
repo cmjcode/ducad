@@ -14,7 +14,8 @@
 //! agent eksternal lewat MCP melihat tool yang persis sama.
 
 pub mod anthropic;
-#[cfg(not(target_os = "ios"))]
+// Harness CLI agent butuh proses anak + soket: tidak ada di tablet.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub mod cli;
 pub mod config;
 pub mod http;

@@ -1288,15 +1288,12 @@ impl SceneRenderer {
             rpass.draw_indexed(0..self.floor_index_count, 0, 0..1);
         }
 
-        // 2. Gambar Solid CAD Mesh
-        if let Some(mesh) = &self.mesh {
-            rpass.set_pipeline(&self.mesh_pipeline);
-            rpass.set_vertex_buffer(0, mesh.vertex_buf.slice(..));
-            rpass.set_index_buffer(mesh.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-            rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
-        }
-
-        // 2a. Jalur instanced: satu draw call per mesh unik.
+        // 2. Jalur instanced (body polos, opak): satu draw call per mesh unik.
+        //    Digambar SEBELUM mesh gabungan karena mesh gabungan memuat
+        //    preview/ghost tembus pandang (extrude, cut, proposal) yang harus
+        //    di-blend di atas body yang sudah ada; bila urutannya terbalik,
+        //    preview menulis depth lebih dulu dan body di belakangnya
+        //    tertolak depth test — tampak bercak dan bolong.
         if let Some(ibuf) = &self.instance_buf {
             if !self.instance_batches.is_empty() {
                 rpass.set_pipeline(&self.mesh_instanced_pipeline);
@@ -1310,6 +1307,15 @@ impl SceneRenderer {
                     rpass.draw_indexed(0..m.index_count, 0, b.first..b.first + b.count);
                 }
             }
+        }
+
+        // 2a. Mesh gabungan (body berwarna per-vertex + preview/ghost).
+        //     Preview ditambahkan di ujung buffer sehingga ter-blend paling akhir.
+        if let Some(mesh) = &self.mesh {
+            rpass.set_pipeline(&self.mesh_pipeline);
+            rpass.set_vertex_buffer(0, mesh.vertex_buf.slice(..));
+            rpass.set_index_buffer(mesh.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
 
         // 2b. Gambar Garis Tepi Solid 3D (CAD Feature Edges)

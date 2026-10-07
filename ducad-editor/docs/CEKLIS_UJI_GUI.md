@@ -407,6 +407,28 @@ lalu buka aplikasi. `DUCAD_SKIP_ONBOARDING=1` mematikan tutorial.
 | B6.5 | Freehand dengan Pencil terasa < 100 ms per coretan | ☐ |
 | B6.6 | Build `--features memory`: vault di folder Documents aplikasi bisa dibaca/ditulis | ☐ |
 | B6.7 | Agent Bridge **tidak** tersedia di iPad (memang desktop saja) — pastikan tidak ada tombol yang menyesatkan | ☐ |
+| B6.8 | Ketuk kolom angka (mis. nilai extrude) → keyboard lunak iPadOS muncul, angka masuk; ketuk di luar → keyboard turun | ☐ |
+| B6.9 | Berkas ▸ Buka → picker Files.app muncul (iCloud Drive/penyedia lain); pilih `.ducad` → terbuka. Batal → tidak ada perubahan | ☐ |
+| B6.10 | Ekspor STEP/STL/PDF → berkas tertulis di "Di iPad Ini ▸ DUCAD" dan share sheet muncul otomatis | ☐ |
+| B6.11 | Buat sketsa, tekan Home (app ke latar), tutup paksa dari app switcher, buka lagi → status "dipulihkan dari autosave", sketsa utuh | ☐ |
+| B6.12 | Simpan eksplisit (⌘S) lalu tutup paksa → tidak ada pesan pemulihan (autosave dihapus saat simpan) | ☐ |
+| B6.13 | Pencil 2/Pro: ketuk ganda → tool aktif ↔ Pilih, ada haptik; hover di atas entitas → highlight sebelum ujung menyentuh | ☐ |
+| B6.14 | Panel memakai isian datar (Liquid Glass GPU mati bawaan di tablet); nyalakan di ⚙ → kaca tampil, frame tetap lancar | ☐ |
+| B6.15 | Buka 3 app berat lain sampai iPadOS memberi peringatan memori → status "cache dibebaskan", DUCAD tidak tertutup | ☐ |
+
+### B7. Android tablet (kalau ada perangkatnya)
+
+Build: `make android-apk` lalu `adb install android/app/build/outputs/apk/debug/app-debug.apk`.
+
+| # | Yang diuji | Status |
+|---|---|---|
+| B7.1 | Aplikasi memulai sampai kanvas (logcat tag `ducad` tanpa panic) | ☐ |
+| B7.2 | Jari: orbit/pan/zoom dua jari; stylus (S Pen/USI): menggambar dengan tekanan | ☐ |
+| B7.3 | Ketuk kolom teks → keyboard lunak Android muncul (winit `show_soft_input`) | ☐ |
+| B7.4 | Simpan → berkas di `Android/data/id.ducad.studio/files` terlihat lewat aplikasi Files | ☐ |
+| B7.5 | Tekan Home lalu matikan dari Recent → buka lagi → dipulihkan dari autosave | ☐ |
+| B7.6 | Putar layar → tidak ada restart aplikasi (configChanges) | ☐ |
+| B7.7 | Extrude/boolean berjalan (OCCT via NDK) dan STEP terekspor | ☐ |
 
 ---
 
@@ -417,8 +439,11 @@ Supaya tidak dilaporkan sebagai bug:
 - **OCR dimensi tulisan tangan (P12.4)** belum diimplementasikan.
 - **`accept_proposal` untuk agent di sesi live** memang tidak tersedia: hanya
   pengguna yang boleh menerima proposal. Ini pagar keselamatan, bukan kelalaian.
-- **Agent Bridge di iPadOS** tidak ada (soket Unix, desktop saja). Memori di iPad
-  memakai jalur tertaut (`--features memory`), bukan jembatan.
+- **Agent Bridge dan CLI agent di iPadOS/Android** tidak ada (soket Unix dan
+  proses anak, desktop saja). Memori di tablet memakai jalur tertaut
+  (`--features memory`), bukan jembatan.
+- **Picker berkas di Android** belum memakai Storage Access Framework: Buka
+  mengambil berkas terbaru di folder Dokumen aplikasi (lihat `docs/TABLET.md`).
 - **Backend AI di perangkat** hanya muncul bila OS mendukungnya (macOS 26+/
   iOS 26+, Apple Intelligence aktif). Detail dan jebakan penautan ada di
   `docs/adr/0002-ai-lokal.md`. iPadOS **belum pernah diuji di perangkat nyata**.

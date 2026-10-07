@@ -541,7 +541,16 @@ pub fn extrude_face(shape: &KernelShape, ray: PickRay, distance: f64) -> Result<
         let offset_shape = cloned
             .offset_on_face(&face, distance)
             .context("gagal melakukan offset pada permukaan lengkung terpilih")?;
-        return Ok(KernelShape::from_inner(offset_shape));
+        // `BRepOffset_MakeOffset` bisa "berhasil" sambil mengembalikan shape
+        // null/rusak — mis. selimut luar tabung didorong ke dalam sampai
+        // menembus dinding lubang di tengah. Validasi di sini supaya
+        // pemanggil (pratinjau cut GUI, engine) menerima `Err` yang jelas,
+        // bukan shape rusak yang meledak di boolean berikutnya.
+        return validate_or_heal(
+            KernelShape::from_inner(offset_shape),
+            "Extrude permukaan lengkung",
+        )
+        .context("offset permukaan lengkung menghasilkan geometri rusak (mis. menembus lubang/permukaan lain di body yang sama)");
     }
 
     let Some((normal, _)) = compute_face_normal_and_centroid(&face, ray.dir_vec()) else {

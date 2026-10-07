@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+# Pustaka berisi seluruh aplikasi; binary desktop dan `ducad-android`
+# (cdylib `android_main`) sama-sama memakainya.
+[lib]
+name = "ducad_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "ducad"
 path = "src/main.rs"
@@ -64,7 +70,8 @@ resvg = { version = "0.48" }
 # ios` tidak gagal di dependensi ini; pemanggilnya (`DuCADApp::
 # pick_open_path`/`pick_save_path` di `file_io.rs`) di iOS menggunakan
 # direktori Documents native dari Apple runtime.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+# Android: dialog berkas lewat Storage Access Framework (Kotlin), bukan rfd.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 rfd = { workspace = true }
 
 # Modern Apple platform bridging (macOS & iOS) — https://github.com/madsmtm/objc2
@@ -78,6 +85,9 @@ objc2-app-kit = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-ui-kit = { workspace = true }
+objc2-uniform-type-identifiers = { workspace = true }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+raw-window-handle = "0.6"
 
 # Packaging desktop (Fase 7) lewat `cargo-bundle` (`cargo install cargo-
 # bundle && cargo bundle --release -p ducad-app`) — dibaca `cargo-bundle`

@@ -120,7 +120,7 @@ impl AgentBridge {
 // Server soket — desktop Unix saja.
 // ---------------------------------------------------------------------
 
-#[cfg(all(unix, not(target_os = "ios")))]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 mod unix_server {
     use super::*;
     use std::io::{BufRead, BufReader, Write};
@@ -272,7 +272,7 @@ mod unix_server {
     }
 }
 
-#[cfg(not(all(unix, not(target_os = "ios"))))]
+#[cfg(not(all(unix, not(any(target_os = "ios", target_os = "android")))))]
 impl AgentBridge {
     /// Platform tanpa soket Unix (iPadOS): jembatan tidak tersedia.
     pub fn start(&mut self, _ctx: egui::Context) -> anyhow::Result<()> {
@@ -744,7 +744,7 @@ mod tests {
     /// Alur penuh lewat sepasang soket: agent mengirim `run_ops(plate)` →
     /// aplikasi punya 1 body; undo GUI sekali → 0 body; permintaan
     /// berikutnya melaporkan `oplog_stale` (mode adopsi).
-    #[cfg(all(unix, not(target_os = "ios")))]
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     #[test]
     fn run_ops_then_gui_undo_reports_stale() {
         use std::io::{BufRead, BufReader, Write};

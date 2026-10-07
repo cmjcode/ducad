@@ -741,6 +741,26 @@ perencanaan (`/plan` awal). Ringkasan risiko tertinggi:
       --workspace` di macOS host tetap hijau sepanjang perubahan ini
       (diverifikasi ulang, bukan diasumsikan aman).
 
+## Status Fase 6 — lanjutan tablet (2026-10-06)
+
+- [x] Blocker OCCT/iOS selesai (`build_ipad.sh` pre-build OCCT per target);
+      `.ipa`/TestFlight lewat skrip yang sama.
+- [x] **Gap native vs egui dipetakan dan sebagian besar ditutup** — lihat
+      `docs/TABLET.md`: keyboard lunak (sudah lewat winit `UIKeyInput`),
+      picker Files.app + share sheet (`apple_ios.rs`), autosave saat OS
+      menidurkan app (eframe `persistence` → `App::save`, `mobile.rs`),
+      peringatan memori → `trim_memory`, Apple Pencil ketuk ganda + hover,
+      Liquid Glass GPU mati bawaan di tablet (`platform.rs`).
+- [x] **Android tablet (M7.2 dari rencana multi-tool)**: crate
+      `ducad-android` (`android_main`, GameActivity), proyek Gradle
+      `android/`, toolchain OCCT NDK (`crates/ducad-kernel/android/`),
+      `make android-check|android-so|android-apk`. Kernel ikut dikompilasi
+      (tidak memakai fitur `kernel` opsional dari rencana M7.1).
+- [ ] Ditunda (dicatat di `docs/TABLET.md`): SAF Android, tombol stylus
+      Android, UIScene, VoiceOver/TalkBack, Sign in with Apple in-app.
+- [ ] Uji di perangkat nyata: ceklis B6 (iPad) dan B7 (Android) di
+      `docs/CEKLIS_UJI_GUI.md`.
+
 ## Status Fase 7 — Poles & Performa (dikerjakan, putaran pertama)
 
 - [x] **Alat ukur**: `ducad_sketch::measure` (murni fungsi baca-saja,

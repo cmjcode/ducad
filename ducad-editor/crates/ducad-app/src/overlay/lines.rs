@@ -1526,7 +1526,15 @@ impl DuCADApp {
         let mut indices = Vec::new();
 
         const SELECTED_CYAN: [f32; 4] = [0.0, 0.75, 1.0, 1.0];
-        const CUT_RED: [f32; 4] = [1.0, 0.25, 0.25, 0.90];
+        // Tarikan depth (fraksi jarak ke mata) untuk mesh preview/ghost yang
+        // bidangnya berimpit dengan permukaan body — lihat `MeshIn.material_params.w`
+        // di shader. Tanpa ini preview extrude potong dari sketsa di face
+        // ber-z-fighting dengan body (bercak merah/abu-abu acak).
+        const PREVIEW_DEPTH_PULL: f32 = 0.004;
+        // Smart Boolean Cut: volume yang akan dibuang (irisan tool ∩ body).
+        const CUT_REMOVED_RED: [f32; 4] = [0.95, 0.25, 0.20, 0.60];
+        // Bagian tool di luar body (tidak memotong apa pun): ghost netral tipis.
+        const CUT_TOOL_GHOST: [f32; 4] = [0.85, 0.55, 0.50, 0.18];
         const FACE_SELECT_CYAN: [f32; 4] = [0.0, 0.90, 1.0, 1.0];
 
 
@@ -1546,7 +1554,26 @@ impl DuCADApp {
 
             let is_cutting_target = self.gizmo_is_cutting && self.gizmo_target_body == Some(id);
 
-            let mesh_to_render = if let Some((_ck, _cr, override_id, cached_mesh, _)) = &self.round_preview_cache {
+            // Body target cut ditampilkan SUDAH berlubang (hasil `target − tool`),
+            // sehingga volume merah yang dibuang terlihat di dalam lubangnya.
+            let cut_remaining = self
+                .gizmo_cut_preview
+                .as_ref()
+                .filter(|cp| is_cutting_target && cp.target == id)
+                .map(|cp| &cp.remaining);
+            // Push/pull sisi ke arah dalam: body tampil sudah terpotong,
+            // volume yang dibuang digambar merah di blok pratinjau di bawah.
+            let face_cut_active = self.extruding_face_from_gizmo && self.face_gizmo_distance < 0.0;
+            let face_cut_remaining = self
+                .face_cut_preview
+                .as_ref()
+                .filter(|cp| face_cut_active && cp.target == id)
+                .map(|cp| &cp.remaining);
+            let mesh_to_render = if let Some(remaining) = cut_remaining {
+                std::borrow::Cow::Borrowed(remaining)
+            } else if let Some(remaining) = face_cut_remaining {
+                std::borrow::Cow::Borrowed(remaining)
+            } else if let Some((_ck, _cr, override_id, cached_mesh, _)) = &self.round_preview_cache {
                 if *override_id == id {
                     std::borrow::Cow::Borrowed(cached_mesh)
                 } else {
@@ -1609,7 +1636,16 @@ impl DuCADApp {
             let base_color = mat.base_color;
 
             let (body_color, body_mat) = if is_cutting_target {
-                (CUT_RED, [0.4, 0.0, 0.2, 0.0])
+                // Body target cut tetap memakai warnanya sendiri dengan tint
+                // hangat tipis; volume yang akan dibuang ditandai oleh preview
+                // merah tembus pandang, bukan dengan memerahkan seluruh body.
+                let cut_tint = [
+                    base_color[0] * 0.70 + 0.30,
+                    base_color[1] * 0.70 + 0.30 * 0.40,
+                    base_color[2] * 0.70 + 0.30 * 0.35,
+                    base_color[3],
+                ];
+                (cut_tint, mat_params)
             } else if is_selected_body && !self.cmf_drawer_open {
                 (SELECTED_CYAN, [0.35, 0.0, 0.50, 0.0])
             } else {
@@ -1731,11 +1767,57 @@ impl DuCADApp {
             if self.extruding_face_from_gizmo && self.face_gizmo_distance.abs() > 0.01 {
                 if let Some((active_id, _, hit)) = &self.active_face {
                     if *active_id == id {
+                        let face_cut = self
+                            .face_cut_preview
+                            .as_ref()
+                            .filter(|cp| cp.target == id && self.face_gizmo_distance < 0.0);
+                        if let Some(cp) = face_cut {
+                            // Volume yang dibuang, tembus pandang, di dalam
+                            // lubang body yang sudah digambar terpotong.
+                            let base_idx = positions.len() as u32;
+                            let v_count = cp.removed.positions.len();
+                            positions.extend(&cp.removed.positions);
+                            normals.extend(&cp.removed.normals);
+                            indices.extend(cp.removed.indices.iter().map(|i| i + base_idx));
+                            colors.extend(std::iter::repeat_n(CUT_REMOVED_RED, v_count));
+                            materials.extend(std::iter::repeat_n(
+                                [0.35, 0.0, 0.60, PREVIEW_DEPTH_PULL],
+                                v_count,
+                            ));
+                        } else {
+                        // Perpindahan pratinjau per vertex. Face datar: satu
+                        // vektor translasi searah `pull_dir`. Selimut silinder/
+                        // kerucut/bola: RADIAL dari sumbu/pusat per vertex —
+                        // kalau ditranslasikan seperti face datar, tabung
+                        // tampak "bergeser" selama drag padahal hasil commit
+                        // (`extrude_face` → offset) membesarkan radius.
+                        let dist = self.face_gizmo_distance as f32;
                         let pull_vec = Vec3::new(
                             hit.pull_dir.0 as f32,
                             hit.pull_dir.1 as f32,
                             hit.pull_dir.2 as f32,
-                        ) * (self.face_gizmo_distance as f32);
+                        ) * dist;
+                        let radial_axis = hit.radial_axis.map(|ax| {
+                            (
+                                Vec3::new(ax.origin.0 as f32, ax.origin.1 as f32, ax.origin.2 as f32),
+                                Vec3::new(ax.dir.0 as f32, ax.dir.1 as f32, ax.dir.2 as f32),
+                            )
+                        });
+                        let displace = |p: Vec3| -> Vec3 {
+                            match radial_axis {
+                                Some((loc, dir)) => {
+                                    let rel = p - loc;
+                                    let radial = rel - dir * rel.dot(dir);
+                                    let r = radial.length();
+                                    if r > 1e-6 {
+                                        p + radial * (dist / r)
+                                    } else {
+                                        p + pull_vec
+                                    }
+                                }
+                                None => p + pull_vec,
+                            }
+                        };
 
                         let preview_start_idx = positions.len() as u32;
                         let mut prev_positions = Vec::new();
@@ -1753,9 +1835,9 @@ impl DuCADApp {
                                 && face_vertex_indices.contains(&(idx1 as usize))
                                 && face_vertex_indices.contains(&(idx2 as usize))
                             {
-                                let p0 = Vec3::from_slice(&mesh_to_render.positions[idx0 as usize]) + pull_vec;
-                                let p1 = Vec3::from_slice(&mesh_to_render.positions[idx1 as usize]) + pull_vec;
-                                let p2 = Vec3::from_slice(&mesh_to_render.positions[idx2 as usize]) + pull_vec;
+                                let p0 = displace(Vec3::from_slice(&mesh_to_render.positions[idx0 as usize]));
+                                let p1 = displace(Vec3::from_slice(&mesh_to_render.positions[idx1 as usize]));
+                                let p2 = displace(Vec3::from_slice(&mesh_to_render.positions[idx2 as usize]));
                                 let fnorm = (p1 - p0).cross(p2 - p0).normalize_or_zero();
 
                                 let base_c = prev_positions.len() as u32;
@@ -1788,8 +1870,8 @@ impl DuCADApp {
                                     if edge_count.get(&key) == Some(&1) {
                                         let p_a0 = Vec3::from_slice(&mesh_to_render.positions[ea as usize]);
                                         let p_b0 = Vec3::from_slice(&mesh_to_render.positions[eb as usize]);
-                                        let p_a1 = p_a0 + pull_vec;
-                                        let p_b1 = p_b0 + pull_vec;
+                                        let p_a1 = displace(p_a0);
+                                        let p_b1 = displace(p_b0);
 
                                         let snorm = (p_b0 - p_a0).cross(p_a1 - p_a0).normalize_or_zero();
 
@@ -1812,7 +1894,7 @@ impl DuCADApp {
                         }
 
                         let preview_color = if self.face_gizmo_distance < 0.0 {
-                            [0.95, 0.25, 0.20, 0.85]
+                            [0.95, 0.25, 0.20, 0.60]
                         } else {
                             [0.0, 0.85, 1.0, 0.90]
                         };
@@ -1821,7 +1903,8 @@ impl DuCADApp {
                         normals.extend(prev_normals);
                         indices.extend(prev_indices.into_iter().map(|idx| idx + preview_start_idx));
                         colors.extend(std::iter::repeat_n(preview_color, prev_len));
-                        materials.extend(std::iter::repeat_n([0.35, 0.0, 0.60, 0.0], prev_len));
+                        materials.extend(std::iter::repeat_n([0.35, 0.0, 0.60, PREVIEW_DEPTH_PULL], prev_len));
+                        }
                     }
                 }
             }
@@ -1835,18 +1918,32 @@ impl DuCADApp {
                     self.extrude_profile_active_plane(&profile, self.gizmo_distance)
                 {
                     let tess = swept.tessellate();
-                    let base_idx = positions.len() as u32;
-                    let v_count = tess.positions.len();
-                    positions.extend(&tess.positions);
-                    normals.extend(&tess.normals);
-                    indices.extend(tess.indices.iter().map(|i| i + base_idx));
-                    let preview_color = if self.gizmo_is_cutting {
-                        [0.95, 0.25, 0.20, 0.85]
-                    } else {
-                        [0.10, 0.70, 0.95, 0.75]
+                    let mut push_preview = |mesh: &ducad_kernel::KernelMesh, color: [f32; 4]| {
+                        let base_idx = positions.len() as u32;
+                        let v_count = mesh.positions.len();
+                        positions.extend(&mesh.positions);
+                        normals.extend(&mesh.normals);
+                        indices.extend(mesh.indices.iter().map(|i| i + base_idx));
+                        colors.extend(std::iter::repeat_n(color, v_count));
+                        materials.extend(std::iter::repeat_n(
+                            [0.35, 0.0, 0.60, PREVIEW_DEPTH_PULL],
+                            v_count,
+                        ));
                     };
-                    colors.extend(std::iter::repeat_n(preview_color, v_count));
-                    materials.extend(std::iter::repeat_n([0.35, 0.0, 0.60, 0.0], v_count));
+                    let cut_preview = self
+                        .gizmo_cut_preview
+                        .as_ref()
+                        .filter(|cp| self.gizmo_is_cutting && Some(cp.target) == self.gizmo_target_body);
+                    if let Some(cp) = cut_preview {
+                        // Volume yang dibuang (irisan) merah jelas; sisa tool
+                        // di luar body hanya ghost tipis sebagai konteks arah.
+                        push_preview(&tess, CUT_TOOL_GHOST);
+                        push_preview(&cp.removed, CUT_REMOVED_RED);
+                    } else if self.gizmo_is_cutting {
+                        push_preview(&tess, CUT_REMOVED_RED);
+                    } else {
+                        push_preview(&tess, [0.10, 0.70, 0.95, 0.75]);
+                    }
                 }
             }
         }
@@ -1861,7 +1958,7 @@ impl DuCADApp {
                 normals.extend(mesh.normals.iter().copied());
                 colors.extend(std::iter::repeat_n(color, mesh.positions.len()));
                 materials.extend(std::iter::repeat_n(
-                    [0.40, 0.0, 0.0, 0.0],
+                    [0.40, 0.0, 0.0, PREVIEW_DEPTH_PULL],
                     mesh.positions.len(),
                 ));
                 indices.extend(mesh.indices.iter().map(|i| i + base_index));
@@ -1919,7 +2016,7 @@ impl DuCADApp {
                         positions.extend(tess.positions);
                         normals.extend(tess.normals);
                         colors.extend(vec![GHOST_CYAN; tri_count * 3]);
-                        materials.extend(vec![[0.40, 0.0, 0.0, 0.0]; tri_count * 3]);
+                        materials.extend(vec![[0.40, 0.0, 0.0, PREVIEW_DEPTH_PULL]; tri_count * 3]);
                         indices.extend(tess.indices.into_iter().map(|idx| idx + base_index));
                     }
                 }
@@ -2093,7 +2190,21 @@ impl DuCADApp {
                 None
             };
 
-            let edge_lines_to_render = if let Some((_ck, _cr, override_id, _, cached_edge_lines)) = &self.round_preview_cache {
+            let face_cut_active = self.extruding_face_from_gizmo && self.face_gizmo_distance < 0.0;
+            let cut_edges = self
+                .gizmo_cut_preview
+                .as_ref()
+                .filter(|cp| is_cutting_target && cp.target == id)
+                .map(|cp| cp.remaining_edges.as_slice())
+                .or_else(|| {
+                    self.face_cut_preview
+                        .as_ref()
+                        .filter(|cp| face_cut_active && cp.target == id)
+                        .map(|cp| cp.remaining_edges.as_slice())
+                });
+            let edge_lines_to_render = if let Some(edges) = cut_edges {
+                edges
+            } else if let Some((_ck, _cr, override_id, _, cached_edge_lines)) = &self.round_preview_cache {
                 if *override_id == id {
                     cached_edge_lines.as_slice()
                 } else {

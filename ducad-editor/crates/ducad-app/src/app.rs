@@ -41,6 +41,21 @@ pub type RoundPreviewCache = (
     Vec<([f32; 3], [f32; 3])>,
 );
 
+/// Pratinjau Smart Boolean Cut saat extrude menembus body: hasil boolean
+/// dihitung live sehingga pengguna melihat body target SUDAH berlubang
+/// (`remaining`) dan volume yang akan dibuang (`removed`, irisan tool ∩ body)
+/// sebagai ghost merah — bukan sekadar tool merah pekat menutupi body.
+/// Dihitung ulang hanya saat `distance` berubah.
+pub struct CutPreview {
+    pub target: BodyId,
+    pub distance: f64,
+    /// Irisan tool dengan body target: volume yang akan dibuang.
+    pub removed: ducad_kernel::KernelMesh,
+    /// Body target setelah dipotong.
+    pub remaining: ducad_kernel::KernelMesh,
+    pub remaining_edges: Vec<([f32; 3], [f32; 3])>,
+}
+
 pub struct DuCADApp {
     pub camera: OrbitCamera,
     /// Ukuran viewport 3D terakhir yang benar-benar digambar, dalam piksel.
@@ -256,6 +271,8 @@ pub struct DuCADApp {
     pub server_url: String,
     /// Tutorial selamat datang (tampil saat aplikasi dibuka pertama kali).
     pub onboarding: crate::onboarding_ui::OnboardingCtl,
+    /// Keadaan tablet (autosave, picker asinkron, Pencil); lihat `mobile.rs`.
+    pub mobile: crate::mobile::MobileState,
     pub left_toolbar_content_sig: Option<bool>,
     pub inspector_content_sig: Option<InspectorContentSig>,
     pub prop_input_p1_x: String,
@@ -298,6 +315,8 @@ pub struct DuCADApp {
     pub gizmo_edit_input: String,
     pub gizmo_is_cutting: bool,
     pub gizmo_target_body: Option<BodyId>,
+    /// Lihat [`CutPreview`]; `None` bila extrude tidak memotong body.
+    pub gizmo_cut_preview: Option<CutPreview>,
 
     pub extruding_face_from_gizmo: bool,
     /// Drag gizmo tarik-sisi sudah dilepas, menunggu commit/batal (lihat `gizmo_staged`).
@@ -305,6 +324,8 @@ pub struct DuCADApp {
     pub face_gizmo_distance: f64,
     pub face_gizmo_dimension_editing: bool,
     pub face_gizmo_edit_input: String,
+    /// Pratinjau potong sisi (push/pull ke arah dalam); lihat [`CutPreview`].
+    pub face_cut_preview: Option<CutPreview>,
 
     pub filleting_vertex_from_gizmo: bool,
     pub vertex_gizmo_radius: f64,
@@ -480,7 +501,7 @@ impl DuCADApp {
             ducad_cloud::AuthStatus::LoggedOut
         };
 
-        Self {
+        let mut app = Self {
             camera: OrbitCamera::default(),
             last_viewport_size: [1600.0, 900.0],
             sketch_set: ducad_sketch::SketchSet::new(),
@@ -566,7 +587,7 @@ impl DuCADApp {
 
             language: ducad_i18n::Language::default(),
             theme,
-            liquid_glass: true,
+            liquid_glass: !crate::platform::is_mobile(),
             reduce_transparency: false,
             glass_gpu_ready: true,
             icon_size: ducad_ui::ICON_SIZE_DEFAULT,
@@ -670,12 +691,14 @@ impl DuCADApp {
             gizmo_edit_input: "0".to_string(),
             gizmo_is_cutting: false,
             gizmo_target_body: None,
+            gizmo_cut_preview: None,
 
             extruding_face_from_gizmo: false,
             face_gizmo_staged: false,
             face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
             face_gizmo_edit_input: "0".to_string(),
+            face_cut_preview: None,
 
             filleting_vertex_from_gizmo: false,
             vertex_gizmo_radius: 0.0,
@@ -787,7 +810,10 @@ impl DuCADApp {
             account_button_rect: egui::Rect::NOTHING,
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::load(),
-        }
+            mobile: Default::default(),
+        };
+        app.init_mobile(cc);
+        app
     }
 
     #[cfg(test)]
@@ -983,12 +1009,14 @@ impl DuCADApp {
             gizmo_edit_input: "0".to_string(),
             gizmo_is_cutting: false,
             gizmo_target_body: None,
+            gizmo_cut_preview: None,
 
             extruding_face_from_gizmo: false,
             face_gizmo_staged: false,
             face_gizmo_distance: 0.0,
             face_gizmo_dimension_editing: false,
             face_gizmo_edit_input: "0".to_string(),
+            face_cut_preview: None,
 
             filleting_vertex_from_gizmo: false,
             vertex_gizmo_radius: 0.0,
@@ -1100,6 +1128,7 @@ impl DuCADApp {
             account_button_rect: egui::Rect::NOTHING,
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::disabled(),
+            mobile: Default::default(),
         }
     }
 
@@ -1446,10 +1475,8 @@ impl DuCADApp {
                     response.drag_delta(),
                 );
                 self.face_gizmo_distance += delta_mm;
-                self.face_gizmo_edit_input = format!(
-                    "{:.0}",
-                    self.unit.to_display_val(self.face_gizmo_distance)
-                );
+                self.face_gizmo_edit_input = self.face_gizmo_input_text();
+                self.refresh_face_cut_preview();
             }
 
             if self.extruding_face_from_gizmo && response.drag_stopped() {
@@ -1652,8 +1679,27 @@ impl eframe::App for DuCADApp {
         self.bridge.shutdown();
     }
 
+    /// Dipanggil eframe saat OS menidurkan aplikasi (iPadOS/Android) dan
+    /// tiap `auto_save_interval`: tulis autosave pemulihan di tablet.
+    fn save(&mut self, _storage: &mut dyn eframe::Storage) {
+        if crate::platform::is_mobile() {
+            self.write_autosave();
+        }
+    }
+
+    fn auto_save_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if crate::platform::is_mobile() { 20 } else { 30 })
+    }
+
+    /// Memori egui (posisi jendela mengambang, dst.) tidak dipulihkan antar
+    /// sesi — perilaku lama dipertahankan.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.poll_mobile(&ctx);
 
         // Keadaan Liquid Glass untuk frame ini. Kaca menyampel scene 3D, jadi
         // dimatikan saat lembar gambar 2D menutupi viewport (panel di atasnya
@@ -1828,7 +1874,7 @@ impl eframe::App for DuCADApp {
         // Sengaja tidak memakai `touch_config.mode`: mode sentuh bisa di-cycle
         // dari tombol header, dan mengikatnya ke sini membuat header berpindah
         // layout compact ↔ penuh (tombol muncul/hilang) setiap kali diklik.
-        let is_ipad = cfg!(target_os = "ios") || screen_rect.width() < 1050.0;
+        let is_ipad = crate::platform::touch_first(screen_rect.width());
 
         self.refresh_sim();
         self.refresh_industry();
@@ -3002,19 +3048,12 @@ impl eframe::App for DuCADApp {
                                 ctx.request_repaint();
                             }
                             AssemblyDrawerEvent::AddExternalPart => {
-                                let filter = "Part DuCAD".to_string();
-                                if let Some(path) = self.pick_open_path(&filter, &["ducad"]) {
-                                    match self.add_external_part(&path) {
-                                        Ok(ids) => {
-                                            self.selected_assembly_instance = ids.first().copied();
-                                            self.assembly_drawer.stale_external = self
-                                                .poll_external_sources()
-                                                .into_iter()
-                                                .map(|(id, _)| id)
-                                                .collect();
-                                        }
-                                        Err(e) => self.model_status = Some(e),
-                                    }
+                                if let Some(path) = self.request_open(
+                                    crate::mobile::OpenPurpose::ExternalPart,
+                                    "Part DuCAD",
+                                    &["ducad"],
+                                ) {
+                                    self.add_external_part_path(path);
                                 }
                             }
                             AssemblyDrawerEvent::RefreshExternalStatus => {
@@ -3321,6 +3360,35 @@ impl eframe::App for DuCADApp {
                         ui.spacing_mut().interact_size.y = btn_side;
                         ui.set_width(btn_side);
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.5);
+
+                        // Tombol Undo/Redo di puncak rail: cermin ⌘Z / ⌘⇧Z agar
+                        // pengguna sentuh/iPad tidak bergantung pada keyboard.
+                        // `self.undo()` otomatis memilih target (sketch/model/tinta).
+                        let undo_resp = ducad_ui::rail_square_btn_enabled(
+                            ui,
+                            egui_icons::icons::ICON_UNDO.codepoint,
+                            self.icon_size,
+                            self.can_undo(),
+                            &ducad_i18n::t!("drawer-undo"),
+                            Some("Cmd+Z"),
+                            None,
+                        );
+                        if undo_resp.clicked() {
+                            self.undo();
+                        }
+                        let redo_resp = ducad_ui::rail_square_btn_enabled(
+                            ui,
+                            egui_icons::icons::ICON_REDO.codepoint,
+                            self.icon_size,
+                            self.can_redo(),
+                            &ducad_i18n::t!("drawer-redo"),
+                            Some("Cmd+Shift+Z"),
+                            None,
+                        );
+                        if redo_resp.clicked() {
+                            self.redo();
+                        }
+                        ui.add_space(4.0);
 
                         // Tombol Studio Lighting & SSAO
                         let lighting_resp = ducad_ui::rail_square_btn(
@@ -3823,25 +3891,12 @@ impl eframe::App for DuCADApp {
                     self.pending_points.clear();
                 }
                 ToolPopupEvent::PickCustomFont => {
-                    #[cfg(not(target_os = "ios"))]
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Font Files (*.ttf, *.otf)", &["ttf", "otf"])
-                        .pick_file()
-                    {
-                        if let Ok(bytes) = std::fs::read(&path) {
-                            let file_name = path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Custom Font")
-                                .to_string();
-                            self.custom_font_bytes = Some(bytes);
-                            self.text_popup_state.custom_font_name = Some(file_name);
-                            self.model_status = Some("Font kustom berhasil dimuat".to_string());
-                        }
-                    }
-                    #[cfg(target_os = "ios")]
-                    {
-                        self.model_status = Some("Font kustom didukung via Documents di iOS".to_string());
+                    if let Some(path) = self.request_open(
+                        crate::mobile::OpenPurpose::Font,
+                        "Font Files (*.ttf, *.otf)",
+                        &["ttf", "otf"],
+                    ) {
+                        self.load_custom_font_path(path);
                     }
                 }
                 ToolPopupEvent::ApplyRevolvePreset { preset_idx, angle_deg } => {
@@ -4465,9 +4520,14 @@ impl eframe::App for DuCADApp {
         let show_normal_to_sketch = self.tool != ToolKind::Select;
 
         if !self.drawing_sheet_state.is_open {
+            // Kiri atas kanvas, di bawah burger menu (sejajar isi top bar).
+            let status_anchor = match topbar_rect {
+                Some(r) => egui::pos2(r.min.x + 12.0, r.max.y + 8.0),
+                None => screen_rect.min + egui::vec2(16.0, 16.0),
+            };
             if let Some(ev) = CanvasHud::show_status_pill(
                 ui,
-                screen_rect,
+                status_anchor,
                 &sel_summary,
                 m_summary.as_deref(),
                 show_normal_to_sketch,

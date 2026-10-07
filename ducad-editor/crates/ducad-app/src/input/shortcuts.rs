@@ -424,20 +424,56 @@ impl DuCADApp {
         actions
     }
 
+    /// Grup palet yang TIDAK ditampilkan di burger menu: alat sketsa dan 3D
+    /// sudah punya tombol sendiri di toolbar, jadi submenu "Sketch Tools" /
+    /// "3D Tools" hanya menggandakan. Tetap bisa dicari lewat ⌘K.
+    pub const BURGER_HIDDEN_GROUPS: [PaletteGroup; 2] = [PaletteGroup::Sketch, PaletteGroup::Solid];
+
+    /// Perintah palet yang disembunyikan dari burger menu karena sudah
+    /// terpampang di tempat lain: grup `BURGER_HIDDEN_GROUPS` (toolbar) dan
+    /// Import/Export (submenu Import ▸ / Export ▸ di bagian atas burger menu).
+    /// Semuanya tetap bisa dicari lewat ⌘K.
+    pub fn is_hidden_in_burger_menu(action: PaletteAction) -> bool {
+        if Self::BURGER_HIDDEN_GROUPS.contains(&action.group()) {
+            return true;
+        }
+        matches!(
+            action,
+            PaletteAction::File(
+                FileOp::ImportStep
+                    | FileOp::ImportStl
+                    | FileOp::ImportDxf
+                    | FileOp::ExportStep
+                    | FileOp::ExportStl
+                    | FileOp::ExportObj
+                    | FileOp::ExportGlb
+                    | FileOp::ExportDxf
+                    | FileOp::ExportSvg
+                    | FileOp::ExportPdf
+                    | FileOp::ExportDrawingDxf
+                    | FileOp::ExportDrawingSvg
+            )
+        )
+    }
+
     /// Daftar `palette_actions` sebagai submenu burger menu: setiap perintah
-    /// palette punya jalur klik di GUI. `index` menunjuk ke `actions`.
+    /// palette (kecuali yang `is_hidden_in_burger_menu`) punya jalur klik di
+    /// GUI. `index` menunjuk ke `actions`.
     pub fn topbar_command_groups(
         actions: &[(String, String, PaletteAction)],
     ) -> Vec<ducad_ui::TopBarCommandGroup> {
         PaletteGroup::ALL
             .iter()
+            .filter(|group| !Self::BURGER_HIDDEN_GROUPS.contains(group))
             .map(|&group| ducad_ui::TopBarCommandGroup {
                 icon: group.icon(),
                 title: group.title(),
                 items: actions
                     .iter()
                     .enumerate()
-                    .filter(|(_, (_, _, action))| action.group() == group)
+                    .filter(|(_, (_, _, action))| {
+                        action.group() == group && !Self::is_hidden_in_burger_menu(*action)
+                    })
                     .map(|(index, (label, hint, _))| ducad_ui::TopBarCommand {
                         label: label.clone(),
                         hint: hint.clone(),
@@ -747,7 +783,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_palette_command_is_in_the_burger_menu() {
+    fn every_non_toolbar_palette_command_is_in_the_burger_menu() {
         let app = DuCADApp::new_for_test();
         let actions = app.palette_actions();
         let groups = DuCADApp::topbar_command_groups(&actions);
@@ -756,12 +792,72 @@ mod tests {
             .flat_map(|g| g.items.iter().map(|c| c.index))
             .collect();
         seen.sort_unstable();
-        assert_eq!(seen, (0..actions.len()).collect::<Vec<_>>());
+        let expected: Vec<usize> = actions
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, _, a))| !DuCADApp::is_hidden_in_burger_menu(*a))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(seen, expected);
         for group in &groups {
             for cmd in &group.items {
                 assert_eq!(cmd.label, actions[cmd.index].0);
             }
         }
+    }
+
+    /// Alat sketsa dan 3D sudah ada di toolbar; burger menu tidak boleh
+    /// menampilkan submenu "Sketch Tools" / "3D Tools" lagi.
+    #[test]
+    fn burger_menu_hides_sketch_and_solid_groups() {
+        let app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        let groups = DuCADApp::topbar_command_groups(&actions);
+        for hidden in DuCADApp::BURGER_HIDDEN_GROUPS {
+            assert!(
+                groups.iter().all(|g| g.title != hidden.title()),
+                "grup {:?} masih tampil di burger menu",
+                hidden
+            );
+        }
+        assert!(!groups.is_empty());
+    }
+
+    /// Import/Export sudah ada di submenu Import ▸ / Export ▸, jadi grup
+    /// "File" di "All Commands" tidak boleh menggandakannya.
+    #[test]
+    fn burger_menu_file_group_has_no_import_export() {
+        let app = DuCADApp::new_for_test();
+        let actions = app.palette_actions();
+        let groups = DuCADApp::topbar_command_groups(&actions);
+        let file_group = groups
+            .iter()
+            .find(|g| g.title == PaletteGroup::File.title())
+            .expect("grup File masih harus tampil (Dokumen Baru, Buka, Simpan)");
+        for cmd in &file_group.items {
+            let is_io = matches!(
+                actions[cmd.index].2,
+                PaletteAction::File(
+                    FileOp::ImportStep
+                        | FileOp::ImportStl
+                        | FileOp::ImportDxf
+                        | FileOp::ExportStep
+                        | FileOp::ExportStl
+                        | FileOp::ExportObj
+                        | FileOp::ExportGlb
+                        | FileOp::ExportDxf
+                        | FileOp::ExportSvg
+                        | FileOp::ExportPdf
+                        | FileOp::ExportDrawingDxf
+                        | FileOp::ExportDrawingSvg
+                )
+            );
+            assert!(!is_io, "{} masih tampil di grup File", cmd.label);
+        }
+        assert!(file_group
+            .items
+            .iter()
+            .any(|c| matches!(actions[c.index].2, PaletteAction::File(FileOp::New))));
     }
 
     #[test]

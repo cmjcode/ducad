@@ -6,43 +6,7 @@ use eframe::egui::IconData;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
-pub mod agent_bridge;
-pub mod app;
-pub mod assist_ui;
-pub mod chat_cli;
-pub mod chat_history;
-pub mod chat_ui;
-pub mod checks_ui;
-pub mod mass_ui;
-pub mod industry_ui;
-pub mod sim_ui;
-#[cfg(target_vendor = "apple")]
-pub mod apple;
-pub mod document;
-pub mod error_card_ui;
-pub mod file_io;
-pub mod closed_objects;
-pub mod freehand;
-pub mod history_db;
-pub mod import_worker;
-pub mod ink;
-pub mod input;
-pub mod live_tools;
-/// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
-#[cfg(feature = "memory")]
-pub mod memory;
-pub mod mode;
-pub mod onboarding_ui;
-pub mod model;
-pub mod modeling;
-pub mod overlay;
-pub mod proposal_ui;
-pub mod types;
-pub mod ui;
-pub mod vector;
-pub mod viewport;
-
-use app::DuCADApp;
+use ducad_app::DuCADApp;
 
 fn load_icon() -> IconData {
     let svg_path = "images/logo.svg";
@@ -104,18 +68,10 @@ fn load_icon() -> IconData {
 fn main() -> eframe::Result {
     env_logger::init();
 
-    let options = eframe::NativeOptions {
-        renderer: eframe::Renderer::Wgpu,
-        depth_buffer: 32,
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("DUCAD")
-            .with_inner_size([1640.0, 900.0])
-            .with_icon(load_icon()),
-        ..Default::default()
-    };
+    let icon = (!ducad_app::platform::is_mobile()).then(load_icon);
     eframe::run_native(
         "DUCAD",
-        options,
+        ducad_app::native_options(icon),
         Box::new(|cc| Ok(Box::new(DuCADApp::new(cc)))),
     )
 }

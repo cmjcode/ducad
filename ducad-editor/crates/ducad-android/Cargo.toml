@@ -1,0 +1,22 @@
+[package]
+name = "ducad-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+# `cdylib` dimuat `GameActivity` (android/app). Di platform lain crate ini
+# kosong (tanpa dependensi) sehingga `cargo build --workspace` desktop
+# tidak ikut menautkan OCCT dua kali.
+[lib]
+name = "ducad_android"
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+ducad-app = { path = "../ducad-app" }
+eframe = { workspace = true, features = ["android-game-activity"] }
+# Tipe `AndroidApp` yang sama dengan yang dipakai winit/eframe (fitur game-activity).
+android-activity = { version = "0.6", features = ["game-activity"] }
+android_logger = "0.15"
+log = { workspace = true }

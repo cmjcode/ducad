@@ -1730,3 +1730,7 @@ onboard-tour-shapes = More shapes: Revolve, Loft, Sweep, Helix, Boolean, and emb
 onboard-tour-vector = Vector and Ink modes for Bezier curves and freehand strokes.
 onboard-tour-agent = Agent Bridge so external AI agents can model through MCP.
 onboard-tour-reopen = You can reopen this tutorial anytime from the help button at the top right or the command palette.
+
+# Tablet (iPadOS/Android)
+file-restored-autosave = Document restored from autosave (the app was stopped by the system)
+mobile-memory-trimmed = Device memory is low: caches released, Liquid Glass turned off

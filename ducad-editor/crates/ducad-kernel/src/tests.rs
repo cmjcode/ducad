@@ -3636,3 +3636,46 @@ fn thread_iso_m10_removes_profile_volume() {
     assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], d, pitch, 0.5, false).is_err());
     assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], -1.0, pitch, 5.0, false).is_err());
 }
+
+/// Regresi: tabung berlubang, selimut LUAR didorong ke dalam sampai melewati
+/// dinding lubang (radius luar baru < radius lubang). Dulu offset OCCT
+/// mengembalikan shape rusak, lalu `BRepCheck_Analyzer` melempar exception
+/// C++ yang lolos jembatan cxx → `std::terminate` → aplikasi tertutup saat
+/// pratinjau cut digambar. Sekarang harus berujung `Err`, bukan abort.
+#[test]
+fn extrude_face_outer_wall_pushed_through_center_hole_fails_gracefully() {
+    let _guard = lock_test();
+    const R_OUT: f64 = 20.0;
+    const R_IN: f64 = 8.0;
+    const H: f64 = 20.0;
+    let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+    let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+    let tube = KernelShape(outer.0.subtract(&inner.0).unwrap().shape.clean());
+
+    let outer_ray = PickRay { origin: (R_OUT + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+    let hit = pick_face_details(&tube, outer_ray).expect("harus kena selimut luar");
+    assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+
+    // Beberapa jarak: tepat menyentuh dinding lubang, menembusnya, dan jauh
+    // melewatinya. Semua harus Ok (geometri valid) atau Err — tidak boleh abort.
+    for d in [-(R_OUT - R_IN), -(R_OUT - R_IN) - 1.0, -15.0, -19.0] {
+        match extrude_face(&tube, outer_ray, d) {
+            Ok(remaining) => {
+                assert!(remaining.is_valid(), "hasil extrude_face d={d} harus valid bila Ok");
+                // Pratinjau GUI: bagian yang terbuang = body asal − sisa.
+                let _ = subtract(&tube, &remaining);
+            }
+            Err(err) => assert!(!err.to_string().is_empty(), "pesan error d={d} tidak boleh kosong"),
+        }
+    }
+}
+
+/// `is_valid` pada compound kosong tidak boleh melempar exception OCCT
+/// (jalur `BRepCheck_Analyzer_ctor` kini `Result`, exception → `false`).
+#[test]
+fn is_valid_on_empty_compound_does_not_abort() {
+    let _guard = lock_test();
+    let empty = KernelShape::empty();
+    // Cukup: pemanggilan selesai tanpa SIGABRT.
+    let _ = empty.is_valid();
+}

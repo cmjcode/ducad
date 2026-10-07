@@ -75,9 +75,36 @@ impl DuCADApp {
             return;
         }
 
+        let plane = crate::document::plane_frame_from(&self.active_plane);
+
+        // Smart Boolean Cut, sama seperti gizmo: bila sapuan masuk ke dalam
+        // body yang ada (mis. sketsa di face lalu extrude ke arah dalam),
+        // hasilnya memotong body itu — bukan solid baru yang tersembunyi di
+        // dalam body sehingga tampak "tidak terjadi apa-apa".
+        if let Some(target_id) = self.detect_cut_target(distance) {
+            match crate::model::extrude_selection_with_holes_on_plane(
+                self.sketch(),
+                &self.selected,
+                &plane,
+                distance,
+            ) {
+                Ok(solids) => {
+                    if self.apply_cut_extrusion(target_id, &solids, distance) {
+                        self.model_status = None;
+                    } else {
+                        self.model_status =
+                            Some("Cut Extrude gagal: kernel tidak bisa memotong body".to_string());
+                    }
+                }
+                Err(msg) => {
+                    self.model_status = Some(format!("Extrude gagal: {msg}"));
+                }
+            }
+            return;
+        }
+
         // Kedua jalur lama (profil tunggal, lalu teks/multi-region) kini ada
         // di `compute::extrude` lewat `ProfilePick::Entities`.
-        let plane = crate::document::plane_frame_from(&self.active_plane);
         let result = compute::extrude(
             self.sketch(),
             &ProfilePick::Entities(&self.selected),

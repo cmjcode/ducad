@@ -7,9 +7,12 @@
 //! eksternal: satu batch = satu langkah undo, proposal lewat kartu Terima/
 //! Tolak, `accept_proposal` tidak tersedia.
 
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 use std::sync::mpsc::Receiver;
 
-use ducad_chat::{ChatBackend, ChatEvent, ConvMessage, CLI_KINDS};
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+use ducad_chat::ChatEvent;
+use ducad_chat::{ChatBackend, ConvMessage, CLI_KINDS};
 use ducad_ui::{ChatItem, ChatRole, CliFormProfile, CliMeta};
 
 use crate::app::DuCADApp;
@@ -17,9 +20,9 @@ use crate::chat_ui::ChatState;
 
 /// Giliran CLI yang sedang berjalan.
 pub struct CliRun {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub rx: Receiver<ducad_chat::cli::CliEvent>,
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub handle: ducad_chat::cli::CancelHandle,
     pub kind: String,
     /// Ada teks asisten yang sudah dialirkan pada giliran ini.
@@ -31,7 +34,7 @@ const TRANSCRIPT_BUDGET: usize = 6000;
 
 /// Meta tampilan tiap jenis CLI (urutan = `CLI_KINDS`).
 fn cli_meta() -> Vec<CliMeta> {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         use ducad_chat::cli::CliAgentKind;
         CliAgentKind::ALL
@@ -47,20 +50,20 @@ fn cli_meta() -> Vec<CliMeta> {
             })
             .collect()
     }
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     {
         Vec::new()
     }
 }
 
 fn display_name(kind: &str) -> String {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         ducad_chat::cli::CliAgentKind::from_data_name(kind)
             .display_name()
             .to_string()
     }
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     {
         kind.to_string()
     }
@@ -191,12 +194,12 @@ impl DuCADApp {
 
     /// Kirim isi input ke CLI agent aktif.
     pub(crate) fn chat_send_cli(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         {
             let _ = ctx;
             self.chat_error(ducad_i18n::t!("chat-cli-desktop-only"));
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             use ducad_chat::cli::{self, CliAgentProfile, CliRequest};
             let text = self.chat.panel.input.trim().to_string();
@@ -278,7 +281,7 @@ impl DuCADApp {
 
     /// Hentikan proses CLI yang berjalan.
     pub(crate) fn chat_stop_cli(&mut self) {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         if let Some(run) = &self.chat.cli_run {
             run.handle.cancel();
         }
@@ -287,7 +290,7 @@ impl DuCADApp {
     /// Terima kejadian CLI (tiap frame).
     pub(crate) fn chat_poll_cli(&mut self, ctx: &egui::Context) {
         self.poll_cli_status();
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             use ducad_chat::cli::CliEvent;
             let Some(mut run) = self.chat.cli_run.take() else {
@@ -351,7 +354,7 @@ impl DuCADApp {
                 }
             }
         }
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         let _ = ctx;
     }
 
@@ -387,7 +390,7 @@ impl DuCADApp {
 
     /// Tombol Deteksi: cari binary dan isi path-nya.
     pub(crate) fn chat_cli_detect(&mut self, i: usize) {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let Some(data) = self.form_profile(i) else {
                 return;
@@ -409,7 +412,7 @@ impl DuCADApp {
                 }
             }
         }
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         {
             let _ = i;
             self.chat.panel.form.cli_status = ducad_i18n::t!("chat-cli-desktop-only");
@@ -418,7 +421,7 @@ impl DuCADApp {
 
     /// Tombol Daftarkan MCP / Uji koneksi (di thread latar: bisa detik-an).
     pub(crate) fn chat_cli_background(&mut self, i: usize, register: bool) {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             use ducad_chat::cli;
             let Some(data) = self.form_profile(i) else {
@@ -461,7 +464,7 @@ impl DuCADApp {
                 let _ = tx.send(msg);
             });
         }
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         {
             let _ = (i, register);
             self.chat.panel.form.cli_status = ducad_i18n::t!("chat-cli-desktop-only");

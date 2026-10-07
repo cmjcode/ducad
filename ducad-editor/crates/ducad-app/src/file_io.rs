@@ -4,13 +4,8 @@ use crate::app::DuCADApp;
 use crate::model::{BodyGeometry, ModelDoc};
 use crate::types::ToolKind;
 
-#[cfg(target_os = "ios")]
-pub fn ios_documents_dir() -> PathBuf {
-    crate::apple::apple_documents_directory()
-}
-
 impl DuCADApp {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn pick_open_path(&mut self, filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
         let mut dialog = rfd::FileDialog::new().add_filter(filter_name, extensions);
         if let Some(p) = &self.current_file_path {
@@ -21,30 +16,14 @@ impl DuCADApp {
         dialog.pick_file()
     }
 
-    #[cfg(target_os = "ios")]
+    /// Tablet tanpa picker sinkron: berkas terbaru di folder Dokumen.
+    /// Jalur utama di iPad adalah `request_open` (picker Files.app).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     pub fn pick_open_path(&mut self, _filter_name: &str, extensions: &[&str]) -> Option<PathBuf> {
-        let docs = ios_documents_dir();
-        let read_dir = std::fs::read_dir(&docs).ok()?;
-        let mut matching_files: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
-        for entry in read_dir.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if extensions.iter().any(|&e| e.eq_ignore_ascii_case(ext)) {
-                        let modified = entry
-                            .metadata()
-                            .and_then(|m| m.modified())
-                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                        matching_files.push((modified, path));
-                    }
-                }
-            }
-        }
-        matching_files.sort_by_key(|(m, _)| *m);
-        matching_files.pop().map(|(_, p)| p)
+        crate::mobile::newest_matching_file(&crate::platform::documents_dir(), extensions)
     }
 
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub fn pick_save_path(
         &mut self,
         filter_name: &str,
@@ -62,16 +41,23 @@ impl DuCADApp {
         dialog.save_file()
     }
 
-    #[cfg(target_os = "ios")]
+    /// Tablet: simpan ke folder Dokumen aplikasi (Files.app "Di iPad Ini ▸
+    /// DUCAD" / Android `Android/data/<paket>/files`). Hasil ekspor (bukan
+    /// `.ducad`) ditawarkan ke share sheet begitu tertulis (`poll_share`).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     pub fn pick_save_path(
         &mut self,
         _filter_name: &str,
-        _extensions: &[&str],
+        extensions: &[&str],
         default_name: &str,
     ) -> Option<PathBuf> {
-        let docs = ios_documents_dir();
+        let docs = crate::platform::documents_dir();
         let _ = std::fs::create_dir_all(&docs);
-        Some(docs.join(default_name))
+        let path = docs.join(default_name);
+        if !extensions.iter().any(|e| e.eq_ignore_ascii_case("ducad")) {
+            self.mobile.pending_share = Some((path.clone(), std::time::Instant::now()));
+        }
+        Some(path)
     }
 
     pub fn save_native_to(&mut self, path: PathBuf) {
@@ -92,6 +78,7 @@ impl DuCADApp {
                 self.file_status = Some(ducad_i18n::t!("file-saved-to", name = name));
                 self.current_file_path = Some(path);
                 self.onboarding.note_saved();
+                crate::mobile::clear_autosave();
             }
             Err(e) => {
                 let err_str = e.to_string();
@@ -117,7 +104,8 @@ impl DuCADApp {
 
     pub fn open_native(&mut self) {
         let filter_name = ducad_i18n::t!("file-doc-ducad");
-        let Some(path) = self.pick_open_path(&filter_name, &["ducad"]) else {
+        let Some(path) = self.request_open(crate::mobile::OpenPurpose::Native, &filter_name, &["ducad"])
+        else {
             return;
         };
         self.open_native_path(path);
@@ -223,9 +211,15 @@ impl DuCADApp {
 
     pub fn import_step(&mut self) {
         let filter_name = ducad_i18n::t!("file-step-filter");
-        let Some(path) = self.pick_open_path(&filter_name, &["step", "stp"]) else {
+        let Some(path) =
+            self.request_open(crate::mobile::OpenPurpose::Step, &filter_name, &["step", "stp"])
+        else {
             return;
         };
+        self.import_step_path(path);
+    }
+
+    pub fn import_step_path(&mut self, path: PathBuf) {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -241,9 +235,14 @@ impl DuCADApp {
 
     pub fn import_stl(&mut self) {
         let filter_name = ducad_i18n::t!("file-stl-filter");
-        let Some(path) = self.pick_open_path(&filter_name, &["stl"]) else {
+        let Some(path) = self.request_open(crate::mobile::OpenPurpose::Stl, &filter_name, &["stl"])
+        else {
             return;
         };
+        self.import_stl_path(path);
+    }
+
+    pub fn import_stl_path(&mut self, path: PathBuf) {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -427,9 +426,14 @@ impl DuCADApp {
 
     pub fn import_dxf(&mut self) {
         let filter_name = ducad_i18n::t!("file-dxf-filter");
-        let Some(path) = self.pick_open_path(&filter_name, &["dxf"]) else {
+        let Some(path) = self.request_open(crate::mobile::OpenPurpose::Dxf, &filter_name, &["dxf"])
+        else {
             return;
         };
+        self.import_dxf_path(path);
+    }
+
+    pub fn import_dxf_path(&mut self, path: PathBuf) {
         match ducad_io::dxf::import(&path) {
             Ok(res) => {
                 let count = res.entities.len();
@@ -451,6 +455,38 @@ impl DuCADApp {
                 let err_str = e.to_string();
                 self.file_status = Some(ducad_i18n::t!("file-import-dxf-failed", error = err_str.as_str()));
             }
+        }
+    }
+
+    /// Muat font kustom (.ttf/.otf) untuk tool teks.
+    pub fn load_custom_font_path(&mut self, path: PathBuf) {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Custom Font")
+                    .to_string();
+                self.custom_font_bytes = Some(bytes);
+                self.text_popup_state.custom_font_name = Some(file_name);
+                self.model_status = Some("Font kustom berhasil dimuat".to_string());
+            }
+            Err(e) => self.model_status = Some(format!("Font kustom gagal dibaca: {e}")),
+        }
+    }
+
+    /// Tambahkan part eksternal (`.ducad`) ke perakitan dari jalur yang sudah dipilih.
+    pub fn add_external_part_path(&mut self, path: PathBuf) {
+        match self.add_external_part(&path) {
+            Ok(ids) => {
+                self.selected_assembly_instance = ids.first().copied();
+                self.assembly_drawer.stale_external = self
+                    .poll_external_sources()
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .collect();
+            }
+            Err(e) => self.model_status = Some(e),
         }
     }
 

@@ -114,7 +114,7 @@ pub use modify::{
 pub use picking::{
     edge_dimensions, edge_outward_normal, pick_edge, pick_face, pick_face_details, pick_vertex,
     point_in_polygon_2d, shape_vertices, vertex_outward_normal, EdgeDimension, EdgeNormalHit,
-    EdgePickHit, FaceHit, PickRay, SurfaceKind, Vec3Raw,
+    EdgePickHit, FaceHit, PickRay, RadialAxis, SurfaceKind, Vec3Raw,
 };
 pub use primitives::{make_box, make_cone, make_cylinder, make_sphere};
 pub use profile::{PathSegment, Profile, ProfileSegment};

@@ -56,9 +56,14 @@ bytemuck = { version = "1", features = ["derive"] }
 # opsional apa pun). Satu-satunya yang hilang dibanding default penuh:
 # "wayland-dlopen"/"wayland-csd-adwaita" (kosmetik Linux/Wayland saja,
 # tak menyentuh macOS/iOS yang jadi target pengembangan saat ini).
+# "persistence": satu-satunya jalan eframe memanggil `App::save` saat OS
+# menidurkan aplikasi (iPadOS `applicationWillResignActive`, Android
+# `onPause`) — dipakai autosave pemulihan di tablet (`platform.rs`).
+# Pemulihan posisi jendela dimatikan lewat `persist_window: false`.
 eframe = { version = "0.36", default-features = false, features = [
     "accesskit",
     "default_fonts",
+    "persistence",
     "wayland",
     "web_screen_reader",
     "x11",
@@ -115,6 +120,13 @@ chrono = { version = "0.4", default-features = false, features = [
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
+    # ducad-app/src/apple_ios.rs: observer notifikasi, NSArray<UTType>.
+    "NSNotification",
+    "NSOperation",
+    "NSArray",
+    "NSSet",
+    "NSObject",
+    "NSEnumerator",
     "NSFileManager",
     "NSPathUtilities",
     "NSString",
@@ -135,7 +147,28 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIDevice",
     "UIScreen",
     "UIApplication",
+    # iPad (ducad-app/src/apple_ios.rs): Files.app, share sheet, Pencil, hover.
+    "UIResponder",
+    "UIView",
+    "UIViewController",
+    "UIWindow",
+    "UIWindowScene",
+    "UIScene",
+    "UIDocumentPickerViewController",
+    "UIActivityViewController",
+    "UIPopoverPresentationController",
+    "UIPresentationController",
+    "UIGestureRecognizer",
+    "UIHoverGestureRecognizer",
+    "UIPencilInteraction",
+    "UIInteraction",
+    "UIFeedbackGenerator",
+    "UIImpactFeedbackGenerator",
+    "UISelectionFeedbackGenerator",
+    "objc2-core-foundation",
+    "objc2-uniform-type-identifiers",
 ] }
+objc2-uniform-type-identifiers = { version = "0.3", features = ["UTType"] }
 
 [profile.dev]
 opt-level = 1

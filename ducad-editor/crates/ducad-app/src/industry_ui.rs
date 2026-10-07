@@ -653,27 +653,12 @@ impl DuCADApp {
                 }
             }
             IndustryEvent::ImportConfigCsv => {
-                let Some(path) = self.pick_open_path("CSV", &["csv"]) else {
+                let Some(path) =
+                    self.request_open(crate::mobile::OpenPurpose::DesignTableCsv, "CSV", &["csv"])
+                else {
                     return;
                 };
-                let parsed = std::fs::read_to_string(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|text| ducad_core::design_table_from_csv(&text));
-                match parsed {
-                    Ok(configs) => self.ind_design_edit(
-                        |d| {
-                            if !configs
-                                .iter()
-                                .any(|c| Some(c.name.as_str()) == d.active_configuration.as_deref())
-                            {
-                                d.active_configuration = None;
-                            }
-                            d.configurations = configs;
-                        },
-                        ducad_i18n::t!("ind-cfg-imported"),
-                    ),
-                    Err(why) => self.ind_fail(why),
-                }
+                self.import_design_table_csv_path(path);
             }
             IndustryEvent::BaseFlange {
                 id,
@@ -887,6 +872,30 @@ impl DuCADApp {
                 }
             }
             IndustryEvent::SetExplode(f) => self.set_explode_factor(f),
+        }
+    }
+}
+
+impl DuCADApp {
+    /// Impor tabel desain (CSV) dari jalur yang sudah dipilih.
+    pub fn import_design_table_csv_path(&mut self, path: std::path::PathBuf) {
+        let parsed = std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| ducad_core::design_table_from_csv(&text));
+        match parsed {
+            Ok(configs) => self.ind_design_edit(
+                |d| {
+                    if !configs
+                        .iter()
+                        .any(|c| Some(c.name.as_str()) == d.active_configuration.as_deref())
+                    {
+                        d.active_configuration = None;
+                    }
+                    d.configurations = configs;
+                },
+                ducad_i18n::t!("ind-cfg-imported"),
+            ),
+            Err(why) => self.ind_fail(why),
         }
     }
 }

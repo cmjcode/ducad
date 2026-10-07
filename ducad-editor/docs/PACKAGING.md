@@ -61,6 +61,8 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
   putaran ini.
 - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar
   lingkup kerja kode.
-- **iOS packaging** (`.ipa`, TestFlight) — sudah didokumentasikan
-  terpisah di "Status Fase 6" `docs/PLAN.md`, blocker OCCT/iOS belum
-  selesai jadi ini belum relevan sampai itu beres.
+- **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
+  (pre-build OCCT untuk iOS otomatis). Lihat `docs/TABLET.md`.
+- **Android** — `make android-apk` menghasilkan APK debug (lihat
+  `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
+  alasannya dengan macOS.

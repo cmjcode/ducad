@@ -139,7 +139,13 @@ struct MeshIn {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
-    @location(3) material_params: vec4<f32>, // x: roughness, y: metallic, z: clearcoat, w: reserved
+    // x: roughness, y: metallic, z: clearcoat,
+    // w: tarikan ke arah mata (fraksi jarak vertex–mata, 0 = tidak ada).
+    //    Dipakai mesh preview/ghost yang bidangnya berimpit dengan permukaan
+    //    body (mis. preview extrude potong dari sketsa di face) supaya
+    //    menang depth test secara deterministik — tanpa z-fighting — dan
+    //    tanpa menggeser posisi layar (pergeseran sepanjang sinar pandang).
+    @location(3) material_params: vec4<f32>,
 };
 
 struct MeshOut {
@@ -153,7 +159,12 @@ struct MeshOut {
 @vertex
 fn vs_mesh(in: MeshIn) -> MeshOut {
     var out: MeshOut;
-    out.clip = globals.view_proj * vec4<f32>(in.position, 1.0);
+    // Tarikan depth untuk preview (lihat `MeshIn.material_params.w`):
+    // hanya clip-space yang digeser; `world`/`normal` tetap asli agar
+    // pencahayaan dan clip plane tidak berubah.
+    let pull = clamp(in.material_params.w, 0.0, 0.05);
+    let pulled = in.position + (globals.eye.xyz - in.position) * pull;
+    out.clip = globals.view_proj * vec4<f32>(pulled, 1.0);
     out.normal = in.normal;
     out.world = in.position;
     out.color = in.color;

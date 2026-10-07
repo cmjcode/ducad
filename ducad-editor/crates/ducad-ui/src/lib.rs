@@ -101,7 +101,10 @@ pub use items_drawer::{
     BodyItemInfo, Entity2dItemInfo, ItemsDrawer, ItemsDrawerEvent, ItemsDrawerTab,
     VectorDrawerContext,
 };
-pub use left_toolbar::{rail_button_side, rail_square_btn, LeftToolbar, ToolbarEvent, ToolbarTool};
+pub use left_toolbar::{
+    rail_button_side, rail_square_btn, rail_square_btn_enabled, LeftToolbar, ToolbarEvent,
+    ToolbarTool,
+};
 pub use lighting_drawer::{LightingDrawer, LightingDrawerEvent};
 pub use onboarding::{
     Onboarding, OnboardingChapter, OnboardingEvent, OnboardingGoal, OnboardingState,

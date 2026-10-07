@@ -7,6 +7,6 @@ pub use edge::{
     edge_dimensions, edge_outward_normal, pick_edge, EdgeDimension, EdgeNormalHit,
     EdgePickHit, Vec3Raw,
 };
-pub use face::{pick_face, pick_face_details, FaceHit, SurfaceKind};
+pub use face::{pick_face, pick_face_details, FaceHit, RadialAxis, SurfaceKind};
 pub use ray::{point_in_polygon_2d, PickRay};
 pub use vertex::{pick_vertex, shape_vertices, vertex_outward_normal};

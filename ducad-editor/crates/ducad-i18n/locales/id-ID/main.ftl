@@ -1730,3 +1730,7 @@ onboard-tour-shapes = Bentuk lain: Revolve, Loft, Sweep, Helix, Boolean, dan tek
 onboard-tour-vector = Mode Vektor dan Tinta untuk kurva Bezier dan coretan bebas.
 onboard-tour-agent = Agent Bridge agar agent AI eksternal memodelkan lewat MCP.
 onboard-tour-reopen = Tutorial ini bisa dibuka lagi kapan saja lewat tombol bantuan di kanan atas atau palet perintah.
+
+# Tablet (iPadOS/Android)
+file-restored-autosave = Dokumen dipulihkan dari autosave (aplikasi sebelumnya dihentikan sistem)
+mobile-memory-trimmed = Memori perangkat menipis: cache dibebaskan, Liquid Glass dimatikan

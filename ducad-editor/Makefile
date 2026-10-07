@@ -49,6 +49,9 @@ help:
 	@echo "  bundle-macos       Create .app & .dmg (codesign/notarize optional)"
 	@echo "  pkg-macos-store    Create signed .pkg (App Store / distribution)"
 	@echo "  build-ipad         Build iPadOS target / XCFramework"
+	@echo "  android-check      cargo check untuk aarch64-linux-android (OCCT via NDK)"
+	@echo "  android-so         Build libducad_android.so ke android/app/src/main/jniLibs"
+	@echo "  android-apk        android-so + gradle assembleDebug (APK tablet)"
 	@echo "  build-linux        Build Linux binaries"
 	@echo "  bundle-linux       Create tarballs + AppDir structure"
 	@echo "  build-windows      Build Windows binaries"
@@ -259,6 +262,28 @@ publish-ipad:
 
 publish-all publish-apple-all:
 	@./publish_apple_all.sh
+
+# ---- Android tablet (crate ducad-android + android/ Gradle) ----
+# Prasyarat: `cargo install cargo-ndk`, `rustup target add aarch64-linux-android`,
+# Android SDK + NDK (ANDROID_NDK_HOME atau ANDROID_HOME/ndk/<versi>), JDK 17.
+ANDROID_API ?= 26
+ANDROID_JNI_DIR = android/app/src/main/jniLibs
+ANDROID_NDK_HOME ?= $(lastword $(sort $(wildcard $(HOME)/Library/Android/sdk/ndk/*)))
+export ANDROID_NDK_HOME
+
+android-check:
+	@echo "🤖 cargo check aarch64-linux-android (NDK: $(ANDROID_NDK_HOME))"
+	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) check -p ducad-android
+
+android-so:
+	@echo "🤖 build libducad_android.so (release)"
+	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android
+	@# libc++_shared.so: OCCT ditautkan ke STL bersama (android-toolchain.cmake).
+	@cp "$$(ls -d $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/*)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" $(ANDROID_JNI_DIR)/arm64-v8a/
+
+android-apk: android-so
+	@cd android && (./gradlew assembleDebug 2>/dev/null || gradle assembleDebug)
+	@echo "✅ APK: android/app/build/outputs/apk/debug/app-debug.apk"
 
 release: clean install-deps bundle-macos
 	@echo "🎉 Release completed"

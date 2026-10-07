@@ -1093,10 +1093,31 @@ impl CanvasHud {
         )
     }
 
-    /// Render status badge seleksi, aksi "Normal to Sketch", & pengukuran mengambang di pojok kiri bawah kanvas.
+    /// Teks HUD polos tanpa frame: putih dengan bayangan gelap 1 px supaya tetap
+    /// terbaca di atas kanvas terang maupun gelap.
+    fn hud_plain_text(ui: &mut Ui, text: &str) {
+        let galley = ui.painter().layout_no_wrap(
+            text.to_owned(),
+            FontId::proportional(11.0),
+            Color32::WHITE,
+        );
+        let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.galley_with_override_text_color(
+            rect.min + Vec2::splat(1.0),
+            galley.clone(),
+            Color32::from_black_alpha(170),
+        );
+        painter.galley(rect.min, galley, Color32::WHITE);
+    }
+
+    /// Baris status/prompt tool di pojok kiri atas kanvas, tepat di bawah burger
+    /// menu. Hanya teks (tanpa frame) supaya tidak menumpuk dengan menu bawah.
+    /// `anchor` = pojok kiri-atas baris. Dirender di `Order::Middle` sehingga
+    /// panel mengambang (Simulasi, Industri, …) menutupinya, bukan sebaliknya.
     pub fn show_status_pill(
         ui: &mut Ui,
-        canvas_rect: Rect,
+        anchor: Pos2,
         selection_summary: &str,
         measurement_summary: Option<&str>,
         show_normal_to_sketch: bool,
@@ -1105,81 +1126,53 @@ impl CanvasHud {
             return None;
         }
 
-        // Bila kartu panduan tool sedang tampil di pojok kiri bawah, pill digeser
-        // ke sebelah kanannya (garis bawah keduanya sejajar, margin 16 px).
-        let margin = crate::tool_guides::ToolGuides::CORNER_MARGIN;
-        let left = match crate::tool_guides::ToolGuides::active_card_rect(ui.ctx()) {
-            Some(card) => card.max.x + 12.0,
-            None => canvas_rect.min.x + margin,
-        };
-        let pos = Pos2::new(left, canvas_rect.max.y - margin);
         let mut event = None;
 
         egui::Area::new(egui::Id::new("ducad-hud-status-area"))
-            .fixed_pos(pos)
-            .pivot(Align2::LEFT_BOTTOM)
-            .order(egui::Order::Foreground)
+            .fixed_pos(anchor)
+            .pivot(Align2::LEFT_TOP)
+            .order(egui::Order::Middle)
             .show(ui.ctx(), |ui| {
-                ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
+                ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
                 ui.spacing_mut().button_padding = Vec2::new(6.0, 2.0);
 
-                pill_frame().show(ui, |ui| {
-                    ui.horizontal_centered(|ui| {
-                        Self::hud_title(ui, selection_summary, false);
+                ui.horizontal(|ui| {
+                    if !selection_summary.is_empty() {
+                        Self::hud_plain_text(ui, selection_summary);
+                    }
 
-                        // Tombol "Normal to Sketch" menyatu di pill bila mode sketsa aktif
-                        if show_normal_to_sketch {
-                            ui.label(RichText::new("|").color(TEXT_SECONDARY));
-                            if Self::hud_toggle_btn(
-                                ui,
-                                format!(
-                                    "{} {}",
-                                    ICON_3D_ROTATION.codepoint,
-                                    t!("hud-normal-to-sketch")
-                                ),
-                                false,
-                            )
-                            .clicked()
-                            {
-                                event = Some(CanvasHudEvent::OrientNormalToSketch);
-                            }
-                        }
+                    // Tombol "Normal to Sketch" bila mode sketsa aktif
+                    if show_normal_to_sketch
+                        && Self::hud_toggle_btn(
+                            ui,
+                            format!(
+                                "{} {}",
+                                ICON_3D_ROTATION.codepoint,
+                                t!("hud-normal-to-sketch")
+                            ),
+                            false,
+                        )
+                        .clicked()
+                    {
+                        event = Some(CanvasHudEvent::OrientNormalToSketch);
+                    }
 
-                        // Ringkasan pengukuran jika ada
-                        if let Some(m) = measurement_summary {
-                            ui.label(RichText::new("|").color(TEXT_SECONDARY));
-                            let resp = ui.selectable_label(
-                                false,
-                                RichText::new(format!("{} {}", ICON_STRAIGHTEN.codepoint, m))
-                                    .size(10.0)
-                                    .color(TEXT_PRIMARY),
-                            );
-                            if resp.clicked() {
-                                event = Some(CanvasHudEvent::OpenMeasurements);
-                            }
+                    // Ringkasan pengukuran jika ada
+                    if let Some(m) = measurement_summary {
+                        if Self::hud_toggle_btn(
+                            ui,
+                            format!("{} {}", ICON_STRAIGHTEN.codepoint, m),
+                            false,
+                        )
+                        .clicked()
+                        {
+                            event = Some(CanvasHudEvent::OpenMeasurements);
                         }
-                    });
+                    }
                 });
             });
 
         event
-    }
-
-    #[inline]
-    pub fn show_bottom_status_pill(
-        ui: &mut Ui,
-        selection_summary: &str,
-        measurement_summary: Option<&str>,
-        show_normal_to_sketch: bool,
-    ) -> Option<CanvasHudEvent> {
-        let max_rect = ui.max_rect();
-        Self::show_status_pill(
-            ui,
-            max_rect,
-            selection_summary,
-            measurement_summary,
-            show_normal_to_sketch,
-        )
     }
 
     /// Render badge dimensi mengambang putih langsung pada posisi 2D di kanvas.

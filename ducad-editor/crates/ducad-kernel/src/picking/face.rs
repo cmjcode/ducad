@@ -67,6 +67,25 @@ pub struct FaceHit {
     /// `KernelMesh::face_ranges`, sehingga segitiga face ini di mesh body
     /// bisa disorot secara eksak. `None` bila face tak ditemukan lagi.
     pub face_index: Option<usize>,
+    /// Radius permukaan analitik (mm): silinder/kerucut (`cylinder_or_cone_radius`)
+    /// atau bola. `None` untuk bidang datar/permukaan bebas. Dipakai gizmo
+    /// tarik-sisi GUI untuk menampilkan radius HASIL (`R 101.2`) alih-alih
+    /// hanya selisih `ΔR`.
+    pub surface_radius: Option<f64>,
+    /// Kerangka radial permukaan analitik, dipakai pratinjau tarik-sisi GUI
+    /// agar tiap vertex digeser MENJAUHI/MENDEKATI sumbu (membesarkan radius),
+    /// bukan ditranslasikan searah `pull_dir` seperti face datar.
+    /// `None` untuk bidang datar/permukaan lain.
+    pub radial_axis: Option<RadialAxis>,
+}
+
+/// Sumbu/pusat radial permukaan lengkung (lihat `FaceHit::radial_axis`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadialAxis {
+    /// Titik pada sumbu silinder/kerucut, atau pusat bola.
+    pub origin: (f64, f64, f64),
+    /// Arah sumbu satuan; `(0,0,0)` untuk bola (radial dari satu titik).
+    pub dir: (f64, f64, f64),
 }
 
 impl FaceHit {
@@ -384,6 +403,27 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
 
     let pull_dir = compute_pull_dir(&face, surface_kind, hit, normal, ray.dir_vec());
     let face_index = shape.inner().faces().position(|f| f.is_equal(&face));
+    let surface_radius = match surface_kind {
+        SurfaceKind::Cylinder | SurfaceKind::Cone => face.cylinder_or_cone_radius(),
+        SurfaceKind::Sphere => face.sphere_radius(),
+        _ => None,
+    };
+    let radial_axis = match surface_kind {
+        SurfaceKind::Cylinder | SurfaceKind::Cone => face
+            .cylinder_or_cone_axis()
+            .and_then(|(loc, dir)| {
+                let dir = dir.normalize_or_zero();
+                (dir != DVec3::ZERO).then_some(RadialAxis {
+                    origin: (loc.x, loc.y, loc.z),
+                    dir: (dir.x, dir.y, dir.z),
+                })
+            }),
+        SurfaceKind::Sphere => face.sphere_center().map(|c| RadialAxis {
+            origin: (c.x, c.y, c.z),
+            dir: (0.0, 0.0, 0.0),
+        }),
+        _ => None,
+    };
     Some(FaceHit {
         hit_point: (hit.x, hit.y, hit.z),
         centroid: (centroid.x, centroid.y, centroid.z),
@@ -392,6 +432,8 @@ pub fn pick_face_details(shape: &KernelShape, ray: PickRay) -> Option<FaceHit> {
         pull_dir: (pull_dir.x, pull_dir.y, pull_dir.z),
         boundary_points,
         face_index,
+        surface_radius,
+        radial_axis,
     })
 }
 

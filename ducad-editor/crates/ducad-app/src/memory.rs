@@ -39,12 +39,9 @@ pub struct VaultMemory {
 /// Lokasi vault bawaan: `$HOME/DUCAD-Memory` di desktop, folder Documents
 /// aplikasi di iPadOS (satu-satunya tempat yang bisa ditulis).
 pub fn default_root() -> PathBuf {
-    #[cfg(target_os = "ios")]
-    {
-        crate::file_io::ios_documents_dir().join("DUCAD-Memory")
-    }
-    #[cfg(not(target_os = "ios"))]
-    {
+    if crate::platform::is_mobile() {
+        crate::platform::documents_dir().join("DUCAD-Memory")
+    } else {
         match std::env::var_os("HOME") {
             Some(home) => PathBuf::from(home).join("DUCAD-Memory"),
             None => PathBuf::from("DUCAD-Memory"),

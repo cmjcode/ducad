@@ -2,6 +2,11 @@
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
 CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+# Android (lihat crates/ducad-kernel/android/android-toolchain.cmake).
+# `force = true`: cargo-ndk juga mengekspor variabel ini (langsung ke
+# toolchain NDK, tanpa ABI/STL) — pembungkus kita yang harus menang.
+CMAKE_TOOLCHAIN_FILE_aarch64_linux_android = { value = "crates/ducad-kernel/android/android-toolchain.cmake", relative = true, force = true }
+CMAKE_TOOLCHAIN_FILE_x86_64_linux_android = { value = "crates/ducad-kernel/android/android-toolchain.cmake", relative = true, force = true }
 
 [target.aarch64-apple-ios]
 rustflags = [

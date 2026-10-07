@@ -909,3 +909,347 @@ fn sketch_on_face_rejects_non_planar_face() {
     assert!(app.datum_planes.is_empty());
     assert!(app.model_status.as_deref().unwrap_or("").contains("datar"));
 }
+
+/// Lingkaran yang digambar di sketsa face atas lalu di-extrude KE BAWAH lewat
+/// gizmo harus terdeteksi memotong body dan menghasilkan lubang, bukan solid
+/// baru yang tersembunyi di dalam body.
+#[test]
+fn sketch_on_face_extrude_down_cuts_the_body() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+    app.sketch_on_active_face();
+    let before = total_volume(&app);
+
+    app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+        "Circle",
+        vec![Entity::circle(DVec2::ZERO, 2.0)],
+    )));
+    let circle_id = app
+        .sketch()
+        .entities
+        .iter()
+        .find(|(_, e)| matches!(e, Entity::Circle { .. }))
+        .map(|(id, _)| id)
+        .expect("lingkaran ada");
+    app.selected = HashSet::from([circle_id]);
+    app.set_tool(ToolKind::Select);
+
+    app.gizmo_distance = -5.0;
+    app.extruding_from_gizmo = true;
+    app.update_gizmo_boolean_detection();
+    assert!(app.gizmo_is_cutting, "extrude ke bawah harus terdeteksi memotong");
+    assert_eq!(app.gizmo_target_body, Some(id));
+
+    app.commit_gizmo_extrusion();
+    assert_eq!(app.model.doc.bodies.len(), 1, "tidak ada body baru");
+    let want = before - std::f64::consts::PI * 2.0 * 2.0 * 5.0;
+    assert_volume("cut", total_volume(&app), want);
+}
+
+/// Preview extrude potong digambar sebagai ghost merah TEMBUS PANDANG yang
+/// bidangnya berimpit dengan permukaan body target (sketsa di face). Supaya
+/// tidak z-fighting (bercak merah/abu-abu acak), semua vertex preview harus
+/// membawa tarikan depth (`material_params.w > 0`), dan body target tidak
+/// boleh ikut dimerahkan pekat — hanya volume yang dibuang yang merah.
+#[test]
+fn cut_extrude_preview_has_depth_pull_and_translucent_red() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+    app.sketch_on_active_face();
+    app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+        "Circle",
+        vec![Entity::circle(DVec2::ZERO, 2.0)],
+    )));
+    let circle_id = app
+        .sketch()
+        .entities
+        .iter()
+        .find(|(_, e)| matches!(e, Entity::Circle { .. }))
+        .map(|(id, _)| id)
+        .expect("lingkaran ada");
+    app.selected = HashSet::from([circle_id]);
+    app.set_tool(ToolKind::Select);
+    app.active_face = None;
+    app.gizmo_distance = -5.0;
+    app.extruding_from_gizmo = true;
+    app.update_gizmo_boolean_detection();
+    assert!(app.gizmo_is_cutting);
+
+    let cp = app.gizmo_cut_preview.as_ref().expect("pratinjau cut dihitung");
+    assert_eq!(cp.target, id);
+    assert!(!cp.removed.positions.is_empty(), "volume irisan (removed) harus ada");
+    assert!(!cp.remaining.positions.is_empty(), "body sisa (remaining) harus ada");
+    assert!(
+        cp.remaining.positions.len() > app.model.geometry[id].mesh.positions.len(),
+        "body sisa berlubang: mesh-nya lebih rapat dari balok polos"
+    );
+
+    let (_positions, _normals, colors, materials, _indices) = app.build_combined_body_mesh();
+    assert_eq!(colors.len(), materials.len());
+    // Vertex preview = yang membawa tarikan depth; body biasa tidak.
+    let preview: Vec<usize> =
+        (0..materials.len()).filter(|&i| materials[i][3] > 0.0).collect();
+    assert!(!preview.is_empty(), "preview harus ada saat memotong");
+    let mut saw_red = false;
+    for &i in &preview {
+        assert!(colors[i][3] < 0.75, "preview cut harus tembus pandang: {:?}", colors[i]);
+        if colors[i][0] > 0.9 && colors[i][1] < 0.3 && colors[i][2] < 0.3 {
+            saw_red = true;
+        }
+    }
+    assert!(saw_red, "volume irisan harus digambar merah");
+    // Body target: digambar sebagai hasil potong, tetap opak, tidak merah pekat.
+    let body: Vec<usize> =
+        (0..materials.len()).filter(|&i| materials[i][3] == 0.0).collect();
+    assert_eq!(body.len(), cp.remaining.positions.len(), "body target memakai mesh sisa potong");
+    for &i in &body {
+        assert!(colors[i][3] >= 0.99, "body target tetap opak");
+        assert!(!(colors[i][0] > 0.9 && colors[i][1] < 0.3), "body target tidak merah pekat");
+    }
+}
+
+/// Tombol Extrude (popup/bilah bawah/palet) bernilai negatif dari sketsa di
+/// face atas harus memotong body, sama seperti gizmo — bukan membuat solid
+/// baru yang tersembunyi di dalam body.
+#[test]
+fn sketch_on_face_extrude_button_negative_cuts_the_body() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+    app.sketch_on_active_face();
+    let before = total_volume(&app);
+
+    app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+        "Circle",
+        vec![Entity::circle(DVec2::ZERO, 2.0)],
+    )));
+    let circle_id = app
+        .sketch()
+        .entities
+        .iter()
+        .find(|(_, e)| matches!(e, Entity::Circle { .. }))
+        .map(|(id, _)| id)
+        .expect("lingkaran ada");
+    app.selected = HashSet::from([circle_id]);
+
+    app.extrude_distance_input = "-5".to_string();
+    app.extrude_selected();
+    assert_eq!(app.model.doc.bodies.len(), 1, "{:?}", app.model_status);
+    let want = before - std::f64::consts::PI * 2.0 * 2.0 * 5.0;
+    assert_volume("cut-button", total_volume(&app), want);
+
+    // Arah positif (menjauhi body) tetap membuat solid baru seperti sebelumnya.
+    app.selected = HashSet::from([circle_id]);
+    app.extrude_distance_input = "3".to_string();
+    app.extrude_selected();
+    assert_eq!(app.model.doc.bodies.len(), 2, "{:?}", app.model_status);
+}
+
+/// Gizmo tarik-sisi menampilkan dan menerima UKURAN HASIL (dari dasar body /
+/// sumbu silinder), bukan hanya selisih — angka yang diketik adalah tinggi
+/// atau radius akhir.
+#[test]
+fn face_gizmo_uses_absolute_dimension_from_base() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Blok", [20.0, 30.0, 50.0], [0.0; 3]);
+    let ray = top_face_ray(10.0, 15.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+
+    // Tutup atas balok 50 mm → dasar = tinggi body.
+    let base = app.face_gizmo_base_dimension().expect("dasar face datar");
+    assert!((base - 50.0).abs() < 1e-6, "dasar {base}");
+
+    // Drag +11.2 → label memuat ukuran hasil 61.2 dan selisihnya.
+    app.face_gizmo_distance = 11.2;
+    let text = app.face_gizmo_dimension_text();
+    assert!(text.starts_with("61.2 mm"), "label: {text}");
+    assert!(text.contains("(+11.20)"), "label: {text}");
+    assert_eq!(app.face_gizmo_input_text(), "61.2");
+
+    // Ketik 60 = tinggi akhir 60 → selisih +10; ketik 40 → potong 10.
+    app.apply_face_gizmo_typed_value(60.0).unwrap();
+    assert!((app.face_gizmo_distance - 10.0).abs() < 1e-9);
+    app.apply_face_gizmo_typed_value(40.0).unwrap();
+    assert!((app.face_gizmo_distance + 10.0).abs() < 1e-9);
+    assert!(app.apply_face_gizmo_typed_value(0.0).is_err());
+
+    // Commit tinggi 60 → volume 20×30×60.
+    app.apply_face_gizmo_typed_value(60.0).unwrap();
+    app.commit_face_gizmo_extrusion();
+    assert_volume("tinggi 60", total_volume(&app), 20.0 * 30.0 * 60.0);
+}
+
+#[test]
+fn face_gizmo_cylinder_shows_result_radius() {
+    let mut app = DuCADApp::new_for_test();
+    let geo = ducad_engine::compute::primitive(
+        &ducad_engine::compute::PrimitiveShape::Cylinder { r: 10.0, h: 30.0 },
+        [0.0; 3],
+    )
+    .unwrap();
+    let id = app.model.doc.add_body("Silinder");
+    app.model.geometry.insert(id, geo);
+    // Sinar mendatar dari +X menuju sumbu → kena selimut di x = 10.
+    let ray = PickRay { origin: (100.0, 0.0, 15.0), dir: (-1.0, 0.0, 0.0) };
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("selimut");
+    assert_eq!(hit.surface_kind, ducad_kernel::SurfaceKind::Cylinder);
+    assert!((hit.surface_radius.expect("radius") - 10.0).abs() < 1e-6);
+    // Kerangka radial untuk pratinjau: sumbu Z lewat titik asal, sehingga
+    // vertex selimut digeser menjauhi sumbu (membesarkan R), bukan ditranslasi.
+    let ax = hit.radial_axis.expect("sumbu silinder");
+    assert!(ax.origin.0.abs() < 1e-6 && ax.origin.1.abs() < 1e-6, "sumbu lewat (0,0): {ax:?}");
+    assert!((ax.dir.2.abs() - 1.0).abs() < 1e-6, "arah sumbu Z: {ax:?}");
+    app.active_face = Some((id, ray, hit));
+
+    app.face_gizmo_distance = 2.0;
+    let text = app.face_gizmo_dimension_text();
+    assert!(text.starts_with("R 12 mm"), "label: {text}");
+    assert!(text.contains("(+2.00)"), "label: {text}");
+
+    // Ketik radius akhir 8 → selisih −2 (mengecil).
+    app.apply_face_gizmo_typed_value(8.0).unwrap();
+    assert!((app.face_gizmo_distance + 2.0).abs() < 1e-9);
+}
+
+/// Body silinder (piringan), sketsa di face atas, lingkaran di tengah lebih
+/// kecil ATAU sama persis dengan jari-jari piringan (dinding berimpit):
+/// keduanya harus terdeteksi memotong saat extrude ke bawah.
+#[test]
+fn sketch_on_disc_top_detects_cut_even_with_coincident_walls() {
+    for (label, radius) in [("kecil", 10.0), ("berimpit", 40.0)] {
+        let mut app = DuCADApp::new_for_test();
+        let geo = ducad_engine::compute::primitive(
+            &ducad_engine::compute::PrimitiveShape::Cylinder { r: 40.0, h: 20.0 },
+            [0.0; 3],
+        )
+        .unwrap();
+        let id = app.model.doc.add_body("Disc");
+        app.model.geometry.insert(id, geo);
+        let ray = top_face_ray(5.0, 5.0);
+        let hit = ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray)
+            .expect("face atas piringan");
+        app.active_face = Some((id, ray, hit));
+        app.sketch_on_active_face();
+        assert!((app.active_plane.origin.z - 20.0).abs() < 1e-3, "{label}: {:?}", app.active_plane.origin);
+
+        app.execute_sketch_command(Box::new(ducad_sketch::commands::InsertEntities::new(
+            "Circle",
+            vec![Entity::circle(DVec2::ZERO, radius)],
+        )));
+        let circle_id = app
+            .sketch()
+            .entities
+            .iter()
+            .find(|(_, e)| matches!(e, Entity::Circle { .. }) && !e.is_construction())
+            .map(|(id, _)| id)
+            .expect("lingkaran ada");
+        app.selected = HashSet::from([circle_id]);
+        app.set_tool(ToolKind::Select);
+
+        let target = app.detect_cut_target(-39.32);
+        assert_eq!(target, Some(id), "{label}: extrude ke bawah harus memotong piringan");
+    }
+}
+
+/// Push/pull sisi ke arah DALAM: pratinjau harus menggambar body yang sudah
+/// terpotong plus volume merah tembus pandang yang dibuang — bukan prisma
+/// yang tersembunyi di dalam body pekat. Commit menghasilkan volume sesuai.
+#[test]
+fn face_pull_inward_preview_shows_removed_volume_and_hollowed_body() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+    app.active_face = Some((id, ray, hit));
+    app.set_tool(ToolKind::Select);
+
+    // Sama seperti jalur drag handle di GUI: begin lalu tandai sedang digeser.
+    app.begin_face_gizmo_drag();
+    app.extruding_face_from_gizmo = true;
+    app.face_gizmo_distance = -3.0;
+    app.refresh_face_cut_preview();
+    let cp = app.face_cut_preview.as_ref().expect("pratinjau potong sisi dihitung");
+    assert_eq!(cp.target, id);
+    assert!(!cp.removed.positions.is_empty(), "volume yang dibuang harus ada");
+    assert!(!cp.remaining.positions.is_empty(), "body sisa harus ada");
+    let remaining_top = cp
+        .remaining
+        .positions
+        .iter()
+        .map(|p| p[2])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!((remaining_top - 5.0).abs() < 1e-3, "body sisa setinggi 5, dapat {remaining_top}");
+
+    let (positions, _normals, colors, materials, _indices) = app.build_combined_body_mesh();
+    let red: Vec<usize> = (0..colors.len())
+        .filter(|&i| colors[i][0] > 0.9 && colors[i][1] < 0.3 && colors[i][3] < 0.9)
+        .collect();
+    assert!(!red.is_empty(), "volume yang dibuang digambar merah tembus pandang");
+    assert!(red.iter().all(|&i| materials[i][3] > 0.0), "preview membawa tarikan depth");
+    // Mesh body (bukan preview) tidak boleh lagi memuat permukaan di Z=8.
+    let body_top = (0..positions.len())
+        .filter(|&i| materials[i][3] == 0.0)
+        .map(|i| positions[i][2])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!((body_top - 5.0).abs() < 1e-3, "body digambar sudah terpotong, puncak {body_top}");
+
+    // Pratinjau dipakai ulang bila jarak sama, dibuang saat arah keluar.
+    app.refresh_face_cut_preview();
+    assert!(app.face_cut_preview.is_some());
+    app.face_gizmo_distance = 4.0;
+    app.refresh_face_cut_preview();
+    assert!(app.face_cut_preview.is_none(), "arah keluar memakai pratinjau tutup+dinding");
+
+    app.face_gizmo_distance = -3.0;
+    app.commit_face_gizmo_extrusion();
+    assert!(app.face_cut_preview.is_none());
+    assert_volume("potong sisi", total_volume(&app), 30.0 * 10.0 * 5.0);
+}
+
+
+/// Memulai gizmo dari MODE SKETSA tidak boleh membatalkan dirinya sendiri:
+/// `auto_enter_3d_mode_on_extrude_drag` memanggil `set_tool(Select)` yang
+/// mereset gizmo, jadi urutannya harus pindah mode dulu baru setel bendera.
+#[test]
+fn starting_gizmos_from_sketch_mode_keeps_them_active() {
+    let mut app = DuCADApp::new_for_test();
+    let id = add_box(&mut app, "Block", [30.0, 10.0, 8.0], [0.0; 3]);
+    let ray = top_face_ray(15.0, 5.0);
+    let hit =
+        ducad_kernel::pick_face_details(&app.model.geometry[id].shape, ray).expect("face atas");
+
+    app.is_sketching = true;
+    app.active_face = Some((id, ray, hit.clone()));
+    app.begin_face_gizmo_drag();
+    assert!(app.extruding_face_from_gizmo, "drag tarik-sisi tetap aktif");
+    assert!(!app.is_sketching);
+    app.cancel_face_gizmo_extrusion();
+
+    app.is_sketching = true;
+    app.active_face = Some((id, ray, hit));
+    app.open_face_gizmo_precise_input();
+    assert!(app.extruding_face_from_gizmo && app.face_gizmo_staged);
+    assert!(app.face_gizmo_dimension_editing, "popup nilai presisi terbuka");
+    app.cancel_face_gizmo_extrusion();
+
+    app.is_sketching = true;
+    app.selected = add_rect(&mut app, 0.0, 0.0, 10.0, 10.0);
+    app.begin_gizmo_drag();
+    assert!(app.extruding_from_gizmo, "drag extrude profil tetap aktif");
+    assert!(!app.is_sketching);
+}

@@ -354,7 +354,9 @@ impl DuCADApp {
         response: &egui::Response,
         tolerance: f64,
     ) -> Option<EntityId> {
-        let pos = response.hover_pos()?;
+        // Hover Apple Pencil (sebelum ujung menyentuh) dipakai bila tidak
+        // ada pointer sungguhan di atas kanvas.
+        let pos = response.hover_pos().or(self.mobile.pencil_hover)?;
         let p = screen_to_plane_point(&self.camera, rect, pos, &self.active_plane)?;
         hit_test_cycled(self.sketch(), p, tolerance, 0)
     }
