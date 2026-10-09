@@ -16,7 +16,7 @@ use egui::{
 use egui_icons::icons::{
     ICON_ADJUST, ICON_AUTORENEW, ICON_CLOSE, ICON_HORIZONTAL_SPLIT, ICON_SWAP_HORIZ, ICON_VIEW_IN_AR,
     ICON_WARNING, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN,
-    ICON_GRID_VIEW, ICON_LAYERS, ICON_OPEN_WITH, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_STRAIGHTEN,
+    ICON_GRID_VIEW, ICON_LAYERS, ICON_OPEN_WITH, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_SQUARE_FOOT, ICON_STRAIGHTEN, ICON_TABLE_CHART,
     ICON_TEXTURE,
 };
 
@@ -1780,7 +1780,7 @@ impl DrawingSheetView {
 
                 let measure_btn = header_icon_btn(
                     ui,
-                    ICON_STRAIGHTEN.codepoint,
+                    ICON_SQUARE_FOOT.codepoint,
                     state.measure_tool_active,
                     "Manual Dimension Tool (Ukur)",
                     Some("M"),
@@ -1993,7 +1993,7 @@ impl DrawingSheetView {
 
                 let bom_btn = header_icon_btn(
                     ui,
-                    ICON_GRID_VIEW.codepoint,
+                    ICON_TABLE_CHART.codepoint,
                     sheet.show_bom_table,
                     "Tabel BOM (Bill of Materials)",
                     Some("O"),
