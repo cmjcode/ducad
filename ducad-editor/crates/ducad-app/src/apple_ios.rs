@@ -45,6 +45,21 @@ thread_local! {
     static ACTIVE_PICKER: RefCell<Option<(Retained<UIDocumentPickerViewController>, Retained<PickerDelegate>)>> =
         const { RefCell::new(None) };
     static PENCIL: RefCell<Option<PencilHandles>> = const { RefCell::new(None) };
+    static ROOT_VIEW: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+}
+
+/// Inset safe area atas view winit (poin). Nol bila view belum terdaftar
+/// (dipanggil sebelum `install_pencil_bridge`) atau bukan di thread utama.
+pub fn safe_area_top() -> f32 {
+    if MainThreadMarker::new().is_none() {
+        return 0.0;
+    }
+    ROOT_VIEW.with(|v| {
+        v.borrow()
+            .as_ref()
+            .map(|view| view.safeAreaInsets().top as f32)
+            .unwrap_or(0.0)
+    })
 }
 
 struct PencilHandles {
@@ -306,6 +321,7 @@ pub fn install_pencil_bridge(
     let Some(view) = ui_view_from(cc) else {
         return false;
     };
+    ROOT_VIEW.with(|v| *v.borrow_mut() = Some(view.clone()));
     let bridge = PencilBridge::new(mtm, tx, ctx, view.clone());
 
     let interaction = UIPencilInteraction::new(mtm);

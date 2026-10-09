@@ -409,6 +409,45 @@ impl DuCADApp {
         hit_test_multi_plane(&self.camera, rect, &self.plane_ordered_sketches(), pos, tolerance, cycle)
     }
 
+    /// Tekan-geser-lepas membuat entitas dua titik (persegi, lingkaran, …)
+    /// dalam satu gerakan: titik pertama di asal tekanan, titik kedua saat
+    /// pointer dilepas. Klik-klik tetap bekerja (seretan pendek di bawah
+    /// ambang drag egui dihitung klik). Penting untuk Pencil/jari di iPad,
+    /// yang alami "menarik" bentuk, bukan mengetuk dua kali.
+    pub fn handle_drag_create(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        rect: egui::Rect,
+        raw: DVec2,
+        tol: f64,
+        grid_step: f64,
+    ) {
+        if required_points(self.tool) != 2 {
+            return;
+        }
+        if response.drag_started_by(egui::PointerButton::Primary) && self.pending_points.is_empty() {
+            let origin = ui.input(|i| i.pointer.press_origin());
+            if let Some(p0) = origin.and_then(|o| screen_to_plane_point(&self.camera, rect, o, &self.active_plane)) {
+                let p0 = self
+                    .find_current_snap(p0, tol, grid_step, None)
+                    .map(|s| s.point)
+                    .unwrap_or(p0);
+                self.drag_create_active = true;
+                self.on_click_point(p0);
+            }
+        }
+        if response.drag_stopped() && self.drag_create_active {
+            self.drag_create_active = false;
+            if self.pending_points.len() == 1 {
+                let effective = self.snapped_or(raw);
+                if (effective - self.pending_points[0]).length() > tol {
+                    self.on_click_point(effective);
+                }
+            }
+        }
+    }
+
     pub fn on_click_point(&mut self, p: DVec2) {
         self.pending_points.push(p);
         if self.pending_points.len() == 1 {
@@ -1134,20 +1173,10 @@ impl DuCADApp {
         let grid_step = 10.0;
 
         // Dalam mode PencilOnly, sentuhan 1 jari difungsikan untuk navigasi kanvas (orbit/pan)
-        // dan diabaikan untuk menggambar/membuat sketsa (Palm Rejection)
-        let has_pencil_pressure = ui.input(|i| {
-            i.events.iter().any(|e| match e {
-                egui::Event::Touch { force: Some(f), .. } => *f > 0.0,
-                _ => false,
-            })
-        });
-        let is_touch_input = ui.input(|i| {
-            i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }))
-                || i.multi_touch().is_some()
-        });
-        let is_finger_navigating = self.touch_config.single_finger_navigates()
-            && is_touch_input
-            && !has_pencil_pressure;
+        // dan diabaikan untuk menggambar/membuat sketsa (Palm Rejection). Jenis
+        // pointer dilacak per sentuhan di `mobile.rs`, bukan per frame: pada
+        // frame pelepasan tidak ada event `Touch` berisi tekanan Pencil.
+        let is_finger_navigating = self.finger_navigation_active();
 
         match self.tool {
             ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
@@ -2030,6 +2059,9 @@ impl DuCADApp {
                 if response.clicked() && !is_finger_navigating {
                     let effective = self.snapped_or(raw);
                     self.on_click_point(effective);
+                }
+                if !is_finger_navigating {
+                    self.handle_drag_create(ui, response, rect, raw, tol, grid_step);
                 }
             }
             ToolKind::Mirror | ToolKind::Revolve => {

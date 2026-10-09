@@ -45,6 +45,34 @@ selain yang sudah di-static-link OCCT/wgpu saat build. Installer
 (`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
 Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 
+## Linux: paket AUR `ducad`
+
+Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
+dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
+GitHub lewat sumber `git+` — bukan tarball — karena binding OCCT ada di
+submodule `ducad-editor/vendors/opencascade-rs` yang tidak ikut tarball.
+OCCT dipakai dari paket sistem Arch `opencascade` (>= 7.8), dilink dinamis.
+Terpasang: `ducad`, `ducad-cli`, `ducad-mcp`, entri desktop, ikon, lisensi.
+
+Alur rilis:
+
+```bash
+# 1. bump versi (VERSION + Cargo.toml harus sama), commit, lalu tag + push
+git tag v0.4.0 && git push origin v0.4.0
+# 2. perbarui PKGBUILD/.SRCINFO dan push ke AUR
+scripts/update-aur.sh            # atau: make publish-aur
+scripts/update-aur.sh --no-push  # hanya commit lokal, untuk uji
+```
+
+Skrip membaca versi dari `VERSION`, menolak bila tag belum ada di `origin`,
+menghitung ulang sha256 berkas sumber lokal, dan membuat `.SRCINFO` lewat
+`makepkg` → container `archlinux:base-devel` → emitter bash bawaan (yang
+terakhir dipakai di macOS tanpa docker). Repo AUR di-clone otomatis ke
+`../ducad-aur` (ubah lewat `TARGET_REPO`); push memakai
+`ssh://aur@aur.archlinux.org/ducad.git`, jadi kunci SSH harus terdaftar di
+akun AUR. Belum ada varian `ducad-bin` karena rilis GitHub belum menyertakan
+artefak Linux (hanya `.dmg`).
+
 ## Di luar lingkup (didokumentasikan, bukan lupa)
 
 Semua butuh sertifikat berbayar dan/atau GUI interaktif yang tidak

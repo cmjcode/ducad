@@ -10,3 +10,9 @@ default:
 
 $(TARGETS):
 	@$(MAKE) -C ducad-editor $@
+
+# Publikasi paket AUR `ducad` (sumber dari tag v$(VERSION) di GitHub).
+# Lihat scripts/update-aur.sh; pakai `make publish-aur ARGS=--no-push` untuk uji.
+.PHONY: publish-aur
+publish-aur:
+	@scripts/update-aur.sh ducad $(ARGS)

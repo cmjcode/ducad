@@ -15,8 +15,9 @@ impl DuCADApp {
 
         let is_gizmo_dragging = self.gizmo_pointer_dragging();
 
-        // Pada mode PencilOnly, sentuhan 1 jari khusus untuk memutar/navigasi kanvas
-        let allow_orbit = (allow_primary_orbit || self.touch_config.single_finger_navigates())
+        // Pada mode PencilOnly, sentuhan 1 jari khusus untuk memutar/navigasi
+        // kanvas; seretan Pencil tetap milik tool aktif.
+        let allow_orbit = (allow_primary_orbit || self.finger_navigation_active())
             && !is_gizmo_dragging;
 
         let orbiting = (allow_orbit

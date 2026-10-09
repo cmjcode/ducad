@@ -49,6 +49,40 @@ pub struct MobileState {
     /// tidak ada perubahan.
     pub last_autosave_stamp: Option<u64>,
     pub restored_from_autosave: bool,
+    /// Ada sentuhan layar yang sedang berlangsung (jari atau Pencil).
+    pub touch_pointer_active: bool,
+    /// Sentuhan yang berlangsung berasal dari Apple Pencil (ada tekanan).
+    pub pencil_touch_active: bool,
+}
+
+impl MobileState {
+    /// Perbarui jenis pointer sentuh dari event egui frame ini. Jari di iPad
+    /// tidak melaporkan tekanan (`force == None`), Pencil melaporkan `> 0`
+    /// sejak ujungnya menyentuh layar.
+    pub fn observe_touch_events(&mut self, events: &[egui::Event], any_touches: bool) {
+        for ev in events {
+            if let egui::Event::Touch { phase, force, .. } = ev {
+                match phase {
+                    egui::TouchPhase::Start => {
+                        self.touch_pointer_active = true;
+                        if force.is_some_and(|f| f > 0.0) {
+                            self.pencil_touch_active = true;
+                        }
+                    }
+                    egui::TouchPhase::Move => {
+                        if force.is_some_and(|f| f > 0.0) {
+                            self.pencil_touch_active = true;
+                        }
+                    }
+                    egui::TouchPhase::End | egui::TouchPhase::Cancel => {}
+                }
+            }
+        }
+        if !any_touches {
+            self.touch_pointer_active = false;
+            self.pencil_touch_active = false;
+        }
+    }
 }
 
 /// Berkas terbaru di `dir` dengan salah satu ekstensi `extensions`
@@ -181,6 +215,7 @@ impl DuCADApp {
         if crate::platform::take_memory_warning() {
             self.trim_memory(ctx);
         }
+        ctx.input(|i| self.mobile.observe_touch_events(&i.events, i.pointer.any_touches()));
         self.poll_file_picker();
         self.poll_pencil();
         self.poll_share();
@@ -271,6 +306,14 @@ impl DuCADApp {
         }
     }
 
+    /// Benar bila sentuhan 1 jari saat ini harus dialihkan ke navigasi kanvas
+    /// (mode PencilOnly) — seretan Pencil dan mouse tidak termasuk.
+    pub fn finger_navigation_active(&self) -> bool {
+        self.touch_config.single_finger_navigates()
+            && self.mobile.touch_pointer_active
+            && !self.mobile.pencil_touch_active
+    }
+
     /// Ketuk ganda Pencil: bolak-balik antara tool aktif dan Pilih.
     pub fn pencil_double_tap(&mut self) {
         if self.tool == ToolKind::Select {
@@ -335,6 +378,32 @@ mod tests {
         assert_eq!(app.tool, ToolKind::Select);
         app.pencil_double_tap();
         assert_eq!(app.tool, ToolKind::Line);
+    }
+
+    #[test]
+    fn finger_navigation_only_for_finger_in_pencil_only_mode() {
+        let touch = |phase, force| egui::Event::Touch {
+            device_id: egui::TouchDeviceId(0),
+            id: egui::TouchId(1),
+            phase,
+            pos: egui::pos2(10.0, 10.0),
+            force,
+        };
+        let mut app = DuCADApp::new_for_test();
+        app.touch_config.set_mode(ducad_ui::TouchDesignMode::PencilOnly);
+
+        app.mobile.observe_touch_events(&[touch(egui::TouchPhase::Start, None)], true);
+        assert!(app.finger_navigation_active(), "jari harus menavigasi");
+        app.mobile.observe_touch_events(&[touch(egui::TouchPhase::End, None)], false);
+        assert!(!app.finger_navigation_active());
+
+        app.mobile.observe_touch_events(&[touch(egui::TouchPhase::Start, Some(0.4))], true);
+        assert!(!app.finger_navigation_active(), "Pencil harus tetap menggambar");
+        app.mobile.observe_touch_events(&[], false);
+
+        app.touch_config.set_mode(ducad_ui::TouchDesignMode::PencilAndFinger);
+        app.mobile.observe_touch_events(&[touch(egui::TouchPhase::Start, None)], true);
+        assert!(!app.finger_navigation_active(), "mode hibrida: jari mendesain");
     }
 
     #[test]

@@ -1301,8 +1301,12 @@ impl DrawingSheetView {
                     state.dragging_bom_table = false;
                 }
 
-                // Pan canvas
-                if response.dragged_by(egui::PointerButton::Middle)
+                // Pan canvas. Saat dua jari di layar, seretan jari pertama
+                // (pointer Primary egui) diabaikan: pan diambil dari
+                // `translation_delta` gesture multi-touch di bawah.
+                let multi_touch = ui.input(|i| i.multi_touch());
+                if multi_touch.is_none()
+                    && (response.dragged_by(egui::PointerButton::Middle)
                     || (response.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.alt))
                     || (response.dragged_by(egui::PointerButton::Primary)
                         && state.dragging_detail_label.is_none()
@@ -1317,9 +1321,13 @@ impl DrawingSheetView {
                         && state.hovered_balloon_id.is_none()
                         && !state.dragging_bom_table
                         && state.hovered_bom_row.is_none()
-                        && state.hovered_tb_field.is_none())
+                        && state.hovered_tb_field.is_none()))
                 {
                     state.pan_offset += response.drag_delta();
+                }
+                if let Some(touch) = multi_touch {
+                    state.pan_offset += touch.translation_delta;
+                    zoom_about(state, canvas_rect, touch.center_pos, touch.zoom_delta);
                 }
 
                 if state.hovered_section_delete.is_some() || state.hovered_section_flip.is_some() || state.hovered_dim_delete.is_some() || state.hovered_text_delete.is_some() || state.hovered_detail_delete.is_some() || state.hovered_balloon_delete.is_some() || state.hovered_bom_delete_row.is_some() {
@@ -1335,10 +1343,21 @@ impl DrawingSheetView {
                 }
             }
 
-            let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll_delta.abs() > 0.0 && response.hovered() {
-                let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
-                state.zoom = (state.zoom * zoom_factor).clamp(0.15, 8.0);
+            // Zoom di sekitar kursor: pinch trackpad (`zoom_delta`, ctrl+scroll)
+            // dan roda mouse. Pinch dua jari di layar sentuh sudah ditangani
+            // lewat `multi_touch` di atas.
+            if response.hovered() && ui.input(|i| i.multi_touch()).is_none() {
+                let anchor = cursor_pos.unwrap_or_else(|| canvas_rect.center());
+                let pinch = ui.input(|i| i.zoom_delta());
+                if pinch != 1.0 {
+                    zoom_about(state, canvas_rect, anchor, pinch);
+                } else {
+                    let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
+                    if scroll_delta.abs() > 0.0 {
+                        let zoom_factor = if scroll_delta > 0.0 { 1.1 } else { 0.9 };
+                        zoom_about(state, canvas_rect, anchor, zoom_factor);
+                    }
+                }
             }
         }
 
@@ -2231,6 +2250,23 @@ impl DrawingSheetView {
 
         event
     }
+}
+
+/// Ubah zoom dengan `factor` sambil mempertahankan titik layar `anchor`
+/// menunjuk ke titik kertas yang sama (zoom di kursor / pusat pinch).
+pub fn zoom_about(state: &mut DrawingSheetViewState, canvas_rect: Rect, anchor: Pos2, factor: f32) {
+    let old_zoom = state.zoom;
+    let new_zoom = (old_zoom * factor).clamp(0.15, 8.0);
+    if new_zoom == old_zoom {
+        return;
+    }
+    let ratio = new_zoom / old_zoom;
+    let center = canvas_rect.center();
+    // Kertas digambar di `center + pan_offset`; titik kertas yang ada di
+    // `anchor` punya offset `(anchor - center - pan)` yang harus diskalakan.
+    let rel = anchor - center - state.pan_offset;
+    state.pan_offset = anchor - center - rel * ratio;
+    state.zoom = new_zoom;
 }
 
 fn calculate_fit_zoom(canvas_rect: Rect, paper_size: PaperSize) -> f32 {
@@ -3540,5 +3576,38 @@ fn render_callout_balloons_screen<F>(
             );
             painter.text(del_center, Align2::CENTER_CENTER, "×", FontId::monospace(10.0), Color32::WHITE);
         }
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+
+    #[test]
+    fn zoom_about_keeps_anchor_fixed_on_paper() {
+        let canvas = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 800.0));
+        let mut state = DrawingSheetViewState::default();
+        state.zoom = 2.0;
+        state.pan_offset = vec2(30.0, -20.0);
+        let anchor = Pos2::new(700.0, 150.0);
+        // Titik kertas (mm) di bawah anchor sebelum zoom.
+        let paper_before = (anchor - canvas.center() - state.pan_offset) / state.zoom;
+
+        zoom_about(&mut state, canvas, anchor, 1.5);
+
+        assert!((state.zoom - 3.0).abs() < 1e-5);
+        let paper_after = (anchor - canvas.center() - state.pan_offset) / state.zoom;
+        assert!((paper_before - paper_after).length() < 1e-3);
+    }
+
+    #[test]
+    fn zoom_about_clamps_and_leaves_pan_untouched_at_limit() {
+        let canvas = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 800.0));
+        let mut state = DrawingSheetViewState::default();
+        state.zoom = 8.0;
+        state.pan_offset = vec2(5.0, 5.0);
+        zoom_about(&mut state, canvas, canvas.center(), 2.0);
+        assert_eq!(state.zoom, 8.0);
+        assert_eq!(state.pan_offset, vec2(5.0, 5.0));
     }
 }

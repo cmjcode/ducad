@@ -1,0 +1,34 @@
+pkgbase = ducad
+	pkgdesc = Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling on OpenCASCADE, with a headless CLI and MCP server
+	pkgver = 0.4.0
+	pkgrel = 1
+	url = https://github.com/cmjcode/ducad
+	arch = x86_64
+	arch = aarch64
+	license = AGPL-3.0-only
+	makedepends = cargo
+	makedepends = cmake
+	makedepends = git
+	depends = gcc-libs
+	depends = glibc
+	depends = opencascade
+	depends = libxkbcommon
+	depends = libxkbcommon-x11
+	depends = libxcb
+	depends = libx11
+	depends = libxcursor
+	depends = libxi
+	depends = libxrandr
+	depends = wayland
+	depends = vulkan-icd-loader
+	depends = hicolor-icon-theme
+	optdepends = xdg-desktop-portal: native file open/save dialogs
+	optdepends = vulkan-driver: GPU rendering backend (e.g. vulkan-radeon, vulkan-intel, nvidia-utils)
+	source = ducad::git+https://github.com/cmjcode/ducad.git#tag=v0.4.0
+	source = opencascade-rs::git+https://github.com/cmjcode/opencascade-rs.git
+	source = ducad.desktop
+	sha256sums = SKIP
+	sha256sums = SKIP
+	sha256sums = 00583e812954846985aba944e89e0f98b4ab999b12661df6993724e86ffd4a39
+
+pkgname = ducad

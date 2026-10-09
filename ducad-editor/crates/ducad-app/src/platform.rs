@@ -87,6 +87,19 @@ pub fn autosave_origin_path() -> PathBuf {
     data_dir().join("autosave.origin")
 }
 
+/// Tinggi safe area atas (poin) — status bar / notch iPad. Nol di desktop
+/// dan Android (di sana winit sudah menyisakan system bar).
+pub fn safe_area_top() -> f32 {
+    #[cfg(target_os = "ios")]
+    {
+        crate::apple_ios::safe_area_top()
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        0.0
+    }
+}
+
 static MEMORY_WARNING: AtomicBool = AtomicBool::new(false);
 
 /// Dipanggil observer OS (iOS `UIApplicationDidReceiveMemoryWarning`) dari

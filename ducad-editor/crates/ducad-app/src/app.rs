@@ -191,6 +191,9 @@ pub struct DuCADApp {
     pub radial_press: Option<(egui::Pos2, f64)>,
     pub radial_suppress_click: bool,
     pub two_finger_tap_press: Option<egui::MultiTouchInfo>,
+    /// Seret (tekan-geser-lepas) sedang membuat entitas dua titik; titik
+    /// kedua dikunci saat pointer dilepas.
+    pub drag_create_active: bool,
 
     pub measurements: Vec<crate::types::Measurement>,
 
@@ -601,6 +604,7 @@ impl DuCADApp {
             radial_press: None,
             radial_suppress_click: false,
             two_finger_tap_press: None,
+            drag_create_active: false,
 
             measurements: Vec::new(),
 
@@ -921,6 +925,7 @@ impl DuCADApp {
             radial_press: None,
             radial_suppress_click: false,
             two_finger_tap_press: None,
+            drag_create_active: false,
 
             measurements: Vec::new(),
 
@@ -1398,8 +1403,13 @@ impl DuCADApp {
         let (rect, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
 
+        // Di layar sentuh `hover_pos()` sudah kosong pada frame jari/Pencil
+        // dilepas (egui mengirim `PointerGone`), padahal `clicked()` /
+        // `drag_stopped()` baru terjadi di frame itu. `interact_pointer_pos()`
+        // masih menyimpan posisi sentuhan terakhir, jadi dipakai sebagai cadangan.
         let raw_cursor = response
             .hover_pos()
+            .or_else(|| response.interact_pointer_pos())
             .and_then(|p| screen_to_plane_point(&self.camera, rect, p, &self.active_plane));
 
         self.handle_radial_menu(ui, &response);
@@ -1530,7 +1540,7 @@ impl DuCADApp {
                 | ToolKind::History
                 | ToolKind::Shell
                 | ToolKind::Rib
-        ) || self.touch_config.single_finger_navigates())
+        ) || self.finger_navigation_active())
             && !radial_active
             && !is_near_gizmo
             && !self.gizmo_pointer_dragging();
@@ -1853,6 +1863,9 @@ impl eframe::App for DuCADApp {
         self.chat_frame(ui);
         let mut screen_rect = ui.available_rect_before_wrap();
         screen_rect.max.x -= ducad_ui::ChatPanel::reserved_width(&ctx, &self.chat.panel);
+        // Safe area iPad (status bar / notch): chrome mengambang diturunkan,
+        // kanvas 3D tetap selebar layar di baliknya.
+        let safe_top = crate::platform::safe_area_top();
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -1940,7 +1953,7 @@ impl eframe::App for DuCADApp {
         let mut topbar_rect: Option<egui::Rect> = None;
         if !self.drawing_sheet_state.is_open {
             let topbar_resp = egui::Area::new(egui::Id::new("ducad-topbar-area"))
-                .fixed_pos(egui::pos2(topbar_x, 10.0))
+                .fixed_pos(egui::pos2(topbar_x, 10.0 + safe_top))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     ui.set_width(topbar_w);
@@ -3631,9 +3644,9 @@ impl eframe::App for DuCADApp {
                     });
             }
 
-            let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0);
+            let topbar_bottom_y = topbar_rect.map(|r| r.max.y).unwrap_or(10.0 + safe_top);
             let viewcube_margin_top = 16.0;
-            let viewcube_y = (topbar_bottom_y + viewcube_margin_top + 42.0).max(102.0);
+            let viewcube_y = (topbar_bottom_y + viewcube_margin_top + 42.0).max(102.0 + safe_top);
             let viewcube_x = screen_rect.max.x - topbar_margin_right - 42.0;
             let viewcube_pos = egui::pos2(viewcube_x, viewcube_y);
             let viewcube_resp = egui::Area::new(egui::Id::new("ducad-viewcube-area"))
@@ -4587,12 +4600,16 @@ impl eframe::App for DuCADApp {
                 sheet.stale = geometry_now != self.drawing_sheet_geometry;
             }
             if let Some(sheet) = &mut self.drawing_sheet_doc {
+                let sheet_rect = egui::Rect::from_min_max(
+                    screen_rect.min + egui::vec2(0.0, safe_top),
+                    screen_rect.max,
+                );
                 egui::Area::new(egui::Id::new("ducad-drawing-sheet-overlay"))
-                    .fixed_pos(screen_rect.min)
+                    .fixed_pos(sheet_rect.min)
                     .order(egui::Order::Foreground)
                     .show(&ctx, |ui| {
-                        ui.set_width(screen_rect.width());
-                        ui.set_height(screen_rect.height());
+                        ui.set_width(sheet_rect.width());
+                        ui.set_height(sheet_rect.height());
                         if let Some(event) = ducad_ui::DrawingSheetView::show(ui, &mut self.drawing_sheet_state, sheet) {
                             ds_action = Some(event);
                         }

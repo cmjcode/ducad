@@ -207,7 +207,16 @@ impl ViewCube {
         }
 
         if response.clicked() {
-            if let Some(idx) = hovered_face_idx {
+            // Di layar sentuh `hover_pos()` sudah `None` pada frame jari
+            // dilepas (`PointerGone`), jadi muka yang diketuk dicari ulang
+            // dari posisi interaksi klik, bukan dari muka yang di-hover.
+            let click_pos = response.interact_pointer_pos().or(hover_pos);
+            let clicked_face_idx = click_pos.and_then(|p| {
+                rect.contains(p)
+                    .then(|| projected.iter().rposition(|pf| point_in_quad(p, pf.pts)))
+                    .flatten()
+            });
+            if let Some(idx) = clicked_face_idx.or(hovered_face_idx) {
                 clicked_action = Some(projected[idx].def.action);
             }
         }
