@@ -9,6 +9,7 @@ use ducad_io::drawing::{
     format_scale_ratio, BomItem, DimStyle, DrawingSheet, PaperSize, TextAnnotation, TitleBlockInfo,
 };
 use ducad_kernel::{HlrLineKind, ProjectedViewKind};
+use egui::containers::menu::MenuConfig;
 use egui::{
     vec2, Align2, Color32, CornerRadius, FontId, Frame, Margin, Pos2, Rect, RichText, Sense,
     Stroke, Ui, Vec2,
@@ -2120,50 +2121,56 @@ impl DrawingSheetView {
 
                     ui.add_space(4.0);
 
-                    // Tombol Ekspor PDF Vektor
-                    let pdf_btn = header_icon_btn(
+                    // Satu tombol Ekspor: menu pilihan format (PDF / DXF / SVG)
+                    let export_btn = header_icon_btn(
                         ui,
-                        ICON_PICTURE_AS_PDF.codepoint,
+                        ICON_DOWNLOAD.codepoint,
                         false,
-                        "Ekspor PDF Vektor",
+                        "Ekspor Gambar Kerja",
                         None,
-                        Some("Cetak dokumen gambar teknik presisi ke file PDF"),
+                        Some("Pilih format: PDF vektor, DXF CAD, atau SVG"),
                         None,
                         Some(ACCENT_BLUE),
                     );
-                    if pdf_btn.clicked() {
-                        event = Some(DrawingSheetEvent::ExportPdf);
-                    }
-
-                    // Tombol Ekspor DXF CAD
-                    let dxf_btn = header_icon_btn(
-                        ui,
-                        ICON_DOWNLOAD.codepoint,
-                        false,
-                        "Ekspor DXF CAD",
-                        None,
-                        Some("Ekspor vektor 2D ke format CAD DXF"),
-                        None,
-                        None,
-                    );
-                    if dxf_btn.clicked() {
-                        event = Some(DrawingSheetEvent::ExportDxf);
-                    }
-
-                    // Tombol Ekspor SVG Vektor 2D
-                    let svg_btn = header_icon_btn(
-                        ui,
-                        ICON_DOWNLOAD.codepoint,
-                        false,
-                        "Ekspor SVG Vektor 2D",
-                        None,
-                        Some("Ekspor gambar kerja ke format vektor SVG"),
-                        None,
-                        None,
-                    );
-                    if svg_btn.clicked() {
-                        event = Some(DrawingSheetEvent::ExportSvg);
-                    }
+                    egui::Popup::menu(&export_btn)
+                        .info(
+                            egui::UiStackInfo::new(egui::UiKind::Menu)
+                                .with_tag_value(MenuConfig::MENU_CONFIG_TAG, MenuConfig::new()),
+                        )
+                        .show(|ui| {
+                            crate::theme::glass_menu(ui, |ui| {
+                                let items: [(&str, &str, &str, DrawingSheetEvent); 3] = [
+                                    (
+                                        ICON_PICTURE_AS_PDF.codepoint,
+                                        "PDF Vektor",
+                                        "Cetak dokumen gambar teknik presisi ke file PDF",
+                                        DrawingSheetEvent::ExportPdf,
+                                    ),
+                                    (
+                                        ICON_DOWNLOAD.codepoint,
+                                        "DXF CAD",
+                                        "Ekspor vektor 2D ke format CAD DXF",
+                                        DrawingSheetEvent::ExportDxf,
+                                    ),
+                                    (
+                                        ICON_DOWNLOAD.codepoint,
+                                        "SVG Vektor 2D",
+                                        "Ekspor gambar kerja ke format vektor SVG",
+                                        DrawingSheetEvent::ExportSvg,
+                                    ),
+                                ];
+                                for (icon, label, hint, ev) in items {
+                                    if ui
+                                        .button(format!("{icon} {label}"))
+                                        .on_hover_text(hint)
+                                        .clicked()
+                                    {
+                                        event = Some(ev);
+                                        ui.close();
+                                    }
+                                }
+                            })
+                        });
                 });
             });
         });
