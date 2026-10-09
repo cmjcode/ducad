@@ -7,8 +7,7 @@
 //! tersedia bagi agent di mode ini; hanya pengguna yang bisa menerima
 //! proposal lewat tombol di aplikasi.
 
-use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ducad_engine::tooling::ToolOut;
 use ducad_engine::{OpError, OpErrorCode, OpResult};
@@ -70,6 +69,47 @@ fn unsupported(name: &str) -> OpError {
     .with_hint(hint)
 }
 
+/// Kirim satu permintaan JSON (satu baris) ke soket dan kembalikan satu
+/// baris balasan. Hanya desktop Unix yang punya soket domain Unix.
+#[cfg(unix)]
+fn roundtrip(socket: &Path, request: &Value) -> OpResult<String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let stream = UnixStream::connect(socket).map_err(|e| no_socket(socket, &e))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(TIMEOUT_SECS + 15)))
+        .map_err(|e| no_socket(socket, &e))?;
+    let mut writer = stream.try_clone().map_err(|e| no_socket(socket, &e))?;
+    let send = |w: &mut UnixStream| -> std::io::Result<()> {
+        serde_json::to_writer(&mut *w, request)?;
+        w.write_all(b"\n")?;
+        w.flush()
+    };
+    send(&mut writer).map_err(|e| OpError::new(OpErrorCode::Io, format!("failed to send: {e}")))?;
+
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).map_err(|e| {
+        OpError::new(OpErrorCode::Io, format!("no reply from the app: {e}"))
+            .with_hint("make sure DUCAD is still open and Agent Bridge is enabled")
+    })?;
+    Ok(line)
+}
+
+/// Platform tanpa soket Unix (Windows): mode attach tidak tersedia, sama
+/// seperti `AgentBridge::start` di sisi aplikasi.
+#[cfg(not(unix))]
+fn roundtrip(socket: &Path, _request: &Value) -> OpResult<String> {
+    Err(OpError::new(
+        OpErrorCode::Io,
+        format!(
+            "live attach is not available on this platform (socket {})",
+            socket.display()
+        ),
+    )
+    .with_hint("run ducad-mcp without --attach, or use a macOS/Linux desktop"))
+}
+
 impl AttachClient {
     pub fn new(socket: PathBuf) -> Self {
         Self { socket, next_id: 1 }
@@ -96,27 +136,7 @@ impl AttachClient {
         self.next_id += 1;
         let request = json!({ "id": id, "method": name, "params": args });
 
-        let stream = std::os::unix::net::UnixStream::connect(&self.socket)
-            .map_err(|e| no_socket(&self.socket, &e))?;
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(TIMEOUT_SECS + 15)))
-            .map_err(|e| no_socket(&self.socket, &e))?;
-        let mut writer = stream
-            .try_clone()
-            .map_err(|e| no_socket(&self.socket, &e))?;
-        let send = |w: &mut std::os::unix::net::UnixStream| -> std::io::Result<()> {
-            serde_json::to_writer(&mut *w, &request)?;
-            w.write_all(b"\n")?;
-            w.flush()
-        };
-        send(&mut writer)
-            .map_err(|e| OpError::new(OpErrorCode::Io, format!("failed to send: {e}")))?;
-
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line).map_err(|e| {
-            OpError::new(OpErrorCode::Io, format!("no reply from the app: {e}"))
-                .with_hint("make sure DUCAD is still open and Agent Bridge is enabled")
-        })?;
+        let line = roundtrip(&self.socket, &request)?;
         if line.trim().is_empty() {
             return Err(OpError::new(
                 OpErrorCode::Io,
@@ -158,6 +178,7 @@ mod tests {
         let out = c.call("inspect", json!({}));
         assert!(out.is_error);
         assert_eq!(out.payload["error"]["code"], "io");
+        #[cfg(unix)]
         assert!(out.payload["error"]["hint"]
             .as_str()
             .unwrap_or_default()
