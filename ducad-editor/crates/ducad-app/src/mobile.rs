@@ -215,7 +215,7 @@ impl DuCADApp {
         if crate::platform::take_memory_warning() {
             self.trim_memory(ctx);
         }
-        ctx.input(|i| self.mobile.observe_touch_events(&i.events, i.pointer.any_touches()));
+        ctx.input(|i| self.mobile.observe_touch_events(&i.events, i.any_touches()));
         self.poll_file_picker();
         self.poll_pencil();
         self.poll_share();

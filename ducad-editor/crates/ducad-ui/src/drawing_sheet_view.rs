@@ -3586,9 +3586,7 @@ mod zoom_tests {
     #[test]
     fn zoom_about_keeps_anchor_fixed_on_paper() {
         let canvas = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 800.0));
-        let mut state = DrawingSheetViewState::default();
-        state.zoom = 2.0;
-        state.pan_offset = vec2(30.0, -20.0);
+        let mut state = DrawingSheetViewState { zoom: 2.0, pan_offset: vec2(30.0, -20.0), ..Default::default() };
         let anchor = Pos2::new(700.0, 150.0);
         // Titik kertas (mm) di bawah anchor sebelum zoom.
         let paper_before = (anchor - canvas.center() - state.pan_offset) / state.zoom;
@@ -3603,9 +3601,7 @@ mod zoom_tests {
     #[test]
     fn zoom_about_clamps_and_leaves_pan_untouched_at_limit() {
         let canvas = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 800.0));
-        let mut state = DrawingSheetViewState::default();
-        state.zoom = 8.0;
-        state.pan_offset = vec2(5.0, 5.0);
+        let mut state = DrawingSheetViewState { zoom: 8.0, pan_offset: vec2(5.0, 5.0), ..Default::default() };
         zoom_about(&mut state, canvas, canvas.center(), 2.0);
         assert_eq!(state.zoom, 8.0);
         assert_eq!(state.pan_offset, vec2(5.0, 5.0));
