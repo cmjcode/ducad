@@ -47,6 +47,11 @@ pub use app::DuCADApp;
 /// Opsi eframe bersama desktop/mobile. `icon` hanya relevan di desktop;
 /// di iPadOS/Android ikon berasal dari bundel aplikasi.
 pub fn native_options(icon: Option<eframe::egui::IconData>) -> eframe::NativeOptions {
+    // Kelas ObjC delegate scene harus terdaftar SEBELUM `UIApplicationMain`
+    // (dipanggil `eframe::run_native`) mencari `UISceneDelegateClassName`.
+    #[cfg(target_os = "ios")]
+    apple_ios::register_scene_delegate();
+
     let mut viewport = eframe::egui::ViewportBuilder::default().with_title("DUCAD");
     if platform::is_mobile() {
         // Jendela selalu memenuhi layar di tablet; ukuran awal desktop tidak

@@ -35,9 +35,9 @@
          perlu main.m/AppDelegate Objective-C terpisah — binary Rust ini
          LANGSUNG jadi executable .app-nya. -->
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>42</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.4.1</string>
+    <string>0.4.2</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>MinimumOSVersion</key>
@@ -60,6 +60,26 @@
     <string>com.apple.compilers.llvm.clang.1_0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- Wajib sejak iOS 27 SDK: tanpa manifest ini UIKit menolak launch
+         ("UIScene life cycle is required"). Nama delegate harus sama dengan
+         `SCENE_DELEGATE_CLASS_NAME` di src/apple_ios.rs. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>DucadWindowSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>

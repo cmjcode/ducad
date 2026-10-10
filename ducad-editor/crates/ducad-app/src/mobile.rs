@@ -122,6 +122,9 @@ impl DuCADApp {
     pub fn init_mobile(&mut self, cc: &eframe::CreationContext<'_>) {
         #[cfg(target_os = "ios")]
         {
+            // Jendela winit dibuat tanpa `windowScene`; di bawah siklus hidup
+            // UIScene jendela seperti itu tidak pernah tampil di layar.
+            crate::apple_ios::attach_window_to_scene(cc);
             crate::apple_ios::install_memory_warning_observer();
             let (tx, rx) = std::sync::mpsc::channel();
             if crate::apple_ios::install_pencil_bridge(cc, cc.egui_ctx.clone(), tx) {

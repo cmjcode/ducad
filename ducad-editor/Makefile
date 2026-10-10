@@ -17,6 +17,7 @@ APP_NAME = DUCAD
 BIN_NAME = ducad
 PKG_NAME = ducad-app
 VERSION ?= $(shell if [ -f ../VERSION ]; then tr -d ' \r\n' < ../VERSION; elif [ -f VERSION ]; then tr -d ' \r\n' < VERSION; else grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2; fi)
+BUILD_NUMBER ?= $(shell echo "$(VERSION)" | tr -d '.' | sed 's/^0*//' | awk '{print ($$0 == "" ? "1" : $$0)}')
 RUST_VERSION = stable
 
 # Targets
@@ -126,7 +127,7 @@ bundle-macos: create-dirs
 		plutil -replace CFBundleIdentifier -string "$$BUNDLE_ID" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 		plutil -replace CFBundleIconFile -string "DUCAD.icns" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 		plutil -replace CFBundleShortVersionString -string "$(VERSION)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
-		plutil -replace CFBundleVersion -string "$(VERSION)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
+		plutil -replace CFBundleVersion -string "$${BUILD_NUMBER:-$(BUILD_NUMBER)}" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Info.plist" 2>/dev/null || true; \
 	fi
 	@if [ -f "assets/DUCAD.icns" ]; then \
 		mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"; \

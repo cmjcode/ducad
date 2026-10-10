@@ -65,15 +65,24 @@ print_error() {
 }
 
 APP_NAME="DUCAD"
-if [ -z "$VERSION" ]; then
-    if [ -f "$ROOT_DIR/VERSION" ]; then
-        VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
-    elif [ -f "$EDITOR_DIR/VERSION" ]; then
-        VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
-    else
-        VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
-    fi
+if [ -f "$ROOT_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
+elif [ -f "$EDITOR_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
+elif [ -f "VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "VERSION")
+elif [ -n "$VERSION" ]; then
+    VERSION="$VERSION"
+else
+    VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
 fi
+export VERSION
+
+if [ -z "$BUILD_NUMBER" ]; then
+    BUILD_NUMBER=$(echo "$VERSION" | tr -d '.' | sed 's/^0*//')
+    [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="1"
+fi
+export BUILD_NUMBER
 
 show_help() {
     echo "Usage: ./publish_apple_all.sh [OPTIONS]"

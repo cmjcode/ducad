@@ -38,6 +38,9 @@ def main():
             except Exception:
                 pass
 
+    import re
+    build_number = re.sub(r'[^0-9]', '', version.replace('.', '')).lstrip('0') or '1'
+
     # UUIDs
     # Project & Roots
     proj_uuid = "100000000000000000000001"
@@ -388,7 +391,7 @@ def main():
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "apple/ios/DUCAD-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = {build_number};
 				DEVELOPMENT_TEAM = YD4J5Z6A4G;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "apple/ios/Info.plist";
@@ -414,7 +417,7 @@ def main():
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "apple/ios/DUCAD-iOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = {build_number};
 				DEVELOPMENT_TEAM = YD4J5Z6A4G;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "apple/ios/Info.plist";
@@ -441,7 +444,7 @@ def main():
 				CODE_SIGN_ENTITLEMENTS = apple/macos/DUCAD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = {build_number};
 				DEVELOPMENT_TEAM = YD4J5Z6A4G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -466,7 +469,7 @@ def main():
 				CODE_SIGN_ENTITLEMENTS = apple/macos/DUCAD.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = {build_number};
 				DEVELOPMENT_TEAM = YD4J5Z6A4G;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;

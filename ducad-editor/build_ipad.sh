@@ -82,20 +82,26 @@ print_error() {
 APP_NAME="DUCAD"
 BIN_NAME="ducad"
 PKG_NAME="ducad-app"
-if [ -z "$VERSION" ]; then
-    if [ -f "$ROOT_DIR/VERSION" ]; then
-        VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
-    elif [ -f "$EDITOR_DIR/VERSION" ]; then
-        VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
-    else
-        VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
-    fi
+# Ambil versi dari VERSION file sebagai single source of truth
+if [ -f "$ROOT_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$ROOT_DIR/VERSION")
+elif [ -f "$EDITOR_DIR/VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "$EDITOR_DIR/VERSION")
+elif [ -f "VERSION" ]; then
+    VERSION=$(tr -d ' \r\n' < "VERSION")
+elif [ -n "$VERSION" ]; then
+    VERSION="$VERSION"
+else
+    VERSION=$(grep '^version' Cargo.toml 2>/dev/null | head -n1 | cut -d '"' -f2 || echo "0.1.0")
 fi
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
-if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null; then
-    GIT_COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "1")
-    BUILD_NUMBER="$GIT_COMMITS"
+export VERSION
+
+# Build number diambil dari VERSION dengan menghilangkan titik dan leading zero
+if [ -z "$BUILD_NUMBER" ]; then
+    BUILD_NUMBER=$(echo "$VERSION" | tr -d '.' | sed 's/^0*//')
+    [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="1"
 fi
+export BUILD_NUMBER
 
 APPLE_BUNDLE_ID="${APPLE_BUNDLE_ID}"
 APPLE_TEAM_ID="${APPLE_TEAM_ID}"
@@ -384,6 +390,23 @@ generate_info_plist() {
     <string>com.apple.compilers.llvm.clang.1_0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>DucadWindowSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>

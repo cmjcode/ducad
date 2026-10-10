@@ -34,7 +34,7 @@ make android-check | android-so | android-apk       # Android (cargo-ndk + Gradl
 | Apple Pencil | hover, ketuk ganda, squeeze, latensi rendah | **Selesai**: tekanan (sudah lewat winit), ketuk ganda (`UIPencilInteraction` → tool ↔ Pilih + haptik), hover (`UIHoverGestureRecognizer` → hit-test sebelum sentuh). Squeeze/barrel roll ditunda. |
 | Stylus Android | tekanan, tombol S Pen, palm rejection per pointer | Tekanan lewat winit. Tombol stylus & `TOOL_TYPE_STYLUS` ditunda (JNI). |
 | Performa/baterai | Metal/Vulkan langsung | Liquid Glass GPU **mati bawaan di tablet** (`platform::glass_gpu_default`), bisa dinyalakan di ⚙. egui hanya menggambar saat ada event. Android meminta refresh rate tertinggi (`preferredDisplayModeId`). |
-| UIScene / multi-jendela | Stage Manager multi-window | **Ditunda** — winit 0.30 memakai `UIApplicationDelegate` lama. Risiko: Apple mewajibkan UIScene untuk SDK setelah iOS 26; pantau winit. |
+| UIScene / multi-jendela | Stage Manager multi-window | **Siklus hidup UIScene selesai** (wajib sejak iOS 27 SDK, tanpa itu launch gagal): `UIApplicationSceneManifest` di `apple/ios/Info.plist` menunjuk kelas `DucadWindowSceneDelegate` (`apple_ios.rs`), yang menempelkan `UIWindow` winit ke `UIWindowScene` (`attach_window_to_scene` dari `init_mobile`). Dijaga tes `ducad-app/tests/ios_scene_manifest.rs`. Multi-window Stage Manager tetap ditunda (`UIApplicationSupportsMultipleScenes = false`). |
 | Aksesibilitas | VoiceOver / TalkBack | **Ditunda** — AccessKit belum punya adapter iOS/Android. |
 | Sign in with Apple in-app | `ASAuthorizationController` | Tetap lewat Safari + polling (`ducad-cloud`). |
 | Agent Bridge / CLI agent | — | Tidak ada di tablet (soket Unix, proses anak). Chat jaringan & memori tertaut tetap jalan. |

@@ -12,6 +12,14 @@
 //! - **Apple Pencil**: ketuk ganda (`UIPencilInteraction`) dan hover
 //!   sebelum menyentuh (`UIHoverGestureRecognizer`, Pencil 2/Pro).
 //! - **Haptik** ringan saat tool berganti lewat Pencil.
+//! - **Siklus hidup UIScene** (wajib untuk app yang dibangun dengan iOS 27
+//!   SDK; tanpa itu UIKit menolak launch: "UIScene life cycle is required").
+//!   winit 0.30 masih memakai siklus hidup `UIApplicationDelegate` lama dan
+//!   membuat `UIWindow` tanpa `windowScene`, padahal jendela tanpa scene
+//!   tidak pernah tampil. Kita mendaftarkan [`SceneDelegate`] (dirujuk
+//!   `UISceneDelegateClassName` di `apple/ios/Info.plist`) dan menempelkan
+//!   jendela winit ke `UIWindowScene` yang terhubung — pola yang sama
+//!   dipakai Slint (`slint-ui/slint#13433`).
 //!
 //! Objek ObjC yang harus tetap hidup (delegate, recognizer) disimpan di
 //! `thread_local` thread utama; `Retained<MainThreadOnly>` tidak `Send`.
@@ -23,16 +31,20 @@ use std::sync::mpsc::Sender;
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly, Message};
+use objc2::{
+    define_class, msg_send, sel, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
+};
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_foundation::{
     NSArray, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSString, NSURL,
 };
 use objc2_ui_kit::{
     UIActivityViewController, UIApplication, UIApplicationDidReceiveMemoryWarningNotification,
-    UIDocumentPickerDelegate, UIDocumentPickerViewController, UIGestureRecognizerState,
-    UIHoverGestureRecognizer, UIPencilInteraction, UIPencilInteractionDelegate,
-    UISelectionFeedbackGenerator, UIView, UIViewController,
+    UICoordinateSpace, UIDocumentPickerDelegate, UIDocumentPickerViewController,
+    UIGestureRecognizerState, UIHoverGestureRecognizer, UIPencilInteraction,
+    UIPencilInteractionDelegate, UIScene, UISceneConnectionOptions, UISceneDelegate,
+    UISceneSession, UISelectionFeedbackGenerator, UIView, UIViewController, UIWindow,
+    UIWindowScene, UIWindowSceneDelegate,
 };
 use objc2_uniform_type_identifiers::UTType;
 
@@ -144,8 +156,11 @@ fn finish_picker() {
     ACTIVE_PICKER.with(|p| *p.borrow_mut() = None);
 }
 
-#[allow(deprecated)] // `windows`: jalur paling sederhana tanpa UIScene.
+#[allow(deprecated)] // `windows`: cadangan bila belum ada scene yang terhubung.
 fn root_view_controller(mtm: MainThreadMarker) -> Option<Retained<UIViewController>> {
+    if let Some(key) = connected_window_scene(mtm).and_then(|scene| scene.keyWindow()) {
+        return key.rootViewController();
+    }
     let app = UIApplication::sharedApplication(mtm);
     let windows = app.windows();
     let key = windows
@@ -153,6 +168,106 @@ fn root_view_controller(mtm: MainThreadMarker) -> Option<Retained<UIViewControll
         .find(|w| w.isKeyWindow())
         .or_else(|| windows.firstObject())?;
     key.rootViewController()
+}
+
+// ---------------------------------------------------------------------------
+// Siklus hidup UIScene
+// ---------------------------------------------------------------------------
+
+/// Nama kelas ObjC delegate scene; HARUS sama dengan nilai
+/// `UISceneDelegateClassName` di `apple/ios/Info.plist` dan
+/// `crates/ducad-app/ios/Info.plist.template` (dijaga tes `ios_scene_manifest`).
+pub const SCENE_DELEGATE_CLASS_NAME: &str = "DucadWindowSceneDelegate";
+
+define_class!(
+    // SAFETY: NSObject tidak punya syarat subclass; tidak mengimplementasikan Drop.
+    // UIKit sendiri yang meng-alloc/init kelas ini (`[[Cls alloc] init]`) saat
+    // scene pertama terhubung, jadi tidak boleh punya ivar yang butuh inisialisasi.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DucadWindowSceneDelegate"]
+    struct SceneDelegate;
+
+    unsafe impl NSObjectProtocol for SceneDelegate {}
+
+    unsafe impl UISceneDelegate for SceneDelegate {
+        #[unsafe(method(scene:willConnectToSession:options:))]
+        fn will_connect(
+            &self,
+            scene: &UIScene,
+            _session: &UISceneSession,
+            _options: &UISceneConnectionOptions,
+        ) {
+            let Some(window_scene) = scene.downcast_ref::<UIWindowScene>() else {
+                return;
+            };
+            // Jendela yang sudah dibuat winit sebelum scene terhubung (bila
+            // ada) ditempelkan di sini; yang dibuat sesudahnya lewat
+            // `attach_window_to_scene`. Jendela tersembunyi dibiarkan —
+            // menempelkannya akan memaksanya tampil.
+            #[allow(deprecated)]
+            let windows = UIApplication::sharedApplication(self.mtm()).windows();
+            for window in windows.iter() {
+                if !window.isHidden() {
+                    attach(&window, window_scene);
+                }
+            }
+        }
+    }
+
+    unsafe impl UIWindowSceneDelegate for SceneDelegate {}
+);
+
+/// Daftarkan kelas [`SceneDelegate`] ke runtime ObjC. `define_class!`
+/// mendaftar malas pada akses pertama, sedangkan UIKit mencari kelas lewat
+/// `NSClassFromString` saat scene terhubung — jadi panggil ini sebelum
+/// `UIApplicationMain` (yakni sebelum `eframe::run_native`).
+pub fn register_scene_delegate() {
+    let _ = SceneDelegate::class();
+}
+
+/// `UIWindowScene` pertama yang sudah terhubung, bila ada.
+fn connected_window_scene(mtm: MainThreadMarker) -> Option<Retained<UIWindowScene>> {
+    UIApplication::sharedApplication(mtm)
+        .connectedScenes()
+        .iter()
+        .find_map(|scene| scene.downcast::<UIWindowScene>().ok())
+}
+
+/// Tempelkan `window` ke `scene` dan tampilkan. winit sudah memanggil
+/// `makeKeyAndVisible`, tetapi jendela tanpa scene tidak pernah sampai ke
+/// layar, jadi diulang setelah scene terpasang. Frame diselaraskan dengan
+/// bounds scene (bisa lebih kecil dari layar saat Split View/Stage Manager).
+#[allow(deprecated)] // `coordinateSpace`: penggantinya `effectiveGeometry` baru ada di iOS 26.
+fn attach(window: &UIWindow, scene: &UIWindowScene) {
+    if window.windowScene().as_deref() == Some(scene) {
+        return;
+    }
+    window.setWindowScene(Some(scene));
+    window.setFrame(scene.coordinateSpace().bounds());
+    window.makeKeyAndVisible();
+}
+
+/// Tempelkan jendela winit milik `cc` ke scene yang terhubung. Dipanggil
+/// dari `DuCADApp::init_mobile` — eframe membuat jendela saat
+/// `Event::Resumed` (`applicationDidBecomeActive`), yang terjadi SETELAH
+/// `scene:willConnectToSession:`, sehingga jalur delegate saja tidak cukup.
+/// Mengembalikan `false` bila belum ada scene atau handle jendela tak tersedia.
+pub fn attach_window_to_scene(cc: &eframe::CreationContext<'_>) -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let Some(view) = ui_view_from(cc) else {
+        return false;
+    };
+    let Some(window) = view.window() else {
+        return false;
+    };
+    let Some(scene) = connected_window_scene(mtm) else {
+        return false;
+    };
+    attach(&window, &scene);
+    true
 }
 
 /// Tampilkan picker Files.app untuk ekstensi yang diberikan. Hasil (atau

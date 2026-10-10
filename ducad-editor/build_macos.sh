@@ -48,6 +48,13 @@ else
 fi
 export VERSION
 
+# Build number diambil dari VERSION dengan menghilangkan titik dan leading zero
+if [ -z "$BUILD_NUMBER" ]; then
+    BUILD_NUMBER=$(echo "$VERSION" | tr -d '.' | sed 's/^0*//')
+    [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="1"
+fi
+export BUILD_NUMBER
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -90,9 +97,9 @@ check_dependencies() {
     print_success "All dependencies are available!"
 }
 
-# Synchronize all related project files with VERSION
+# Synchronize all related project files with VERSION and BUILD_NUMBER
 sync_project_versions() {
-    print_status "Menyelaraskan seluruh versi terkait dengan VERSION ($VERSION)..."
+    print_status "Menyelaraskan seluruh versi terkait dengan VERSION ($VERSION) & BUILD ($BUILD_NUMBER)..."
 
     # Pastikan file VERSION konsisten di root dan ducad-editor
     if [ -d "$ROOT_DIR" ]; then
@@ -143,7 +150,7 @@ if new_content != content:
 "
     fi
 
-    # 3. Update DUCAD.xcodeproj/project.pbxproj (MARKETING_VERSION)
+    # 3. Update DUCAD.xcodeproj/project.pbxproj (MARKETING_VERSION & CURRENT_PROJECT_VERSION)
     local pbxproj="$EDITOR_DIR/DUCAD.xcodeproj/project.pbxproj"
     if [ -f "$pbxproj" ]; then
         python3 -c "
@@ -156,10 +163,15 @@ new_content = re.sub(
     'MARKETING_VERSION = $VERSION;',
     content
 )
+new_content = re.sub(
+    r'CURRENT_PROJECT_VERSION\s*=\s*[^;]+;',
+    'CURRENT_PROJECT_VERSION = $BUILD_NUMBER;',
+    new_content
+)
 if new_content != content:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_content)
-    print('  - Updated DUCAD.xcodeproj MARKETING_VERSION to $VERSION')
+    print('  - Updated DUCAD.xcodeproj MARKETING_VERSION to $VERSION and CURRENT_PROJECT_VERSION to $BUILD_NUMBER')
 "
     fi
 
@@ -176,10 +188,15 @@ new_content = re.sub(
     'MARKETING_VERSION = {version};',
     content
 )
+new_content = re.sub(
+    r'CURRENT_PROJECT_VERSION\s*=\s*[^;]+;',
+    'CURRENT_PROJECT_VERSION = {build_number};',
+    new_content
+)
 if new_content != content:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_content)
-    print('  - Updated apple/scripts/generate_project.py MARKETING_VERSION to {version}')
+    print('  - Updated apple/scripts/generate_project.py MARKETING_VERSION to {version} and CURRENT_PROJECT_VERSION to {build_number}')
 "
     fi
 
@@ -196,21 +213,26 @@ new_content = re.sub(
     r'\g<1>$VERSION\g<2>',
     content
 )
+new_content = re.sub(
+    r'(<key>CFBundleVersion</key>\s*<string>)[^<]+(</string>)',
+    r'\g<1>$BUILD_NUMBER\g<2>',
+    new_content
+)
 if new_content != content:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_content)
-    print('  - Updated crates/ducad-app/ios/Info.plist.template CFBundleShortVersionString to $VERSION')
+    print('  - Updated crates/ducad-app/ios/Info.plist.template CFBundleShortVersionString to $VERSION and CFBundleVersion to $BUILD_NUMBER')
 "
     fi
 
-    print_success "Sinkronisasi versi selesai (v$VERSION)!"
+    print_success "Sinkronisasi versi selesai (v$VERSION, build $BUILD_NUMBER)!"
 }
 
 # Show help
 show_help() {
     echo -e "${CYAN}🛠️  DUCAD Editor Build Script${NC}"
     echo "=============================="
-    echo "Version: $VERSION"
+    echo "Version: $VERSION (Build $BUILD_NUMBER)"
     echo ""
     echo "Usage: $0 [PLATFORM] [OPTIONS]"
     echo ""
@@ -223,6 +245,7 @@ show_help() {
     echo "  linux        - Build + package Linux (x86_64)"
     echo "  windows      - Build + package Windows (x86_64)"
     echo "  all          - Release build semua platform"
+    echo "  sync         - Hanya sinkronisasi versi & build number seluruh proyek"
     echo ""
     echo "Options:"
     echo "  --deps       - Install build dependencies and targets first"
@@ -233,6 +256,7 @@ show_help() {
     echo "  $0 macos          # Build macOS .app & .dmg"
     echo "  $0 macos-pkg      # Build macOS signed .pkg for App Store"
     echo "  $0 publish-all    # Publish iPadOS + macOS to App Store Connect"
+    echo "  $0 sync           # Sinkronisasi VERSION & build number"
     echo "  $0 linux --clean  # Clean and build Linux"
     echo "  $0 all --deps     # Install deps and build all"
     echo ""
@@ -245,7 +269,7 @@ CLEAN_FIRST=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        macos|macos-pkg|ipad|ipad-publish|publish-all|apple-publish|linux|windows|all)
+        macos|macos-pkg|ipad|ipad-publish|publish-all|apple-publish|linux|windows|all|sync)
             PLATFORM="$1"
             shift
             ;;
@@ -271,7 +295,7 @@ done
 
 # Main build function
 main() {
-    print_status "Starting build for platform: $PLATFORM (Working Directory: $EDITOR_DIR)"
+    print_status "Starting build for platform: $PLATFORM (Version: $VERSION, Build: $BUILD_NUMBER, Working Directory: $EDITOR_DIR)"
     
     check_dependencies
     
@@ -365,6 +389,10 @@ main() {
             print_status "Building for all platforms..."
             make release
             print_success "All platform builds completed!"
+            ;;
+        sync)
+            print_success "Sinkronisasi versi seluruh proyek selesai (v$VERSION, build $BUILD_NUMBER)!"
+            exit 0
             ;;
         *)
             print_error "Unknown platform: $PLATFORM"

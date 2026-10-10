@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
@@ -154,6 +154,10 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIWindow",
     "UIWindowScene",
     "UIScene",
+    # Siklus hidup UIScene (wajib sejak iOS 27 SDK): `UISceneDelegate`
+    # `scene:willConnectToSession:options:` butuh tipe sesi + opsinya.
+    "UISceneSession",
+    "UISceneOptions",
     "UIDocumentPickerViewController",
     "UIActivityViewController",
     "UIPopoverPresentationController",
