@@ -239,10 +239,12 @@ impl ChatState {
         self.form_from_settings();
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub(crate) fn conv(&self) -> &[ConvMessage] {
         &self.conv
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub(crate) fn push_conv(&mut self, m: ConvMessage) {
         self.conv.push(m);
     }
@@ -251,6 +253,7 @@ impl ChatState {
         self.push(item);
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub(crate) fn apply_chat_event(&mut self, ctx: &egui::Context, e: ChatEvent) {
         self.apply_event(ctx, e);
     }
@@ -260,10 +263,12 @@ impl ChatState {
         self.rx.is_some() || self.cli_run.is_some()
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub(crate) fn begin_turn(&mut self) {
         self.streaming = None;
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     pub(crate) fn end_turn(&mut self) {
         self.streaming = None;
         self.save_history();

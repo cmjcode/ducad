@@ -10,9 +10,9 @@
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 use std::sync::mpsc::Receiver;
 
+use ducad_chat::{ChatBackend, CLI_KINDS};
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-use ducad_chat::ChatEvent;
-use ducad_chat::{ChatBackend, ConvMessage, CLI_KINDS};
+use ducad_chat::{ChatEvent, ConvMessage};
 use ducad_ui::{ChatItem, ChatRole, CliFormProfile, CliMeta};
 
 use crate::app::DuCADApp;
@@ -30,6 +30,7 @@ pub struct CliRun {
 }
 
 /// Maksimum karakter riwayat yang disisipkan untuk CLI tanpa resume.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 const TRANSCRIPT_BUDGET: usize = 6000;
 
 /// Meta tampilan tiap jenis CLI (urutan = `CLI_KINDS`).
@@ -135,6 +136,7 @@ impl ChatState {
     }
 
     /// Riwayat teks singkat untuk CLI yang tidak bisa melanjutkan sesi.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     fn transcript_prefix(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
         for m in self.conv().iter().rev() {
@@ -375,6 +377,7 @@ impl DuCADApp {
         }
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     fn form_profile(&self, i: usize) -> Option<ducad_chat::CliProfileData> {
         let kind = CLI_KINDS.get(i)?;
         let c = self.chat.panel.form.cli.get(i)?;

@@ -132,7 +132,11 @@ impl DuCADApp {
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     let resp = ui.text_edit_singleline(&mut self.editing_dimension_input);
-                    resp.request_focus();
+                    // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                    // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                    if !resp.has_focus() {
+                        resp.request_focus();
+                    }
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.editing_dimension_entity = None;
                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -388,7 +392,11 @@ impl DuCADApp {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     let resp =
                                         ui.text_edit_singleline(&mut self.editing_edge_dim_input);
-                                    resp.request_focus();
+                                    // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                    // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                    if !resp.has_focus() {
+                                        resp.request_focus();
+                                    }
                                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         self.editing_edge_dim = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -624,7 +632,11 @@ impl DuCADApp {
                                 .show(ui.ctx(), |ui| {
                                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                                         let r = ui.text_edit_singleline(&mut self.editing_dimension_input);
-                                        r.request_focus();
+                                        // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                        // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                        if !r.has_focus() {
+                                            r.request_focus();
+                                        }
                                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                             self.editing_constraint_idx = None;
                                         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -845,7 +857,11 @@ impl DuCADApp {
                         .desired_width(84.0)
                         .show(ui);
                     let resp = output.response;
-                    resp.request_focus();
+                    // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                    // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                    if !resp.has_focus() {
+                        resp.request_focus();
+                    }
                     if *select_all {
                         *select_all = false;
                         let mut state = output.state;
@@ -1674,7 +1690,11 @@ impl DuCADApp {
                                     .show(ui.ctx(), |ui| {
                                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                                             let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
-                                            resp.request_focus();
+                                            // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                            // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                            if !resp.has_focus() {
+                                                resp.request_focus();
+                                            }
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_x = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1732,7 +1752,11 @@ impl DuCADApp {
                                     .show(ui.ctx(), |ui| {
                                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                                             let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
-                                            resp.request_focus();
+                                            // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                            // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                            if !resp.has_focus() {
+                                                resp.request_focus();
+                                            }
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_y = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1791,7 +1815,11 @@ impl DuCADApp {
                                         .show(ui.ctx(), |ui| {
                                             egui::Frame::popup(ui.style()).show(ui, |ui| {
                                                 let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
-                                                resp.request_focus();
+                                                // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                                // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                                if !resp.has_focus() {
+                                                    resp.request_focus();
+                                                }
                                                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                     self.pattern_dimension_editing_z = false;
                                                 } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1898,7 +1926,11 @@ impl DuCADApp {
                                     .show(ui.ctx(), |ui| {
                                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                                             let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
-                                            resp.request_focus();
+                                            // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                            // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                            if !resp.has_focus() {
+                                                resp.request_focus();
+                                            }
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_angle = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1957,7 +1989,11 @@ impl DuCADApp {
                                     .show(ui.ctx(), |ui| {
                                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                                             let resp = ui.text_edit_singleline(&mut self.pattern_dimension_edit_input);
-                                            resp.request_focus();
+                                            // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                            // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                            if !resp.has_focus() {
+                                                resp.request_focus();
+                                            }
                                             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                                 self.pattern_dimension_editing_radius = false;
                                             } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -3256,7 +3292,11 @@ impl DuCADApp {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     let resp =
                                         ui.text_edit_singleline(&mut self.editing_body_dim_input);
-                                    resp.request_focus();
+                                    // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                    // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                    if !resp.has_focus() {
+                                        resp.request_focus();
+                                    }
                                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                         self.editing_body_dim_axis = None;
                                     } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -3861,7 +3901,11 @@ impl DuCADApp {
                                         let resp = ui.text_edit_singleline(
                                             &mut self.editing_hole_ruler_input,
                                         );
-                                        resp.request_focus();
+                                        // Hanya minta fokus bila belum fokus: `request_focus()` tiap frame memaksa egui-winit
+                                        // me-restart IME setiap frame (keyboard virtual iPad muncul-hilang berulang).
+                                        if !resp.has_focus() {
+                                            resp.request_focus();
+                                        }
                                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                             self.editing_hole_ruler_idx = None;
                                         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {

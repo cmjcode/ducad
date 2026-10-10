@@ -38,6 +38,7 @@ pub struct BridgeRequest {
 pub struct AgentBridge {
     pub enabled: bool,
     rx: Option<Receiver<BridgeRequest>>,
+    #[allow(dead_code)]
     stop: Option<Arc<AtomicBool>>,
     clients: Arc<AtomicUsize>,
     /// Pesan singkat untuk top bar / status.

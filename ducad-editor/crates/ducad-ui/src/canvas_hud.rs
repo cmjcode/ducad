@@ -3214,7 +3214,9 @@ impl CanvasHud {
                 let te_resp = ui.add(te);
 
                 // Auto-focus saat baru muncul
-                te_resp.request_focus();
+                if !te_resp.has_focus() {
+                    te_resp.request_focus();
+                }
 
                 // Tekan Enter untuk konfirmasi
                 if te_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {

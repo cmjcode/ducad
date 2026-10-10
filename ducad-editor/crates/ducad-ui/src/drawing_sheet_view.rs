@@ -1504,7 +1504,10 @@ impl DrawingSheetView {
                                     .hint_text("Ketik...")
                                     .desired_width(field_screen_rect.width() - 6.0),
                             );
-                            res.request_focus();
+                            // Hanya minta fokus bila belum fokus (hindari restart IME tiap frame di iPad).
+                            if !res.has_focus() {
+                                res.request_focus();
+                            }
                             if res.lost_focus()
                                 || ui.input(|i| {
                                     i.key_pressed(egui::Key::Enter)
@@ -1551,7 +1554,10 @@ impl DrawingSheetView {
                                         .hint_text("Ketik catatan...")
                                         .desired_width(edit_rect.width() - 8.0),
                                 );
-                                res.request_focus();
+                                // Hanya minta fokus bila belum fokus (hindari restart IME tiap frame di iPad).
+                                if !res.has_focus() {
+                                    res.request_focus();
+                                }
                                 if res.lost_focus()
                                     || ui.input(|i| {
                                         i.key_pressed(egui::Key::Enter)
@@ -1593,7 +1599,10 @@ impl DrawingSheetView {
                                     .hint_text("BILL OF MATERIALS")
                                     .desired_width(edit_rect.width() - 6.0),
                             );
-                            res.request_focus();
+                            // Hanya minta fokus bila belum fokus (hindari restart IME tiap frame di iPad).
+                            if !res.has_focus() {
+                                res.request_focus();
+                            }
                             if res.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
                                 finish_text_edit = true;
                             }
@@ -1659,7 +1668,10 @@ impl DrawingSheetView {
                                         sheet.bom_table.items[row_idx].quantity = num;
                                     }
                                 }
-                                res.request_focus();
+                                // Hanya minta fokus bila belum fokus (hindari restart IME tiap frame di iPad).
+                                if !res.has_focus() {
+                                    res.request_focus();
+                                }
                                 if res.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape)) {
                                     finish_text_edit = true;
                                 }
