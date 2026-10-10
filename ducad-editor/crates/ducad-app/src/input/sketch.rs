@@ -423,7 +423,7 @@ impl DuCADApp {
         tol: f64,
         grid_step: f64,
     ) {
-        if required_points(self.tool) != 2 {
+        if !Self::drag_creates_points(self.tool) {
             return;
         }
         if response.drag_started_by(egui::PointerButton::Primary) && self.pending_points.is_empty() {
@@ -434,7 +434,7 @@ impl DuCADApp {
                     .map(|s| s.point)
                     .unwrap_or(p0);
                 self.drag_create_active = true;
-                self.on_click_point(p0);
+                self.push_drag_point(p0, tol);
             }
         }
         if response.drag_stopped() && self.drag_create_active {
@@ -442,9 +442,25 @@ impl DuCADApp {
             if self.pending_points.len() == 1 {
                 let effective = self.snapped_or(raw);
                 if (effective - self.pending_points[0]).length() > tol {
-                    self.on_click_point(effective);
+                    self.push_drag_point(effective, tol);
                 }
             }
+        }
+    }
+
+    /// Tool yang menerima tekan-geser-lepas sebagai dua titik pertama: semua
+    /// tool berjumlah titik tetap ≥ 2 (persegi, lingkaran, …, juga slot dan
+    /// busur 3 titik: titik ketiga diketuk setelahnya) dan Spline. Garis
+    /// berantai dikecualikan karena seretan di sana adalah pindah-entitas.
+    pub fn drag_creates_points(tool: ToolKind) -> bool {
+        tool == ToolKind::Spline || required_points(tool) >= 2
+    }
+
+    fn push_drag_point(&mut self, p: DVec2, tol: f64) {
+        if self.tool == ToolKind::Spline {
+            self.handle_spline_click(p, tol);
+        } else {
+            self.on_click_point(p);
         }
     }
 
@@ -506,10 +522,14 @@ impl DuCADApp {
 
         let first = self.pending_points[0];
         let closing = self.pending_points.len() >= 2 && (p - first).length() <= close_tol;
+        // Ketuk ulang di (dekat) titik terakhir = selesai. Dulu toleransinya
+        // 1e-6 sehingga hanya mouse yang diam sempurna bisa memicunya; jari
+        // dan Pencil tidak pernah persis, jadi spline terbuka tak bisa
+        // diakhiri di tablet.
         let is_last_repeat = self
             .pending_points
             .last()
-            .is_some_and(|last| (*last - p).length() < 1e-6);
+            .is_some_and(|last| (*last - p).length() <= close_tol);
 
         if closing {
             self.pending_points.push(first);
@@ -519,6 +539,28 @@ impl DuCADApp {
         } else {
             self.pending_points.push(p);
         }
+    }
+
+    /// Selesaikan rantai titik tool aktif (tombol "Selesai" HUD / Enter):
+    /// Spline dibuat bila titiknya cukup, Garis berantai hanya ditutup
+    /// rantainya (segmen sudah tersimpan saat tiap klik).
+    pub fn finish_chain(&mut self) {
+        match self.tool {
+            ToolKind::Spline if self.pending_points.len() >= 2 => self.finish_multipoint(),
+            _ => self.cancel_pending_points(),
+        }
+    }
+
+    /// Buang titik yang tertunda tanpa mengubah sketsa; tool tetap aktif.
+    pub fn cancel_pending_points(&mut self) {
+        self.pending_points.clear();
+        self.pending_point_refs.clear();
+        self.offset_source = None;
+        self.line_chain_start = None;
+        self.line_chain_segments = 0;
+        self.drag_create_active = false;
+        self.dynamic_input.clear();
+        self.dynamic_focus_pending = false;
     }
 
     pub fn finish_multipoint(&mut self) {
@@ -1054,13 +1096,7 @@ impl DuCADApp {
                     || !self.pending_point_refs.is_empty()
                     || self.offset_source.is_some()
                 {
-                    self.pending_points.clear();
-                    self.pending_point_refs.clear();
-                    self.offset_source = None;
-                    self.line_chain_start = None;
-                    self.line_chain_segments = 0;
-                    self.dynamic_input.clear();
-                    self.dynamic_focus_pending = false;
+                    self.cancel_pending_points();
                 } else if self.sketch_move_armed {
                     self.sketch_move_armed = false;
                     self.sketch_move_target = None;
@@ -2041,6 +2077,12 @@ impl DuCADApp {
                     let effective = self.snapped_or(raw);
                     self.handle_spline_click(effective, tol);
                 }
+                if !is_finger_navigating {
+                    self.handle_drag_create(ui, response, rect, raw, tol, grid_step);
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Enter)) && self.pending_points.len() >= 2 {
+                    self.finish_multipoint();
+                }
             }
             ToolKind::Rectangle
             | ToolKind::Circle
@@ -2468,6 +2510,87 @@ pub fn hit_test_multi_plane(
 mod tests {
     use super::*;
     use glam::DVec2;
+
+    #[test]
+    fn spline_finishes_when_tapping_near_last_point() {
+        // Jari/Pencil tidak pernah mengetuk titik yang persis sama; ketukan
+        // dalam toleransi di titik terakhir harus menyelesaikan spline terbuka.
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Spline);
+        let before = app.sketch().entities.len();
+        let tol = 0.5;
+        app.handle_spline_click(DVec2::new(0.0, 0.0), tol);
+        app.handle_spline_click(DVec2::new(10.0, 5.0), tol);
+        app.handle_spline_click(DVec2::new(20.0, 0.0), tol);
+        assert_eq!(app.pending_points.len(), 3);
+        app.handle_spline_click(DVec2::new(20.3, 0.2), tol);
+        assert!(app.pending_points.is_empty(), "ketukan dekat titik terakhir harus mengakhiri spline");
+        assert_eq!(app.sketch().entities.len(), before + 1);
+    }
+
+    #[test]
+    fn finish_chain_commits_spline_and_cancel_discards_points() {
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Spline);
+        let before = app.sketch().entities.len();
+
+        // Satu titik: Selesai tidak bisa membuat spline → hanya membuang titik.
+        app.handle_spline_click(DVec2::new(0.0, 0.0), 0.5);
+        app.finish_chain();
+        assert!(app.pending_points.is_empty());
+        assert_eq!(app.sketch().entities.len(), before);
+
+        // Tiga titik: Selesai (tombol HUD / Enter) membuat spline terbuka.
+        app.handle_spline_click(DVec2::new(0.0, 0.0), 0.5);
+        app.handle_spline_click(DVec2::new(10.0, 5.0), 0.5);
+        app.handle_spline_click(DVec2::new(20.0, 0.0), 0.5);
+        app.finish_chain();
+        assert!(app.pending_points.is_empty());
+        assert_eq!(app.sketch().entities.len(), before + 1);
+
+        // Batal: titik dibuang, sketsa dan tool tidak berubah.
+        app.handle_spline_click(DVec2::new(0.0, 0.0), 0.5);
+        app.handle_spline_click(DVec2::new(5.0, 5.0), 0.5);
+        app.cancel_pending_points();
+        assert!(app.pending_points.is_empty());
+        assert_eq!(app.sketch().entities.len(), before + 1);
+        assert_eq!(app.tool, ToolKind::Spline);
+    }
+
+    #[test]
+    fn drag_create_covers_three_point_tools_and_spline() {
+        // Di tablet pengguna menyeret p1→p2; dulu hanya tool 2 titik yang
+        // menerimanya sehingga Slot/Busur (3 titik) terasa mati.
+        for tool in [
+            ToolKind::Rectangle,
+            ToolKind::Circle,
+            ToolKind::Slot,
+            ToolKind::Arc,
+            ToolKind::MeasureAngle,
+            ToolKind::Spline,
+        ] {
+            assert!(crate::app::DuCADApp::drag_creates_points(tool), "{tool:?}");
+        }
+        for tool in [ToolKind::Line, ToolKind::Select, ToolKind::Freehand, ToolKind::Text] {
+            assert!(!crate::app::DuCADApp::drag_creates_points(tool), "{tool:?}");
+        }
+    }
+
+    #[test]
+    fn slot_needs_a_third_tap_after_drag() {
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Slot);
+        let before = app.sketch().entities.len();
+        app.on_click_point(DVec2::new(0.0, 0.0));
+        app.on_click_point(DVec2::new(30.0, 0.0));
+        assert_eq!(app.pending_points.len(), 2, "setelah seretan masih menunggu lebar");
+        app.on_click_point(DVec2::new(15.0, 5.0));
+        assert!(app.pending_points.is_empty());
+        assert!(app.sketch().entities.len() > before, "slot harus terbuat dari 3 titik");
+    }
 
     #[test]
     fn test_multi_plane_hit_testing_detects_entities_on_different_planes() {

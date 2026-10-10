@@ -2108,6 +2108,35 @@ impl DuCADApp {
                 true,
                 ui.input(|i| i.time),
             );
+        } else if matches!(self.tool, ToolKind::Spline | ToolKind::Line)
+            && self.is_sketching
+            && !self.pending_points.is_empty()
+        {
+            // HUD Selesai/Batal baru tampil setelah titik pertama: memilih tool
+            // Garis saja tidak boleh menyembunyikan top bar di tablet.
+            let is_spline = self.tool == ToolKind::Spline;
+            let can_finish = !is_spline || self.pending_points.len() >= 2;
+            if let Some(action) = CanvasHud::render_chain_top_bar_hud(
+                ui,
+                rect,
+                is_spline,
+                self.pending_points.len(),
+                can_finish,
+            ) {
+                match action {
+                    ducad_ui::ChainHudAction::Finish => self.finish_chain(),
+                    ducad_ui::ChainHudAction::Cancel => self.cancel_pending_points(),
+                }
+            }
+
+            ToolGuides::render_tool_guide(
+                ui,
+                rect,
+                self.tool.to_toolbar_tool(),
+                self.pending_points.len(),
+                false,
+                ui.input(|i| i.time),
+            );
         } else if self.tool == ToolKind::Polygon {
             if let Some(action) = CanvasHud::render_polygon_top_bar_hud(
                 ui,

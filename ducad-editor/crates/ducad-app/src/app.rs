@@ -1314,6 +1314,41 @@ impl DuCADApp {
         }
     }
 
+    /// Batas vertikal rail alat kiri: di bawah pita header dan, bila masih
+    /// cukup tinggi untuk seluruh rail, di atas kartu panduan tool di pojok
+    /// kiri bawah. Di layar yang terlalu pendek kartu dibiarkan tertumpuk
+    /// daripada rail terdorong keluar layar.
+    pub fn rail_bounds(
+        &self,
+        ctx: &egui::Context,
+        screen_rect: egui::Rect,
+        header_band: egui::Rect,
+    ) -> egui::Rect {
+        let mut bounds = screen_rect;
+        bounds.min.y = bounds.min.y.max(header_band.max.y + 8.0);
+        if let Some(card) = ducad_ui::ToolGuides::active_card_rect(ctx) {
+            let rail_h = self.left_toolbar_height_estimate();
+            if card.top() - 8.0 - bounds.min.y >= rail_h {
+                bounds.max.y = bounds.max.y.min(card.top() - 8.0);
+            }
+        }
+        bounds
+    }
+
+    /// Perkiraan tinggi rail kiri: jumlah tombol × (sisi + jarak) + separator
+    /// + margin frame. Cukup akurat untuk keputusan "muat atau tidak".
+    pub fn left_toolbar_height_estimate(&self) -> f32 {
+        let side = ducad_ui::rail_button_side(self.icon_size);
+        let count = if self.app_mode == crate::mode::AppMode::Vector {
+            11
+        } else if self.is_sketching {
+            14
+        } else {
+            6
+        } as f32;
+        count * (side + 2.5) + 16.0
+    }
+
     /// Terapkan aksi kontrol % zoom dari header (lihat `TopBarZoom`).
     pub fn apply_topbar_zoom(&mut self, zoom: ducad_ui::TopBarZoom) {
         use ducad_ui::{TopBarZoom, ZOOM_STEP};
@@ -1867,6 +1902,20 @@ impl eframe::App for DuCADApp {
         // kanvas 3D tetap selebar layar di baliknya.
         let safe_top = crate::platform::safe_area_top();
 
+        // Pita header: tempat top bar berada (atau seharusnya berada bila
+        // disembunyikan). Diumumkan SEBELUM viewport karena HUD per tool
+        // (`dynamic_input_ui`) dan HUD Mate dirender di dalam/sesudahnya dan
+        // memusatkan diri pada pita ini — bukan pada y tetap yang di iPad
+        // (safe area) menumpuk dengan tombol top bar.
+        let topbar_margin_right = 12.0;
+        let topbar_x = 12.0;
+        let topbar_w = (screen_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
+        let header_band = egui::Rect::from_min_size(
+            egui::pos2(topbar_x, 10.0 + safe_top),
+            egui::vec2(topbar_w, TopBar::bar_height(self.icon_size) + 10.0),
+        );
+        CanvasHud::set_header_band(&ctx, header_band);
+
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
@@ -1880,10 +1929,6 @@ impl eframe::App for DuCADApp {
 
         let screen_center_x = screen_rect.center().x;
 
-
-        let topbar_margin_right = 12.0;
-        let topbar_x = 12.0;
-        let topbar_w = (screen_rect.max.x - topbar_x - topbar_margin_right).max(200.0);
         let doc_name = self
             .current_file_path
             .as_ref()
@@ -1950,10 +1995,25 @@ impl eframe::App for DuCADApp {
             ),
         };
 
+        // HUD header aktif (Slot, Polygon, Loft, Spline, …) butuh pita penuh
+        // di tablet; top bar disembunyikan selama HUD tampil dan muncul
+        // kembali begitu tool/HUD-nya selesai. Di desktop hanya bila HUD tidak
+        // muat di celah antara kelompok tombol kiri dan kanan.
+        let hide_topbar = CanvasHud::should_hide_top_bar(
+            CanvasHud::active_header_hud_width(&ctx),
+            is_ipad,
+            TopBar::last_free_center_width(&ctx),
+        );
+        if hide_topbar {
+            // Tutup popup header yang mungkin masih terbuka saat bar hilang.
+            self.plane_menu_open = false;
+        }
+
         let mut topbar_rect: Option<egui::Rect> = None;
         if !self.drawing_sheet_state.is_open {
+          if !hide_topbar {
             let topbar_resp = egui::Area::new(egui::Id::new("ducad-topbar-area"))
-                .fixed_pos(egui::pos2(topbar_x, 10.0 + safe_top))
+                .fixed_pos(header_band.min)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     ui.set_width(topbar_w);
@@ -2095,9 +2155,12 @@ impl eframe::App for DuCADApp {
                 ducad_ui::OnboardingTarget::TopBar,
                 topbar_resp.response.rect,
             );
+            self.plane_menu_open = topbar_state.plane_menu_open;
+            self.account_button_rect = topbar_state.account_button_rect;
+          }
 
             if self.checks.panel_open {
-                let top = topbar_resp.response.rect.max.y + 8.0;
+                let top = header_band.max.y + 8.0;
                 let panel_event = egui::Area::new(egui::Id::new("ducad-checks-panel-area"))
                     .fixed_pos(egui::pos2(screen_rect.max.x - 16.0, top))
                     .pivot(egui::Align2::RIGHT_TOP)
@@ -2113,7 +2176,7 @@ impl eframe::App for DuCADApp {
 
             if self.sim.panel_open {
                 // Kiri atas area kerja, di bawah top bar.
-                let top = topbar_resp.response.rect.max.y + 8.0;
+                let top = header_band.max.y + 8.0;
                 let data = self.sim_panel_data();
                 let mut panel = std::mem::take(&mut self.sim.panel);
                 let panel_event = egui::Area::new(egui::Id::new("ducad-sim-panel-area"))
@@ -2130,7 +2193,7 @@ impl eframe::App for DuCADApp {
 
             if self.industry.panel_open {
                 // Kanan panel Simulasi, di bawah top bar.
-                let top = topbar_resp.response.rect.max.y + 8.0;
+                let top = header_band.max.y + 8.0;
                 let data = self.industry_panel_data();
                 let mut panel = std::mem::take(&mut self.industry.panel);
                 let panel_event = egui::Area::new(egui::Id::new("ducad-industry-panel-area"))
@@ -2147,7 +2210,7 @@ impl eframe::App for DuCADApp {
 
             if self.mass.panel_open {
                 // Di kiri panel Checks bila keduanya terbuka.
-                let top = topbar_resp.response.rect.max.y + 8.0;
+                let top = header_band.max.y + 8.0;
                 let right = if self.checks.panel_open {
                     screen_rect.max.x - 16.0 - (ducad_ui::theme::BOTTOM_RIGHT_PANEL_WIDTH + 84.0)
                 } else {
@@ -2167,18 +2230,19 @@ impl eframe::App for DuCADApp {
                 }
             }
 
-            self.plane_menu_open = topbar_state.plane_menu_open;
-            self.account_button_rect = topbar_state.account_button_rect;
-
             self.left_toolbar.is_sketching = self.is_sketching;
             self.left_toolbar.is_vector_mode = self.app_mode == crate::mode::AppMode::Vector;
             self.left_toolbar.icon_size = self.icon_size;
             let left_toolbar_force_resize = self.left_toolbar_content_sig != Some(self.is_sketching);
             self.left_toolbar_content_sig = Some(self.is_sketching);
+            // Rail kiri dipusatkan vertikal, tetapi dijaga di bawah pita header
+            // dan di atas kartu panduan tool (pojok kiri bawah) — di layar iPad
+            // yang pendek, tombol paling bawah (Datum, Loft) dulu menumpuk kartu.
+            let rail_bounds = self.rail_bounds(&ctx, screen_rect, header_band);
             let left_toolbar_resp = egui::Area::new(egui::Id::new("ducad-left-toolbar-area"))
-                .fixed_pos(egui::pos2(12.0, screen_rect.center().y))
+                .fixed_pos(egui::pos2(12.0, rail_bounds.center().y))
                 .pivot(egui::Align2::LEFT_CENTER)
-                .constrain_to(screen_rect)
+                .constrain_to(rail_bounds)
                 .default_size(egui::vec2(60.0, 460.0))
                 .sizing_pass(left_toolbar_force_resize)
                 .order(egui::Order::Foreground)
@@ -3366,13 +3430,15 @@ impl eframe::App for DuCADApp {
         //    Planes, Folder). Dulu bar horizontal di pojok kanan bawah yang berebut ruang
         //    dengan context action bar; kini bergaya sama dengan toolbar kiri.
         if !self.drawing_sheet_state.is_open {
-            let rail_pos = egui::pos2(screen_rect.max.x - RIGHT_RAIL_MARGIN, screen_rect.center().y);
+            let mut right_bounds = screen_rect;
+            right_bounds.min.y = right_bounds.min.y.max(header_band.max.y + 8.0);
+            let rail_pos = egui::pos2(screen_rect.max.x - RIGHT_RAIL_MARGIN, right_bounds.center().y);
             let icon_sz = self.icon_size.clamp(12.0, 18.0);
             let btn_side = ducad_ui::rail_button_side(icon_sz);
             egui::Area::new(egui::Id::new("ducad-right-rail"))
                 .fixed_pos(rail_pos)
                 .pivot(egui::Align2::RIGHT_CENTER)
-                .constrain_to(screen_rect)
+                .constrain_to(right_bounds)
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     ducad_ui::toolbar_frame().show(ui, |ui| {
@@ -3769,7 +3835,7 @@ impl eframe::App for DuCADApp {
                 let prev_selected = self.hole_popup_state.selected_hole_idx;
 
                 let mut hole_custom_h = None;
-                popup_ev = ducad_ui::render_bottom_right_panel_custom(
+                let popup_res = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "hole_wizard_popup",
                     &ducad_i18n::t!("tool-hole-wizard"),
@@ -3786,9 +3852,13 @@ impl eframe::App for DuCADApp {
                         let ev = ducad_ui::HolePopup::show(ui, &mut self.hole_popup_state);
                         (ev, false)
                     },
-                )
-                .0
-                .flatten();
+                );
+                // Tombol ✕ di header dan Esc dilaporkan lewat flag kedua; tanpa ini popup tak bisa ditutup.
+                popup_ev = if popup_res.1 {
+                    Some(ToolPopupEvent::Close)
+                } else {
+                    popup_res.0.flatten()
+                };
 
                 // Jika pengguna mengganti pilihan lubang di combobox, sinkronkan spesifikasi dan posisinya
                 if self.hole_popup_state.mode == ducad_ui::HoleOperationMode::EditHole {
@@ -3814,7 +3884,7 @@ impl eframe::App for DuCADApp {
             ToolKind::Text => {
                 let popup_title = ducad_i18n::t!("tool-text");
                 let mut text_custom_h = None;
-                popup_ev = ducad_ui::render_bottom_right_panel_custom(
+                let popup_res = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "text_popup",
                     &popup_title,
@@ -3831,14 +3901,18 @@ impl eframe::App for DuCADApp {
                         let ev = ducad_ui::TextPopup::show(ui, &mut self.text_popup_state);
                         (ev, false)
                     },
-                )
-                .0
-                .flatten();
+                );
+                // Tombol ✕ di header dan Esc dilaporkan lewat flag kedua; tanpa ini popup tak bisa ditutup.
+                popup_ev = if popup_res.1 {
+                    Some(ToolPopupEvent::Close)
+                } else {
+                    popup_res.0.flatten()
+                };
             }
             ToolKind::Helix => {
                 let popup_title = ducad_i18n::t!("tool-helix");
                 let mut custom_h = self.helix_popup_state.custom_height;
-                popup_ev = ducad_ui::render_bottom_right_panel_custom(
+                let popup_res = ducad_ui::render_bottom_right_panel_custom(
                     &ctx,
                     "helix_popup",
                     &popup_title,
@@ -3855,9 +3929,13 @@ impl eframe::App for DuCADApp {
                         let ev = ducad_ui::HelixPopup::show(ui, &mut self.helix_popup_state);
                         (ev, false)
                     },
-                )
-                .0
-                .flatten();
+                );
+                // Tombol ✕ di header dan Esc dilaporkan lewat flag kedua; tanpa ini popup tak bisa ditutup.
+                popup_ev = if popup_res.1 {
+                    Some(ToolPopupEvent::Close)
+                } else {
+                    popup_res.0.flatten()
+                };
                 self.helix_popup_state.custom_height = custom_h;
             }
             _ => {}
@@ -4542,11 +4620,11 @@ impl eframe::App for DuCADApp {
         let show_normal_to_sketch = self.tool != ToolKind::Select;
 
         if !self.drawing_sheet_state.is_open {
-            // Kiri atas kanvas, di bawah burger menu (sejajar isi top bar).
-            let status_anchor = match topbar_rect {
-                Some(r) => egui::pos2(r.min.x + 12.0, r.max.y + 8.0),
-                None => screen_rect.min + egui::vec2(16.0, 16.0),
-            };
+            // Kiri atas kanvas, di bawah pita header (juga saat top bar
+            // disembunyikan oleh HUD, supaya teks status tidak menabrak HUD).
+            let status_anchor = topbar_rect
+                .map(|r| egui::pos2(r.min.x + 12.0, r.max.y + 8.0))
+                .unwrap_or_else(|| egui::pos2(header_band.min.x + 12.0, header_band.max.y + 8.0));
             if let Some(ev) = CanvasHud::show_status_pill(
                 ui,
                 status_anchor,

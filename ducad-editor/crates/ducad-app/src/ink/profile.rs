@@ -5,7 +5,7 @@
 //! penutupan otomatis — itu tugas tombol HUD "Objek Tertutup"
 //! (`crate::closed_objects`) setelah pengguna selesai menggambar.
 
-use ducad_ui::{InkHudState, InkHudTool, SketchHud, SketchHudEvent};
+use ducad_ui::{CanvasHud, InkHudState, InkHudTool, SketchHud, SketchHudEvent};
 use eframe::egui;
 use glam::DVec2;
 
@@ -53,8 +53,13 @@ impl DuCADApp {
             },
             smart_shape: self.ink_state.smart_shape,
         });
+        // Tepat di bawah pita header (menghormati safe area iPad dan top bar
+        // yang disembunyikan), bukan y tetap yang menabrak top bar di tablet.
+        let top = CanvasHud::header_band(ctx)
+            .map(|b| b.max.y + 8.0)
+            .unwrap_or(screen_rect.min.y + 64.0);
         let event = egui::Area::new(egui::Id::new("ducad-sketch-hud"))
-            .fixed_pos(egui::pos2(screen_rect.center().x, screen_rect.min.y + 64.0))
+            .fixed_pos(egui::pos2(screen_rect.center().x, top))
             .pivot(egui::Align2::CENTER_TOP)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| SketchHud::show(ui, ink))

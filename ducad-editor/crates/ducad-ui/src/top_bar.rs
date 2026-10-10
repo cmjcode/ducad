@@ -756,8 +756,12 @@ impl TopBar {
                     ).response.on_hover_text("Menu Alat Tambahan (Ukuran, Zebra, Gambar 2D, Assembly)");
                 }
 
+                // Ujung kanan kelompok tombol kiri: awal celah tengah yang bisa
+                // dipakai HUD header tanpa menumpuk tombol.
+                let left_cluster_end = ui.cursor().left();
+
                 // 5. Right-aligned Settings and Export Buttons (Minimalist Icon-Only)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let right_cluster_start = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Sisi paling kanan: Tombol Akun DUCAD / Cloud
                     let acct_btn_resp = if let Some(acc) = &state.account {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
@@ -893,11 +897,33 @@ impl TopBar {
                     if help_btn.clicked() {
                         event = Some(TopBarEvent::StartTutorial);
                     }
-                });
+                    ui.min_rect().left()
+                }).inner;
+                Self::publish_free_center_width(
+                    ui.ctx(),
+                    (right_cluster_start - left_cluster_end).max(0.0),
+                );
             });
         });
 
         event
+    }
+
+    fn free_center_id() -> egui::Id {
+        egui::Id::new("ducad-topbar-free-center-width")
+    }
+
+    /// Simpan lebar celah antara kelompok tombol kiri dan kanan (px). Tidak
+    /// diberi nomor frame: nilai terakhir tetap berlaku saat top bar sedang
+    /// disembunyikan, supaya keputusan "HUD muat atau tidak" stabil.
+    fn publish_free_center_width(ctx: &egui::Context, width: f32) {
+        ctx.data_mut(|d| d.insert_temp(Self::free_center_id(), width));
+    }
+
+    /// Lebar celah tengah top bar yang terakhir terukur; `None` bila top bar
+    /// belum pernah digambar di konteks ini.
+    pub fn last_free_center_width(ctx: &egui::Context) -> Option<f32> {
+        ctx.data(|d| d.get_temp::<f32>(Self::free_center_id()))
     }
 }
 

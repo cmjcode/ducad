@@ -54,7 +54,8 @@ pub use vector::{
 pub use account_drawer::{AccountDrawer, AccountDrawerEvent};
 pub use assembly_drawer::{AssemblyDrawer, AssemblyDrawerEvent};
 pub use canvas_hud::{
-    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, DatumPlaneHudAction, DatumPlaneMode,
+    BooleanHudAction, BooleanOpKind, CanvasHud, CanvasHudEvent, ChainHudAction, DatumPlaneHudAction,
+    DatumPlaneMode,
     DraftHudAction, DraftInspectionHudAction, DraftPullDir, GizmoConfirmAction, LoftHudAction,
     MateHudAction,
     PatternAxisPreset, PatternHudAction, PatternKind, PolygonHudAction, RenamePopupEvent,

@@ -321,6 +321,16 @@ pub enum SlotHudAction {
     SetWidth(f64),
 }
 
+/// Aksi HUD rantai titik (Spline, Garis berantai): pengganti Enter/Esc di
+/// tablet tanpa keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainHudAction {
+    /// Selesaikan kurva/rantai dengan titik yang sudah ada.
+    Finish,
+    /// Buang titik yang tertunda, tool tetap aktif.
+    Cancel,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoundingHudStyle {
     Fillet,
@@ -412,6 +422,74 @@ impl CanvasHud {
     pub const HUD_BG_FILL: Color32 = Color32::from_rgba_premultiplied(10, 14, 22, 150);
     pub const HUD_BTN_INACTIVE_FILL: Color32 = Color32::from_rgba_premultiplied(32, 38, 50, 160);
     pub const HUD_BTN_CANCEL_FILL: Color32 = Color32::from_rgba_premultiplied(40, 46, 58, 150);
+
+    fn header_band_id() -> egui::Id {
+        egui::Id::new("ducad-hud-header-band")
+    }
+
+    fn active_header_hud_id() -> egui::Id {
+        egui::Id::new("ducad-hud-header-active")
+    }
+
+    /// Umumkan pita header frame ini: rect LUAR top bar (termasuk margin
+    /// kaca) bila top bar digambar, atau tempat top bar seharusnya berada bila
+    /// disembunyikan. Semua HUD header dipusatkan di pita ini, sehingga posisi
+    /// mereka tidak tergantung apakah top bar sedang tampil.
+    pub fn set_header_band(ctx: &egui::Context, band: Rect) {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data_mut(|d| d.insert_temp(Self::header_band_id(), (frame, band)));
+    }
+
+    /// Pita header yang diumumkan pada frame ini, bila ada.
+    pub fn header_band(ctx: &egui::Context) -> Option<Rect> {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data(|d| d.get_temp::<(u64, Rect)>(Self::header_band_id()))
+            .filter(|(f, _)| *f == frame)
+            .map(|(_, r)| r)
+    }
+
+    /// Catat bahwa sebuah HUD header dirender frame ini dengan lebar `width`.
+    /// Bila beberapa HUD tampil sekaligus, lebar terbesar yang disimpan.
+    fn publish_active_header_hud(ctx: &egui::Context, width: f32) {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data_mut(|d| {
+            let prev = d
+                .get_temp::<(u64, f32)>(Self::active_header_hud_id())
+                .filter(|(f, _)| *f == frame)
+                .map(|(_, w)| w)
+                .unwrap_or(0.0);
+            d.insert_temp(Self::active_header_hud_id(), (frame, width.max(prev)));
+        });
+    }
+
+    /// Lebar HUD header yang sudah dirender pada frame ini (`None` = tidak
+    /// ada HUD aktif). `App` memakainya untuk memutuskan apakah top bar
+    /// harus disembunyikan agar HUD tidak menumpuk dengan tombol header.
+    pub fn active_header_hud_width(ctx: &egui::Context) -> Option<f32> {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data(|d| d.get_temp::<(u64, f32)>(Self::active_header_hud_id()))
+            .filter(|(f, _)| *f == frame)
+            .map(|(_, w)| w)
+    }
+
+    /// Apakah top bar harus disembunyikan frame ini supaya HUD header punya
+    /// ruang. `hud_width` = lebar HUD aktif (`None` = tidak ada HUD → top bar
+    /// selalu tampil). Di tata letak sentuh (tablet / jendela sempit) HUD
+    /// selalu menang; di desktop hanya bila HUD tidak muat di celah antara
+    /// kelompok tombol kiri dan kanan top bar (`free_center_width`, diukur
+    /// frame sebelumnya; `None` = belum pernah terukur → anggap tidak muat).
+    pub fn should_hide_top_bar(
+        hud_width: Option<f32>,
+        touch_first: bool,
+        free_center_width: Option<f32>,
+    ) -> bool {
+        const GAP: f32 = 24.0;
+        match hud_width {
+            None => false,
+            Some(_) if touch_first => true,
+            Some(w) => free_center_width.is_none_or(|free| w + GAP > free),
+        }
+    }
 
     /// Standard helper to render commit / apply button in HUDs
     #[inline]
@@ -516,9 +594,16 @@ impl CanvasHud {
         id_str: &str,
         content: impl FnOnce(&mut Ui) -> R,
     ) -> R {
-        let center_x = canvas_rect.center().x;
-        let center_y = 30.0; // Persis di garis tengah vertikal Top Header Bar (bounds y=10.0 s/d y=50.0)
-        let actual_w = width;
+        // Pita header yang diumumkan `App` frame ini (sudah memperhitungkan
+        // safe area iPad dan lebar sidebar). Tanpa pita (tes, pemanggil lama)
+        // kembali ke tebakan lama: tengah vertikal top bar y=10..50.
+        let band = Self::header_band(ctx);
+        let (center_x, center_y, max_w) = match band {
+            Some(b) => (b.center().x, b.center().y, (b.width() - 16.0).max(120.0)),
+            None => (canvas_rect.center().x, 30.0, canvas_rect.width().max(120.0)),
+        };
+        let actual_w = width.min(max_w);
+        Self::publish_active_header_hud(ctx, actual_w);
         let banner_rect = egui::Rect::from_center_size(
             Pos2::new(center_x, center_y),
             Vec2::new(actual_w, Self::HEADER_HUD_HEIGHT),
@@ -2995,6 +3080,58 @@ impl CanvasHud {
         )
     }
 
+    /// HUD header untuk tool rantai titik (Spline, Garis berantai): prompt
+    /// langkah + tombol **Selesai** dan **Batal**. Di iPad/Android tidak ada
+    /// Enter/Esc, dan spline terbuka tidak bisa diselesaikan lewat ketukan
+    /// saja — HUD ini satu-satunya jalur sentuhnya. `can_finish` = jumlah titik
+    /// sudah cukup untuk membuat entitas.
+    pub fn render_chain_top_bar_hud(
+        ui: &mut Ui,
+        canvas_rect: Rect,
+        is_spline: bool,
+        pending_points_count: usize,
+        can_finish: bool,
+    ) -> Option<ChainHudAction> {
+        let banner_w = 560.0;
+        let id_str = if is_spline {
+            "ducad-hud-spline-banner"
+        } else {
+            "ducad-hud-line-banner"
+        };
+
+        Self::render_header_hud_container(ui, canvas_rect, banner_w, true, id_str, |ui| {
+            let mut action = None;
+            let step_text = match (is_spline, pending_points_count) {
+                (true, 0 | 1) => t!("hud-spline-prompt-next"),
+                (true, _) => t!("hud-spline-prompt-more", count = pending_points_count),
+                (false, _) => t!("hud-line-prompt-next"),
+            };
+            Self::hud_title(ui, &step_text, true);
+
+            if pending_points_count > 0 {
+                ui.separator();
+                if can_finish
+                    && Self::hud_commit_btn(
+                        ui,
+                        format!("{} {}", ICON_CHECK.codepoint, t!("hud-chain-finish")),
+                    )
+                    .clicked()
+                {
+                    action = Some(ChainHudAction::Finish);
+                }
+                if Self::hud_cancel_btn(
+                    ui,
+                    format!("{} {}", ICON_CLOSE.codepoint, t!("hud-chain-cancel")),
+                )
+                .clicked()
+                {
+                    action = Some(ChainHudAction::Cancel);
+                }
+            }
+            action
+        })
+    }
+
     /// Render Top Bar HUD mengambang untuk fitur Pattern / Array (2D Sketch & 3D Solids).
     #[allow(clippy::too_many_arguments)]
     pub fn render_pattern_top_bar_hud(
@@ -3502,5 +3639,88 @@ impl CanvasHud {
                 hud_action
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod header_band_tests {
+    use super::*;
+
+    fn run(ctx: &egui::Context, f: impl FnOnce(&egui::Context)) {
+        let mut f = Some(f);
+        let mut output = ctx.run_ui(Default::default(), |ctx| {
+            if let Some(f) = f.take() {
+                f(ctx);
+            }
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn header_hud_centers_on_published_band_and_reports_width() {
+        let ctx = egui::Context::default();
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(1180.0, 820.0));
+        // Pita diturunkan 24 px (safe area iPad) dan menyempit karena sidebar.
+        let band = Rect::from_min_max(Pos2::new(12.0, 34.0), Pos2::new(900.0, 76.0));
+        run(&ctx, |ctx| {
+            assert_eq!(CanvasHud::active_header_hud_width(ctx), None);
+            CanvasHud::set_header_band(ctx, band);
+            assert_eq!(CanvasHud::header_band(ctx), Some(band));
+            let rect = CanvasHud::render_header_hud_container_ctx(
+                ctx,
+                canvas,
+                780.0,
+                "test-hud",
+                |ui| ui.max_rect(),
+            );
+            assert!(
+                (rect.center().y - band.center().y).abs() < 0.5,
+                "HUD harus di tengah vertikal pita, bukan y=30: {rect:?}"
+            );
+            assert!(
+                (rect.center().x - band.center().x).abs() < 0.5,
+                "HUD harus di tengah horizontal pita (menghormati sidebar)"
+            );
+            assert_eq!(CanvasHud::active_header_hud_width(ctx), Some(780.0));
+        });
+        // Frame berikutnya tanpa HUD: tidak ada nilai basi.
+        run(&ctx, |ctx| {
+            assert_eq!(CanvasHud::active_header_hud_width(ctx), None);
+            assert_eq!(CanvasHud::header_band(ctx), None);
+        });
+    }
+
+    #[test]
+    fn header_hud_width_is_clamped_to_band() {
+        let ctx = egui::Context::default();
+        let canvas = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+        let band = Rect::from_min_max(Pos2::new(12.0, 10.0), Pos2::new(500.0, 52.0));
+        run(&ctx, |ctx| {
+            CanvasHud::set_header_band(ctx, band);
+            let rect = CanvasHud::render_header_hud_container_ctx(
+                ctx,
+                canvas,
+                860.0,
+                "test-hud-wide",
+                |ui| ui.max_rect(),
+            );
+            assert!(rect.left() >= band.left(), "HUD keluar kiri pita: {rect:?}");
+            assert!(rect.right() <= band.right(), "HUD keluar kanan pita: {rect:?}");
+        });
+    }
+
+    #[test]
+    fn top_bar_hides_only_when_hud_needs_the_room() {
+        // Tanpa HUD: top bar selalu tampil.
+        assert!(!CanvasHud::should_hide_top_bar(None, true, None));
+        assert!(!CanvasHud::should_hide_top_bar(None, false, Some(100.0)));
+        // Tablet / sentuh: HUD aktif → sembunyikan.
+        assert!(CanvasHud::should_hide_top_bar(Some(420.0), true, Some(2000.0)));
+        // Desktop lebar: HUD muat di celah tengah → top bar tetap.
+        assert!(!CanvasHud::should_hide_top_bar(Some(780.0), false, Some(900.0)));
+        // Desktop sempit: celah kurang → sembunyikan.
+        assert!(CanvasHud::should_hide_top_bar(Some(780.0), false, Some(700.0)));
+        // Belum pernah terukur → aman: sembunyikan.
+        assert!(CanvasHud::should_hide_top_bar(Some(300.0), false, None));
     }
 }
