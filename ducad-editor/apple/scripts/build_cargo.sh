@@ -200,6 +200,13 @@ if [ -n "$BUILT_PRODUCTS_DIR" ] && [ -n "$EXECUTABLE_PATH" ]; then
         find "$EDITOR_DIR/assets" -name ".DS_Store" -delete 2>/dev/null || true
     fi
 
+    # Binary baru saja diganti: buang tanda tangan lama agar Xcode wajib menandatangani
+    # ulang (CodeSign). Tanpa ini bundle bisa terpasang dengan _CodeSignature basi
+    # dan iPad menolak: "sign the executable with a valid certificate".
+    if [ -d "$APP_BUNDLE_PATH" ]; then
+        rm -rf "$APP_BUNDLE_PATH/_CodeSignature" "$APP_BUNDLE_PATH/Contents/_CodeSignature" 2>/dev/null || true
+    fi
+
     # Ensure app bundle is clean of com.apple.quarantine, provenance, and .DS_Store
     if [ -d "$APP_BUNDLE_PATH" ]; then
         echo "🧹 Sanitizing app bundle at $APP_BUNDLE_PATH (removing quarantine, extended attributes & .DS_Store)..."
