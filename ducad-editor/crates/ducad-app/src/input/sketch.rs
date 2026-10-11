@@ -467,7 +467,7 @@ impl DuCADApp {
     }
 
     /// Lama pointer harus diam selagi diseret agar posisinya menjadi titik.
-    pub const DWELL_SECS: f64 = 0.6;
+    pub const DWELL_SECS: f64 = 1.0;
     /// Radius (px layar) yang masih dihitung "diam" — jari selalu bergetar.
     pub const DWELL_RADIUS_PX: f32 = 8.0;
 
@@ -2651,14 +2651,14 @@ mod tests {
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, a, 0.0));
         // Getaran kecil jari tidak mengulang hitungan.
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(103.0, 101.0), 0.3));
-        assert!(crate::app::DuCADApp::dwell_tick(&mut st, a, 0.65));
+        assert!(crate::app::DuCADApp::dwell_tick(&mut st, a, 1.05));
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, a, 2.0), "satu jeda = satu titik");
         // Bergerak terus tidak pernah memicu.
         let b = egui::pos2(200.0, 100.0);
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, b, 2.1));
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.0));
         assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.3));
-        assert!(crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.7));
+        assert!(crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 4.1));
     }
 
     #[test]
