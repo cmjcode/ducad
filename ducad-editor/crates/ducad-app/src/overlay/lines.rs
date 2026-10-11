@@ -762,6 +762,23 @@ impl DuCADApp {
             }
         }
 
+        // Pratinjau Spline digambar walau tidak ada kursor: di layar sentuh
+        // pointer hilang begitu jari/Pencil dilepas, dan tanpa ini titik yang
+        // sudah ditaruh lenyap dari layar sampai sentuhan berikutnya.
+        if self.tool == ToolKind::Spline && !self.pending_points.is_empty() {
+            let pts = self.spline_preview_points(raw_cursor);
+            if pts.len() >= 2 {
+                let preview = Entity::spline(pts).with_construction(self.construction_mode);
+                verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
+            }
+            let markers: Vec<_> = self
+                .pending_points
+                .iter()
+                .map(|p| (*p, ducad_sketch::SnapKind::Endpoint))
+                .collect();
+            verts.extend(sketch_render::candidate_snap_points_glyphs(&markers, &self.active_plane));
+        }
+
         if let Some(raw) = raw_cursor {
             let offset_dist = (14.0 * world_scale).max(8.0);
             match self.tool {
@@ -910,15 +927,6 @@ impl DuCADApp {
                             }
                         }
                         _ => {}
-                    }
-                }
-                ToolKind::Spline => {
-                    let effective = self.snapped_or(raw);
-                    let mut pts = self.pending_points.clone();
-                    pts.push(effective);
-                    if pts.len() >= 2 {
-                        let preview = Entity::spline(pts).with_construction(self.construction_mode);
-                        verts.extend(sketch_render::preview_lines(&preview, &self.active_plane));
                     }
                 }
                 ToolKind::Arc => {

@@ -691,9 +691,9 @@ impl DuCADApp {
             },
             ToolKind::Text => ducad_i18n::t!("status-prompt-text-0"),
             ToolKind::Spline => match self.pending_points.len() {
-                0 => "Klik titik awal kurva Spline".to_string(),
-                1 => "Klik titik berikutnya untuk membentuk kurva".to_string(),
-                _ => "Klik titik berikutnya, klik titik awal untuk menutup, atau klik ulang titik akhir".to_string(),
+                0 => "Klik titik awal kurva Spline, atau tekan lalu geser".to_string(),
+                1 => "Klik titik berikutnya; saat menggeser, tahan diam sejenak untuk menaruh titik".to_string(),
+                _ => "Klik/geser-tahan titik berikutnya, klik titik awal untuk menutup, atau klik ulang titik akhir".to_string(),
             },
             ToolKind::Arc => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-arc-0"),

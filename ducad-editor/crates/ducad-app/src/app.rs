@@ -194,6 +194,9 @@ pub struct DuCADApp {
     /// Seret (tekan-geser-lepas) sedang membuat entitas dua titik; titik
     /// kedua dikunci saat pointer dilepas.
     pub drag_create_active: bool,
+    /// Pelacak "tahan diam" selama seretan pembuat entitas: (jangkar layar,
+    /// waktu mulai diam, sudah menaruh titik). Lihat `dwell_tick`.
+    pub drag_dwell: Option<(egui::Pos2, f64, bool)>,
 
     pub measurements: Vec<crate::types::Measurement>,
 
@@ -605,6 +608,7 @@ impl DuCADApp {
             radial_suppress_click: false,
             two_finger_tap_press: None,
             drag_create_active: false,
+            drag_dwell: None,
 
             measurements: Vec::new(),
 
@@ -926,6 +930,7 @@ impl DuCADApp {
             radial_suppress_click: false,
             two_finger_tap_press: None,
             drag_create_active: false,
+            drag_dwell: None,
 
             measurements: Vec::new(),
 

@@ -426,25 +426,84 @@ impl DuCADApp {
         if !Self::drag_creates_points(self.tool) {
             return;
         }
-        if response.drag_started_by(egui::PointerButton::Primary) && self.pending_points.is_empty() {
-            let origin = ui.input(|i| i.pointer.press_origin());
-            if let Some(p0) = origin.and_then(|o| screen_to_plane_point(&self.camera, rect, o, &self.active_plane)) {
-                let p0 = self
-                    .find_current_snap(p0, tol, grid_step, None)
-                    .map(|s| s.point)
-                    .unwrap_or(p0);
+        // Satu gerakan bisa menaruh banyak titik: tekan = titik pertama, tahan
+        // diam sejenak selagi menggeser = titik berikutnya, lepas = titik
+        // terakhir. Spline juga menerima seretan lanjutan saat rantainya
+        // sudah berisi titik.
+        let is_spline = self.tool == ToolKind::Spline;
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            self.drag_dwell = None;
+            if self.pending_points.is_empty() {
+                let origin = ui.input(|i| i.pointer.press_origin());
+                if let Some(p0) = origin.and_then(|o| screen_to_plane_point(&self.camera, rect, o, &self.active_plane)) {
+                    let p0 = self
+                        .find_current_snap(p0, tol, grid_step, None)
+                        .map(|s| s.point)
+                        .unwrap_or(p0);
+                    self.drag_create_active = true;
+                    self.push_drag_point(p0, tol);
+                }
+            } else if is_spline {
                 self.drag_create_active = true;
-                self.push_drag_point(p0, tol);
             }
+        }
+        if self.drag_create_active && response.dragged_by(egui::PointerButton::Primary) {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let now = ui.input(|i| i.time);
+                if Self::dwell_tick(&mut self.drag_dwell, pos, now) {
+                    self.push_drag_point_if_moved(self.snapped_or(raw), tol);
+                    #[cfg(target_os = "ios")]
+                    crate::apple_ios::haptic_selection_changed();
+                }
+            }
+            // Jari yang diam tidak mengirim event; tanpa ini jeda tak terukur.
+            ui.ctx().request_repaint();
         }
         if response.drag_stopped() && self.drag_create_active {
             self.drag_create_active = false;
-            if self.pending_points.len() == 1 {
-                let effective = self.snapped_or(raw);
-                if (effective - self.pending_points[0]).length() > tol {
-                    self.push_drag_point(effective, tol);
+            self.drag_dwell = None;
+            self.push_drag_point_if_moved(self.snapped_or(raw), tol);
+        }
+    }
+
+    /// Lama pointer harus diam selagi diseret agar posisinya menjadi titik.
+    pub const DWELL_SECS: f64 = 0.6;
+    /// Radius (px layar) yang masih dihitung "diam" — jari selalu bergetar.
+    pub const DWELL_RADIUS_PX: f32 = 8.0;
+
+    /// Majukan pelacak "tahan diam"; `true` tepat sekali per jeda, yaitu saat
+    /// pointer sudah `DWELL_SECS` berada dalam `DWELL_RADIUS_PX` dari jangkar.
+    /// Jeda berikutnya baru dihitung setelah pointer keluar dari radius itu.
+    pub fn dwell_tick(state: &mut Option<(egui::Pos2, f64, bool)>, pos: egui::Pos2, now: f64) -> bool {
+        match state {
+            Some((anchor, since, fired)) if anchor.distance(pos) <= Self::DWELL_RADIUS_PX => {
+                if !*fired && now - *since >= Self::DWELL_SECS {
+                    *fired = true;
+                    return true;
                 }
+                false
             }
+            _ => {
+                *state = Some((pos, now, false));
+                false
+            }
+        }
+    }
+
+    /// Taruh titik seretan kecuali berimpit dengan titik terakhir — di sana
+    /// bukan titik baru, dan pada Spline tidak boleh dianggap "ketuk ulang =
+    /// selesai". Bila entitasnya jadi (titik habis), seretan berakhir.
+    fn push_drag_point_if_moved(&mut self, p: DVec2, tol: f64) {
+        let Some(last) = self.pending_points.last().copied() else {
+            return;
+        };
+        if (p - last).length() <= tol {
+            return;
+        }
+        self.push_drag_point(p, tol);
+        if self.pending_points.is_empty() {
+            self.drag_create_active = false;
+            self.drag_dwell = None;
         }
     }
 
@@ -454,6 +513,16 @@ impl DuCADApp {
     /// berantai dikecualikan karena seretan di sana adalah pindah-entitas.
     pub fn drag_creates_points(tool: ToolKind) -> bool {
         tool == ToolKind::Spline || required_points(tool) >= 2
+    }
+
+    /// Titik kurva pratinjau Spline: titik yang sudah ditaruh, ditambah
+    /// posisi pointer bila ada (di layar sentuh pointer hilang saat dilepas).
+    pub fn spline_preview_points(&self, raw_cursor: Option<DVec2>) -> Vec<DVec2> {
+        let mut pts = self.pending_points.clone();
+        if let Some(raw) = raw_cursor {
+            pts.push(self.snapped_or(raw));
+        }
+        pts
     }
 
     fn push_drag_point(&mut self, p: DVec2, tol: f64) {
@@ -559,6 +628,7 @@ impl DuCADApp {
         self.line_chain_start = None;
         self.line_chain_segments = 0;
         self.drag_create_active = false;
+        self.drag_dwell = None;
         self.dynamic_input.clear();
         self.dynamic_focus_pending = false;
     }
@@ -2557,6 +2627,64 @@ mod tests {
         assert!(app.pending_points.is_empty());
         assert_eq!(app.sketch().entities.len(), before + 1);
         assert_eq!(app.tool, ToolKind::Spline);
+    }
+
+    #[test]
+    fn spline_preview_survives_without_cursor() {
+        // Di iPad pointer hilang saat jari dilepas; kurva yang sudah ditaruh
+        // harus tetap punya titik pratinjau (dulu lenyap → "garis tidak terbentuk").
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Spline);
+        app.handle_spline_click(DVec2::new(0.0, 0.0), 0.5);
+        app.handle_spline_click(DVec2::new(10.0, 5.0), 0.5);
+        assert_eq!(app.spline_preview_points(None).len(), 2);
+        assert_eq!(app.spline_preview_points(Some(DVec2::new(20.0, 0.0))).len(), 3);
+        let verts = app.build_overlay_lines(None, 1.0);
+        assert!(!verts.is_empty(), "pratinjau spline harus tergambar tanpa kursor");
+    }
+
+    #[test]
+    fn dwell_fires_once_per_pause_and_rearms_after_moving() {
+        let mut st = None;
+        let a = egui::pos2(100.0, 100.0);
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, a, 0.0));
+        // Getaran kecil jari tidak mengulang hitungan.
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(103.0, 101.0), 0.3));
+        assert!(crate::app::DuCADApp::dwell_tick(&mut st, a, 0.65));
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, a, 2.0), "satu jeda = satu titik");
+        // Bergerak terus tidak pernah memicu.
+        let b = egui::pos2(200.0, 100.0);
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, b, 2.1));
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.0));
+        assert!(!crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.3));
+        assert!(crate::app::DuCADApp::dwell_tick(&mut st, egui::pos2(260.0, 100.0), 3.7));
+    }
+
+    #[test]
+    fn dwell_points_build_spline_and_slot_in_one_drag() {
+        let mut app = crate::app::DuCADApp::new_for_test();
+        app.enter_sketching();
+        app.set_tool(ToolKind::Spline);
+        app.drag_create_active = true;
+        app.push_drag_point(DVec2::new(0.0, 0.0), 0.5);
+        app.push_drag_point_if_moved(DVec2::new(10.0, 5.0), 0.5);
+        // Jeda di tempat yang sama tidak menambah titik dan tidak mengakhiri spline.
+        app.push_drag_point_if_moved(DVec2::new(10.1, 5.1), 0.5);
+        app.push_drag_point_if_moved(DVec2::new(20.0, 0.0), 0.5);
+        assert_eq!(app.pending_points.len(), 3);
+        assert!(app.drag_create_active);
+
+        app.cancel_pending_points();
+        app.set_tool(ToolKind::Slot);
+        let before = app.sketch().entities.len();
+        app.drag_create_active = true;
+        app.push_drag_point(DVec2::new(0.0, 0.0), 0.5);
+        app.push_drag_point_if_moved(DVec2::new(30.0, 0.0), 0.5);
+        app.push_drag_point_if_moved(DVec2::new(15.0, 5.0), 0.5);
+        assert!(app.pending_points.is_empty());
+        assert!(!app.drag_create_active, "slot jadi → seretan selesai");
+        assert!(app.sketch().entities.len() > before);
     }
 
     #[test]
