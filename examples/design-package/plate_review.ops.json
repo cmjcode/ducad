@@ -1,0 +1,30 @@
+{ "params": { "w": 60, "h": 40, "t": 8, "r": 3 },
+  "brief": {
+    "title": "Motor plate",
+    "function": "Flat plate that carries a small motor on four M5 bolts.",
+    "material": "Al 6061-T6",
+    "process": "cnc",
+    "quantity": 10,
+    "requirements": [
+      { "id": "R1", "text": "Plate 60 x 40 x 8 mm", "source": "user" },
+      { "id": "R2", "text": "Four M5 clearance holes (dia 5.5)", "source": "motor datasheet" },
+      { "id": "R3", "text": "Manufacturable on a 3-axis CNC mill", "source": "firm standard" },
+      { "id": "R4", "text": "Anodised black", "source": "user" }
+    ]
+  },
+  "ops": [
+    {"op":"sketch","id":"base","plane":"XY","entities":[
+      {"rect":{"center":[0,0],"w":"$w","h":"$h","name":"outline"}}]},
+    {"op":"extrude","id":"plate","sketch":"base","distance":"$t"},
+    {"op":"fillet","id":"f1","body":"plate","edges":"|Z","radius":"$r"},
+    {"op":"hole","id":"h1","body":"plate","face":">Z",
+     "at":[[-20,-10],[20,-10],[-20,10],[20,10]],"spec":{"iso":"M5"}},
+    {"op":"set_material","id":"mat","body":"plate","material":"al_6061_t6"}
+  ],
+  "checks": [
+    {"id":"size","requirement":"R1","check":"bbox_size","body":"plate","expect":[60,40,8]},
+    {"id":"holes","requirement":"R2","check":"hole_count","body":"plate","diameter":5.5,"expect":4}
+  ],
+  "rule_packs": [
+    {"pack":"dfm-cnc","body":"plate","requirement":"R3"}
+  ] }
