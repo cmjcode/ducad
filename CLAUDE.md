@@ -18,9 +18,9 @@ Arah panah = "bergantung pada".
 - `ducad-ink` — dokumen tinta bebas (`InkDoc`, coretan bertekanan, kuas, command, indeks spasial, eraser/lasso). Tanpa GUI/kernel. → core, sketch
 - `ducad-io` — format `.ducad`, STEP/STL/OBJ/GLB, SVG/PDF/DXF. → core, sketch, kernel, ink
 - `ducad-sim` — FEA linier: mesh hex voxel + tetra (Tet10), CSR + PCG, statik, frekuensi (LOBPCG), buckling, termal tunak + tegangan termal, post-proses (von Mises, faktor keamanan). Tanpa kernel/GUI (dijaga tes `sim_has_no_kernel_or_gui_dependency`).
-- `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render, studi simulasi (`sim`). → core, sketch, kernel, io, sim
-- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/sim/config/export/build/assist/chat/schema). → engine, assist, chat, mcp
-- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 27 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
+- `ducad-engine` — modeling headless: `compute`, `Op`/oplog, selector, `Session`, inspect, render, studi simulasi (`sim`), checks + paket aturan bersitasi (`check`, `rules/*.json`), brief/keterlacakan/status rilis (`brief`), profil firma + biaya indikatif (`firm`), paket desain multi-lembar (`package`). → core, sketch, kernel, io, sim
+- `ducad-cli` — binary `ducad-cli` (run/replay/inspect/check/oplog/diff/select/render/sim/config/export/build/release/assist/chat/schema). → engine, assist, chat, mcp
+- `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 37 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
 - `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
 - `ducad-render` — renderer wgpu viewport. → core
@@ -83,6 +83,23 @@ editor) → `ducad-engine/drawing_auto.rs` (`build_sheet`). Mengubah tampilan
 lembar = ubah `scene.rs`, lalu `DUCAD_UPDATE_GOLDEN=1 cargo test -p ducad-engine
 --test drawing_golden` dan perbarui hash dasar di `ducad-io/tests/gdt_pdf.rs`.
 
+**Paket desain (W0–W6).** Alur "brief → set dokumen patuh standar → revisi"
+(rencana: `.claude/plans/ducad-arsitektur-blueprints.plan.md`, keputusan:
+`docs/adr/0008-paket-desain.md`). Brief + persyaratan bernomor, status rilis,
+dan susunan paket tinggal di `DesignDoc` (`brief`, `release`, `package`) —
+bukan op, sama seperti `drawings`. `CheckItem` membawa `requirement`,
+`citation`, `severity`, `rule`; paket aturan adalah DATA di
+`ducad-engine/rules/*.json` (tes `every_rule_has_a_citation…` menolak aturan
+tanpa sitasi dan pedoman yang menyamar sebagai standar). `ducad-cli build
+PART --package` menulis `<stem>-package.pdf` (PDF multi-halaman dari
+`ducad_io::pdf::generate_pdf_document`; `generate_pdf_bytes` satu-halaman
+TIDAK diubah, jadi hash emas lama tetap) + `traceability.md`,
+`compliance.md`, `cost.md`; `--release` keluar 4 bila paket belum disetujui.
+Persetujuan terikat tanda tangan desain (`brief::release_signature`) dan
+gugur begitu desain berubah. **Pagar:** agent tidak bisa menyetujui paket
+pada sesi live (`approve_package` ada di `attach::UNSUPPORTED`, sama seperti
+`accept_proposal`); di GUI hanya tombol panel Review & Rilis.
+
 Version control desain: commit `*.ops.json` sebagai sumber dan `.ducad`
 sebagai artefak. `ducad-cli oplog PART.ducad` menulis oplog satu op per
 baris; aktifkan diff git dengan `git config diff.ducad.textconv "ducad-cli oplog"`
@@ -129,6 +146,18 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
    belum diperagakan contoh mana pun.
 7. Dokumentasi skill `.claude/skills/ducad-modeling/SKILL.md` (selector,
    kode error, contoh); kode error baru juga ke `tooling::ERROR_GUIDE`.
+
+## Menambah check atau aturan baru
+
+1. Varian `Check` + doc `///` bahasa Inggris di `check/types.rs`, nama di
+   `Check::kind`, evaluasi di `check/run.rs` (ukuran murni di `check/dfm.rs`,
+   tanpa angka batas yang ditanam).
+2. Tes di `ducad-engine/tests/dfm.rs` dengan nilai yang bisa dihitung tangan.
+3. Aturan baru = entri di `rules/<paket>.json` dengan `citation` dan `basis`
+   (`standard` hanya bila teksnya memang isi standar; selain itu `guideline`
+   dan sitasi berawalan `Guideline:`). Angka batas menjadi `vars` paket.
+4. `tools/list` MCP dijaga < 40 KB: skema check TIDAK ditanam di sana, agent
+   mengambilnya lewat `get_schema {"checks": true}` / `{"check": "<jenis>"}`.
 
 ## Dokumen
 

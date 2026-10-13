@@ -1,0 +1,20 @@
+{
+  "id": "iso-2768",
+  "title": "ISO 2768-1 general tolerances",
+  "version": "1",
+  "description": "Checks that the general tolerance class written in the title block can be held by the chosen manufacturing process, and lists the permitted deviations of the overall dimensions.",
+  "vars": {
+    "class": { "value": "m", "description": "ISO 2768-1 class: f (fine), m (medium), c (coarse), v (very coarse)." },
+    "process": { "value": "cnc", "description": "Manufacturing process: cnc, sheet_metal, fdm, sla, sls, injection, casting." }
+  },
+  "rules": [
+    {
+      "id": "general-tolerance",
+      "basis": "standard",
+      "citation": "ISO 2768-1:1989, Table 1 (permissible deviations for linear dimensions); process capability per DUCAD guideline",
+      "severity": "warning",
+      "note": "Tighten only the dimensions that need it; a class the process cannot hold forces secondary operations.",
+      "check": { "check": "general_tolerance", "body": "@body", "class": "@class", "process": "@process" }
+    }
+  ]
+}

@@ -451,6 +451,10 @@ pub struct DrawingSpec {
     /// Draw hidden (dashed) lines in the orthographic views.
     #[serde(default = "super::default_true")]
     pub hidden_lines: bool,
+    /// Names of the bodies drawn on this sheet; empty = every visible body. One body per
+    /// sheet gives a part drawing, all bodies an assembly drawing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bodies: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<SheetLayout>,
 }
@@ -468,6 +472,7 @@ impl Default for DrawingSpec {
             shaded: Vec::new(),
             dimensions: DimensionPolicy::Auto,
             hidden_lines: true,
+            bodies: Vec::new(),
             layout: None,
         }
     }
@@ -498,6 +503,32 @@ impl DrawingSpec {
         }
         Ok(labels)
     }
+}
+
+/// Redline pada lembar `spec`, urut penempatan.
+pub fn redlines(spec: &DrawingSpec) -> Vec<&ducad_core::drawing_annot::Redline> {
+    spec.layout
+        .iter()
+        .flat_map(|l| l.annotations.iter())
+        .filter_map(|a| match a {
+            Annotation::Redline { redline, .. } => Some(redline),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Jumlah redline yang belum ditangani pada lembar `spec`.
+pub fn open_redlines(spec: &DrawingSpec) -> usize {
+    redlines(spec).iter().filter(|r| !r.resolved).count()
+}
+
+/// Id redline berikutnya yang belum dipakai di lembar (`RL1`, `RL2`, …).
+pub fn next_redline_id(spec: &DrawingSpec) -> String {
+    let used = redlines(spec);
+    (1..)
+        .map(|n| format!("RL{n}"))
+        .find(|id| !used.iter().any(|r| &r.id == id))
+        .unwrap_or_else(|| "RL1".to_string())
 }
 
 /// Nama kertas pendek yang diterima tool/CLI: a4, a4-portrait, a3, a3-portrait.

@@ -129,5 +129,7 @@ pub use shape::{
 };
 pub use step::write_step_compound;
 pub use thread::{cut_iso_thread, IsoThreadProfile};
-pub use thickness::{min_wall_thickness, ray_hit_distance, WallReport, DEFAULT_WALL_SAMPLES};
+pub use thickness::{
+    min_wall_thickness, ray_hit_distance, MeshRaycaster, WallReport, DEFAULT_WALL_SAMPLES,
+};
 pub use topo::{enumerate_edges, enumerate_faces, EdgeInfo, EdgeKind, FaceInfo};

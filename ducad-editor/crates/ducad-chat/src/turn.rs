@@ -263,6 +263,7 @@ mod tests {
     ) -> (Vec<ConvMessage>, Vec<ChatEvent>, anyhow::Result<()>) {
         let mut conv = vec![ConvMessage::User {
             text: "buat plat".into(),
+            images: Vec::new(),
         }];
         let mut events = Vec::new();
         let r = run_turn(

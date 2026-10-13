@@ -1,0 +1,66 @@
+{
+  "id": "dfm-cnc",
+  "title": "DFM for CNC milling",
+  "version": "1",
+  "process": "cnc",
+  "description": "Manufacturability rules for a 3-axis milled part: drillable holes, millable internal corners, stable walls, enough material around holes and enough thread engagement.",
+  "vars": {
+    "axis": { "value": "z", "description": "Tool axis: x, y or z." },
+    "max_hole_depth_ratio": { "value": 5, "description": "Largest hole depth / diameter drilled without deep-hole tooling." },
+    "min_internal_radius": { "value": 1.0, "description": "Smallest internal corner radius (mm) = radius of the smallest end mill you accept." },
+    "min_wall": { "value": 0.8, "description": "Thinnest wall (mm): about 0.8 in metal, 1.5 in plastics." },
+    "min_hole_web_ratio": { "value": 0.5, "description": "Material around a hole as a multiple of its diameter." },
+    "min_thread_ratio": { "value": 1.5, "description": "Thread length / nominal diameter: 1.0 steel, 1.5-2.0 aluminium." },
+    "class": { "value": "m", "description": "ISO 2768-1 class of the drawing." }
+  },
+  "rules": [
+    {
+      "id": "hole-depth",
+      "basis": "guideline",
+      "citation": "Guideline: machining shop practice, standard twist drills reach about 4-5 x diameter without pecking or deep-hole tooling",
+      "severity": "warning",
+      "note": "Deeper holes need peck cycles, longer drills or gun drilling.",
+      "check": { "check": "hole_depth_ratio", "body": "@body", "max_ratio": "@max_hole_depth_ratio" }
+    },
+    {
+      "id": "internal-radius",
+      "basis": "guideline",
+      "citation": "Guideline: an end mill leaves its own radius in every internal corner parallel to the tool axis; sharp internal corners cannot be milled",
+      "severity": "error",
+      "note": "Add a fillet of at least the cutter radius (ideally 1.3 x) or a dog-bone relief.",
+      "check": { "check": "min_internal_radius", "body": "@body", "axis": "@axis", "min": "@min_internal_radius" }
+    },
+    {
+      "id": "min-wall",
+      "basis": "guideline",
+      "citation": "Guideline: machining shop practice, walls thinner than about 0.8 mm (metal) or 1.5 mm (plastic) chatter and deflect",
+      "severity": "error",
+      "note": "",
+      "check": { "check": "min_wall", "body": "@body", "min": "@min_wall" }
+    },
+    {
+      "id": "hole-web",
+      "basis": "guideline",
+      "citation": "Guideline: keep at least half a hole diameter of material between a hole and the nearest edge or hole so the wall does not break out",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "hole_web", "body": "@body", "min_ratio": "@min_hole_web_ratio" }
+    },
+    {
+      "id": "thread-engagement",
+      "basis": "guideline",
+      "citation": "Guideline: rule of thumb for metric threads, engagement of 1.0 x d in steel and 1.5-2.0 x d in aluminium (see VDI 2230-1 for a verified calculation)",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "thread_engagement", "body": "@body", "min_ratio": "@min_thread_ratio" }
+    },
+    {
+      "id": "general-tolerance",
+      "basis": "standard",
+      "citation": "ISO 2768-1:1989, Table 1 (permissible deviations for linear dimensions); process capability per DUCAD guideline",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "general_tolerance", "body": "@body", "class": "@class", "process": "cnc" }
+    }
+  ]
+}

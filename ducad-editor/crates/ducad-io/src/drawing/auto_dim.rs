@@ -425,6 +425,15 @@ impl DimensionAnnotation {
 }
 
 impl DrawingSheet {
+    /// Titik model 3D (mm) → mm kertas pada tampak `kind`. `None` bila tampak
+    /// itu tidak ada/tersembunyi di lembar. Dipakai balon BOM lembar assembly.
+    pub fn model_point_on_view(&self, kind: ProjectedViewKind, p: [f32; 3]) -> Option<[f32; 2]> {
+        let xf = self.view_xf(kind)?;
+        let (_, right, up) = kind.camera_vectors();
+        let p = glam::Vec3::from_array(p);
+        Some(xf.to_paper([p.dot(right), p.dot(up)]))
+    }
+
     pub(crate) fn view_xf(&self, kind: ProjectedViewKind) -> Option<ViewXf<'_>> {
         let plc = self
             .view_placements

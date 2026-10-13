@@ -17,6 +17,9 @@ pub enum CheckRowStatus {
     Pass,
     Fail,
     Error,
+    /// Check ber-severity `warning` yang tidak lulus: dilaporkan, tidak
+    /// menghalangi build.
+    Warning,
 }
 
 /// Data tampilan satu check (dibangun caller dari `CheckResult`).
@@ -31,6 +34,8 @@ pub struct CheckRowUi {
     pub focusable: bool,
     /// Hasil lama yang sedang dihitung ulang.
     pub stale: bool,
+    /// Pasal standar / pedoman yang ditegakkan check ini.
+    pub citation: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,11 +49,12 @@ const PANEL_W: f32 = crate::theme::BOTTOM_RIGHT_PANEL_WIDTH + 60.0;
 
 /// Ringkasan `(lulus, tidak lulus)` untuk top bar.
 pub fn checks_summary(rows: &[CheckRowUi]) -> (usize, usize) {
-    let pass = rows
-        .iter()
-        .filter(|r| r.status == CheckRowStatus::Pass)
-        .count();
-    (pass, rows.len() - pass)
+    let count = |want: &[CheckRowStatus]| rows.iter().filter(|r| want.contains(&r.status)).count();
+    // Peringatan tidak dihitung gagal: ia tidak menghalangi build.
+    (
+        count(&[CheckRowStatus::Pass]),
+        count(&[CheckRowStatus::Fail, CheckRowStatus::Error]),
+    )
 }
 
 pub struct ChecksPanel;
@@ -88,6 +94,7 @@ impl ChecksPanel {
                         CheckRowStatus::Pass => ("✔", ACCENT_GREEN),
                         CheckRowStatus::Fail => ("✖", FAIL_RED),
                         CheckRowStatus::Error => ("!", ACCENT_ORANGE),
+                        CheckRowStatus::Warning => ("~", ACCENT_ORANGE),
                     };
                     let dim = |c: Color32| if row.stale { c.gamma_multiply(0.45) } else { c };
                     let resp = ui
@@ -100,6 +107,11 @@ impl ChecksPanel {
                                         .small()
                                         .color(dim(TEXT_SECONDARY)),
                                 );
+                                if let Some(citation) = &row.citation {
+                                    ui.label(
+                                        RichText::new(citation).small().italics().color(dim(TEXT_MUTED)),
+                                    );
+                                }
                             });
                         })
                         .response

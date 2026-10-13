@@ -17,7 +17,7 @@ use egui::{
 use egui_icons::icons::{
     ICON_ADJUST, ICON_AUTORENEW, ICON_CLOSE, ICON_HORIZONTAL_SPLIT, ICON_SWAP_HORIZ, ICON_VIEW_IN_AR,
     ICON_WARNING, ICON_CONTENT_CUT, ICON_DOWNLOAD, ICON_EDIT_NOTE, ICON_FIT_SCREEN,
-    ICON_GRID_VIEW, ICON_LAYERS, ICON_OPEN_WITH, ICON_PICTURE_AS_PDF, ICON_REFRESH, ICON_SEARCH, ICON_SQUARE_FOOT, ICON_STRAIGHTEN, ICON_TABLE_CHART,
+    ICON_GRID_VIEW, ICON_LAYERS, ICON_OPEN_WITH, ICON_PICTURE_AS_PDF, ICON_RATE_REVIEW, ICON_REFRESH, ICON_SEARCH, ICON_SQUARE_FOOT, ICON_STRAIGHTEN, ICON_TABLE_CHART,
     ICON_TEXTURE,
 };
 
@@ -100,6 +100,9 @@ pub enum DrawingSheetEvent {
     InsertShaded,
     /// Bangun ulang lembar dari geometri terkini (lembar kedaluwarsa).
     Refresh,
+    /// Alat Redline: pengguna mengklik titik di kertas (mm dari pojok
+    /// kiri-bawah). Aplikasi meminta teks catatannya di panel Review.
+    AddRedline { position: [f32; 2] },
 }
 
 /// Field teks pada Kepala Gambar (Title Block ISO) yang dapat diedit langsung.
@@ -246,6 +249,8 @@ pub struct DrawingSheetViewState {
     pub pan_offset: Vec2,
     pub zoom: f32,
     pub text_tool_active: bool,
+    /// Alat Redline aktif: klik berikutnya di kertas menaruh catatan review.
+    pub redline_tool_active: bool,
     pub active_text_edit: Option<ActiveTextTarget>,
     pub selected_text_idx: Option<usize>,
     pub dragging_text_idx: Option<usize>,
@@ -306,6 +311,7 @@ impl Default for DrawingSheetViewState {
             pan_offset: Vec2::ZERO,
             zoom: 1.0,
             text_tool_active: false,
+            redline_tool_active: false,
             active_text_edit: None,
             selected_text_idx: None,
             dragging_text_idx: None,
@@ -1155,6 +1161,15 @@ impl DrawingSheetView {
                         state.selected_text_idx = None;
                         state.selected_detail_label = None;
                         state.active_text_edit = None;
+                    } else if state.redline_tool_active {
+                        // Redline: satu klik = satu catatan; teksnya diisi di
+                        // panel Review, jadi alat langsung nonaktif lagi.
+                        if let Some(c_pos) = cursor_pos {
+                            event = Some(DrawingSheetEvent::AddRedline {
+                                position: screen_to_mm(c_pos),
+                            });
+                            state.redline_tool_active = false;
+                        }
                     } else if state.text_tool_active {
                         // Tambah teks anotasi baru pada kertas di posisi klik
                         if let Some(c_pos) = cursor_pos {
@@ -2020,6 +2035,29 @@ impl DrawingSheetView {
                         state.measure_tool_active = false;
                         state.detail_tool_active = false;
                         state.balloon_tool_active = false;
+                        state.redline_tool_active = false;
+                    }
+                }
+
+                let redline_title = ducad_i18n::t!("sheet-redline-tool");
+                let redline_hint = ducad_i18n::t!("sheet-redline-tool-hint");
+                let redline_btn = header_icon_btn(
+                    ui,
+                    ICON_RATE_REVIEW.codepoint,
+                    state.redline_tool_active,
+                    &redline_title,
+                    None,
+                    Some(&redline_hint),
+                    Some(Color32::from_rgba_premultiplied(70, 16, 16, 100)),
+                    Some(Color32::from_rgb(232, 72, 72)),
+                );
+                if redline_btn.clicked() {
+                    state.redline_tool_active = !state.redline_tool_active;
+                    if state.redline_tool_active {
+                        state.text_tool_active = false;
+                        state.measure_tool_active = false;
+                        state.detail_tool_active = false;
+                        state.balloon_tool_active = false;
                     }
                 }
 
@@ -2614,6 +2652,12 @@ fn render_sheet_canvas(
         };
         let [ax, ay] = geometry.anchor;
         let at = |p: &[f32; 2]| mm_to_screen(ax + p[0], ay + p[1]);
+        // Redline digambar merah; anotasi lain hitam.
+        let ink = geometry
+            .color
+            .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+            .unwrap_or(Color32::BLACK);
+        let annot_stroke = Stroke::new(annot_stroke.width, ink);
         for path in &geometry.paths {
             let mut points: Vec<Pos2> = Vec::new();
             let mut closed = false;
@@ -2643,11 +2687,7 @@ fn render_sheet_canvas(
                 continue;
             }
             if path.filled {
-                painter.add(egui::Shape::convex_polygon(
-                    points,
-                    Color32::BLACK,
-                    annot_stroke,
-                ));
+                painter.add(egui::Shape::convex_polygon(points, ink, annot_stroke));
             } else if closed {
                 painter.add(egui::Shape::closed_line(points, annot_stroke));
             } else {
@@ -2665,7 +2705,7 @@ fn render_sheet_canvas(
                 align,
                 &run.text,
                 FontId::proportional((run.size_mm * zoom).clamp(5.0, 40.0)),
-                Color32::BLACK,
+                ink,
             );
         }
     }

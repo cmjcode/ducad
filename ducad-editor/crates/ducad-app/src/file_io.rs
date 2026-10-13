@@ -152,6 +152,8 @@ impl DuCADApp {
                     .and_then(|d| serde_json::from_value::<Vec<ducad_io::drawing::DrawingSpec>>(d.clone()).ok())
                     .and_then(|list| list.into_iter().next());
                 self.drawing_sheet_doc = None;
+                // Brief, checks, status rilis ikut ke state agent/panel review.
+                self.adopt_loaded_design();
                 let mut new_model = ModelDoc::default();
                 for nb in loaded.bodies {
                     let geo = BodyGeometry::from_shape(nb.shape);
@@ -620,6 +622,8 @@ impl DuCADApp {
     pub fn build_annotated_drawing_sheet(&self) -> ducad_io::drawing::DrawingSheet {
         let mut sheet = self.build_current_drawing_sheet();
         sheet.annotations = self.industry.annotations.clone();
+        // Redline (catatan review) tersimpan di spec lembar, bukan di panel.
+        sheet.annotations.extend(self.sheet_redlines());
         sheet
     }
 

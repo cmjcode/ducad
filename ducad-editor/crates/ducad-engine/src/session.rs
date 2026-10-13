@@ -54,6 +54,15 @@ pub struct DesignDoc {
     /// mengubah geometri (lihat `docs/adr/0007-drawing-spec.md`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drawings: Vec<ducad_io::drawing::DrawingSpec>,
+    /// Brief desain + persyaratan bernomor (W0). Bukan op.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<crate::brief::DesignBrief>,
+    /// Status rilis paket + riwayat revisi (W5). Bukan op.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<crate::brief::ReleaseInfo>,
+    /// Susunan lembar paket desain (W2); `None` = otomatis.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<crate::package::PackageSpec>,
 }
 
 impl DesignDoc {
@@ -105,6 +114,9 @@ impl Default for DesignDoc {
             configurations: Vec::new(),
             active_configuration: None,
             drawings: Vec::new(),
+            brief: None,
+            release: None,
+            package: None,
         }
     }
 }
@@ -2248,6 +2260,16 @@ impl Session {
         crate::sim::run_all_studies(&mut self.core(), cancel)
     }
 
+    /// Segarkan hasil semua studi (tanpa pembatalan) supaya check studi
+    /// (`max_stress`, `min_safety_factor`, …) bisa dinilai. Mengembalikan
+    /// jumlah studi yang gagal.
+    pub fn refresh_studies(&mut self) -> usize {
+        self.run_all_studies(&ducad_sim::CancelToken::new())
+            .iter()
+            .filter(|(_, r)| r.is_err())
+            .count()
+    }
+
     /// Jalankan studi `id` jenis apa pun (statik, frekuensi, buckling, termal).
     pub fn run_study_any(
         &mut self,
@@ -2414,6 +2436,9 @@ impl Session {
                     checks: design.checks.clone(),
                     configurations: design.configurations.clone(),
                     drawings: design.drawings.clone(),
+                    brief: design.brief.clone(),
+                    release: design.release.clone(),
+                    package: design.package.clone(),
                     ..DesignDoc::default()
                 };
                 let stale_warning = || vec!["oplog_stale".to_string()];
@@ -3006,6 +3031,68 @@ impl Session {
     /// Ganti seluruh daftar check desain.
     pub fn set_checks(&mut self, checks: Vec<crate::check::CheckItem>) {
         self.meta.design.checks = checks;
+    }
+
+    /// Pasang data non-op sebuah `OpFile` (checks + paket aturan, lembar,
+    /// brief, susunan paket) sebelum op-nya dijalankan. Field kosong tidak
+    /// menimpa apa yang sudah ada di sesi.
+    pub fn install_file_data(
+        &mut self,
+        checks: Vec<crate::check::CheckItem>,
+        rule_packs: &[crate::check::RulePackRef],
+        drawings: Vec<ducad_io::drawing::DrawingSpec>,
+        brief: Option<crate::brief::DesignBrief>,
+        package: Option<crate::package::PackageSpec>,
+    ) -> OpResult<()> {
+        let mut checks = checks;
+        for pack in rule_packs {
+            checks.extend(crate::check::expand_rule_pack(pack)?);
+        }
+        if let Some(brief) = &brief {
+            brief.validate()?;
+        }
+        if !checks.is_empty() {
+            self.meta.design.checks = checks;
+        }
+        if !drawings.is_empty() {
+            self.meta.design.drawings = drawings;
+        }
+        if brief.is_some() {
+            self.meta.design.brief = brief;
+        }
+        if package.is_some() {
+            self.meta.design.package = package;
+        }
+        Ok(())
+    }
+
+    /// Pasang/ganti brief desain (sudah divalidasi pemanggil).
+    pub fn set_brief(&mut self, brief: Option<crate::brief::DesignBrief>) {
+        self.meta.design.brief = brief;
+    }
+
+    /// Matriks keterlacakan brief terhadap `design.checks`; `None` tanpa brief.
+    pub fn traceability(&self) -> Option<crate::brief::Traceability> {
+        let brief = self.meta.design.brief.as_ref()?;
+        let results = self.run_checks(None).results;
+        Some(crate::brief::traceability(brief, &results))
+    }
+
+    /// Status rilis (bawaan: draf revisi A) dan tanda tangan desain kini.
+    pub fn release(&self) -> (crate::brief::ReleaseInfo, String) {
+        (
+            self.meta.design.release.clone().unwrap_or_default(),
+            crate::brief::release_signature(&self.model, &self.meta.design),
+        )
+    }
+
+    pub fn set_release(&mut self, release: crate::brief::ReleaseInfo) {
+        self.meta.design.release = Some(release);
+    }
+
+    /// Pasang/hapus susunan lembar paket.
+    pub fn set_package(&mut self, package: Option<crate::package::PackageSpec>) {
+        self.meta.design.package = package;
     }
 
     /// Ganti seluruh lembar gambar tersimpan (mis. dari `OpFile.drawings`).

@@ -518,3 +518,164 @@ fn build_ducad_replays() {
     assert_eq!(r["artifacts"].as_array().unwrap().len(), 2);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+// ---------------------------------------------------------------------
+// Paket desain (W0–W5): brief → paket bersitasi → review → revisi.
+// ---------------------------------------------------------------------
+
+const PACKAGE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../examples/design-package");
+
+fn pdf_pages(path: &Path) -> usize {
+    let bytes = std::fs::read(path).unwrap();
+    String::from_utf8_lossy(&bytes).matches("/Type /Page ").count()
+}
+
+#[test]
+fn build_package_writes_one_pdf_reports_and_is_deterministic() {
+    let d = tmpdir("package");
+    let input = format!("{PACKAGE_DIR}/sensor_bracket.ops.json");
+    let build = |out: &Path| {
+        cli(&[
+            "build", &input, "--out", s(out), "--formats", "package,bom", "--date", "2026-10-13",
+            "--author", "ana", "--project-note", s(&out.join("note/bracket.md")),
+        ])
+    };
+    let (a, b) = (d.join("a"), d.join("b"));
+    let o = build(&a);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(build(&b).status.code(), Some(0));
+    for name in ["sensor_bracket-package.pdf", "traceability.md", "compliance.md", "cost.md"] {
+        assert_eq!(fnv(&a.join(name)), fnv(&b.join(name)), "{name} harus deterministik");
+    }
+    assert_eq!(pdf_pages(&a.join("sensor_bracket-package.pdf")), 3);
+
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(a.join("report.json")).unwrap()).unwrap();
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["traceability"]["verified"], 5, "{}", report["traceability"]);
+    assert_eq!(report["checks"]["pass"], 10);
+    assert!(report["firm_profile"].as_str().unwrap().ends_with("firm.json"));
+    assert!(report["cost"]["unit_total"].as_f64().unwrap() > 0.0);
+    let cited = report["checks"]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|r| r["citation"].is_string())
+        .count();
+    assert_eq!(cited, 7, "6 aturan dfm-cnc + 1 sitasi proyek");
+
+    let md = std::fs::read_to_string(a.join("report.md")).unwrap();
+    assert!(md.contains("## Persyaratan — terverifikasi 5"));
+    assert!(md.contains("ISO 2768-1:1989, Table 1"));
+    assert!(md.contains("qualified engineer"));
+    assert!(md.lines().count() <= 70, "report.md {} baris", md.lines().count());
+    let trace = std::fs::read_to_string(a.join("traceability.md")).unwrap();
+    assert!(trace.contains("| R4 | Safety factor of at least 2"));
+    let cost = std::fs::read_to_string(a.join("cost.md")).unwrap();
+    assert!(cost.contains("Indicative only, not a quotation"));
+    let note = std::fs::read_to_string(a.join("note/bracket.md")).unwrap();
+    assert!(note.starts_with("---\ntags: [ducad, project]"));
+    assert!(note.contains("- R3 [verified] Mass below 80 g"));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn release_gate_blocks_until_approved_and_reopens_on_change() {
+    let d = tmpdir("release");
+    let part = d.join("bracket.ducad");
+    std::fs::copy(format!("{PACKAGE_DIR}/firm.json"), d.join("firm.json")).unwrap();
+    let o = cli(&["run", &format!("{PACKAGE_DIR}/sensor_bracket.ops.json"), "--out", s(&part)]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = d.join("out");
+    let release_build = |date: &str| {
+        cli(&["build", s(&part), "--out", s(&out), "--formats", "package", "--release", "--date", date])
+            .status
+            .code()
+    };
+    let report = || -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(out.join("report.json")).unwrap()).unwrap()
+    };
+
+    // Draf: build rilis ditolak dengan kode 4, tanpa artefak.
+    assert_eq!(release_build("2026-10-13"), Some(4));
+    assert_eq!(report()["status"], "not_released");
+    assert!(!out.join("bracket-package.pdf").exists());
+
+    // Menyetujui butuh nama; setelah diajukan + disetujui build rilis lolos.
+    assert_eq!(cli(&["release", s(&part), "--approve"]).status.code(), Some(2));
+    let o = cli(&["release", s(&part), "--submit", "Initial release", "--by", "ana", "--date", "2026-10-13", "--json"]);
+    assert_eq!(stdout_json(&o)["state"], "in_review");
+    let o = cli(&["release", s(&part), "--approve", "--by", "budi", "--date", "2026-10-13", "--json"]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(stdout_json(&o)["state"], "approved");
+    assert_eq!(release_build("2026-10-13"), Some(0));
+    assert_eq!(report()["release"]["approved_by"], "budi");
+    assert!(out.join("bracket-package.pdf").is_file());
+
+    // Desain berubah → persetujuan tidak berlaku lagi → revisi B.
+    let o = cli(&["replay", s(&part), "--param", "t=5", "--out", s(&part)]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(release_build("2026-10-14"), Some(4));
+    assert!(report()["release"]["blockers"][0].as_str().unwrap().contains("revisi A"));
+    let o = cli(&["release", s(&part), "--json"]);
+    assert_eq!(stdout_json(&o)["approval_stale"], true);
+    cli(&["release", s(&part), "--submit", "Base thinned to 5 mm", "--by", "ana", "--date", "2026-10-14"]);
+    let o = cli(&["release", s(&part), "--approve", "--by", "budi", "--date", "2026-10-14", "--json"]);
+    let status = stdout_json(&o);
+    assert_eq!(status["revision"], "B");
+    assert_eq!(status["history"].as_array().unwrap().len(), 2);
+    assert_eq!(release_build("2026-10-14"), Some(0));
+
+    // Revisi yang melanggar persyaratan (massa > 80 g) tidak bisa disetujui.
+    cli(&["replay", s(&part), "--param", "t=8", "--out", s(&part)]);
+    cli(&["release", s(&part), "--submit", "Base thickened to 8 mm", "--by", "ana"]);
+    let o = cli(&["release", s(&part), "--approve", "--by", "budi"]);
+    assert_eq!(o.status.code(), Some(4), "{}", String::from_utf8_lossy(&o.stdout));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("checks"));
+    let o = cli(&["diff", s(&part), s(&part), "--json", "--no-geometry"]);
+    assert_eq!(o.status.code(), Some(0));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn build_part_set_builds_every_part_and_summarises() {
+    let d = tmpdir("set");
+    let o = cli(&["build", &format!("{PACKAGE_DIR}/set.json"), "--out", s(&d), "--formats", "package", "--date", "2026-10-13"]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(d.join("report.json")).unwrap()).unwrap();
+    let parts = report["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 2);
+    assert!(parts.iter().all(|p| p["status"] == "ok"), "{report}");
+    // Part sheet metal mendapat lembar pola bentangan di paketnya.
+    assert!(pdf_pages(&d.join("tray/tray-package.pdf")) >= 4);
+    let md = std::fs::read_to_string(d.join("report.md")).unwrap();
+    assert!(md.contains("Sensor station (set 2 part)"));
+    assert!(md.contains("| [tray](tray/report.md) | ok |"));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn rule_pack_flag_adds_cited_checks_and_blocks_on_errors() {
+    let d = tmpdir("rulepack");
+    // Blok dengan kantong bersudut tajam: tidak bisa di-mill.
+    let ops = d.join("pocket.ops.json");
+    std::fs::write(
+        &ops,
+        r#"{ "ops": [
+            {"op":"primitive","id":"blk","shape":{"box":{"size":[40,40,10]}}},
+            {"op":"primitive","id":"tool","shape":{"box":{"size":[20,20,5]}},"at":[10,10,5]},
+            {"op":"boolean","id":"part","kind":"subtract","a":"blk","b":"tool"}
+        ] }"#,
+    )
+    .unwrap();
+    let out = d.join("out");
+    let o = cli(&["build", s(&ops), "--out", s(&out), "--formats", "step", "--rule-pack", "dfm-cnc"]);
+    assert_eq!(o.status.code(), Some(3), "{}", String::from_utf8_lossy(&o.stderr));
+    let md = std::fs::read_to_string(out.join("report.md")).unwrap();
+    assert!(md.contains("dfm-cnc/internal-radius"));
+    assert!(md.contains("sharp internal corners cannot be milled"));
+    let o = cli(&["build", s(&ops), "--out", s(&out), "--rule-pack", "dfm-plasma"]);
+    assert_eq!(o.status.code(), Some(1), "paket aturan tak dikenal");
+    let _ = std::fs::remove_dir_all(&d);
+}

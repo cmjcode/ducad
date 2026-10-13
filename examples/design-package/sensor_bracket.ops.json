@@ -1,0 +1,43 @@
+{ "params": { "len": 60, "depth": 40, "t": 6, "wall_h": 40, "r": 4 },
+  "brief": {
+    "title": "Sensor bracket",
+    "function": "Holds a 300 g proximity sensor on a machine frame; the sensor bolts to the base, the wall bolts to the frame.",
+    "interfaces": ["2 x M5 clearance holes on the base, 30 mm apart", "Back of the wall sits flat on the frame"],
+    "loads": ["150 N downward on the free edge of the base (handling load)"],
+    "material": "Al 6061-T6",
+    "process": "cnc",
+    "quantity": 50,
+    "standards": ["ISO 2768-m"],
+    "cost_target": "under 150000 IDR per piece at 50 pcs",
+    "requirements": [
+      { "id": "R1", "text": "Envelope at most 60 x 40 x 40 mm", "source": "user" },
+      { "id": "R2", "text": "Two M5 clearance holes (dia 5.5) on the base", "source": "sensor datasheet" },
+      { "id": "R3", "text": "Mass below 80 g", "source": "user" },
+      { "id": "R4", "text": "Safety factor of at least 2 against yield under the 150 N handling load", "source": "user" },
+      { "id": "R5", "text": "Manufacturable on a 3-axis CNC mill", "source": "firm standard" }
+    ]
+  },
+  "ops": [
+    {"op":"primitive","id":"base","shape":{"box":{"size":["$len","$depth","$t"]}}},
+    {"op":"primitive","id":"wall","shape":{"box":{"size":["$len","$t","$wall_h"]}}},
+    {"op":"boolean","id":"bracket","kind":"union","a":"base","b":"wall"},
+    {"op":"fillet","id":"fold","body":"bracket","edges":"|X[y>1][y<12][z>1][z<12]","radius":"$r"},
+    {"op":"hole","id":"sensor_holes","body":"bracket","face":"+Z[z<12]",
+     "at_world":[[15,26,0],[45,26,0]],"spec":{"iso":"M5"}},
+    {"op":"set_material","id":"bracket_mat","body":"bracket","material":"al_6061_t6"},
+    {"op":"study","id":"handling","kind":"static","setup":{
+      "body":"bracket",
+      "fixtures":[{"id":"frame","faces":"<Y","kind":"fixed"}],
+      "loads":[{"id":"edge","faces":">Y","kind":"force","newton":[0,0,-150]}],
+      "mesh":{"cell_mm":2.5}}}
+  ],
+  "checks": [
+    {"id":"envelope","requirement":"R1","check":"bbox_max","body":"bracket","max":[60,40,40]},
+    {"id":"sensor_holes","requirement":"R2","check":"hole_count","body":"bracket","diameter":5.5,"expect":2},
+    {"id":"mass","requirement":"R3","check":"mass","body":"bracket","max_g":80},
+    {"id":"strength","requirement":"R4","check":"min_safety_factor","study":"handling","min":2,
+     "citation":"Guideline: project requirement R4, safety factor 2 against yield"}
+  ],
+  "rule_packs": [
+    {"pack":"dfm-cnc","body":"bracket","requirement":"R5"}
+  ] }

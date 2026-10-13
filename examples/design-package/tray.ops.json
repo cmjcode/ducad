@@ -1,0 +1,26 @@
+{ "params": { "len": 100, "wid": 60, "t": 2, "wall": 20 },
+  "brief": {
+    "title": "Parts tray",
+    "function": "Open tray that keeps fasteners at the assembly station.",
+    "material": "Mild steel sheet, 2 mm",
+    "process": "sheet_metal",
+    "quantity": 20,
+    "requirements": [
+      { "id": "R1", "text": "Inside footprint 100 x 60 mm, walls 20 mm high" },
+      { "id": "R2", "text": "Bendable on a press brake without cracking or slipping" }
+    ]
+  },
+  "ops": [
+    {"op":"sketch","id":"blank_sk","plane":"XY","entities":[
+      {"rect":{"corner":[0,0],"w":"$len","h":"$wid","name":"outline"}}]},
+    {"op":"base_flange","id":"tray","sketch":"blank_sk","thickness":"$t","bend_radius":2,"k_factor":0.44},
+    {"op":"edge_flange","id":"wall_x","body":"tray","edges":"|X[len=100][z=0]","length":"$wall"},
+    {"op":"edge_flange","id":"wall_y","body":"tray","edges":"|Y[len=60][z=0]","length":"$wall","angle":90},
+    {"op":"set_material","id":"tray_mat","body":"tray","material":"s235"}
+  ],
+  "checks": [
+    {"id":"one_body","requirement":"R1","check":"body_count","expect":1}
+  ],
+  "rule_packs": [
+    {"pack":"dfm-sheet-metal","body":"tray","requirement":"R2","vars":{"thickness":"$t"}}
+  ] }

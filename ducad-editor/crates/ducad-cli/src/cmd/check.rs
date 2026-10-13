@@ -45,20 +45,24 @@ pub fn exec(a: Args) -> CliResult {
         print_json(&summary)?;
     } else {
         for r in &summary.results {
-            let mark = match r.status {
-                ducad_engine::check::CheckStatus::Pass => "✓",
-                ducad_engine::check::CheckStatus::Fail => "✗",
-                ducad_engine::check::CheckStatus::Error => "!",
+            let mark = match (r.status, r.severity) {
+                (ducad_engine::check::CheckStatus::Pass, _) => "✓",
+                (_, ducad_engine::check::Severity::Warning) => "~",
+                (ducad_engine::check::CheckStatus::Fail, _) => "✗",
+                (ducad_engine::check::CheckStatus::Error, _) => "!",
             };
             let label = r.id.clone().unwrap_or_else(|| r.kind.to_string());
             println!("{mark} {label}: {}", r.message);
+            if let Some(citation) = &r.citation {
+                println!("    dasar: {citation}");
+            }
         }
         println!(
-            "lulus {} · gagal {} · error {}",
-            summary.pass, summary.fail, summary.error
+            "lulus {} · gagal {} · error {} · peringatan {}",
+            summary.pass, summary.fail, summary.error, summary.warn
         );
     }
-    Ok(if summary.fail + summary.error == 0 {
+    Ok(if !summary.is_blocking() {
         Exit::Ok
     } else {
         Exit::ChecksFailed

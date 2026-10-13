@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod auto_dim;
 pub mod exploded;
 pub mod gdt;
+pub mod pages;
 pub mod raster;
 pub mod scene;
 pub mod spec;
@@ -18,6 +19,7 @@ pub mod spec;
 pub use auto_dim::{fmt_dim, DIM_TEXT_MM};
 pub use raster::{render_shaded, RasterImage, ShadedBody};
 pub use spec::{
+    next_redline_id, open_redlines, redlines,
     parse_paper, parse_scale, parse_view_key, view_key, DimensionLayout, DimensionPolicy,
     DrawingSpec, ParentView, ScaleSpec, SectionSpec, ShadedCamera, ShadedSpec, SheetLayout,
     TitleSpec, ViewLayout, ViewOptions, ViewSet,
@@ -83,6 +85,13 @@ pub struct TitleBlockInfo {
     pub sheet_number: String,
     pub company_name: String,
     pub revision: String,
+    /// Kelas toleransi umum yang tercetak di kepala gambar (profil firma, W3).
+    #[serde(default = "default_general_tolerance")]
+    pub general_tolerance: String,
+}
+
+fn default_general_tolerance() -> String {
+    "ISO 2768-m".to_string()
 }
 
 impl Default for TitleBlockInfo {
@@ -98,6 +107,7 @@ impl Default for TitleBlockInfo {
             sheet_number: "1 / 1".to_string(),
             company_name: "DUCAD Studio CAD/CAM".to_string(),
             revision: "A".to_string(),
+            general_tolerance: default_general_tolerance(),
         }
     }
 }

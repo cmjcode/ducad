@@ -186,33 +186,68 @@ impl<'a> Bvh<'a> {
 
     /// `t` terkecil > `MIN_T` sepanjang sinar, mengabaikan segitiga `skip`.
     fn closest(&self, origin: V3, dir: V3, skip: u32) -> Option<f32> {
-        let inv = [1.0 / dir[0], 1.0 / dir[1], 1.0 / dir[2]];
-        let mut best = f32::MAX;
-        let mut stack: Vec<&Node> = vec![&self.root];
-        while let Some(n) = stack.pop() {
-            if !n.bounds().hit(origin, inv, best) {
-                continue;
-            }
-            match n {
-                Node::Leaf { tris, .. } => {
-                    for &i in tris {
-                        if i == skip {
-                            continue;
-                        }
-                        if let Some(t) = ray_triangle(origin, dir, &self.tris[i as usize]) {
-                            if t > MIN_T && t < best {
-                                best = t;
-                            }
+        closest_in(&self.root, self.tris, origin, dir, skip)
+    }
+}
+
+/// Penelusuran BVH bersama [`Bvh::closest`] dan [`MeshRaycaster::closest`].
+fn closest_in(root: &Node, all: &[[V3; 3]], origin: V3, dir: V3, skip: u32) -> Option<f32> {
+    let inv = [1.0 / dir[0], 1.0 / dir[1], 1.0 / dir[2]];
+    let mut best = f32::MAX;
+    let mut stack: Vec<&Node> = vec![root];
+    while let Some(n) = stack.pop() {
+        if !n.bounds().hit(origin, inv, best) {
+            continue;
+        }
+        match n {
+            Node::Leaf { tris, .. } => {
+                for &i in tris {
+                    if i == skip {
+                        continue;
+                    }
+                    if let Some(t) = ray_triangle(origin, dir, &all[i as usize]) {
+                        if t > MIN_T && t < best {
+                            best = t;
                         }
                     }
                 }
-                Node::Inner { left, right, .. } => {
-                    stack.push(left);
-                    stack.push(right);
-                }
+            }
+            Node::Inner { left, right, .. } => {
+                stack.push(left);
+                stack.push(right);
             }
         }
-        (best < f32::MAX).then_some(best)
+    }
+    (best < f32::MAX).then_some(best)
+}
+
+/// Penembak sinar atas satu mesh yang BVH-nya dibangun sekali lalu dipakai
+/// untuk banyak sinar (check DFM menembakkan puluhan sinar per lubang;
+/// [`ray_hit_distance`] membangun ulang BVH tiap panggilan). Tanpa OCCT.
+pub struct MeshRaycaster {
+    tris: Vec<[V3; 3]>,
+    root: Node,
+}
+
+impl MeshRaycaster {
+    /// `None` bila mesh kosong atau indeksnya menunjuk vertex yang tidak ada.
+    pub fn new(mesh: &KernelMesh) -> Option<Self> {
+        let vertex = |i: u32| mesh.positions.get(i as usize).copied();
+        let mut tris: Vec<[V3; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
+        for c in mesh.indices.chunks_exact(3) {
+            tris.push([vertex(c[0])?, vertex(c[1])?, vertex(c[2])?]);
+        }
+        if tris.is_empty() {
+            return None;
+        }
+        let ids: Vec<u32> = (0..tris.len() as u32).collect();
+        let root = Bvh::node(&tris, ids);
+        Some(Self { tris, root })
+    }
+
+    /// Jarak dari `origin` sepanjang `dir` (satuan) ke permukaan pertama.
+    pub fn closest(&self, origin: [f32; 3], dir: [f32; 3]) -> Option<f32> {
+        closest_in(&self.root, &self.tris, origin, dir, u32::MAX)
     }
 }
 

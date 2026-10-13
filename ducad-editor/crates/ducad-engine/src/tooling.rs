@@ -37,11 +37,20 @@ pub const CORE_TOOLS: &[&str] = &[
     "run_checks",
     "drawing",
     "import_step",
+    "set_brief",
+    "get_brief",
+    "package_status",
+    "submit_for_review",
+    "build_package",
+    "list_redlines",
+    "add_redline",
+    "resolve_redline",
+    "import_pdf",
 ];
 
 /// Tool tingkat-core yang MENGUBAH model (pemanggil GUI menyinkronkan
 /// `design` dan mencatat aktivitas setelahnya).
-pub const MUTATING_CORE_TOOLS: &[&str] = &["run_ops", "import_step"];
+pub const MUTATING_CORE_TOOLS: &[&str] = &["run_ops", "import_step", "import_pdf"];
 
 /// Tool yang tidak mengubah part maupun berkas — aman dipanggil kapan saja
 /// (anotasi MCP `readOnlyHint`).
@@ -52,6 +61,9 @@ pub const READ_ONLY_TOOLS: &[&str] = &[
     "get_oplog",
     "get_schema",
     "run_checks",
+    "get_brief",
+    "package_status",
+    "list_redlines",
     "diff",
     "list_parts",
     "document_info",
@@ -438,15 +450,24 @@ pub fn call_core_tool(
             struct A {
                 #[serde(default)]
                 session: Option<String>,
+                #[serde(default)]
                 checks: Vec<CheckItem>,
+                #[serde(default)]
+                rule_packs: Vec<crate::check::RulePackRef>,
             }
             let a: A = args(a)?;
             let _ = a.session;
-            core.meta.design.checks = a.checks.clone();
-            let results = crate::check::run_checks(core, &a.checks);
-            Ok(ToolOut::ok(to_value(
-                crate::check::CheckSummary::from_results(results),
-            )?))
+            let mut checks = a.checks;
+            for pack in &a.rule_packs {
+                checks.extend(crate::check::expand_rule_pack(pack)?);
+            }
+            core.meta.design.checks = checks.clone();
+            let results = crate::check::run_checks(core, &checks);
+            let mut out = checks_payload(core, results)?;
+            if !a.rule_packs.is_empty() {
+                out["disclaimer"] = json!(crate::check::RULE_DISCLAIMER);
+            }
+            Ok(ToolOut::ok(out))
         }
         "run_checks" => {
             #[derive(Deserialize)]
@@ -461,16 +482,412 @@ pub fn call_core_tool(
             let _ = a.session;
             let checks = a.checks.unwrap_or_else(|| core.meta.design.checks.clone());
             let results = crate::check::run_checks(core, &checks);
-            Ok(ToolOut::ok(to_value(
-                crate::check::CheckSummary::from_results(results),
-            )?))
+            Ok(ToolOut::ok(checks_payload(core, results)?))
+        }
+        "set_brief" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                brief: crate::brief::DesignBrief,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            a.brief.validate()?;
+            core.meta.design.brief = Some(a.brief);
+            brief_payload(core).map(ToolOut::ok)
+        }
+        "get_brief" => {
+            let a: SessionArg = args(a)?;
+            let _ = a.session;
+            brief_payload(core).map(ToolOut::ok)
+        }
+        "package_status" => {
+            let a: SessionArg = args(a)?;
+            let _ = a.session;
+            package_payload(core).map(ToolOut::ok)
+        }
+        "submit_for_review" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                /// Deskripsi perubahan revisi ini (masuk tabel revisi).
+                #[serde(default)]
+                description: String,
+                #[serde(default)]
+                by: String,
+                #[serde(default)]
+                date: Option<String>,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            let signature = crate::brief::release_signature(core.model, &core.meta.design);
+            let mut release = core.meta.design.release.clone().unwrap_or_default();
+            if release.effective_state(&signature) == crate::brief::ReleaseState::Approved {
+                return Err(OpError::invalid(format!(
+                    "revision {} is already approved and the design has not changed since",
+                    release.revision
+                ))
+                .with_hint("change the design first; the next submit_for_review then opens the next revision"));
+            }
+            let date = a.date.unwrap_or_else(crate::brief::today);
+            release.submit(&signature, &a.description, &a.by, &date);
+            core.meta.design.release = Some(release);
+            package_payload(core).map(ToolOut::ok)
+        }
+        "build_package" => build_package_tool(core, a, paths),
+        "list_redlines" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                /// Sertakan redline yang sudah ditangani.
+                #[serde(default)]
+                all: bool,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            Ok(ToolOut::ok(redlines_payload(core, a.all)))
+        }
+        "add_redline" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                #[serde(default)]
+                sheet: Option<String>,
+                text: String,
+                position: [f64; 2],
+                #[serde(default)]
+                target: Option<[f64; 2]>,
+                #[serde(default)]
+                author: String,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            let name = pick_sheet(core, a.sheet.as_deref(), true)?;
+            let design = &mut core.meta.design;
+            if design.drawing(&name).is_none() {
+                design.upsert_drawing(ducad_io::drawing::DrawingSpec {
+                    name: name.clone(),
+                    ..Default::default()
+                });
+            }
+            let Some(spec) = design.drawings.iter_mut().find(|d| d.name == name) else {
+                return Err(OpError::invalid("sheet vanished while adding a redline"));
+            };
+            let id = ducad_io::drawing::next_redline_id(spec);
+            let annotation = ducad_core::drawing_annot::Annotation::Redline {
+                position: a.position,
+                redline: ducad_core::drawing_annot::Redline {
+                    id: id.clone(),
+                    text: a.text,
+                    target: a.target,
+                    author: a.author,
+                    resolved: false,
+                    resolution: String::new(),
+                },
+            };
+            annotation
+                .validate()
+                .map_err(|e| OpError::invalid(format!("invalid redline: {e}")))?;
+            spec.layout.get_or_insert_with(Default::default).annotations.push(annotation);
+            let mut out = redlines_payload(core, false);
+            out["added"] = json!({ "sheet": name, "id": id });
+            Ok(ToolOut::ok(out))
+        }
+        "resolve_redline" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                #[serde(default)]
+                sheet: Option<String>,
+                id: String,
+                /// Apa yang dilakukan untuk memenuhinya.
+                resolution: String,
+            }
+            let a: A = args(a)?;
+            let _ = a.session;
+            if a.resolution.trim().is_empty() {
+                return Err(OpError::invalid(
+                    "resolve_redline needs a `resolution` describing what was changed",
+                ));
+            }
+            let mut hit: Option<String> = None;
+            for spec in &mut core.meta.design.drawings {
+                if a.sheet.as_deref().is_some_and(|s| s != spec.name) {
+                    continue;
+                }
+                let Some(layout) = spec.layout.as_mut() else {
+                    continue;
+                };
+                for annotation in &mut layout.annotations {
+                    if let ducad_core::drawing_annot::Annotation::Redline { redline, .. } = annotation {
+                        if redline.id == a.id && !redline.resolved && hit.is_none() {
+                            redline.resolved = true;
+                            redline.resolution = a.resolution.trim().to_string();
+                            hit = Some(spec.name.clone());
+                        }
+                    }
+                }
+            }
+            let Some(sheet) = hit else {
+                let open = redlines_payload(core, false);
+                return Err(OpError::new(
+                    OpErrorCode::UnknownRef,
+                    format!("no open redline '{}'", a.id),
+                )
+                .with_hint("list the open redlines with list_redlines")
+                .with_context(open));
+            };
+            let mut out = redlines_payload(core, false);
+            out["resolved"] = json!({ "sheet": sheet, "id": a.id });
+            Ok(ToolOut::ok(out))
         }
         "drawing" => drawing_tool(core, a, paths),
         "import_step" => import_step_tool(core, a, paths),
+        "import_pdf" => import_pdf_tool(core, a, paths),
         other => Err(OpError::invalid(format!(
             "tool '{other}' is not a core tool"
         ))),
     }
+}
+
+/// Lembar sasaran redline: `sheet` bila disebut, selain itu satu-satunya
+/// lembar tersimpan (atau `sheet1` bila `create` dan belum ada lembar).
+fn pick_sheet(core: &SessionCore, sheet: Option<&str>, create: bool) -> OpResult<String> {
+    let drawings = &core.meta.design.drawings;
+    match (sheet, drawings.as_slice()) {
+        (Some(name), _) if drawings.iter().any(|d| d.name == name) || create => {
+            Ok(name.to_string())
+        }
+        (Some(name), _) => Err(OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("sheet '{name}' is not stored in the part"),
+        )),
+        (None, [only]) => Ok(only.name.clone()),
+        (None, []) if create => Ok("sheet1".to_string()),
+        (None, []) => Err(OpError::invalid("the part has no stored sheets")),
+        (None, many) => Err(OpError::invalid(format!(
+            "the part has {} sheets; name one with `sheet` ({:?})",
+            many.len(),
+            many.iter().map(|d| d.name.as_str()).collect::<Vec<_>>()
+        ))),
+    }
+}
+
+/// Redline semua lembar tersimpan.
+fn redlines_payload(core: &SessionCore, include_resolved: bool) -> Value {
+    let mut list = Vec::new();
+    let mut open = 0usize;
+    for spec in &core.meta.design.drawings {
+        let Some(layout) = spec.layout.as_ref() else {
+            continue;
+        };
+        for annotation in &layout.annotations {
+            let ducad_core::drawing_annot::Annotation::Redline { position, redline } = annotation
+            else {
+                continue;
+            };
+            if !redline.resolved {
+                open += 1;
+            } else if !include_resolved {
+                continue;
+            }
+            list.push(json!({
+                "sheet": spec.name,
+                "id": redline.id,
+                "text": redline.text,
+                "author": redline.author,
+                "position": position,
+                "target": redline.target,
+                "resolved": redline.resolved,
+                "resolution": redline.resolution,
+            }));
+        }
+    }
+    json!({ "open": open, "redlines": list })
+}
+
+fn build_package_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpResult<ToolOut> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct A {
+        #[serde(default)]
+        session: Option<String>,
+        /// PDF keluaran.
+        path: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        part_number: Option<String>,
+        #[serde(default)]
+        author: Option<String>,
+        #[serde(default)]
+        date: Option<String>,
+        #[serde(default)]
+        sheets: Option<Vec<crate::package::SheetSpec>>,
+        #[serde(default)]
+        paper: Option<String>,
+        /// Simpan susunan lembar ini di part.
+        #[serde(default)]
+        save: bool,
+        /// Profil firma (JSON); bawaan: dicari otomatis.
+        #[serde(default)]
+        firm: Option<String>,
+        /// Folder untuk laporan Markdown (traceability/compliance/cost).
+        #[serde(default)]
+        reports_dir: Option<String>,
+    }
+    let a: A = args(a)?;
+    let _ = a.session;
+    let path = paths.resolve(&a.path)?;
+    let firm_path = match a.firm.as_deref() {
+        Some(p) => Some(paths.resolve(p)?),
+        None => crate::firm::find_firm_profile(None, path.parent()),
+    };
+    let firm = match &firm_path {
+        Some(p) => crate::firm::FirmProfile::load(p)?,
+        None => crate::firm::FirmProfile::default(),
+    };
+    let mut spec = core.meta.design.package.clone().unwrap_or_default();
+    if let Some(sheets) = a.sheets {
+        spec.sheets = sheets;
+    }
+    if a.paper.is_some() {
+        spec.paper = a.paper;
+    }
+    let brief_title = core
+        .meta
+        .design
+        .brief
+        .as_ref()
+        .map(|b| b.title.clone())
+        .filter(|t| !t.trim().is_empty());
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("part")
+        .to_string();
+    let info = crate::package::PackageInfo {
+        title: a.title.or(brief_title).unwrap_or_else(|| stem.clone()),
+        part_number: a.part_number.unwrap_or(stem),
+        author: a.author.unwrap_or_default(),
+        date: a.date.unwrap_or_else(crate::brief::today),
+    };
+    let results = crate::check::run_checks(core, &core.meta.design.checks);
+    let summary = crate::check::CheckSummary::from_results(results);
+    let out = crate::package::build_package(core.model, core.meta, &spec, &info, &firm, Some(&summary))?;
+    let io = |p: &std::path::Path, e: std::io::Error| {
+        OpError::new(OpErrorCode::Io, format!("failed to write {}: {e}", p.display()))
+    };
+    let bytes = out.pdf_bytes();
+    std::fs::write(&path, &bytes).map_err(|e| io(&path, e))?;
+    let mut reports: Vec<String> = Vec::new();
+    if let Some(dir) = a.reports_dir.as_deref() {
+        let dir = paths.resolve(dir)?;
+        std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
+        let mut write = |name: &str, text: String| -> OpResult<()> {
+            let p = dir.join(name);
+            std::fs::write(&p, text).map_err(|e| io(&p, e))?;
+            reports.push(p.display().to_string());
+            Ok(())
+        };
+        if let Some(t) = &out.traceability {
+            write("traceability.md", crate::package::traceability_md(t))?;
+        }
+        if !summary.results.is_empty() {
+            write("compliance.md", crate::package::compliance_md(&summary))?;
+        }
+        write("cost.md", crate::package::cost_md(&out.cost))?;
+    }
+    if a.save {
+        core.meta.design.package = Some(spec);
+    }
+    let index: Vec<Value> = out
+        .index()
+        .into_iter()
+        .map(|(n, title, kind)| json!({ "sheet": n, "title": title, "kind": kind }))
+        .collect();
+    Ok(ToolOut::ok(json!({
+        "path": path.display().to_string(),
+        "bytes": bytes.len(),
+        "sheets": index,
+        "state": out.state,
+        "revision": out.release.revision,
+        "checks": { "pass": summary.pass, "fail": summary.fail, "error": summary.error, "warn": summary.warn },
+        "traceability": out.traceability.as_ref().map(|t| json!({ "verified": t.verified, "failed": t.failed, "unverified": t.unverified })),
+        "unit_cost": out.cost.unit_total,
+        "firm_profile": firm_path.map(|p| p.display().to_string()),
+        "reports": reports,
+        "warnings": out.warnings,
+    })))
+}
+
+/// Hasil check + matriks keterlacakan (bila ada brief).
+fn checks_payload(core: &SessionCore, results: Vec<crate::check::CheckResult>) -> OpResult<Value> {
+    let trace = core
+        .meta
+        .design
+        .brief
+        .as_ref()
+        .filter(|b| !b.requirements.is_empty())
+        .map(|b| crate::brief::traceability(b, &results));
+    let mut out = to_value(crate::check::CheckSummary::from_results(results))?;
+    if let Some(t) = trace {
+        out["traceability"] = to_value(t)?;
+    }
+    Ok(out)
+}
+
+/// Brief + keterlacakan terhadap `design.checks` + saran paket aturan.
+fn brief_payload(core: &SessionCore) -> OpResult<Value> {
+    let Some(brief) = core.meta.design.brief.clone() else {
+        return Ok(json!({
+            "brief": Value::Null,
+            "hint": "no brief yet: write one with set_brief before modeling",
+        }));
+    };
+    let results = crate::check::run_checks(core, &core.meta.design.checks);
+    let trace = crate::brief::traceability(&brief, &results);
+    let mut out = json!({ "brief": brief, "traceability": trace });
+    if let Some(pack) = brief.suggested_rule_pack() {
+        let applied = core
+            .meta
+            .design
+            .checks
+            .iter()
+            .any(|c| c.rule.as_deref().is_some_and(|r| r.starts_with(pack)));
+        if !applied {
+            out["suggested_rule_pack"] = json!(pack);
+        }
+    }
+    Ok(out)
+}
+
+/// Status rilis paket + ceklis review.
+pub fn package_payload(core: &SessionCore) -> OpResult<Value> {
+    let design = &core.meta.design;
+    let signature = crate::brief::release_signature(core.model, design);
+    let release = design.release.clone().unwrap_or_default();
+    let results = crate::check::run_checks(core, &design.checks);
+    let review = crate::brief::review_checklist(design, &results);
+    Ok(json!({
+        "state": release.effective_state(&signature),
+        "revision": release.revision,
+        "approval": release.approval,
+        "approval_stale": release.approval_is_stale(&signature),
+        "history": release.history,
+        "signature": signature,
+        "review": review,
+    }))
 }
 
 /// Satu dimensi eksplisit dari tool `drawing`: selector geometri yang sama
@@ -875,6 +1292,119 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
     ))
 }
 
+/// `import_pdf`: garis vektor dari PDF gambar lama → satu op `sketch`
+/// berisi polyline konstruksi, sebagai referensi (bukan profil).
+fn import_pdf_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> OpResult<ToolOut> {
+    fn default_page() -> usize {
+        1
+    }
+    fn default_scale() -> f64 {
+        1.0
+    }
+    fn default_points() -> usize {
+        20_000
+    }
+    fn default_plane() -> String {
+        "XY".to_string()
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct A {
+        #[serde(default)]
+        session: Option<String>,
+        path: String,
+        /// Id op sketch yang dibuat.
+        sketch: String,
+        #[serde(default = "default_plane")]
+        plane: String,
+        /// Halaman (content stream bergaris ke-n, mulai 1); 0 = semua.
+        #[serde(default = "default_page")]
+        page: usize,
+        /// Pengali ukuran: gambar skala 1:2 → 2.
+        #[serde(default = "default_scale")]
+        scale: f64,
+        /// Pertahankan koordinat halaman; bawaan: pojok kiri-bawah gambar ke (0, 0).
+        #[serde(default)]
+        keep_origin: bool,
+        /// Garis biasa (bisa menjadi profil) alih-alih garis konstruksi.
+        #[serde(default)]
+        as_geometry: bool,
+        #[serde(default = "default_points")]
+        max_points: usize,
+        #[serde(default)]
+        dry_run: bool,
+    }
+    let a: A = args(a)?;
+    let _ = a.session;
+    if !(a.scale.is_finite() && a.scale > 0.0) {
+        return Err(OpError::invalid("import_pdf: `scale` must be > 0"));
+    }
+    let path = paths.resolve(&a.path)?;
+    let bytes = std::fs::read(&path).map_err(|e| {
+        OpError::new(OpErrorCode::Io, format!("cannot read {}: {e}", path.display()))
+    })?;
+    let options = ducad_io::pdf_import::PdfImportOptions {
+        page: (a.page > 0).then_some(a.page),
+        ..Default::default()
+    };
+    let import = ducad_io::pdf_import::import_pdf_vectors(&bytes, &options).map_err(|e| {
+        OpError::invalid(format!("import_pdf: {e}"))
+            .with_hint("only vector PDFs (exported from CAD) can be imported; scans need to be redrawn")
+    })?;
+    let points = import.point_count();
+    if points > a.max_points {
+        return Err(OpError::invalid(format!(
+            "import_pdf: the page has {points} points in {} polylines, more than max_points = {}",
+            import.polylines.len(),
+            a.max_points
+        ))
+        .with_hint("raise `max_points`, or import a simpler page")
+        .with_context(json!({ "points": points, "polylines": import.polylines.len(), "pages": import.pages })));
+    }
+    let (lo, hi) = import.bbox.unwrap_or(([0.0; 2], [0.0; 2]));
+    let origin = if a.keep_origin { [0.0, 0.0] } else { lo };
+    let map = |p: &[f64; 2]| {
+        json!([
+            crate::inspect::round4((p[0] - origin[0]) * a.scale),
+            crate::inspect::round4((p[1] - origin[1]) * a.scale)
+        ])
+    };
+    let entities: Vec<Value> = import
+        .polylines
+        .iter()
+        .map(|l| {
+            json!({ "polyline": {
+                "points": l.points.iter().map(map).collect::<Vec<_>>(),
+                "closed": l.closed,
+                "construction": !a.as_geometry,
+            } })
+        })
+        .collect();
+    let op = json!({ "op": "sketch", "id": a.sketch, "plane": a.plane, "entities": entities });
+    let report = core.run(parse_ops(vec![op])?, a.dry_run);
+    let is_error = report.error.is_some();
+    let mut payload = json!({
+        "sketch": a.sketch,
+        "polylines": import.polylines.len(),
+        "points": points,
+        "pages": import.pages,
+        "size_mm": [
+            crate::inspect::round4((hi[0] - lo[0]) * a.scale),
+            crate::inspect::round4((hi[1] - lo[1]) * a.scale)
+        ],
+        "warnings": import.warnings,
+        "committed": report.committed,
+    });
+    if let Some(e) = report.error {
+        payload["error"] = to_value(e)?;
+    }
+    Ok(ToolOut {
+        payload,
+        image_png: None,
+        is_error,
+    })
+}
+
 /// Tool tanpa state: dijawab tanpa sesi terbuka.
 pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
     match name {
@@ -888,8 +1418,27 @@ pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
                 example: Option<String>,
                 #[serde(default)]
                 full: bool,
+                #[serde(default)]
+                rule_packs: bool,
+                #[serde(default)]
+                checks: bool,
+                #[serde(default)]
+                check: Option<String>,
             }
             let a: A = args(a)?;
+            if let Some(kind) = a.check.as_deref() {
+                return check_detail(kind).map(ToolOut::ok);
+            }
+            if a.checks {
+                return Ok(ToolOut::ok(check_catalog()));
+            }
+            if a.rule_packs {
+                return Ok(ToolOut::ok(json!({
+                    "rule_packs": crate::check::rule_pack_catalog(),
+                    "usage": "set_checks {\"checks\": [...], \"rule_packs\": [\"dfm-cnc\", {\"pack\": \"dfm-sheet-metal\", \"body\": \"box\", \"vars\": {\"thickness\": \"$t\"}, \"requirement\": \"R3\"}]}",
+                    "disclaimer": crate::check::RULE_DISCLAIMER,
+                })));
+            }
             let parse = |text: &str| -> OpResult<Value> {
                 serde_json::from_str(text).map_err(|e| OpError::new(OpErrorCode::Io, e.to_string()))
             };
@@ -1013,6 +1562,105 @@ fn op_detail(kind: &str) -> OpResult<Value> {
     }))
 }
 
+/// Skema `CheckItem` (JSON Schema).
+fn check_schema() -> Value {
+    serde_json::to_value(schemars::schema_for!(CheckItem)).unwrap_or(Value::Null)
+}
+
+/// Varian `Check`: `(jenis, skema varian)`.
+fn check_variants(schema: &Value) -> Vec<(String, Value)> {
+    schema
+        .get("oneOf")
+        .or_else(|| schema.get("anyOf"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| {
+            let kind = v["properties"]["check"]["enum"][0].as_str()?.to_string();
+            Some((kind, v))
+        })
+        .collect()
+}
+
+/// Semua jenis check yang sah (nilai field `"check"`).
+pub fn check_kinds() -> Vec<String> {
+    check_variants(&check_schema())
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
+}
+
+/// Katalog check ringkas: jenis, ringkasan, field wajib/opsional, field
+/// bersama (id/note/requirement/citation/severity).
+fn check_catalog() -> Value {
+    let schema = check_schema();
+    let checks: Vec<Value> = check_variants(&schema)
+        .into_iter()
+        .map(|(kind, v)| {
+            let required: Vec<&str> = v["required"]
+                .as_array()
+                .map(|r| {
+                    r.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|f| *f != "check")
+                        .collect()
+                })
+                .unwrap_or_default();
+            let optional: Vec<&str> = v["properties"]
+                .as_object()
+                .map(|p| {
+                    p.keys()
+                        .map(String::as_str)
+                        .filter(|f| *f != "check" && !required.contains(f))
+                        .collect()
+                })
+                .unwrap_or_default();
+            json!({
+                "check": kind,
+                "summary": v["description"].as_str().unwrap_or_default(),
+                "required": required,
+                "optional": optional,
+            })
+        })
+        .collect();
+    json!({
+        "checks": checks,
+        "common_fields": schema["properties"],
+        "body_selector": "`body`: a body name or \"*\" (the only body); `bodies`: a name, a list of names, or \"*\" (all bodies). Numbers may be expressions such as \"$t\".",
+        "more": "get_schema {\"check\":\"hole_web\"} = full schema of one check kind; {\"rule_packs\":true} = ready-made cited checks",
+    })
+}
+
+/// Skema lengkap SATU jenis check + definisi yang dirujuknya.
+fn check_detail(kind: &str) -> OpResult<Value> {
+    let schema = check_schema();
+    let variants = check_variants(&schema);
+    let Some((_, variant)) = variants.iter().find(|(k, _)| k == kind) else {
+        let kinds: Vec<&str> = variants.iter().map(|(k, _)| k.as_str()).collect();
+        return Err(OpError::new(
+            OpErrorCode::UnknownRef,
+            format!("unknown check kind '{kind}' (available: {kinds:?})"),
+        ));
+    };
+    let defs = &schema["definitions"];
+    let mut names = std::collections::BTreeSet::new();
+    collect_refs(variant, defs, &mut names);
+    let definitions: serde_json::Map<String, Value> = names
+        .into_iter()
+        .map(|n| {
+            let d = defs[&n].clone();
+            (n, d)
+        })
+        .collect();
+    Ok(json!({
+        "check": kind,
+        "schema": variant,
+        "common_fields": schema["properties"],
+        "definitions": definitions,
+    }))
+}
+
 /// Ringkasan murah (±5 KB): tiap op dengan deskripsi + field wajib/opsional,
 /// daftar contoh, cheatsheet selector, dan cara meminta detail.
 fn schema_overview() -> OpResult<Value> {
@@ -1055,7 +1703,8 @@ fn schema_overview() -> OpResult<Value> {
         "ops": ops,
         "selector_cheatsheet": SELECTOR_CHEATSHEET,
         "examples": examples,
-        "more": "get_schema {\"op\":\"fillet\"} = full schema of one op kind; {\"example\":\"flange\"} = tested example OpFile; {\"full\":true} = entire JSON Schema (large)",
+        "check_kinds": check_kinds(),
+        "more": "get_schema {\"op\":\"fillet\"} = full schema of one op kind; {\"example\":\"flange\"} = tested example OpFile; {\"full\":true} = entire JSON Schema (large); {\"checks\":true} = every check kind with its fields; {\"check\":\"mass\"} = one check kind in full; {\"rule_packs\":true} = cited DFM/standard rule packs",
     }))
 }
 

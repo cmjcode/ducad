@@ -510,6 +510,15 @@ fn write_sheet_annotations(out: &mut String, sheet: &DrawingSheet) {
         let [ax, ay] = geometry.anchor;
         let ay = sheet.paper_size.height_mm() - ay;
         let pt = |p: &[f32; 2]| format!("{:.3} {:.3}", ax + p[0], ay - p[1]);
+        let ink = match geometry.color {
+            Some([r, g, b]) => format!("#{r:02x}{g:02x}{b:02x}"),
+            None => "#111827".to_string(),
+        };
+        let stroke = if geometry.color.is_some() {
+            format!(r#" stroke="{ink}""#)
+        } else {
+            String::new()
+        };
 
         for path in &geometry.paths {
             let mut d = String::new();
@@ -526,15 +535,19 @@ fn write_sheet_annotations(out: &mut String, sheet: &DrawingSheet) {
                     PathCmd::Close => d.push('Z'),
                 }
             }
-            let fill = if path.filled { r##" fill="#111827""## } else { "" };
-            out.push_str(&format!("    <path d=\"{d}\"{fill} />\n"));
+            let fill = if path.filled {
+                format!(r#" fill="{ink}""#)
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("    <path d=\"{d}\"{fill}{stroke} />\n"));
         }
 
         for run in &geometry.texts {
             let anchor = if run.centered { r#" text-anchor="middle""# } else { "" };
             let weight = if run.bold { r#" font-weight="bold""# } else { "" };
             out.push_str(&format!(
-                r##"    <text x="{x:.2}" y="{y:.2}" font-size="{fs:.2}"{weight}{anchor} fill="#111827" stroke="none">{txt}</text>
+                r##"    <text x="{x:.2}" y="{y:.2}" font-size="{fs:.2}"{weight}{anchor} fill="{ink}" stroke="none">{txt}</text>
 "##,
                 x = ax + run.pos[0],
                 y = ay - run.pos[1],

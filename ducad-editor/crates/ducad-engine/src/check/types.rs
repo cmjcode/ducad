@@ -18,6 +18,23 @@ fn tol_001() -> f64 {
     0.01
 }
 
+/// How a failing check is treated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    /// A failure blocks `ducad-cli build` (exit code 3) and package approval.
+    #[default]
+    Error,
+    /// A failure is reported but does not block the build.
+    Warning,
+}
+
+impl Severity {
+    fn is_error(&self) -> bool {
+        *self == Severity::Error
+    }
+}
+
 /// One check with optional id/note. Note: serde does not support `flatten` + `deny_unknown_fields`,
 /// so unknown fields are ignored here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -26,8 +43,37 @@ pub struct CheckItem {
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Id of the design requirement this check verifies (see tool `set_brief`), e.g. `"R2"`.
+    /// Reports group the results per requirement (traceability matrix).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirement: Option<String>,
+    /// Standard clause or guideline this check enforces, e.g.
+    /// `"ISO 2768-1:1989, Table 1, class m"`. Printed next to the result in reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citation: Option<String>,
+    /// `error` (default) blocks the build when the check fails; `warning` is reported only.
+    #[serde(default, skip_serializing_if = "Severity::is_error")]
+    pub severity: Severity,
+    /// Filled in by rule packs: `"<pack>@<version>/<rule id>"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
     #[serde(flatten)]
     pub check: Check,
+}
+
+impl CheckItem {
+    /// Check polos tanpa id/sitasi.
+    pub fn plain(check: Check) -> Self {
+        Self {
+            id: None,
+            note: None,
+            requirement: None,
+            citation: None,
+            severity: Severity::Error,
+            rule: None,
+            check,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -171,6 +217,155 @@ pub enum Check {
         #[serde(default)]
         method: StackMethod,
     },
+    /// DFM (drilling): depth / diameter of every cylindrical hole of the body must not exceed
+    /// `max_ratio` (standard twist drills: about 4-5; deep-hole tooling: up to 10). Holes
+    /// narrower than `min_diameter` mm are ignored.
+    HoleDepthRatio {
+        body: BodySel,
+        max_ratio: Num,
+        #[serde(default)]
+        min_diameter: Option<Num>,
+    },
+    /// DFM: the material left between every hole wall and the nearest other surface (outer
+    /// edge, pocket or neighbouring hole) must be at least `min_ratio` x the hole diameter
+    /// and/or at least `min` mm. Give one or both limits. Measured on the mesh.
+    HoleWeb {
+        body: BodySel,
+        #[serde(default)]
+        min_ratio: Option<Num>,
+        #[serde(default)]
+        min: Option<Num>,
+    },
+    /// DFM (moulding/casting): every planar, cylindrical or conical face that is not a parting
+    /// face must have at least `min_deg` degrees of draft relative to the `pull` axis (default
+    /// `z`). Faces perpendicular to the pull direction are parting faces and pass.
+    MinDraftAngle {
+        body: BodySel,
+        #[serde(default)]
+        pull: CheckAxis,
+        min_deg: Num,
+    },
+    /// DFM (FDM printing): the total area (mm^2) of surfaces overhanging more than `max_deg`
+    /// degrees from vertical must not exceed `max_area` (default 0). `up` is the build
+    /// direction (default `z`); faces lying on the build plate are not overhangs.
+    MaxOverhang {
+        body: BodySel,
+        #[serde(default)]
+        up: CheckAxis,
+        #[serde(default = "deg_45")]
+        max_deg: Num,
+        #[serde(default)]
+        max_area: Option<Num>,
+    },
+    /// DFM (milling): internal corners that an end mill travelling along `axis` (default `z`)
+    /// has to form must have a radius of at least `min` mm. Fails on concave fillets with a
+    /// smaller radius and on sharp concave edges between two walls parallel to `axis`.
+    MinInternalRadius {
+        body: BodySel,
+        #[serde(default)]
+        axis: CheckAxis,
+        min: Num,
+    },
+    /// Thread engagement: threaded length / nominal diameter of every thread on the body (ops
+    /// `thread` and tapped `hole`) must be at least `min_ratio` (rule of thumb: 1.0 in steel,
+    /// 1.5-2.0 in aluminium, 2.0-2.5 in plastics).
+    ThreadEngagement {
+        body: BodySel,
+        min_ratio: Num,
+    },
+    /// ISO 286 fit of a hole/shaft pair at `nominal` mm, e.g. `hole: "H7"`, `shaft: "g6"`.
+    /// Passes when the fit is of the wanted `kind` (omit to only compute it) and the clearance
+    /// stays inside `min_clearance`/`max_clearance` (mm, negative = interference) when given.
+    Fit {
+        nominal: Num,
+        hole: String,
+        shaft: String,
+        #[serde(default)]
+        kind: Option<FitKind>,
+        #[serde(default)]
+        min_clearance: Option<Num>,
+        #[serde(default)]
+        max_clearance: Option<Num>,
+    },
+    /// ISO 2768-1 general tolerance class of the drawing versus the manufacturing `process`:
+    /// passes when the process normally holds the requested `class` (`f` fine, `m` medium,
+    /// `c` coarse, `v` very coarse). The result lists the permitted deviation of the body's
+    /// overall dimensions for that class.
+    GeneralTolerance {
+        body: BodySel,
+        class: ToleranceClass,
+        process: Process,
+    },
+}
+
+fn deg_45() -> Num {
+    Num::Value(45.0)
+}
+
+/// A world axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckAxis {
+    X,
+    Y,
+    #[default]
+    Z,
+}
+
+impl CheckAxis {
+    pub fn unit(self) -> [f64; 3] {
+        match self {
+            CheckAxis::X => [1.0, 0.0, 0.0],
+            CheckAxis::Y => [0.0, 1.0, 0.0],
+            CheckAxis::Z => [0.0, 0.0, 1.0],
+        }
+    }
+}
+
+/// Character of an ISO 286 fit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FitKind {
+    /// Always a gap (minimum clearance >= 0).
+    Clearance,
+    /// Gap or interference depending on the actual sizes.
+    Transition,
+    /// Always interference (maximum clearance <= 0).
+    Interference,
+}
+
+/// ISO 2768-1 tolerance class for linear dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ToleranceClass {
+    /// Fine.
+    F,
+    /// Medium.
+    M,
+    /// Coarse.
+    C,
+    /// Very coarse.
+    V,
+}
+
+/// Manufacturing process, used by process-dependent checks and rule packs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Process {
+    /// CNC milling/turning.
+    Cnc,
+    /// Laser/punch cutting and press-brake bending.
+    SheetMetal,
+    /// Fused filament 3D printing.
+    Fdm,
+    /// Resin 3D printing.
+    Sla,
+    /// Powder-bed 3D printing.
+    Sls,
+    /// Injection moulding.
+    Injection,
+    /// Sand/investment casting.
+    Casting,
 }
 
 /// One link of a tolerance chain. Give either `plus`/`minus` (amounts above/below nominal, both
@@ -240,6 +435,14 @@ impl Check {
             Check::MinBendRadius { .. } => "min_bend_radius",
             Check::MinFlangeLength { .. } => "min_flange_length",
             Check::ToleranceStackup { .. } => "tolerance_stackup",
+            Check::HoleDepthRatio { .. } => "hole_depth_ratio",
+            Check::HoleWeb { .. } => "hole_web",
+            Check::MinDraftAngle { .. } => "min_draft_angle",
+            Check::MaxOverhang { .. } => "max_overhang",
+            Check::MinInternalRadius { .. } => "min_internal_radius",
+            Check::ThreadEngagement { .. } => "thread_engagement",
+            Check::Fit { .. } => "fit",
+            Check::GeneralTolerance { .. } => "general_tolerance",
         }
     }
 }
@@ -277,4 +480,22 @@ pub struct CheckResult {
     pub location: Option<[f64; 3]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// Id persyaratan yang diverifikasi check ini (keterlacakan).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirement: Option<String>,
+    /// Pasal standar / pedoman yang ditegakkan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citation: Option<String>,
+    #[serde(default)]
+    pub severity: Severity,
+    /// `"<paket>@<versi>/<aturan>"` bila berasal dari paket aturan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+}
+
+impl CheckResult {
+    /// Check ini tidak lulus DAN menghalangi build (severity `error`).
+    pub fn is_blocking(&self) -> bool {
+        self.status != CheckStatus::Pass && self.severity == Severity::Error
+    }
 }

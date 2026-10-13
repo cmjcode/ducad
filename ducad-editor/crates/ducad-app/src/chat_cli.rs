@@ -141,7 +141,7 @@ impl ChatState {
         let mut lines: Vec<String> = Vec::new();
         for m in self.conv().iter().rev() {
             let line = match m {
-                ConvMessage::User { text } => {
+                ConvMessage::User { text, .. } => {
                     format!("Pengguna: {}", crate::chat_ui::strip_context(text))
                 }
                 ConvMessage::Assistant { text, .. } if !text.trim().is_empty() => {
@@ -265,6 +265,7 @@ impl DuCADApp {
                         .push_item(ChatItem::text(ChatRole::User, text.clone()));
                     self.chat.push_conv(ConvMessage::User {
                         text: format!("{context}\n{text}"),
+                        images: Vec::new(),
                     });
                     self.chat.begin_turn();
                     self.chat.cli_run = Some(CliRun {
@@ -562,6 +563,7 @@ mod tests {
         let mut app = app();
         app.chat.push_conv(ConvMessage::User {
             text: "buat blok".into(),
+            images: Vec::new(),
         });
         app.chat.cli_run = Some(CliRun {
             rx,

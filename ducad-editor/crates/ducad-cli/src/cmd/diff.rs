@@ -73,6 +73,21 @@ pub fn exec(a: Args) -> CliResult {
                 b.name, b.status, b.volume_old, b.volume_new, b.added_volume, b.removed_volume
             );
         }
+        if let Some(impact) = &d.impact {
+            for sheet in &impact.sheets {
+                println!("lembar {} {}: {}", sheet.kind, sheet.name, sheet.reason);
+            }
+            println!("lembar tidak terdampak: {}", impact.unchanged_sheets);
+            for c in &impact.checks {
+                println!("check {}: {:?} → {:?} — {}", c.check, c.old, c.new, c.message);
+            }
+            if impact.checks_remeasured > 0 {
+                println!("check terukur ulang tanpa ganti status: {}", impact.checks_remeasured);
+            }
+            for r in &impact.requirements {
+                println!("persyaratan {}: {:?} → {:?}", r.id, r.old, r.new);
+            }
+        }
         for w in &d.warnings {
             println!("peringatan: {w}");
         }

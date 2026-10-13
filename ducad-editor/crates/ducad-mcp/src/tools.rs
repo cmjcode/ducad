@@ -1,7 +1,6 @@
 //! Definisi dan implementasi tool MCP DUCAD (P3.2, P15.1).
 
 use base64::Engine as _;
-use ducad_engine::check::CheckItem;
 use ducad_engine::export::{export, ExportFormat};
 use ducad_engine::inspect::summarize;
 use ducad_engine::ops::{Params, EXAMPLES};
@@ -44,6 +43,16 @@ pub const TOOL_NAMES: &[&str] = &[
     "diff",
     "list_parts",
     "simulate_static",
+    "set_brief",
+    "get_brief",
+    "build_package",
+    "package_status",
+    "submit_for_review",
+    "approve_package",
+    "list_redlines",
+    "add_redline",
+    "resolve_redline",
+    "import_pdf",
 ];
 
 /// Tool yang bisa menimpa/membuang sesuatu (anotasi MCP `destructiveHint`).
@@ -55,6 +64,9 @@ const DESTRUCTIVE_TOOLS: &[&str] = &[
     "export",
     "set_checks",
     "drawing",
+    "set_brief",
+    "build_package",
+    "approve_package",
 ];
 
 /// Tool yang aman diulang dengan argumen sama (anotasi `idempotentHint`).
@@ -68,6 +80,8 @@ const IDEMPOTENT_TOOLS: &[&str] = &[
     "set_view",
     "select",
     "simulate_static",
+    "set_brief",
+    "build_package",
 ];
 
 fn session_prop() -> Value {
@@ -139,20 +153,30 @@ const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (create
 
 /// Daftar tool untuk `tools/list`.
 pub fn definitions() -> Vec<Value> {
-    let check_defs =
-        serde_json::to_value(schemars::schema_for!(Vec<CheckItem>)).unwrap_or(json!({}));
-    let check_items = check_defs
-        .get("items")
-        .cloned()
-        .unwrap_or(json!({ "type": "object" }));
-    let with_check_defs = |mut v: Value| {
-        v["definitions"] = check_defs.get("definitions").cloned().unwrap_or(json!({}));
-        v
-    };
-    let set_checks = with_check_defs(schema(
-        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items } }),
-        &["checks"],
-    ));
+    // Skema check di `tools/list` RINGKAS (hanya `check` + field bersama),
+    // sama seperti skema op: detail per jenis lewat
+    // `get_schema {"check": …}`; engine tetap memvalidasi setiap item.
+    let check_items = json!({
+        "type": "object",
+        "description": "One check: {\"check\":<kind>, …fields of that kind}. Kinds and fields: get_schema {\"checks\":true}; one kind in full: get_schema {\"check\":\"<kind>\"}.",
+        "properties": {
+            "check": { "type": "string", "enum": ducad_engine::tooling::check_kinds() },
+            "id": { "type": "string" },
+            "note": { "type": "string" },
+            "requirement": { "type": "string", "description": "Requirement id from set_brief, e.g. \"R2\"." },
+            "citation": { "type": "string", "description": "Standard clause or guideline this check enforces." },
+            "severity": { "type": "string", "enum": ["error", "warning"] }
+        },
+        "required": ["check"],
+        "additionalProperties": true
+    });
+    let set_checks = schema(
+        json!({ "session": session_prop(), "checks": { "type": "array", "items": check_items },
+                "rule_packs": { "type": "array",
+                    "description": "Rule packs expanded into cited checks and appended to `checks`: a pack id (\"dfm-cnc\") or {\"pack\":id,\"body\":name,\"vars\":{…},\"requirement\":\"R3\"}. List packs and variables: get_schema {\"rule_packs\":true}.",
+                    "items": { "oneOf": [ { "type": "string" }, { "type": "object" } ] } } }),
+        &[],
+    );
     // Skema check lengkap hanya dimuat sekali (di `set_checks`) supaya
     // `tools/list` tetap ringkas; engine tetap memvalidasi setiap item.
     let run_checks = schema(
@@ -319,7 +343,10 @@ pub fn definitions() -> Vec<Value> {
                 json!({
                     "op": { "type": "string", "enum": op_kinds() },
                     "example": { "type": "string", "enum": example_names },
-                    "full": { "type": "boolean" }
+                    "full": { "type": "boolean" },
+                    "rule_packs": { "type": "boolean", "description": "List the rule packs: rules, citations, variables." },
+                    "checks": { "type": "boolean", "description": "Every check kind with its required/optional fields." },
+                    "check": { "type": "string", "description": "Full schema of one check kind, e.g. \"hole_web\"." }
                 }),
                 &[],
             ),
@@ -327,7 +354,7 @@ pub fn definitions() -> Vec<Value> {
         tool(
             "set_checks",
             "Set checks",
-            "Replace the whole list of design checks (user requirements: volume, bbox_size, hole_count, min_wall, clearance, mass, center_of_mass, moment_of_inertia, …) and evaluate them now. Write them before modeling; every later BatchReport includes their results.",
+            "Replace the whole list of design checks (user requirements: volume, bbox_size, hole_count, min_wall, clearance, mass, center_of_mass, moment_of_inertia, …) and evaluate them now. Write them before modeling; every later BatchReport includes their results. Per check: `requirement` (id from set_brief, for the traceability matrix), `citation` (standard clause or guideline), `severity` (`error` default blocks builds, `warning` only reports). `rule_packs` adds ready-made cited DFM/standard checks (dfm-cnc, dfm-fdm, dfm-injection, dfm-sheet-metal, iso-2768, fea-safety). Kinds and fields: get_schema {\"checks\":true}.",
             set_checks,
         ),
         tool(
@@ -403,6 +430,23 @@ pub fn definitions() -> Vec<Value> {
             ),
         ),
         tool(
+            "import_pdf",
+            "Import PDF vectors",
+            "Import the vector lines of a PDF drawing (exported from CAD) as ONE sketch of construction polylines, to trace or measure an old drawing. Text, raster images and scans are not imported. Coordinates are mm; `scale` multiplies them (a 1:2 drawing needs 2). Returns polyline/point counts and size_mm.",
+            schema(
+                json!({ "session": session_prop(), "path": { "type": "string" },
+                        "sketch": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "Id of the sketch op to create." },
+                        "plane": { "type": "string", "description": "Sketch plane, default \"XY\"." },
+                        "page": { "type": "integer", "minimum": 0, "description": "Page with vector paths, from 1 (default); 0 = all pages." },
+                        "scale": { "type": "number", "exclusiveMinimum": 0 },
+                        "keep_origin": { "type": "boolean", "description": "Keep page coordinates; default moves the drawing's lower-left corner to (0,0)." },
+                        "as_geometry": { "type": "boolean", "description": "Normal lines (usable as profiles) instead of construction lines." },
+                        "max_points": { "type": "integer", "minimum": 1 },
+                        "dry_run": { "type": "boolean" } }),
+                &["path", "sketch"],
+            ),
+        ),
+        tool(
             "diff",
             "Diff parts",
             "Compare the session part with another .ducad file or session: param, op, and per-body volume changes.",
@@ -418,6 +462,93 @@ pub fn definitions() -> Vec<Value> {
             "List parts",
             "List open part sessions (id, name, path, body/op counts).",
             schema(json!({}), &[]),
+        ),
+        tool(
+            "set_brief",
+            "Set design brief",
+            "Store the design brief in the part BEFORE modeling: what the part does, interfaces, loads, material, process, quantity, standards, cost target and numbered `requirements` [{id:\"R1\", text, source?}]. Then link every check to a requirement (`requirement` field of set_checks). Returns the brief, the traceability matrix and `suggested_rule_pack` for the process.",
+            schema(
+                json!({ "session": session_prop(),
+                        "brief": { "type": "object", "description": "{title, function, interfaces[], loads[], material, process (cnc|sheet_metal|fdm|sla|sls|injection|casting), quantity, standards[], cost_target, notes[], requirements[{id,text,source?}]}; every field is optional." } }),
+                &["brief"],
+            ),
+        ),
+        tool(
+            "get_brief",
+            "Get design brief",
+            "The stored design brief and its traceability matrix (requirement -> checks -> verified/failed/unverified).",
+            schema(json!({ "session": session_prop() }), &[]),
+        ),
+        tool(
+            "build_package",
+            "Build design package",
+            "Build the design package as ONE multi-page PDF: cover (brief, sheet index, revision table, compliance summary), part drawing per body, assembly drawing with BOM balloons, sheet metal flat patterns, BOM page and a compliance page (traceability + every check with its citation). `sheets` omitted = automatic. `reports_dir` also writes traceability.md, compliance.md and cost.md (indicative cost from the firm profile). Returns the sheet index, release state, check counts and warnings.",
+            schema(
+                json!({ "session": session_prop(), "path": { "type": "string", "description": "Output PDF." },
+                        "title": { "type": "string" }, "part_number": { "type": "string" },
+                        "author": { "type": "string" }, "date": { "type": "string", "description": "YYYY-MM-DD; default today." },
+                        "sheets": { "type": "array", "items": { "type": "object" },
+                            "description": "Sheets in order: {\"kind\":\"cover\"}, {\"kind\":\"drawing\",\"name\":\"sheet1\"} (stored sheet), {\"kind\":\"part\",\"body\":B}, {\"kind\":\"assembly\"}, {\"kind\":\"flat_pattern\",\"body\":B}, {\"kind\":\"bom\"}, {\"kind\":\"compliance\"}." },
+                        "paper": { "type": "string", "enum": ["a4", "a4-portrait", "a3", "a3-portrait"] },
+                        "save": { "type": "boolean", "description": "Store this sheet list in the part." },
+                        "firm": { "type": "string", "description": "Firm profile JSON; default: firm.json next to the output, then the memory vault." },
+                        "reports_dir": { "type": "string" } }),
+                &["path"],
+            ),
+        ),
+        tool(
+            "package_status",
+            "Package status",
+            "Release state of the design package (draft | in_review | approved), revision, revision history and the review checklist (checks, requirements, standards, drawings, open redlines). An approval is void as soon as the design changes.",
+            schema(json!({ "session": session_prop() }), &[]),
+        ),
+        tool(
+            "submit_for_review",
+            "Submit for review",
+            "Mark the current revision as in review and record `description` in the revision table. After an approved revision changed, this opens the next revision (A -> B). Approval itself is done by the user.",
+            schema(
+                json!({ "session": session_prop(), "description": { "type": "string", "description": "What changed in this revision." },
+                        "by": { "type": "string" }, "date": { "type": "string" } }),
+                &[],
+            ),
+        ),
+        tool(
+            "approve_package",
+            "Approve package",
+            "Approve the current revision for release (headless sessions only; in the app only the user can approve). Refused while a blocking check fails or a redline is open unless `force` is true.",
+            schema(
+                json!({ "session": session_prop(), "by": { "type": "string", "description": "Name of the approver." },
+                        "date": { "type": "string" }, "force": { "type": "boolean" } }),
+                &["by"],
+            ),
+        ),
+        tool(
+            "list_redlines",
+            "List redlines",
+            "Review notes (redlines) the user drew on the stored drawing sheets: id, sheet, text, target point. Each open redline is a change request: make the change (set_params/replace_op/propose_ops), then close it with resolve_redline.",
+            schema(json!({ "session": session_prop(), "all": { "type": "boolean", "description": "Include resolved redlines." } }), &[]),
+        ),
+        tool(
+            "add_redline",
+            "Add redline",
+            "Add a review note to a stored sheet (created as \"sheet1\" if the part has none): red text at `position` [x,y] in sheet mm from the bottom-left corner, with an optional arrow to `target`.",
+            schema(
+                json!({ "session": session_prop(), "sheet": { "type": "string" }, "text": { "type": "string" },
+                        "position": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                        "target": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                        "author": { "type": "string" } }),
+                &["text", "position"],
+            ),
+        ),
+        tool(
+            "resolve_redline",
+            "Resolve redline",
+            "Close a redline after the requested change is made; `resolution` states what was changed. Resolved redlines are no longer drawn.",
+            schema(
+                json!({ "session": session_prop(), "sheet": { "type": "string" }, "id": { "type": "string" },
+                        "resolution": { "type": "string" } }),
+                &["id", "resolution"],
+            ),
         ),
     ]
 }
@@ -733,6 +864,41 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
                 image_png: None,
                 is_error,
             })
+        }
+        "approve_package" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct A {
+                #[serde(default)]
+                session: Option<String>,
+                by: String,
+                #[serde(default)]
+                date: Option<String>,
+                #[serde(default)]
+                force: bool,
+            }
+            let a: A = args(a)?;
+            let (_, part) = server.pick(a.session.as_deref())?;
+            // Check studi butuh hasil segar sebelum ceklis review dinilai.
+            part.session.refresh_studies();
+            let results = part.session.run_checks(None).results;
+            let review = ducad_engine::brief::review_checklist(part.session.design(), &results);
+            let blockers = ducad_engine::brief::review_blockers(&review);
+            if !blockers.is_empty() && !a.force {
+                return Err(OpError::new(
+                    OpErrorCode::InvalidParam,
+                    format!("the package cannot be approved yet: {}", blockers.join("; ")),
+                )
+                .with_hint("fix the failing checks and resolve the open redlines, or pass force:true")
+                .with_context(json!({ "review": review })));
+            }
+            let (mut release, signature) = part.session.release();
+            let date = a.date.unwrap_or_else(ducad_engine::brief::today);
+            release.approve(&signature, &a.by, &date)?;
+            part.session.set_release(release);
+            let mut out = ducad_engine::tooling::package_payload(&part.session.core())?;
+            out["forced"] = json!(a.force && !blockers.is_empty());
+            Ok(ToolOut::ok(out))
         }
         "list_parts" => {
             let _: Value = a;

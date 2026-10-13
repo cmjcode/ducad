@@ -1,0 +1,48 @@
+{
+  "id": "dfm-sheet-metal",
+  "title": "DFM for sheet metal",
+  "version": "1",
+  "process": "sheet_metal",
+  "description": "Rules for a laser-cut and press-brake-bent part built with base_flange/edge_flange: bend radius, flange length, material around holes.",
+  "vars": {
+    "thickness": { "value": 2.0, "description": "Sheet thickness (mm); a design param such as \"$t\" also works." },
+    "min_bend_ratio": { "value": 1.0, "description": "Inner bend radius / thickness: 1.0 mild steel and soft aluminium, more for hard alloys." },
+    "min_flange_ratio": { "value": 4.0, "description": "Shortest flange as a multiple of the thickness." },
+    "min_hole_web_ratio": { "value": 2.0, "description": "Material between a hole and the nearest edge as a multiple of the thickness." },
+    "class": { "value": "m", "description": "ISO 2768-1 class of the drawing." }
+  },
+  "rules": [
+    {
+      "id": "bend-radius",
+      "basis": "guideline",
+      "citation": "Guideline: inner bend radius of at least 1 x thickness for mild steel; minimum bending radii for steel sheet are tabulated in DIN 6935",
+      "severity": "error",
+      "note": "",
+      "check": { "check": "min_bend_radius", "body": "@body", "min_ratio_to_t": "@min_bend_ratio" }
+    },
+    {
+      "id": "flange-length",
+      "basis": "guideline",
+      "citation": "Guideline: press-brake tooling needs a flange of about 4 x thickness to support the sheet across the die",
+      "severity": "error",
+      "note": "",
+      "check": { "check": "min_flange_length", "body": "@body", "min": "@min_flange_ratio * (@thickness)" }
+    },
+    {
+      "id": "hole-edge",
+      "basis": "guideline",
+      "citation": "Guideline: keep at least 2 x thickness between a cut hole and the nearest edge to avoid bulging",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "hole_web", "body": "@body", "min": "@min_hole_web_ratio * (@thickness)" }
+    },
+    {
+      "id": "general-tolerance",
+      "basis": "standard",
+      "citation": "ISO 2768-1:1989, Table 1 (permissible deviations for linear dimensions); process capability per DUCAD guideline",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "general_tolerance", "body": "@body", "class": "@class", "process": "sheet_metal" }
+    }
+  ]
+}

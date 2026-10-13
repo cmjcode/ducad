@@ -73,6 +73,15 @@
       ],
       "type": "string"
     },
+    "CheckAxis": {
+      "description": "A world axis.",
+      "enum": [
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "string"
+    },
     "CheckItem": {
       "description": "One check with optional id/note. Note: serde does not support `flatten` + `deny_unknown_fields`, so unknown fields are ignored here.",
       "oneOf": [
@@ -685,9 +694,309 @@
             "max_total"
           ],
           "type": "object"
+        },
+        {
+          "description": "DFM (drilling): depth / diameter of every cylindrical hole of the body must not exceed `max_ratio` (standard twist drills: about 4-5; deep-hole tooling: up to 10). Holes narrower than `min_diameter` mm are ignored.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "hole_depth_ratio"
+              ],
+              "type": "string"
+            },
+            "max_ratio": {
+              "$ref": "#/definitions/Num"
+            },
+            "min_diameter": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "max_ratio"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "DFM: the material left between every hole wall and the nearest other surface (outer edge, pocket or neighbouring hole) must be at least `min_ratio` x the hole diameter and/or at least `min` mm. Give one or both limits. Measured on the mesh.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "hole_web"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "min_ratio": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "body",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "DFM (moulding/casting): every planar, cylindrical or conical face that is not a parting face must have at least `min_deg` degrees of draft relative to the `pull` axis (default `z`). Faces perpendicular to the pull direction are parting faces and pass.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "min_draft_angle"
+              ],
+              "type": "string"
+            },
+            "min_deg": {
+              "$ref": "#/definitions/Num"
+            },
+            "pull": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CheckAxis"
+                }
+              ],
+              "default": "z"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min_deg"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "DFM (FDM printing): the total area (mm^2) of surfaces overhanging more than `max_deg` degrees from vertical must not exceed `max_area` (default 0). `up` is the build direction (default `z`); faces lying on the build plate are not overhangs.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "max_overhang"
+              ],
+              "type": "string"
+            },
+            "max_area": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "max_deg": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                }
+              ],
+              "default": 45.0
+            },
+            "up": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CheckAxis"
+                }
+              ],
+              "default": "z"
+            }
+          },
+          "required": [
+            "body",
+            "check"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "DFM (milling): internal corners that an end mill travelling along `axis` (default `z`) has to form must have a radius of at least `min` mm. Fails on concave fillets with a smaller radius and on sharp concave edges between two walls parallel to `axis`.",
+          "properties": {
+            "axis": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CheckAxis"
+                }
+              ],
+              "default": "z"
+            },
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "min_internal_radius"
+              ],
+              "type": "string"
+            },
+            "min": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Thread engagement: threaded length / nominal diameter of every thread on the body (ops `thread` and tapped `hole`) must be at least `min_ratio` (rule of thumb: 1.0 in steel, 1.5-2.0 in aluminium, 2.0-2.5 in plastics).",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "thread_engagement"
+              ],
+              "type": "string"
+            },
+            "min_ratio": {
+              "$ref": "#/definitions/Num"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "min_ratio"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ISO 286 fit of a hole/shaft pair at `nominal` mm, e.g. `hole: \"H7\"`, `shaft: \"g6\"`. Passes when the fit is of the wanted `kind` (omit to only compute it) and the clearance stays inside `min_clearance`/`max_clearance` (mm, negative = interference) when given.",
+          "properties": {
+            "check": {
+              "enum": [
+                "fit"
+              ],
+              "type": "string"
+            },
+            "hole": {
+              "type": "string"
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/FitKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "max_clearance": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "min_clearance": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Num"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "nominal": {
+              "$ref": "#/definitions/Num"
+            },
+            "shaft": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "check",
+            "hole",
+            "nominal",
+            "shaft"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "ISO 2768-1 general tolerance class of the drawing versus the manufacturing `process`: passes when the process normally holds the requested `class` (`f` fine, `m` medium, `c` coarse, `v` very coarse). The result lists the permitted deviation of the body's overall dimensions for that class.",
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/BodySel"
+            },
+            "check": {
+              "enum": [
+                "general_tolerance"
+              ],
+              "type": "string"
+            },
+            "class": {
+              "$ref": "#/definitions/ToleranceClass"
+            },
+            "process": {
+              "$ref": "#/definitions/Process"
+            }
+          },
+          "required": [
+            "body",
+            "check",
+            "class",
+            "process"
+          ],
+          "type": "object"
         }
       ],
       "properties": {
+        "citation": {
+          "description": "Standard clause or guideline this check enforces, e.g. `\"ISO 2768-1:1989, Table 1, class m\"`. Printed next to the result in reports.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
           "type": [
             "string",
@@ -699,6 +1008,28 @@
             "string",
             "null"
           ]
+        },
+        "requirement": {
+          "description": "Id of the design requirement this check verifies (see tool `set_brief`), e.g. `\"R2\"`. Reports group the results per requirement (traceability matrix).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule": {
+          "description": "Filled in by rule packs: `\"<pack>@<version>/<rule id>\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Severity"
+            }
+          ],
+          "description": "`error` (default) blocks the build when the check fails; `warning` is reported only."
         }
       },
       "type": "object"
@@ -1097,6 +1428,88 @@
           "type": "object"
         }
       ]
+    },
+    "DesignBrief": {
+      "additionalProperties": false,
+      "description": "The design brief: what is being designed and why. Written before modeling.",
+      "properties": {
+        "cost_target": {
+          "default": "",
+          "description": "Cost target as free text, e.g. `\"< 15 USD at 100 pcs\"`.",
+          "type": "string"
+        },
+        "function": {
+          "default": "",
+          "description": "What the part has to do, in one or two sentences.",
+          "type": "string"
+        },
+        "interfaces": {
+          "description": "Mating parts and interfaces (bolt patterns, shafts, envelopes).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "loads": {
+          "description": "Loads and operating conditions (forces, torques, temperature).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "material": {
+          "default": "",
+          "description": "Material, e.g. `\"Al 6061-T6\"`.",
+          "type": "string"
+        },
+        "notes": {
+          "description": "Anything else worth remembering (decisions, open questions).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "process": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Process"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Manufacturing process; selects the matching DFM rule pack."
+        },
+        "quantity": {
+          "description": "Production quantity.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requirements": {
+          "description": "Numbered requirements; every one should be verified by at least one check.",
+          "items": {
+            "$ref": "#/definitions/Requirement"
+          },
+          "type": "array"
+        },
+        "standards": {
+          "description": "Standards the design must follow, e.g. `\"ISO 2768-m\"`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "default": "",
+          "description": "Name of the part or assembly.",
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "EntitySpec": {
       "description": "Sketch entity (externally tagged, e.g. `{\"rect\": {...}}`).",
@@ -1650,6 +2063,32 @@
         "symmetric"
       ],
       "type": "string"
+    },
+    "FitKind": {
+      "description": "Character of an ISO 286 fit.",
+      "oneOf": [
+        {
+          "description": "Always a gap (minimum clearance >= 0).",
+          "enum": [
+            "clearance"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Gap or interference depending on the actual sizes.",
+          "enum": [
+            "transition"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Always interference (maximum clearance <= 0).",
+          "enum": [
+            "interference"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "Fixture": {
       "additionalProperties": false,
@@ -3869,6 +4308,27 @@
       },
       "type": "object"
     },
+    "PackageSpec": {
+      "additionalProperties": false,
+      "description": "The design package: which sheets go into the document set. Stored in the part.",
+      "properties": {
+        "paper": {
+          "description": "Paper of the generated sheets: `a4`, `a4-portrait`, `a3` (default), `a3-portrait`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sheets": {
+          "description": "Sheets in order. Empty = automatic: cover, stored drawings (or an assembly sheet plus one part sheet per body), flat patterns, BOM, compliance.",
+          "items": {
+            "$ref": "#/definitions/SheetSpec"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "PatternKind": {
       "oneOf": [
         {
@@ -4105,6 +4565,60 @@
         }
       ]
     },
+    "Process": {
+      "description": "Manufacturing process, used by process-dependent checks and rule packs.",
+      "oneOf": [
+        {
+          "description": "CNC milling/turning.",
+          "enum": [
+            "cnc"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Laser/punch cutting and press-brake bending.",
+          "enum": [
+            "sheet_metal"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Fused filament 3D printing.",
+          "enum": [
+            "fdm"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Resin 3D printing.",
+          "enum": [
+            "sla"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Powder-bed 3D printing.",
+          "enum": [
+            "sls"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Injection moulding.",
+          "enum": [
+            "injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Sand/investment casting.",
+          "enum": [
+            "casting"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "ProfileSel": {
       "anyOf": [
         {
@@ -4154,6 +4668,32 @@
       ],
       "type": "string"
     },
+    "Requirement": {
+      "additionalProperties": false,
+      "description": "One requirement the design must meet. Checks point at it through their `requirement` field.",
+      "properties": {
+        "id": {
+          "description": "Short unique id, e.g. `\"R1\"`.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where it comes from: `\"user\"`, a standard, a mating part, a firm rule.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "The requirement in the user's words, with numbers and units.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "type": "object"
+    },
     "RotateSpec": {
       "additionalProperties": false,
       "properties": {
@@ -4181,6 +4721,37 @@
         "angle_deg",
         "axis",
         "pivot"
+      ],
+      "type": "object"
+    },
+    "RulePackRef": {
+      "description": "A rule pack to expand into checks: either its id (`\"dfm-cnc\"`) or `{\"pack\": \"dfm-cnc\", \"body\": \"plate\", \"vars\": {\"min_wall\": 1.5}}`.",
+      "properties": {
+        "body": {
+          "description": "Body the rules apply to; `\"*\"` (default) = the only body.",
+          "type": "string"
+        },
+        "pack": {
+          "description": "Pack id; list them with `get_schema {\"rule_packs\": true}`.",
+          "type": "string"
+        },
+        "requirement": {
+          "description": "Requirement id (see `set_brief`) every expanded check is traced to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vars": {
+          "additionalProperties": true,
+          "description": "Overrides of the pack variables (number or string; a string may be an expression such as `\"$t\"`).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "body",
+        "pack",
+        "vars"
       ],
       "type": "object"
     },
@@ -4254,6 +4825,154 @@
           },
           "required": [
             "cubic"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Severity": {
+      "description": "How a failing check is treated.",
+      "oneOf": [
+        {
+          "description": "A failure blocks `ducad-cli build` (exit code 3) and package approval.",
+          "enum": [
+            "error"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A failure is reported but does not block the build.",
+          "enum": [
+            "warning"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SheetSpec": {
+      "description": "One sheet of the design package.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Cover: title, brief, sheet index, revision table, compliance summary.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "cover"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A drawing sheet stored in the part (tool `drawing` with `save: true`).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "drawing"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Automatic part drawing of one body.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "part"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Assembly drawing of every visible body with a BOM table and balloons.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "assembly"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flat pattern of a sheet metal body.",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "flat_pattern"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "body",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bill of materials as a table page.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "bom"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Requirement traceability and design checks with their citations.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "compliance"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         }
@@ -4615,6 +5334,39 @@
         "boundary"
       ],
       "type": "object"
+    },
+    "ToleranceClass": {
+      "description": "ISO 2768-1 tolerance class for linear dimensions.",
+      "oneOf": [
+        {
+          "description": "Fine.",
+          "enum": [
+            "f"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Medium.",
+          "enum": [
+            "m"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Coarse.",
+          "enum": [
+            "c"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Very coarse.",
+          "enum": [
+            "v"
+          ],
+          "type": "string"
+        }
+      ]
     }
   },
   "description": "Ops file content: `{ \"params\": {...}, \"ops\": [...], \"checks\"?: [...] }`.",
@@ -4625,6 +5377,17 @@
         "string",
         "null"
       ]
+    },
+    "brief": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DesignBrief"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional design brief with numbered requirements (same shape as tool `set_brief`). Checks reference a requirement through their `requirement` field."
     },
     "checks": {
       "description": "Optional design checks (P7 format); `ducad-cli run` installs them into `design.checks` before running the ops.",
@@ -4651,6 +5414,17 @@
       },
       "type": "array"
     },
+    "package": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PackageSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional design package: the sheets of the multi-page document set built by `ducad-cli build --package` / tool `build_package`. Omitted = automatic."
+    },
     "params": {
       "additionalProperties": {
         "format": "double",
@@ -4658,6 +5432,13 @@
       },
       "default": {},
       "type": "object"
+    },
+    "rule_packs": {
+      "description": "Optional rule packs expanded into extra checks when the file is loaded, e.g. `[\"dfm-cnc\"]` or `[{\"pack\": \"dfm-sheet-metal\", \"vars\": {\"thickness\": \"$t\"}}]`.",
+      "items": {
+        "$ref": "#/definitions/RulePackRef"
+      },
+      "type": "array"
     }
   },
   "required": [

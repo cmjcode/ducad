@@ -108,12 +108,64 @@ pub struct ToolResult {
     pub output: ToolOutput,
 }
 
+/// Batas ukuran satu gambar lampiran (batas API Anthropic: 5 MB).
+pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+
+/// Gambar yang dilampirkan pengguna ke pesannya (W6): foto sketsa tangan,
+/// tangkapan gambar lama, foto part. Jenisnya dikenali dari byte awal,
+/// bukan dari ekstensi berkas.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatImage {
+    /// `image/png`, `image/jpeg`, `image/gif`, atau `image/webp`.
+    pub media_type: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+impl ChatImage {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, String> {
+        let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            "image/png"
+        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            "image/jpeg"
+        } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+            "image/gif"
+        } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+            "image/webp"
+        } else {
+            return Err("bukan gambar PNG, JPEG, GIF, atau WebP".to_string());
+        };
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(format!(
+                "gambar {:.1} MB melebihi batas {} MB",
+                bytes.len() as f64 / (1024.0 * 1024.0),
+                MAX_IMAGE_BYTES / (1024 * 1024)
+            ));
+        }
+        Ok(Self { media_type, bytes })
+    }
+
+    pub fn from_path(path: &std::path::Path) -> Result<Self, String> {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("gagal membaca {}: {e}", path.display()))?;
+        Self::from_bytes(bytes).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    pub fn base64(&self) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(&self.bytes)
+    }
+}
+
 /// Pesan percakapan netral provider (pola `ConvMessage` TABULAR).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum ConvMessage {
     User {
         text: String,
+        /// Gambar lampiran. Tidak disimpan di riwayat (seperti gambar hasil
+        /// tool); hanya gambar pesan pengguna TERAKHIR yang dikirim ulang.
+        #[serde(skip)]
+        images: Vec<ChatImage>,
     },
     Assistant {
         text: String,
@@ -139,6 +191,22 @@ pub enum StopReason {
     MaxTokens,
     Refusal,
     Other(String),
+}
+
+impl ConvMessage {
+    /// Pesan pengguna tanpa lampiran.
+    pub fn user(text: impl Into<String>) -> Self {
+        ConvMessage::User {
+            text: text.into(),
+            images: Vec::new(),
+        }
+    }
+}
+
+/// Indeks pesan pengguna terakhir yang membawa gambar.
+pub fn last_user_images(conv: &[ConvMessage]) -> Option<usize> {
+    conv.iter()
+        .rposition(|m| matches!(m, ConvMessage::User { images, .. } if !images.is_empty()))
 }
 
 impl StopReason {
@@ -288,7 +356,10 @@ mod tests {
     #[test]
     fn conv_roundtrips_json() {
         let conv = vec![
-            ConvMessage::User { text: "hai".into() },
+            ConvMessage::User {
+            text: "hai".into(),
+            images: Vec::new(),
+        },
             ConvMessage::Assistant {
                 text: "ok".into(),
                 calls: vec![ToolCall {
@@ -312,5 +383,83 @@ mod tests {
         assert_eq!(back, conv);
         assert_eq!(StopReason::parse("tool_calls"), StopReason::ToolUse);
         assert_eq!(StopReason::parse("length"), StopReason::MaxTokens);
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+    use serde_json::json;
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n0000";
+    const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2];
+
+    #[test]
+    fn image_type_comes_from_the_bytes() {
+        assert_eq!(ChatImage::from_bytes(PNG.to_vec()).unwrap().media_type, "image/png");
+        assert_eq!(ChatImage::from_bytes(JPEG.to_vec()).unwrap().media_type, "image/jpeg");
+        assert!(ChatImage::from_bytes(b"%PDF-1.4".to_vec()).is_err());
+        let mut big = PNG.to_vec();
+        big.resize(MAX_IMAGE_BYTES + 1, 0);
+        assert!(ChatImage::from_bytes(big).unwrap_err().contains("batas"));
+    }
+
+    fn conv() -> Vec<ConvMessage> {
+        let img = |b: &[u8]| ChatImage::from_bytes(b.to_vec()).unwrap();
+        vec![
+            ConvMessage::User {
+                text: "ini sketsanya".into(),
+                images: vec![img(PNG)],
+            },
+            ConvMessage::Assistant {
+                text: "ok".into(),
+                calls: vec![],
+                raw: None,
+            },
+            ConvMessage::User {
+                text: "dan foto part lawannya".into(),
+                images: vec![img(JPEG), img(PNG)],
+            },
+            ConvMessage::user("lanjut"),
+        ]
+    }
+
+    #[test]
+    fn only_the_latest_user_images_are_sent_to_anthropic() {
+        let msgs = anthropic::messages(&conv());
+        // Pesan lama: gambarnya diganti penanda teks.
+        assert_eq!(msgs[0]["content"][0]["type"], "text");
+        assert_eq!(msgs[0]["content"][1]["text"], "ini sketsanya");
+        // Pesan terakhir yang bergambar: gambar mendahului teks.
+        let latest = &msgs[2]["content"];
+        assert_eq!(latest[0]["type"], "image");
+        assert_eq!(latest[0]["source"]["media_type"], "image/jpeg");
+        assert_eq!(latest[1]["source"]["media_type"], "image/png");
+        assert_eq!(latest[2]["text"], "dan foto part lawannya");
+        assert!(!latest[0]["source"]["data"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn openai_gets_data_urls_for_the_latest_images() {
+        let msgs = openai::messages(&conv());
+        let users: Vec<&serde_json::Value> =
+            msgs.iter().filter(|m| m["role"] == "user").collect();
+        assert_eq!(users[0]["content"], json!("ini sketsanya"));
+        let parts = users[1]["content"].as_array().unwrap();
+        assert_eq!(parts[0]["text"], "dan foto part lawannya");
+        assert!(parts[1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/jpeg;base64,"));
+        assert_eq!(parts.len(), 3);
+        assert_eq!(users[2]["content"], json!("lanjut"));
+    }
+
+    #[test]
+    fn images_are_not_written_to_history() {
+        let text = serde_json::to_string(&conv()[2]).unwrap();
+        assert!(!text.contains("images"), "{text}");
+        let back: ConvMessage = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, ConvMessage::user("dan foto part lawannya"));
     }
 }

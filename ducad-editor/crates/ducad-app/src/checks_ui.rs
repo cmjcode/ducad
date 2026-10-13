@@ -102,6 +102,10 @@ impl DuCADApp {
                     message: ducad_i18n::t!("checks-stale"),
                     location: None,
                     body: None,
+                    requirement: item.requirement.clone(),
+                    citation: item.citation.clone(),
+                    severity: item.severity,
+                    rule: item.rule.clone(),
                 });
                 results.push(placeholder);
                 stale[i] = true;
@@ -120,11 +124,21 @@ impl DuCADApp {
                     (Some((name, min)), Some(mesh)) => {
                         let tx = tx.clone();
                         let id = item.id.clone();
+                        let (requirement, citation, severity, rule) = (
+                            item.requirement.clone(),
+                            item.citation.clone(),
+                            item.severity,
+                            item.rule.clone(),
+                        );
                         let repaint = ctx.clone();
                         std::thread::spawn(move || {
                             let mut r = evaluate_min_wall(&mesh, &name, min);
                             r.index = i;
                             r.id = id;
+                            r.requirement = requirement;
+                            r.citation = citation;
+                            r.severity = severity;
+                            r.rule = rule;
                             let _ = tx.send((sig, i, r));
                             repaint.request_repaint();
                         });
@@ -162,15 +176,17 @@ impl DuCADApp {
                     .chain(std::iter::repeat(false)),
             )
             .map(|(r, stale)| CheckRowUi {
-                status: match r.status {
-                    CheckStatus::Pass => CheckRowStatus::Pass,
-                    CheckStatus::Fail => CheckRowStatus::Fail,
-                    CheckStatus::Error => CheckRowStatus::Error,
+                status: match (r.status, r.severity) {
+                    (CheckStatus::Pass, _) => CheckRowStatus::Pass,
+                    (_, ducad_engine::check::Severity::Warning) => CheckRowStatus::Warning,
+                    (CheckStatus::Fail, _) => CheckRowStatus::Fail,
+                    (CheckStatus::Error, _) => CheckRowStatus::Error,
                 },
                 label: r.id.clone().unwrap_or_else(|| r.kind.to_string()),
                 detail: r.message.clone(),
                 focusable: r.location.is_some() || r.body.is_some(),
                 stale,
+                citation: r.citation.clone(),
             })
             .collect()
     }

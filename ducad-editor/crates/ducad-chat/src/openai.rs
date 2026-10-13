@@ -53,9 +53,22 @@ pub fn messages(conv: &[ConvMessage]) -> Vec<Value> {
         .iter()
         .rposition(|m| matches!(m, ConvMessage::ToolResults { .. }));
     let mut out = Vec::new();
+    let last_user_images = crate::last_user_images(conv);
     for (i, m) in conv.iter().enumerate() {
         match m {
-            ConvMessage::User { text } => out.push(json!({ "role": "user", "content": text })),
+            ConvMessage::User { text, images } => {
+                if Some(i) == last_user_images && !images.is_empty() {
+                    let mut content = vec![json!({ "type": "text", "text": text })];
+                    content.extend(images.iter().map(|img| {
+                        json!({ "type": "image_url", "image_url": {
+                            "url": format!("data:{};base64,{}", img.media_type, img.base64()),
+                        } })
+                    }));
+                    out.push(json!({ "role": "user", "content": content }));
+                } else {
+                    out.push(json!({ "role": "user", "content": text }));
+                }
+            }
             ConvMessage::Assistant { text, calls, .. } => {
                 let mut v = json!({
                     "role": "assistant",
@@ -256,7 +269,10 @@ data: [DONE]
             input_schema: json!({"type":"object"}),
         }];
         let conv = vec![
-            ConvMessage::User { text: "hai".into() },
+            ConvMessage::User {
+            text: "hai".into(),
+            images: Vec::new(),
+        },
             ConvMessage::Assistant {
                 text: String::new(),
                 calls: vec![ToolCall {

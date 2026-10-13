@@ -14,6 +14,11 @@ Vault ini adalah memori jangka panjang agent yang memodelkan dengan DUCAD.
 - `Sessions/YYYY-MM-DD.md` — log singkat: apa yang diminta, apa yang dibuat, apa yang tertunda. Tambah dengan `append_note` (`create_if_missing: true`).
 - `BOM/<assembly>.csv` — kolom: item, part, qty, material, file, catatan.
 
+## Paket desain (brief → review → revisi)
+- `Standards/firm.json` = profil firma terbaca mesin (lihat `Standards/Firm-Profile.md`); `Standards/Rule-Packs.md` = peta paket aturan.
+- Setelah paket diajukan/disetujui: perbarui `Projects/<nama-part>.md` dengan brief, persyaratan + statusnya, dan tabel revisi (`ducad-cli build --package --project-note` menulis drafnya).
+- Redline atau proposal yang DITOLAK user: catat di `Lessons/` apa yang diusulkan, mengapa ditolak, dan apa yang akhirnya diterima. Ini satu-satunya pelajaran yang boleh dicatat tanpa checks hijau.
+
 ## Aturan
 - Jangan menyimpan geometri, STEP, mesh, atau oplog utuh. Simpan path file.
 - Tag wajib: `ducad` + salah satu dari `preference|standard|lesson|project|session`.

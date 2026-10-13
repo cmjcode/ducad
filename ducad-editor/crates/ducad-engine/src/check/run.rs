@@ -4,7 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::types::{
-    BodySel, Check, CheckItem, CheckResult, CheckStatus, InertiaAxis, StackMethod,
+    BodySel, Check, CheckItem, CheckResult, CheckStatus, InertiaAxis, Severity, StackMethod,
 };
 use crate::inspect::round4;
 use crate::model::{BodyGeometry, ModelDoc};
@@ -12,23 +12,47 @@ use crate::ops::{eval, eval_arr, Num, Params};
 use crate::session::{SessionCore, SessionMeta};
 
 /// Ringkasan hasil (dipakai CLI/MCP).
+///
+/// `fail`/`error` hanya menghitung check ber-severity `error` (yang
+/// menghalangi build); check `warning` yang tidak lulus masuk `warn`.
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckSummary {
     pub pass: usize,
     pub fail: usize,
     pub error: usize,
+    /// Check ber-severity `warning` yang tidak lulus (tidak menghalangi).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub warn: usize,
     pub results: Vec<CheckResult>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl CheckSummary {
     pub fn from_results(results: Vec<CheckResult>) -> Self {
-        let count = |s: CheckStatus| results.iter().filter(|r| r.status == s).count();
+        let count = |s: CheckStatus| {
+            results
+                .iter()
+                .filter(|r| r.status == s && (s == CheckStatus::Pass || r.severity == Severity::Error))
+                .count()
+        };
         Self {
             pass: count(CheckStatus::Pass),
             fail: count(CheckStatus::Fail),
             error: count(CheckStatus::Error),
+            warn: results
+                .iter()
+                .filter(|r| r.status != CheckStatus::Pass && r.severity == Severity::Warning)
+                .count(),
             results,
         }
+    }
+
+    /// Ada check yang menghalangi build.
+    pub fn is_blocking(&self) -> bool {
+        self.fail + self.error > 0
     }
 }
 
@@ -66,13 +90,17 @@ pub fn run_checks_on(
                 message: r.message,
                 location: r.location,
                 body: r.body,
+                requirement: item.requirement.clone(),
+                citation: item.citation.clone(),
+                severity: item.severity,
+                rule: item.rule.clone(),
             }
         })
         .collect()
 }
 
-struct Outcome {
-    status: CheckStatus,
+pub(super) struct Outcome {
+    pub(super) status: CheckStatus,
     measured: serde_json::Value,
     expected: serde_json::Value,
     message: String,
@@ -81,7 +109,7 @@ struct Outcome {
 }
 
 impl Outcome {
-    fn new(
+    pub(super) fn new(
         pass: bool,
         measured: serde_json::Value,
         expected: serde_json::Value,
@@ -112,12 +140,12 @@ impl Outcome {
         }
     }
 
-    fn body(mut self, name: &str) -> Self {
+    pub(super) fn body(mut self, name: &str) -> Self {
         self.body = Some(name.to_string());
         self
     }
 
-    fn at(mut self, p: Option<[f64; 3]>) -> Self {
+    pub(super) fn at(mut self, p: Option<[f64; 3]>) -> Self {
         self.location = p;
         self
     }
@@ -202,6 +230,68 @@ impl Ctx<'_> {
 
     fn num(&self, n: &Num) -> Result<f64, String> {
         eval(n, &self.params).map_err(|e| e.message)
+    }
+
+    fn opt(&self, n: &Option<Num>) -> Result<Option<f64>, String> {
+        n.as_ref().map(|n| self.num(n)).transpose()
+    }
+
+    /// Ulir pada body `name`: op `thread` (tercatat di sesi) + lubang
+    /// `tapped` di oplog. Lubang tapped tembus memakai kedalaman lubang
+    /// terukur (kedalaman spesifikasinya hanya nilai bawaan).
+    fn threads_of(&self, name: &str, g: &BodyGeometry) -> Vec<super::dfm::ThreadLen> {
+        use super::dfm::{nominal_of, ThreadLen};
+        let mut out: Vec<ThreadLen> = Vec::new();
+        for t in self.meta.threads.get(name).map(Vec::as_slice).unwrap_or(&[]) {
+            if let Some(nominal) = nominal_of(&t.designation) {
+                out.push(ThreadLen {
+                    designation: t.designation.clone(),
+                    nominal,
+                    length: t.length,
+                });
+            }
+        }
+        let mut measured: Option<Vec<super::dfm::ConcaveCylinder>> = None;
+        for op in &self.meta.design.oplog {
+            let crate::ops::Op::Hole { body, spec, .. } = op else {
+                continue;
+            };
+            if body != name {
+                continue;
+            }
+            let Ok(spec) = crate::session::hole_spec(spec, &self.params) else {
+                continue;
+            };
+            if spec.kind != ducad_core::HoleKind::Tapped {
+                continue;
+            }
+            let designation = spec.thread_size.label().to_string();
+            let Some(nominal) = nominal_of(&designation) else {
+                continue;
+            };
+            let length = if spec.is_through {
+                let holes = measured.get_or_insert_with(|| {
+                    super::dfm::holes(&ducad_kernel::enumerate_faces(&g.shape))
+                });
+                holes
+                    .iter()
+                    .filter(|h| (2.0 * h.radius - spec.diameter).abs() <= 0.05)
+                    .map(|h| h.depth)
+                    .fold(f64::MAX, f64::min)
+            } else if spec.thread_depth > 0.0 {
+                spec.thread_depth
+            } else {
+                spec.depth
+            };
+            if length.is_finite() && length < f64::MAX {
+                out.push(ThreadLen {
+                    designation,
+                    nominal,
+                    length,
+                });
+            }
+        }
+        out
     }
 
     fn all_bodies(&self) -> Vec<(String, &BodyGeometry)> {
@@ -630,6 +720,88 @@ impl Ctx<'_> {
                     ),
                 ))
             }
+            Check::HoleDepthRatio {
+                body,
+                max_ratio,
+                min_diameter,
+            } => {
+                let (name, g) = self.one(body)?;
+                let max_ratio = self.num(max_ratio)?;
+                let min_d = self.opt(min_diameter)?.unwrap_or(0.0);
+                let faces = ducad_kernel::enumerate_faces(&g.shape);
+                Ok(super::dfm::hole_depth_ratio(&faces, max_ratio, min_d)?.body(&name))
+            }
+            Check::HoleWeb {
+                body,
+                min_ratio,
+                min,
+            } => {
+                let (name, g) = self.one(body)?;
+                let (min_ratio, min) = (self.opt(min_ratio)?, self.opt(min)?);
+                let faces = ducad_kernel::enumerate_faces(&g.shape);
+                Ok(super::dfm::hole_web(&faces, &g.mesh, min_ratio, min)?.body(&name))
+            }
+            Check::MinDraftAngle {
+                body,
+                pull,
+                min_deg,
+            } => {
+                let (name, g) = self.one(body)?;
+                let min_deg = self.num(min_deg)?;
+                let faces = ducad_kernel::enumerate_faces(&g.shape);
+                Ok(super::dfm::min_draft(&faces, pull.unit(), min_deg)?.body(&name))
+            }
+            Check::MaxOverhang {
+                body,
+                up,
+                max_deg,
+                max_area,
+            } => {
+                let (name, g) = self.one(body)?;
+                let max_deg = self.num(max_deg)?;
+                let max_area = self.opt(max_area)?.unwrap_or(0.0);
+                Ok(super::dfm::max_overhang(&g.mesh, up.unit(), max_deg, max_area)?.body(&name))
+            }
+            Check::MinInternalRadius { body, axis, min } => {
+                let (name, g) = self.one(body)?;
+                let min = self.num(min)?;
+                let faces = ducad_kernel::enumerate_faces(&g.shape);
+                let edges = ducad_kernel::enumerate_edges(&g.shape);
+                Ok(
+                    super::dfm::min_internal_radius(&faces, &edges, axis.unit(), min)?
+                        .body(&name),
+                )
+            }
+            Check::ThreadEngagement { body, min_ratio } => {
+                let (name, g) = self.one(body)?;
+                let min_ratio = self.num(min_ratio)?;
+                let threads = self.threads_of(&name, g);
+                Ok(super::dfm::thread_engagement(&threads, min_ratio)?.body(&name))
+            }
+            Check::Fit {
+                nominal,
+                hole,
+                shaft,
+                kind,
+                min_clearance,
+                max_clearance,
+            } => super::dfm::fit(
+                self.num(nominal)?,
+                hole,
+                shaft,
+                *kind,
+                self.opt(min_clearance)?,
+                self.opt(max_clearance)?,
+            ),
+            Check::GeneralTolerance {
+                body,
+                class,
+                process,
+            } => {
+                let (name, g) = self.one(body)?;
+                let size = bbox_size(g)?;
+                Ok(super::dfm::general_tolerance(size, *class, *process)?.body(&name))
+            }
             Check::MinWall { body, min } => {
                 let (name, g) = self.one(body)?;
                 let min = self.num(min)?;
@@ -754,6 +926,10 @@ pub fn evaluate_min_wall(mesh: &ducad_kernel::KernelMesh, body: &str, min: f64) 
         message: "tebal dinding tidak bisa diukur (mesh tanpa sampel)".into(),
         location: None,
         body: Some(body.to_string()),
+        requirement: None,
+        citation: None,
+        severity: Severity::Error,
+        rule: None,
     };
     let Some(report) = ducad_kernel::min_wall_thickness(mesh, ducad_kernel::DEFAULT_WALL_SAMPLES)
     else {

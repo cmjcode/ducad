@@ -100,10 +100,27 @@ pub fn messages(conv: &[ConvMessage]) -> Vec<Value> {
         }
         out.push(json!({ "role": role, "content": content }));
     };
+    let last_images = crate::last_user_images(conv);
     for (i, m) in conv.iter().enumerate() {
         match m {
-            ConvMessage::User { text } => {
-                push("user", vec![json!({ "type": "text", "text": text })]);
+            ConvMessage::User { text, images } => {
+                // Gambar mendahului teks (anjuran API); gambar pesan lama
+                // dibuang supaya tidak dibayar ulang tiap giliran.
+                let mut content = Vec::new();
+                if Some(i) == last_images {
+                    content.extend(images.iter().map(|img| {
+                        json!({ "type": "image", "source": {
+                            "type": "base64", "media_type": img.media_type, "data": img.base64(),
+                        } })
+                    }));
+                } else if !images.is_empty() {
+                    content.push(json!({
+                        "type": "text",
+                        "text": "[gambar lama dihapus dari riwayat]"
+                    }));
+                }
+                content.push(json!({ "type": "text", "text": text }));
+                push("user", content);
             }
             ConvMessage::Assistant { text, calls, raw } => {
                 let content = match raw.as_ref().and_then(Value::as_array) {
@@ -401,8 +418,9 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}
         let raw = json!([{"type":"thinking","thinking":"","signature":"S"},{"type":"tool_use","id":"t1","name":"a","input":{}}]);
         let conv = vec![
             ConvMessage::User {
-                text: "buat plat".into(),
-            },
+            text: "buat plat".into(),
+            images: Vec::new(),
+        },
             ConvMessage::Assistant {
                 text: String::new(),
                 calls: vec![],
@@ -420,8 +438,9 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}
                 }],
             },
             ConvMessage::User {
-                text: "lanjut".into(),
-            },
+            text: "lanjut".into(),
+            images: Vec::new(),
+        },
         ];
         let body = request_body("claude-opus-5", 1000, "sys", &tools, &conv, true);
         assert!(body["tools"][0].get("cache_control").is_none());

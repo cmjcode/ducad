@@ -113,6 +113,16 @@ pub fn build_sheet(
 ) -> OpResult<SheetOutput> {
     let mut bodies: Vec<_> = model.doc.bodies.iter().filter(|(_, b)| b.visible).collect();
     bodies.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+    if !spec.bodies.is_empty() {
+        let known: Vec<&str> = bodies.iter().map(|(_, b)| b.name.as_str()).collect();
+        if let Some(missing) = spec.bodies.iter().find(|n| !known.contains(&n.as_str())) {
+            return Err(OpError::new(
+                OpErrorCode::UnknownRef,
+                format!("sheet '{}' refers to body '{missing}' which is not a visible body (available: {known:?})", spec.name),
+            ));
+        }
+        bodies.retain(|(_, b)| spec.bodies.contains(&b.name));
+    }
     let mut shapes: Vec<&KernelShape> = Vec::new();
     let mut meshes: Vec<&KernelMesh> = Vec::new();
     let mut colors: Vec<[f32; 3]> = Vec::new();
@@ -155,9 +165,10 @@ pub fn build_sheet(
 
     let key = geometry_key.filter(|k| !k.is_empty()).map(|k| {
         format!(
-            "{k}|{}|{}",
+            "{k}|{}|{}|{}",
             serde_json::to_string(&options.sections).unwrap_or_default(),
-            options.default_section
+            options.default_section,
+            spec.bodies.join(",")
         )
     });
     let drawing = match key.as_deref().and_then(cached_drawing) {
@@ -257,6 +268,32 @@ pub fn hole_notes(design: &DesignDoc, params: &Params) -> Vec<String> {
             else {
                 return None;
             };
+            let n = at.len() + at_world.len();
+            let spec = crate::session::hole_spec(spec, params).ok()?;
+            Some(format!("{n}× {}", spec.technical_callout()))
+        })
+        .collect()
+}
+
+/// [`hole_notes`] hanya untuk lubang pada body `body` (lembar part per body).
+pub fn hole_notes_for(design: &DesignDoc, params: &Params, body: &str) -> Vec<String> {
+    design
+        .oplog
+        .iter()
+        .filter_map(|op| {
+            let Op::Hole {
+                body: b,
+                at,
+                at_world,
+                spec,
+                ..
+            } = op
+            else {
+                return None;
+            };
+            if b != body {
+                return None;
+            }
             let n = at.len() + at_world.len();
             let spec = crate::session::hole_spec(spec, params).ok()?;
             Some(format!("{n}× {}", spec.technical_callout()))

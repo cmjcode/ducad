@@ -3,7 +3,6 @@
 //! Deterministik: masukan dan `--date` sama → byte keluaran sama. Tanggal
 //! default dari env `SOURCE_DATE_EPOCH`, baru kemudian tanggal hari ini.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ducad_engine::check::{CheckStatus, CheckSummary};
@@ -18,8 +17,8 @@ use serde::Serialize;
 use super::write_json;
 use crate::{CliError, CliResult, Exit};
 
-const ALL_FORMATS: [&str; 10] = [
-    "step", "stl", "obj", "glb", "pdf", "svg", "dxf", "png", "bom", "flat",
+const ALL_FORMATS: [&str; 11] = [
+    "step", "stl", "obj", "glb", "pdf", "svg", "dxf", "png", "bom", "flat", "package",
 ];
 const BOM_HEADER: &str = "item,part,qty,material,volume_mm3,mass_g,file,standard";
 /// Batas baris tabel di `report.md` agar tetap ±60 baris.
@@ -32,8 +31,10 @@ pub struct Args {
     /// Folder keluaran (dibuat bila belum ada).
     #[arg(long)]
     out: PathBuf,
-    /// Daftar format dipisah koma: step,stl,obj,glb,pdf,svg,dxf,png,bom,flat
-    /// (`flat` = DXF pola bentangan tiap body sheet metal).
+    /// Daftar format dipisah koma: step,stl,obj,glb,pdf,svg,dxf,png,bom,flat,package
+    /// (`flat` = DXF pola bentangan tiap body sheet metal; `package` = paket
+    /// desain multi-lembar `<stem>-package.pdf` + laporan keterlacakan,
+    /// kepatuhan, dan biaya).
     #[arg(long, value_delimiter = ',', default_value = "step,stl,pdf,png,bom")]
     formats: Vec<String>,
     /// Ukuran kertas gambar kerja: a4 | a3 (lanskap). Default: kertas lembar
@@ -74,6 +75,24 @@ pub struct Args {
     /// konfigurasi itu, plus ringkasan matriks di folder keluaran.
     #[arg(long)]
     all_configs: bool,
+    /// Singkatan untuk menambah `package` ke `--formats`.
+    #[arg(long)]
+    package: bool,
+    /// Profil firma (JSON). Bawaan: env `DUCAD_FIRM`, lalu `firm.json` di
+    /// samping part, lalu `~/DUCAD-Memory/Standards/firm.json`.
+    #[arg(long)]
+    firm: Option<PathBuf>,
+    /// Paket aturan tambahan (boleh diulang), mis. `--rule-pack dfm-cnc`.
+    #[arg(long = "rule-pack")]
+    rule_packs: Vec<String>,
+    /// Tulis catatan proyek (Markdown ber-frontmatter untuk vault memori
+    /// agent, mis. `~/DUCAD-Memory/Projects/bracket.md`). Butuh format `package`.
+    #[arg(long)]
+    project_note: Option<PathBuf>,
+    /// Build rilis: gagal (kode 4) kecuali paket berstatus `approved` untuk
+    /// desain yang sedang dibangun dan ceklis review bersih.
+    #[arg(long)]
+    release: bool,
 }
 
 fn parse_paper(s: &str) -> Result<PaperSize, String> {
@@ -193,11 +212,36 @@ struct Report {
     bodies: Vec<BodyRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     checks: Option<CheckSummary>,
+    /// Matriks keterlacakan persyaratan → check (bila ada brief).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    traceability: Option<ducad_engine::brief::Traceability>,
+    /// Status rilis paket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release: Option<ReleaseRow>,
+    /// Estimasi biaya indikatif (format `package`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cost: Option<ducad_engine::firm::CostReport>,
+    /// Profil firma yang dipakai.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    firm_profile: Option<String>,
     /// Hasil studi simulasi (`Op::Study`), urut oplog.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     sim: Vec<StudyRow>,
     artifacts: Vec<Artifact>,
     warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ReleaseRow {
+    /// `draft` | `in_review` | `approved`.
+    state: &'static str,
+    revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approved_by: Option<String>,
+    review: Vec<ducad_engine::brief::ReviewItem>,
+    /// Alasan `--release` ditolak; kosong = boleh rilis.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    blockers: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -286,17 +330,9 @@ fn body_rows(s: &Session) -> Vec<BodyRow> {
         .collect()
 }
 
-/// BOM CSV: satu baris per kelompok body dengan `mesh_fingerprint` sama.
+/// BOM CSV: satu baris per kelompok body dengan `mesh_fingerprint` sama
+/// (pengelompokan bersama di `ducad_engine::package::bom_lines`).
 fn bom_csv(s: &Session, file: &str) -> String {
-    let mut groups: BTreeMap<u64, Vec<(&ducad_core::Body, f64)>> = BTreeMap::new();
-    let mut order: Vec<u64> = Vec::new();
-    for (b, g) in visible_bodies(s) {
-        let key = g.mesh_fingerprint;
-        if !groups.contains_key(&key) {
-            order.push(key);
-        }
-        groups.entry(key).or_default().push((b, g.shape.volume()));
-    }
     let csv = |t: &str| {
         if t.contains([',', '"', '\n']) {
             format!("\"{}\"", t.replace('"', "\"\""))
@@ -306,35 +342,17 @@ fn bom_csv(s: &Session, file: &str) -> String {
     };
     let mut out = String::from(BOM_HEADER);
     out.push('\n');
-    for (i, key) in order.iter().enumerate() {
-        let members = &groups[key];
-        let (first, volume) = members[0];
-        // Material mekanik (bila dipilih) lebih bermakna di BOM daripada preset visual.
-        let material = first
-            .mechanical
-            .as_ref()
-            .map(|m| m.label())
-            .unwrap_or_else(|| material_label(first.material.preset));
-        let mass = mass_g(volume, s.model().doc.density_of(first))
-            .map(|m| format!("{m:.2}"))
-            .unwrap_or_default();
-        // Sebutan standar (mis. "ISO 4762 - M6 x 20") untuk part toolbox.
-        let standard = s
-            .meta()
-            .standard_parts
-            .get(&first.name)
-            .cloned()
-            .unwrap_or_default();
+    for line in ducad_engine::package::bom_lines(s.model(), s.meta()) {
         out.push_str(&format!(
             "{},{},{},{},{:.2},{},{},{}\n",
-            i + 1,
-            csv(&first.name),
-            members.len(),
-            csv(&material),
-            volume,
-            mass,
+            line.item,
+            csv(&line.part),
+            line.qty,
+            csv(&line.material),
+            line.volume_mm3,
+            line.mass_g.map(|m| format!("{m:.2}")).unwrap_or_default(),
             csv(file),
-            csv(&standard)
+            csv(&line.standard)
         ));
     }
     out
@@ -358,6 +376,20 @@ fn report_md(r: &Report, title: &str) -> String {
         "Status: **{}** · masukan `{}` · muat: {} · tanggal {}\n",
         r.status, r.input, r.load, r.date
     ));
+    if let Some(rel) = &r.release {
+        md.push_str(&format!(
+            "Rilis: **{}** revisi {}{}\n",
+            rel.state,
+            rel.revision,
+            rel.approved_by
+                .as_ref()
+                .map(|b| format!(" · disetujui {b}"))
+                .unwrap_or_default()
+        ));
+        for b in &rel.blockers {
+            md.push_str(&format!("\n> Belum boleh rilis — {b}\n"));
+        }
+    }
     if let Some(e) = &r.error {
         let msg = e.get("message").and_then(|m| m.as_str()).unwrap_or("");
         md.push_str(&format!("\n> Error: {msg}\n"));
@@ -381,26 +413,83 @@ fn report_md(r: &Report, title: &str) -> String {
             md.push_str(&format!("| … {} body lagi | | | |\n", r.bodies.len() - MD_MAX_ROWS));
         }
     }
-    if let Some(c) = &r.checks {
+    if let Some(t) = &r.traceability {
         md.push_str(&format!(
-            "\n## Checks — lulus {} · gagal {} · error {}\n\n| | Id | Terukur | Harapan |\n|---|---|---|---|\n",
-            c.pass, c.fail, c.error
+            "\n## Persyaratan — terverifikasi {} · gagal {} · tanpa check {}\n\n| | Id | Persyaratan | Diverifikasi oleh |\n|---|---|---|---|\n",
+            t.verified, t.failed, t.unverified
+        ));
+        for row in t.rows.iter().take(MD_MAX_ROWS) {
+            let icon = match row.status {
+                ducad_engine::brief::TraceStatus::Verified => "✅",
+                ducad_engine::brief::TraceStatus::Failed => "❌",
+                ducad_engine::brief::TraceStatus::Unverified => "⚠️",
+            };
+            let by: Vec<&str> = row.checks.iter().map(|c| c.check.as_str()).collect();
+            md.push_str(&format!(
+                "| {icon} | {} | {} | {} |\n",
+                row.id,
+                row.text.replace('|', "\\|"),
+                by.join(", ")
+            ));
+        }
+        if t.rows.len() > MD_MAX_ROWS {
+            md.push_str(&format!("| | … {} persyaratan lagi | | |\n", t.rows.len() - MD_MAX_ROWS));
+        }
+    }
+    if let Some(c) = &r.checks {
+        // Kolom "Dasar" hanya muncul bila ada check bersitasi, supaya
+        // laporan part lama tidak berubah bentuk.
+        let cited = c.results.iter().any(|res| res.citation.is_some());
+        let warn = if c.warn > 0 {
+            format!(" · peringatan {}", c.warn)
+        } else {
+            String::new()
+        };
+        md.push_str(&format!(
+            "\n## Checks — lulus {} · gagal {} · error {}{warn}\n\n| | Id | Terukur | Harapan |{}\n|---|---|---|---|{}\n",
+            c.pass,
+            c.fail,
+            c.error,
+            if cited { " Dasar |" } else { "" },
+            if cited { "---|" } else { "" }
         ));
         for res in c.results.iter().take(MD_MAX_ROWS) {
-            let icon = match res.status {
-                CheckStatus::Pass => "✅",
-                CheckStatus::Fail => "❌",
-                CheckStatus::Error => "⚠️",
+            let icon = match (res.status, res.severity) {
+                (CheckStatus::Pass, _) => "✅",
+                (_, ducad_engine::check::Severity::Warning) => "⚠️",
+                (CheckStatus::Fail, _) => "❌",
+                (CheckStatus::Error, _) => "⚠️",
             };
             let id = res.id.clone().unwrap_or_else(|| res.kind.to_string());
             md.push_str(&format!(
-                "| {icon} | {id} | {} | {} |\n",
+                "| {icon} | {id} | {} | {} |",
                 fmt_value(&res.measured),
                 fmt_value(&res.expected)
             ));
+            if cited {
+                md.push_str(&format!(
+                    " {} |",
+                    res.citation.as_deref().unwrap_or("").replace('|', "\\|")
+                ));
+            }
+            md.push('\n');
         }
         if c.results.len() > MD_MAX_ROWS {
             md.push_str(&format!("| | … {} check lagi | | |\n", c.results.len() - MD_MAX_ROWS));
+        }
+        if cited {
+            md.push_str(&format!("\n> {}\n", ducad_engine::check::RULE_DISCLAIMER));
+        }
+    }
+    if let Some(cost) = &r.cost {
+        match cost.unit_total {
+            Some(total) => md.push_str(&format!(
+                "\n## Biaya indikatif\n\n{total:.2} {} per unit pada {} pcs — bukan penawaran harga; rincian di `cost.md`.\n",
+                cost.currency, cost.quantity
+            )),
+            None => md.push_str(
+                "\n## Biaya indikatif\n\nBelum bisa dihitung (profil firma tanpa harga/tarif); lihat `cost.md`.\n",
+            ),
         }
     }
     if !r.sim.is_empty() {
@@ -479,12 +568,13 @@ fn load(input: &Path) -> Result<Loaded, CliError> {
     if let Some(e) = params.error {
         return Ok((Err(e), "ops"));
     }
-    if !file.checks.is_empty() {
-        s.set_checks(file.checks);
-    }
-    if !file.drawings.is_empty() {
-        s.set_drawings(file.drawings);
-    }
+    s.install_file_data(
+        file.checks,
+        &file.rule_packs,
+        file.drawings,
+        file.brief,
+        file.package,
+    )?;
     let report = s.run(file.ops, false);
     if let Some(e) = report.error {
         return Ok((Err(e), "ops"));
@@ -555,6 +645,11 @@ fn exec_all_configs(a: Args) -> CliResult {
             no_checks: a.no_checks,
             config: Some(name.clone()),
             all_configs: false,
+            package: a.package,
+            firm: a.firm.clone(),
+            rule_packs: a.rule_packs.clone(),
+            release: a.release,
+            project_note: None,
         };
         let exit = exec(single)?;
         if exit as u8 > worst as u8 {
@@ -620,9 +715,136 @@ fn exec_all_configs(a: Args) -> CliResult {
     Ok(worst)
 }
 
-pub fn exec(a: Args) -> CliResult {
+/// Berkas set: JSON dengan larik `parts` (path relatif terhadap berkas itu).
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartSet {
+    #[serde(default)]
+    title: Option<String>,
+    parts: Vec<PathBuf>,
+}
+
+fn read_set(input: &Path) -> Option<PartSet> {
+    let is_json = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    if !is_json {
+        return None;
+    }
+    let text = std::fs::read_to_string(input).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    // OpFile selalu punya `ops`; berkas set tidak.
+    if value.get("ops").is_some() || !value.get("parts").is_some_and(|p| p.is_array()) {
+        return None;
+    }
+    serde_json::from_value(value).ok()
+}
+
+fn is_part_set(input: &Path) -> bool {
+    read_set(input).is_some()
+}
+
+/// Bangun satu set part: tiap part ke `out/<stem>/` dengan format `package`,
+/// lalu `out/report.md` + `out/report.json` berisi ringkasan per part. Kode
+/// keluar = yang terburuk.
+fn exec_set(a: Args) -> CliResult {
+    let set = read_set(&a.input)
+        .ok_or_else(|| CliError::usage(format!("{} bukan berkas set part", a.input.display())))?;
+    if set.parts.is_empty() {
+        return Err(CliError::usage("berkas set tidak memuat part"));
+    }
+    let base = a.input.parent().unwrap_or(Path::new(".")).to_path_buf();
+    std::fs::create_dir_all(&a.out).map_err(|e| io_err(&a.out, e))?;
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    let mut worst = Exit::Ok;
+    let mut formats = a.formats.clone();
+    if !formats.iter().any(|f| f == "package") {
+        formats.push("package".to_string());
+    }
+    for part in &set.parts {
+        let input = if part.is_absolute() { part.clone() } else { base.join(part) };
+        let stem = stem_of(&input);
+        let out = a.out.join(&stem);
+        let single = Args {
+            input: input.clone(),
+            out: out.clone(),
+            formats: formats.clone(),
+            paper: a.paper,
+            drawing: None,
+            sections: Vec::new(),
+            shaded: Vec::new(),
+            scale: None,
+            title: None,
+            part_number: None,
+            author: a.author.clone(),
+            revision: a.revision.clone(),
+            date: a.date.clone(),
+            no_checks: a.no_checks,
+            config: None,
+            all_configs: false,
+            package: true,
+            firm: a.firm.clone().or_else(|| {
+                ducad_engine::firm::find_firm_profile(None, Some(&base))
+            }),
+            rule_packs: a.rule_packs.clone(),
+            release: a.release,
+            project_note: None,
+        };
+        let exit = exec(single)?;
+        if exit as u8 > worst as u8 {
+            worst = exit;
+        }
+        let report: serde_json::Value = std::fs::read_to_string(out.join("report.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        rows.push(serde_json::json!({
+            "part": stem,
+            "status": report["status"].as_str().unwrap_or("failed"),
+            "exit": exit as u8,
+            "checks": report.get("checks").map(|c| serde_json::json!({
+                "pass": c["pass"], "fail": c["fail"], "error": c["error"], "warn": c.get("warn") })),
+            "release": report.get("release").map(|r| serde_json::json!({
+                "state": r["state"], "revision": r["revision"] })),
+            "unit_cost": report.pointer("/cost/unit_total"),
+        }));
+    }
+    write_json(&a.out.join("report.json"), &serde_json::json!({ "parts": rows }))?;
+    let title = set
+        .title
+        .or(a.title.clone())
+        .unwrap_or_else(|| stem_of(&a.input));
+    let mut md = format!(
+        "# DUCAD build — {title} (set {} part)\n\n| Part | Status | Lulus | Gagal | Peringatan | Rilis |\n|---|---|---:|---:|---:|---|\n",
+        rows.len()
+    );
+    for row in &rows {
+        let n = |k: &str| row.pointer(&format!("/checks/{k}")).and_then(|v| v.as_u64()).unwrap_or(0);
+        md.push_str(&format!(
+            "| [{0}]({0}/report.md) | {1} | {2} | {3} | {4} | {5} |\n",
+            row["part"].as_str().unwrap_or(""),
+            row["status"].as_str().unwrap_or(""),
+            n("pass"),
+            n("fail") + n("error"),
+            n("warn"),
+            row.pointer("/release/state").and_then(|v| v.as_str()).unwrap_or("—"),
+        ));
+    }
+    let p = a.out.join("report.md");
+    std::fs::write(&p, md).map_err(|e| io_err(&p, e))?;
+    Ok(worst)
+}
+
+pub fn exec(mut a: Args) -> CliResult {
+    if is_part_set(&a.input) {
+        return exec_set(a);
+    }
     if a.all_configs {
         return exec_all_configs(a);
+    }
+    if a.package && !a.formats.iter().any(|f| f == "package") {
+        a.formats.push("package".to_string());
     }
     for f in &a.formats {
         if !ALL_FORMATS.contains(&f.as_str()) {
@@ -651,10 +873,23 @@ pub fn exec(a: Args) -> CliResult {
         error: None,
         bodies: Vec::new(),
         checks: None,
+        traceability: None,
+        release: None,
+        cost: None,
+        firm_profile: None,
         sim: Vec::new(),
         artifacts: Vec::new(),
         warnings: Vec::new(),
     };
+
+    // Profil firma: kepala gambar, toleransi umum, harga, paket aturan wajib.
+    let firm_path =
+        ducad_engine::firm::find_firm_profile(a.firm.as_deref(), a.input.parent());
+    let firm = match &firm_path {
+        Some(p) => ducad_engine::firm::FirmProfile::load(p)?,
+        None => ducad_engine::firm::FirmProfile::default(),
+    };
+    report.firm_profile = firm_path.as_ref().map(|p| p.display().to_string());
 
     let (loaded, mode) = load(&a.input)?;
     report.load = mode;
@@ -760,14 +995,87 @@ pub fn exec(a: Args) -> CliResult {
         }
     }
 
+    // Paket aturan dari `--rule-pack` dan profil firma ditambahkan ke checks
+    // desain (yang sudah ada dari paket yang sama tidak digandakan).
+    let mut extra: Vec<ducad_engine::check::RulePackRef> = firm.rule_packs.clone();
+    for name in &a.rule_packs {
+        extra.push(
+            serde_json::from_value(serde_json::Value::String(name.clone()))
+                .map_err(|e| CliError::usage(format!("--rule-pack '{name}': {e}")))?,
+        );
+    }
+    if !extra.is_empty() {
+        let mut checks = s.design().checks.clone();
+        for pack in &extra {
+            for item in ducad_engine::check::expand_rule_pack(pack)? {
+                if !checks.iter().any(|c| c.id == item.id) {
+                    checks.push(item);
+                }
+            }
+        }
+        s.set_checks(checks);
+    }
+
+    let mut check_summary: Option<CheckSummary> = None;
     if !a.no_checks && !s.design().checks.is_empty() {
         let summary = s.run_checks(None);
-        let failed = summary.fail + summary.error > 0;
+        report.traceability = s
+            .design()
+            .brief
+            .as_ref()
+            .filter(|b| !b.requirements.is_empty())
+            .map(|b| ducad_engine::brief::traceability(b, &summary.results));
+        let failed = summary.is_blocking();
+        check_summary = Some(summary.clone());
         report.checks = Some(summary);
         if failed {
             report.status = "checks_failed";
             write_reports(&a.out, &report, &title)?;
             return Ok(Exit::ChecksFailed);
+        }
+    }
+
+    // Status rilis + gerbang `--release`.
+    {
+        let (release, signature) = s.release();
+        let state = release.effective_state(&signature);
+        let results: &[ducad_engine::check::CheckResult] = check_summary
+            .as_ref()
+            .map(|c| c.results.as_slice())
+            .unwrap_or(&[]);
+        let review = ducad_engine::brief::review_checklist(s.design(), results);
+        let mut blockers = Vec::new();
+        if a.release {
+            if state != ducad_engine::brief::ReleaseState::Approved {
+                blockers.push(if release.approval_is_stale(&signature) {
+                    format!(
+                        "desain berubah sejak revisi {} disetujui; ajukan dan setujui revisi berikutnya (`ducad-cli release`)",
+                        release.revision
+                    )
+                } else {
+                    format!("paket berstatus '{}', belum disetujui", state.label())
+                });
+            }
+            blockers.extend(ducad_engine::brief::review_blockers(&review));
+        }
+        let blocked = !blockers.is_empty();
+        if s.design().release.is_some() || a.release {
+            report.release = Some(ReleaseRow {
+                state: state.label(),
+                revision: release.revision.clone(),
+                approved_by: release
+                    .approval
+                    .as_ref()
+                    .filter(|_| state == ducad_engine::brief::ReleaseState::Approved)
+                    .map(|ap| ap.by.clone()),
+                review,
+                blockers,
+            });
+        }
+        if blocked {
+            report.status = "not_released";
+            write_reports(&a.out, &report, &title)?;
+            return Ok(Exit::NotReleased);
         }
     }
 
@@ -841,9 +1149,25 @@ pub fn exec(a: Args) -> CliResult {
         if let Some(scale) = a.scale {
             spec.scale = scale;
         }
+        for note in &firm.notes {
+            if !spec.notes.contains(note) {
+                spec.notes.push(note.clone());
+            }
+        }
         let output = build_sheet(s.model(), &spec, Some(&s.design().fingerprint))?;
         report.warnings.extend(output.warnings.iter().cloned());
-        let sheet = output.sheet;
+        let mut sheet = output.sheet;
+        // Kepala gambar mengikuti profil firma hanya bila profilnya ada, agar
+        // keluaran tanpa profil tetap identik dengan sebelumnya.
+        if firm_path.is_some() {
+            if !firm.company.is_empty() {
+                sheet.title_block.company_name = firm.company.clone();
+            }
+            sheet.title_block.general_tolerance = firm.general_tolerance.clone();
+            if sheet.title_block.drawn_by.is_empty() {
+                sheet.title_block.drawn_by = firm.drawn_by.clone();
+            }
+        }
         let draw_err = |p: &Path, e: anyhow::Error| io_err(p, format!("{e:#}"));
         if has("pdf") {
             let p = a.out.join(format!("{stem}-drawing.pdf"));
@@ -860,6 +1184,76 @@ pub fn exec(a: Args) -> CliResult {
             ducad_io::dxf::export_drawing_sheet(&sheet, &p).map_err(|e| draw_err(&p, e))?;
             written.push(p);
         }
+    }
+
+    if has("package") {
+        // Judul paket: `--title`, lalu judul brief, lalu nama berkas.
+        let brief_title = s
+            .design()
+            .brief
+            .as_ref()
+            .map(|b| b.title.clone())
+            .filter(|t| !t.trim().is_empty());
+        let info = ducad_engine::package::PackageInfo {
+            title: a.title.clone().or(brief_title).unwrap_or_else(|| title.clone()),
+            part_number: a.part_number.clone().unwrap_or_else(|| stem.clone()),
+            author: a.author.clone(),
+            date: date.clone(),
+        };
+        let mut spec = s.design().package.clone().unwrap_or_default();
+        if let Some(paper) = a.paper {
+            spec.paper = Some(
+                match paper {
+                    PaperSize::A4Landscape => "a4",
+                    PaperSize::A4Portrait => "a4-portrait",
+                    PaperSize::A3Landscape => "a3",
+                    PaperSize::A3Portrait => "a3-portrait",
+                }
+                .to_string(),
+            );
+        }
+        let out = ducad_engine::package::build_package(
+            s.model(),
+            s.meta(),
+            &spec,
+            &info,
+            &firm,
+            check_summary.as_ref(),
+        )?;
+        report.warnings.extend(out.warnings.iter().cloned());
+        let p = a.out.join(format!("{stem}-package.pdf"));
+        std::fs::write(&p, out.pdf_bytes()).map_err(|e| io_err(&p, e))?;
+        written.push(p);
+        let mut text_file = |name: &str, text: String| -> Result<(), CliError> {
+            let p = a.out.join(name);
+            std::fs::write(&p, text).map_err(|e| io_err(&p, e))?;
+            written.push(p);
+            Ok(())
+        };
+        if let Some(t) = &out.traceability {
+            text_file("traceability.md", ducad_engine::package::traceability_md(t))?;
+        }
+        if let Some(c) = &check_summary {
+            text_file("compliance.md", ducad_engine::package::compliance_md(c))?;
+        }
+        text_file("cost.md", ducad_engine::package::cost_md(&out.cost))?;
+        if let Some(note) = &a.project_note {
+            let input_name = a.input.display().to_string();
+            let md = ducad_engine::package::project_note_md(
+                s.meta(),
+                &info,
+                &input_name,
+                &out,
+                check_summary.as_ref(),
+            );
+            if let Some(dir) = note.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir).map_err(|e| io_err(dir, e))?;
+            }
+            std::fs::write(note, md).map_err(|e| io_err(note, e))?;
+        }
+        report.cost = Some(out.cost);
+    } else if a.project_note.is_some() {
+        return Err(CliError::usage("--project-note butuh format `package` (--package)"));
     }
 
     if has("png") {

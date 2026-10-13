@@ -311,6 +311,9 @@ fn unsupported(method: &str) -> OpError {
             "do it in the app (File menu); the bridge works on the document that is currently open"
         }
         "accept_proposal" => "only the user can accept a proposal, with the buttons in the app",
+        "approve_package" => {
+            "only the user can approve a package, with the Approve button of the Review panel"
+        }
         _ => "this method is not available in a live session",
     };
     OpError::new(
@@ -416,8 +419,12 @@ impl DuCADApp {
         let design = DesignDoc {
             params: self.agent_meta.design.params.clone(),
             checks: self.agent_meta.design.checks.clone(),
-            // Lembar gambar bukan op: tetap berlaku walau oplog diadopsi ulang.
+            // Lembar gambar, brief, status rilis, dan susunan paket bukan op:
+            // tetap berlaku walau oplog diadopsi ulang.
             drawings: self.agent_meta.design.drawings.clone(),
+            brief: self.agent_meta.design.brief.clone(),
+            release: self.agent_meta.design.release.clone(),
+            package: self.agent_meta.design.package.clone(),
             base_bodies,
             fingerprint: fp,
             ..DesignDoc::default()
@@ -555,13 +562,27 @@ impl DuCADApp {
                     call_core_tool(&mut core, method, params, &paths)
                 };
                 let out = out.unwrap_or_else(ToolOut::err);
-                if method == "set_checks" && !out.is_error {
-                    // Checks bagian dari design → ikut tersimpan ke .ducad.
+                if matches!(
+                    method,
+                    "set_checks"
+                        | "set_brief"
+                        | "submit_for_review"
+                        | "build_package"
+                        | "add_redline"
+                        | "resolve_redline"
+                ) && !out.is_error
+                {
+                    // Bagian dari design → ikut tersimpan ke .ducad.
                     self.sync_design_after_agent();
+                    if matches!(method, "add_redline" | "resolve_redline") {
+                        // Redline dari agent langsung tampil/hilang di lembar.
+                        self.pull_redlines_from_design();
+                    }
+                    self.review.status = None;
                 }
-                if method == "import_step" && !out.is_error {
+                if matches!(method, "import_step" | "import_pdf") && !out.is_error {
                     self.sync_design_after_agent();
-                    self.after_model_changed(&ducad_i18n::t!("bridge-title"), "import_step");
+                    self.after_model_changed(&ducad_i18n::t!("bridge-title"), method);
                 }
                 if method == "run_ops" && !out.is_error {
                     let committed = out.payload["committed"] == Value::Bool(true);

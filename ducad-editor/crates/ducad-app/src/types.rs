@@ -262,6 +262,8 @@ pub enum PaletteAction {
     ToggleSimPanel,
     /// Buka/tutup panel Fitur Industri (P18–P20).
     ToggleIndustryPanel,
+    /// Buka/tutup panel Review & Rilis (brief, redline, persetujuan).
+    ToggleReviewPanel,
     SetTool(ToolKind),
     CreateDatumPlane,
     OpenRevolveDialog,
@@ -374,6 +376,7 @@ impl PaletteAction {
             | PaletteAction::ToggleMassPanel
             | PaletteAction::ToggleSimPanel
             | PaletteAction::ToggleIndustryPanel
+            | PaletteAction::ToggleReviewPanel
             | PaletteAction::ToggleZebraView => PaletteGroup::Analysis,
             PaletteAction::SetTool(
                 ToolKind::Extrude

@@ -39,6 +39,11 @@ impl DuCADApp {
                 PaletteAction::ToggleIndustryPanel,
             ),
             (
+                ducad_i18n::t!("palette-review"),
+                String::new(),
+                PaletteAction::ToggleReviewPanel,
+            ),
+            (
                 crate::mode::AppMode::Vector.label().to_string(),
                 "⌘+Alt+4".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
@@ -573,6 +578,15 @@ impl DuCADApp {
                 self.industry.panel_open = !self.industry.panel_open;
                 if self.industry.panel_open {
                     self.sim.panel_open = false;
+                    self.review.panel_open = false;
+                }
+            }
+            PaletteAction::ToggleReviewPanel => {
+                self.review.panel_open = !self.review.panel_open;
+                // Ketiga panel menempati sudut yang sama.
+                if self.review.panel_open {
+                    self.sim.panel_open = false;
+                    self.industry.panel_open = false;
                 }
             }
             PaletteAction::SetAppMode(mode) => self.set_app_mode(mode),

@@ -11,6 +11,7 @@
 // tipe publik kontrak.
 #![allow(clippy::result_large_err)]
 
+pub mod brief;
 pub mod check;
 pub mod compute;
 pub mod diagnose;
@@ -18,9 +19,11 @@ pub mod diff;
 pub mod drawing_auto;
 pub mod error;
 pub mod export;
+pub mod firm;
 pub mod inspect;
 pub mod model;
 pub mod oplog;
+pub mod package;
 pub mod ops;
 pub mod plane;
 pub mod profile;

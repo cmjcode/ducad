@@ -36,6 +36,7 @@ pub mod onboarding_ui;
 pub mod overlay;
 pub mod platform;
 pub mod proposal_ui;
+pub mod review_ui;
 pub mod sim_ui;
 pub mod types;
 pub mod ui;

@@ -49,12 +49,56 @@ ducad-cli build <PART.ducad | OPS.json> --out DIR [--formats LIST] [--paper a4|a
   `<stem>-iso.png`, `<stem>-bom.csv`, `report.json`, `report.md`.
 - Kode keluar: `0` sukses · `1` op/replay gagal (termasuk `.ducad` yang tidak
   dapat direproduksi dari oplog-nya) · `2` salah pakai · `3` ada check gagal
-  (laporan tetap ditulis, artefak **tidak**).
+  (laporan tetap ditulis, artefak **tidak**) · `4` `--release` pada paket
+  yang belum disetujui.
 - Deterministik: masukan dan tanggal sama → byte keluaran sama. Tanggal
   diambil dari `--date`, lalu env `SOURCE_DATE_EPOCH`, lalu hari ini. Set
   `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)` agar artefak hanya berubah
   bila part berubah.
 - Kertas A2 belum didukung.
+
+## Paket desain
+
+Format `package` (atau `--package`) menulis SATU PDF multi-halaman dan tiga
+laporan di samping artefak biasa:
+
+```
+ducad-cli build PART --out DIR --package [--firm firm.json] [--rule-pack NAMA]...
+               [--project-note PATH] [--release]
+```
+
+- `<stem>-package.pdf`: sampul (brief, indeks lembar, tabel revisi, ringkasan
+  kepatuhan), gambar part per body, gambar assembly berbalon BOM, pola
+  bentangan tiap body sheet metal, lembar BOM, lembar kepatuhan. Susunan
+  diatur `"package": {"sheets": [...]}` di OpFile/`.ducad`; tanpa itu otomatis.
+- `traceability.md` (persyaratan → check), `compliance.md` (tiap check +
+  sitasi), `cost.md` (biaya indikatif dari profil firma; bukan penawaran).
+- OpFile boleh memuat `"brief"`, `"rule_packs"`, dan `"requirement"`/
+  `"citation"`/`"severity"` per check. Check `severity: "warning"` yang gagal
+  dilaporkan tetapi tidak membuat kode keluar 3.
+- **Profil firma**: `--firm`, lalu env `DUCAD_FIRM`, lalu `firm.json` di
+  samping part, lalu `~/DUCAD-Memory/Standards/firm.json`. Mengisi kepala
+  gambar, teks toleransi umum, catatan standar, harga material, tarif proses,
+  dan paket aturan wajib (`rule_packs`).
+- **Gerbang rilis**: `--release` keluar dengan kode `4` (status
+  `not_released`, tanpa artefak) kecuali paket berstatus `approved` untuk
+  desain yang sedang dibangun dan tidak ada check penghalang atau redline
+  terbuka. Persetujuan dilakukan manusia:
+
+  ```sh
+  ducad-cli release PART.ducad --submit "Initial release" --by ana
+  ducad-cli release PART.ducad --approve --by budi
+  ducad-cli release PART.ducad            # status + ceklis review
+  ```
+
+  Mengubah desain setelah disetujui membatalkan persetujuan; `--submit`
+  berikutnya membuka revisi B.
+- **Set part**: `ducad-cli build SET.json --out DIR` dengan
+  `{"title": "…", "parts": ["a.ops.json", "b.ducad"]}` membangun tiap part ke
+  `DIR/<stem>/` dan menulis ringkasan `DIR/report.md`.
+
+Contoh siap jalan: `examples/design-package/` (bracket CNC + baki sheet metal
++ `firm.json`).
 
 ## Menempel `report.md` ke PR
 

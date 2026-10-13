@@ -72,6 +72,183 @@ pub struct DesignDiff {
     /// Perubahan lembar gambar tersimpan (P21.6): jumlah/label saja.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drawings: Vec<DrawingChange>,
+    /// Dampak revisi (W4): lembar paket, check, dan persyaratan yang
+    /// terpengaruh. `None` bila tidak ada yang terdampak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<Impact>,
+}
+
+/// Lembar paket yang isinya berubah akibat revisi.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SheetImpact {
+    /// `cover`, `drawing`, `part`, `assembly`, `flat_pattern`, `bom`, `compliance`.
+    pub kind: &'static str,
+    /// Nama lembar/body yang dimaksud (kosong untuk lembar tunggal).
+    pub name: String,
+    pub reason: String,
+}
+
+/// Check yang hasilnya berubah.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CheckImpact {
+    pub check: String,
+    pub old: Option<crate::check::CheckStatus>,
+    pub new: Option<crate::check::CheckStatus>,
+    /// Pesan hasil baru (menyebut angka).
+    pub message: String,
+}
+
+/// Persyaratan yang status keterlacakannya berubah.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RequirementImpact {
+    pub id: String,
+    pub old: Option<crate::brief::TraceStatus>,
+    pub new: Option<crate::brief::TraceStatus>,
+}
+
+/// Dampak sebuah revisi terhadap paket desain.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub struct Impact {
+    /// Lembar paket (susunan sisi BARU) yang harus diterbitkan ulang.
+    pub sheets: Vec<SheetImpact>,
+    /// Lembar paket yang tidak terpengaruh.
+    pub unchanged_sheets: usize,
+    /// Check yang statusnya berubah (lulus ↔ gagal/error).
+    pub checks: Vec<CheckImpact>,
+    /// Check yang nilainya berubah tetapi statusnya tetap.
+    pub checks_remeasured: usize,
+    pub requirements: Vec<RequirementImpact>,
+}
+
+impl Impact {
+    pub fn is_empty(&self) -> bool {
+        self.sheets.is_empty()
+            && self.checks.is_empty()
+            && self.checks_remeasured == 0
+            && self.requirements.is_empty()
+    }
+}
+
+fn check_key(r: &crate::check::CheckResult) -> String {
+    r.id.clone()
+        .unwrap_or_else(|| format!("{}#{}", r.kind, r.index))
+}
+
+/// Hitung dampak revisi `a` → `b` dari diff body + hasil check kedua sisi.
+fn impact_of(a: &Session, b: &Session, bodies: &[BodyDiff], drawings: &[DrawingChange]) -> Impact {
+    use crate::package::SheetSpec;
+    let changed: BTreeSet<&str> = bodies
+        .iter()
+        .filter(|d| d.status != "unchanged")
+        .map(|d| d.name.as_str())
+        .collect();
+    let membership = bodies.iter().any(|d| d.status == "added" || d.status == "removed");
+
+    let (ra, rb) = (a.run_checks(None).results, b.run_checks(None).results);
+    let old: BTreeMap<String, &crate::check::CheckResult> =
+        ra.iter().map(|r| (check_key(r), r)).collect();
+    let new: BTreeMap<String, &crate::check::CheckResult> =
+        rb.iter().map(|r| (check_key(r), r)).collect();
+    let keys: BTreeSet<&String> = old.keys().chain(new.keys()).collect();
+    let mut checks = Vec::new();
+    let mut remeasured = 0usize;
+    for key in keys {
+        let (o, n) = (old.get(key), new.get(key));
+        let (so, sn) = (o.map(|r| r.status), n.map(|r| r.status));
+        if so != sn {
+            checks.push(CheckImpact {
+                check: key.clone(),
+                old: so,
+                new: sn,
+                message: n.or(o).map(|r| r.message.clone()).unwrap_or_default(),
+            });
+        } else if o.map(|r| &r.measured) != n.map(|r| &r.measured) {
+            remeasured += 1;
+        }
+    }
+
+    let trace = |s: &Session, results: &[crate::check::CheckResult]| {
+        s.design()
+            .brief
+            .as_ref()
+            .map(|brief| crate::brief::traceability(brief, results))
+    };
+    let (ta, tb) = (trace(a, &ra), trace(b, &rb));
+    let status_of = |t: &Option<crate::brief::Traceability>, id: &str| {
+        t.as_ref()
+            .and_then(|t| t.rows.iter().find(|r| r.id == id))
+            .map(|r| r.status)
+    };
+    let ids: BTreeSet<String> = [&ta, &tb]
+        .into_iter()
+        .flatten()
+        .flat_map(|t| t.rows.iter().map(|r| r.id.clone()))
+        .collect();
+    let requirements: Vec<RequirementImpact> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let (o, n) = (status_of(&ta, &id), status_of(&tb, &id));
+            (o != n).then_some(RequirementImpact { id, old: o, new: n })
+        })
+        .collect();
+
+    let compliance_changed = !checks.is_empty() || remeasured > 0 || !requirements.is_empty();
+    let plan = match b.design().package.as_ref().filter(|p| !p.sheets.is_empty()) {
+        Some(p) => p.sheets.clone(),
+        None => crate::package::plan_sheets(b.model(), b.meta()),
+    };
+    let mut sheets = Vec::new();
+    let mut unchanged = 0usize;
+    for sheet in &plan {
+        let hit: Option<(&'static str, String, String)> = match sheet {
+            SheetSpec::Part { body } => changed
+                .contains(body.as_str())
+                .then(|| ("part", body.clone(), "body geometry changed".to_string())),
+            SheetSpec::FlatPattern { body } => changed
+                .contains(body.as_str())
+                .then(|| ("flat_pattern", body.clone(), "body geometry changed".to_string())),
+            SheetSpec::Assembly => (!changed.is_empty()).then(|| {
+                ("assembly", String::new(), format!("{} body(ies) changed", changed.len()))
+            }),
+            SheetSpec::Drawing { name } => {
+                let spec = b.design().drawing(name);
+                let spec_changed = drawings.iter().any(|d| &d.name == name);
+                let geometry = spec.is_some_and(|d| {
+                    if d.bodies.is_empty() {
+                        !changed.is_empty()
+                    } else {
+                        d.bodies.iter().any(|n| changed.contains(n.as_str()))
+                    }
+                });
+                match (spec_changed, geometry) {
+                    (true, _) => Some(("drawing", name.clone(), "sheet definition changed".to_string())),
+                    (false, true) => Some(("drawing", name.clone(), "body geometry changed".to_string())),
+                    _ => None,
+                }
+            }
+            SheetSpec::Bom => (!changed.is_empty()).then(|| {
+                let reason = if membership { "parts added or removed" } else { "part mass changed" };
+                ("bom", String::new(), reason.to_string())
+            }),
+            SheetSpec::Compliance => compliance_changed
+                .then(|| ("compliance", String::new(), "check results changed".to_string())),
+            // Sampul memuat ringkasan kepatuhan, biaya, dan tabel revisi.
+            SheetSpec::Cover => (compliance_changed || !changed.is_empty()).then(|| {
+                ("cover", String::new(), "revision table and summary".to_string())
+            }),
+        };
+        match hit {
+            Some((kind, name, reason)) => sheets.push(SheetImpact { kind, name, reason }),
+            None => unchanged += 1,
+        }
+    }
+    Impact {
+        sheets,
+        unchanged_sheets: unchanged,
+        checks,
+        checks_remeasured: remeasured,
+        requirements,
+    }
 }
 
 /// Perubahan satu lembar gambar: `added`, `removed`, atau `changed`.
@@ -393,13 +570,16 @@ pub fn diff(a: &Session, b: &Session, geometric: bool) -> (DesignDiff, DiffShape
         snapshot_bodies(b.model()),
         geometric,
     );
+    let drawings = diff_drawings(da, db);
+    let impact = Some(impact_of(a, b, &bodies, &drawings)).filter(|i| !i.is_empty());
     (
         DesignDiff {
             params,
             ops,
             bodies,
             warnings,
-            drawings: diff_drawings(da, db),
+            drawings,
+            impact,
         },
         shapes,
     )

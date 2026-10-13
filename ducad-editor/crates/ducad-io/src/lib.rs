@@ -17,6 +17,7 @@ pub mod mesh_export;
 pub mod external;
 pub mod native;
 pub mod pdf;
+pub mod pdf_import;
 pub mod step_io;
 pub mod svg;
 

@@ -7,6 +7,7 @@ pub mod diff;
 pub mod export;
 pub mod inspect;
 pub mod oplog;
+pub mod release;
 pub mod render;
 pub mod replay;
 pub mod run;

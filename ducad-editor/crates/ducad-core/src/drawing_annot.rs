@@ -448,6 +448,45 @@ impl RevisionTable {
     }
 }
 
+/// Catatan koreksi (redline) dari reviewer pada lembar gambar: teks merah
+/// dengan panah ke bagian yang dimaksud. Agent membacanya sebagai permintaan
+/// revisi; redline yang sudah ditangani ditandai `resolved` dan tidak lagi
+/// digambar.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Redline {
+    /// Id unik di dalam lembar, mis. `RL1`.
+    pub id: String,
+    /// Permintaan perubahan dalam kata-kata reviewer.
+    pub text: String,
+    /// Titik di kertas (mm) yang ditunjuk panah; `None` = catatan umum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<[f64; 2]>,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub resolved: bool,
+    /// Bagaimana redline ditangani (diisi saat ditutup).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub resolution: String,
+}
+
+impl Redline {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("redline tidak punya id".to_string());
+        }
+        if self.text.trim().is_empty() {
+            return Err(format!("redline '{}' tidak punya teks", self.id));
+        }
+        if let Some(t) = self.target {
+            if !t[0].is_finite() || !t[1].is_finite() {
+                return Err(format!("target redline '{}' tidak sah", self.id));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Satu anotasi pada lembar gambar. `position` = titik jangkar di kertas
 /// dalam mm dari pojok kiri-bawah (sama dengan entitas lembar lainnya):
 ///
@@ -482,6 +521,11 @@ pub enum Annotation {
         position: [f64; 2],
         table: RevisionTable,
     },
+    /// Catatan koreksi reviewer; `position` = awal teks.
+    Redline {
+        position: [f64; 2],
+        redline: Redline,
+    },
 }
 
 impl Annotation {
@@ -493,7 +537,8 @@ impl Annotation {
             | Annotation::DatumFeature { position, .. }
             | Annotation::SurfaceFinish { position, .. }
             | Annotation::HoleTable { position, .. }
-            | Annotation::RevisionTable { position, .. } => *position,
+            | Annotation::RevisionTable { position, .. }
+            | Annotation::Redline { position, .. } => *position,
         }
     }
 
@@ -506,6 +551,7 @@ impl Annotation {
             Annotation::SurfaceFinish { .. } => "surface_finish",
             Annotation::HoleTable { .. } => "hole_table",
             Annotation::RevisionTable { .. } => "revision_table",
+            Annotation::Redline { .. } => "redline",
         }
     }
 
@@ -521,6 +567,7 @@ impl Annotation {
             Annotation::SurfaceFinish { finish, .. } => finish.validate(),
             Annotation::HoleTable { table, .. } => table.validate(),
             Annotation::RevisionTable { table, .. } => table.validate(),
+            Annotation::Redline { redline, .. } => redline.validate(),
         }
     }
 }
@@ -529,10 +576,20 @@ impl Annotation {
 /// anotasi pertama yang salah. Juga menolak label datum ganda.
 pub fn validate_annotations(annotations: &[Annotation]) -> Result<(), String> {
     let mut datum_labels: Vec<&str> = Vec::new();
+    let mut redline_ids: Vec<&str> = Vec::new();
     for (i, annotation) in annotations.iter().enumerate() {
         annotation
             .validate()
             .map_err(|e| format!("anotasi #{i} ({}): {e}", annotation.kind_name()))?;
+        if let Annotation::Redline { redline, .. } = annotation {
+            if redline_ids.contains(&redline.id.as_str()) {
+                return Err(format!(
+                    "anotasi #{i} (redline): id '{}' dipakai dua kali",
+                    redline.id
+                ));
+            }
+            redline_ids.push(&redline.id);
+        }
         if let Annotation::DatumFeature { datum, .. } = annotation {
             if datum_labels.contains(&datum.label.as_str()) {
                 return Err(format!(

@@ -1,0 +1,19 @@
+{
+  "company": "PT Contoh Presisi",
+  "drawn_by": "Tim Desain",
+  "general_tolerance": "ISO 2768-m",
+  "paper": "a3",
+  "part_number_prefix": "CP-",
+  "currency": "IDR",
+  "notes": ["DEBURR AND BREAK ALL SHARP EDGES 0.2-0.5."],
+  "materials": [
+    { "name": "Al 6061-T6", "aliases": ["al_6061_t6", "aluminum"], "price_per_kg": 95000 },
+    { "name": "Mild steel", "aliases": ["steel", "aisi_1018", "s235"], "price_per_kg": 18000 }
+  ],
+  "processes": [
+    { "process": "cnc", "setup_cost": 400000, "rate_per_hour": 250000, "rate_cm3_per_hour": 90 },
+    { "process": "sheet_metal", "setup_cost": 150000, "rate_per_hour": 180000, "rate_cm3_per_hour": 400 }
+  ],
+  "stock_thicknesses_mm": [1, 1.5, 2, 3, 5],
+  "preferred_fasteners": ["ISO 4762 M5", "ISO 4762 M6", "ISO 7089 M5", "ISO 7089 M6"]
+}

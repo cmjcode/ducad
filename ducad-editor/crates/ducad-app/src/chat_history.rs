@@ -119,7 +119,10 @@ mod tests {
     #[test]
     fn save_list_load_delete() {
         let h = ChatHistory::in_memory();
-        let conv = vec![ConvMessage::User { text: "hai".into() }];
+        let conv = vec![ConvMessage::User {
+            text: "hai".into(),
+            images: Vec::new(),
+        }];
         let id = h.save(None, "Sesi 1", &conv).unwrap();
         let mut longer = conv.clone();
         longer.push(ConvMessage::Assistant {

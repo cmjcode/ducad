@@ -1,0 +1,65 @@
+{
+  "id": "cnc_bracket_dfm",
+  "prompt": "Rancang bracket L dari aluminium 6061-T6 untuk di-mill CNC 3 sumbu: alas 60 x 40 mm tebal 6 mm, dinding tegak 60 x 40 mm tebal 6 mm di sisi y = 0, fillet R4 di sudut dalam antara alas dan dinding, dan 2 lubang tembus clearance M5 pada alas di (15, 26) dan (45, 26). Tulis brief desain dengan persyaratan bernomor, pasang check per persyaratan dan paket aturan dfm-cnc, lalu simpan sebagai out/part.ducad.",
+  "notes": "Menilai alur paket desain: geometri + kelayakan CNC. Massa 26,56 cm3 x 2,70 = 71,7 g.",
+  "checks": [
+    {
+      "check": "valid",
+      "bodies": "*"
+    },
+    {
+      "check": "body_count",
+      "expect": 1
+    },
+    {
+      "check": "bbox_size",
+      "body": "*",
+      "expect": [
+        60,
+        40,
+        40
+      ],
+      "tol": 0.05
+    },
+    {
+      "check": "hole_count",
+      "body": "*",
+      "diameter": 5.5,
+      "expect": 2
+    },
+    {
+      "check": "mass",
+      "body": "*",
+      "density_g_cm3": 2.7,
+      "min_g": 69,
+      "max_g": 74
+    },
+    {
+      "check": "hole_depth_ratio",
+      "body": "*",
+      "max_ratio": 5
+    },
+    {
+      "check": "hole_web",
+      "body": "*",
+      "min_ratio": 0.5
+    },
+    {
+      "check": "min_internal_radius",
+      "body": "*",
+      "axis": "z",
+      "min": 1
+    },
+    {
+      "check": "min_wall",
+      "body": "*",
+      "min": 0.8
+    },
+    {
+      "check": "general_tolerance",
+      "body": "*",
+      "class": "m",
+      "process": "cnc"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "dfm-injection",
+  "title": "DFM for injection moulding",
+  "version": "1",
+  "process": "injection",
+  "description": "Mouldability rules for a straight-pull tool: draft on every wall, fillable walls, rounded internal corners.",
+  "vars": {
+    "pull": { "value": "z", "description": "Mould opening direction: x, y or z." },
+    "min_draft_deg": { "value": 1.0, "description": "Smallest draft per side (degrees): 1-2 smooth, 3+ textured." },
+    "min_wall": { "value": 1.0, "description": "Thinnest wall (mm) that still fills for common thermoplastics." },
+    "min_internal_radius": { "value": 0.5, "description": "Smallest internal corner radius (mm); about 0.5 x wall thickness." },
+    "class": { "value": "m", "description": "ISO 2768-1 class of the drawing." }
+  },
+  "rules": [
+    {
+      "id": "draft",
+      "basis": "guideline",
+      "citation": "Guideline: injection moulding needs 1-2 degrees of draft per side on untextured faces parallel to the mould opening direction",
+      "severity": "error",
+      "note": "",
+      "check": { "check": "min_draft_angle", "body": "@body", "pull": "@pull", "min_deg": "@min_draft_deg" }
+    },
+    {
+      "id": "min-wall",
+      "basis": "guideline",
+      "citation": "Guideline: walls thinner than about 1 mm risk short shots in common thermoplastics; check the resin supplier's flow-length data",
+      "severity": "error",
+      "note": "",
+      "check": { "check": "min_wall", "body": "@body", "min": "@min_wall" }
+    },
+    {
+      "id": "internal-radius",
+      "basis": "guideline",
+      "citation": "Guideline: internal corner radius of about 0.5 x wall thickness limits stress concentration and helps the melt flow",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "min_internal_radius", "body": "@body", "axis": "@pull", "min": "@min_internal_radius" }
+    },
+    {
+      "id": "general-tolerance",
+      "basis": "standard",
+      "citation": "ISO 2768-1:1989, Table 1 (permissible deviations for linear dimensions); process capability per DUCAD guideline",
+      "severity": "warning",
+      "note": "Moulded plastics are normally toleranced per ISO 20457; ISO 2768-m is only a first estimate.",
+      "check": { "check": "general_tolerance", "body": "@body", "class": "@class", "process": "injection" }
+    }
+  ]
+}

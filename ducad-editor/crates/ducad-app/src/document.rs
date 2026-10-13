@@ -584,6 +584,8 @@ impl DuCADApp {
         self.selected_bodies.clear();
         self.current_file_path = None;
         self.design = None;
+        // Dokumen baru tidak mewarisi checks/brief/rilis dokumen sebelumnya.
+        self.adopt_loaded_design();
         self.history_db.clear();
         self.activity_cache.clear();
         self.parametric_dag.clear();

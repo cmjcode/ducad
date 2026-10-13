@@ -10,8 +10,8 @@ use ducad_glass::GlassFrame;
 use ducad_i18n::t;
 use egui::{Color32, RichText};
 use egui_icons::icons::{
-    ICON_ADD_COMMENT, ICON_CHECK, ICON_CLOSE, ICON_DELETE, ICON_HISTORY, ICON_SEND, ICON_SETTINGS,
-    ICON_STOP,
+    ICON_ADD_COMMENT, ICON_ADD_PHOTO_ALTERNATE, ICON_CHECK, ICON_CLOSE, ICON_DELETE,
+    ICON_HISTORY, ICON_SEND, ICON_SETTINGS, ICON_STOP,
 };
 
 /// Warna error (sama dengan ringkasan checks gagal di top bar).
@@ -126,10 +126,16 @@ pub struct ChatPanelState {
     /// Pilihan backend di kepala panel (label) dan indeks terpilih.
     pub targets: Vec<String>,
     pub target_idx: usize,
+    /// Jumlah gambar yang akan ikut pesan berikutnya (W6).
+    pub attachments: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatPanelEvent {
+    /// Lampirkan gambar (foto sketsa, gambar lama) ke pesan berikutnya.
+    AttachImage,
+    /// Buang semua lampiran yang belum terkirim.
+    ClearAttachments,
     Send,
     Stop,
     NewChat,
@@ -1082,6 +1088,34 @@ impl ChatPanel {
                             ),
                         egui::Vec2::splat(COMPOSER_BTN_SIDE),
                     );
+                    // Lampiran gambar: tombol di kiri tombol kirim; berwarna
+                    // aksen selama ada gambar yang menunggu dikirim.
+                    let attach_rect = btn_rect
+                        .translate(egui::vec2(-(COMPOSER_BTN_SIDE + 6.0), 0.0));
+                    let attach_tip = if state.attachments == 0 {
+                        t!("chat-attach-image")
+                    } else {
+                        t!("chat-attach-count", count = state.attachments)
+                    };
+                    let (attach_bg, attach_fg) = if state.attachments == 0 {
+                        (BG_HOVER_DARK, TEXT_PRIMARY)
+                    } else {
+                        (ACCENT_BLUE, Color32::WHITE)
+                    };
+                    let attach = round_action_btn(
+                        ui,
+                        attach_rect,
+                        ICON_ADD_PHOTO_ALTERNATE.codepoint,
+                        &attach_tip,
+                        attach_bg,
+                        attach_fg,
+                        !state.busy,
+                    );
+                    if attach.clicked() {
+                        event = Some(ChatPanelEvent::AttachImage);
+                    } else if attach.secondary_clicked() && state.attachments > 0 {
+                        event = Some(ChatPanelEvent::ClearAttachments);
+                    }
                     if state.busy {
                         if round_action_btn(
                             ui,

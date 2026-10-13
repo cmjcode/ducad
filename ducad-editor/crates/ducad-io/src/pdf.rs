@@ -72,6 +72,21 @@ impl PdfWriter {
         self.offsets.len() + 1
     }
 
+    /// Pesan nomor objek yang isinya baru diketahui belakangan (mis. `/Pages`
+    /// yang harus dirujuk tiap halaman sebelum daftar halamannya lengkap).
+    fn reserve_object(&mut self) -> usize {
+        self.offsets.push(0);
+        self.offsets.len()
+    }
+
+    /// Tulis isi objek yang sudah dipesan [`Self::reserve_object`].
+    fn fill_object(&mut self, obj_num: usize, content: &str) {
+        self.offsets[obj_num - 1] = self.buffer.len();
+        writeln!(self.buffer, "{obj_num} 0 obj").unwrap();
+        self.buffer.extend_from_slice(content.as_bytes());
+        writeln!(self.buffer, "\nendobj").unwrap();
+    }
+
     fn finalize(mut self, root_obj: usize) -> Vec<u8> {
         let xref_offset = self.buffer.len();
         let total_objs = self.offsets.len() + 1;
@@ -159,6 +174,122 @@ pub fn generate_pdf_bytes(sheet: &DrawingSheet) -> Vec<u8> {
     let catalog_obj = writer.add_object(&format!("<< /Type /Catalog /Pages {pages_obj} 0 R >>"));
 
     writer.finalize(catalog_obj)
+}
+
+/// Satu halaman dokumen PDF multi-halaman.
+pub struct PdfPage<'a> {
+    /// Lembar sumber: kertas, kepala gambar, tampak, render berbayang, anotasi.
+    pub sheet: &'a DrawingSheet,
+    /// Grup tambahan di atas display-list lembar (isi halaman dokumen:
+    /// sampul, tabel, pola bentangan).
+    pub extra: &'a [crate::drawing::scene::Group],
+    /// Judul bookmark; kosong = tanpa bookmark.
+    pub bookmark: &'a str,
+}
+
+/// Dokumen PDF multi-halaman (W2): satu halaman per lembar, dengan bookmark.
+/// Deterministik; tidak memuat tanggal pembuatan maupun id acak.
+pub fn generate_pdf_document(pages: &[PdfPage<'_>]) -> Vec<u8> {
+    let mut writer = PdfWriter::new();
+    writer.write_header();
+
+    let encoding = "/Encoding /WinAnsiEncoding";
+    let font1_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica {encoding} >>"));
+    let font2_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold {encoding} >>"));
+    let font3_obj = writer.add_object(&format!("<< /Type /Font /Subtype /Type1 /BaseFont /Courier {encoding} >>"));
+    let pages_obj = writer.reserve_object();
+
+    let mut page_objs: Vec<usize> = Vec::with_capacity(pages.len());
+    for page in pages {
+        let sheet = page.sheet;
+        let (pw_mm, ph_mm) = sheet.paper_size.dimensions_mm();
+        let (pw_pt, ph_pt) = (pw_mm * MM_TO_PT, ph_mm * MM_TO_PT);
+        let mut scene = build_scene(sheet);
+        scene.groups.extend(page.extra.iter().cloned());
+
+        let mut stream = String::with_capacity(64 * 1024);
+        stream.push_str(&format!("q 1 1 1 rg 0 0 {pw_pt:.2} {ph_pt:.2} re f Q\n"));
+        let mut images: Vec<usize> = Vec::new();
+        render_scene(&mut stream, &scene, &mut images);
+        render_annotations(&mut stream, sheet);
+        let stream_obj = writer.add_stream_object(stream.as_bytes());
+
+        let mut xobjects = String::new();
+        for index in &images {
+            let Some(view) = sheet.shaded.get(*index) else {
+                continue;
+            };
+            let data = view.image.zlib_rgb();
+            let obj = writer.add_raw_stream(
+                &format!(
+                    "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+                    view.image.width, view.image.height
+                ),
+                &data,
+            );
+            xobjects.push_str(&format!("/Im{index} {obj} 0 R "));
+        }
+        let xobject_res = if xobjects.is_empty() {
+            String::new()
+        } else {
+            format!(" /XObject << {}>>", xobjects)
+        };
+        page_objs.push(writer.add_object(&format!(
+            "<< /Type /Page /Parent {pages_obj} 0 R /MediaBox [0 0 {pw_pt:.2} {ph_pt:.2}] /Contents {stream_obj} 0 R /Resources << /Font << /F1 {font1_obj} 0 R /F2 {font2_obj} 0 R /F3 {font3_obj} 0 R >>{xobject_res} >> >>"
+        )));
+    }
+
+    let kids: Vec<String> = page_objs.iter().map(|o| format!("{o} 0 R")).collect();
+    writer.fill_object(
+        pages_obj,
+        &format!("<< /Type /Pages /Kids [{}] /Count {} >>", kids.join(" "), page_objs.len()),
+    );
+
+    // Bookmark: satu butir per halaman berjudul.
+    let marks: Vec<(usize, &str)> = pages
+        .iter()
+        .zip(&page_objs)
+        .filter(|(p, _)| !p.bookmark.trim().is_empty())
+        .map(|(p, obj)| (*obj, p.bookmark))
+        .collect();
+    let outlines = if marks.is_empty() {
+        String::new()
+    } else {
+        let root = writer.reserve_object();
+        let first = writer.next_object_number();
+        for (i, (page_obj, title)) in marks.iter().enumerate() {
+            let mut dict = format!(
+                "<< /Title ({}) /Parent {root} 0 R /Dest [{page_obj} 0 R /Fit]",
+                escape_pdf(title)
+            );
+            if i > 0 {
+                dict.push_str(&format!(" /Prev {} 0 R", first + i - 1));
+            }
+            if i + 1 < marks.len() {
+                dict.push_str(&format!(" /Next {} 0 R", first + i + 1));
+            }
+            dict.push_str(" >>");
+            writer.add_object(&dict);
+        }
+        writer.fill_object(
+            root,
+            &format!(
+                "<< /Type /Outlines /First {first} 0 R /Last {} 0 R /Count {} >>",
+                first + marks.len() - 1,
+                marks.len()
+            ),
+        );
+        format!(" /Outlines {root} 0 R /PageMode /UseOutlines")
+    };
+    let catalog_obj =
+        writer.add_object(&format!("<< /Type /Catalog /Pages {pages_obj} 0 R{outlines} >>"));
+    writer.finalize(catalog_obj)
+}
+
+/// Tulis dokumen multi-halaman ke berkas.
+pub fn export_pdf_document(pages: &[PdfPage<'_>], path: impl AsRef<Path>) -> Result<()> {
+    std::fs::write(path, generate_pdf_document(pages)).context("gagal menulis dokumen PDF")?;
+    Ok(())
 }
 
 fn mm_to_pt(val_mm: f32) -> f32 {
@@ -356,6 +487,16 @@ fn render_annotations(s: &mut String, sheet: &DrawingSheet) {
         };
         let [ax, ay] = geometry.anchor;
         let pt = |p: &[f32; 2]| (mm_to_pt(ax + p[0]), mm_to_pt(ay + p[1]));
+        // Anotasi berwarna (redline) dibungkus q/Q supaya hitam kembali.
+        if let Some([r, g, b]) = geometry.color {
+            let c = |v: u8| f32::from(v) / 255.0;
+            s.push_str(&format!(
+                "q {0:.3} {1:.3} {2:.3} RG {0:.3} {1:.3} {2:.3} rg\n",
+                c(r),
+                c(g),
+                c(b)
+            ));
+        }
 
         for path in &geometry.paths {
             for cmd in &path.cmds {
@@ -393,6 +534,9 @@ fn render_annotations(s: &mut String, sheet: &DrawingSheet) {
                 "BT {font} {font_pt:.2} Tf 1 0 0 1 {x:.2} {y:.2} Tm ({}) Tj ET\n",
                 escape_pdf(&run.text)
             ));
+        }
+        if geometry.color.is_some() {
+            s.push_str("Q\n");
         }
     }
 

@@ -1166,6 +1166,18 @@ pub struct OpFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(with = "Vec<serde_json::Value>")]
     pub drawings: Vec<ducad_io::drawing::DrawingSpec>,
+    /// Optional design brief with numbered requirements (same shape as tool `set_brief`).
+    /// Checks reference a requirement through their `requirement` field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<crate::brief::DesignBrief>,
+    /// Optional rule packs expanded into extra checks when the file is loaded, e.g.
+    /// `["dfm-cnc"]` or `[{"pack": "dfm-sheet-metal", "vars": {"thickness": "$t"}}]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_packs: Vec<crate::check::RulePackRef>,
+    /// Optional design package: the sheets of the multi-page document set built by
+    /// `ducad-cli build --package` / tool `build_package`. Omitted = automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<crate::package::PackageSpec>,
 }
 
 /// JSON Schema `OpFile`. Salinannya disimpan di `schema/ops.schema.json`.

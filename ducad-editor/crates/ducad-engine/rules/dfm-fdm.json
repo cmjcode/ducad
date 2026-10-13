@@ -1,0 +1,49 @@
+{
+  "id": "dfm-fdm",
+  "title": "DFM for FDM 3D printing",
+  "version": "1",
+  "process": "fdm",
+  "description": "Printability rules for a 0.4 mm nozzle and 0.2 mm layers: printable walls, limited unsupported overhang, material around holes.",
+  "vars": {
+    "up": { "value": "z", "description": "Build direction: x, y or z." },
+    "min_wall": { "value": 1.2, "description": "Thinnest wall (mm): 3 perimeters of a 0.4 mm nozzle." },
+    "max_overhang_deg": { "value": 45, "description": "Largest unsupported overhang angle from vertical (degrees)." },
+    "max_overhang_area": { "value": 25, "description": "Overhang area (mm^2) tolerated without support." },
+    "min_hole_web": { "value": 1.2, "description": "Material around a hole (mm)." },
+    "class": { "value": "c", "description": "ISO 2768-1 class of the drawing." }
+  },
+  "rules": [
+    {
+      "id": "min-wall",
+      "basis": "guideline",
+      "citation": "Guideline: FDM with a 0.4 mm nozzle needs at least 3 perimeters (1.2 mm) for a closed wall; vault note Standards/Design-Rules-FDM",
+      "severity": "error",
+      "note": "Structural walls: 2 mm or more.",
+      "check": { "check": "min_wall", "body": "@body", "min": "@min_wall" }
+    },
+    {
+      "id": "overhang",
+      "basis": "guideline",
+      "citation": "Guideline: FDM overhangs steeper than 45 degrees from vertical need support; vault note Standards/Design-Rules-FDM",
+      "severity": "warning",
+      "note": "Re-orient the part, add a chamfer instead of a fillet on bottom edges, or accept supports.",
+      "check": { "check": "max_overhang", "body": "@body", "up": "@up", "max_deg": "@max_overhang_deg", "max_area": "@max_overhang_area" }
+    },
+    {
+      "id": "hole-web",
+      "basis": "guideline",
+      "citation": "Guideline: keep at least 3 perimeters (1.2 mm) of material around printed holes",
+      "severity": "warning",
+      "note": "",
+      "check": { "check": "hole_web", "body": "@body", "min": "@min_hole_web" }
+    },
+    {
+      "id": "general-tolerance",
+      "basis": "standard",
+      "citation": "ISO 2768-1:1989, Table 1 (permissible deviations for linear dimensions); process capability per DUCAD guideline",
+      "severity": "warning",
+      "note": "Printed holes come out about 0.2 mm undersize; ream or drill the ones that need a fit.",
+      "check": { "check": "general_tolerance", "body": "@body", "class": "@class", "process": "fdm" }
+    }
+  ]
+}

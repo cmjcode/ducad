@@ -56,6 +56,8 @@ pub struct ChatState {
     pub(crate) cli_sessions: HashMap<String, String>,
     /// Hasil tugas latar Deteksi/Daftarkan/Uji.
     pub(crate) cli_bg: Option<Receiver<String>>,
+    /// Gambar yang ikut pesan berikutnya (W6).
+    pub(crate) pending_images: Vec<ducad_chat::ChatImage>,
 }
 
 /// Eksekutor tool: kirim ke UI thread lewat jembatan, tunggu balasan.
@@ -165,7 +167,7 @@ fn items_from_conv(conv: &[ConvMessage]) -> Vec<ChatItem> {
     let mut items = Vec::new();
     for m in conv {
         match m {
-            ConvMessage::User { text } => {
+            ConvMessage::User { text, .. } => {
                 items.push(ChatItem::text(ChatRole::User, strip_context(text)))
             }
             ConvMessage::Assistant { text, calls, .. } => {
@@ -363,7 +365,7 @@ impl ChatState {
             .conv
             .iter()
             .find_map(|m| match m {
-                ConvMessage::User { text } => {
+                ConvMessage::User { text, .. } => {
                     Some(strip_context(text).chars().take(60).collect::<String>())
                 }
                 _ => None,
@@ -449,6 +451,26 @@ impl DuCADApp {
         self.chat_start(ctx, Box::new(HttpModel::new(cfg)));
     }
 
+    /// Pilih berkas gambar dan lampirkan ke pesan berikutnya. Jenis gambar
+    /// dikenali dari isinya; berkas lain atau > 5 MB ditolak dengan pesan.
+    fn chat_attach_image(&mut self) {
+        let Some(path) =
+            self.pick_open_path("Image", &["png", "jpg", "jpeg", "webp", "gif"])
+        else {
+            return;
+        };
+        match ducad_chat::ChatImage::from_path(&path) {
+            Ok(image) => {
+                self.chat.pending_images.push(image);
+                self.chat.panel.attachments = self.chat.pending_images.len();
+            }
+            Err(e) => self.chat.push(ChatItem::text(
+                ChatRole::Error,
+                ducad_i18n::t!("chat-attach-failed", error = e.as_str()),
+            )),
+        }
+    }
+
     /// Mulai satu giliran dengan `model` (dipisah supaya tes bisa memakai
     /// model terskrip).
     pub(crate) fn chat_start(&mut self, ctx: &egui::Context, mut model: Box<dyn ChatModel>) {
@@ -460,8 +482,11 @@ impl DuCADApp {
         self.chat.push(ChatItem::text(ChatRole::User, text.clone()));
         self.chat.streaming = None;
         let mut conv = self.chat.conv.clone();
+        let images = std::mem::take(&mut self.chat.pending_images);
+        self.chat.panel.attachments = 0;
         conv.push(ConvMessage::User {
             text: format!("{}\n{text}", self.chat_context()),
+            images,
         });
         let tools = live_tools();
         let system = system_prompt();
@@ -577,6 +602,11 @@ impl DuCADApp {
         };
         match event {
             ChatPanelEvent::Send => self.chat_send(ctx),
+            ChatPanelEvent::AttachImage => self.chat_attach_image(),
+            ChatPanelEvent::ClearAttachments => {
+                self.chat.pending_images.clear();
+                self.chat.panel.attachments = 0;
+            }
             ChatPanelEvent::Stop => {
                 if let Some(c) = &self.chat.cancel {
                     c.store(true, Ordering::Relaxed);
@@ -680,7 +710,7 @@ mod tests {
 
         assert_eq!(app.native_body_refs().len(), 1);
         assert_eq!(app.chat.conv.len(), 4, "{:?}", app.chat.conv);
-        let ConvMessage::User { text } = &app.chat.conv[0] else {
+        let ConvMessage::User { text, .. } = &app.chat.conv[0] else {
             panic!()
         };
         assert!(text.starts_with(CONTEXT_PREFIX), "{text}");

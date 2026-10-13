@@ -160,6 +160,8 @@ pub struct DuCADApp {
     pub sim: crate::sim_ui::SimState,
     /// Panel Fitur Industri (P18–P20).
     pub industry: crate::industry_ui::IndustryState,
+    /// Panel Review & Rilis (W0–W5): brief, redline, persetujuan paket.
+    pub review: crate::review_ui::ReviewState,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
     /// Panel chat AI (P13.3).
@@ -586,6 +588,7 @@ impl DuCADApp {
             mass: crate::mass_ui::MassState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
+            review: crate::review_ui::ReviewState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -908,6 +911,7 @@ impl DuCADApp {
             mass: crate::mass_ui::MassState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
+            review: crate::review_ui::ReviewState::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -2210,6 +2214,23 @@ impl eframe::App for DuCADApp {
                 self.industry.panel = panel;
                 if let Some(ev) = panel_event {
                     self.handle_industry_event(ev, &ctx);
+                }
+            }
+
+            if self.review.panel_open {
+                // Kiri atas area kerja (sudut yang sama dengan panel Simulasi).
+                let top = header_band.max.y + 8.0;
+                let data = self.review_panel_data();
+                let mut panel = std::mem::take(&mut self.review.panel);
+                let panel_event = egui::Area::new(egui::Id::new("ducad-review-panel-area"))
+                    .fixed_pos(egui::pos2(screen_rect.min.x + 72.0, top))
+                    .pivot(egui::Align2::LEFT_TOP)
+                    .order(egui::Order::Foreground)
+                    .show(&ctx, |ui| panel.show(ui, &data))
+                    .inner;
+                self.review.panel = panel;
+                if let Some(ev) = panel_event {
+                    self.handle_review_event(ev);
                 }
             }
 
@@ -4725,6 +4746,9 @@ impl eframe::App for DuCADApp {
                 }
                 ducad_ui::DrawingSheetEvent::Refresh => {
                     self.rebuild_drawing_sheet();
+                }
+                ducad_ui::DrawingSheetEvent::AddRedline { position } => {
+                    self.review_begin_redline(position);
                 }
             }
         }

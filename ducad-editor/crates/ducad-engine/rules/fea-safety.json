@@ -1,0 +1,20 @@
+{
+  "id": "fea-safety",
+  "title": "Static strength margin",
+  "version": "1",
+  "description": "Requires a stress study on the part and a minimum safety factor against yield. Needs a `study` op and a mechanical material (op set_material).",
+  "vars": {
+    "study": { "value": "*", "description": "Id of the study op; \"*\" = the only stress study." },
+    "min_safety_factor": { "value": 1.5, "description": "Yield strength / maximum von Mises stress." }
+  },
+  "rules": [
+    {
+      "id": "safety-factor",
+      "basis": "guideline",
+      "citation": "Guideline: general engineering practice, safety factor of at least 1.5 against yield for ductile materials under static load; the code governing your application takes precedence",
+      "severity": "error",
+      "note": "DUCAD's linear FEA is an engineering estimate (about +/-10 % on the default mesh).",
+      "check": { "check": "min_safety_factor", "study": "@study", "min": "@min_safety_factor" }
+    }
+  ]
+}

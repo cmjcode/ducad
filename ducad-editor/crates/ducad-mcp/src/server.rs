@@ -17,9 +17,9 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 /// Tambahan `instructions` khusus mode `--attach`.
-pub const ATTACH_INSTRUCTIONS: &str = " LIVE MODE: you are connected to the DUCAD app that is open right now; every change is visible to the user immediately and each `run_ops`/`set_params`/`replace_op`/`remove_op` is one undo step. `new_part`/`open_part`/`close_part`, `undo`/`redo`, `export`, `diff`, and `list_parts` are not available (ask the user to do it in the app). `propose_ops` shows the user a colored preview and only returns after the user presses Accept/Reject; `accept_proposal` is not available to agents. When the user says \"this\"/\"the selected one\", call `get_selection`; `document_info` gives the document state; after creating geometry, call `set_view` so the result is visible; `screenshot` shows what the user sees.";
+pub const ATTACH_INSTRUCTIONS: &str = " LIVE MODE: you are connected to the DUCAD app that is open right now; every change is visible to the user immediately and each `run_ops`/`set_params`/`replace_op`/`remove_op` is one undo step. `new_part`/`open_part`/`close_part`, `undo`/`redo`, `export`, `diff`, and `list_parts` are not available (ask the user to do it in the app). `propose_ops` shows the user a colored preview and only returns after the user presses Accept/Reject; `accept_proposal` and `approve_package` are not available to agents. When the user says \"this\"/\"the selected one\", call `get_selection`; `document_info` gives the document state; after creating geometry, call `set_view` so the result is visible; `screenshot` shows what the user sees.";
 
-pub const INSTRUCTIONS: &str = "DUCAD is a parametric B-rep CAD. Units: mm, angles in degrees. Workflow: (1) call `get_schema` with no arguments once: a summary of every op kind (required/optional fields), the selector cheatsheet, and the list of tested examples; get one kind in detail with `get_schema {\"op\":\"hole\"}` and a full example with `{\"example\":\"flange\"}`; (2) `new_part` or `open_part`; (3) turn the user's requirements into checks with `set_checks` before modeling; (4) `run_ops` with `dry_run: true` to validate, then without `dry_run`; (5) `inspect`, `run_checks`, and `render_view` to verify the result against the spec; (6) `save_part`. Bodies are referenced by the `id` of the op that created them; a boolean consumes bodies `a` and `b` (use the boolean's `id` afterwards). Faces/edges are referenced with selectors such as `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; test a selector with `query_geometry` before using it. A `run_ops` batch is atomic: if one op fails the whole batch is rolled back and `error` explains the cause, `op_index`, and a `hint`; when `error.fixes` is present, resend the batch with `patched_op` replacing the failed op. Change dimensions with `set_params`; fix an existing op with `replace_op` and drop it with `remove_op` (both replay the oplog) — do not stack corrective ops or undo repeatedly. Strength questions: give the body a mechanical material with op `set_material`, store fixtures and loads with op `study`, then call `simulate_static` (max von Mises stress, displacement, safety factor, color-map image) and assert with checks `max_stress` / `max_displacement` / `min_safety_factor`; a study `kind` of `frequency`, `buckling`, `thermal` or `thermal_stress` gives natural frequencies, buckling load factors or temperatures (checks `min_natural_frequency` / `min_buckling_factor` / `max_temperature`); results are engineering estimates (about +/-10 % on the default voxel mesh). Full guide + error code table: resource `ducad://guide`. Reply to the user in their own language.";
+pub const INSTRUCTIONS: &str = "DUCAD is a parametric B-rep CAD. Units: mm, angles in degrees. Workflow: (1) call `get_schema` with no arguments once: a summary of every op kind (required/optional fields), the selector cheatsheet, and the list of tested examples; get one kind in detail with `get_schema {\"op\":\"hole\"}` and a full example with `{\"example\":\"flange\"}`; (2) `new_part` or `open_part`; (3) turn the user's requirements into checks with `set_checks` before modeling; (4) `run_ops` with `dry_run: true` to validate, then without `dry_run`; (5) `inspect`, `run_checks`, and `render_view` to verify the result against the spec; (6) `save_part`. Bodies are referenced by the `id` of the op that created them; a boolean consumes bodies `a` and `b` (use the boolean's `id` afterwards). Faces/edges are referenced with selectors such as `>Z`, `|Z`, `of(>Z)`, `all[kind=cylinder][r=2.75]`; test a selector with `query_geometry` before using it. A `run_ops` batch is atomic: if one op fails the whole batch is rolled back and `error` explains the cause, `op_index`, and a `hint`; when `error.fixes` is present, resend the batch with `patched_op` replacing the failed op. Change dimensions with `set_params`; fix an existing op with `replace_op` and drop it with `remove_op` (both replay the oplog) — do not stack corrective ops or undo repeatedly. Strength questions: give the body a mechanical material with op `set_material`, store fixtures and loads with op `study`, then call `simulate_static` (max von Mises stress, displacement, safety factor, color-map image) and assert with checks `max_stress` / `max_displacement` / `min_safety_factor`; a study `kind` of `frequency`, `buckling`, `thermal` or `thermal_stress` gives natural frequencies, buckling load factors or temperatures (checks `min_natural_frequency` / `min_buckling_factor` / `max_temperature`); results are engineering estimates (about +/-10 % on the default voxel mesh). DESIGN PACKAGE workflow (brief -> compliant document set -> revision): (a) `set_brief` first: function, loads, process, numbered requirements; (b) `set_checks` with one or more checks per requirement (`requirement: \"R2\"`) plus the `rule_packs` for the process (`get_schema {\"rule_packs\":true}`); every pack rule carries its citation; (c) model until `run_checks` shows no blocking failure and every requirement verified; (d) `build_package` writes the multi-page PDF (cover, drawings, BOM, compliance); (e) `submit_for_review` with a description; the user approves; (f) for a revision read `list_redlines`, change the design with `set_params`/`replace_op`/`propose_ops`, close each note with `resolve_redline`, rebuild and submit again (revision A -> B). Never claim the design is certified: reports are automatic checks that a qualified engineer must review. Full guide + error code table: resource `ducad://guide`. Reply to the user in their own language.";
 
 /// Satu part terbuka.
 pub struct Part {
@@ -237,6 +237,8 @@ fn resource_list(server: &Server) -> Vec<Value> {
     let mut out = vec![
         json!({ "uri": "ducad://schema", "name": "Op schema (JSON Schema)", "mimeType": "application/json" }),
         json!({ "uri": "ducad://guide", "name": "DUCAD modeling guide", "mimeType": "text/markdown" }),
+        json!({ "uri": "ducad://rule-packs", "name": "Rule packs (cited DFM and standard checks)", "mimeType": "application/json" }),
+        json!({ "uri": "ducad://firm", "name": "Firm profile (title block, tolerances, prices, stock)", "mimeType": "application/json" }),
     ];
     for (name, _, covers) in ducad_engine::ops::EXAMPLES {
         out.push(json!({ "uri": format!("ducad://example/{name}"), "name": format!("Example OpFile {name}"),
@@ -245,6 +247,7 @@ fn resource_list(server: &Server) -> Vec<Value> {
     for id in server.sessions.keys() {
         out.push(json!({ "uri": format!("ducad://part/{id}/oplog"), "name": format!("Oplog {id}"), "mimeType": "application/json" }));
         out.push(json!({ "uri": format!("ducad://part/{id}/summary"), "name": format!("Summary {id}"), "mimeType": "application/json" }));
+        out.push(json!({ "uri": format!("ducad://part/{id}/brief"), "name": format!("Design brief {id}"), "mimeType": "application/json" }));
     }
     out
 }
@@ -257,6 +260,28 @@ fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
             ducad_engine::ops::op_schema().to_string(),
         )),
         "ducad://guide" => Ok(text_of("text/markdown", guide_text())),
+        "ducad://rule-packs" => Ok(text_of(
+            "application/json",
+            json!({ "rule_packs": ducad_engine::check::rule_pack_catalog(),
+                    "disclaimer": ducad_engine::check::RULE_DISCLAIMER })
+            .to_string(),
+        )),
+        "ducad://firm" => {
+            // Profil firma di root server, lalu vault memori; tanpa profil
+            // dikembalikan bawaan beserta petunjuk tempat menaruhnya.
+            let path = ducad_engine::firm::find_firm_profile(None, Some(&server.root));
+            let profile = match &path {
+                Some(p) => ducad_engine::firm::FirmProfile::load(p).map_err(|e| e.message)?,
+                None => ducad_engine::firm::FirmProfile::default(),
+            };
+            Ok(text_of(
+                "application/json",
+                json!({ "path": path.map(|p| p.display().to_string()),
+                        "profile": profile,
+                        "hint": "put firm.json next to the parts or in ~/DUCAD-Memory/Standards/firm.json" })
+                .to_string(),
+            ))
+        }
         _ if uri.starts_with("ducad://example/") => {
             let name = uri.trim_start_matches("ducad://example/");
             ducad_engine::ops::example(name)
@@ -282,6 +307,10 @@ fn read_resource(server: &Server, uri: &str) -> Result<Value, String> {
                 "summary" => {
                     serde_json::to_value(part.session.summary()).map_err(|e| e.to_string())?
                 }
+                "brief" => json!({
+                    "brief": part.session.design().brief,
+                    "traceability": part.session.traceability(),
+                }),
                 _ => return Err(format!("unknown resource: {uri}")),
             };
             Ok(text_of("application/json", v.to_string()))
@@ -312,6 +341,21 @@ fn prompt_list() -> Vec<Value> {
             "arguments": [
                 { "name": "path", "description": ".ducad file.", "required": true },
                 { "name": "change", "description": "The requested change.", "required": true }
+            ]
+        }),
+        json!({
+            "name": "design_package",
+            "description": "From a design brief to a compliant document set: brief, traced checks, rule packs, model, multi-page package, review.",
+            "arguments": [
+                { "name": "brief", "description": "What to design: function, loads, interfaces, material, process, quantity, standards.", "required": true },
+                { "name": "path", "description": "Target .ducad file.", "required": false }
+            ]
+        }),
+        json!({
+            "name": "revise_from_redlines",
+            "description": "Apply the reviewer's redlines to a part and prepare the next revision without starting over.",
+            "arguments": [
+                { "name": "path", "description": ".ducad file (omit in a live session).", "required": false }
             ]
         }),
     ]
@@ -356,6 +400,34 @@ fn get_prompt(name: &str, args: &Value) -> Result<Value, String> {
                      Prefer set_params when a matching param exists; change old ops with replace_op \
                      and drop them with remove_op (dry_run first) — do not stack corrective ops. \
                      Verify with run_checks and render_view, then save_part to the same path."
+                ),
+            )
+        }
+        "design_package" => {
+            let brief = arg("brief");
+            if brief.trim().is_empty() {
+                return Err("argument 'brief' is required".into());
+            }
+            let path = match arg("path") {
+                p if p.is_empty() => "part.ducad".to_string(),
+                p => p,
+            };
+            (
+                "Design a part and build its document set",
+                format!(
+                    "Design the following and deliver a reviewed-ready design package, saved to {path}.\n\nBRIEF:\n{brief}\n\n                     Steps: (1) ask for any missing load, interface, material, process or quantity instead of inventing it;                      (2) read resource ducad://firm (title block, tolerance class, stock, preferred fasteners) and recall similar projects from memory;                      (3) new_part, then set_brief with numbered requirements R1..Rn;                      (4) get_schema {{\"rule_packs\":true}}, then set_checks: at least one check per requirement (field `requirement`) plus the rule pack of the process, and `fea-safety` when loads are given;                      (5) model with params and small run_ops batches; with loads add set_material + a study op and call simulate_static;                      (6) run_checks until nothing blocks and get_brief shows every requirement verified; explain each remaining warning;                      (7) build_package with reports_dir; read the returned sheet index and warnings;                      (8) save_part, submit_for_review with a one-line description, and tell the user what they must review and approve.                      State clearly that the checks are automatic and need sign-off by a qualified engineer."
+                ),
+            )
+        }
+        "revise_from_redlines" => {
+            let open = match arg("path") {
+                p if p.is_empty() => "The part is already open.".to_string(),
+                p => format!("Open {p} with open_part."),
+            };
+            (
+                "Revise a part from review redlines",
+                format!(
+                    "{open} Then: (1) package_status and list_redlines; (2) for each open redline decide the smallest change that satisfies it                      (set_params first, then replace_op; new ops only for new features) and show it with propose_ops when the session is live;                      (3) after the change is applied, run_checks: a redline must not break a requirement, and if it does, say so instead of forcing it;                      (4) resolve_redline with a resolution that names the param or op you changed;                      (5) build_package again (unchanged sheets stay identical), save_part, and submit_for_review describing the revision.                      Do not rebuild the model from scratch and do not approve the package yourself."
                 ),
             )
         }
@@ -1074,6 +1146,135 @@ mod tests {
             2,
             "{r}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// W0–W5 lewat MCP: brief → checks bersitasi → model → paket PDF →
+    /// review → redline → revisi B. `approve_package` hanya headless.
+    #[test]
+    fn design_package_workflow() {
+        let (mut s, dir) = server();
+        assert_eq!(call(&mut s, 1, "new_part", json!({}))["isError"], false);
+        let r = call(
+            &mut s,
+            2,
+            "set_brief",
+            json!({ "brief": { "title": "Mounting plate", "process": "cnc",
+                "requirements": [{ "id": "R1", "text": "Plate 60 x 40 x $t mm" },
+                                 { "id": "R2", "text": "Millable on 3 axes" }] } }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(text(&r)["suggested_rule_pack"], "dfm-cnc");
+        let r = call(
+            &mut s,
+            3,
+            "set_params",
+            json!({ "params": { "t": 8 } }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            4,
+            "run_ops",
+            json!({ "ops": [{ "op": "primitive", "id": "plate",
+                              "shape": { "box": { "size": [60, 40, "$t"] } } }] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(
+            &mut s,
+            5,
+            "set_checks",
+            json!({ "checks": [{ "id": "size", "requirement": "R1", "check": "bbox_size",
+                                 "body": "plate", "expect": [60, 40, "$t"] }],
+                    "rule_packs": [{ "pack": "dfm-cnc", "requirement": "R2" }] }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let checks = text(&r);
+        assert_eq!(checks["fail"], 0, "{checks}");
+        assert_eq!(checks["traceability"]["verified"], 2);
+        assert!(checks["results"][1]["citation"].is_string());
+
+        let r = call(
+            &mut s,
+            6,
+            "build_package",
+            json!({ "path": "plate-package.pdf", "date": "2026-10-13", "reports_dir": "reports" }),
+        );
+        assert_eq!(r["isError"], false, "{r}");
+        let built = text(&r);
+        let kinds: Vec<&str> = built["sheets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["cover", "part", "compliance"]);
+        assert!(dir.join("plate-package.pdf").is_file());
+        assert!(dir.join("reports/traceability.md").is_file());
+        // Pagar path tetap berlaku untuk tool baru.
+        let r = call(&mut s, 7, "build_package", json!({ "path": "/tmp/keluar.pdf" }));
+        assert_eq!(r["isError"], true);
+
+        let r = call(&mut s, 8, "submit_for_review", json!({ "description": "First issue", "by": "ana" }));
+        assert_eq!(text(&r)["state"], "in_review");
+        let r = call(&mut s, 9, "add_redline", json!({ "text": "Make it 10 thick", "position": [40, 250] }));
+        assert_eq!(text(&r)["added"]["id"], "RL1");
+        // Redline terbuka menghalangi persetujuan.
+        let r = call(&mut s, 10, "approve_package", json!({ "by": "budi" }));
+        assert_eq!(r["isError"], true, "{r}");
+        assert!(text(&r)["error"]["message"].as_str().unwrap().contains("redline"));
+        let r = call(&mut s, 11, "set_params", json!({ "params": { "t": 10 } }));
+        assert_eq!(r["isError"], false, "{r}");
+        let r = call(&mut s, 12, "resolve_redline", json!({ "id": "RL1", "resolution": "set_params t = 10" }));
+        assert_eq!(text(&r)["open"], 0);
+        let r = call(&mut s, 13, "approve_package", json!({ "by": "budi", "date": "2026-10-13" }));
+        assert_eq!(r["isError"], false, "{r}");
+        assert_eq!(text(&r)["state"], "approved");
+
+        // Perubahan setelah disetujui → draf lagi; pengajuan berikutnya revisi B.
+        call(&mut s, 14, "set_params", json!({ "params": { "t": 12 } }));
+        let r = call(&mut s, 15, "package_status", json!({}));
+        assert_eq!(text(&r)["state"], "draft");
+        assert_eq!(text(&r)["approval_stale"], true);
+        let r = call(&mut s, 16, "submit_for_review", json!({ "description": "Thicker plate" }));
+        assert_eq!(text(&r)["revision"], "B");
+
+        // Status rilis, brief, dan redline ikut tersimpan di berkas.
+        call(&mut s, 17, "save_part", json!({ "path": "plate.ducad" }));
+        let r = call(&mut s, 18, "open_part", json!({ "path": "plate.ducad" }));
+        let sid = text(&r)["session"].as_str().unwrap().to_string();
+        let r = call(&mut s, 19, "package_status", json!({ "session": sid }));
+        assert_eq!(text(&r)["revision"], "B");
+        assert_eq!(text(&r)["history"].as_array().unwrap().len(), 2);
+        let r = call(&mut s, 20, "get_brief", json!({ "session": sid }));
+        assert_eq!(text(&r)["brief"]["title"], "Mounting plate");
+        let r = call(&mut s, 21, "list_redlines", json!({ "session": sid, "all": true }));
+        assert_eq!(text(&r)["redlines"][0]["resolved"], true);
+
+        // Katalog check dan paket aturan lewat get_schema.
+        let r = call(&mut s, 22, "get_schema", json!({ "checks": true }));
+        assert!(text(&r)["checks"].as_array().unwrap().iter().any(|c| c["check"] == "hole_web"));
+        let r = call(&mut s, 23, "get_schema", json!({ "check": "fit" }));
+        assert_eq!(text(&r)["schema"]["properties"]["check"]["enum"][0], "fit");
+        let r = call(&mut s, 24, "get_schema", json!({ "check": "nope" }));
+        assert_eq!(r["isError"], true);
+
+        // Resource dan prompt baru.
+        let read = |s: &mut Server, uri: &str| {
+            let msg = json!({ "jsonrpc": "2.0", "id": 30, "method": "resources/read", "params": { "uri": uri } });
+            handle_message(s, &msg.to_string()).unwrap()
+        };
+        let packs = read(&mut s, "ducad://rule-packs");
+        assert!(packs["result"]["contents"][0]["text"].as_str().unwrap().contains("dfm-sheet-metal"));
+        let firm = read(&mut s, "ducad://firm");
+        assert!(firm["result"]["contents"][0]["text"].as_str().unwrap().contains("general_tolerance"));
+        let prompt = handle_message(
+            &mut s,
+            r#"{"jsonrpc":"2.0","id":31,"method":"prompts/get","params":{"name":"revise_from_redlines","arguments":{}}}"#,
+        )
+        .unwrap();
+        let body = prompt["result"]["messages"][0]["content"]["text"].as_str().unwrap();
+        assert!(body.contains("list_redlines") && body.contains("do not approve"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

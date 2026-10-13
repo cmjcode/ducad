@@ -21,6 +21,6 @@ while IFS= read -r -d '' src; do
     mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
     created=$((created + 1))
-done < <(find "$TEMPLATES" -type f -name '*.md' -print0)
+done < <(find "$TEMPLATES" -type f \( -name '*.md' -o -name '*.json' \) -print0)
 
 echo "vault: $VAULT (dibuat $created file, dilewati $skipped yang sudah ada)" >&2

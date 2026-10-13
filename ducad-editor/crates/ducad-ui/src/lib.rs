@@ -16,6 +16,7 @@ pub mod assembly_drawer;
 pub mod canvas_hud;
 pub mod chat_panel;
 pub mod checks_panel;
+pub mod review_panel;
 pub mod mass_properties_panel;
 pub mod industry_panel;
 pub mod sim_panel;
@@ -68,6 +69,10 @@ pub use chat_panel::{
     CliMeta,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
+pub use review_panel::{
+    ReviewItemUi, ReviewPanel, ReviewPanelData, ReviewPanelEvent, ReviewRedlineUi,
+    ReviewRequirementUi, ReviewRevisionUi, ReviewStage, ReviewTrace,
+};
 pub use industry_panel::{
     stackup_of, valid_op_id, AdvStudyDraft, AdvStudyKind, CouplingKindUi, IndConfigRow,
     IndSheetRow, IndStudyRow, IndustryData, IndustryEvent, IndustryPanel, IndustryTab,

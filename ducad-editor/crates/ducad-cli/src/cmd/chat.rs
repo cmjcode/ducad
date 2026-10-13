@@ -40,6 +40,10 @@ pub struct Args {
     /// Tulis setiap kejadian loop sebagai NDJSON ke stderr.
     #[arg(long)]
     events: bool,
+    /// Lampirkan gambar ke instruksi (foto sketsa, gambar lama); boleh
+    /// diulang. PNG/JPEG/GIF/WebP, maks 5 MB per gambar.
+    #[arg(long = "image")]
+    images: Vec<PathBuf>,
 }
 
 /// Eksekutor: server MCP DUCAD in-process.
@@ -102,8 +106,14 @@ pub fn exec(a: Args) -> CliResult {
         ducad_chat::SYSTEM_PROMPT
     );
     let mut model = HttpModel::new(cfg);
+    let images = a
+        .images
+        .iter()
+        .map(|p| ducad_chat::ChatImage::from_path(p).map_err(CliError::usage))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut conv = vec![ConvMessage::User {
         text: a.instruction.clone(),
+        images,
     }];
     let policy = Policy {
         max_rounds,

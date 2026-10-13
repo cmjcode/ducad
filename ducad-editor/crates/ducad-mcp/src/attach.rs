@@ -26,6 +26,7 @@ pub const UNSUPPORTED: &[&str] = &[
     "close_part",
     "accept_proposal",
     "reject_proposal",
+    "approve_package",
     "undo",
     "redo",
     "export",
@@ -58,6 +59,9 @@ fn unsupported(name: &str) -> OpError {
     let hint = match name {
         "accept_proposal" | "reject_proposal" => {
             "only the user can accept/reject a proposal, with the buttons in the app"
+        }
+        "approve_package" => {
+            "only the user can approve a package: Review panel in the app, or `ducad-cli release --approve`"
         }
         "undo" | "redo" => "ask the user to press ⌘Z/⇧⌘Z, or fix the op with replace_op/remove_op",
         _ => "do it in the app; the bridge works on the document that is currently open",

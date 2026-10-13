@@ -555,7 +555,7 @@ fn title_block(sheet: &DrawingSheet) -> Group {
     );
     g.text(
         [x0 + 93.0, y0 + 2.2],
-        &format!("ISO 2768-m | {}", info.units),
+        &format!("{} | {}", info.general_tolerance, info.units),
         2.4,
         false,
         Anchor::Start,

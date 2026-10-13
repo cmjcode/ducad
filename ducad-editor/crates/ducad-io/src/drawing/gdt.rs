@@ -11,7 +11,7 @@
 
 use ducad_core::drawing_annot::{
     Annotation, DatumFeature, DimensionTolerance, FeatureControlFrame, GdtSymbol, HoleTable,
-    RevisionTable, SurfaceFinish, ToleranceSpec,
+    Redline, RevisionTable, SurfaceFinish, ToleranceSpec,
 };
 
 /// Tinggi huruf anotasi, mm (ISO 3098).
@@ -69,7 +69,12 @@ pub struct AnnotationGeometry {
     pub anchor: [f32; 2],
     pub paths: Vec<VectorPath>,
     pub texts: Vec<TextRun>,
+    /// Warna garis/teks RGB; `None` = hitam. Redline memakai merah.
+    pub color: Option<[u8; 3]>,
 }
+
+/// Warna redline (merah koreksi).
+pub const REDLINE_RGB: [u8; 3] = [200, 30, 30];
 
 impl AnnotationGeometry {
     fn line(&mut self, a: [f32; 2], b: [f32; 2]) {
@@ -618,6 +623,49 @@ fn revision_table_geometry(g: &mut AnnotationGeometry, table: &RevisionTable) {
     );
 }
 
+/// Redline: teks merah berbingkai + panah ke `target`.
+fn redline_geometry(g: &mut AnnotationGeometry, redline: &Redline) {
+    const SIZE: f32 = 3.0;
+    const PAD: f32 = 1.4;
+    g.color = Some(REDLINE_RGB);
+    let label = format!("{}: {}", redline.id, redline.text);
+    let width = text_width_mm(&label, SIZE) + 2.0 * PAD;
+    let height = SIZE + 2.0 * PAD;
+    g.rect(-PAD, -PAD, width, height);
+    g.text([0.0, 0.0], label, SIZE);
+    let Some(target) = redline.target else {
+        return;
+    };
+    // Target dalam koordinat lokal (relatif jangkar).
+    let tip = [
+        target[0] as f32 - g.anchor[0],
+        target[1] as f32 - g.anchor[1],
+    ];
+    // Garis penunjuk berangkat dari titik bingkai terdekat ke target.
+    let from = [
+        tip[0].clamp(-PAD, width - PAD),
+        tip[1].clamp(-PAD, height - PAD),
+    ];
+    let (dx, dy) = (tip[0] - from[0], tip[1] - from[1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1.0 {
+        return;
+    }
+    g.line(from, tip);
+    let (ux, uy) = (dx / len, dy / len);
+    let head = 2.4f32.min(len * 0.5);
+    let back = [tip[0] - ux * head, tip[1] - uy * head];
+    let half = head * 0.35;
+    g.paths.push(polygon_path(
+        &[
+            tip,
+            [back[0] - uy * half, back[1] + ux * half],
+            [back[0] + uy * half, back[1] - ux * half],
+        ],
+        true,
+    ));
+}
+
 /// Geometri sebuah anotasi. `None` bila titik jangkarnya bukan angka hingga
 /// (anotasi seperti itu dilewati saat ekspor, bukan merusak berkas).
 pub fn annotation_geometry(annotation: &Annotation) -> Option<AnnotationGeometry> {
@@ -636,6 +684,9 @@ pub fn annotation_geometry(annotation: &Annotation) -> Option<AnnotationGeometry
         Annotation::SurfaceFinish { finish, .. } => finish_geometry(&mut g, finish),
         Annotation::HoleTable { table, .. } => hole_table_geometry(&mut g, table),
         Annotation::RevisionTable { table, .. } => revision_table_geometry(&mut g, table),
+        // Redline yang sudah ditangani tidak lagi digambar.
+        Annotation::Redline { redline, .. } if redline.resolved => return None,
+        Annotation::Redline { redline, .. } => redline_geometry(&mut g, redline),
     }
     Some(g)
 }

@@ -2,7 +2,8 @@
 //!
 //! stdout hanya berisi hasil (JSON untuk laporan / `--json`); semua log ke
 //! stderr. Kode keluar: 0 sukses · 1 operasi/replay gagal (laporan tetap
-//! ditulis) · 2 salah pakai argumen atau I/O · 3 ada check yang gagal (P7).
+//! ditulis) · 2 salah pakai argumen atau I/O · 3 ada check yang gagal (P7) ·
+//! 4 `build --release` pada paket yang belum disetujui (W5).
 
 mod cmd;
 
@@ -17,6 +18,8 @@ pub enum Exit {
     OpFailed = 1,
     Usage = 2,
     ChecksFailed = 3,
+    /// `build --release` pada paket yang belum disetujui / ceklis belum bersih.
+    NotReleased = 4,
 }
 
 /// Error CLI beserta kode keluarnya.
@@ -95,6 +98,8 @@ enum Command {
     Export(cmd::export::Args),
     /// Bangun artefak manufaktur + laporan untuk CI (kode 3 bila check gagal).
     Build(cmd::build::Args),
+    /// Status rilis paket: ajukan review, setujui, atau buka kembali.
+    Release(cmd::release::Args),
     /// Minta asisten AI di perangkat mengusulkan perubahan (proposal).
     Assist(cmd::assist::Args),
     /// Chat agent (Claude/OpenAI/Ollama) yang memodelkan lewat tool MCP.
@@ -121,6 +126,7 @@ fn main() -> ExitCode {
         Command::Config(a) => cmd::config::exec(a),
         Command::Export(a) => cmd::export::exec(a),
         Command::Build(a) => cmd::build::exec(a),
+        Command::Release(a) => cmd::release::exec(a),
         Command::Assist(a) => cmd::assist::exec(a),
         Command::Chat(a) => cmd::chat::exec(a),
         Command::Schema => cmd::print_json(&ducad_engine::ops::op_schema()).map(|_| Exit::Ok),
