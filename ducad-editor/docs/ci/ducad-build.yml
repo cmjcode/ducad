@@ -4,10 +4,10 @@ name: ducad-build
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: gh release download --repo cmjcode/ducad --pattern 'ducad-tools-macos-arm64.tar.gz' && tar xzf ducad-tools-*.tar.gz
+      - run: gh release download --repo cmjcode/ducad --pattern 'ducad-tools-linux-x86_64.tar.gz' && tar xzf ducad-tools-*.tar.gz
         env: { GH_TOKEN: "${{ github.token }}" }
       - run: |
           for f in parts/*.ops.json; do ./ducad-cli build "$f" --out "dist/$(basename "$f" .ops.json)"; done

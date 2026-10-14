@@ -117,6 +117,14 @@ Contoh siap jalan: `examples/design-package/` (bracket CNC + baki sheet metal
 
 ## Binary
 
-Rilis `v*` repo DUCAD memuat `ducad-tools-macos-arm64.tar.gz` (berisi
-`ducad-cli` dan `ducad-mcp`). Build Linux x86_64 belum dirilis: workflow CI
-utama sudah membangun OCCT di Ubuntu, tetapi paket rilisnya belum diuji.
+Rilis `v*` repo DUCAD (workflow `.github/workflows/release.yml`) memuat:
+
+- `ducad-tools-linux-x86_64.tar.gz` dan `ducad-tools-windows-x86_64.zip`:
+  `ducad-cli` + `ducad-mcp` saja, untuk CI (templat di atas memakai yang Linux);
+- `ducad-<versi>-linux-x86_64.tar.gz` dan `ducad-<versi>-windows-x86_64.zip`:
+  aplikasi GUI `ducad` beserta kedua binary headless;
+- `*.sha256` untuk setiap berkas.
+
+Paket macOS tidak dibangun CI: bundel `.app` ditandatangani dan dinotarisasi
+di mesin lokal (`make bundle-macos`, `./notarize.sh`), lalu diunggah manual ke
+rilis yang sama dengan `gh release upload v<versi> <berkas> --clobber`.
