@@ -129,11 +129,12 @@ jobs:
         working-directory: .
         shell: pwsh
         run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $req = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
-          $year = & $vswhere -latest -products * -requires $req -property catalog_productLineVersion
-          $major = (& $vswhere -latest -products * -requires $req -property installationVersion).Split('.')[0]
-          $gen = "Visual Studio $major $year"
+          # Generator bertanda `*` di `cmake --help` = VS terbaru yang terpasang.
+          # (Jangan merakit nama dari vswhere: VS 2026 melaporkan
+          # catalog_productLineVersion "18", bukan "2026".)
+          $line = cmake --help | Select-String '^\*\s+(Visual Studio \d+ \d{4})' | Select-Object -First 1
+          if (-not $line) { throw 'Generator Visual Studio default tidak ditemukan di cmake --help' }
+          $gen = $line.Matches[0].Groups[1].Value
           Write-Host "Generator CMake: $gen"
           "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
 

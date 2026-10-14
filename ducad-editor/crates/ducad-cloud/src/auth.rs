@@ -395,13 +395,25 @@ fn open_url_impl(url: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_url_impl(url: &str) -> Result<(), String> {
-    // Argumen "" kosong adalah judul window yang diharapkan `start`; tanpa
-    // itu URL dalam tanda kutip dianggap judul dan tidak ada yang terbuka.
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
+    let (program, args) = windows_open_command(url);
+    std::process::Command::new(program)
+        .args(args)
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+/// Perintah pembuka URL di Windows.
+///
+/// JANGAN lewat `cmd /C start`: `cmd` memperlakukan `&` sebagai pemisah
+/// perintah, sehingga URL login terpotong di `?client=ducad` dan
+/// `&ticket=…&port=…` hilang. Server lalu menganggap permintaan itu bukan
+/// dari aplikasi dan menampilkan JSON token mentah di browser, sementara
+/// aplikasi menunggu sampai timeout. `rundll32 url.dll,FileProtocolHandler`
+/// menerima URL utuh tanpa melewati parser `cmd`.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn windows_open_command(url: &str) -> (&'static str, [&str; 2]) {
+    ("rundll32", ["url.dll,FileProtocolHandler", url])
 }
 
 #[cfg(target_os = "linux")]
@@ -576,6 +588,21 @@ mod tests {
             "https://api.ducad.app/api/v1/auth/login/google?client=ducad&ticket=def456"
         );
         assert!(!url.contains("port="));
+    }
+
+    #[test]
+    fn test_windows_open_keeps_query_intact() {
+        // Regresi: `cmd /C start` memotong URL di `&`, sehingga ticket dan
+        // port tidak sampai ke server dan login Windows tidak pernah selesai.
+        let url = build_login_url(
+            "https://api.ducad.app",
+            OAuthProvider::Google,
+            "abc123",
+            Some(49152),
+        );
+        let (program, args) = windows_open_command(&url);
+        assert_ne!(program, "cmd");
+        assert_eq!(args.last(), Some(&url.as_str()));
     }
 
     #[test]
