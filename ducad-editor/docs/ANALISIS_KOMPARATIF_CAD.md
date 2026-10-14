@@ -300,19 +300,29 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
    `call_stateless_tool`, `ducad-mcp::tools::call_out`, `AgentBridge::agent_call`,
    `DuCADApp::execute_model_command`.
 2. Lint `deny(clippy::unwrap_used, expect_used, panic, todo, unimplemented)` di
-   11 crate; 23 `unwrap`/`expect` produksi di engine dihilangkan.
+   **semua** crate workspace; seluruh `unwrap`/`expect` produksi dihilangkan
+   (satu pengecualian invarian beralasan: `SketchSet::active()`), dan semua
+   komparator sort `f64` memakai `total_cmp`.
 3. Tes input hostil: `ducad-engine/tests/hostile.rs` (mutasi daun JSON setiap op
-   fixture) dan `ducad-mcp` (`hostile_arguments_never_panic` untuk semua tool).
+   fixture; default 4 fixture, penuh via `--ignored`), `ducad-mcp`
+   (`hostile_arguments_never_panic` untuk semua tool), `ducad-io/tests/hostile_stl.rs`.
 4. `ducad-app/src/logging.rs`: `~/.ducad/logs/ducad.log` + rotasi + panic hook.
 5. Autosave pemulihan di desktop (`App::save` selalu menulis; `on_exit`
    menghapus; start berikutnya memulihkan bila berkas tersisa).
 6. `ducad-core/tests/layering.rs`: tabel dependensi = peta crate `CLAUDE.md`.
+7. Batas jangkauan sebelum kernel (1e-6..1e6 mm untuk panjang, ±1e9 untuk
+   angka apa pun) setelah tes hostil menemukan dua exception C++ OCCT yang
+   meng-abort proses.
+
+Bug nyata yang ditemukan tes hostil selama penerapan: overflow `i64` di indeks
+grid `ducad-sketch` (`region.rs`, `faces.rs`) untuk koordinat ekstrem, abort
+OCCT pada lubang Ø1e308 dan box 1e-300, dan alokasi tak terbatas dari header
+STL biner.
 
 ### 5.3 Pekerjaan lanjutan yang disarankan
 
-- Perluas lint anti-panik ke `ducad-io`, `ducad-render`, `ducad-ui`, lalu
-  `ducad-sketch`, `ducad-kernel`, `ducad-app` (pola yang sama; kernel butuh
-  audit `unwrap` pada hasil OCCT).
-- Tes hostil untuk `drawing`/`study`/sheet metal (fixture `valve_body`,
-  `sim_bracket`) bila waktunya masih wajar di CI.
-- Opsi "hormati *reduce motion*" untuk animasi panel Liquid Glass.
+- Bungkus pembuat shape primitif dan boolean di binding OCCT yang di-vendor
+  dengan `try/catch Standard_Failure` (pola `b_rep_adaptor.hxx`), supaya input
+  yang lolos validasi tetapi ditolak OCCT menjadi error, bukan abort.
+- Opsi "hormati *reduce motion*" untuk animasi panel Liquid Glass (bukan bagian
+  ADR 0009).

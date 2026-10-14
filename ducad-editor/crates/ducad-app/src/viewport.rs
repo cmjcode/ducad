@@ -163,7 +163,7 @@ pub fn hit_test_cycled(
     if candidates.is_empty() {
         return None;
     }
-    candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    candidates.sort_by(|a, b| a.1.total_cmp(&b.1));
     Some(candidates[cycle % candidates.len()].0)
 }
 

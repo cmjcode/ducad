@@ -13,8 +13,23 @@ use ducad_engine::{OpErrorCode, Session};
 use serde_json::{json, Value};
 
 const FIXTURES: &[(&str, &str)] = &[
-    ("plate", include_str!("fixtures/plate.ops.json")),
     ("bracket", include_str!("fixtures/bracket.ops.json")),
+    ("enclosure", include_str!("fixtures/enclosure.ops.json")),
+    ("flange", include_str!("fixtures/flange.ops.json")),
+    ("loft_helix", include_str!("fixtures/loft_helix.ops.json")),
+    (
+        "mass_bracket",
+        include_str!("fixtures/mass_bracket.ops.json"),
+    ),
+    ("plate", include_str!("fixtures/plate.ops.json")),
+    ("sheet_box", include_str!("fixtures/sheet_box.ops.json")),
+    ("sim_bracket", include_str!("fixtures/sim_bracket.ops.json")),
+    ("sim_modes", include_str!("fixtures/sim_modes.ops.json")),
+    (
+        "toolbox_joint",
+        include_str!("fixtures/toolbox_joint.ops.json"),
+    ),
+    ("valve_body", include_str!("fixtures/valve_body.ops.json")),
 ];
 
 /// Nilai pengganti yang "masuk akal secara tipe" supaya lolos serde dan
@@ -78,10 +93,35 @@ fn assert_not_internal(label: &str, report: &ducad_engine::BatchReport) {
     }
 }
 
+/// Fixture untuk sapuan default (cepat, ±10 s). `enclosure` dan
+/// `toolbox_joint` ikut karena keduanya pernah membuat OCCT melempar
+/// exception C++ (hole Ø1e308, box 1e-300) yang meng-abort proses.
+const QUICK: &[&str] = &["plate", "bracket", "enclosure", "toolbox_joint"];
+
 #[test]
 fn mutated_fixture_ops_never_panic() {
+    let quick: Vec<(&str, &str)> = FIXTURES
+        .iter()
+        .copied()
+        .filter(|(n, _)| QUICK.contains(n))
+        .collect();
+    sweep(&quick);
+}
+
+/// Sapuan penuh atas SEMUA fixture (±90 s). Jalankan setelah mengubah
+/// validasi op atau kernel:
+/// `cargo test -p ducad-engine --test hostile -- --ignored`.
+/// Abort C++ dari OCCT mematikan seluruh biner tes tanpa nama kasus; set
+/// `DUCAD_HOSTILE_TRACE=1` dan `-- --nocapture` untuk melihat mutasi terakhir.
+#[test]
+#[ignore = "lambat (±90 s); dijalankan eksplisit, lihat doc"]
+fn mutated_all_fixture_ops_never_crash() {
+    sweep(FIXTURES);
+}
+
+fn sweep(fixtures: &[(&str, &str)]) {
     let mut tried = 0usize;
-    for (name, text) in FIXTURES {
+    for (name, text) in fixtures {
         let file: OpFile = serde_json::from_str(text).unwrap();
         let mut s = Session::new();
         assert!(s.set_params(file.params).unwrap().committed);
@@ -97,6 +137,7 @@ fn mutated_fixture_ops_never_panic() {
                     continue;
                 };
                 for hv in hostile_values(leaf) {
+                    let hv_dbg = hv.to_string();
                     let mut mutated = orig.clone();
                     if let Some(slot) = mutated.pointer_mut(p) {
                         *slot = hv;
@@ -106,6 +147,9 @@ fn mutated_fixture_ops_never_panic() {
                         continue;
                     };
                     tried += 1;
+                    if std::env::var_os("DUCAD_HOSTILE_TRACE").is_some() {
+                        eprintln!("[hostile] {name} op#{i} {p} = {hv_dbg}");
+                    }
                     let report = s.run(vec![op], true);
                     assert!(!report.committed, "dry_run tidak boleh commit");
                     assert_not_internal(&format!("{name} op#{i} {p}"), &report);
@@ -120,7 +164,7 @@ fn mutated_fixture_ops_never_panic() {
 
 #[test]
 fn hostile_params_and_edits_never_panic() {
-    let file: OpFile = serde_json::from_str(FIXTURES[0].1).unwrap();
+    let file: OpFile = serde_json::from_str(include_str!("fixtures/plate.ops.json")).unwrap();
     let mut s = Session::new();
     assert!(s.set_params(file.params).unwrap().committed);
     assert!(s.run(file.ops, false).committed);
@@ -158,4 +202,35 @@ fn hostile_params_and_edits_never_panic() {
         assert!(!report.committed);
         assert_not_internal("op buatan", &report);
     }
+}
+
+/// Regresi: kedua kasus ini dulu membuat OCCT melempar exception C++
+/// (`StdFail_NotDone`, `Standard_DomainError`) yang meng-abort proses.
+/// Sekarang ditolak engine sebagai `invalid_param` sebelum menyentuh kernel.
+#[test]
+fn absurd_magnitudes_are_rejected_before_the_kernel() {
+    let mut s = Session::new();
+    for op in [
+        json!({"op": "primitive", "id": "a", "shape": {"box": {"size": [1e-300, 10, 10]}}}),
+        json!({"op": "primitive", "id": "b", "shape": {"box": {"size": [1e7, 10, 10]}}}),
+        json!({"op": "primitive", "id": "c", "shape": {"cylinder": {"r": 1e308, "h": 1}}}),
+        json!({"op": "primitive", "id": "d", "shape": {"box": {"size": [10, 10, 10]}}, "at": [1e12, 0, 0]}),
+    ] {
+        let op: Op = serde_json::from_value(op.clone()).unwrap_or_else(|e| panic!("{op}: {e}"));
+        let report = s.run(vec![op], false);
+        let e = report.error.expect("harus ditolak");
+        assert_eq!(e.code, OpErrorCode::InvalidParam, "{}", e.message);
+    }
+    let base: Op = serde_json::from_value(
+        json!({"op": "primitive", "id": "box", "shape": {"box": {"size": [40, 30, 10]}}}),
+    )
+    .unwrap();
+    assert!(s.run(vec![base], false).committed);
+    let hole: Op = serde_json::from_value(json!({
+        "op": "hole", "id": "h", "body": "box", "face": ">Z", "at": [[0, 0]],
+        "spec": {"diameter": 1e308}
+    }))
+    .unwrap();
+    let e = s.run(vec![hole], true).error.expect("harus ditolak");
+    assert_eq!(e.code, OpErrorCode::InvalidParam, "{}", e.message);
 }

@@ -703,7 +703,7 @@ impl Entity {
                 } else if points.len() == 1 {
                     vec![points[0]]
                 } else {
-                    let mut pts = vec![points[0], *points.last().unwrap()];
+                    let mut pts = vec![points[0], points[points.len() - 1]];
                     for pt in &points[1..points.len() - 1] {
                         pts.push(*pt);
                     }
@@ -890,7 +890,7 @@ impl Entity {
                 if points.len() >= 2 {
                     let mut refs = vec![
                         (PointRef::LineStart(id), points[0]),
-                        (PointRef::LineEnd(id), *points.last().unwrap()),
+                        (PointRef::LineEnd(id), points[points.len() - 1]),
                     ];
                     for pt in &points[1..points.len() - 1] {
                         refs.push((PointRef::Center(id), *pt));
@@ -1035,7 +1035,8 @@ pub fn sample_catmull_rom(points: &[DVec2], samples_per_span: usize) -> Vec<DVec
             result.push(pt);
         }
     }
-    result.push(*points.last().unwrap());
+    // n >= 3 di sini (dicek di awal fungsi).
+    result.push(points[n - 1]);
     result
 }
 

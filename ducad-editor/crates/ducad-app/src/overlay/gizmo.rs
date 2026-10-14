@@ -224,7 +224,7 @@ impl DuCADApp {
                     Vec::new(),
                 );
             }
-            if let Ok(solids) = result {
+            if let Ok(mut solids) = result {
                 if self.gizmo_is_cutting {
                     if let Some(target_id) = self.gizmo_target_body {
                         let dist = self.gizmo_distance;
@@ -233,8 +233,7 @@ impl DuCADApp {
                                 Some("Cut Extrude gagal: kernel tidak bisa memotong body".to_string());
                         }
                     }
-                } else if solids.len() == 1 {
-                    let (name, geo) = solids.into_iter().next().unwrap();
+                } else if let Some((name, geo)) = (solids.len() == 1).then(|| solids.pop()).flatten() {
                     let dist = self.gizmo_distance;
                     let cmd = AddSolidCommand::new("Extrude", geo);
                     self.execute_model_command(

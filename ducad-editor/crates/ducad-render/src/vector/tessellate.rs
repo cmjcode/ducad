@@ -545,7 +545,7 @@ pub fn tessellate_stroke(
         for p in &poly[1..] {
             builder.line_to(lyon_path::geom::point(p.x as f32, p.y as f32));
         }
-        let is_closed = (poly.first().unwrap() - poly.last().unwrap()).length_squared() < 1e-12;
+        let is_closed = (poly[0] - poly[poly.len() - 1]).length_squared() < 1e-12;
         builder.end(is_closed);
     }
 

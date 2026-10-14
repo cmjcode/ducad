@@ -131,14 +131,16 @@ impl SketchSet {
     pub fn new() -> Self {
         let mut slots = SlotMap::with_key();
         let mut order = Vec::with_capacity(3);
-        let mut first = None;
-        for plane in [PlaneRef::Top, PlaneRef::Front, PlaneRef::Right] {
+        let mut insert = |plane: PlaneRef| {
             let name = plane.builtin_label().unwrap_or("Sketch").to_string();
             let id = slots.insert(SketchSlot::new(name, plane));
             order.push(id);
-            first.get_or_insert(id);
-        }
-        let active = first.expect("tiga bidang standar selalu tersisip");
+            id
+        };
+        // Top disisipkan lebih dulu dan menjadi sketsa aktif.
+        let active = insert(PlaneRef::Top);
+        insert(PlaneRef::Front);
+        insert(PlaneRef::Right);
         Self {
             slots,
             active,
@@ -177,16 +179,29 @@ impl SketchSet {
         id
     }
 
+    /// Sketsa aktif. Invarian tipe (ADR 0009, pengecualian yang disengaja):
+    /// field privat, `new` menyisipkan tiga sketsa, `set_active` menolak id
+    /// tak dikenal, dan `remove` menolak menghapus sketsa terakhir — jadi
+    /// `self.active` selalu menunjuk slot yang ada. Tidak ada input luar yang
+    /// bisa melanggarnya.
+    #[allow(clippy::expect_used)]
     pub fn active(&self) -> &SketchSlot {
         self.slots
             .get(self.active)
             .expect("sketsa aktif selalu ada: set_active menolak id tak dikenal")
     }
 
+    /// Versi mutable [`Self::active`]; bila invarian entah bagaimana rusak,
+    /// ia memulihkan diri (pindah ke sketsa pertama, atau membuat sketsa Top)
+    /// alih-alih panik.
     pub fn active_mut(&mut self) -> &mut SketchSlot {
-        self.slots
-            .get_mut(self.active)
-            .expect("sketsa aktif selalu ada: set_active menolak id tak dikenal")
+        if !self.slots.contains_key(self.active) {
+            self.active = match self.order.iter().copied().find(|id| self.slots.contains_key(*id)) {
+                Some(id) => id,
+                None => self.add(default_name_for(PlaneRef::Top, 0), PlaneRef::Top),
+            };
+        }
+        &mut self.slots[self.active]
     }
 
     pub fn active_sketch(&self) -> &Sketch {

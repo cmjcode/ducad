@@ -149,13 +149,19 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 - Di engine, body dirujuk lewat **nama** (id op pembuatnya), bukan `BodyId`
   (berganti saat undo/redo boolean).
 - Tidak ada `unwrap()`/`expect()` pada input dari luar (JSON, file, argumen tool).
-  **Jangan pernah crash (ADR 0009):** crate engine/mcp/cli/chat/assist/core/ink/
-  sim/glass/cloud/i18n memasang `#![deny(clippy::unwrap_used, clippy::expect_used,
-  clippy::panic, …)]` (modul tes dikecualikan); pakai `let … else`, `ok_or_else`,
-  `(v.len() == 1).then(|| v.pop()).flatten()`. Panik yang lolos tetap ditangkap
-  pagar `ducad_engine::guard` (per op di `run_with`, per tool di `tooling`, MCP,
-  jembatan agent, command GUI) dan menjadi error `internal` — tetap perbaiki
-  akarnya, dan tambahkan kasus ke `ducad-engine/tests/hostile.rs`.
+  **Jangan pernah crash (ADR 0009):** SEMUA crate memasang `#![deny(clippy::unwrap_used,
+  clippy::expect_used, clippy::panic, …)]` (modul tes dikecualikan); pakai `let … else`,
+  `ok_or_else`, `?`, `(v.len() == 1).then(|| v.pop()).flatten()`, dan `total_cmp`
+  untuk komparator `f64` (`partial_cmp(..).unwrap_or(Equal)` di `sort_by` bisa panik
+  dengan NaN). Panik yang lolos ditangkap pagar `ducad_engine::guard` (per op di
+  `run_with`, per tool di `tooling`, MCP, jembatan agent, command GUI) dan menjadi
+  error `internal` — tetap perbaiki akarnya, tambahkan kasus ke
+  `ducad-engine/tests/hostile.rs`.
+- **Exception C++ OCCT tidak bisa ditangkap** (proses abort). Angka geometri harus
+  divalidasi di engine sebelum ke kernel: `compute::require_positive` (1e-6..1e6 mm)
+  untuk panjang/radius/tebal, dan `check_op_magnitudes` menolak angka op di luar ±1e9.
+  Setelah mengubah validasi atau kernel, jalankan sapuan penuh:
+  `cargo test -p ducad-engine --test hostile -- --ignored` (±90 s).
 - Dependency baru harus berlisensi yang diizinkan `ducad-editor/deny.toml`.
 
 ## Menambah operasi baru

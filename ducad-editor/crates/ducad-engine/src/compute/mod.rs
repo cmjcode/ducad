@@ -65,6 +65,19 @@ pub(crate) fn check_shape(op: &str, shape: &KernelShape) -> OpResult<()> {
     Ok(())
 }
 
+/// Panjang terbesar yang diterima (1 km). OCCT gagal membangun shape dengan
+/// ukuran absurd dan melempar exception C++ yang tidak bisa ditangkap
+/// `catch_unwind` (proses abort), jadi angka seperti itu harus berhenti di
+/// sini (ADR 0009).
+pub(crate) const MAX_LENGTH_MM: f64 = 1.0e6;
+/// Nilai absolut terbesar untuk angka apa pun di dalam op (koordinat,
+/// jarak, gaya, …): di atasnya OCCT/solver kehilangan presisi atau abort.
+pub(crate) const MAX_ABS_VALUE: f64 = 1.0e9;
+/// Panjang terkecil yang diterima (1 nm): di bawah toleransi OCCT
+/// (`Precision::Confusion` = 1e-7 mm) pembuat shape melempar
+/// `Standard_DomainError` yang juga membuat proses abort.
+pub(crate) const MIN_LENGTH_MM: f64 = 1.0e-6;
+
 pub(crate) fn require_positive(name: &str, value: f64) -> OpResult<()> {
     if value.is_nan() || value <= 0.0 || !value.is_finite() {
         return Err(
@@ -72,5 +85,56 @@ pub(crate) fn require_positive(name: &str, value: f64) -> OpResult<()> {
                 .with_context(serde_json::json!({ "param": name, "value": value })),
         );
     }
+    if value < MIN_LENGTH_MM {
+        return Err(OpError::invalid(format!(
+            "{name} terlalu kecil: {value} (minimum {MIN_LENGTH_MM})"
+        ))
+        .with_context(serde_json::json!({ "param": name, "value": value, "min": MIN_LENGTH_MM })));
+    }
+    if value > MAX_LENGTH_MM {
+        return Err(OpError::invalid(format!(
+            "{name} terlalu besar: {value} (maksimum {MAX_LENGTH_MM})"
+        ))
+        .with_context(serde_json::json!({ "param": name, "value": value, "max": MAX_LENGTH_MM })));
+    }
     Ok(())
+}
+
+/// Tolak op yang memuat angka di luar ±[`MAX_ABS_VALUE`] (dicek sebelum
+/// op menyentuh kernel). `pointer` di context menunjuk field-nya.
+pub(crate) fn check_op_magnitudes(op: &crate::ops::Op) -> OpResult<()> {
+    fn walk(v: &serde_json::Value, path: &mut String) -> Option<(String, f64)> {
+        match v {
+            serde_json::Value::Number(n) => n
+                .as_f64()
+                .filter(|x| !x.is_finite() || x.abs() > MAX_ABS_VALUE)
+                .map(|x| (path.clone(), x)),
+            serde_json::Value::Array(a) => a.iter().enumerate().find_map(|(i, c)| {
+                let len = path.len();
+                path.push_str(&format!("/{i}"));
+                let hit = walk(c, path);
+                path.truncate(len);
+                hit
+            }),
+            serde_json::Value::Object(m) => m.iter().find_map(|(k, c)| {
+                let len = path.len();
+                path.push('/');
+                path.push_str(k);
+                let hit = walk(c, path);
+                path.truncate(len);
+                hit
+            }),
+            _ => None,
+        }
+    }
+    let Ok(v) = serde_json::to_value(op) else {
+        return Ok(());
+    };
+    match walk(&v, &mut String::new()) {
+        Some((pointer, value)) => Err(OpError::invalid(format!(
+            "nilai {value} di {pointer} di luar jangkauan model (±{MAX_ABS_VALUE})"
+        ))
+        .with_context(serde_json::json!({ "pointer": pointer, "value": value, "max_abs": MAX_ABS_VALUE }))),
+        None => Ok(()),
+    }
 }

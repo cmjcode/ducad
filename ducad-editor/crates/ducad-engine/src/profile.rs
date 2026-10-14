@@ -899,7 +899,7 @@ pub fn extrude_selection_with_holes_on_plane(
 
     // Urutkan region berdasarkan luas area secara menurun (terbesar dulu)
     let mut sorted_regions = target_regions;
-    sorted_regions.sort_by(|a, b| b.area.partial_cmp(&a.area).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_regions.sort_by(|a, b| b.area.total_cmp(&a.area));
 
     // Petakan parent outer untuk setiap region lubang (seperti lubang pada D, A, P, O, B, dll.)
     let mut outer_groups: Vec<(usize, Vec<usize>)> = Vec::new();

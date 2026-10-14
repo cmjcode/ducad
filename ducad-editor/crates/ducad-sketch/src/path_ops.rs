@@ -50,7 +50,7 @@ fn to_contours(subs: &[Subpath], tol: f64) -> Vec<Vec<[f64; 2]>> {
         // i_overlay auto-closes contours; if first and last are duplicate, drop last
         if contour.len() > 1 {
             let first = contour[0];
-            let last = *contour.last().unwrap();
+            let last = contour[contour.len() - 1];
             if (first[0] - last[0]).abs() < 1e-9 && (first[1] - last[1]).abs() < 1e-9 {
                 contour.pop();
             }

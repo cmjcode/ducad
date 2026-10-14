@@ -1132,7 +1132,7 @@ impl DuCADApp {
                 candidates.retain(|(pt, _)| (*pt - cursor).length() <= max_snap_dist);
                 if candidates.len() > 30 {
                     candidates.sort_by(|(a, _), (b, _)| {
-                        (*a - cursor).length_squared().partial_cmp(&(*b - cursor).length_squared()).unwrap()
+                        (*a - cursor).length_squared().total_cmp(&(*b - cursor).length_squared())
                     });
                     candidates.truncate(30);
                 }
@@ -2145,7 +2145,7 @@ impl DuCADApp {
         }
 
         edge_hits.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            a.1.total_cmp(&b.1)
         });
         // Ambil maksimal 4 tepi terdekat
         edge_hits.truncate(4);

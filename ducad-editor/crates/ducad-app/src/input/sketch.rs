@@ -32,7 +32,7 @@ pub fn trim_removal_preview(
         .collect();
     ts.push(0.0);
     ts.push(1.0);
-    ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ts.sort_by(f64::total_cmp);
     ts.windows(2)
         .find(|w| click_t >= w[0] && click_t <= w[1])
         .map(|w| (start + (end - start) * w[0], start + (end - start) * w[1]))
@@ -559,10 +559,9 @@ impl DuCADApp {
             .line_chain_start
             .is_some_and(|start| self.line_chain_segments >= 2 && (p - start).length() <= close_tol);
 
-        let end = if closing {
-            self.line_chain_start.unwrap()
-        } else {
-            p
+        let end = match self.line_chain_start {
+            Some(start) if closing => start,
+            _ => p,
         };
 
         self.execute_sketch_command(Box::new(InsertEntities::new(

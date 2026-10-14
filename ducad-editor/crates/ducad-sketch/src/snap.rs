@@ -73,7 +73,7 @@ pub fn find_snap_with_exclude_set(
         pts.into_iter()
             .map(|(p, src)| (p, src, (p - cursor).length()))
             .filter(|(_, _, d)| *d <= tolerance)
-            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+            .min_by(|a, b| a.2.total_cmp(&b.2))
             .map(|(point, source, _)| SnapHit { point, kind, source })
     };
 

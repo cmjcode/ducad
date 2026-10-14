@@ -113,8 +113,7 @@ pub(crate) fn resolve_face_along_ray(shape: &Shape, ray: PickRay) -> Option<(Fac
         .min_by(|(_, p1), (_, p2)| {
             (*p1 - origin)
                 .length_squared()
-                .partial_cmp(&(*p2 - origin).length_squared())
-                .expect("titik hit faces_along_ray tidak boleh NaN")
+                .total_cmp(&(*p2 - origin).length_squared())
         });
     if occt_hit.is_some() {
         return occt_hit;
@@ -210,7 +209,7 @@ pub(crate) fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
         return Vec::new();
     }
     if edge_pointlists.len() == 1 {
-        return edge_pointlists.into_iter().next().expect("sudah dicek len()==1");
+        return edge_pointlists.into_iter().next().unwrap_or_default();
     }
 
     const EPS: f64 = 1e-4;
@@ -224,15 +223,14 @@ pub(crate) fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
         used[start_idx] = true;
         let mut chain = edge_pointlists[start_idx].clone();
 
-        loop {
-            let tail = *chain.last().expect("chain tidak pernah kosong");
+        while let Some(&tail) = chain.last() {
             let mut found = false;
             for (i, pts) in edge_pointlists.iter().enumerate() {
                 if used[i] {
                     continue;
                 }
                 let start = pts[0];
-                let end = *pts.last().expect("edge_pointlists sudah difilter len()>=2");
+                let end = pts[pts.len() - 1];
                 if (start - tail).length_squared() < EPS {
                     chain.extend(pts.iter().skip(1).copied());
                     used[i] = true;
@@ -249,12 +247,12 @@ pub(crate) fn chain_face_boundary_points(face: &Face) -> Vec<DVec3> {
             if !found {
                 break;
             }
-            if chain.len() > 2 && (chain[0] - *chain.last().unwrap()).length_squared() < EPS {
+            if chain.len() > 2 && (chain[0] - chain[chain.len() - 1]).length_squared() < EPS {
                 break;
             }
         }
 
-        if chain.len() > 1 && (chain[0] - *chain.last().unwrap()).length_squared() < EPS {
+        if chain.len() > 1 && (chain[0] - chain[chain.len() - 1]).length_squared() < EPS {
             chain.pop();
         }
         loops.push(chain);

@@ -196,7 +196,9 @@ impl DuCADApp {
             })
         });
         if let Some(img) = shot {
-            let p = self.bridge.pending_screenshot.take().expect("ada");
+            let Some(p) = self.bridge.pending_screenshot.take() else {
+                return;
+            };
             let out = match png_from_color_image(&img) {
                 Some(png) => AgentBridge::ok_reply(
                     p.id,
@@ -211,7 +213,9 @@ impl DuCADApp {
             };
             let _ = p.reply.send(out);
         } else if Instant::now() >= p.deadline {
-            let p = self.bridge.pending_screenshot.take().expect("ada");
+            let Some(p) = self.bridge.pending_screenshot.take() else {
+                return;
+            };
             let e = OpError::new(OpErrorCode::Io, "the renderer did not deliver a screenshot")
                 .with_hint("use render_view for a view image without the app window");
             let _ = p.reply.send(AgentBridge::err_reply(p.id, &e));

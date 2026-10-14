@@ -428,7 +428,7 @@ impl FaceSamples {
         if angles.len() < 2 {
             return 0.0;
         }
-        angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        angles.sort_by(f64::total_cmp);
         let mut gap = angles[0] + 360.0 - angles[angles.len() - 1];
         for w in angles.windows(2) {
             gap = gap.max(w[1] - w[0]);

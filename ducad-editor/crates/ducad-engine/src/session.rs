@@ -592,6 +592,7 @@ impl SessionCore<'_> {
                         detail: serde_json::Value::Null,
                     });
                 }
+                crate::compute::check_op_magnitudes(op)?;
                 crate::guard::catch_op_panic(&format!("op {}", op.id()), || {
                     self.apply(op, i, &mut new_sketches)
                 })

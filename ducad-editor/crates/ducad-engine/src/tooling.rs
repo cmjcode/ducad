@@ -1713,7 +1713,7 @@ fn schema_overview() -> OpResult<Value> {
 pub const ERROR_GUIDE: &str = "\
 | error.code | Meaning | Action |
 |---|---|---|
-| invalid_param | value out of domain / wrong tool argument or op field | read message (names op_index + valid fields) and fix it |
+| invalid_param | value out of domain / wrong tool argument or op field | read message (names op_index + valid fields) and fix it; lengths must lie in 1e-6..1e6 mm and every number in an op within +/-1e9 |
 | unknown_ref | unknown body/sketch/entity/param/op name | use names from context (available/ops) or inspect/get_oplog |
 | duplicate_id | op id already used | pick a new id ^[a-z][a-z0-9_]{0,31}$ or change the old op with replace_op |
 | body_consumed | body was merged by a boolean or deleted | reference the resulting body in context.consumed_by |

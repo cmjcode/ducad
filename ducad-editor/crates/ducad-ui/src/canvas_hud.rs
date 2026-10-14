@@ -609,8 +609,6 @@ impl CanvasHud {
             Vec2::new(actual_w, Self::HEADER_HUD_HEIGHT),
         );
 
-        let mut res = None;
-
         egui::Area::new(egui::Id::new(id_str))
             .fixed_pos(banner_rect.min)
             .order(egui::Order::Foreground)
@@ -624,12 +622,9 @@ impl CanvasHud {
 
                 let rect = ui.max_rect();
                 let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-                child_ui.horizontal_centered(|ui| {
-                    res = Some(content(ui));
-                });
-            });
-
-        res.unwrap()
+                child_ui.horizontal_centered(content).inner
+            })
+            .inner
     }
 
     /// Render tombol kapsul mengambang "Normal to Sketch" di dalam container UI yang diberikan.

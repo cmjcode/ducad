@@ -73,6 +73,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "DUCAD",
         ducad_app::native_options(icon),
-        Box::new(|cc| Ok(Box::new(DuCADApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(DuCADApp::new(cc)?))),
     )
 }

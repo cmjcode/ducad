@@ -233,7 +233,7 @@ impl GlyphOutlineBuilder {
     fn finish_contour(&mut self) {
         if self.contour_points.len() >= 3 {
             let first = self.contour_points[0];
-            let last = *self.contour_points.last().unwrap();
+            let last = self.contour_points[self.contour_points.len() - 1];
             if (first - last).length_squared() > 1e-8 {
                 self.contour_points.push(first);
             }

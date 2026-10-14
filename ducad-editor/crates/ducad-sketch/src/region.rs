@@ -258,7 +258,7 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
         } else if let Entity::Spline { points, .. } = entity {
             if points.len() >= 3 {
                 let first = points[0];
-                let last = *points.last().unwrap();
+                let last = points[points.len() - 1];
                 if (first - last).length() < 0.05 {
                     let boundary = points.clone();
                     let (centroid, area) = polygon_centroid_and_area(&boundary);
@@ -578,7 +578,7 @@ pub fn find_region_hierarchy(sketch: &Sketch) -> Vec<RegionWithHoles> {
 pub fn build_hierarchy(mut regions: Vec<ClosedRegion>) -> Vec<RegionWithHoles> {
     // Urut luas MENGECIL: saat memindai calon induk, induk terkecil yang
     // melingkupi ditemukan terakhir sehingga mudah dipilih.
-    regions.sort_by(|a, b| b.area.partial_cmp(&a.area).unwrap_or(std::cmp::Ordering::Equal));
+    regions.sort_by(|a, b| b.area.total_cmp(&a.area));
 
     let n = regions.len();
     // parent[i] = induk LANGSUNG (pelingkup terkecil) dari region i.

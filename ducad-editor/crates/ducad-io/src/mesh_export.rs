@@ -112,9 +112,9 @@ pub fn read_stl(path: impl AsRef<Path>) -> Result<KernelMesh> {
 /// Parse data byte STL (biner atau ASCII) menjadi `KernelMesh`.
 pub fn read_stl_from_bytes(bytes: &[u8]) -> Result<KernelMesh> {
     if bytes.len() >= 84 {
-        let tri_count = u32::from_le_bytes(bytes[80..84].try_into().unwrap()) as usize;
-        let expected_len = 84 + tri_count * 50;
-        if bytes.len() == expected_len {
+        let tri_count = u32::from_le_bytes([bytes[80], bytes[81], bytes[82], bytes[83]]) as usize;
+        let expected_len = tri_count.checked_mul(50).and_then(|n| n.checked_add(84));
+        if expected_len == Some(bytes.len()) {
             return read_stl_binary_bytes(bytes);
         }
     }
@@ -143,7 +143,11 @@ pub fn read_stl_binary_bytes(bytes: &[u8]) -> Result<KernelMesh> {
     if bytes.len() < 84 {
         anyhow::bail!("Ukuran file STL binary terlalu kecil (kurang dari 84 byte)");
     }
-    let tri_count = u32::from_le_bytes(bytes[80..84].try_into().unwrap()) as usize;
+    let declared = u32::from_le_bytes([bytes[80], bytes[81], bytes[82], bytes[83]]) as usize;
+    // Header hostil bisa menyatakan miliaran segitiga: kapasitas dibatasi
+    // pada yang benar-benar muat di berkas (ADR 0009 — alokasi dari input
+    // harus dibatasi; abort OOM tidak bisa ditangkap `catch_unwind`).
+    let tri_count = declared.min((bytes.len() - 84) / 50);
     let mut positions = Vec::with_capacity(tri_count * 3);
     let mut normals = Vec::with_capacity(tri_count * 3);
     let mut indices = Vec::with_capacity(tri_count * 3);
@@ -154,7 +158,7 @@ pub fn read_stl_binary_bytes(bytes: &[u8]) -> Result<KernelMesh> {
             break;
         }
         let read_f32 = |off: usize| -> f32 {
-            f32::from_le_bytes(bytes[off..off + 4].try_into().unwrap())
+            f32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
         };
 
         let normal = [read_f32(offset), read_f32(offset + 4), read_f32(offset + 8)];

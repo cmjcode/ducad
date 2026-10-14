@@ -633,7 +633,9 @@ pub fn delete_node(sub: &Subpath, i: usize) -> Option<Subpath> {
             let merged = merge_two_segments(p0, seg_a, seg_b);
             let mut new_segs = sub.segs.clone();
             new_segs.remove(0);
-            *new_segs.last_mut().unwrap() = merged;
+            if let Some(last) = new_segs.last_mut() {
+                *last = merged;
+            }
             Some(Subpath {
                 start: merged.end(),
                 segs: new_segs,
@@ -854,7 +856,9 @@ pub fn reverse(sub: &Subpath) -> Subpath {
     if sub.segs.is_empty() {
         return sub.clone();
     }
-    let new_start = sub.segs.last().unwrap().end();
+    let Some(new_start) = sub.segs.last().map(|s| s.end()) else {
+        return sub.clone();
+    };
     let mut new_segs = Vec::with_capacity(sub.segs.len());
     for i in (0..sub.segs.len()).rev() {
         let prev_pt = if i == 0 {

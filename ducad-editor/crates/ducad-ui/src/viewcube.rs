@@ -185,9 +185,7 @@ impl ViewCube {
 
         // Urutkan dari belakang ke depan (painter's algorithm untuk permukaan depan yang terlihat)
         projected.sort_by(|a, b| {
-            a.z_depth
-                .partial_cmp(&b.z_depth)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            a.z_depth.total_cmp(&b.z_depth)
         });
 
         let hover_pos = ui.input(|i| i.pointer.hover_pos());

@@ -329,7 +329,7 @@ pub fn min_wall_thickness(mesh: &KernelMesh, max_samples: usize) -> Option<WallR
         }
     }
     let (min, at) = best?;
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    values.sort_by(|a, b| a.total_cmp(b));
     let p05 = values[((values.len() - 1) as f32 * 0.05).round() as usize];
     Some(WallReport {
         min,

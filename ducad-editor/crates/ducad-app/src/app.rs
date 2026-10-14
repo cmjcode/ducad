@@ -476,11 +476,13 @@ pub enum RenameTarget {
 }
 
 impl DuCADApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    /// Bangun aplikasi. Gagal (bukan panik, ADR 0009) bila eframe tidak
+    /// memberi backend wgpu; eframe lalu menampilkan/mencatat pesannya.
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Result<Self, String> {
         let render_state = cc
             .wgpu_render_state
             .as_ref()
-            .expect("DUCAD membutuhkan backend wgpu");
+            .ok_or_else(|| "DUCAD membutuhkan backend wgpu (renderer GPU tidak tersedia)".to_string())?;
         let scene = SceneRenderer::new(
             &render_state.device,
             render_state.target_format,
@@ -834,7 +836,7 @@ impl DuCADApp {
             mobile: Default::default(),
         };
         app.init_mobile(cc);
-        app
+        Ok(app)
     }
 
     #[cfg(test)]
@@ -2399,7 +2401,7 @@ impl eframe::App for DuCADApp {
                     if let Entity::Spline { points, .. } = entity {
                         if points.len() >= 3 {
                             let first = points[0];
-                            let last = points.last().unwrap();
+                            let last = &points[points.len() - 1];
                             if (first - *last).length_squared() < 1e-4 {
                                 return Some("Teks 2D".to_string());
                             }

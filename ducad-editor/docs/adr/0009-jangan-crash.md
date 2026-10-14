@@ -1,6 +1,6 @@
 # ADR 0009 — Jangan pernah crash: pagar panik, log berkas, autosave desktop, penjaga layering
 
-**Status:** diterima (2026-10-14)
+**Status:** diterima dan diterapkan penuh (2026-10-14)
 
 ## Konteks
 
@@ -40,20 +40,30 @@ Keadaan DUCAD sebelum ADR ini:
    jalur rollback batch yang biasa tetap berjalan, dan paniknya dicatat
    `log::error!`. `lock_kernel()` sudah memulihkan mutex yang ter-poison, jadi
    kernel tetap bisa dipakai setelahnya.
-2. **Lint anti-panik** di akar crate yang menghadap agent/CI dan crate murni:
+2. **Lint anti-panik di SEMUA crate workspace**:
    `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic,
-   clippy::todo, clippy::unimplemented)]` (modul tes dikecualikan lewat
-   `cfg_attr(test, allow(...))`) pada `ducad-engine`, `ducad-mcp`, `ducad-cli`,
-   `ducad-chat`, `ducad-assist`, `ducad-core`, `ducad-ink`, `ducad-sim`,
-   `ducad-glass`, `ducad-cloud`, `ducad-i18n`. Crate GUI/kernel/sketch/io
-   menyusul bertahap (lihat "Konsekuensi").
+   clippy::todo, clippy::unimplemented)]` di akar setiap crate (modul tes
+   dikecualikan lewat `cfg_attr(test, allow(...))`). Pola pengganti:
+   `let … else`, `ok_or_else`, `?` pada fungsi ber-`Option`,
+   `(v.len() == 1).then(|| v.pop()).flatten()`, indeks langsung bila panjang
+   sudah dicek, dan `total_cmp` untuk komparator `f64`. Pengecualian hanya
+   untuk invarian tipe yang dijaga field privat, dengan `#[allow]` lokal dan
+   komentar alasan; saat ini satu: `SketchSet::active()` (`ducad-sketch`).
+   **Komparator sort:** sejak Rust 1.81 `sort_by` boleh panik bila
+   komparatornya bukan urutan total, dan `partial_cmp(..).unwrap_or(Equal)`
+   dengan NaN melanggar itu; semua komparator `f64` di kode produksi kini
+   `total_cmp`.
 3. **Tes input hostil** (pola `hostile_params_never_panic` CADCraft):
    `ducad-engine/tests/hostile.rs` memutasi setiap daun JSON op pada fixture
-   teruji (angka → 0/−1/±1e308/teks, string → kosong/selector rusak/ekspresi
-   salah, larik → kosong) lalu menjalankannya `dry_run`; hasil `internal`
-   = panik tertangkap = tes gagal. `ducad-mcp` menguji setiap tool dengan
-   argumen rusak lewat `call_inner` (tanpa pagar) supaya panik benar-benar
-   terlihat.
+   teruji (angka → 0/−1/±1e308/1e-300/teks, string → kosong/selector
+   rusak/ekspresi salah, larik → kosong) lalu menjalankannya `dry_run`; hasil
+   `internal` = panik tertangkap = tes gagal. Sapuan default memakai empat
+   fixture (±5 s); sapuan penuh atas semua fixture (±90 s) adalah tes
+   `#[ignore]`: `cargo test -p ducad-engine --test hostile -- --ignored`
+   (`DUCAD_HOSTILE_TRACE=1 … -- --nocapture` menampilkan mutasi terakhir bila
+   biner tes abort). `ducad-mcp` menguji setiap tool dengan argumen rusak
+   lewat `call_inner` (tanpa pagar), dan `ducad-io/tests/hostile_stl.rs`
+   menguji STL rusak.
 4. **Log berkas dengan rotasi** (`ducad-app/src/logging.rs`): `log::` ke
    stderr dan `~/.ducad/logs/ducad.log` (iPad: Application Support), rotasi
    `ducad.1.log`/`ducad.2.log` tiap start, berhenti di 16 MiB, filter
@@ -68,6 +78,15 @@ Keadaan DUCAD sebelum ADR ini:
    dependensi DUCAD yang diizinkan per crate (= peta `CLAUDE.md`), crate UI
    hanya di `glass/render/ui/app/android`, `opencascade` hanya di `kernel`.
    Menambah panah = ubah tabel + peta.
+7. **Batas jangkauan sebelum kernel.** Exception C++ OCCT yang tidak
+   dibungkus binding (`StdFail_NotDone`, `Standard_DomainError`) menembus FFI
+   dan meng-ABORT proses; `catch_unwind` tidak bisa menangkapnya. Tes hostil
+   menemukan dua pemicu (lubang Ø1e308, box 1e-300). Pertahanannya di engine:
+   `compute::check_op_magnitudes` menolak setiap angka op di luar ±1e9 sebelum
+   `apply`, dan `require_positive` (semua panjang/radius/tebal, kini juga
+   dimensi primitif) membatasi ke 1e-6..1e6 mm. Keduanya `invalid_param`,
+   tercantum di `ERROR_GUIDE`. Alokasi dari input juga dibatasi: header STL
+   biner tidak lagi bisa meminta `Vec::with_capacity` miliaran elemen.
 
 ## Yang sengaja TIDAK diambil dari CADCraft
 
@@ -84,17 +103,26 @@ Keadaan DUCAD sebelum ADR ini:
 
 ## Konsekuensi
 
-- Error `internal` adalah kode kontrak baru: ada di `ERROR_GUIDE`
-  (`ducad://guide`), `SKILL.md`, dan skema. Agent diinstruksikan untuk tidak
-  "memperbaiki parameter" pada error ini, melainkan mencoba jalur lain dan
-  melaporkannya.
+- Error `internal` adalah kode kontrak baru (`OpErrorCode::Internal`): ada di
+  `ERROR_GUIDE` (`ducad://guide`) dan `SKILL.md`. Skema op
+  (`ops.schema.json`) tidak memuat kode error, jadi tidak berubah. Agent
+  diinstruksikan untuk tidak "memperbaiki parameter" pada error ini,
+  melainkan mencoba jalur lain dan melaporkannya.
 - Panik yang tertangkap di tengah `UndoStack::execute` (GUI) bisa meninggalkan
   model setengah berubah tanpa entri undo; itu masih lebih baik daripada
   kehilangan dokumen, dan autosave + log memberi jalan pulih. Panik di dalam
   `run_with` aman: rollback transaksi + `meta` lama dipulihkan.
-- Lint anti-panik belum dipasang di `ducad-app` (73 unwrap), `ducad-sketch`
-  (97), `ducad-kernel`, `ducad-io` (15), `ducad-render` (7), `ducad-ui` (1):
-  pekerjaan lanjutan per crate, pola yang sama (`let … else`, `ok_or_else`,
-  `(len == 1).then(|| v.pop()).flatten()`).
+- `DuCADApp::new` kini mengembalikan `Result` (tanpa backend wgpu, eframe
+  melaporkan error alih-alih panik); `ImportWorker` menjalankan impor di
+  thread pemanggil bila thread worker gagal dibuat.
+- Exception C++ OCCT tetap menjadi jalur crash yang tersisa untuk input yang
+  lolos validasi tetapi tetap ditolak OCCT. Perbaikan tuntasnya adalah
+  membungkus pembuat shape/boolean di binding yang di-vendor
+  (`vendors/opencascade-rs/crates/opencascade-sys/include/*.hxx`, pola
+  `try { … } catch (const Standard_Failure&)` yang sudah dipakai
+  `b_rep_adaptor.hxx`) — pekerjaan terpisah karena menyentuh blok
+  `[patch.crates-io]`. Sampai itu selesai, setiap abort baru yang ditemukan
+  sapuan penuh ditutup dengan validasi di engine plus kasus di
+  `absurd_magnitudes_are_rejected_before_the_kernel`.
 - `cargo test -p ducad-core --test layering` wajib hijau sebelum menambah
   dependensi antar-crate.

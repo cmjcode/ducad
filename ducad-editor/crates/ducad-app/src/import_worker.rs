@@ -43,6 +43,9 @@ pub struct ImportResult {
 pub struct ImportWorker {
     sender: Sender<ImportJob>,
     receiver: Receiver<ImportResult>,
+    /// Diisi bila thread worker gagal dibuat: impor lalu dijalankan langsung
+    /// di thread pemanggil (lambat, tetapi tidak crash; ADR 0009).
+    inline: Option<Sender<ImportResult>>,
 }
 
 impl ImportWorker {
@@ -51,19 +54,31 @@ impl ImportWorker {
     pub fn spawn() -> Self {
         let (job_tx, job_rx) = mpsc::channel::<ImportJob>();
         let (result_tx, result_rx) = mpsc::channel::<ImportResult>();
-        std::thread::Builder::new()
+        let inline_tx = result_tx.clone();
+        let spawned = std::thread::Builder::new()
             .name("ducad-import".to_string())
             .spawn(move || {
                 for job in job_rx {
                     let outcome = import_one(&job.path);
                     let _ = result_tx.send(ImportResult { name: job.name, outcome });
                 }
-            })
-            .expect("gagal spawn thread import STEP");
-        Self { sender: job_tx, receiver: result_rx }
+            });
+        let inline = match spawned {
+            Ok(_) => None,
+            Err(e) => {
+                log::error!("thread import STEP gagal dibuat ({e}); impor berjalan di UI thread");
+                Some(inline_tx)
+            }
+        };
+        Self { sender: job_tx, receiver: result_rx, inline }
     }
 
     pub fn submit(&self, job: ImportJob) {
+        if let Some(tx) = &self.inline {
+            let outcome = import_one(&job.path);
+            let _ = tx.send(ImportResult { name: job.name, outcome });
+            return;
+        }
         let _ = self.sender.send(job);
     }
 

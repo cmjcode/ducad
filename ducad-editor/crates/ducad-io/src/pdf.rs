@@ -37,12 +37,14 @@ impl PdfWriter {
         self.buffer.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
     }
 
+    // `writeln!` ke `Vec<u8>` tidak pernah gagal; hasilnya sengaja diabaikan
+    // alih-alih `unwrap` (ADR 0009).
     fn add_object(&mut self, content: &str) -> usize {
         let obj_num = self.offsets.len() + 1;
         self.offsets.push(self.buffer.len());
-        writeln!(self.buffer, "{obj_num} 0 obj").unwrap();
+        let _ = writeln!(self.buffer, "{obj_num} 0 obj");
         self.buffer.extend_from_slice(content.as_bytes());
-        writeln!(self.buffer, "\nendobj").unwrap();
+        let _ = writeln!(self.buffer, "\nendobj");
         obj_num
     }
 
@@ -50,9 +52,9 @@ impl PdfWriter {
         let obj_num = self.offsets.len() + 1;
         self.offsets.push(self.buffer.len());
         let len = stream_data.len();
-        writeln!(self.buffer, "{obj_num} 0 obj\n<< /Length {len} >>\nstream").unwrap();
+        let _ = writeln!(self.buffer, "{obj_num} 0 obj\n<< /Length {len} >>\nstream");
         self.buffer.extend_from_slice(stream_data);
-        writeln!(self.buffer, "\nendstream\nendobj").unwrap();
+        let _ = writeln!(self.buffer, "\nendstream\nendobj");
         obj_num
     }
 
@@ -61,9 +63,9 @@ impl PdfWriter {
         let obj_num = self.offsets.len() + 1;
         self.offsets.push(self.buffer.len());
         let len = data.len();
-        writeln!(self.buffer, "{obj_num} 0 obj\n<< {dict} /Length {len} >>\nstream").unwrap();
+        let _ = writeln!(self.buffer, "{obj_num} 0 obj\n<< {dict} /Length {len} >>\nstream");
         self.buffer.extend_from_slice(data);
-        writeln!(self.buffer, "\nendstream\nendobj").unwrap();
+        let _ = writeln!(self.buffer, "\nendstream\nendobj");
         obj_num
     }
 
@@ -82,26 +84,25 @@ impl PdfWriter {
     /// Tulis isi objek yang sudah dipesan [`Self::reserve_object`].
     fn fill_object(&mut self, obj_num: usize, content: &str) {
         self.offsets[obj_num - 1] = self.buffer.len();
-        writeln!(self.buffer, "{obj_num} 0 obj").unwrap();
+        let _ = writeln!(self.buffer, "{obj_num} 0 obj");
         self.buffer.extend_from_slice(content.as_bytes());
-        writeln!(self.buffer, "\nendobj").unwrap();
+        let _ = writeln!(self.buffer, "\nendobj");
     }
 
     fn finalize(mut self, root_obj: usize) -> Vec<u8> {
         let xref_offset = self.buffer.len();
         let total_objs = self.offsets.len() + 1;
 
-        writeln!(self.buffer, "xref\n0 {total_objs}").unwrap();
-        writeln!(self.buffer, "0000000000 65535 f ").unwrap();
+        let _ = writeln!(self.buffer, "xref\n0 {total_objs}");
+        let _ = writeln!(self.buffer, "0000000000 65535 f ");
         for offset in &self.offsets {
-            writeln!(self.buffer, "{offset:010} 00000 n ").unwrap();
+            let _ = writeln!(self.buffer, "{offset:010} 00000 n ");
         }
 
-        writeln!(
+        let _ = writeln!(
             self.buffer,
             "trailer\n<< /Size {total_objs} /Root {root_obj} 0 R >>\nstartxref\n{xref_offset}\n%%EOF"
-        )
-        .unwrap();
+        );
 
         self.buffer
     }

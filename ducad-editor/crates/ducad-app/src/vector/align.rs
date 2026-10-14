@@ -140,9 +140,9 @@ impl AlignTool {
 
         match mode {
             DistributeMode::HorizontalCenters => {
-                items.sort_by(|a, b| a.3.x.partial_cmp(&b.3.x).unwrap_or(std::cmp::Ordering::Equal));
-                let first_cx = items.first().unwrap().3.x;
-                let last_cx = items.last().unwrap().3.x;
+                items.sort_by(|a, b| a.3.x.total_cmp(&b.3.x));
+                let first_cx = items.first()?.3.x;
+                let last_cx = items.last()?.3.x;
                 let step = (last_cx - first_cx) / (items.len() - 1) as f64;
 
                 for (i, &(id, _, _, cur_mid)) in items.iter().enumerate() {
@@ -151,9 +151,9 @@ impl AlignTool {
                 }
             }
             DistributeMode::VerticalCenters => {
-                items.sort_by(|a, b| a.3.y.partial_cmp(&b.3.y).unwrap_or(std::cmp::Ordering::Equal));
-                let first_cy = items.first().unwrap().3.y;
-                let last_cy = items.last().unwrap().3.y;
+                items.sort_by(|a, b| a.3.y.total_cmp(&b.3.y));
+                let first_cy = items.first()?.3.y;
+                let last_cy = items.last()?.3.y;
                 let step = (last_cy - first_cy) / (items.len() - 1) as f64;
 
                 for (i, &(id, _, _, cur_mid)) in items.iter().enumerate() {
@@ -162,10 +162,10 @@ impl AlignTool {
                 }
             }
             DistributeMode::HorizontalGaps => {
-                items.sort_by(|a, b| a.1.x.partial_cmp(&b.1.x).unwrap_or(std::cmp::Ordering::Equal));
+                items.sort_by(|a, b| a.1.x.total_cmp(&b.1.x));
                 let total_item_width: f64 = items.iter().map(|(_, emin, emax, _)| emax.x - emin.x).sum();
-                let first_min_x = items.first().unwrap().1.x;
-                let last_max_x = items.last().unwrap().2.x;
+                let first_min_x = items.first()?.1.x;
+                let last_max_x = items.last()?.2.x;
                 let total_span = last_max_x - first_min_x;
                 let total_gap = total_span - total_item_width;
                 let gap = (total_gap / (items.len() - 1) as f64).max(0.0);
@@ -178,10 +178,10 @@ impl AlignTool {
                 }
             }
             DistributeMode::VerticalGaps => {
-                items.sort_by(|a, b| a.1.y.partial_cmp(&b.1.y).unwrap_or(std::cmp::Ordering::Equal));
+                items.sort_by(|a, b| a.1.y.total_cmp(&b.1.y));
                 let total_item_height: f64 = items.iter().map(|(_, emin, emax, _)| emax.y - emin.y).sum();
-                let first_min_y = items.first().unwrap().1.y;
-                let last_max_y = items.last().unwrap().2.y;
+                let first_min_y = items.first()?.1.y;
+                let last_max_y = items.last()?.2.y;
                 let total_span = last_max_y - first_min_y;
                 let total_gap = total_span - total_item_height;
                 let gap = (total_gap / (items.len() - 1) as f64).max(0.0);

@@ -265,7 +265,7 @@ impl Sketch {
         if let Some(Entity::Spline { points, .. }) = self.entities.get(id) {
             if points.len() >= 3 {
                 let first = points[0];
-                let last = points.last().unwrap();
+                let last = &points[points.len() - 1];
                 if (first - *last).length_squared() < 1e-4 {
                     let all_closed_splines: Vec<EntityId> = self
                         .entities
@@ -273,7 +273,7 @@ impl Sketch {
                         .filter_map(|(eid, ent)| match ent {
                             Entity::Spline { points: pts, .. } if pts.len() >= 3 => {
                                 let f = pts[0];
-                                let l = pts.last().unwrap();
+                                let l = &pts[pts.len() - 1];
                                 if (f - *l).length_squared() < 1e-4 {
                                     Some(eid)
                                 } else {

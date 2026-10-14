@@ -370,7 +370,7 @@ pub fn trim_segments(
         .collect();
     ts.push(0.0);
     ts.push(1.0);
-    ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ts.sort_by(f64::total_cmp);
     ts.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
 
     ts.windows(2)
@@ -662,7 +662,7 @@ pub fn find_corner_lines_at_point(
         }
     }
 
-    candidate_corners.sort_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal));
+    candidate_corners.sort_by(|a, b| a.3.total_cmp(&b.3));
     candidate_corners.first().map(|(id1, id2, corner, _)| (*id1, *id2, *corner))
 }
 
@@ -1593,7 +1593,7 @@ pub fn ray_intersect_entity(origin: DVec2, dir: DVec2, entity: &Entity) -> Vec<f
                 let seg_ts = ray_intersect_entity(origin, dir, &seg);
                 ts.extend(seg_ts);
             }
-            ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            ts.sort_by(f64::total_cmp);
             ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
             ts
         }
@@ -1607,7 +1607,7 @@ pub fn ray_intersect_entity(origin: DVec2, dir: DVec2, entity: &Entity) -> Vec<f
                     ts.extend(seg_ts);
                 }
             }
-            ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            ts.sort_by(f64::total_cmp);
             ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
             ts
         }

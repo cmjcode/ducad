@@ -631,23 +631,25 @@ impl DuCADApp {
         }
     }
 
+    // Body tanpa entri geometri (keadaan rusak yang seharusnya mustahil)
+    // dilewati dan dicatat, bukan menjatuhkan aplikasi saat simpan/ekspor
+    // (ADR 0009).
+    fn geometry_of(&self, id: ducad_core::BodyId) -> Option<&crate::model::BodyGeometry> {
+        let geo = self.model.geometry.get(id);
+        if geo.is_none() {
+            log::error!("body {id:?} tidak punya geometri di storage; dilewati");
+        }
+        geo
+    }
+
     pub fn native_body_refs(&self) -> Vec<(&str, bool, ducad_core::Material, &KernelShape)> {
         self.model
             .doc
             .bodies
             .iter()
-            .map(|(id, meta)| {
-                (
-                    meta.name.as_str(),
-                    meta.visible,
-                    meta.material,
-                    &self
-                        .model
-                        .geometry
-                        .get(id)
-                        .expect("body hilang dari storage")
-                        .shape,
-                )
+            .filter_map(|(id, meta)| {
+                let geo = self.geometry_of(id)?;
+                Some((meta.name.as_str(), meta.visible, meta.material, &geo.shape))
             })
             .collect()
     }
@@ -657,19 +659,14 @@ impl DuCADApp {
             .doc
             .bodies
             .iter()
-            .map(|(id, meta)| {
-                let shape = &self
-                    .model
-                    .geometry
-                    .get(id)
-                    .expect("body hilang dari storage")
-                    .shape;
+            .filter_map(|(id, meta)| {
+                let shape = &self.geometry_of(id)?.shape;
                 let round_history = self.round_history.get(&id).map(|h| {
                     let feats: Vec<ducad_io::native::NativeRoundFeature> =
                         h.features.iter().map(ducad_io::native::NativeRoundFeature::from).collect();
                     (&h.base, feats)
                 });
-                ducad_io::native::ExportBody {
+                Some(ducad_io::native::ExportBody {
                     name: meta.name.as_str(),
                     uuid: Some(meta.uuid.clone()),
                     visible: meta.visible,
@@ -677,7 +674,7 @@ impl DuCADApp {
                     mechanical: meta.mechanical.clone(),
                     shape,
                     round_history,
-                }
+                })
             })
             .collect()
     }
@@ -687,14 +684,7 @@ impl DuCADApp {
             .doc
             .bodies
             .iter()
-            .map(|(id, _)| {
-                &self
-                    .model
-                    .geometry
-                    .get(id)
-                    .expect("body hilang dari storage")
-                    .shape
-            })
+            .filter_map(|(id, _)| Some(&self.geometry_of(id)?.shape))
             .collect()
     }
 
@@ -704,16 +694,8 @@ impl DuCADApp {
             .bodies
             .iter()
             .filter(|(_, meta)| meta.visible)
-            .map(|(id, meta)| {
-                (
-                    meta.name.as_str(),
-                    self.model
-                        .geometry
-                        .get(id)
-                        .expect("body hilang dari storage")
-                        .mesh
-                        .as_ref(),
-                )
+            .filter_map(|(id, meta)| {
+                Some((meta.name.as_str(), self.geometry_of(id)?.mesh.as_ref()))
             })
             .collect()
     }
@@ -724,17 +706,12 @@ impl DuCADApp {
             .bodies
             .iter()
             .filter(|(_, meta)| meta.visible)
-            .map(|(id, meta)| {
-                (
+            .filter_map(|(id, meta)| {
+                Some((
                     meta.name.as_str(),
                     meta.material,
-                    self.model
-                        .geometry
-                        .get(id)
-                        .expect("body hilang dari storage")
-                        .mesh
-                        .as_ref(),
-                )
+                    self.geometry_of(id)?.mesh.as_ref(),
+                ))
             })
             .collect()
     }

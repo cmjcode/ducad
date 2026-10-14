@@ -30,7 +30,11 @@ impl DuCADApp {
                 self.ink.brushes.insert(b);
             }
         }
-        let id = self.ink.brushes.keys().next().unwrap();
+        let id = match self.ink.brushes.keys().next() {
+            Some(id) => id,
+            // `presets()` tak pernah kosong; tetap jangan panik bila berubah.
+            None => self.ink.brushes.insert(ducad_ink::brush::Brush::fallback()),
+        };
         self.ink_state.active_brush = Some(id);
         id
     }

@@ -52,6 +52,19 @@ impl Brush {
         self.width_min_mm + (self.width_max_mm - self.width_min_mm) * factor
     }
 
+    /// Kuas cadangan bila daftar kuas kosong (pena sedang, garis linier).
+    pub fn fallback() -> Brush {
+        Brush {
+            name: "Pena".to_string(),
+            kind: BrushKind::Pen,
+            width_min_mm: 0.3,
+            width_max_mm: 1.2,
+            pressure_curve: PressureCurve::Linear,
+            opacity: 1.0,
+            smoothing: 0.5,
+        }
+    }
+
     /// Preset standar kuas tinta: Pena Tipis, Pena, Pensil, Marker, Fill.
     pub fn presets() -> Vec<Brush> {
         vec![

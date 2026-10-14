@@ -112,14 +112,13 @@ impl DuCADApp {
             ExtrudeExtent::Blind(distance),
         );
         match result {
-            Ok(solids) => {
+            Ok(mut solids) => {
                 let source_entities: Vec<String> = self
                     .selected
                     .iter()
                     .filter_map(|eid| self.sketch().entity_names.get(eid).cloned())
                     .collect();
-                if solids.len() == 1 {
-                    let (name, geo) = solids.into_iter().next().unwrap();
+                if let Some((name, geo)) = (solids.len() == 1).then(|| solids.pop()).flatten() {
                     self.execute_model_command(
                         Box::new(AddSolidCommand::new("Extrude", geo)),
                         &format!("Membuat solid {name} setinggi {:.1} mm", distance),
@@ -189,8 +188,9 @@ impl DuCADApp {
                     named_bodies.push((name, geo, mat));
                 }
 
-                if named_bodies.len() == 1 {
-                    let (name, geo, mat) = named_bodies.into_iter().next().unwrap();
+                if let Some((name, geo, mat)) =
+                    (named_bodies.len() == 1).then(|| named_bodies.pop()).flatten()
+                {
                     let mut cmd = AddSolidCommand::new("Extrude", geo).with_body_name(name.clone());
                     if let Some(m) = mat {
                         cmd = cmd.with_material(m);

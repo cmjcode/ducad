@@ -32,7 +32,7 @@ fn android_main(app: android_activity::AndroidApp) {
     if let Err(err) = eframe::run_native(
         "DUCAD",
         options,
-        Box::new(|cc| Ok(Box::new(ducad_app::DuCADApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(ducad_app::DuCADApp::new(cc)?))),
     ) {
         log::error!("DUCAD berhenti: {err}");
     }

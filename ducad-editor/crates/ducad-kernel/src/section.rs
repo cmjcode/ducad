@@ -891,7 +891,7 @@ pub fn generate_iso_hatch_pattern(
         }
 
         // Urutkan titik perpotongan sepanjang arah garis arsir
-        t_intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        t_intersections.sort_by(|a, b| a.total_cmp(b));
 
         // Hapus duplikat titik yang terlalu dekat (mis. perpotongan di sudut vertex)
         let mut unique_t: Vec<f32> = Vec::new();
