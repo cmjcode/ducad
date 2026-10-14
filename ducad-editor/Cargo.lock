@@ -1646,7 +1646,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "ducad-android"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "android-activity",
  "android_logger",
@@ -1657,7 +1657,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-app"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1707,7 +1707,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-assist"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -1721,7 +1721,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-chat"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1734,7 +1734,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-cli"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -1754,7 +1754,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-cloud"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1773,7 +1773,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-core"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "glam",
  "serde",
@@ -1783,7 +1783,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-engine"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "ducad-core",
@@ -1804,7 +1804,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-glass"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-i18n"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1825,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-ink"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "criterion",
  "ducad-core",
@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-io"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1858,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-kernel"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "ducad-core",
@@ -1870,7 +1870,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-mcp"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1885,7 +1885,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-render"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -1902,7 +1902,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-sim"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "schemars",
  "serde",
@@ -1912,7 +1912,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-sketch"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "criterion",
  "ducad-core",
@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-ui"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "ducad-cloud",
  "ducad-core",
@@ -1948,7 +1948,7 @@ dependencies = [
 
 [[package]]
 name = "ducad-update"
-version = "0.5.2"
+version = "0.5.5"
 dependencies = [
  "hex",
  "log",
