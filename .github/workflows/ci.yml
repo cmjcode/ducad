@@ -112,8 +112,8 @@ jobs:
   # ---------------------------------------------------------------------
   # Lane penuh: membangun OCCT (~10-15 menit tanpa cache).
   #
-  # Hanya Linux + Windows. Paket macOS dibangun `release.yml` (ad-hoc) atau
-  # di mesin lokal untuk Developer ID (`make bundle-macos` + `./notarize.sh`);
+  # Hanya Linux + Windows. Paket macOS hanya dibangun di mesin lokal
+  # (Developer ID + notarisasi: `make bundle-macos` + `./notarize.sh`);
   # jalankan `cargo test --workspace` di macOS sebelum rilis.
   # ---------------------------------------------------------------------
   full:
