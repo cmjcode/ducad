@@ -278,6 +278,8 @@ pub struct DuCADApp {
     pub auth_rx: Option<std::sync::mpsc::Receiver<Result<ducad_cloud::TokenResponse, String>>>,
     pub account_drawer_open: bool,
     pub account_button_rect: egui::Rect,
+    /// Foto profil akun login (dimuat di latar; kosong = inisial).
+    pub avatar: crate::avatar::AvatarLoader,
     pub server_url: String,
     /// Tutorial selamat datang (tampil saat aplikasi dibuka pertama kali).
     pub onboarding: crate::onboarding_ui::OnboardingCtl,
@@ -831,6 +833,7 @@ impl DuCADApp {
             auth_rx: None,
             account_drawer_open: false,
             account_button_rect: egui::Rect::NOTHING,
+            avatar: Default::default(),
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::load(),
             mobile: Default::default(),
@@ -1155,6 +1158,7 @@ impl DuCADApp {
             auth_rx: None,
             account_drawer_open: false,
             account_button_rect: egui::Rect::NOTHING,
+            avatar: Default::default(),
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::disabled(),
             mobile: Default::default(),
@@ -1810,6 +1814,15 @@ impl eframe::App for DuCADApp {
             ctx.request_repaint();
         }
 
+        // Foto profil akun: unggahan yang selesai membawa akun baru (token
+        // mungkin diperbarui, `avatar_url` baru) — simpan dulu, baru muat.
+        if let Some(acc) = self.avatar.poll_upload() {
+            let _ = ducad_cloud::save_account(&acc);
+            self.account = Some(acc);
+            self.model_status = Some("Foto profil diperbarui.".to_string());
+        }
+        self.avatar.update(&ctx, self.account.as_ref());
+
         // Poll OAuth callback receiver jika sedang dalam proses otentikasi browser
         if let Some(ref rx) = self.auth_rx {
             ctx.request_repaint();
@@ -2000,6 +2013,7 @@ impl eframe::App for DuCADApp {
             items_button_rect: egui::Rect::NOTHING,
             icon_size: self.icon_size,
             account: self.account.clone(),
+            account_avatar: self.avatar.texture().cloned(),
             is_authenticating: matches!(self.auth_status, ducad_cloud::AuthStatus::Authenticating { .. }),
             account_drawer_open: self.account_drawer_open,
             account_button_rect: self.account_button_rect,
@@ -2798,7 +2812,7 @@ impl eframe::App for DuCADApp {
                 self.account_button_rect,
                 self.account.as_ref(),
                 &self.auth_status,
-                &self.server_url,
+                self.avatar.ui_state(),
             ) {
                 match acct_ev {
                     ducad_ui::AccountDrawerEvent::Login(provider) => {
@@ -2806,8 +2820,15 @@ impl eframe::App for DuCADApp {
                         let rx = ducad_cloud::start_oauth_flow(&self.server_url, provider);
                         self.auth_rx = Some(rx);
                     }
+                    ducad_ui::AccountDrawerEvent::UploadPhoto => {
+                        let picked = self.pick_open_path("Image", &["png", "jpg", "jpeg", "webp"]);
+                        if let (Some(path), Some(acc)) = (picked, self.account.clone()) {
+                            self.avatar.start_upload(&ctx, &self.server_url, &acc, &path);
+                        }
+                    }
                     ducad_ui::AccountDrawerEvent::Logout => {
                         let _ = ducad_cloud::clear_account();
+                        ducad_cloud::clear_avatar_cache();
                         self.account = None;
                         self.auth_status = ducad_cloud::AuthStatus::LoggedOut;
                         self.model_status = Some("Berhasil keluar dari akun DUCAD.".to_string());

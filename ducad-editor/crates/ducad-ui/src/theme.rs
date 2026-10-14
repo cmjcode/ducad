@@ -29,6 +29,9 @@ pub const ACCENT_BLUE: Color32 = Color32::from_rgb(10, 132, 255); // #0a84ff
 pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(255, 149, 0); // #ff9500 (Section View / Active highlight)
 pub const ACCENT_GREEN: Color32 = Color32::from_rgb(48, 209, 88); // #30d158 (Success / Constraint OK)
 pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(175, 82, 222); // #af52de (Picked point)
+pub const ACCENT_RED: Color32 = Color32::from_rgb(255, 69, 58); // #ff453a (Aksi destruktif / logout)
+/// Isi lingkaran avatar inisial (biru tua) saat foto profil belum/tidak ada.
+pub const AVATAR_FILL: Color32 = Color32::from_rgb(30, 58, 138);
 pub const BG_CANVAS: Color32 = Color32::from_rgb(18, 19, 22); // Deep charcoal 3D viewport
 /// Latar panel/drawer/toolbar kaca. Dulu ~57% — grid dan geometri viewport
 /// tembus jelas di balik teks sehingga mengganggu; kini ~84%, masih sedikit

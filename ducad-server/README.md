@@ -73,6 +73,8 @@ adanya di UI aplikasi, jadi ia ditulis dalam bahasa Indonesia.
 ## 4. Variabel environment
 
 Daftar lengkap beserta penjelasannya ada di [`env.example`](env.example).
+Panduan langkah-demi-langkah mendapatkan kredensial (Client ID, Secret, Key ID, Team ID, dan `.p8`) untuk GitHub, Google, dan Apple tersedia di [`tutorial_register_github_google_apple.md`](tutorial_register_github_google_apple.md).
+
 Yang wajib: `DATABASE_URL` dan `JWT_SECRET` — tanpa keduanya proses menolak
 start.
 

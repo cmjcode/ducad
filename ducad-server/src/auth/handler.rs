@@ -471,6 +471,9 @@ async fn consume_ticket(pool: &MySqlPool, ticket: &str) {
 
 /// Menyisipkan atau memperbarui pengguna, dikunci ke `(provider, provider_id)`.
 ///
+/// Foto yang diunggah pengguna sendiri (`user_avatars`) selalu menang atas
+/// foto provider, jadi `avatar_url` tidak disentuh selama barisnya ada.
+///
 /// `COALESCE` pada nama dan avatar menjaga nilai yang sudah tersimpan saat
 /// provider tidak mengirim apa pun — penting untuk Apple, yang hanya
 /// mengirim nama pada otorisasi pertama. `license_tier` sengaja tidak ikut
@@ -488,7 +491,11 @@ async fn upsert_user(
          ON DUPLICATE KEY UPDATE
              email = VALUES(email),
              display_name = COALESCE(VALUES(display_name), display_name),
-             avatar_url = COALESCE(VALUES(avatar_url), avatar_url),
+             avatar_url = IF(
+                 EXISTS (SELECT 1 FROM user_avatars ua WHERE ua.user_id = users.id),
+                 avatar_url,
+                 COALESCE(VALUES(avatar_url), avatar_url)
+             ),
              updated_at = CURRENT_TIMESTAMP",
     )
     .bind(uuid::Uuid::new_v4().to_string())

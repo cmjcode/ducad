@@ -27,7 +27,8 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
-use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{get, post, put};
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
@@ -105,6 +106,15 @@ fn router(config: &Config) -> Router<AppState> {
             "/api/v1/users/me",
             get(users::handler::get_me).delete(users::handler::delete_me),
         )
+        // Batas body sedikit di atas batas handler supaya foto yang terlalu
+        // besar dijawab dengan pesan yang jelas, bukan 413 kosong.
+        .route(
+            "/api/v1/users/me/avatar",
+            put(users::handler::put_avatar).layer(DefaultBodyLimit::max(
+                users::handler::MAX_AVATAR_BYTES + 64 * 1024,
+            )),
+        )
+        .route("/api/v1/users/{id}/avatar", get(users::handler::get_avatar))
         .layer(cors_layer(config))
         .layer(hsts_layer())
         .layer(TraceLayer::new_for_http())

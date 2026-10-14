@@ -3,21 +3,72 @@
 use ducad_cloud::{AuthStatus, DucadAccount, OAuthProvider};
 use egui::{
     Align, Align2, Area, Color32, CornerRadius, Frame, Layout, Margin, Order, Pos2, Rect,
-    RichText, Sense, Stroke, Ui, Vec2,
+    RichText, Sense, Stroke, TextureHandle, Ui, Vec2,
 };
 use egui_icons::icons::{
-    ICON_APPLE, ICON_CLOSE, ICON_CLOUD, ICON_GITHUB, ICON_GOOGLE, ICON_LOGOUT, ICON_SYNC,
+    ICON_ADD_A_PHOTO, ICON_APPLE, ICON_CHECK, ICON_CLOSE, ICON_CLOUD, ICON_GITHUB, ICON_GOOGLE, ICON_LOGOUT,
+    ICON_SYNC,
 };
 
 use crate::theme::{
-    ACCENT_BLUE, BG_CARD_DARK, BG_POPUP_DARK, BORDER_SUBTLE,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
+    ACCENT_BLUE, ACCENT_GREEN, ACCENT_RED, AVATAR_FILL, BG_CARD_DARK, BG_POPUP_DARK,
+    BORDER_SUBTLE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
+
+/// Menggambar avatar bulat di `rect`: foto profil akun login bila sudah
+/// termuat, selain itu inisial di atas lingkaran biru tua (Apple tidak
+/// memberi foto; unduhan juga bisa gagal/offline). Hanya melukis — tidak
+/// mengalokasikan widget, jadi aman dipakai di atas tombol yang sudah ada.
+pub fn paint_avatar(
+    ui: &Ui,
+    rect: Rect,
+    photo: Option<&TextureHandle>,
+    initials: &str,
+    ring: Stroke,
+) {
+    let radius = rect.width().min(rect.height()) / 2.0;
+    let center = rect.center();
+    let painter = ui.painter();
+    match photo {
+        Some(texture) => {
+            let circle = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
+            egui::Image::new(texture)
+                .corner_radius(CornerRadius::same(radius.round() as u8))
+                .paint_at(ui, circle);
+        }
+        None => {
+            painter.circle_filled(center, radius, AVATAR_FILL);
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                initials,
+                egui::FontId::proportional((radius * 0.8).max(9.0)),
+                Color32::WHITE,
+            );
+        }
+    }
+    painter.circle_stroke(center, radius, ring);
+}
+
+/// Keadaan foto profil yang ditampilkan popup Akun.
+#[derive(Clone, Copy, Default)]
+pub struct AccountAvatar<'a> {
+    /// Foto yang sudah termuat; `None` = tampilkan inisial.
+    pub photo: Option<&'a TextureHandle>,
+    /// Foto dari URL akun sedang diunduh — tombol unggah belum ditawarkan.
+    pub loading: bool,
+    /// Unggahan foto baru sedang berjalan.
+    pub uploading: bool,
+    /// Pesan galat unggahan terakhir, untuk pengguna.
+    pub error: Option<&'a str>,
+}
 
 /// Event yang dihasilkan oleh `AccountDrawer`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountDrawerEvent {
     Login(OAuthProvider),
+    /// Pengguna tanpa foto profil memilih untuk mengunggah foto sendiri.
+    UploadPhoto,
     Logout,
     CancelLogin,
     Close,
@@ -32,7 +83,7 @@ impl AccountDrawer {
         anchor_rect: Rect,
         account: Option<&DucadAccount>,
         auth_status: &AuthStatus,
-        _server_url: &str,
+        avatar: AccountAvatar<'_>,
     ) -> Option<AccountDrawerEvent> {
         let mut event = None;
 
@@ -72,7 +123,7 @@ impl AccountDrawer {
                                     egui::Button::new(
                                         RichText::new(ICON_CLOSE.codepoint)
                                             .size(14.0)
-                                            .color(TEXT_MUTED),
+                                            .color(TEXT_SECONDARY),
                                     )
                                     .frame(false),
                                 );
@@ -92,7 +143,7 @@ impl AccountDrawer {
                             }
                             _ => {
                                 if let Some(acc) = account {
-                                    Self::render_logged_in(ui, acc, &mut event);
+                                    Self::render_logged_in(ui, acc, avatar, &mut event);
                                 } else {
                                     Self::render_logged_out(ui, &mut event);
                                 }
@@ -116,25 +167,40 @@ impl AccountDrawer {
     fn render_logged_in(
         ui: &mut Ui,
         account: &DucadAccount,
+        avatar: AccountAvatar<'_>,
         event: &mut Option<AccountDrawerEvent>,
     ) {
-        // User Profile Card
+        // Unggah foto hanya ditawarkan bila akun memang tidak punya foto
+        // (mis. Apple) atau foto provider gagal dimuat — bukan selagi diunduh.
+        let can_upload = avatar.photo.is_none() && !avatar.loading && !avatar.uploading;
+
+        // Kartu profil: foto akun login (atau inisial) + nama + email
         ui.horizontal(|ui| {
-            // Avatar / Initial Circle
-            let (rect, _) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::hover());
-            ui.painter().circle_filled(rect.center(), 20.0, Color32::from_rgb(30, 58, 138));
-            ui.painter().circle_stroke(
-                rect.center(),
-                20.0,
-                Stroke::new(1.5, Color32::from_rgb(56, 189, 248)),
+            let sense = if can_upload { Sense::click() } else { Sense::hover() };
+            let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), sense);
+            paint_avatar(
+                ui,
+                rect,
+                avatar.photo,
+                &account.initials(),
+                Stroke::new(1.5, ACCENT_BLUE),
             );
-            ui.painter().text(
-                rect.center(),
-                Align2::CENTER_CENTER,
-                account.initials(),
-                egui::FontId::proportional(15.0),
-                Color32::WHITE,
-            );
+            if can_upload {
+                // Lencana kamera kecil di pojok: avatar bisa diklik untuk unggah.
+                let badge = rect.right_bottom() - Vec2::splat(6.0);
+                ui.painter().circle_filled(badge, 8.0, ACCENT_BLUE);
+                ui.painter().circle_stroke(badge, 8.0, Stroke::new(1.5, BG_POPUP_DARK));
+                ui.painter().text(
+                    badge,
+                    Align2::CENTER_CENTER,
+                    ICON_ADD_A_PHOTO.codepoint,
+                    egui::FontId::proportional(10.0),
+                    Color32::WHITE,
+                );
+                if resp.on_hover_text("Unggah foto profil").clicked() {
+                    *event = Some(AccountDrawerEvent::UploadPhoto);
+                }
+            }
 
             ui.add_space(6.0);
             ui.vertical(|ui| {
@@ -147,54 +213,101 @@ impl AccountDrawer {
                 ui.label(
                     RichText::new(&account.email)
                         .size(11.0)
-                        .color(TEXT_MUTED),
+                        .color(TEXT_SECONDARY),
                 );
             });
         });
 
+        if can_upload {
+            ui.add_space(8.0);
+            let upload_btn = ui.add_sized(
+                [ui.available_width(), 28.0],
+                egui::Button::new(
+                    RichText::new(format!("{}  Unggah foto profil", ICON_ADD_A_PHOTO.codepoint))
+                        .size(12.0)
+                        .color(TEXT_PRIMARY),
+                )
+                .fill(BG_CARD_DARK)
+                .stroke(Stroke::new(1.0, BORDER_SUBTLE))
+                .corner_radius(CornerRadius::same(6)),
+            );
+            if upload_btn.clicked() {
+                *event = Some(AccountDrawerEvent::UploadPhoto);
+            }
+        } else if avatar.uploading {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(format!("{}  Mengunggah foto profil…", ICON_SYNC.codepoint))
+                    .size(11.5)
+                    .color(TEXT_SECONDARY),
+            );
+        }
+        if let Some(err) = avatar.error {
+            ui.add_space(4.0);
+            ui.label(RichText::new(err).size(11.0).color(ACCENT_RED));
+        }
+
         ui.add_space(10.0);
 
-        // Status & License Badge
+        // Badge status & lisensi. Tint dibuat dengan `gamma_multiply` dari
+        // warna opak (hasilnya premultiplied yang benar). Jangan pakai
+        // `from_rgba_premultiplied` dengan RGB > alpha: egui menganggapnya
+        // aditif sehingga badge tampil sebagai blok cyan menyala.
         Frame::new()
-            .fill(Color32::from_rgba_premultiplied(56, 189, 248, 20))
+            .fill(ACCENT_BLUE.gamma_multiply(0.14))
             .corner_radius(CornerRadius::same(6))
-            .stroke(Stroke::new(1.0, Color32::from_rgba_premultiplied(56, 189, 248, 60)))
+            .stroke(Stroke::new(1.0, ACCENT_BLUE.gamma_multiply(0.45)))
             .inner_margin(Margin::symmetric(10, 6))
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("●")
-                            .size(10.0)
-                            .color(Color32::from_rgb(74, 222, 128)),
-                    );
+                    let (dot, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                    ui.painter().circle_filled(dot.center(), 3.5, ACCENT_GREEN);
                     ui.label(
                         RichText::new(format!("Ducad {} Tier — Cloud Active", account.license_tier))
                             .size(11.5)
-                            .color(Color32::from_rgb(224, 242, 254)),
+                            .strong()
+                            .color(TEXT_PRIMARY),
                     );
                 });
             });
 
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        // Feature checklist
-        ui.label(RichText::new("Fitur Cloud Terhubung:").size(11.0).color(TEXT_SECONDARY));
-        ui.label(RichText::new("  ✔ Sinkronisasi Proyek CAD Cloud").size(11.0).color(TEXT_MUTED));
-        ui.label(RichText::new("  ✔ Riwayat Versi & Rollback").size(11.0).color(TEXT_MUTED));
-        ui.label(RichText::new("  ✔ Standard Parts & Fastener Catalog").size(11.0).color(TEXT_MUTED));
+        // Daftar fitur
+        ui.label(
+            RichText::new("Fitur Cloud Terhubung:")
+                .size(11.0)
+                .strong()
+                .color(TEXT_SECONDARY),
+        );
+        ui.add_space(2.0);
+        for feature in [
+            "Sinkronisasi Proyek CAD Cloud",
+            "Riwayat Versi & Rollback",
+            "Standard Parts & Fastener Catalog",
+        ] {
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.label(RichText::new(ICON_CHECK.codepoint).size(12.0).color(ACCENT_GREEN));
+                ui.label(RichText::new(feature).size(11.0).color(TEXT_PRIMARY));
+            });
+        }
 
         ui.add_space(12.0);
 
-        // Logout Button
+        // Tombol keluar: gaya destruktif sekunder — isi merah tipis, teks
+        // merah terang supaya terbaca di atas latar popup gelap.
         let logout_btn = ui.add_sized(
             [ui.available_width(), 30.0],
             egui::Button::new(
                 RichText::new(format!("{} Keluar dari Akun", ICON_LOGOUT.codepoint))
                     .size(12.5)
-                    .color(Color32::from_rgb(248, 113, 113)),
+                    .strong()
+                    .color(ACCENT_RED),
             )
-            .fill(Color32::from_rgba_premultiplied(239, 68, 68, 20))
-            .stroke(Stroke::new(1.0, Color32::from_rgba_premultiplied(239, 68, 68, 50)))
+            .fill(ACCENT_RED.gamma_multiply(0.12))
+            .stroke(Stroke::new(1.0, ACCENT_RED.gamma_multiply(0.5)))
             .corner_radius(CornerRadius::same(6)),
         );
 
@@ -291,7 +404,7 @@ impl AccountDrawer {
             ui.label(
                 RichText::new("Silakan selesaikan otentikasi di jendela browser yang terbuka.")
                     .size(11.0)
-                    .color(TEXT_MUTED),
+                    .color(TEXT_SECONDARY),
             );
 
             ui.add_space(14.0);

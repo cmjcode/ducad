@@ -205,8 +205,14 @@ fn items_from_conv(conv: &[ConvMessage]) -> Vec<ChatItem> {
     items
 }
 
-fn texture_from_png(ctx: &egui::Context, png: &[u8], name: &str) -> Option<egui::TextureHandle> {
-    let img = image::load_from_memory(png).ok()?.to_rgba8();
+/// Mendekode bytes gambar (PNG/JPEG/WebP, dikenali dari isinya) menjadi
+/// tekstur egui. Dipakai gambar hasil tool chat dan foto profil akun.
+pub(crate) fn texture_from_image_bytes(
+    ctx: &egui::Context,
+    bytes: &[u8],
+    name: &str,
+) -> Option<egui::TextureHandle> {
+    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
     Some(ctx.load_texture(name, color, egui::TextureOptions::LINEAR))
@@ -370,7 +376,7 @@ impl ChatState {
                     it.ok = Some(!is_error);
                     it.text = summary;
                     if let Some(png) = image_png {
-                        it.image = texture_from_png(ctx, &png, &format!("chat-tool-{id}"));
+                        it.image = texture_from_image_bytes(ctx, &png, &format!("chat-tool-{id}"));
                     }
                 }
                 self.panel.scroll_to_bottom = true;

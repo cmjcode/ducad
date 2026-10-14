@@ -9,7 +9,7 @@
 //! (tool-tool sketsa 2D) tetap tinggal di `LeftToolbar`.
 
 use crate::theme::{
-    glass_frame, ACCENT_BLUE, BG_HOVER_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_PRIMARY,
+    glass_frame, ACCENT_BLUE, ACCENT_GREEN, BG_HOVER_DARK, BG_POPUP_DARK, BORDER_SUBTLE, MIN_TOUCH_TARGET, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };
 use crate::touch::{TouchDesignConfig, TouchDesignMode};
@@ -20,7 +20,7 @@ use egui::{vec2, Align2, Color32, CornerRadius, Frame, Margin, RichText, Sense, 
 use egui_icons::icons::{
     ICON_AUTO_AWESOME, ICON_BLUR_ON, ICON_CATEGORY, ICON_CLOUD, ICON_CUBE_OUTLINE, ICON_DOWNLOAD, ICON_EDIT, ICON_FILE_OPEN, ICON_HELP,
     ICON_LANGUAGE, ICON_LAYERS_OFF, ICON_MENU, ICON_NOTE_ADD, ICON_OPACITY, ICON_PALETTE, ICON_PERSON,
-    ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN,
+    ICON_PICTURE_AS_PDF, ICON_SAVE, ICON_SEARCH, ICON_SETTINGS, ICON_SHARE, ICON_STRAIGHTEN, ICON_SYNC,
     ICON_TEXTURE, ICON_UPLOAD,
 };
 
@@ -178,6 +178,8 @@ pub struct TopBarState {
     pub items_button_rect: egui::Rect,
     /// Akun pengguna DUCAD jika terotentikasi
     pub account: Option<DucadAccount>,
+    /// Foto profil akun login yang sudah termuat; `None` = tampilkan inisial.
+    pub account_avatar: Option<egui::TextureHandle>,
     /// Status apakah sedang dalam proses otentikasi browser
     pub is_authenticating: bool,
     /// Status apakah popup akun sedang terbuka
@@ -781,32 +783,24 @@ impl TopBar {
                         if resp.hovered() {
                             ui.painter().rect_filled(rect, CornerRadius::same(14), BG_HOVER_DARK);
                         }
-                        ui.painter().circle_filled(rect.center(), (icon_sz + 4.0) / 2.0, Color32::from_rgb(30, 58, 138));
-                        ui.painter().circle_stroke(
-                            rect.center(),
-                            (icon_sz + 4.0) / 2.0,
-                            Stroke::new(1.0, Color32::from_rgb(56, 189, 248)),
+                        let avatar_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(icon_sz + 4.0));
+                        crate::account_drawer::paint_avatar(
+                            ui,
+                            avatar_rect,
+                            state.account_avatar.as_ref(),
+                            &acc.initials(),
+                            Stroke::new(1.0, ACCENT_BLUE),
                         );
-                        ui.painter().text(
-                            rect.center(),
-                            Align2::CENTER_CENTER,
-                            acc.initials(),
-                            egui::FontId::proportional(icon_sz - 3.0),
-                            Color32::WHITE,
-                        );
-                        // Dot aktif
-                        ui.painter().circle_filled(
-                            rect.right_bottom() - vec2(2.0, 2.0),
-                            3.0,
-                            Color32::from_rgb(74, 222, 128),
-                        );
+                        // Titik status aktif, dengan cincin gelap agar terpisah dari foto
+                        ui.painter().circle_filled(rect.right_bottom() - vec2(2.0, 2.0), 4.0, BG_POPUP_DARK);
+                        ui.painter().circle_filled(rect.right_bottom() - vec2(2.0, 2.0), 3.0, ACCENT_GREEN);
                         resp.on_hover_text(format!("Akun DUCAD: {} ({})", acc.display_title(), acc.email))
                     } else if state.is_authenticating {
                         let (rect, resp) = ui.allocate_exact_size(vec2(icon_sz + 8.0, icon_sz + 8.0), Sense::click());
                         ui.painter().text(
                             rect.center(),
                             Align2::CENTER_CENTER,
-                            "⏳",
+                            ICON_SYNC.codepoint,
                             egui::FontId::proportional(icon_sz),
                             ACCENT_BLUE,
                         );
@@ -1331,6 +1325,7 @@ mod tests {
             plane_menu_open: false,
             items_button_rect: egui::Rect::NOTHING,
             account: None,
+            account_avatar: None,
             is_authenticating: false,
             account_drawer_open: false,
             account_button_rect: egui::Rect::NOTHING,

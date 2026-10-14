@@ -1,6 +1,6 @@
 -- Skema MySQL ducad-server.
 --
--- Hanya empat tabel: server ini mengurus identitas saja. Tidak ada tabel
+-- Hanya lima tabel: server ini mengurus identitas saja. Tidak ada tabel
 -- sinkronisasi dokumen/part — berkas `.ducad` masih sepenuhnya lokal, dan
 -- menambahkannya nanti harus lewat migrasi tersendiri, bukan menyisipkan
 -- kolom ke tabel di bawah.
@@ -75,4 +75,18 @@ CREATE TABLE IF NOT EXISTS auth_tickets (
     expires_at DATETIME    NOT NULL,
     created_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_auth_tickets_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Foto profil yang diunggah pengguna sendiri (mis. akun Apple, yang tidak
+-- memberi foto). Satu baris per pengguna; unggahan baru menimpa yang lama.
+-- Selama baris ini ada, `users.avatar_url` menunjuk ke
+-- `/api/v1/users/{id}/avatar?v=<versi>` dan login ulang lewat provider TIDAK
+-- menimpanya (lihat `upsert_user`). Isi dibatasi 1 MB oleh handler, jadi
+-- MEDIUMBLOB (16 MB) cukup.
+CREATE TABLE IF NOT EXISTS user_avatars (
+    user_id      VARCHAR(36) NOT NULL PRIMARY KEY,
+    content_type VARCHAR(32) NOT NULL,                -- 'image/png' | 'image/jpeg'
+    data         MEDIUMBLOB  NOT NULL,
+    updated_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
