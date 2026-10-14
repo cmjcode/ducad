@@ -264,6 +264,8 @@ pub enum PaletteAction {
     ToggleIndustryPanel,
     /// Buka/tutup panel Review & Rilis (brief, redline, persetujuan).
     ToggleReviewPanel,
+    /// Buka layar "Proyek baru dari brief".
+    OpenBriefStudio,
     SetTool(ToolKind),
     CreateDatumPlane,
     OpenRevolveDialog,
@@ -363,6 +365,7 @@ impl PaletteAction {
     pub fn group(self) -> PaletteGroup {
         match self {
             PaletteAction::OpenAssist
+            | PaletteAction::OpenBriefStudio
             | PaletteAction::OpenChat
             | PaletteAction::ToggleAgentBridge => PaletteGroup::Ai,
             PaletteAction::SetAppMode(_)

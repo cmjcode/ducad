@@ -2,6 +2,10 @@
 //! (offset/mirror/trim), constraint solver (lihat modul `constraint`), dan
 //! command undo/redo.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod commands;
 pub mod constraint;
 pub mod document;

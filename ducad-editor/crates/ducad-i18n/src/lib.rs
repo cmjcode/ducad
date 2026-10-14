@@ -3,6 +3,10 @@
 //! Bahasa default aplikasi adalah **English (`en-US`)**, dengan dukungan penuh
 //! untuk **Bahasa Indonesia (`id-ID`)** dan fallback otomatis ke English.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::OnceLock;
 
@@ -91,20 +95,28 @@ fn get_store() -> &'static LocaleStore {
         let en_lang: LanguageIdentifier = langid!("en-US");
         let mut en_bundle = FluentBundle::new_concurrent(vec![en_lang]);
         en_bundle.set_use_isolating(false);
+        // Berkas .ftl ikut dikompilasi; galat parse hanya mungkin dari
+        // penyuntingan yang salah — pakai sumber sebisanya, jangan panik.
         let en_res = FluentResource::try_new(EN_RESOURCE.to_string())
-            .expect("Failed to parse English fluent resource");
-        en_bundle
-            .add_resource(en_res)
-            .expect("Failed to add English resource to bundle");
+            .unwrap_or_else(|(res, errors)| {
+                eprintln!("ducad-i18n: en-US/main.ftl bermasalah: {errors:?}");
+                res
+            });
+        if let Err(errors) = en_bundle.add_resource(en_res) {
+            eprintln!("ducad-i18n: bundle en-US: {errors:?}");
+        }
 
         let id_lang: LanguageIdentifier = langid!("id-ID");
         let mut id_bundle = FluentBundle::new_concurrent(vec![id_lang]);
         id_bundle.set_use_isolating(false);
         let id_res = FluentResource::try_new(ID_RESOURCE.to_string())
-            .expect("Failed to parse Indonesian fluent resource");
-        id_bundle
-            .add_resource(id_res)
-            .expect("Failed to add Indonesian resource to bundle");
+            .unwrap_or_else(|(res, errors)| {
+                eprintln!("ducad-i18n: id-ID/main.ftl bermasalah: {errors:?}");
+                res
+            });
+        if let Err(errors) = id_bundle.add_resource(id_res) {
+            eprintln!("ducad-i18n: bundle id-ID: {errors:?}");
+        }
 
         LocaleStore {
             en_bundle,

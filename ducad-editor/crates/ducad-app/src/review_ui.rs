@@ -31,7 +31,7 @@ pub struct ReviewState {
     /// Titik redline (mm kertas) yang menunggu teks dari panel.
     pub pending_redline: Option<[f64; 2]>,
     /// Data panel + kunci cache-nya (tanda tangan checks, hitungan mutasi).
-    cache: Option<((u64, u64), ReviewPanelData)>,
+    cache: Option<((u64, u64, usize), ReviewPanelData)>,
     /// Naik setiap dokumen diubah dari panel ini.
     epoch: u64,
 }
@@ -86,7 +86,13 @@ impl DuCADApp {
 
     /// Data panel; dihitung ulang hanya bila checks/dokumen berubah.
     pub fn review_panel_data(&mut self) -> ReviewPanelData {
-        let key = (self.checks.signature, self.review.epoch);
+        // Jumlah check yang masih dihitung di latar ikut menjadi kunci:
+        // hasil `min_wall` tiba tanpa mengubah tanda tangan checks.
+        let key = (
+            self.checks.signature,
+            self.review.epoch,
+            self.checks.stale.iter().filter(|s| **s).count(),
+        );
         if let Some((k, data)) = &self.review.cache {
             if *k == key {
                 let mut data = data.clone();
@@ -301,6 +307,11 @@ impl DuCADApp {
             }
             None => ducad_i18n::t!("review-status-failed", error = "no reply"),
         });
+    }
+
+    /// Buang cache data panel (dipanggil setelah agent mengubah dokumen).
+    pub(crate) fn review_touch(&mut self) {
+        self.review.touch();
     }
 
     /// Klik alat Redline di lembar: simpan titiknya dan minta teks di panel.

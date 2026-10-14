@@ -9,6 +9,10 @@
 
 // `OpError` sengaja kaya konteks (sama dengan ducad-engine).
 #![allow(clippy::result_large_err)]
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod backend;
 pub mod prompt;

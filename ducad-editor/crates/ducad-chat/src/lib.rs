@@ -13,6 +13,10 @@
 //! `ducad_mcp::tools::definitions()` sehingga agent di dalam aplikasi dan
 //! agent eksternal lewat MCP melihat tool yang persis sama.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod anthropic;
 // Harness CLI agent butuh proses anak + soket: tidak ada di tablet.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]

@@ -366,7 +366,22 @@ impl DuCADApp {
             _ => &name,
         };
 
-        self.model_undo.execute(cmd, &mut self.model);
+        // Pagar panik (ADR 0009): command yang panik (OCCT, index di luar
+        // batas) tidak boleh menutup aplikasi bersama pekerjaan pengguna.
+        // Panik lazim terjadi saat menghitung shape, sebelum body disentuh,
+        // jadi model biasanya utuh; pengguna diberi tahu dan bisa menyimpan.
+        let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.model_undo.execute(cmd, &mut self.model);
+        }));
+        if let Err(payload) = applied {
+            let msg = ducad_engine::guard::panic_message(&*payload);
+            log::error!("panik tertangkap pada command model '{name}': {msg}");
+            self.file_status = Some(format!(
+                "{} ({name}: {msg})",
+                ducad_i18n::t!("model-command-internal-error")
+            ));
+            return;
+        }
         self.clear_redo_except(crate::types::UndoTarget::Model);
         self.onboarding.note_model_command(&name);
         self.record_activity(

@@ -642,7 +642,12 @@ pub fn call_out(server: &mut Server, name: &str, arguments: Value) -> ToolOut {
     if let Some(attach) = server.attach.as_mut() {
         return attach.call(name, arguments);
     }
-    call_inner(server, name, arguments).unwrap_or_else(ToolOut::err)
+    // Pagar panik (ADR 0009): panik di tool mana pun menjadi error `internal`,
+    // bukan server yang mati di tengah sesi agent.
+    ducad_engine::guard::catch_op_panic(&format!("tool {name}"), || {
+        call_inner(server, name, arguments)
+    })
+    .unwrap_or_else(ToolOut::err)
 }
 
 /// Bungkus [`ToolOut`] menjadi hasil `tools/call` MCP (teks + gambar).
@@ -958,5 +963,69 @@ fn call_inner(server: &mut Server, name: &str, a: Value) -> OpResult<ToolOut> {
             Ok(ToolOut::ok(to_value(d)?))
         }
         other => Err(OpError::invalid(format!("unknown tool: {other}"))),
+    }
+}
+
+#[cfg(test)]
+mod hostile_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn server() -> (Server, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "ducad-mcp-hostile-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        (Server::new(dir.clone()).unwrap(), dir)
+    }
+
+    /// Pola `hostile_params_never_panic` (CADCraft): setiap tool dengan
+    /// argumen rusak harus mengembalikan nilai, bukan panik. Memanggil
+    /// `call_inner` LANGSUNG — tanpa pagar `guard` — supaya panik benar-benar
+    /// menggagalkan tes, bukan diubah menjadi error `internal`.
+    #[test]
+    fn hostile_arguments_never_panic() {
+        let (mut s, dir) = server();
+        let _ = call_inner(&mut s, "new_part", json!({"name": "p"}));
+        let hostile = [
+            json!(null),
+            json!([]),
+            json!("x"),
+            json!({}),
+            json!({"session": 5}),
+            json!({"session": "nope"}),
+            json!({"ops": "x"}),
+            json!({"ops": [null]}),
+            json!({"ops": [{"op": "extrude", "id": "x", "profile": null, "distance": -1e308}]}),
+            json!({"path": "../../../etc/passwd"}),
+            json!({"path": ""}),
+            json!({"params": {"w": "$w/0", "": 1}}),
+            json!({"op_id": "", "op": {"op": "nope"}, "ids": [""]}),
+            json!({"selector": "all[", "body": "", "view": "zz", "format": "exe"}),
+            json!({"width": -1, "height": 0, "checks": [null], "name": 7}),
+            json!({"x".repeat(2000): "y".repeat(2000)}),
+        ];
+        for name in TOOL_NAMES {
+            for args in &hostile {
+                let out = call_inner(&mut s, name, args.clone());
+                if let Ok(out) = &out {
+                    assert!(out.payload.is_object() || out.payload.is_array(), "{name}");
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_panicking_tool_becomes_an_internal_error_not_a_crash() {
+        let e = ducad_engine::guard::catch_op_panic("tool x", || -> OpResult<ToolOut> {
+            panic!("boom")
+        })
+        .unwrap_err();
+        let out = tool_result(ToolOut::err(e));
+        assert_eq!(out["isError"], true);
+        assert!(out["content"][0]["text"].as_str().unwrap().contains("internal"));
     }
 }

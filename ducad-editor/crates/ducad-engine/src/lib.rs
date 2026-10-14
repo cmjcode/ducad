@@ -10,6 +10,11 @@
 // di baliknya. Membungkusnya dalam `Box` hanya demi lint ini akan mengubah
 // tipe publik kontrak.
 #![allow(clippy::result_large_err)]
+// Prinsip "jangan pernah crash" (ADR 0009): kode produksi engine tidak boleh
+// panik lewat unwrap/expect — input agent (JSON, berkas, argumen tool) bersifat
+// hostil. Modul tes boleh (assert lewat unwrap wajar di sana).
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod brief;
 pub mod check;
@@ -20,6 +25,7 @@ pub mod drawing_auto;
 pub mod error;
 pub mod export;
 pub mod firm;
+pub mod guard;
 pub mod inspect;
 pub mod model;
 pub mod oplog;

@@ -2,6 +2,10 @@
 //!
 //! Konvensi: sumbu Z ke atas (konvensi CAD), satuan milimeter, right-handed.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod camera;
 pub mod grid;
 pub mod ink;

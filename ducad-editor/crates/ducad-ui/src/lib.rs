@@ -11,10 +11,15 @@
 //! - Command palette (`command_palette`)
 //! - Radial menu untuk sentuh/iPad (`radial_menu`)
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod account_drawer;
 pub mod assembly_drawer;
 pub mod canvas_hud;
 pub mod chat_panel;
+pub mod brief_studio;
 pub mod checks_panel;
 pub mod review_panel;
 pub mod mass_properties_panel;
@@ -69,6 +74,10 @@ pub use chat_panel::{
     CliMeta,
 };
 pub use checks_panel::{checks_summary, CheckRowStatus, CheckRowUi, ChecksPanel, ChecksPanelEvent};
+pub use brief_studio::{
+    BriefLogUi, BriefMark, BriefPhase, BriefStage, BriefStepState, BriefStepUi, BriefStudio,
+    BriefStudioData, BriefStudioEvent, BriefStudioState, SceneView, BRIEF_PROCESSES,
+};
 pub use review_panel::{
     ReviewItemUi, ReviewPanel, ReviewPanelData, ReviewPanelEvent, ReviewRedlineUi,
     ReviewRequirementUi, ReviewRevisionUi, ReviewStage, ReviewTrace,

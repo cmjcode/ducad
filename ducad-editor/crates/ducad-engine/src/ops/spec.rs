@@ -1182,7 +1182,7 @@ pub struct OpFile {
 
 /// JSON Schema `OpFile`. Salinannya disimpan di `schema/ops.schema.json`.
 pub fn op_schema() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(OpFile)).expect("schema selalu bisa diserialisasi")
+    serde_json::to_value(schemars::schema_for!(OpFile)).unwrap_or_default()
 }
 
 /// Aturan id op: `^[a-z][a-z0-9_]{0,31}$`. Titik dicadangkan engine untuk

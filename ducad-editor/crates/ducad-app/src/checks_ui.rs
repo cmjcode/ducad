@@ -43,6 +43,15 @@ impl DuCADApp {
             }
         }
         self.design.as_ref().map(|d| d.to_string()).hash(&mut h);
+        // Hasil studi yang baru tiba (agent/panel Simulasi) mengubah hasil
+        // check tegangan walau model dan design tidak berubah.
+        for (id, r) in &self.agent_meta.sim_results {
+            id.hash(&mut h);
+            r.signature.hash(&mut h);
+        }
+        for id in self.agent_meta.analysis_results.keys() {
+            id.hash(&mut h);
+        }
         h.finish()
     }
 
@@ -75,8 +84,18 @@ impl DuCADApp {
             return;
         };
         let checks = design.checks.clone();
+        // Keadaan sesi yang tidak tersimpan di `design` (hasil studi, model
+        // sheet metal, ulir, part standar) diambil dari sesi agent. Tanpa ini
+        // check `min_safety_factor`, `min_bend_radius`, dkk. selalu "error"
+        // di GUI walau agent sudah menjalankan studinya. Hasil studi tetap
+        // divalidasi terhadap geometri kini oleh `fresh_result`.
         let meta = SessionMeta {
             design,
+            sim_results: self.agent_meta.sim_results.clone(),
+            analysis_results: self.agent_meta.analysis_results.clone(),
+            sheet_metal: self.agent_meta.sheet_metal.clone(),
+            threads: self.agent_meta.threads.clone(),
+            standard_parts: self.agent_meta.standard_parts.clone(),
             ..SessionMeta::default()
         };
 

@@ -23,14 +23,20 @@ Arah panah = "bergantung pada".
 - `ducad-mcp` — binary `ducad-mcp`, server MCP stdio: 37 tool (beranotasi readOnly/destructive) + resources/prompts; mode `--attach` menambah 6 tool live. → engine
 - `ducad-chat` — chat agent tanpa GUI/kernel: provider Anthropic/OpenAI-compatible (`ureq`, SSE), loop tool-use, harness CLI agent (`cli`, desktop), pengaturan + kunci API (Keychain). Lihat `docs/adr/0005-chat-agent.md`.
 - `ducad-assist` — asisten AI lokal/offline: backend di perangkat, loop yang selalu berujung proposal. Fitur `apple-fm`/`local-gguf` mati secara default (lihat `docs/adr/0002-ai-lokal.md`). → engine
-- `ducad-render` — renderer wgpu viewport. → core
+- `ducad-render` — renderer wgpu viewport. → core, sketch
 - `ducad-glass` — material Liquid Glass untuk panel: `GlassFrame` (pengganti `egui::Frame`), `GlassBackdrop` (scene offscreen + blur + shader lensa), preset material. Hanya egui/egui_wgpu (dijaga tes `glass_has_no_app_or_ui_dependency`). Lihat `docs/adr/0006-liquid-glass.md`.
 - `ducad-ui`, `ducad-i18n`, `ducad-cloud` — widget egui, terjemahan, akun. (`ducad-ui` → glass)
 - `ducad-app` — GUI (lib + binary `ducad`); operasi modeling = adapter tipis di atas `ducad_engine::compute`. Keputusan "ini tablet" dan jalur data per platform hanya lewat `platform.rs`; perilaku tablet (autosave, picker asinkron, Pencil) di `mobile.rs`; UIKit di `apple_ios.rs`. → semua di atas
 - `ducad-android` — `cdylib` `android_main` (GameActivity) di atas `ducad-app`; kosong di platform lain. Proyek Gradle di `android/`. Lihat `docs/TABLET.md`.
 
 Aturan: **`ducad-engine` tidak boleh bergantung pada egui/eframe/wgpu/
-ducad-render/ducad-ui/rfd** (dijaga tes `engine_has_no_gui_dependency`).
+ducad-render/ducad-ui/rfd** (dijaga tes `engine_has_no_gui_dependency`). Seluruh
+peta di atas dijaga tabel `ducad-core/tests/layering.rs`: crate UI hanya di
+glass/render/ui/app/android, `opencascade` hanya di kernel.
+
+Log aplikasi desktop: stderr + `~/.ducad/logs/ducad.log` (rotasi `.1`/`.2`,
+`RUST_LOG` gaya env_logger, bawaan `warn,ducad=info`); panik ikut tercatat.
+Autosave pemulihan `~/.ducad/autosave.ducad` berlaku di semua platform.
 
 ## Perintah
 
@@ -41,6 +47,7 @@ cargo test -p <crate>                          # selama mengerjakan satu crate
 cargo fmt --all -- --check                     # gerbang CI (belum memblokir; format hanya berkas baru)
 cargo clippy --workspace --all-targets -- -D warnings   # gerbang CI
 cargo test --workspace                         # gerbang CI
+cargo test -p ducad-core --test layering       # penjaga peta crate di atas (ubah tabelnya bila menambah panah)
 make install-agent-tools                       # pasang ducad-cli, ducad-mcp (+ mnemonic-cli bila ada)
 ./clean_no_occt.sh                             # bersihkan target tanpa menghapus OCCT (bisa juga: cargo clean-no-occt)
 cargo clean-ws                                 # bersihkan hanya crate workspace DUCAD (~1 detik)
@@ -100,6 +107,18 @@ gugur begitu desain berubah. **Pagar:** agent tidak bisa menyetujui paket
 pada sesi live (`approve_package` ada di `attach::UNSUPPORTED`, sama seperti
 `accept_proposal`); di GUI hanya tombol panel Review & Rilis.
 
+**Proyek baru dari brief.** Layar penuh (Menu Berkas → "Baru dari brief…",
+palet "Proyek baru dari brief", atau env `DUCAD_START_BRIEF=1`): brief +
+lampiran gambar → agent bekerja dengan tahap terlihat → paket desain lembar
+demi lembar → tanda koreksi/revisi → persetujuan. Widget di
+`ducad-ui/src/brief_studio.rs` (termasuk `SceneView`, pelukis display-list
+`scene.rs` ke egui), adaptor di `ducad-app/src/brief_studio_ui.rs`. Layar ini
+TIDAK punya agent sendiri: ia memanggil `chat_send`/`chat_start` dan menyadap
+kejadian lewat `ChatState::tap`, jadi provider, privasi, dan pagar tool sama
+dengan Chat AI. Selama giliran dari layar ini `ChatState::auto_apply`
+mematikan kartu Terima/Tolak; persetujuan paket tetap milik pengguna. Uji
+ujung ke ujung tanpa klik: `DUCAD_BRIEF_AUTORUN="<brief>"`; ceklis manual A17.
+
 Version control desain: commit `*.ops.json` sebagai sumber dan `.ducad`
 sebagai artefak. `ducad-cli oplog PART.ducad` menulis oplog satu op per
 baris; aktifkan diff git dengan `git config diff.ducad.textconv "ducad-cli oplog"`
@@ -130,6 +149,13 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 - Di engine, body dirujuk lewat **nama** (id op pembuatnya), bukan `BodyId`
   (berganti saat undo/redo boolean).
 - Tidak ada `unwrap()`/`expect()` pada input dari luar (JSON, file, argumen tool).
+  **Jangan pernah crash (ADR 0009):** crate engine/mcp/cli/chat/assist/core/ink/
+  sim/glass/cloud/i18n memasang `#![deny(clippy::unwrap_used, clippy::expect_used,
+  clippy::panic, …)]` (modul tes dikecualikan); pakai `let … else`, `ok_or_else`,
+  `(v.len() == 1).then(|| v.pop()).flatten()`. Panik yang lolos tetap ditangkap
+  pagar `ducad_engine::guard` (per op di `run_with`, per tool di `tooling`, MCP,
+  jembatan agent, command GUI) dan menjadi error `internal` — tetap perbaiki
+  akarnya, dan tambahkan kasus ke `ducad-engine/tests/hostile.rs`.
 - Dependency baru harus berlisensi yang diizinkan `ducad-editor/deny.toml`.
 
 ## Menambah operasi baru
@@ -163,6 +189,6 @@ perbarui dengan `DUCAD_UPDATE_SCHEMA=1 cargo test -p ducad-engine schema_file`.
 
 - Rencana harness agent: `.claude/plan/ducad-agent-harness/` (mulai dari `00-konvensi.md`).
 - Rencana produk: `ducad-editor/docs/PLAN.md`; status: `ducad-editor/docs/STATUS_FASE_A_B.md`.
-- Keputusan arsitektur: `ducad-editor/docs/adr/`.
+- Keputusan arsitektur: `ducad-editor/docs/adr/` (0009: jangan pernah crash — pagar panik, lint, log berkas `~/.ducad/logs/ducad.log`, autosave desktop, penjaga layering).
 - Skill agent: `.claude/skills/ducad-modeling/SKILL.md`; memori agent: `scripts/init_memory_vault.sh`.
 - Rencana chat agent + op lanjutan: `.claude/plan/ducad-agent-harness/P13-P15-chat-agent.md`.

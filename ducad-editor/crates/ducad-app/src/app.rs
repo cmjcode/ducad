@@ -162,6 +162,8 @@ pub struct DuCADApp {
     pub industry: crate::industry_ui::IndustryState,
     /// Panel Review & Rilis (W0–W5): brief, redline, persetujuan paket.
     pub review: crate::review_ui::ReviewState,
+    /// Layar "Proyek baru dari brief".
+    pub brief: crate::brief_studio_ui::BriefStudioApp,
     /// Asisten AI lokal (P11.4).
     pub ai: crate::assist_ui::AiState,
     /// Panel chat AI (P13.3).
@@ -589,6 +591,7 @@ impl DuCADApp {
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
+            brief: crate::brief_studio_ui::BriefStudioApp::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -912,6 +915,7 @@ impl DuCADApp {
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
+            brief: crate::brief_studio_ui::BriefStudioApp::default(),
             ai: crate::assist_ui::AiState::default(),
             chat: crate::chat_ui::ChatState::default(),
             #[cfg(feature = "memory")]
@@ -1737,17 +1741,21 @@ pub fn calculate_grid_extent_for_params(
 impl eframe::App for DuCADApp {
     /// Soket jembatan agent dihapus saat aplikasi ditutup; yang tersisa
     /// karena proses berhenti mendadak dibuang saat jembatan dinyalakan
-    /// lagi (lihat `AgentBridge::start`).
+    /// lagi (lihat `AgentBridge::start`). Di desktop autosave pemulihan juga
+    /// dihapus: keluar normal = pengguna sudah memutuskan simpan/buang, jadi
+    /// berkas yang tersisa saat start berikutnya pasti bekas crash.
     fn on_exit(&mut self) {
         self.bridge.shutdown();
+        if !crate::platform::is_mobile() {
+            crate::mobile::clear_autosave();
+        }
     }
 
     /// Dipanggil eframe saat OS menidurkan aplikasi (iPadOS/Android) dan
-    /// tiap `auto_save_interval`: tulis autosave pemulihan di tablet.
+    /// tiap `auto_save_interval`: tulis autosave pemulihan (semua platform;
+    /// di desktop ia menyelamatkan pekerjaan bila aplikasi crash).
     fn save(&mut self, _storage: &mut dyn eframe::Storage) {
-        if crate::platform::is_mobile() {
-            self.write_autosave();
-        }
+        self.write_autosave();
     }
 
     fn auto_save_interval(&self) -> std::time::Duration {
@@ -2046,6 +2054,7 @@ impl eframe::App for DuCADApp {
                             }
                             TopBarEvent::File(op) => match op {
                                 TopBarFileOp::New => self.new_document(),
+                                TopBarFileOp::NewFromBrief => self.open_brief_studio(),
                                 TopBarFileOp::Open => self.open_native(),
                                 TopBarFileOp::Save => self.save_native(),
                                 TopBarFileOp::SaveAs => self.save_native_as(),
@@ -4752,6 +4761,13 @@ impl eframe::App for DuCADApp {
                 }
             }
         }
+
+        // Layar "Proyek baru dari brief": layar penuh di atas kanvas.
+        let brief_rect = egui::Rect::from_min_max(
+            screen_rect.min + egui::vec2(0.0, safe_top),
+            screen_rect.max,
+        );
+        self.brief_studio_frame(&ctx, brief_rect);
 
         // Render Alert Modal Peringatan jika ada operasi yang gagal
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);

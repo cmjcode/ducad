@@ -6,6 +6,7 @@ Alur "brief → set dokumen patuh standar → review → revisi" untuk dua part.
 |---|---|
 | `sensor_bracket.ops.json` | Bracket CNC: brief + 5 persyaratan, check tertaut, paket aturan `dfm-cnc`, studi statik |
 | `tray.ops.json` | Baki sheet metal: paket aturan `dfm-sheet-metal`, pola bentangan |
+| `plate_review.ops.json` | Plat sederhana tanpa studi, untuk uji GUI (ceklis A16 di `ducad-editor/docs/CEKLIS_UJI_GUI.md`) |
 | `firm.json` | Profil firma contoh: kepala gambar, harga material, tarif proses, stok pelat |
 | `set.json` | Kedua part sebagai satu set |
 

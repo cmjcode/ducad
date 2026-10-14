@@ -34,5 +34,8 @@ pub fn hole(
             .map_err(|e| OpError::kernel("Hole", e))?;
         current = Some(next);
     }
-    finish("Hole", current.expect("positions tidak kosong"))
+    match current {
+        Some(shape) => finish("Hole", shape),
+        None => Err(OpError::invalid("Posisi lubang tidak boleh kosong")),
+    }
 }

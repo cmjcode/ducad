@@ -58,6 +58,12 @@ pub struct ChatState {
     pub(crate) cli_bg: Option<Receiver<String>>,
     /// Gambar yang ikut pesan berikutnya (W6).
     pub(crate) pending_images: Vec<ducad_chat::ChatImage>,
+    /// Sadapan kejadian loop untuk layar "Proyek baru dari brief": selama
+    /// `Some`, setiap kejadian juga disalin ke sini (tanpa gambar).
+    pub(crate) tap: Option<Vec<ChatEvent>>,
+    /// Giliran berikutnya menerapkan perubahan langsung (tanpa kartu
+    /// Terima/Tolak) walau pengaturan meminta konfirmasi tulis.
+    pub(crate) auto_apply: bool,
 }
 
 /// Eksekutor tool: kirim ke UI thread lewat jembatan, tunggu balasan.
@@ -260,6 +266,29 @@ impl ChatState {
         self.apply_event(ctx, e);
     }
 
+    /// Jumlah butir error di transkrip.
+    pub(crate) fn error_count(&self) -> usize {
+        self.panel
+            .items
+            .iter()
+            .filter(|i| i.role == ChatRole::Error)
+            .count()
+    }
+
+    /// Teks error terakhir bila ada error baru sejak `before`.
+    pub(crate) fn last_error_after(&self, before: usize) -> Option<String> {
+        (self.error_count() > before)
+            .then(|| {
+                self.panel
+                    .items
+                    .iter()
+                    .rev()
+                    .find(|i| i.role == ChatRole::Error)
+                    .map(|i| i.text.clone())
+            })
+            .flatten()
+    }
+
     /// Ada giliran (API atau CLI) yang sedang berjalan.
     pub(crate) fn is_running(&self) -> bool {
         self.rx.is_some() || self.cli_run.is_some()
@@ -286,6 +315,24 @@ impl ChatState {
     }
 
     fn apply_event(&mut self, ctx: &egui::Context, e: ChatEvent) {
+        if let Some(tap) = &mut self.tap {
+            tap.push(match &e {
+                ChatEvent::ToolDone {
+                    id,
+                    name,
+                    summary,
+                    is_error,
+                    ..
+                } => ChatEvent::ToolDone {
+                    id: id.clone(),
+                    name: name.clone(),
+                    summary: summary.clone(),
+                    is_error: *is_error,
+                    image_png: None,
+                },
+                other => other.clone(),
+            });
+        }
         match e {
             ChatEvent::TextDelta { text } => match self.streaming {
                 Some(i) if i < self.panel.items.len() => self.panel.items[i].text.push_str(&text),
@@ -433,7 +480,7 @@ impl DuCADApp {
     }
 
     /// Kirim isi kotak input dengan model dari pengaturan.
-    fn chat_send(&mut self, ctx: &egui::Context) {
+    pub(crate) fn chat_send(&mut self, ctx: &egui::Context) {
         if self.chat.settings.backend == ducad_chat::ChatBackend::Cli {
             self.chat_send_cli(ctx);
             return;
@@ -453,7 +500,7 @@ impl DuCADApp {
 
     /// Pilih berkas gambar dan lampirkan ke pesan berikutnya. Jenis gambar
     /// dikenali dari isinya; berkas lain atau > 5 MB ditolak dengan pesan.
-    fn chat_attach_image(&mut self) {
+    pub(crate) fn chat_attach_image(&mut self) {
         let Some(path) =
             self.pick_open_path("Image", &["png", "jpg", "jpeg", "webp", "gif"])
         else {
@@ -492,7 +539,7 @@ impl DuCADApp {
         let system = system_prompt();
         let policy = Policy {
             max_rounds: self.chat.settings.max_rounds,
-            confirm_writes: self.chat.settings.confirm_writes,
+            confirm_writes: self.chat.settings.confirm_writes && !self.chat.auto_apply,
             ..Default::default()
         };
         let cancel = Arc::new(AtomicBool::new(false));
@@ -526,6 +573,14 @@ impl DuCADApp {
         self.chat.rx = Some(rx);
         self.chat.cancel = Some(cancel);
         self.chat.panel.busy = true;
+    }
+
+    /// Hentikan giliran yang sedang berjalan (API maupun CLI).
+    pub(crate) fn chat_stop(&mut self) {
+        if let Some(c) = &self.chat.cancel {
+            c.store(true, Ordering::Relaxed);
+        }
+        self.chat_stop_cli();
     }
 
     /// Terima kejadian dari thread chat (dipanggil tiap frame).
@@ -607,12 +662,7 @@ impl DuCADApp {
                 self.chat.pending_images.clear();
                 self.chat.panel.attachments = 0;
             }
-            ChatPanelEvent::Stop => {
-                if let Some(c) = &self.chat.cancel {
-                    c.store(true, Ordering::Relaxed);
-                }
-                self.chat_stop_cli();
-            }
+            ChatPanelEvent::Stop => self.chat_stop(),
             ChatPanelEvent::NewChat => {
                 self.chat.conv.clear();
                 self.chat.panel.items.clear();

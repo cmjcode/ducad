@@ -304,9 +304,9 @@ pub fn revolve(
         .map_err(|e| OpError::kernel("Revolve", e))?;
         shapes.push(s);
     }
-    let shape = match shapes.len() {
-        1 => shapes.pop().expect("len == 1"),
-        _ => {
+    let shape = match (shapes.len() == 1).then(|| shapes.pop()).flatten() {
+        Some(s) => s,
+        None => {
             let refs: Vec<&KernelShape> = shapes.iter().collect();
             ducad_kernel::make_compound(&refs).map_err(|e| OpError::kernel("Revolve", e))?
         }
@@ -364,7 +364,8 @@ pub fn extrude_single_entity(
             .styles
             .get(eid)
             .and_then(|s| s.stroke.clone())
-            .unwrap_or_else(|| ducad_sketch::Style::cad_default().stroke.unwrap());
+            .or_else(|| ducad_sketch::Style::cad_default().stroke)
+            .ok_or_else(|| OpError::invalid("Gaya garis bawaan tidak tersedia"))?;
         if width <= 0.0 {
             return Err(OpError::invalid(format!(
                 "lebar outline harus > 0, didapat {width}"
@@ -396,8 +397,8 @@ pub fn extrude_single_entity(
                 "Hasil extrude outline kosong",
             ));
         }
-        let final_shape = if shapes.len() == 1 {
-            shapes.pop().unwrap()
+        let final_shape = if let Some(s) = (shapes.len() == 1).then(|| shapes.pop()).flatten() {
+            s
         } else {
             let refs: Vec<&KernelShape> = shapes.iter().collect();
             ducad_kernel::make_compound(&refs)
@@ -424,8 +425,8 @@ pub fn extrude_single_entity(
                         "Hasil extrude path kosong",
                     ));
                 }
-                let final_shape = if shapes.len() == 1 {
-                    shapes.pop().unwrap()
+                let final_shape = if let Some(s) = (shapes.len() == 1).then(|| shapes.pop()).flatten() {
+                    s
                 } else {
                     let refs: Vec<&KernelShape> = shapes.iter().collect();
                     ducad_kernel::make_compound(&refs)
@@ -542,8 +543,8 @@ pub fn extrude_vector(
             let geo = extrude_single_entity(sketch, eid, Some(width), plane, extent)?;
             shapes.push(geo.shape);
         }
-        let final_shape = if shapes.len() == 1 {
-            shapes.pop().unwrap()
+        let final_shape = if let Some(s) = (shapes.len() == 1).then(|| shapes.pop()).flatten() {
+            s
         } else {
             let refs: Vec<&KernelShape> = shapes.iter().collect();
             ducad_kernel::make_compound(&refs)

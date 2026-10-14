@@ -394,7 +394,9 @@ pub fn find_closed_regions(sketch: &Sketch) -> Vec<ClosedRegion> {
 
                 for dx in -1..=1 {
                     for dy in -1..=1 {
-                        let neighbor = (c.0 + dx, c.1 + dy);
+                        // Koordinat ±1e308 jatuh ke i64::MAX/MIN saat di-cast; penjumlahan
+                        // biasa overflow (ditemukan tes hostil, ADR 0009).
+                        let neighbor = (c.0.saturating_add(dx), c.1.saturating_add(dy));
                         if let Some(list) = start_grid.get(&neighbor) {
                             for &next_idx in list {
                                 if visited.contains(&next_idx) {

@@ -70,6 +70,10 @@ pub enum OpErrorCode {
     DrawingSectionEmpty,
     /// Dua potongan memakai huruf label yang sama.
     DrawingSectionLabelDup,
+    // ---- pagar panik ----
+    /// A panic inside DUCAD was caught (`guard`); the batch was rolled back. This is a DUCAD bug,
+    /// not a parameter error.
+    Internal,
 }
 
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]

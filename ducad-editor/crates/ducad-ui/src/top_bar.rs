@@ -32,6 +32,8 @@ const MENU_GAP_BELOW_BAR: f32 = 4.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopBarFileOp {
     New,
+    /// Buka layar "Proyek baru dari brief".
+    NewFromBrief,
     Open,
     Save,
     SaveAs,
@@ -274,6 +276,17 @@ impl TopBar {
                             .clicked()
                         {
                             event = Some(TopBarEvent::File(TopBarFileOp::New));
+                            ui.close();
+                        }
+                        if ui
+                            .button(format!(
+                                "{} {}",
+                                ICON_AUTO_AWESOME.codepoint,
+                                t!("menu-new-from-brief")
+                            ))
+                            .clicked()
+                        {
+                            event = Some(TopBarEvent::File(TopBarFileOp::NewFromBrief));
                             ui.close();
                         }
                         if ui

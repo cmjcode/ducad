@@ -293,12 +293,18 @@ pub fn build_package(
         .first()
         .map(|(b, _)| material_label(b))
         .unwrap_or_default();
+    // Kolom judul kepala gambar ±80 mm pada huruf 3,9 mm: judul panjang
+    // dipangkas supaya tidak menimpa kolom nomor gambar.
     let base_title = |subtitle: &str| TitleBlockInfo {
-        project_title: if subtitle.is_empty() {
-            info.title.clone()
-        } else {
-            format!("{} - {subtitle}", info.title)
-        },
+        project_title: ducad_io::drawing::pages::fit_text(
+            &if subtitle.is_empty() {
+                info.title.clone()
+            } else {
+                format!("{} - {subtitle}", info.title)
+            },
+            3.9,
+            80.0,
+        ),
         drawing_number: format!("{}{}", firm.part_number_prefix, info.part_number),
         drawn_by: if info.author.is_empty() {
             firm.drawn_by.clone()

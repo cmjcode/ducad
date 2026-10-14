@@ -371,16 +371,16 @@ pub fn split(
             neg.push(p);
         }
     }
-    let join = |v: Vec<KernelShape>| -> OpResult<Option<BodyGeometry>> {
-        match v.len() {
-            0 => Ok(None),
-            1 => finish("Split", v.into_iter().next().expect("len 1")).map(Some),
-            _ => {
-                let refs: Vec<&KernelShape> = v.iter().collect();
-                let c = ducad_kernel::make_compound(&refs).map_err(k("Split"))?;
-                finish("Split", c).map(Some)
-            }
+    let join = |mut v: Vec<KernelShape>| -> OpResult<Option<BodyGeometry>> {
+        if v.is_empty() {
+            return Ok(None);
         }
+        if let Some(s) = (v.len() == 1).then(|| v.pop()).flatten() {
+            return finish("Split", s).map(Some);
+        }
+        let refs: Vec<&KernelShape> = v.iter().collect();
+        let c = ducad_kernel::make_compound(&refs).map_err(k("Split"))?;
+        finish("Split", c).map(Some)
     };
     Ok((join(pos)?, join(neg)?))
 }

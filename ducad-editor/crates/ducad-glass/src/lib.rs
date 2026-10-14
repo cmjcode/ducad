@@ -3,6 +3,10 @@
 //! Panel tetap transparan, tetapi konten di baliknya dibelokkan di tepi
 //! (lensa), diburamkan, diberi tint, dan diberi sorotan spekular di rim —
 //! sehingga teks di atasnya tetap terbaca tanpa harus memekatkan panel.
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod backdrop;
 pub mod material;
 pub mod sdf;

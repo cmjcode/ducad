@@ -9,6 +9,10 @@
 //! Semua angka FE `f64`; hasil deterministik (tanpa thread, tanpa RNG, tanpa
 //! ketergantungan urutan iterasi `HashMap`).
 #![forbid(unsafe_code)]
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // Kode numerik padat memakai indeks eksplisit agar rumusnya terbaca.
 #![allow(clippy::needless_range_loop)]
 

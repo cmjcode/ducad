@@ -1,5 +1,9 @@
 //! Model coretan tinta bebas, kuas, filter input, dan manipulasi spasial DUCAD.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod brush;
 pub mod commands;
 pub mod document;

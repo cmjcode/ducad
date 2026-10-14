@@ -2,6 +2,10 @@
 //! oleh `ducad-android` (`cdylib` dengan `android_main`). Semua modul
 //! aplikasi hidup di sini supaya kedua entry point berbagi kode yang sama.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 pub mod agent_bridge;
 pub mod app;
 #[cfg(target_vendor = "apple")]
@@ -11,6 +15,7 @@ pub mod apple_ios;
 pub mod assist_ui;
 pub mod chat_cli;
 pub mod chat_history;
+pub mod brief_studio_ui;
 pub mod chat_ui;
 pub mod checks_ui;
 pub mod closed_objects;
@@ -24,6 +29,7 @@ pub mod industry_ui;
 pub mod ink;
 pub mod input;
 pub mod live_tools;
+pub mod logging;
 pub mod mass_ui;
 /// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
 #[cfg(feature = "memory")]

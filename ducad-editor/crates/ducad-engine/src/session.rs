@@ -592,7 +592,9 @@ impl SessionCore<'_> {
                         detail: serde_json::Value::Null,
                     });
                 }
-                self.apply(op, i, &mut new_sketches)
+                crate::guard::catch_op_panic(&format!("op {}", op.id()), || {
+                    self.apply(op, i, &mut new_sketches)
+                })
             });
             match result {
                 Ok(outcome) => {
@@ -604,7 +606,11 @@ impl SessionCore<'_> {
                     e.op_id = Some(op.id().to_string());
                     // Diagnosis + fix terverifikasi, SEBELUM rollback: model
                     // masih berisi hasil op 0..i-1 dari batch ini (P9.2).
-                    let e = crate::diagnose::diagnose(self, op, e, &ops);
+                    // Diagnosis pun dipagari: ia menjalankan op percobaan di kernel.
+                    let e = crate::guard::catch_op_panic(&format!("diagnosis op {}", op.id()), || {
+                        Ok(crate::diagnose::diagnose(self, op, e.clone(), &ops))
+                    })
+                    .unwrap_or(e);
                     failure = Some(e);
                     break;
                 }
@@ -1824,8 +1830,7 @@ impl SessionCore<'_> {
                         "'target' hanya berlaku untuk mode add/cut",
                     ));
                 }
-                if geos.len() == 1 {
-                    let geo = geos.pop().expect("len == 1");
+                if let Some(geo) = (geos.len() == 1).then(|| geos.pop()).flatten() {
                     out.detail = volume_detail(&geo);
                     let mut cmd = AddSolidCommand::new(label, geo).with_body_name(id);
                     if let Some(m) = material {
@@ -2041,7 +2046,8 @@ fn extrude_single_entity(
                 .styles
                 .get(eid)
                 .and_then(|s| s.stroke.clone())
-                .unwrap_or_else(|| ducad_sketch::Style::cad_default().stroke.unwrap());
+                .or_else(|| ducad_sketch::Style::cad_default().stroke)
+                .ok_or_else(|| OpError::invalid("Gaya garis bawaan tidak tersedia"))?;
             Some(stroke_style.width_mm)
         }
     } else {

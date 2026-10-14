@@ -577,8 +577,7 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
         return Err("Pilih dulu entitas sketch yang membentuk profil tertutup".to_string());
     }
 
-    if ids.len() == 1 {
-        let id = *ids.iter().next().unwrap();
+    if let (1, Some(&id)) = (ids.len(), ids.iter().next()) {
         if let Some(Entity::Circle { center, radius, .. }) = sketch.entities.get(id) {
             return Ok(Profile::Circle {
                 center: (center.x, center.y),
@@ -613,7 +612,7 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
         if let Some(Entity::Spline { points, exact, .. }) = sketch.entities.get(id) {
             if points.len() >= 3 {
                 let first = points[0];
-                let last = *points.last().unwrap();
+                let last = points.last().copied().unwrap_or(first);
                 if (first - last).length() < 0.05 {
                     let smooth_segs: Vec<ProfileSegment> =
                         convert_spline_to_profile_segments(points, exact.as_deref())
@@ -718,7 +717,9 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
     let mut ordered = vec![remaining.remove(0)];
 
     while !remaining.is_empty() {
-        let tail = ordered.last().unwrap().end;
+        let Some(tail) = ordered.last().map(|s| s.end) else {
+            break;
+        };
         if let Some(i) = remaining.iter().position(|s| (s.start - tail).length() < EPS) {
             ordered.push(remaining.remove(i));
             continue;
@@ -730,7 +731,9 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
             ordered.push(s);
             continue;
         }
-        let head = ordered.first().unwrap().start;
+        let Some(head) = ordered.first().map(|s| s.start) else {
+            break;
+        };
         if let Some(i) = remaining.iter().position(|s| (s.end - head).length() < EPS) {
             ordered.insert(0, remaining.remove(i));
             continue;
@@ -748,8 +751,12 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
         );
     }
 
-    let head = ordered.first().unwrap().start;
-    let tail = ordered.last().unwrap().end;
+    let (Some(head), Some(tail)) = (
+        ordered.first().map(|s| s.start),
+        ordered.last().map(|s| s.end),
+    ) else {
+        return Err("Rantai entitas terpilih kosong".to_string());
+    };
     if (tail - head).length() > EPS {
         return Err("Rantai entitas terpilih tidak tertutup (ujung terakhir tidak kembali ke titik awal)".to_string());
     }
@@ -761,8 +768,7 @@ fn build_simple_profile(sketch: &Sketch, ids: &HashSet<EntityId>) -> Result<Prof
 /// Untuk objek analitik mandiri (Circle, Ellipse), mengembalikan `Profile::Circle` / `Profile::Ellipse`.
 /// Untuk teks atau multi-loop poligon, mengembalikan loop poliline garis aman.
 pub(crate) fn convert_region_to_exact_profile(sketch: &Sketch, reg: &ducad_sketch::ClosedRegion) -> Profile {
-    if reg.entity_ids.len() == 1 {
-        let id = *reg.entity_ids.iter().next().unwrap();
+    if let (1, Some(&id)) = (reg.entity_ids.len(), reg.entity_ids.iter().next()) {
         if let Some(ent) = sketch.entities.get(id) {
             match ent {
                 Entity::Circle { center, radius, .. } => {
@@ -977,8 +983,10 @@ pub fn extrude_selection_with_holes_on_plane(
 
     let solid_name = if is_text { "Teks 3D".to_string() } else { "Solid".to_string() };
 
-    if letter_shapes.len() == 1 {
-        let primary_shape = letter_shapes.into_iter().next().unwrap();
+    if let Some(primary_shape) = (letter_shapes.len() == 1)
+        .then(|| letter_shapes.pop())
+        .flatten()
+    {
         let geo = BodyGeometry::from_shape(primary_shape);
         return Ok(vec![(solid_name, geo)]);
     }
@@ -1006,8 +1014,7 @@ pub fn build_path_from_selection_on_plane(
     }
 
     // Kasus khusus 1 Circle penuh sebagai jalur
-    if ids.len() == 1 {
-        let id = *ids.iter().next().unwrap();
+    if let (1, Some(&id)) = (ids.len(), ids.iter().next()) {
         if let Some(Entity::Circle { center, radius, .. }) = sketch.entities.get(id) {
             let (cx, cy, r) = (center.x, center.y, *radius);
             let p1 = plane.to_world_f64((cx + r, cy), 0.0);
@@ -1123,7 +1130,9 @@ pub fn build_path_from_selection_on_plane(
     let mut ordered = vec![remaining.remove(0)];
 
     while !remaining.is_empty() {
-        let tail = ordered.last().unwrap().end;
+        let Some(tail) = ordered.last().map(|s| s.end) else {
+            break;
+        };
         if let Some(i) = remaining.iter().position(|s| (s.start - tail).length() < EPS) {
             ordered.push(remaining.remove(i));
             continue;
@@ -1135,7 +1144,9 @@ pub fn build_path_from_selection_on_plane(
             ordered.push(s);
             continue;
         }
-        let head = ordered.first().unwrap().start;
+        let Some(head) = ordered.first().map(|s| s.start) else {
+            break;
+        };
         if let Some(i) = remaining.iter().position(|s| (s.end - head).length() < EPS) {
             ordered.insert(0, remaining.remove(i));
             continue;
@@ -1304,7 +1315,7 @@ pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
         } => {
             if let Some(path) = exact {
                 if !path.is_empty() && !points.is_empty() {
-                    let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                    let closed = points.last().is_some_and(|last| (points[0] - *last).length() < 1e-4);
                     return vec![Subpath {
                         start: points[0],
                         segs: path.to_vec(),
@@ -1313,7 +1324,7 @@ pub fn entity_to_subpaths(entity: &Entity) -> Vec<Subpath> {
                 }
             }
             if points.len() >= 2 {
-                let closed = (points[0] - *points.last().unwrap()).length() < 1e-4;
+                let closed = points.last().is_some_and(|last| (points[0] - *last).length() < 1e-4);
                 let segs = points[1..]
                     .iter()
                     .map(|&p| PathSeg::Line { end: p })

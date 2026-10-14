@@ -66,7 +66,8 @@ fn load_icon() -> IconData {
 }
 
 fn main() -> eframe::Result {
-    env_logger::init();
+    // Log ke stderr + ~/.ducad/logs/ducad.log, dan catat panik (ADR 0009).
+    ducad_app::logging::init();
 
     let icon = (!ducad_app::platform::is_mobile()).then(load_icon);
     eframe::run_native(

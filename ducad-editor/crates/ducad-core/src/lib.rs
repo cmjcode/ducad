@@ -2,6 +2,10 @@
 //!
 //! Crate ini bebas dependensi GUI/kernel supaya bisa diuji murni.
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 

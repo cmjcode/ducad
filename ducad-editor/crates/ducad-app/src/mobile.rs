@@ -191,12 +191,11 @@ impl DuCADApp {
         }
     }
 
-    /// Pulihkan dokumen dari autosave (tablet saja: di sana OS mematikan
-    /// aplikasi tanpa pemberitahuan).
+    /// Pulihkan dokumen dari autosave. Di tablet OS mematikan aplikasi tanpa
+    /// pemberitahuan, jadi berkas yang tersisa adalah hal biasa; di desktop
+    /// `on_exit` menghapusnya saat keluar normal, jadi berkas yang tersisa
+    /// berarti sesi sebelumnya crash (ADR 0009: pekerjaan tidak boleh hilang).
     pub fn restore_autosave(&mut self) {
-        if !crate::platform::is_mobile() {
-            return;
-        }
         let path = crate::platform::autosave_path();
         if !path.is_file() {
             return;
@@ -209,7 +208,11 @@ impl DuCADApp {
             .map(PathBuf::from)
             .filter(|p| p.is_file());
         self.current_file_path = origin;
-        self.file_status = Some(ducad_i18n::t!("file-restored-autosave"));
+        self.file_status = Some(if crate::platform::is_mobile() {
+            ducad_i18n::t!("file-restored-autosave")
+        } else {
+            ducad_i18n::t!("file-restored-autosave-desktop")
+        });
         self.mobile.restored_from_autosave = true;
     }
 

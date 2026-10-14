@@ -5,6 +5,10 @@
 //! ditulis) · 2 salah pakai argumen atau I/O · 3 ada check yang gagal (P7) ·
 //! 4 `build --release` pada paket yang belum disetujui (W5).
 
+// Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
+// kode produksi; modul tes dikecualikan.
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 mod cmd;
 
 use std::process::ExitCode;

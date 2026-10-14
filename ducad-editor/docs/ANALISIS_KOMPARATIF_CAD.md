@@ -265,3 +265,54 @@ graph TD
 
 ### Kesimpulan Strategis
 Melalui rencana penambahan fitur pada **Fase 9 hingga Fase 12**, DuCAD tidak hanya akan menyamai seluruh kenyamanan *direct modeling* Shapr3D dan ketelitian drafting 2D AutoCAD, melainkan melompat maju menjadi platform CAD modern yang mandiri, berkinerja tinggi, dan terbebas dari jebakan biaya langganan mahal (*subscription-free*).
+
+---
+
+## 5. Pembanding tambahan: CADCraft (storytold/cadcraft) — audit 2026-10-14
+
+CADCraft adalah reimplementasi clean-room AutoCAD dalam Rust murni (egui,
+tanpa kernel B-rep; ±183 ribu baris Rust, 12 crate + 3 app, lisensi MIT/
+Apache-2.0). Fokusnya drafting 2D (DXF/DWG, layer, dimensi, hatch, blok,
+layout/plot) dengan command line gaya AutoCAD dan kendali agent lewat MCP.
+Perbandingan ini dipakai sebagai dasar ADR 0009.
+
+### 5.1 Matriks
+
+| Aspek | CADCraft | DUCAD (`ducad-editor`) | Kesimpulan |
+|---|---|---|---|
+| Domain | Drafting 2D (AutoCAD parity) | Sketch 2D presisi + solid B-rep 3D (OCCT) + FEA + paket desain | Tidak saling menggantikan; CADCraft tak punya kernel 3D |
+| Model perintah | *Everything is a command*: satu `CommandSpec` (id, label, menu, alias, params JSON, prompt interaktif) dipakai menu, toolbar, command line, skrip, CLI, kanal kontrol, MCP | Oplog deklaratif (`Op` + skema JSON), selector geometri, diagnosis + fix terverifikasi, `replace_op`/`remove_op` replay; GUI = adapter di atas `compute` | Kontrak DUCAD lebih kuat untuk agent (deterministik, bisa di-diff/replay); CADCraft lebih kuat untuk interaksi manusia bergaya keyboard |
+| Kendali agent | MCP (headless atau bridged ke app via TCP `--control PORT`), `command_line`, `execute`, `inspect_drawing`, `render`, `screenshot`, `ui_click` | MCP 37 tool + 6 live (`--attach`, soket Unix), `propose_ops` dengan persetujuan pengguna, pagar `accept_proposal`/`approve_package` | DUCAD lebih ketat soal persetujuan; CADCraft lebih bebas (klik UI sintetis) |
+| **Never crash** | Aturan #1: tanpa `unwrap`/`expect`/`panic`, `unsafe_code = forbid`, `catch_unwind` di `Session::execute` dan tiap langkah command, tes `hostile_*_never_panic`, lint `deny(clippy::unwrap_used…)` di tiap crate | Sebelumnya hanya aturan tertulis; satu panik menjatuhkan GUI/MCP/CLI | **Diadopsi** (ADR 0009) |
+| Log & diagnosis crash | Logger berkas dengan rotasi, batas 16 MiB, `RUST_LOG`, panik tercatat | Hanya stderr | **Diadopsi** |
+| Autosave pemulihan | Semua platform (`.sv$`, lock file, Drawing Recovery) | Hanya tablet | **Diadopsi** untuk desktop (hapus saat keluar normal) |
+| Penjaga arsitektur | `cargo xtask layers` (tabel lapisan L0–L5, crate UI hanya ≥ L5), `xtask ci` satu gerbang | 3 tes ad-hoc per crate | **Diadopsi** sebagai tes tabel di `ducad-core/tests/layering.rs` |
+| Lisensi/aset | Clean-room ketat, `ATTRIBUTION.md` ditegakkan `xtask assets`, font di repo terpisah | `deny.toml` untuk lisensi crate; aset ikon dari `egui_icons` | Tidak perlu: DUCAD bukan klon dan tidak membawa aset pihak ketiga |
+| Dokumen kemajuan | `ROADMAP.md` + `gaps.md` + `*-parity.md` (angka paritas terukur) | `PLAN.md`, `STATUS_FASE_A_B.md`, rencana harness agent | Pola "angka paritas" tidak relevan tanpa produk acuan |
+| i18n | 13 bahasa, font CJK/Arab opsional, RTL/shaping | 2 bahasa (en/id), tes cakupan glyph | Belum perlu |
+| Aksesibilitas | Kursor sistem opsional, hormati *reduce motion* | Belum ada | Kandidat lanjutan (kecil) |
+| Web (WASM) | Ya (`trunk`) | Tidak (OCCT) | Tidak mungkin tanpa kernel WASM |
+
+### 5.2 Yang diterapkan di DUCAD (lihat ADR 0009)
+
+1. `ducad_engine::guard::catch_op_panic` + kode error `internal`, dipasang di
+   `SessionCore::run_with` (per op + diagnosis), `tooling::call_core_tool`/
+   `call_stateless_tool`, `ducad-mcp::tools::call_out`, `AgentBridge::agent_call`,
+   `DuCADApp::execute_model_command`.
+2. Lint `deny(clippy::unwrap_used, expect_used, panic, todo, unimplemented)` di
+   11 crate; 23 `unwrap`/`expect` produksi di engine dihilangkan.
+3. Tes input hostil: `ducad-engine/tests/hostile.rs` (mutasi daun JSON setiap op
+   fixture) dan `ducad-mcp` (`hostile_arguments_never_panic` untuk semua tool).
+4. `ducad-app/src/logging.rs`: `~/.ducad/logs/ducad.log` + rotasi + panic hook.
+5. Autosave pemulihan di desktop (`App::save` selalu menulis; `on_exit`
+   menghapus; start berikutnya memulihkan bila berkas tersisa).
+6. `ducad-core/tests/layering.rs`: tabel dependensi = peta crate `CLAUDE.md`.
+
+### 5.3 Pekerjaan lanjutan yang disarankan
+
+- Perluas lint anti-panik ke `ducad-io`, `ducad-render`, `ducad-ui`, lalu
+  `ducad-sketch`, `ducad-kernel`, `ducad-app` (pola yang sama; kernel butuh
+  audit `unwrap` pada hasil OCCT).
+- Tes hostil untuk `drawing`/`study`/sheet metal (fixture `valve_body`,
+  `sim_bracket`) bila waktunya masih wajar di CI.
+- Opsi "hormati *reduce motion*" untuk animasi panel Liquid Glass.

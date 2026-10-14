@@ -44,6 +44,11 @@ impl DuCADApp {
                 PaletteAction::ToggleReviewPanel,
             ),
             (
+                ducad_i18n::t!("palette-brief"),
+                String::new(),
+                PaletteAction::OpenBriefStudio,
+            ),
+            (
                 crate::mode::AppMode::Vector.label().to_string(),
                 "⌘+Alt+4".to_string(),
                 PaletteAction::SetAppMode(crate::mode::AppMode::Vector),
@@ -581,6 +586,7 @@ impl DuCADApp {
                     self.review.panel_open = false;
                 }
             }
+            PaletteAction::OpenBriefStudio => self.open_brief_studio(),
             PaletteAction::ToggleReviewPanel => {
                 self.review.panel_open = !self.review.panel_open;
                 // Ketiga panel menempati sudut yang sama.

@@ -114,7 +114,10 @@ impl VertexPool {
         let (cx, cy) = self.cell(p);
         for dx in -1..=1 {
             for dy in -1..=1 {
-                if let Some(list) = self.cells.get(&(cx + dx, cy + dy)) {
+                if let Some(list) = self
+                    .cells
+                    .get(&(cx.saturating_add(dx), cy.saturating_add(dy)))
+                {
                     for &i in list {
                         if (self.pts[i] - p).length() <= self.eps {
                             return i;

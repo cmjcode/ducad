@@ -133,7 +133,7 @@ pub fn to_value(v: impl serde::Serialize) -> OpResult<Value> {
 
 /// Jalankan tool tingkat-core. Nama di luar [`CORE_TOOLS`] → `InvalidParam`,
 /// supaya pemanggil bisa menanganinya sendiri lebih dulu.
-pub fn call_core_tool(
+fn call_core_tool_inner(
     core: &mut SessionCore,
     name: &str,
     a: Value,
@@ -1406,7 +1406,7 @@ fn import_pdf_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> O
 }
 
 /// Tool tanpa state: dijawab tanpa sesi terbuka.
-pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
+fn call_stateless_tool_inner(name: &str, a: Value) -> OpResult<ToolOut> {
     match name {
         "get_schema" => {
             #[derive(Deserialize)]
@@ -1728,6 +1728,7 @@ pub const ERROR_GUIDE: &str = "\
 | hole_outside_face | hole point outside the face | `at` is relative to the face centroid; or use at_world |
 | boolean_no_overlap | subtract/intersect without overlap | move a body (transform) |
 | kernel_failed | OCCT failed | reduce radius/thickness, change op order |
+| internal | DUCAD itself failed (a caught panic); the batch was rolled back | this is a bug, not a parameter error: try other values or another op order, and report the message with the op JSON |
 | empty_result | result volume ~0 | check position/direction (direction reverse for a cut from a face) |
 | constraint_unsolved / over_constrained | conflicting sketch constraints | remove one constraint |
 | oplog_stale | model changed outside the oplog | bodies adopted as base_bodies; replan from inspect |
@@ -2108,6 +2109,28 @@ fn halve_longest_array(v: &mut Value) -> bool {
     }
 }
 
+/// Jalankan tool tingkat-core di balik pagar panik (`guard`): panik di
+/// tool mana pun menjadi error `internal`, bukan proses yang mati. Nama di
+/// luar [`CORE_TOOLS`] → `InvalidParam`, supaya pemanggil bisa
+/// menanganinya sendiri lebih dulu.
+pub fn call_core_tool(
+    core: &mut SessionCore,
+    name: &str,
+    a: Value,
+    paths: &dyn ToolPaths,
+) -> OpResult<ToolOut> {
+    crate::guard::catch_op_panic(&format!("tool {name}"), || {
+        call_core_tool_inner(core, name, a, paths)
+    })
+}
+
+/// Tool tanpa state sesi (`get_schema`), di balik pagar panik yang sama.
+pub fn call_stateless_tool(name: &str, a: Value) -> OpResult<ToolOut> {
+    crate::guard::catch_op_panic(&format!("tool {name}"), || {
+        call_stateless_tool_inner(name, a)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2264,3 +2287,4 @@ mod tests {
         assert!(err.message.contains("'f1'"), "{}", err.message);
     }
 }
+

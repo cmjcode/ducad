@@ -429,8 +429,13 @@ impl DuCADApp {
             fingerprint: fp,
             ..DesignDoc::default()
         };
+        // Hasil studi dibawa: tiap hasil memuat tanda tangan geometri +
+        // material + setup, jadi yang sudah tidak cocok ditolak sendiri oleh
+        // `fresh_result`.
         self.agent_meta = ducad_engine::SessionMeta {
             design,
+            sim_results: std::mem::take(&mut self.agent_meta.sim_results),
+            analysis_results: std::mem::take(&mut self.agent_meta.analysis_results),
             ..Default::default()
         };
         if had_work {
@@ -494,8 +499,32 @@ impl DuCADApp {
         self.agent_call(method, params, id, reply)
     }
 
-    /// Jalankan satu metode jembatan. `None` = balasan ditunda.
+    /// Jalankan satu metode jembatan. `None` = balasan ditunda. Pagar panik
+    /// (ADR 0009): tool yang panik di UI thread menjadi error `internal`
+    /// untuk agent, bukan aplikasi yang tertutup dengan pekerjaan pengguna.
     fn agent_call(
+        &mut self,
+        method: &str,
+        params: Value,
+        id: u64,
+        reply: &Sender<Value>,
+    ) -> Option<ToolOut> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.agent_call_inner(method, params, id, reply)
+        })) {
+            Ok(out) => out,
+            Err(payload) => {
+                let msg = ducad_engine::guard::panic_message(&*payload);
+                log::error!("panik tertangkap di tool jembatan {method}: {msg}");
+                Some(ToolOut::err(ducad_engine::guard::internal_error(
+                    &format!("tool {method}"),
+                    &msg,
+                )))
+            }
+        }
+    }
+
+    fn agent_call_inner(
         &mut self,
         method: &str,
         params: Value,
