@@ -67,6 +67,22 @@ jobs:
             libxkbcommon-dev libwayland-dev \
             libgl1-mesa-dev
 
+      # ducad-editor/.cargo/config.toml mengunci generator ke VS 2022 (untuk
+      # mesin dev), padahal image runner bisa membawa VS versi lain. Env proses
+      # menang atas [env] Cargo, jadi pilih generator sesuai VS yang terpasang.
+      - name: Pilih generator CMake sesuai Visual Studio runner
+        if: runner.os == 'Windows'
+        working-directory: .
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $req = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+          $year = & $vswhere -latest -products * -requires $req -property catalog_productLineVersion
+          $major = (& $vswhere -latest -products * -requires $req -property installationVersion).Split('.')[0]
+          $gen = "Visual Studio $major $year"
+          Write-Host "Generator CMake: $gen"
+          "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Resolusi revisi OCCT
