@@ -14,11 +14,6 @@ services:
     restart: unless-stopped
     ports:
       - "${SERVER_PORT:-8430}:8430"
-    volumes:
-      # Kunci Sign in with Apple, read-only. Sesuaikan path sisi host, dan
-      # pastikan APPLE_PRIVATE_KEY_PATH di `.env` menunjuk ke path sisi
-      # container (yang kanan).
-      - ./secrets/AuthKey.p8:/run/secrets/AuthKey.p8:ro
     environment:
       - SERVER_PORT=8430
     # Seluruh konfigurasi lain dibaca dari `.env` (lihat env.example).
