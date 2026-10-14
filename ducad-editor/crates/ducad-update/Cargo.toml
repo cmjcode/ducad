@@ -1,0 +1,22 @@
+[package]
+name = "ducad-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# Pembaruan otomatis aplikasi desktop dari GitHub Releases. Sengaja tanpa
+# egui: logika rilis/aset/pemasangan bisa diuji sendiri, dan UI-nya ada di
+# `ducad-app/src/update_ui.rs`.
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+zip = { workspace = true }

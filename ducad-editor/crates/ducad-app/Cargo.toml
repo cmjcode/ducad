@@ -37,6 +37,7 @@ ducad-ui = { workspace = true }
 ducad-glass = { workspace = true }
 ducad-i18n = { workspace = true }
 ducad-cloud = { workspace = true }
+ducad-update = { workspace = true }
 ducad-sim = { workspace = true }
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-assist = { workspace = true }

@@ -131,3 +131,34 @@ fn ui_strings_have_glyphs() {
         report.join("\n")
     );
 }
+
+/// Codepoint ikon Material dilewati tes di atas, jadi ikon yang baru dipakai
+/// (belum pernah terbukti tampil di bagian lain UI) dicek di sini satu per
+/// satu: jendela "Pembaruan DUCAD" (`ducad-app/src/update_ui.rs`).
+#[test]
+fn update_window_icons_have_glyphs() {
+    use egui_icons::icons::*;
+
+    let ctx = egui::Context::default();
+    ducad_ui::theme::apply(&ctx, ducad_ui::theme::ThemeMode::Dark);
+    let mut warmup = ctx.run_ui(Default::default(), |_| {});
+    warmup.textures_delta.clear();
+
+    let font = egui::FontId::proportional(12.0);
+    let replacement = glyph_uv(&ctx, '\u{10FFFD}', &font);
+    let icons = [
+        ("ICON_SYSTEM_UPDATE", ICON_SYSTEM_UPDATE.codepoint),
+        ("ICON_RESTART_ALT", ICON_RESTART_ALT.codepoint),
+        ("ICON_OPEN_IN_NEW", ICON_OPEN_IN_NEW.codepoint),
+        ("ICON_DOWNLOAD", ICON_DOWNLOAD.codepoint),
+        ("ICON_CHECK_CIRCLE", ICON_CHECK_CIRCLE.codepoint),
+        ("ICON_WARNING", ICON_WARNING.codepoint),
+        ("ICON_ERROR", ICON_ERROR.codepoint),
+    ];
+    let missing: Vec<&str> = icons
+        .iter()
+        .filter(|(_, cp)| cp.chars().next().is_none_or(|c| glyph_uv(&ctx, c, &font) == replacement))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(missing.is_empty(), "ikon tanpa glyph (akan tampil kotak): {missing:?}");
+}

@@ -303,6 +303,8 @@ pub enum PaletteAction {
     ToggleInkSmartShape,
     /// Buka tutorial selamat datang dari awal.
     StartTutorial,
+    /// Periksa rilis baru di GitHub Releases (desktop).
+    CheckForUpdates,
     /// Extrude profil sketsa terpilih, atau tarik sisi solid terpilih.
     ExtrudeSelection,
 }
@@ -411,7 +413,8 @@ impl PaletteAction {
             | PaletteAction::ToggleStudioLighting
             | PaletteAction::SetTouchDesignMode(_)
             | PaletteAction::TogglePalmRejection
-            | PaletteAction::StartTutorial => PaletteGroup::View,
+            | PaletteAction::StartTutorial
+            | PaletteAction::CheckForUpdates => PaletteGroup::View,
         }
     }
 }

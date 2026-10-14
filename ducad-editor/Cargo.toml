@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.4.5"
+version = "0.5.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Yulius Jayuda <yulius.jayuda@gmail.com>"]
@@ -24,6 +24,7 @@ ducad-chat = { path = "crates/ducad-chat" }
 ducad-mcp = { path = "crates/ducad-mcp" }
 ducad-sim = { path = "crates/ducad-sim" }
 ducad-glass = { path = "crates/ducad-glass" }
+ducad-update = { path = "crates/ducad-update" }
 
 dirs = "6.0"
 fluent-bundle = "0.16"
@@ -104,6 +105,11 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # menambah salinan ketiganya (0.9 dan 0.10 sudah masuk lewat dependensi lain).
 getrandom = "0.3"
 hex = "0.4"
+# Pembaruan otomatis (`ducad-update`): checksum SHA-256 paket rilis, dan
+# ekstraksi .zip rilis Windows (Linux memakai `tar` sistem, macOS `hdiutil`).
+# Keduanya sudah ada di pohon dependensi lewat crate lain.
+sha2 = "0.10"
+zip = { version = "8", default-features = false, features = ["deflate"] }
 opencascade = "0.3"
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).

@@ -8,7 +8,12 @@ name: release
 # macOS SENGAJA tidak dibangun di sini: bundel .app harus ditandatangani
 # Developer ID dan dinotarisasi, dan itu dikerjakan di mesin lokal
 # (`make bundle-macos` + `./notarize.sh`, lalu unggah manual ke rilis yang
-# sama dengan `gh release upload vX.Y.Z dist/macos/…`).
+# sama dengan `gh release upload vX.Y.Z dist/macos/DUCAD-X.Y.Z.dmg{,.sha256}`).
+#
+# Pembaruan otomatis di aplikasi (`crates/ducad-update`) membaca rilis
+# `latest` dan mencocokkan NAMA aset: `ducad-<versi>-{windows,linux}-<arch>`
+# (.zip/.tar.gz, wajib berpasangan dengan `.sha256`) dan `*.dmg` untuk macOS.
+# Ubah pola nama di sini = ubah juga `select_package` di sana.
 
 on:
   push:

@@ -195,6 +195,13 @@ bundle-macos: create-dirs
 	else \
 		echo "ℹ️  Notarization skipped (set NOTARIZE=1, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID)"; \
 	fi
+	@# Checksum dibuat PALING AKHIR (stapling mengubah isi DMG). Updater di
+	@# aplikasi mewajibkan berkas ini bila DUCAD terpasang tidak bertanda
+	@# tangan Developer ID; unggah keduanya ke rilis GitHub.
+	@if [ -f "$(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg" ]; then \
+		cd "$(MACOS_DIR)" && shasum -a 256 "$(APP_NAME)-$(VERSION).dmg" > "$(APP_NAME)-$(VERSION).dmg.sha256"; \
+		echo "🔑 SHA-256: $(MACOS_DIR)/$(APP_NAME)-$(VERSION).dmg.sha256"; \
+	fi
 	@echo "✅ macOS bundle done."
 
 pkg-macos-store: bundle-macos

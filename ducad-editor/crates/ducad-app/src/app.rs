@@ -285,6 +285,8 @@ pub struct DuCADApp {
     pub onboarding: crate::onboarding_ui::OnboardingCtl,
     /// Keadaan tablet (autosave, picker asinkron, Pencil); lihat `mobile.rs`.
     pub mobile: crate::mobile::MobileState,
+    /// Pembaruan otomatis dari GitHub Releases (desktop); lihat `update_ui.rs`.
+    pub update: crate::update_ui::UpdateCtl,
     pub left_toolbar_content_sig: Option<bool>,
     pub inspector_content_sig: Option<InspectorContentSig>,
     pub prop_input_p1_x: String,
@@ -837,8 +839,20 @@ impl DuCADApp {
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::load(),
             mobile: Default::default(),
+            update: crate::update_ui::UpdateCtl::load(&cc.egui_ctx),
         };
         app.init_mobile(cc);
+        // Instans ini hasil "Mulai ulang" setelah pembaruan: dokumen sudah
+        // dipulihkan dari autosave di atas, jadi ganti pesan "sesi berhenti
+        // mendadak" dengan kabar pembaruan.
+        if let Some(version) = app.update.take_notice() {
+            app.file_status = Some(if app.mobile.restored_from_autosave {
+                ducad_i18n::t!("update-done-restored", version = version.as_str())
+            } else {
+                ducad_i18n::t!("update-done", version = version.as_str())
+            });
+        }
+        app.update.check_on_startup();
         Ok(app)
     }
 
@@ -1162,6 +1176,7 @@ impl DuCADApp {
             server_url: ducad_cloud::detect_server_url(),
             onboarding: crate::onboarding_ui::OnboardingCtl::disabled(),
             mobile: Default::default(),
+            update: crate::update_ui::UpdateCtl::disabled(),
         }
     }
 
@@ -1752,6 +1767,15 @@ impl eframe::App for DuCADApp {
     /// berkas yang tersisa saat start berikutnya pasti bekas crash.
     fn on_exit(&mut self) {
         self.bridge.shutdown();
+        // Mulai ulang setelah pembaruan: dokumen yang terbuka dibawa ke versi
+        // baru lewat autosave pemulihan, jadi autosave ditulis, bukan dihapus.
+        if let Some(installed) = self.update.take_restart() {
+            self.write_autosave();
+            if let Err(e) = installed.relaunch() {
+                log::warn!("Versi baru gagal dijalankan ulang: {e}");
+            }
+            return;
+        }
         if !crate::platform::is_mobile() {
             crate::mobile::clear_autosave();
         }
@@ -4794,6 +4818,9 @@ impl eframe::App for DuCADApp {
 
         // Render Alert Modal Peringatan jika ada operasi yang gagal
         ducad_ui::AlertModal::show(&ctx, &mut self.alert_modal);
+        if let Some(crate::update_ui::UpdateRequest::Restart) = self.update.frame(&ctx) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.error_card_frame(&ctx);
         self.assist_frame(&ctx);
         self.proposal_frame(&ctx);

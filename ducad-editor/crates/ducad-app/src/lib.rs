@@ -47,6 +47,7 @@ pub mod review_ui;
 pub mod sim_ui;
 pub mod types;
 pub mod ui;
+pub mod update_ui;
 pub mod vector;
 pub mod viewport;
 

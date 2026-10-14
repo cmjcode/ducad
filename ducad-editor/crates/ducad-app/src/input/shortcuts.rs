@@ -414,6 +414,13 @@ impl DuCADApp {
                 PaletteAction::StartTutorial,
             ),
         ];
+        if self.update.enabled() {
+            actions.push((
+                ducad_i18n::t!("palette-check-updates"),
+                String::new(),
+                PaletteAction::CheckForUpdates,
+            ));
+        }
         if !self.selected.is_empty() {
             actions.push((
                 format!("Hapus Seleksi ({} entitas)", self.selected.len()),
@@ -603,6 +610,7 @@ impl DuCADApp {
                 self.ink_state.smart_shape = !self.ink_state.smart_shape;
             }
             PaletteAction::StartTutorial => self.start_onboarding(),
+            PaletteAction::CheckForUpdates => self.update.check_now(),
             PaletteAction::ExtrudeSelection => self.extrude_from_palette(),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
