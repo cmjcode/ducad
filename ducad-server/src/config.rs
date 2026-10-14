@@ -118,8 +118,11 @@ fn read_apple_private_key() -> anyhow::Result<String> {
     }
 
     match env::var("APPLE_PRIVATE_KEY_PATH") {
-        Ok(path) if !path.trim().is_empty() => std::fs::read_to_string(path.trim())
-            .map_err(|e| anyhow::anyhow!("Tidak bisa membaca APPLE_PRIVATE_KEY_PATH: {e}")),
+        Ok(path) if !path.trim().is_empty() => {
+            let p = path.trim();
+            std::fs::read_to_string(p)
+                .map_err(|e| anyhow::anyhow!("Tidak bisa membaca APPLE_PRIVATE_KEY_PATH di '{p}': {e}"))
+        }
         _ => Ok(String::new()),
     }
 }
