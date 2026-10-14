@@ -29,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/src/ducad-server/target/release/ducad-server /app/ducad-server
+COPY .env /app/.env
+COPY AuthKey.p8 /app/AuthKey.p8
 
 ENV SERVER_PORT=8430
 EXPOSE 8430
