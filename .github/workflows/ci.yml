@@ -71,25 +71,50 @@ jobs:
         with:
           workspaces: ducad-editor
           key: quick
-      # `ducad-core`/`-sketch`/`-render`/`-i18n`/`-cloud` tidak bergantung
-      # pada `ducad-kernel`, jadi tidak butuh OCCT dan memberi sinyal gagal
+      # `ducad-core`/`-sketch`/`-render`/`-i18n`/`-cloud`/`-update` tidak
+      # bergantung pada `ducad-kernel`, jadi tidak butuh OCCT dan memberi sinyal gagal
       # dalam hitungan menit alih-alih belasan menit.
       - name: clippy
         run: >
           cargo clippy
           -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
+          -p ducad-update
           --all-targets -- -D warnings
       - name: test
         run: >
           cargo test
           -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
+          -p ducad-update
+
+  # Updater aplikasi punya jalur khusus per OS (`cfg(target_os)`: hdiutil/
+  # codesign/lipo di macOS, zip di Windows, tar di Linux). Lane penuh tidak
+  # menjalankan macOS, jadi crate ini (tanpa OCCT, < 2 menit) dicek di
+  # ketiga OS di sini.
+  update:
+    name: ducad-update (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ducad-editor
+          key: update-${{ matrix.os }}
+      - run: cargo clippy -p ducad-update --all-targets -- -D warnings
+      - run: cargo test -p ducad-update
 
   # ---------------------------------------------------------------------
   # Lane penuh: membangun OCCT (~10-15 menit tanpa cache).
   #
-  # Hanya Linux + Windows. macOS dibangun, ditandatangani, dan dinotarisasi
-  # di mesin lokal (`make bundle-macos` + `./notarize.sh`); jalankan
-  # `cargo test --workspace` di sana sebelum rilis.
+  # Hanya Linux + Windows. Paket macOS dibangun `release.yml` (ad-hoc) atau
+  # di mesin lokal untuk Developer ID (`make bundle-macos` + `./notarize.sh`);
+  # jalankan `cargo test --workspace` di macOS sebelum rilis.
   # ---------------------------------------------------------------------
   full:
     name: clippy + test (workspace, ${{ matrix.os }})

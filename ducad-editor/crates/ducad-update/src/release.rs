@@ -6,7 +6,9 @@
 //!
 //! - `ducad-<versi>-windows-x86_64.zip` (+ `.sha256`)
 //! - `ducad-<versi>-linux-x86_64.tar.gz` (+ `.sha256`)
-//! - `DUCAD-<versi>.dmg` (+ `.sha256` bila diunggah)
+//! - `DUCAD-<versi>-macos-arm64.dmg` (+ `.sha256`); dmg tanpa label
+//!   arsitektur (`DUCAD-<versi>.dmg`, unggahan manual lama) juga diterima,
+//!   arsitekturnya diperiksa `lipo` setelah di-mount
 //!
 //! Tarball `ducad-tools-*` (CLI/MCP headless untuk CI) tidak pernah dipilih.
 
@@ -239,6 +241,13 @@ mod tests {
             Some("ducad-0.4.6-windows-x86_64.zip")
         );
         assert_eq!(pick(Os::MacOs, "aarch64", CI_ASSETS).as_deref(), Some("DUCAD-0.4.6.dmg"));
+    }
+
+    #[test]
+    fn ci_mac_dmg_is_arch_labelled() {
+        let names = ["DUCAD-0.5.3-macos-arm64.dmg", "ducad-tools-macos-arm64.tar.gz"];
+        assert_eq!(pick(Os::MacOs, "aarch64", &names).as_deref(), Some("DUCAD-0.5.3-macos-arm64.dmg"));
+        assert_eq!(pick(Os::MacOs, "x86_64", &names), None);
     }
 
     #[test]

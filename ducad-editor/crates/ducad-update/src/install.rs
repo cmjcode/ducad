@@ -356,7 +356,9 @@ fn apply(inst: &Installation, dmg: &Path, work: &Path, checksum_verified: bool) 
     let backup = parent.join(hidden_name(bundle_name, OLD_SUFFIX));
     remove_path(&staged);
     run(Command::new("/usr/bin/ditto").arg(&new_app).arg(&staged))?;
-    if let Err(e) = verify_codesign(&staged, &inst.root, checksum_verified) {
+    if let Err(e) = verify_arch(&staged, &inst.exe_name)
+        .and_then(|()| verify_codesign(&staged, &inst.root, checksum_verified))
+    {
         remove_path(&staged);
         return Err(e);
     }
@@ -394,6 +396,24 @@ impl Drop for Detach {
             .args(["detach", "-quiet", "-force"])
             .arg(&self.0)
             .status();
+    }
+}
+
+/// Executable bundel baru harus memuat arsitektur mesin ini. `make
+/// bundle-macos` hanya membangun arsitektur host, dan dmg tanpa label
+/// arsitektur di nama berkasnya tidak bisa dibedakan sebelum di-mount.
+#[cfg(target_os = "macos")]
+fn verify_arch(app: &Path, exe_name: &OsStr) -> Result<(), UpdateError> {
+    let exe = app.join("Contents").join("MacOS").join(exe_name);
+    let out = Command::new("/usr/bin/lipo").arg("-archs").arg(&exe).output()?;
+    let want = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let archs = String::from_utf8_lossy(&out.stdout);
+    let found = archs.split_whitespace().any(|a| a == want || (want == "x86_64" && a == "x86_64h"));
+    if out.status.success() && found {
+        Ok(())
+    } else {
+        log::warn!("Bundel baru tanpa arsitektur {want} (lipo: {})", archs.trim());
+        Err(UpdateError::NoPackage)
     }
 }
 

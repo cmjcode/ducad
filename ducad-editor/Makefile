@@ -150,7 +150,9 @@ bundle-macos: create-dirs
 		codesign --force --timestamp --options runtime --entitlements macos/DUCAD-DeveloperID.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_IDENTITY" "$$(find $(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS -type f | head -n1)" 2>/dev/null || true; \
 		codesign --force --timestamp --options runtime --entitlements macos/DUCAD-DeveloperID.entitlements --keychain "$$HOME/Library/Keychains/login.keychain-db" -s "$$APPLE_IDENTITY" -v "$(MACOS_DIR)/$(APP_NAME).app"; \
 	else \
-		echo "⚠️  Skipping codesign (set APPLE_IDENTITY or APPLE_APP_IDENTITY)."; \
+		echo "⚠️  No APPLE_IDENTITY: ad-hoc signing (set APPLE_IDENTITY or APPLE_APP_IDENTITY for Developer ID)."; \
+		codesign --force --deep -s - "$(MACOS_DIR)/$(APP_NAME).app"; \
+		codesign --verify --deep --strict "$(MACOS_DIR)/$(APP_NAME).app"; \
 	fi
 	@if [ -n "$$APPLE_APP_IDENTITY" ] || [ -n "$$APPLE_IDENTITY" ]; then \
 		codesign --verify --deep --strict --verbose=2 "$(MACOS_DIR)/$(APP_NAME).app" 2>/dev/null || true; \

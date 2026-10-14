@@ -1,19 +1,27 @@
 name: release
 
-# Paket rilis Windows + Linux: aplikasi GUI (`ducad`) beserta binary headless
-# (`ducad-cli` + `ducad-mcp`). Kompilasi OCCT ±15 menit membuat
+# Paket rilis Windows + Linux + macOS: aplikasi GUI (`ducad`) beserta binary
+# headless (`ducad-cli` + `ducad-mcp`). Kompilasi OCCT ±15 menit membuat
 # `cargo install` di runner pengguna tidak layak, jadi tarball `ducad-tools-*`
 # juga dipakai templat `ducad-editor/docs/ci/ducad-build.yml`.
 #
-# macOS SENGAJA tidak dibangun di sini: bundel .app harus ditandatangani
-# Developer ID dan dinotarisasi, dan itu dikerjakan di mesin lokal
-# (`make bundle-macos` + `./notarize.sh`, lalu unggah manual ke rilis yang
-# sama dengan `gh release upload vX.Y.Z dist/macos/DUCAD-X.Y.Z.dmg{,.sha256}`).
-#
 # Pembaruan otomatis di aplikasi (`crates/ducad-update`) membaca rilis
-# `latest` dan mencocokkan NAMA aset: `ducad-<versi>-{windows,linux}-<arch>`
-# (.zip/.tar.gz, wajib berpasangan dengan `.sha256`) dan `*.dmg` untuk macOS.
-# Ubah pola nama di sini = ubah juga `select_package` di sana.
+# `latest` dan mencocokkan NAMA aset — ubah pola nama di sini = ubah juga
+# `select_package` di sana:
+#
+#   ducad-<versi>-linux-x86_64.tar.gz    + .sha256
+#   ducad-<versi>-windows-x86_64.zip     + .sha256
+#   DUCAD-<versi>-macos-arm64.dmg        + .sha256
+#
+# Rilis dibuat sebagai DRAFT, diisi, diverifikasi lengkap, baru diterbitkan:
+# updater tidak pernah melihat rilis `latest` yang asetnya belum lengkap.
+#
+# macOS di CI ditandatangani ad-hoc (tanpa Developer ID). Instalasi ad-hoc
+# memperbarui diri lewat checksum SHA-256. Untuk build Developer ID +
+# notarisasi, jalankan `make bundle-macos` + `./notarize.sh` di mesin lokal
+# lalu timpa asetnya:
+#   gh release upload vX.Y.Z dist/macos/DUCAD-X.Y.Z-macos-arm64.dmg{,.sha256} --clobber
+# (ganti nama dmg lokal ke pola di atas, dan buat ulang .sha256 sesudahnya).
 
 on:
   push:
@@ -34,8 +42,32 @@ defaults:
     shell: bash
 
 jobs:
+  # Satu sumber versi untuk semua job. Tag, `VERSION` (root), dan
+  # `[workspace.package].version` harus sama: versi di nama aset harus sama
+  # dengan `CARGO_PKG_VERSION` yang dibandingkan updater di aplikasi.
+  # `scripts/release-tag.sh` menjaga ketiganya selaras.
+  version:
+    name: cek versi
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: |
+          CARGO_VER=$(awk -F'"' '/^\[/ { s = ($0 == "[workspace.package]") } s && /^version[ \t]*=/ { print $2; exit }' Cargo.toml)
+          ROOT_VER=$(tr -d ' \r\n' < ../VERSION)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then WANT="${GITHUB_REF_NAME#v}"; else WANT="$CARGO_VER"; fi
+          echo "tag/ref: $WANT  Cargo.toml: $CARGO_VER  VERSION: $ROOT_VER"
+          if [ -z "$WANT" ] || [ "$CARGO_VER" != "$WANT" ] || [ "$ROOT_VER" != "$WANT" ]; then
+            echo "::error::Versi tidak selaras (tag=$WANT, Cargo.toml=$CARGO_VER, VERSION=$ROOT_VER). Pakai scripts/release-tag.sh."
+            exit 1
+          fi
+          echo "version=$WANT" >> "$GITHUB_OUTPUT"
+
   build:
     name: paket (${{ matrix.platform }})
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -112,17 +144,20 @@ jobs:
             --out "$RUNNER_TEMP/smoke" --date 2026-01-01
           test -s "$RUNNER_TEMP/smoke/plate.step"
 
+      # Isi paket = isi folder instalasi yang ditimpa updater: `ducad<exe>`
+      # wajib ada (updater menolak paket tanpa executable yang berjalan).
       - name: Paket
         env:
           PLATFORM: ${{ matrix.platform }}
           EXE: ${{ matrix.exe }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          VERSION=$(tr -d ' \r\n' < VERSION)
           APP="ducad-$VERSION-$PLATFORM"
           TOOLS="ducad-tools-$PLATFORM"
           mkdir -p "dist/ci/$APP" "dist/ci/$TOOLS"
           for b in ducad ducad-cli ducad-mcp; do cp "target/release/$b$EXE" "dist/ci/$APP/"; done
-          cp assets/icon.png VERSION "dist/ci/$APP/"
+          cp assets/icon.png "dist/ci/$APP/"
+          printf '%s\n' "$VERSION" > "dist/ci/$APP/VERSION"
           cp "target/release/ducad-cli$EXE" "target/release/ducad-mcp$EXE" "dist/ci/$TOOLS/"
           cd dist/ci
           if [ "$RUNNER_OS" = "Windows" ]; then
@@ -140,16 +175,89 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ducad-${{ matrix.platform }}
+          if-no-files-found: error
           path: |
             ducad-editor/dist/ci/*.zip
             ducad-editor/dist/ci/*.tar.gz
             ducad-editor/dist/ci/*.sha256
 
-  # Satu job yang membuat/mengisi rilis, supaya dua job matriks tidak
-  # berebut `gh release create`.
+  macos:
+    name: paket (macos-arm64)
+    needs: version
+    # Runner Apple Silicon: `make bundle-macos` membangun arsitektur host.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolusi revisi OCCT
+        id: occt
+        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache artefak build OCCT
+        uses: actions/cache@v4
+        with:
+          path: ducad-editor/target/release/build
+          key: occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
+          restore-keys: |
+            occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
+
+      - name: Pasang cargo-bundle
+        run: cargo install cargo-bundle --locked
+
+      - name: Build
+        run: cargo build --release -p ducad-app -p ducad-cli -p ducad-mcp
+
+      - name: Uji asap
+        run: |
+          ./target/release/ducad-cli build crates/ducad-engine/tests/fixtures/plate.ops.json \
+            --out "$RUNNER_TEMP/smoke" --date 2026-01-01
+          test -s "$RUNNER_TEMP/smoke/plate.step"
+
+      # Tanpa APPLE_IDENTITY, Makefile menandatangani bundel secara ad-hoc
+      # (segel bundel valid; `codesign --verify --strict` dijalankan di sana).
+      - name: Bundel .app + .dmg
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: make bundle-macos VERSION="$VERSION"
+
+      - name: Paket
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          APP="dist/macos/DUCAD.app"
+          lipo -archs "$APP/Contents/MacOS/ducad" | grep -qw arm64
+          test "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" = "$VERSION"
+          codesign --verify --deep --strict "$APP"
+
+          mkdir -p dist/ci
+          DMG="DUCAD-$VERSION-macos-arm64.dmg"
+          cp "dist/macos/DUCAD-$VERSION.dmg" "dist/ci/$DMG"
+          TOOLS="ducad-tools-macos-arm64"
+          mkdir -p "dist/ci/$TOOLS"
+          cp target/release/ducad-cli target/release/ducad-mcp "dist/ci/$TOOLS/"
+          cd dist/ci
+          tar -C "$TOOLS" -czf "$TOOLS.tar.gz" ducad-cli ducad-mcp
+          for f in "$DMG" "$TOOLS.tar.gz"; do shasum -a 256 "$f" > "$f.sha256"; done
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ducad-macos-arm64
+          if-no-files-found: error
+          path: |
+            ducad-editor/dist/ci/*.dmg
+            ducad-editor/dist/ci/*.tar.gz
+            ducad-editor/dist/ci/*.sha256
+
+  # Satu job yang membuat/mengisi rilis, supaya job build tidak berebut
+  # `gh release create`.
   publish:
     name: unggah aset rilis
-    needs: build
+    needs: [version, build, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     defaults:
@@ -161,10 +269,42 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Unggah
+      - name: Verifikasi aset
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        working-directory: dist
+        run: |
+          required=(
+            "ducad-$VERSION-linux-x86_64.tar.gz"
+            "ducad-$VERSION-windows-x86_64.zip"
+            "DUCAD-$VERSION-macos-arm64.dmg"
+            "ducad-tools-linux-x86_64.tar.gz"
+            "ducad-tools-windows-x86_64.zip"
+            "ducad-tools-macos-arm64.tar.gz"
+          )
+          for f in "${required[@]}"; do
+            test -s "$f" || { echo "::error::aset hilang: $f"; exit 1; }
+            test -s "$f.sha256" || { echo "::error::checksum hilang: $f.sha256"; exit 1; }
+          done
+          for s in *.sha256; do sha256sum -c "$s"; done
+          ls -l
+
+      - name: Terbitkan
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          TAG="$GITHUB_REF_NAME"
+          # Versi pra-rilis (`1.2.0-rc.1`) diterbitkan sebagai prerelease:
+          # `releases/latest` (yang dibaca updater) melewatinya.
+          case "$VERSION" in
+            *-*) FINAL=(--prerelease) ;;
+            *) FINAL=(--latest) ;;
+          esac
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --generate-notes --title "DUCAD $TAG"
+          fi
+          gh release upload "$TAG" dist/* --clobber
+          gh release edit "$TAG" --draft=false "${FINAL[@]}"
+          gh release view "$TAG" --json assets -q '.assets[].name'
