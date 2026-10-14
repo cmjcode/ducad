@@ -21,6 +21,8 @@ env:
 defaults:
   run:
     working-directory: ducad-editor
+    # Git Bash juga tersedia di runner Windows, jadi satu skrip untuk semua.
+    shell: bash
 
 jobs:
   # ---------------------------------------------------------------------
@@ -84,15 +86,25 @@ jobs:
 
   # ---------------------------------------------------------------------
   # Lane penuh: membangun OCCT (~10-15 menit tanpa cache).
+  #
+  # Hanya Linux + Windows. macOS dibangun, ditandatangani, dan dinotarisasi
+  # di mesin lokal (`make bundle-macos` + `./notarize.sh`); jalankan
+  # `cargo test --workspace` di sana sebelum rilis.
   # ---------------------------------------------------------------------
   full:
     name: clippy + test (workspace, ${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # Pohon sumber OCCT punya path yang melewati batas MAX_PATH Windows.
+      - name: Izinkan path panjang (Windows)
+        if: runner.os == 'Windows'
+        working-directory: .
+        run: git config --global core.longpaths true
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -136,9 +148,25 @@ jobs:
           cache-directories: ducad-editor/target/debug/build
 
       - name: clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Windows baru masuk CI: kode produksi sudah memagari API Unix
+      # (`agent_bridge`, `attach`) dengan `cfg(unix)`, tetapi sebagian tes
+      # masih memakai `std::os::unix` + skrip `/bin/sh` tanpa pagar. Jadi di
+      # Windows yang memblokir hanya clippy lib/bin; clippy semua target dan
+      # tes dicatat tanpa memblokir sampai tes-tes itu diberi `#[cfg(unix)]`.
+      - name: clippy (lib + bin)
+        if: runner.os == 'Windows'
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: clippy semua target (Windows, belum memblokir)
+        if: runner.os == 'Windows'
+        continue-on-error: true
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: test
+        continue-on-error: ${{ runner.os == 'Windows' }}
         run: cargo test --workspace
 
   # ---------------------------------------------------------------------
