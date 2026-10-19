@@ -11,14 +11,11 @@
 //! induk. Material di sisi pemirsa garis itu dibuang dengan SATU boolean
 //! (prisma pemotong hasil extrude poligon garis potong), lalu sisa solidnya
 //! diproyeksikan dengan HLR eksak searah panah. Face hasil potong diarsir.
-//! Seluruhnya berjalan di bawah satu guard `lock_kernel()` lewat helper
-//! `pub(crate)` — tidak ada fungsi publik kernel yang dipanggil di dalamnya.
 
 use glam::{vec2, vec3, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::hlr::{HlrLineKind, HlrSegment2D, ProjectedView, ProjectedViewKind};
-use crate::lock_kernel;
 use crate::mesh::KernelMesh;
 use crate::shape::KernelShape;
 
@@ -450,14 +447,13 @@ pub struct SectionExtractor;
 
 impl SectionExtractor {
     /// Ekstraksi satu tampak potongan dari bidang potong 3D (API lama,
-    /// dipertahankan untuk GUI). Mengambil `lock_kernel()`.
+    /// dipertahankan untuk GUI).
     pub fn extract_section_view(
         shapes: &[&KernelShape],
         meshes: &[&KernelMesh],
         config: &SectionPlaneConfig,
         model_bbox: ([f32; 3], [f32; 3]),
     ) -> (ProjectedView, CuttingLineIndicator) {
-        let _guard = lock_kernel();
         let req = SectionRequest::from_plane("A", config, model_bbox);
         match Self::extract_internal(shapes, meshes, &req, model_bbox, true) {
             Ok((section, _)) => (section.view, section.cutting_line),
@@ -472,15 +468,14 @@ impl SectionExtractor {
         }
     }
 
-    /// Ekstraksi satu tampak potongan dari [`SectionRequest`]. Mengambil
-    /// `lock_kernel()`. `Err` berisi pesan berawalan kode (`DRAWING_SECTION_…`).
+    /// Ekstraksi satu tampak potongan dari [`SectionRequest`].
+    /// `Err` berisi pesan berawalan kode (`DRAWING_SECTION_…`).
     pub fn extract(
         shapes: &[&KernelShape],
         meshes: &[&KernelMesh],
         request: &SectionRequest,
         model_bbox: ([f32; 3], [f32; 3]),
     ) -> Result<SectionView, String> {
-        let _guard = lock_kernel();
         Self::extract_internal(shapes, meshes, request, model_bbox, true).map(|(s, _)| s)
     }
 

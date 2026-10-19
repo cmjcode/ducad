@@ -1,7 +1,7 @@
 //! Tebal dinding minimum berbasis mesh (P7.3).
 //!
-//! Murni geometri atas [`KernelMesh`] — TANPA OCCT dan tanpa
-//! `lock_kernel`, sehingga aman dijalankan di thread latar (GUI menghitung
+//! Murni geometri atas [`KernelMesh`], sehingga aman
+//! dijalankan di thread latar (GUI menghitung
 //! check `min_wall` di belakang layar dengan `Arc<KernelMesh>`).
 //!
 //! Metode: untuk tiap sampel (centroid segitiga) tembakkan sinar dari sedikit

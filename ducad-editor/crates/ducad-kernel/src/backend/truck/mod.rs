@@ -40,15 +40,6 @@ pub mod hlr_exact {
     pub use super::hlr_mesh::extract_exact_hlr;
 }
 
-/// Pengganti `MutexGuard` backend OCCT: SolidCraft thread-safe, jadi
-/// "mengunci" kernel tidak melakukan apa-apa. Ada supaya kode bersama
-/// (`let _guard = lock_kernel();`) tetap sama untuk kedua backend.
-pub(crate) struct KernelGuard;
-
-/// No-op — lihat [`KernelGuard`].
-pub(crate) fn lock_kernel() -> KernelGuard {
-    KernelGuard
-}
 
 /// Jalankan `f` di bawah `solidcraft_kernel::guard` (panic di truck jadi
 /// `Err`) dan ubah galatnya ke `anyhow` dengan konteks operasi DUCAD.

@@ -195,7 +195,6 @@ pub fn check_clearance(
     b: &KernelShape,
     required_mm: f64,
 ) -> Result<ClearanceResult> {
-    let _guard = crate::lock_kernel();
     let Some((distance, pa, pb)) = crate::backend::query::min_distance(a, b) else {
         anyhow::bail!("perhitungan jarak minimum gagal untuk pasangan bodi ini");
     };

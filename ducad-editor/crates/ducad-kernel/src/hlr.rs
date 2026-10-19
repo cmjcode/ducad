@@ -7,7 +7,6 @@
 use glam::{vec2, vec3, Mat4, Vec2, Vec3};
 use std::collections::BTreeMap;
 
-use crate::lock_kernel;
 use crate::mesh::KernelMesh;
 use crate::projection::Projector;
 use crate::shape::KernelShape;
@@ -440,8 +439,6 @@ impl HlrExtractor {
         sketch_segments: &[(Vec3, Vec3)],
         options: &DrawingOptions,
     ) -> HlrDrawing {
-        let _guard = lock_kernel();
-
         let merged_mesh = KernelMesh::merge(meshes);
         let (mut bbox_min, mut bbox_max) = merged_mesh.bounding_box().unwrap_or(([f32::MAX; 3], [f32::MIN; 3]));
 
@@ -520,7 +517,6 @@ impl HlrExtractor {
     }
 
     /// Satu tampak: HLR eksak bila `exact` dan ada B-rep, selain itu HLR mesh.
-    /// Pemanggil sudah memegang `lock_kernel()`.
     pub(crate) fn extract_view_internal(
         shapes: &[&KernelShape],
         mesh: &KernelMesh,

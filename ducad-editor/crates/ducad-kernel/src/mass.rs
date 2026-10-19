@@ -2,7 +2,6 @@
 //! B-rep, plus momen/sumbu utama. Semua nilai di sini GEOMETRIS (densitas
 //! 1) — pemanggil mengalikan densitas material sendiri.
 
-use crate::lock_kernel;
 use crate::shape::KernelShape;
 
 /// Properti volume geometris sebuah solid (densitas 1).
@@ -34,10 +33,7 @@ impl KernelShape {
     /// Volume dinormalkan positif; solid berorientasi terbalik tetap
     /// menghasilkan tensor positif.
     pub fn mass_properties(&self) -> MassProperties {
-        let (volume, centroid, inertia) = {
-            let _guard = lock_kernel();
-            crate::backend::query::volume_properties(self)
-        };
+        let (volume, centroid, inertia) = crate::backend::query::volume_properties(self);
         let sign = if volume < 0.0 { -1.0 } else { 1.0 };
         MassProperties {
             volume_mm3: volume * sign,

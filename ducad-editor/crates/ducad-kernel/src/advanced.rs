@@ -1,8 +1,5 @@
 //! Operasi lanjutan untuk agent (P14): loft lintas bidang, mirror bidang,
 //! draft dan fillet variabel berbasis indeks topologi (tanpa ray picking).
-//!
-//! Aturan kernel: setiap fungsi publik memegang `lock_kernel()` dan tidak
-//! memanggil fungsi publik kernel lain selagi memegangnya.
 
 use glam::{dvec3, DVec3};
 

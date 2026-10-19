@@ -84,10 +84,6 @@ impl std::fmt::Display for Unsupported {
 
 impl std::error::Error for Unsupported {}
 
-/// Kunci serialisasi panggilan kernel: no-op (`KernelShape` `Send + Sync`);
-/// sisa API lama backend OCCT yang tidak thread-safe.
-pub(crate) use backend::lock_kernel;
-
 pub use diagnostics::capture_kernel_warnings;
 
 // Re-exports for public API compatibility
