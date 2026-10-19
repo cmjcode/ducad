@@ -295,6 +295,96 @@ fn arc3d(a: Vec3, m: Vec3, b: Vec3) -> Option<PathSeg> {
     })
 }
 
+/// Region 2D (di `plane`) yang dibatasi edge logis face planar `f`: rantai
+/// edge disusun jadi loop; loop dengan luas terbesar = batas luar, sisanya
+/// lubang. Edge lingkaran jadi busur eksak, edge lain polyline.
+pub(crate) fn face_region(
+    shape: &crate::shape::KernelShape,
+    f: usize,
+    plane: &Plane,
+) -> Result<Region2> {
+    let topo = shape.topology();
+    let Some(face) = topo.faces.get(f) else {
+        bail!("face {f} tidak ada");
+    };
+    let to2 = |p: DVec3| plane.to_local(Vec3::new(p.x, p.y, p.z));
+    // Potongan: (titik awal, titik akhir, segmen 2D searah awal→akhir).
+    let mut pieces: Vec<(Vec2, Vec2, Vec<Seg2>)> = Vec::new();
+    let mut loops: Vec<Vec<Seg2>> = Vec::new();
+    for &e in &face.edges {
+        let Some(edge) = topo.edges.get(e) else { continue };
+        let pts: Vec<Vec2> = edge.points.iter().map(|p| to2(*p)).collect();
+        if pts.len() < 2 {
+            continue;
+        }
+        let (a, b) = (pts[0], pts[pts.len() - 1]);
+        let closed = a.dist(b) < 1e-6;
+        if edge.kind == crate::topo::EdgeKind::Circle && pts.len() >= 3 {
+            let n = pts.len() - 1;
+            if closed {
+                if let Some(Seg2::Arc { center, radius, .. }) =
+                    arc_through(pts[0], pts[n / 3], pts[2 * n / 3])
+                {
+                    loops.push(Loop2::circle(center, radius).segs);
+                    continue;
+                }
+            } else if let Some(arc) = arc_through(a, to2(edge.mid()), b) {
+                pieces.push((a, b, vec![arc]));
+                continue;
+            }
+        }
+        let segs: Vec<Seg2> = pts
+            .windows(2)
+            .filter(|w| w[0].dist(w[1]) > 1e-9)
+            .map(|w| Seg2::Line { a: w[0], b: w[1] })
+            .collect();
+        if closed {
+            loops.push(segs);
+        } else {
+            pieces.push((a, b, segs));
+        }
+    }
+    // Rangkai potongan terbuka jadi loop.
+    const JOIN: f64 = 1e-4;
+    while let Some((start, mut end, mut segs)) = pieces.pop() {
+        loop {
+            if end.dist(start) < JOIN {
+                break;
+            }
+            let Some(k) = pieces
+                .iter()
+                .position(|(a, b, _)| a.dist(end) < JOIN || b.dist(end) < JOIN)
+            else {
+                bail!("batas face tidak membentuk loop tertutup");
+            };
+            let (a, b, more) = pieces.swap_remove(k);
+            if a.dist(end) < JOIN {
+                segs.extend(more);
+                end = b;
+            } else {
+                segs.extend(more.into_iter().rev().map(|s| s.reversed()));
+                end = a;
+            }
+        }
+        loops.push(close_gaps(segs));
+    }
+    let mut loops: Vec<Loop2> = loops.into_iter().map(|segs| Loop2 { segs }).collect();
+    if loops.is_empty() {
+        bail!("face tidak punya batas");
+    }
+    let outer_at = loops
+        .iter()
+        .enumerate()
+        .max_by(|x, y| x.1.signed_area().abs().total_cmp(&y.1.signed_area().abs()))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let outer = loops.swap_remove(outer_at);
+    Ok(Region2 {
+        outer,
+        holes: loops,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

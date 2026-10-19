@@ -44,6 +44,11 @@ pub struct DesignDoc {
     /// Sidik jari geometri setelah op terakhir (P1.7).
     #[serde(default)]
     pub fingerprint: String,
+    /// Ringkasan geometri per body saat disimpan (format v4). Sidik jari
+    /// hash tidak pernah cocok persis bila berkas dibuka backend kernel lain
+    /// (volume 6 desimal); ringkasan ini dibandingkan dengan toleransi.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub geometry: Vec<BodySummary>,
     /// Konfigurasi varian (P19). Kosong = hanya "Default".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub configurations: Vec<ducad_core::Configuration>,
@@ -111,6 +116,7 @@ impl Default for DesignDoc {
             checks: Vec::new(),
             base_bodies: Vec::new(),
             fingerprint: String::new(),
+            geometry: Vec::new(),
             configurations: Vec::new(),
             active_configuration: None,
             drawings: Vec::new(),
@@ -478,6 +484,57 @@ fn with_remove_hint(e: OpError, remove: &[String]) -> OpError {
 // ---------------------------------------------------------------------
 // Sidik jari (P1.7).
 // ---------------------------------------------------------------------
+
+/// Ringkasan geometri satu body (lihat [`DesignDoc::geometry`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BodySummary {
+    pub name: String,
+    /// mm³.
+    pub volume: f64,
+    /// Bbox mesh `[min, max]`, mm.
+    pub bbox: [[f64; 3]; 2],
+}
+
+/// Ringkasan geometri semua body, terurut nama.
+pub fn body_summary(model: &ModelDoc) -> Vec<BodySummary> {
+    let mut out: Vec<BodySummary> = model
+        .doc
+        .bodies
+        .iter()
+        .filter_map(|(id, b)| {
+            let geo = model.geometry.get(id)?;
+            let (lo, hi) = geo.mesh.bounding_box().unwrap_or(([0.0; 3], [0.0; 3]));
+            Some(BodySummary {
+                name: b.name.clone(),
+                volume: geo.shape.volume().abs(),
+                bbox: [lo.map(f64::from), hi.map(f64::from)],
+            })
+        })
+        .collect();
+    out.sort_by(|x, y| x.name.cmp(&y.name));
+    out
+}
+
+/// Dua ringkasan sama dalam toleransi lintas-backend: nama sama, volume
+/// relatif ±1e-3, bbox ±(0,05 mm + 1e-3·diagonal) — bbox mesh tampilan
+/// berbeda sampai satu toleransi chord antar-backend.
+pub fn same_geometry(a: &[BodySummary], b: &[BodySummary]) -> bool {
+    if a.len() != b.len() || a.is_empty() {
+        return false;
+    }
+    a.iter().all(|x| {
+        let Some(y) = b.iter().find(|y| y.name == x.name) else {
+            return false;
+        };
+        let diag = (0..3)
+            .map(|k| (x.bbox[1][k] - x.bbox[0][k]).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let tol = 0.05 + 1e-3 * diag;
+        (x.volume - y.volume).abs() <= 1e-3 * x.volume.max(y.volume).max(1e-9)
+            && (0..2).all(|i| (0..3).all(|k| (x.bbox[i][k] - y.bbox[i][k]).abs() <= tol))
+    })
+}
 
 /// FNV-1a 64-bit heksadesimal atas string kanonik: untuk tiap body terurut
 /// nama `name|volume(6 desimal)|bbox min/max (4 desimal)|jumlah face`.
@@ -2416,8 +2473,12 @@ impl Session {
     pub fn replay(design: DesignDoc) -> OpResult<Self> {
         let expected = design.fingerprint.clone();
         let n = design.oplog.len();
+        let recorded = design.geometry.clone();
         let (mut s, _) = Self::rebuild(design)?;
-        if !expected.is_empty() && s.meta.design.fingerprint != expected {
+        if !expected.is_empty()
+            && s.meta.design.fingerprint != expected
+            && !same_geometry(&recorded, &body_summary(&s.model))
+        {
             return Err(OpError::new(
                 OpErrorCode::OplogStale,
                 "oplog tidak lagi menghasilkan geometri yang tercatat (sidik jari berbeda)",
@@ -2527,6 +2588,26 @@ impl Session {
                     }
                 };
                 if adopted.meta.design.fingerprint != design.fingerprint {
+                    // Sidik jari memuat volume 6 desimal & bbox mesh: berkas
+                    // yang disimpan backend kernel LAIN (mis. OCCT → truck)
+                    // tidak pernah sama persis. Sebelum membuang oplog,
+                    // replay dan bandingkan body dengan toleransi.
+                    // Berkas lama tanpa ringkasan geometri: bandingkan replay
+                    // dengan body STEP berkas.
+                    let mut loose = design.clone();
+                    loose.fingerprint.clear();
+                    if let Ok(mut s) = Self::replay(loose) {
+                        if same_geometry(&body_summary(&adopted.model), &body_summary(&s.model)) {
+                            log::info!(
+                                "sidik jari {label} berbeda ({} != {}) tetapi replay oplog cocok dengan body berkas dalam toleransi — oplog dipakai",
+                                adopted.meta.design.fingerprint,
+                                design.fingerprint
+                            );
+                            s.meta.design.fingerprint = fingerprint(&s.model);
+                            s.adopt_uuids(&file.bodies);
+                            return Ok(s);
+                        }
+                    }
                     log::warn!(
                         "oplog basi: sidik jari berkas {} != design {}",
                         adopted.meta.design.fingerprint,
@@ -2631,6 +2712,7 @@ impl Session {
 
     fn save_as(&mut self, path: &std::path::Path, derived: bool) -> OpResult<()> {
         self.meta.design.fingerprint = fingerprint(&self.model);
+        self.meta.design.geometry = body_summary(&self.model);
         let design = serde_json::to_value(&self.meta.design)
             .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal serialisasi design: {e}")))?;
         let planes = [PlaneRef::Top, PlaneRef::Front, PlaneRef::Right];

@@ -34,6 +34,11 @@ Tidak diambil: `crates/{doc,engine,ui-egui,render,gpu,io,mcp,sketch,…}`,
    SolidCraft; dipakai lapisan topologi logis DUCAD
    (`ducad-kernel/src/backend/truck/topology.rs`).
 3. `crates/kernel/src/lib.rs` — satu baris `pub mod ducad_ext;` (bertanda `DUCAD:`).
+4. `crates/kernel/src/surfaces.rs` `nearest_face` (dipakai `copy_faces`,
+   `reverse_faces`, …) — perbaikan bug (PLAN_MIGRASI_TRUCK F3): jarak
+   titik–segitiga sungguhan, bukan jarak ke pusat/vertex segitiga. Titik di
+   tengah face atas kotak sebelumnya bisa memilih face samping yang berbagi
+   vertex sudut. Bertanda `DUCAD:`.
 
 Kode SolidCraft lain tidak diubah.
 
@@ -54,7 +59,7 @@ git clone https://github.com/tangency-labs/solidcraft /tmp/sc && git -C /tmp/sc 
 rsync -a --delete --exclude target /tmp/sc/crates/kernel/ vendors/solidcraft/crates/kernel/
 rsync -a --delete --exclude target /tmp/sc/crates/geom/   vendors/solidcraft/crates/geom/
 # vendor/truck-* dan matext4cgmath dengan cara yang sama, lalu:
-#  - pasang lagi perubahan DUCAD 1–3 di atas (Cargo.toml eksplisit, ducad_ext.rs, baris lib.rs)
+#  - pasang lagi perubahan DUCAD 1–4 di atas (Cargo.toml eksplisit, ducad_ext.rs, baris lib.rs)
 #  - samakan versi dependensi di Cargo.toml dengan workspace SolidCraft yang baru
 #  - perbarui SHA di tabel atas
 cargo test -p ducad-kernel --no-default-features --features kernel-truck

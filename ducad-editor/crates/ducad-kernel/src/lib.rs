@@ -43,8 +43,9 @@ pub mod thread;
 pub mod topo;
 pub mod vector_snapshot;
 
-// Tes lama berbasis OCCT (memakai `opencascade` langsung di beberapa tempat).
-#[cfg(all(test, feature = "kernel-occt", not(feature = "kernel-truck")))]
+// Tes modul kernel, dijalankan di KEDUA backend (yang menyentuh tipe OCCT
+// ada di submodul `tests::occt_only`).
+#[cfg(test)]
 mod tests;
 // Tes kontrak: hanya API publik, dijalankan di KEDUA backend.
 #[cfg(test)]
@@ -121,7 +122,7 @@ pub use projection::{
 pub use vector_snapshot::{
     extract_vector_snapshot, SnapshotBody, SnapshotCamera, SnapshotOptions, VectorSnapshot,
 };
-pub use hole::{apply_hole, create_hole_cutter};
+pub use hole::{apply_hole, apply_holes, create_hole_cutter};
 pub use interference::{
     check_clearance, compute_mesh_centroid, compute_mesh_volume, compute_pair_interference,
     detect_interference, BodyClash, ClearanceResult,

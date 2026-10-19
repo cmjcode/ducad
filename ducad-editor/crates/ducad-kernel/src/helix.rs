@@ -161,11 +161,9 @@ pub fn create_helix_path_segments(
     Ok(vec![PathSegment::Polyline(pts)])
 }
 
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 type ProfilePlaneBasis = ([f64; 3], [f64; 3], [f64; 3], [f64; 3]);
 
 /// Basis lokal bidang penampang (cross-section plane) di titik awal kurva helix (s=0).
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 pub(crate) fn compute_start_profile_plane(params: &HelixParams) -> Result<ProfilePlaneBasis> {
     let (origin, axis, u_dir, v_dir) = compute_basis(params);
     let sign = match params.handedness {

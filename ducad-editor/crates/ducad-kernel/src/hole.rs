@@ -169,3 +169,40 @@ pub fn apply_hole(
     let cutter = create_hole_cutter(spec, position, normal)?;
     subtract(target_shape, &cutter)
 }
+
+/// Lubang yang sama di beberapa `positions` (normal keluar sama).
+///
+/// Backend truck: semua pemotong digabung (tanpa boolean — mereka terpisah)
+/// lalu dikurangkan SEKALI; boolean truck pada body kompleks (blend fillet)
+/// mahal per panggilan (PLAN_MIGRASI_TRUCK R7). Pemotong yang saling
+/// bersentuhan, dan backend OCCT, memotong satu per satu.
+pub fn apply_holes(
+    target_shape: &KernelShape,
+    spec: &HoleSpec,
+    positions: &[(f64, f64, f64)],
+    normal: (f64, f64, f64),
+) -> Result<KernelShape> {
+    if positions.is_empty() {
+        bail!("posisi lubang tidak boleh kosong");
+    }
+    if cfg!(feature = "kernel-truck") && positions.len() > 1 {
+        let cutters = positions
+            .iter()
+            .map(|p| create_hole_cutter(spec, *p, normal))
+            .collect::<Result<Vec<_>>>()?;
+        let refs: Vec<&KernelShape> = cutters.iter().collect();
+        if let Ok(tool) = crate::shape::make_compound(&refs) {
+            let expected: f64 = cutters.iter().map(|c| c.volume()).sum();
+            // Gabungan sah hanya bila pemotong tidak saling tumpang tindih.
+            if (tool.volume() - expected).abs() <= 1e-6 * expected.max(1.0) {
+                return subtract(target_shape, &tool);
+            }
+        }
+    }
+    let mut current: Option<KernelShape> = None;
+    for p in positions {
+        let base = current.as_ref().unwrap_or(target_shape);
+        current = Some(apply_hole(base, spec, *p, normal)?);
+    }
+    current.ok_or_else(|| anyhow::anyhow!("posisi lubang tidak boleh kosong"))
+}

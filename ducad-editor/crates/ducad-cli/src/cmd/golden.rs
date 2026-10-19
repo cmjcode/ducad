@@ -95,6 +95,13 @@ struct CheckArgs {
     /// sketch,primitive,extrude,revolve,boolean,transform,scale,delete,set_material`).
     #[arg(long, value_delimiter = ',')]
     ops: Vec<String>,
+    /// Berkas perbedaan yang DIKETAHUI & diterima (gate F3
+    /// PLAN_MIGRASI_TRUCK): baris `sumber<TAB>awalan-perbedaan<TAB>alasan`,
+    /// `#` = komentar. Perbedaan yang diawali awalan itu tidak menggagalkan
+    /// contoh tersebut; perbedaan lain tetap gagal. Awalan `*skip*` =
+    /// contoh dilewati (dilaporkan "skip" beserta alasannya).
+    #[arg(long)]
+    known: Option<PathBuf>,
     /// Keluaran JSON.
     #[arg(long)]
     json: bool,
@@ -517,6 +524,40 @@ struct CaseReport {
     diffs: Vec<String>,
     /// Perbedaan yang hanya dicatat (mesh, contoh yang kini berhasil).
     notes: Vec<String>,
+    /// Perbedaan yang cocok dengan `--known` (beserta alasannya).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    known: Vec<String>,
+}
+
+/// Awalan khusus di berkas `--known`: contoh dilewati seluruhnya (mis.
+/// terlalu lambat untuk CI di backend ini), dilaporkan sebagai "skip".
+const SKIP: &str = "*skip*";
+
+/// Entri `--known`: (sumber, awalan perbedaan, alasan).
+fn read_known(path: &Path) -> Result<Vec<(String, String, String)>, CliError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| CliError::usage(format!("gagal membaca {}: {e}", path.display())))?;
+    let mut out = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim_end();
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let mut parts = line.splitn(3, '\t');
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some(src), Some(prefix), Some(reason)) => {
+                out.push((src.to_string(), prefix.to_string(), reason.to_string()))
+            }
+            _ => {
+                return Err(CliError::usage(format!(
+                    "{}:{}: format baris `sumber<TAB>awalan<TAB>alasan`",
+                    path.display(),
+                    i + 1
+                )))
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Serialize)]
@@ -608,7 +649,20 @@ fn compare(want: &Golden, got: &Golden, a: &CheckArgs) -> (Vec<String>, Vec<Stri
             .flat_map(|i| (0..3).map(move |k| (i, k)))
             .map(|(i, k)| (w.bbox[i][k] - g.bbox[i][k]).abs())
             .fold(0.0, f64::max);
-        if db > a.bbox_tol {
+        // Bbox golden OCCT diambil dari mesh tampilan, yang di lingkaran
+        // jatuh DI DALAM kotak sejati sampai satu toleransi chord
+        // (`clamp(diag·3e-4, 0.005, 0.05)`); backend lain melaporkan kotak
+        // geometris. Selisih itu bukan regresi.
+        let chord = if want.backend == "occt" && got.backend != "occt" {
+            let diag = (0..3)
+                .map(|k| (w.bbox[1][k] - w.bbox[0][k]).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            (diag * 3e-4).clamp(0.005, 0.05)
+        } else {
+            0.0
+        };
+        if db > a.bbox_tol + chord {
             diffs.push(format!(
                 "{n}: bbox {:?} → {:?} (Δ {db:.4} mm)",
                 w.bbox, g.bbox
@@ -664,6 +718,10 @@ fn check(a: CheckArgs) -> CliResult {
             a.against.display()
         )));
     }
+    let known_list = match &a.known {
+        Some(p) => read_known(p)?,
+        None => Vec::new(),
+    };
     let mut cases = Vec::new();
     let mut skipped = Vec::new();
     let mut expected_files = std::collections::BTreeSet::new();
@@ -672,6 +730,13 @@ fn check(a: CheckArgs) -> CliResult {
         expected_files.insert(file.clone());
         let path = a.against.join(&file);
         let source = src.to_string_lossy().replace('\\', "/");
+        if let Some((_, _, why)) = known_list
+            .iter()
+            .find(|(s, prefix, _)| *s == source && prefix == SKIP)
+        {
+            skipped.push(format!("{source} ({why})"));
+            continue;
+        }
         if !a.ops.is_empty() {
             let outside: Vec<String> = op_kinds(src)?
                 .into_iter()
@@ -690,17 +755,50 @@ fn check(a: CheckArgs) -> CliResult {
                     "golden {file} belum ada (jalankan `ducad-cli golden capture`)"
                 )],
                 notes: Vec::new(),
+                known: Vec::new(),
             });
             continue;
         }
         let want = read_golden(&path)?;
+        let started = std::time::Instant::now();
         let (got, _) = capture_one(src)?;
         let (diffs, notes) = compare(&want, &got, &a);
+        // Progres ke stderr: korpus lambat di backend baru tetap terpantau.
+        eprintln!(
+            "{:>9.1} ms  {}  {}",
+            started.elapsed().as_secs_f64() * 1e3,
+            source,
+            if diffs.is_empty() { "ok" } else { "BEDA" }
+        );
+        let (known, diffs): (Vec<String>, Vec<String>) = {
+            let mut k = Vec::new();
+            let mut d = Vec::new();
+            for diff in diffs {
+                match known_list
+                    .iter()
+                    .find(|(src, prefix, _)| *src == source && diff.starts_with(prefix.as_str()))
+                {
+                    Some((_, _, why)) => k.push(format!("{diff} — {why}")),
+                    None => d.push(diff),
+                }
+            }
+            (k, d)
+        };
+        let mut notes = notes;
+        for (src, prefix, _) in known_list
+            .iter()
+            .filter(|(src, prefix, _)| *src == source && prefix != SKIP)
+        {
+            if !known.iter().any(|k| k.starts_with(prefix.as_str())) {
+                notes.push(format!("known `{prefix}` tidak terjadi lagi — hapus dari {src} di daftar --known"));
+            }
+        }
         cases.push(CaseReport {
             source,
             ok: diffs.is_empty(),
             diffs,
             notes,
+            known,
         });
     }
     // Golden yang sumbernya sudah hilang dari korpus.
@@ -717,6 +815,7 @@ fn check(a: CheckArgs) -> CliResult {
                 ok: false,
                 diffs: vec![format!("golden {name} tidak punya sumber di korpus")],
                 notes: Vec::new(),
+                known: Vec::new(),
             });
         }
     }
@@ -733,9 +832,17 @@ fn check(a: CheckArgs) -> CliResult {
         print_json(&report)?;
     } else {
         for c in &report.cases {
-            println!("{} {}", if c.ok { "ok  " } else { "BEDA" }, c.source);
+            let tag = match (c.ok, c.known.is_empty()) {
+                (true, true) => "ok  ",
+                (true, false) => "ok* ",
+                _ => "BEDA",
+            };
+            println!("{tag} {}", c.source);
             for d in &c.diffs {
                 println!("      - {d}");
+            }
+            for k in &c.known {
+                println!("      * {k}");
             }
             for n in &c.notes {
                 println!("      · {n}");
@@ -827,6 +934,7 @@ mod tests {
             bbox_tol: 0.01,
             strict_mesh,
             ops: Vec::new(),
+            known: None,
             json: false,
         }
     }

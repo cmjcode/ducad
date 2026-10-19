@@ -37,9 +37,13 @@ const DISPLAY_ANGLE_RAD: f64 = 0.10;
 
 /// Face logis: satu atau beberapa face SolidCraft pada permukaan yang sama.
 pub(crate) struct LFace {
-    /// Indeks face SolidCraft (urutan `face_iter`). Dipakai op by-index F3.
+    /// Indeks face SolidCraft (urutan `face_iter`).
     #[allow(dead_code)]
     pub members: Vec<usize>,
+    /// Satu titik DI DALAM tiap face anggota (urutan `members`), tepat di
+    /// permukaannya: op SolidCraft (shell, draft, offset) memilih face lewat
+    /// titik, bukan indeks.
+    pub member_points: Vec<DVec3>,
     pub kind: SurfaceKind,
     pub surface: Option<FaceSurface>,
     pub area: f64,
@@ -51,9 +55,11 @@ pub(crate) struct LFace {
 /// Edge logis: rantai satu atau beberapa edge SolidCraft.
 pub(crate) struct LEdge {
     /// Indeks edge SolidCraft (urutan `Body::edges`), urut sepanjang rantai.
-    /// Dipakai op by-index F3 (fillet/chamfer memilih edge lewat titiknya).
     #[allow(dead_code)]
     pub members: Vec<usize>,
+    /// Titik tengah tiap edge anggota (urutan `members`): fillet/chamfer
+    /// SolidCraft memilih edge lewat titik terdekat.
+    pub member_mids: Vec<DVec3>,
     /// Polyline dari awal ke akhir rantai.
     pub points: Vec<DVec3>,
     pub kind: EdgeKind,
@@ -301,6 +307,61 @@ impl Topology {
                 }
             }
         }
+        // Face non-analitik (B-spline) yang berbagi ≥ 2 edge dan menyambung
+        // mulus di semua edge itu = satu permukaan yang dipotong jadi cincin
+        // (mis. tabung pegas: satu dinding per busur profil lingkaran).
+        // OCCT menyimpannya sebagai satu face + seam.
+        let mut shared: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        for (e, faces) in edge_faces.iter().enumerate() {
+            if let [a, b] = faces[..] {
+                if a != b
+                    && surfaces.get(a).is_some_and(Option::is_none)
+                    && surfaces.get(b).is_some_and(Option::is_none)
+                {
+                    shared.entry((a.min(b), a.max(b))).or_default().push(e);
+                }
+            }
+        }
+        if !shared.is_empty() {
+            let mut tris_of_face: Vec<Vec<usize>> = vec![Vec::new(); nf];
+            for (t, f) in mesh.tri_face.iter().enumerate() {
+                if let Some(list) = tris_of_face.get_mut(*f as usize) {
+                    list.push(t);
+                }
+            }
+            let normal_near = |f: usize, p: DVec3| -> Option<DVec3> {
+                tris_of_face
+                    .get(f)?
+                    .iter()
+                    .filter_map(|&t| {
+                        let [a, b, c] = mesh.tri(&mesh.triangles[t])?;
+                        let (a, b, c) = (to_dv(a), to_dv(b), to_dv(c));
+                        let n = (b - a).cross(c - a).normalize_or_zero();
+                        (n != DVec3::ZERO).then(|| (((a + b + c) / 3.0 - p).length_squared(), n))
+                    })
+                    .min_by(|x, y| x.0.total_cmp(&y.0))
+                    .map(|(_, n)| n)
+            };
+            // Toleransi sudut: dua segitiga tampilan di kiri-kanan edge mulus
+            // berbeda sampai ~2× sudut tesselasi (0,1 rad).
+            let smooth_cos = 0.3_f64.cos();
+            for ((a, b), es) in &shared {
+                if es.len() < 2 {
+                    continue;
+                }
+                let smooth = es.iter().all(|&e| {
+                    let pts: Vec<DVec3> = mesh.edges.get(e).map(|p| p.iter().map(|q| to_dv(*q)).collect()).unwrap_or_default();
+                    if pts.len() < 2 {
+                        return false;
+                    }
+                    let m = polyline_mid(&pts);
+                    matches!((normal_near(*a, m), normal_near(*b, m)), (Some(na), Some(nb)) if na.dot(nb) > smooth_cos)
+                });
+                if smooth {
+                    fuf.union(*a, *b);
+                }
+            }
+        }
         let mut group_of_root: HashMap<usize, usize> = HashMap::new();
         let mut group_of = vec![0usize; nf];
         let mut groups: Vec<Vec<usize>> = Vec::new();
@@ -336,7 +397,8 @@ impl Topology {
         for (g, inner) in internal.iter().enumerate() {
             let members = &groups[g];
             let ring = members.len() >= 2 && inner.len() >= members.len();
-            if ring && periodic(members.first().and_then(|&f| surfaces[f].as_ref())) {
+            let first = members.first().and_then(|&f| surfaces[f].as_ref());
+            if ring && (first.is_none() || periodic(first)) {
                 if let Some(&e) = inner.first() {
                     keep[e] = true;
                 }
@@ -372,6 +434,13 @@ impl Topology {
             })
             .collect();
         let straight: Vec<Option<DVec3>> = polylines.iter().map(|p| straight_dir(p, lin)).collect();
+        // Edge yang tidak dikenali SolidCraft sebagai lingkaran (B-spline
+        // aproksimasi lingkaran, mis. tutup ujung pegas): lingkaran lewat
+        // tiga titiknya, dipakai HANYA untuk menyambung potongan.
+        let fit_lin = (size * 1e-5).max(lin);
+        let fitted: Vec<Option<Circle>> = (0..ne)
+            .map(|e| circles[e].or_else(|| circle_through(&polylines[e], fit_lin)))
+            .collect();
 
         // --- 4. Sambung potongan kurva yang sama di vertex berderajat dua. ---
         let q = move |p: DVec3| -> Key {
@@ -383,7 +452,11 @@ impl Topology {
         };
         let closed_edge = |e: usize| (to_dv(ends[e].0) - to_dv(ends[e].1)).length() < lin;
         let mut incident: HashMap<Key, Vec<usize>> = HashMap::new();
-        for e in (0..ne).filter(|&e| keep[e] && !closed_edge(e)) {
+        // Seam (edge yang disisakan di dalam satu face logis) tidak dihitung:
+        // seam kerucut chamfer boleh berujung di sambungan dua busur satu
+        // lingkaran — OCCT tetap punya satu edge lingkaran di sana.
+        let seam = |e: usize| lfaces_of(e).len() == 1 && edge_faces[e].len() >= 2;
+        for e in (0..ne).filter(|&e| keep[e] && !closed_edge(e) && !seam(e)) {
             incident.entry(q(to_dv(ends[e].0))).or_default().push(e);
             incident.entry(q(to_dv(ends[e].1))).or_default().push(e);
         }
@@ -393,8 +466,10 @@ impl Topology {
                 if a == b || lfaces_of(a) != lfaces_of(b) {
                     continue;
                 }
-                let same_curve = match (&circles[a], &circles[b]) {
-                    (Some(ca), Some(cb)) => same_circle(ca, cb, lin),
+                let same_curve = match (&fitted[a], &fitted[b]) {
+                    (Some(ca), Some(cb)) if straight[a].is_none() && straight[b].is_none() => {
+                        same_circle(ca, cb, fit_lin)
+                    }
                     _ => matches!(
                         (straight[a], straight[b]),
                         (Some(da), Some(db)) if da.dot(db).abs() > 1.0 - 1e-9
@@ -437,9 +512,9 @@ impl Topology {
             let (members, mut points) = order_chain(chain, &polylines, &q, &shared);
             let chain_circles = members
                 .iter()
-                .map(|&e| circles[e])
+                .map(|&e| fitted[e])
                 .collect::<Option<Vec<Circle>>>()
-                .filter(|cs| cs.windows(2).all(|w| same_circle(&w[0], &w[1], lin)));
+                .filter(|cs| cs.windows(2).all(|w| same_circle(&w[0], &w[1], fit_lin)));
             let (kind, radius) = match chain_circles {
                 Some(cs) if !cs.is_empty() => (EdgeKind::Circle, Some(cs[0].2)),
                 _ if straight_dir(&points, lin).is_some() => (EdgeKind::Line, None),
@@ -456,6 +531,7 @@ impl Topology {
             }
             edges.push(LEdge {
                 faces: members.first().map(|&e| lfaces_of(e)).unwrap_or_default(),
+                member_mids: members.iter().map(|&e| polyline_mid(&polylines[e])).collect(),
                 members,
                 points,
                 kind,
@@ -500,6 +576,27 @@ impl Topology {
         if km.normals.len() != km.positions.len() {
             km.normals = vec![[0.0, 0.0, 1.0]; km.positions.len()];
         }
+        // Titik wakil tiap face SolidCraft: pusat segitiga terbesarnya,
+        // diproyeksikan ke permukaan analitiknya.
+        let mut best_tri: Vec<Option<(f64, DVec3)>> = vec![None; nf];
+        for (t, tri) in mesh.triangles.iter().enumerate() {
+            let Some(&f) = mesh.tri_face.get(t) else { continue };
+            let Some([a, b, c]) = mesh.tri(tri) else { continue };
+            let (a, b, c) = (to_dv(a), to_dv(b), to_dv(c));
+            let ar = (b - a).cross(c - a).length();
+            if let Some(slot) = best_tri.get_mut(f as usize) {
+                if slot.is_none_or(|(best, _)| ar > best) {
+                    *slot = Some((ar, (a + b + c) / 3.0));
+                }
+            }
+        }
+        let member_point = |f: usize| -> Option<DVec3> {
+            let (_, p) = best_tri.get(f).copied().flatten()?;
+            Some(match surfaces.get(f).copied().flatten() {
+                Some(s) => project_to_surface(&s, p),
+                None => p,
+            })
+        };
         let mut faces: Vec<LFace> = Vec::with_capacity(ng);
         for (g, members) in groups.iter().enumerate() {
             let start = km.indices.len() as u32;
@@ -545,6 +642,7 @@ impl Topology {
                 }
             }
             faces.push(LFace {
+                member_points: members.iter().filter_map(|&f| member_point(f)).collect(),
                 members: members.clone(),
                 kind,
                 surface,
@@ -609,20 +707,162 @@ impl Topology {
     }
 
     /// Loop batas terluar face `f` (port `chain_face_boundary_points` OCCT).
+    ///
+    /// Face periodik dengan satu seam (sisi silinder/kerucut penuh): seperti
+    /// wire OCCT, loop berjalan lingkaran A → seam → lingkaran B → seam
+    /// balik, jadi kedua ujung face ikut (rentang aksial lubang terukur).
     pub fn face_boundary(&self, f: usize) -> Vec<DVec3> {
-        let lists: Vec<Vec<DVec3>> = self
-            .faces
-            .get(f)
-            .map(|lf| {
-                lf.edges
-                    .iter()
-                    .filter_map(|&e| self.edges.get(e))
-                    .map(|e| e.points.clone())
-                    .filter(|p| p.len() >= 2)
-                    .collect()
-            })
-            .unwrap_or_default();
-        chain_outer_loop(lists)
+        let Some(lf) = self.faces.get(f) else {
+            return Vec::new();
+        };
+        let (seams, rest): (Vec<usize>, Vec<usize>) = lf
+            .edges
+            .iter()
+            .copied()
+            .filter(|&e| self.edges.get(e).is_some_and(|x| x.points.len() >= 2))
+            .partition(|&e| self.edges[e].faces.len() == 1);
+        let lists: Vec<Vec<DVec3>> = rest.iter().map(|&e| self.edges[e].points.clone()).collect();
+        if let [seam] = seams[..] {
+            let s = &self.edges[seam].points;
+            let (s0, s1) = (s[0], s[s.len() - 1]);
+            let loops = chain_loops(lists.clone());
+            let near = |q: &DVec3, p: DVec3| (*q - p).length_squared() < 1e-8;
+            // Loop yang lewat `p`, diputar supaya mulai dan berakhir di `p`.
+            let starting_at = |p: DVec3| -> Option<Vec<DVec3>> {
+                let lp = loops.iter().find(|l| l.iter().any(|q| near(q, p)))?;
+                let k = lp.iter().position(|q| near(q, p))?;
+                let mut out: Vec<DVec3> = lp[k..].iter().chain(lp[..k].iter()).copied().collect();
+                out.push(p);
+                Some(out)
+            };
+            if (s0 - s1).length_squared() > 1e-8 {
+                if let (Some(mut out), Some(b)) = (starting_at(s0), starting_at(s1)) {
+                    out.extend(s.iter().skip(1).copied());
+                    out.extend(b.into_iter().rev().skip(1));
+                    // Seam balik ke s0 (tanpa mengulang titik awal).
+                    out.extend(s.iter().rev().skip(1).take(s.len().saturating_sub(2)).copied());
+                    return out;
+                }
+            }
+        }
+        let mut all = lists;
+        all.extend(seams.iter().map(|&e| self.edges[e].points.clone()));
+        chain_outer_loop(all)
+    }
+}
+
+/// Lingkaran lewat awal, tengah, dan akhir polyline — `None` bila titik
+/// lain menyimpang lebih dari `tol` (bukan lingkaran) atau segaris.
+fn circle_through(points: &[DVec3], tol: f64) -> Option<Circle> {
+    if points.len() < 3 {
+        return None;
+    }
+    let (a, m, b) = (points[0], polyline_mid(points), points[points.len() - 1]);
+    // Busur tertutup: pakai titik sepertiga dan dua pertiga.
+    let (a, m, b) = if (a - b).length() < tol {
+        let n = points.len() - 1;
+        (points[0], points[n / 3], points[2 * n / 3])
+    } else {
+        (a, m, b)
+    };
+    let (u, v) = (m - a, b - a);
+    let w = u.cross(v);
+    let w2 = w.length_squared();
+    if w2 < 1e-24 {
+        return None;
+    }
+    let center = a + (w.cross(u) * v.length_squared() + v.cross(w) * u.length_squared()) / (2.0 * w2);
+    let radius = (a - center).length();
+    let axis = w.normalize();
+    let on = points.iter().all(|p| {
+        let r = *p - center;
+        (r.length() - radius).abs() < tol && r.dot(axis).abs() < tol
+    });
+    on.then_some((center, axis, radius))
+}
+
+/// Titik di setengah panjang polyline.
+fn polyline_mid(points: &[DVec3]) -> DVec3 {
+    let total: f64 = points.windows(2).map(|w| (w[1] - w[0]).length()).sum();
+    let half = total * 0.5;
+    let mut acc = 0.0;
+    for w in points.windows(2) {
+        let seg = (w[1] - w[0]).length();
+        if acc + seg >= half && seg > 0.0 {
+            return w[0] + (w[1] - w[0]) * ((half - acc) / seg);
+        }
+        acc += seg;
+    }
+    points.last().copied().unwrap_or(DVec3::ZERO)
+}
+
+/// Proyeksi titik dekat-permukaan (pusat segitiga mesh) ke permukaan
+/// analitik face, supaya titik wakil face benar-benar terletak di face.
+fn project_to_surface(s: &FaceSurface, p: DVec3) -> DVec3 {
+    let radial = |o: DVec3, axis: DVec3| {
+        let r = p - o;
+        let along = axis * r.dot(axis);
+        (o + along, (r - along).normalize_or_zero())
+    };
+    match *s {
+        FaceSurface::Plane { normal, point } => {
+            let n = to_dv(*normal);
+            p - n * (p - to_dv(point)).dot(n)
+        }
+        FaceSurface::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => {
+            let (foot, out) = radial(to_dv(origin), to_dv(*axis));
+            if out == DVec3::ZERO {
+                p
+            } else {
+                foot + out * radius
+            }
+        }
+        FaceSurface::Sphere { center, radius } => {
+            let c = to_dv(center);
+            let d = (p - c).normalize_or_zero();
+            if d == DVec3::ZERO {
+                p
+            } else {
+                c + d * radius
+            }
+        }
+        FaceSurface::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => {
+            // Titik terdekat di garis pembangkit kerucut pada bidang (sumbu, p).
+            let (a, k) = (to_dv(apex), to_dv(*axis));
+            let (_, out) = radial(a, k);
+            if out == DVec3::ZERO {
+                return p;
+            }
+            let g = (k * half_angle.cos() + out * half_angle.sin()).normalize_or_zero();
+            a + g * (p - a).dot(g).max(0.0)
+        }
+        FaceSurface::Torus {
+            center,
+            axis,
+            major,
+            minor,
+        } => {
+            let (c, k) = (to_dv(center), to_dv(*axis));
+            let (_, out) = radial(c, k);
+            if out == DVec3::ZERO {
+                return p;
+            }
+            let ring = c + out * major;
+            let d = (p - ring).normalize_or_zero();
+            if d == DVec3::ZERO {
+                p
+            } else {
+                ring + d * minor
+            }
+        }
     }
 }
 
@@ -715,11 +955,10 @@ fn order_chain(
     (members, points)
 }
 
-/// Susun polyline edge jadi loop tersambung dan ambil yang bbox-nya
-/// terbesar (loop luar) — port `chain_face_boundary_points` OCCT.
-pub(crate) fn chain_outer_loop(lists: Vec<Vec<DVec3>>) -> Vec<DVec3> {
+/// Susun polyline edge jadi loop-loop tersambung.
+pub(crate) fn chain_loops(lists: Vec<Vec<DVec3>>) -> Vec<Vec<DVec3>> {
     if lists.len() <= 1 {
-        return lists.into_iter().next().unwrap_or_default();
+        return lists;
     }
     const EPS: f64 = 1e-4;
     let mut used = vec![false; lists.len()];
@@ -759,13 +998,19 @@ pub(crate) fn chain_outer_loop(lists: Vec<Vec<DVec3>>) -> Vec<DVec3> {
         }
         loops.push(chain);
     }
+    loops
+}
+
+/// Loop tersambung dengan bbox terbesar (loop luar) — port
+/// `chain_face_boundary_points` OCCT.
+pub(crate) fn chain_outer_loop(lists: Vec<Vec<DVec3>>) -> Vec<DVec3> {
     let diag = |pts: &[DVec3]| {
         let mut it = pts.iter();
         let Some(&first) = it.next() else { return 0.0 };
         let (lo, hi) = it.fold((first, first), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
         (hi - lo).length()
     };
-    loops
+    chain_loops(lists)
         .into_iter()
         .max_by(|a, b| diag(a).total_cmp(&diag(b)))
         .unwrap_or_default()

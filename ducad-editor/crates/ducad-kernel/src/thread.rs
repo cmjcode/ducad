@@ -64,6 +64,8 @@ impl IsoThreadProfile {
 /// Potong ulir luar ISO pada `shape`: silinder berdiameter mayor `major_d`
 /// dengan sumbu lewat `axis_origin` searah `axis_dir`; ulir mulai di
 /// `axis_origin` dan berjalan sejauh `length`.
+// Truck keluar lebih awal ke `backend::thread` (ulir facet).
+#[cfg_attr(feature = "kernel-truck", allow(unreachable_code, unused_variables))]
 pub fn cut_iso_thread(
     shape: &KernelShape,
     axis_origin: [f64; 3],
@@ -106,6 +108,19 @@ pub fn cut_iso_thread(
                 end: pts[(i + 1) % 4],
             })
             .collect(),
+    );
+    // Backend truck: boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK
+    // R4) — pakai ulir facet (§4.2 pilihan A).
+    #[cfg(feature = "kernel-truck")]
+    return crate::backend::thread::cut_faceted(
+        shape,
+        axis_origin,
+        axis_dir,
+        major_d,
+        pitch,
+        length,
+        left_handed,
+        &pts,
     );
     // Satu spline helix panjang membuat `MakePipe` menghasilkan solid rusak
     // (terbukti pada 13 putaran: tidak valid, volume ≈ 0), jadi pemotong

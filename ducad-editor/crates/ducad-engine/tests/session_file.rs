@@ -192,7 +192,10 @@ fn v4_failed_replay_falls_back_to_cache_with_warning() {
     let path = temp("fallback");
     s.save(&path).unwrap();
     let mut json = read_json(&path);
+    // Oplog tidak lagi menghasilkan geometri tercatat: sidik jari DAN
+    // ringkasan geometri berbeda (sidik jari saja bisa beda antar-backend).
     json["design"]["fingerprint"] = "0000000000000000".into();
+    json["design"]["geometry"][0]["volume"] = 1.0.into();
     let text = json.to_string();
 
     let loaded = Session::from_json(&text).unwrap();
@@ -287,4 +290,37 @@ fn migrate_leaves_files_without_oplog_or_stale_untouched() {
     assert_eq!(out, text);
     assert_eq!(r.kept_step.len(), 1);
     let _ = std::fs::remove_file(&path);
+}
+
+/// Berkas dari backend kernel lain (PLAN_MIGRASI_TRUCK F3): sidik jari hash
+/// tidak cocok persis, tetapi geometri replay sama dalam toleransi → oplog
+/// dipakai, bukan dianggap basi.
+#[test]
+fn foreign_backend_fingerprint_still_replays_v4_and_v2() {
+    for legacy in [false, true] {
+        let mut s = plate_session();
+        let path = temp(if legacy { "foreign-v2" } else { "foreign-v4" });
+        if legacy {
+            s.save_legacy(&path).unwrap();
+        } else {
+            s.save(&path).unwrap();
+        }
+        let mut json = read_json(&path);
+        if !legacy {
+            assert!(json["design"]["geometry"].as_array().is_some_and(|g| !g.is_empty()));
+        } else {
+            // Berkas lama tidak punya ringkasan geometri.
+            json["design"].as_object_mut().unwrap().remove("geometry");
+        }
+        json["design"]["fingerprint"] = "0123456789abcdef".into();
+        std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+        let loaded = Session::from_file(&path).unwrap();
+        assert_eq!(loaded.design().oplog.len(), 4, "legacy={legacy}");
+        assert!(
+            !loaded.warnings().iter().any(|w| w == "oplog_stale"),
+            "legacy={legacy}: {:?}",
+            loaded.warnings()
+        );
+        let _ = std::fs::remove_file(&path);
+    }
 }

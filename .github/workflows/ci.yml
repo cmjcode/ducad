@@ -86,10 +86,12 @@ jobs:
           -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
           -p ducad-update
 
-  # Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `ducad-kernel` dengan
+  # Backend kernel truck (PLAN_MIGRASI_TRUCK F2–F3): `ducad-kernel` dengan
   # `--no-default-features --features kernel-truck` TIDAK menarik OCCT,
-  # jadi cukup beberapa menit. Tes kontrak (`contract_tests`) identik dengan
-  # yang dijalankan backend OCCT di lane penuh — lulus di keduanya = paritas.
+  # jadi cukup beberapa menit. Tes modul (`tests`) dan kontrak
+  # (`contract_tests`) identik dengan yang dijalankan backend OCCT di lane
+  # penuh — lulus di keduanya = paritas. `tests/fuzz_boolean.rs` ikut
+  # (24 seed; gate F3 penuh: `SEEDS=0..95`).
   truck:
     name: kernel truck (clippy + test)
     runs-on: ubuntu-latest
@@ -242,15 +244,15 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo run -p ducad-cli -- golden check --against tests/goldens/occt --tol 1e-3
 
-      # Gate F2: backend truck terhadap golden OCCT yang SAMA, terbatas pada op
-      # yang sudah diporting (contoh dengan op lain dilaporkan "skip").
-      # Perluas `--ops` tiap fase (F3: fillet, chamfer, shell, hole, …).
-      - name: golden (backend truck, op F2)
+      # Gate F3: backend truck terhadap golden OCCT yang SAMA, seluruh korpus.
+      # Perbedaan yang sudah diterima (beserta alasannya) ada di
+      # `tests/goldens/known_failures.truck.txt`; perbedaan lain = gagal.
+      - name: golden (backend truck)
         if: runner.os == 'Linux'
         run: >
           cargo run -p ducad-cli --features kernel-truck --
           golden check --against tests/goldens/occt --tol 1e-3
-          --ops sketch,primitive,extrude,revolve,boolean,transform,scale,delete,set_material,study
+          --known tests/goldens/known_failures.truck.txt
 
   # ---------------------------------------------------------------------
   # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:

@@ -583,7 +583,9 @@ pub(crate) fn nearest_face(body: &Body, p: Vec3) -> Result<usize> {
     let mut best: Option<(f64, u32)> = None;
     for (t, f) in m.triangles.iter().zip(&m.tri_face) {
         let Some([a, b, c]) = m.tri(t) else { continue };
-        let d = ((a + b + c) / 3.0).dist(p).min(a.dist(p)).min(b.dist(p)).min(c.dist(p));
+        // DUCAD: jarak titik–segitiga sungguhan. Aslinya jarak ke pusat/vertex
+        // segitiga, yang di sudut bersama bisa memenangkan face tetangga.
+        let d = crate::boolean_guard::point_triangle_dist(p, a, b, c);
         if best.is_none_or(|(x, _)| d < x) {
             best = Some((d, *f));
         }

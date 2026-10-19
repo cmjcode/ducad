@@ -21,7 +21,12 @@ struct ShapeCache {
     /// Hasil `solidcraft_kernel::measure`; `None` bila gagal.
     measure: OnceLock<Option<Measured>>,
     valid: OnceLock<bool>,
+    /// Volume, pusat massa, tensor inersia (`super::query::volume_properties`).
+    mass: OnceLock<VolumeProps>,
 }
+
+/// (volume, pusat massa, tensor inersia terhadap origin).
+pub(crate) type VolumeProps = (f64, [f64; 3], [[f64; 3]; 3]);
 
 /// Ukuran dari tesselasi halus konvergen (`solidcraft_kernel::measure`).
 #[derive(Clone, Copy)]
@@ -65,6 +70,11 @@ impl KernelShape {
             Some(b) => Topology::build(b),
             None => Topology::empty(),
         })
+    }
+
+    /// Properti volume dari tesselasi halus, dihitung sekali per shape.
+    pub(crate) fn volume_props(&self, compute: impl FnOnce() -> VolumeProps) -> VolumeProps {
+        *self.cache.mass.get_or_init(compute)
     }
 
     fn measured(&self) -> Option<Measured> {

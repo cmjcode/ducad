@@ -7,8 +7,8 @@ use super::{finish, require_positive};
 use crate::error::{OpError, OpResult};
 use crate::model::BodyGeometry;
 
-/// Terapkan `apply_hole` berurutan di setiap posisi dengan normal keluar
-/// face yang sama.
+/// Lubang di setiap posisi dengan normal keluar face yang sama
+/// (`ducad_kernel::apply_holes`).
 pub fn hole(
     shape: &KernelShape,
     spec: &HoleSpec,
@@ -27,13 +27,10 @@ pub fn hole(
         return Err(OpError::invalid("Normal lubang tidak boleh vektor nol"));
     }
     let n = (normal[0], normal[1], normal[2]);
-    let mut current: Option<KernelShape> = None;
-    for p in positions {
-        let base = current.as_ref().unwrap_or(shape);
-        let next = ducad_kernel::apply_hole(base, spec, (p[0], p[1], p[2]), n)
-            .map_err(|e| OpError::kernel("Hole", e))?;
-        current = Some(next);
-    }
+    let at: Vec<(f64, f64, f64)> = positions.iter().map(|p| (p[0], p[1], p[2])).collect();
+    let current = Some(
+        ducad_kernel::apply_holes(shape, spec, &at, n).map_err(|e| OpError::kernel("Hole", e))?,
+    );
     match current {
         Some(shape) => finish("Hole", shape),
         None => Err(OpError::invalid("Posisi lubang tidak boleh kosong")),

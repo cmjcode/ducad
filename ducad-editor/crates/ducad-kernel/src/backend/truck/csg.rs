@@ -157,19 +157,121 @@ pub fn sweep_profile_on_plane_along_path(
     sweep(&plane, profile, scale, spine_segments)
 }
 
-fn boolean(a: &Body, b: &Body, op: BoolOp, what: &str) -> Result<Option<Body>> {
-    kernel(what, || solidcraft_kernel::boolean(a, b, op))
+/// Skala relatif pemotong untuk percobaan ulang boolean yang gagal.
+const RETRY_SCALE: f64 = 1e-5;
+
+/// Faktor skala per sumbu dunia untuk percobaan ulang: sumbu tempat `tool`
+/// punya face DATAR yang sebidang dengan face datar `target` dikunci (1.0),
+/// supaya face yang berimpit tetap berimpit — kalau tidak, sisa celah
+/// sub-mikron jadi face/tepi serpihan. `None` bila semua sumbu terkunci,
+/// atau skala tak-seragam akan membuat permukaan lengkung `tool` jadi lonjong.
+fn retry_factors(target: &KernelShape, tool: &KernelShape, grow: bool) -> Option<[f64; 3]> {
+    use solidcraft_kernel::FaceSurface;
+    let f = if grow { 1.0 + RETRY_SCALE } else { 1.0 - RETRY_SCALE };
+    let size = tool.body()?.size().max(1e-9);
+    let tol = size * 1e-7 + 1e-9;
+    let planes = |s: &KernelShape| -> Vec<(glam::DVec3, f64)> {
+        s.topology()
+            .faces
+            .iter()
+            .filter_map(|lf| match lf.surface? {
+                FaceSurface::Plane { normal, point } => {
+                    let n = super::bridge::to_dv(*normal);
+                    Some((n, n.dot(super::bridge::to_dv(point))))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let (pt, pb) = (planes(target), planes(tool));
+    let mut k = [f; 3];
+    for (axis, slot) in k.iter_mut().enumerate() {
+        let e = glam::DVec3::from_array({
+            let mut v = [0.0; 3];
+            v[axis] = 1.0;
+            v
+        });
+        let pinned = pb.iter().any(|(n, d)| {
+            n.dot(e).abs() > 1.0 - 1e-9
+                && pt
+                    .iter()
+                    .any(|(m, c)| m.dot(*n).abs() > 1.0 - 1e-9 && (c * m.dot(*n) - d).abs() < tol)
+        });
+        if pinned {
+            *slot = 1.0;
+        }
+    }
+    if k.iter().all(|x| *x == 1.0) {
+        return None;
+    }
+    // Permukaan lengkung harus tetap bundar: skala sama di bidang tegak
+    // lurus sumbunya (bola: ketiga sumbu sama).
+    let uniform = k[0] == k[1] && k[1] == k[2];
+    if !uniform {
+        for lf in &tool.topology().faces {
+            let axis = match lf.surface {
+                None | Some(FaceSurface::Plane { .. }) => continue,
+                Some(FaceSurface::Cylinder { axis, .. })
+                | Some(FaceSurface::Cone { axis, .. })
+                | Some(FaceSurface::Torus { axis, .. }) => super::bridge::to_dv(*axis),
+                Some(FaceSurface::Sphere { .. }) => return None,
+            };
+            let along = (0..3).find(|&i| axis[i].abs() > 1.0 - 1e-9)?;
+            let others: Vec<f64> = (0..3).filter(|&i| i != along).map(|i| k[i]).collect();
+            if others[0] != others[1] {
+                return None;
+            }
+        }
+    }
+    Some(k)
+}
+
+fn boolean(a: &KernelShape, b: &KernelShape, op: BoolOp, what: &str) -> Result<Option<Body>> {
+    let (ba, bb) = (a.require_body(what)?, b.require_body(what)?);
+    let first = match kernel(what, || solidcraft_kernel::boolean(ba, bb, op)) {
+        Ok(r) => return Ok(r),
+        Err(e) => e,
+    };
+    // Singgungan persis (silinder menyinggung bidang, alas menyentuh face
+    // sepanjang garis) kadang ditolak truck (PLAN_MIGRASI_TRUCK R1). Ulangi
+    // sekali dengan `b` diskalakan 1e-5 terhadap pusat bbox-nya — mengecil
+    // untuk union/intersect, membesar untuk cut (tanpa kulit tipis) — yang
+    // memutus singgungan dengan geser permukaan < 1 µm per 100 mm.
+    let Some(k) = retry_factors(a, b, op == BoolOp::Cut) else {
+        return Err(first);
+    };
+    let Some((lo, hi)) = b.bounding_box() else {
+        return Err(first);
+    };
+    let c = [0, 1, 2].map(|i| (lo[i] + hi[i]) * 0.5);
+    let m = [
+        [k[0], 0.0, 0.0, 0.0],
+        [0.0, k[1], 0.0, 0.0],
+        [0.0, 0.0, k[2], 0.0],
+        [c[0] * (1.0 - k[0]), c[1] * (1.0 - k[1]), c[2] * (1.0 - k[2]), 1.0],
+    ];
+    let retried = kernel(what, || {
+        let b2 = solidcraft_kernel::transform_matrix(bb, m)?;
+        solidcraft_kernel::boolean(ba, &b2, op)
+    });
+    match retried {
+        Ok(r) => {
+            log::warn!("{what}: boolean diulang dengan pemotong diskalakan {k:?} (singgungan persis)");
+            Ok(r)
+        }
+        Err(_) => Err(first),
+    }
 }
 
 /// Union (gabung material) dua shape. Face sebidang di sambungan tetap
 /// tampil sebagai satu face lewat topologi logis (padanan `clean()` OCCT).
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
-    let (ba, bb) = match (a.body(), b.body()) {
-        (Some(x), Some(y)) => (x, y),
+    match (a.body(), b.body()) {
+        (Some(_), Some(_)) => {}
         (None, _) => return clone_shape(b),
         (_, None) => return clone_shape(a),
-    };
-    boolean(ba, bb, BoolOp::Union, "Boolean Union")
+    }
+    boolean(a, b, BoolOp::Union, "Boolean Union")
         .context("gagal menggabungkan (union) dua shape")?
         .map(KernelShape::from_body)
         .ok_or_else(|| anyhow!("gagal menggabungkan (union) dua shape: hasil kosong"))
@@ -177,12 +279,12 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
 
 /// Subtract (`a` dikurangi `b`). Hasil kosong (b menelan a) = shape kosong.
 pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
-    let (ba, bb) = match (a.body(), b.body()) {
-        (Some(x), Some(y)) => (x, y),
+    match (a.body(), b.body()) {
+        (Some(_), Some(_)) => {}
         (None, _) => return Ok(KernelShape::empty()),
         (_, None) => return clone_shape(a),
-    };
-    Ok(boolean(ba, bb, BoolOp::Cut, "Boolean Subtract")
+    }
+    Ok(boolean(a, b, BoolOp::Cut, "Boolean Subtract")
         .context("gagal mengurangi (subtract) dua shape")?
         .map(KernelShape::from_body)
         .unwrap_or_else(KernelShape::empty))
@@ -190,10 +292,10 @@ pub fn subtract(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
 
 /// Boolean intersect (irisan) dua shape. Irisan kosong = [`EmptyIntersection`].
 pub fn intersect(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
-    let (Some(ba), Some(bb)) = (a.body(), b.body()) else {
+    if a.body().is_none() || b.body().is_none() {
         return Err(EmptyIntersection.into());
-    };
-    boolean(ba, bb, BoolOp::Intersect, "Boolean Intersect")
+    }
+    boolean(a, b, BoolOp::Intersect, "Boolean Intersect")
         .context("gagal menghitung irisan (intersect) dua shape")?
         .map(KernelShape::from_body)
         .ok_or_else(|| EmptyIntersection.into())

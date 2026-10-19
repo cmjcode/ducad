@@ -72,11 +72,25 @@ pub(crate) fn min_distance(a: &KernelShape, b: &KernelShape) -> Option<(f64, [f6
 /// Elemen luar-diagonal bertanda negatif (`I_xy = −∫xy dV`), sama dengan
 /// konvensi `MassProperties::inertia_origin`.
 pub(crate) fn volume_properties(shape: &KernelShape) -> (f64, [f64; 3], [[f64; 3]; 3]) {
+    shape.volume_props(|| volume_properties_uncached(shape))
+}
+
+fn volume_properties_uncached(shape: &KernelShape) -> (f64, [f64; 3], [[f64; 3]; 3]) {
     let empty = (0.0, [0.0; 3], [[0.0; 3]; 3]);
     let Some(body) = shape.body() else {
         return empty;
     };
-    let tol = (body.size() * 5e-5).max(1e-5);
+    // Galat chord relatif terhadap radius terkecil menentukan galat volume
+    // & momen: jaga di ~2e-5 radius (silinder ramping, fillet kecil).
+    let topo = shape.topology();
+    let r_min = (0..topo.faces.len())
+        .filter_map(|f| super::topo::face_radius(topo, f))
+        .filter(|r| *r > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    // Lantai relatif ukuran body: body besar dengan fillet kecil tidak
+    // ditesselasi sampai jutaan segitiga.
+    let size = body.size();
+    let tol = (size * 5e-5).min(r_min * 2e-5).max(size * 5e-6).max(1e-5);
     let Ok(mesh) = solidcraft_kernel::guard("mass properties", || body.tessellate_with(tol, true))
     else {
         return empty;

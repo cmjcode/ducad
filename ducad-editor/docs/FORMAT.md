@@ -52,12 +52,27 @@ sendiri. Cache backend tidak pernah jadi satu-satunya salinan geometri yang tida
 ### Cache `brep`
 
 * `producer` mengidentifikasi backend kernel + versi encoding (`KernelShape::NATIVE_CACHE_PRODUCER`):
-  `ducad-occt/1` = BREP biner OCCT (`BinTools`); `ducad-truck/1` disiapkan untuk backend truck (F2).
+  `ducad-occt/1` = BREP biner OCCT (`BinTools`); `ducad-truck/1` = `encode_native_body` SolidCraft.
 * `data` = base64 standar dari aliran zlib. Batas dekompresi 512 MB.
 * Produsen beda = *miss* (bukan error): geometri dibangun ulang lewat replay. Cache rusak = peringatan,
   lalu jatuh ke STEP/replay.
 * Cache boleh dihapus kapan saja; memuat tanpa cache memberi geometri yang sama (diuji:
   `v4_load_without_cache_equals_load_with_cache`).
+
+### Ringkasan geometri `design.geometry` (v4, PLAN_MIGRASI_TRUCK F3)
+
+`design.fingerprint` adalah hash FNV atas volume (6 desimal), bbox mesh (4 desimal) dan jumlah face
+tiap body — tidak pernah cocok persis bila berkas dibuka backend kernel LAIN (volume eksak OCCT vs
+tesselasi truck). `Session::save` karena itu juga menulis ringkasan per body:
+
+```json
+"geometry": [ { "name": "bracket", "volume": 18230.51, "bbox": [[0,0,0],[60,40,12]] } ]
+```
+
+Saat replay, sidik jari yang berbeda masih diterima bila ringkasan cocok dalam toleransi lintas-backend
+(nama sama, volume relatif ±1e-3, bbox ±(0,05 mm + 1e-3·diagonal)). Berkas tanpa `geometry` (v1–v3,
+v4 lama): replay dibandingkan dengan body STEP berkas memakai toleransi yang sama. Field opsional —
+pembaca lama mengabaikannya.
 
 ## Aturan memuat
 
@@ -67,8 +82,9 @@ sendiri. Cache backend tidak pernah jadi satu-satunya salinan geometri yang tida
    non-strict → body diambil dari cache (mode adopsi, peringatan `oplog_stale` + `replay_failed: …`,
    body jadi `base_bodies` dengan STEP baru); strict (`ducad-cli build`) → error.
    Tanpa cache dan replay gagal → error; body tidak pernah hilang diam-diam.
-2. Semua body membawa STEP (v1–v3) → perilaku lama: STEP dibandingkan dengan sidik jari `design`;
-   beda → adopsi (`oplog_stale`), sama → replay. **STEP rusak tidak fatal** selama oplog masih bisa
+2. Semua body membawa STEP (v1–v3) → STEP dibandingkan dengan sidik jari `design`; sama → replay;
+   beda → replay tetap dicoba dan dipakai bila body-nya cocok dengan body STEP dalam toleransi
+   (berkas dari backend lain), selain itu adopsi (`oplog_stale`). **STEP rusak tidak fatal** selama oplog masih bisa
    di-replay (peringatan `step_unreadable: …`).
 
 Berkas tanpa `design` → semua body diadopsi sebagai `base_bodies`.

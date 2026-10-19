@@ -206,10 +206,14 @@ fn web_of(ray: &MeshRaycaster, h: &ConcaveCylinder) -> Option<f64> {
             let a = k as f64 / ANGLES as f64 * std::f64::consts::TAU;
             let radial = u * a.cos() + w * a.sin();
             let origin = base + radial * start;
-            let hit = ray.closest(
+            // Sinar yang lolos tepat di sambungan dua segitiga (f32) tidak
+            // mengenai apa pun: lewati sampel itu, jangan gugurkan lubangnya.
+            let Some(hit) = ray.closest(
                 origin.to_array().map(|x| x as f32),
                 radial.to_array().map(|x| x as f32),
-            )?;
+            ) else {
+                continue;
+            };
             let web = hit as f64 + (start - h.radius);
             if best.is_none_or(|b| web < b) {
                 best = Some(web);
