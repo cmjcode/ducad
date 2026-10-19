@@ -420,7 +420,6 @@ fn resolve_path(path: &SectionPath) -> Result<CutFrame, String> {
 /// Mesin ekstraksi Tampak Potongan.
 /// Masukan cabang B-rep [`SectionExtractor::extract_internal`] untuk backend
 /// (`crate::backend::section::cut_bodies`).
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 pub(crate) struct BrepCutInput<'a> {
     pub shapes: &'a [&'a KernelShape],
     pub frame: &'a CutFrame,
@@ -630,7 +629,6 @@ impl SectionExtractor {
 }
 
 /// Apakah titik (t, d) berada pada salah satu ruas potong (bukan ruas siku).
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 pub(crate) fn on_cut_plane(frame: &CutFrame, t: f32, d: f32) -> bool {
     let n = frame.pts.len();
     let mut i = 0;

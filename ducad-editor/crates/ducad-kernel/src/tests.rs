@@ -1410,7 +1410,6 @@ fn test_hlr_extract_orthogonal_views_box() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn test_hlr_extract_views_cylinder() {
     let _guard = lock_test();
     let circle_prof = Profile::Circle {
@@ -2026,7 +2025,6 @@ fn zero_length_extent_is_rejected() {
 // ---------------------------------------------------------------------
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_hlr_keeps_a_circle_as_a_circle() {
     // INTI P4.1. HLR berbasis mesh mengembalikan lingkaran sebagai poligon
     // puluhan sisi — bergerigi saat dicetak dan tidak bisa diberi dimensi
@@ -2062,7 +2060,6 @@ fn exact_hlr_keeps_a_circle_as_a_circle() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_hlr_separates_visible_from_hidden_edges() {
     // Balok dipandang dari depan: tiga rusuk belakang tertutup badan solid.
     // HLR mesh menentukannya lewat uji oklusi terhadap segitiga; HLR eksak
@@ -2099,7 +2096,6 @@ fn exact_hlr_rejects_up_vector_parallel_to_view() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_hlr_is_independent_of_tessellation_density() {
     // Klaim kunci dibanding HLR berbasis mesh: mengubah kerapatan tesselasi
     // TIDAK boleh mengubah gambar tekniknya. Di sini di-mesh dengan
@@ -3127,7 +3123,6 @@ fn p21_drawing(
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_sheet_view_matches_projection_convention() {
     // Balok x∈[0,10], y∈[0,20], z∈[0,30] + lubang buta Ø3 di muka y=0
     // (menghadap kamera Tampak Depan). Lubang harus TAMPAK di Depan, dan
@@ -3164,7 +3159,6 @@ fn exact_sheet_view_matches_projection_convention() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_sheet_cylinder_top_is_one_full_arc() {
     let _guard = lock_test();
     let cyl = extrude_profile(
@@ -3212,7 +3206,6 @@ fn exact_sheet_cylinder_top_is_one_full_arc() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn section_plane_offset_changes_cut_analytically() {
     // Balok 60×40×30 berlubang tembus Ø10 sepanjang Z di tengah.
     let _guard = lock_test();
@@ -3259,7 +3252,6 @@ fn section_plane_offset_changes_cut_analytically() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn stepped_section_shows_both_offset_holes() {
     // Dua lubang buta sepanjang Y pada kedalaman berbeda; hanya potongan
     // bertingkat yang memotong keduanya sekaligus.
@@ -3316,7 +3308,6 @@ fn stepped_section_shows_both_offset_holes() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn section_hatch_alternates_between_touching_bodies() {
     let _guard = lock_test();
     let left = p21_box((0.0, 0.0, 0.0), (20.0, 20.0, 20.0));
@@ -3344,7 +3335,6 @@ fn section_hatch_alternates_between_touching_bodies() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "F4: HLR eksak / tampak potongan B-rep")]
 fn exact_sheet_detects_chamfer_and_fillet_in_section() {
     // Poros Ø40 × 30 dengan chamfer 2×45° di tepi atas dan lubang Ø10.
     let _guard = lock_test();

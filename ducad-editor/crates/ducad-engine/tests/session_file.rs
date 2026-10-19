@@ -283,7 +283,14 @@ fn migrate_leaves_files_without_oplog_or_stale_untouched() {
     assert_eq!(r.skipped.as_deref(), Some("no_oplog"));
     assert_eq!(out, text);
 
+    // Basi sungguhan: oplog (param diubah) tidak lagi menghasilkan body STEP
+    // berkas. Sidik jari palsu saja tidak cukup — itu juga terjadi pada
+    // berkas dari backend kernel lain, yang tetap di-replay.
     json["design"]["fingerprint"] = "0000000000000000".into();
+    let params = json["design"]["params"].as_object_mut().unwrap();
+    let key = params.keys().next().unwrap().clone();
+    let v = params[&key].as_f64().unwrap();
+    params.insert(key, (v * 1.5).into());
     let text = json.to_string();
     let (out, r) = ducad_engine::migrate::migrate_json(&text).unwrap();
     assert!(!r.changed, "{r:?}");
@@ -316,11 +323,8 @@ fn foreign_backend_fingerprint_still_replays_v4_and_v2() {
         std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
         let loaded = Session::from_file(&path).unwrap();
         assert_eq!(loaded.design().oplog.len(), 4, "legacy={legacy}");
-        assert!(
-            !loaded.warnings().iter().any(|w| w == "oplog_stale"),
-            "legacy={legacy}: {:?}",
-            loaded.warnings()
-        );
+        let w = loaded.summary().warnings;
+        assert!(!w.contains(&"oplog_stale".to_string()), "legacy={legacy}: {w:?}");
         let _ = std::fs::remove_file(&path);
     }
 }

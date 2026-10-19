@@ -97,7 +97,7 @@ fn standard_parts_every_entry_is_valid_with_table_dimensions() {
                 b.size[2]
             );
             assert!(
-                (b.volume - volume).abs() / volume < 1e-4,
+                (b.volume - volume).abs() / volume < 1e-4_f64.max(ducad_kernel::VOLUME_REL_TOL),
                 "{}: volume {} vs {volume}",
                 part.designation,
                 b.volume
@@ -164,7 +164,8 @@ fn standard_parts_thread_cosmetic_and_physical() {
     assert!(r.committed, "{:?}", r.error);
     let plain = s.body("rod").unwrap().1.shape.volume().abs();
     assert!(
-        (plain - PI * 25.0 * 30.0).abs() < 1e-6,
+        (plain - PI * 25.0 * 30.0).abs()
+            < 1e-6_f64.max(ducad_kernel::VOLUME_REL_TOL * PI * 25.0 * 30.0),
         "ulir kosmetik tidak mengubah geometri"
     );
     let b = &summarize(&s, None, false, 10).unwrap().bodies[0];

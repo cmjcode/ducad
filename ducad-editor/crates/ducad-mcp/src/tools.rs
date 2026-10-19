@@ -149,7 +149,7 @@ fn ref_schema() -> Value {
     })
 }
 
-const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (created/modified/removed per op), summary (volume/bbox per body), checks. On failure → isError with error{code, message, hint, op_index, op_id, context, fixes[]}; when fixes is present, resend with patched_op.";
+const BATCH_RESULT: &str = "Returns a BatchReport: committed, outcomes[] (created/modified/removed/warnings per op; a `boolean_retry:` warning means the kernel had to nudge or scale a tool to finish a boolean, so the result may differ slightly from the exact one: verify it with inspect/run_checks), summary (volume/bbox per body), checks. On failure → isError with error{code, message, hint, op_index, op_id, context, fixes[]}; when fixes is present, resend with patched_op.";
 
 /// Daftar tool untuk `tools/list`.
 pub fn definitions() -> Vec<Value> {

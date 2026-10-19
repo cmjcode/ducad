@@ -928,10 +928,16 @@ mod tests {
         let json =
             serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        v["bodies"][0]["brep"]["producer"] = "ducad-truck/1".into();
+        // Produsen backend LAWAN dari yang sedang aktif.
+        let foreign = if KernelShape::NATIVE_CACHE_PRODUCER == "ducad-truck/1" {
+            "ducad-occt/1"
+        } else {
+            "ducad-truck/1"
+        };
+        v["bodies"][0]["brep"]["producer"] = foreign.into();
         let loaded = deserialize_from_json(&v.to_string()).unwrap();
         assert!(loaded.needs_replay(), "cache backend lain harus jatuh ke replay");
-        assert!(loaded.warnings.iter().any(|w| w.contains("ducad-truck/1")));
+        assert!(loaded.warnings.iter().any(|w| w.contains(foreign)));
     }
 
     #[test]

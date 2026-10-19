@@ -5,6 +5,10 @@ use ducad_engine::inspect::{summarize, DEFAULT_TOPOLOGY_LIMIT};
 use ducad_engine::ops::{Op, OpFile};
 use ducad_engine::{OpErrorCode, Session};
 
+/// Volume vs rumus analitik: 1e-6 di OCCT (eksak), toleransi volume backend
+/// di truck (berbasis tesselasi, PLAN_MIGRASI_TRUCK F5.1).
+const VOL_TOL: f64 = if ducad_kernel::VOLUME_REL_TOL > 1e-6 { ducad_kernel::VOLUME_REL_TOL } else { 1e-6 };
+
 fn ops(json: &str) -> Vec<Op> {
     serde_json::from_str(json).unwrap()
 }
@@ -69,9 +73,9 @@ fn sheet_metal_box_with_four_flanges_matches_allowance() {
     assert!((blank.size[2] - 2.0).abs() < 1e-6);
     assert!(blank.valid && report.valid);
     // Solid terlipat = rumus analitik; pola datar = luas × tebal.
-    assert!((volume(&s, "tray") - model.folded_volume()).abs() / model.folded_volume() < 1e-6);
+    assert!((volume(&s, "tray") - model.folded_volume()).abs() / model.folded_volume() < VOL_TOL);
     assert!(
-        (volume(&s, "blank") - model.flat_area() * 2.0).abs() / (model.flat_area() * 2.0) < 1e-6
+        (volume(&s, "blank") - model.flat_area() * 2.0).abs() / (model.flat_area() * 2.0) < VOL_TOL
     );
     // Dinding berdiri setinggi R + t + panjang lurus.
     assert!((report.size[2] - 24.0).abs() < 1e-6, "{:?}", report.size);
@@ -131,7 +135,7 @@ fn sheet_metal_hem_and_jog_build_valid_solids() {
     assert!(sum.bodies[0].valid);
     let v = volume(&s, "p");
     assert!(
-        (v - model.folded_volume()).abs() / v < 1e-6,
+        (v - model.folded_volume()).abs() / v < VOL_TOL,
         "{v} vs {}",
         model.folded_volume()
     );

@@ -4,3 +4,4 @@
 crates/ducad-engine/tests/fixtures/loft_helix.ops.json	funnel: face/tepi 7/15 → 6/12	loft persegi→lingkaran: OCCT membagi sisi jadi 5 face, SolidCraft 4 (volume & bbox sama)
 crates/ducad-engine/tests/fixtures/loft_helix.ops.json	funnel_m: face/tepi 7/15 → 6/12	cermin funnel, alasan sama
 ../examples/pillow_block.ops.json	housing: face/tepi 21/55 → 23/61	barrel menyinggung persis sisi neck (R1): boolean truck diulang dengan pemotong diskalakan 1e-5, menyisakan 2 face serpihan 0,4 µm (volume, luas, semua check & studi sama)
+crates/ducad-engine/tests/fixtures/valve_body.ops.json	*skip*	R7 performa: tiap boolean lubang pada body berfillet ~1 menit (debug) di SolidCraft — tesselasi face ber-kurva-irisan; >30 menit total bahkan di build rilis. Diukur & ditangani di F5 (benchmark ≤ 2× OCCT)

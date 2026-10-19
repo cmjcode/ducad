@@ -672,8 +672,16 @@ impl SessionCore<'_> {
                     });
                 }
                 crate::compute::check_op_magnitudes(op)?;
-                crate::guard::catch_op_panic(&format!("op {}", op.id()), || {
-                    self.apply(op, i, &mut new_sketches)
+                // Peringatan kernel (mis. boolean truck yang diulang dengan
+                // pemotong digeser) ikut ke `warnings` op (PLAN_MIGRASI_TRUCK 5.3).
+                let (result, kernel_warnings) = ducad_kernel::capture_kernel_warnings(|| {
+                    crate::guard::catch_op_panic(&format!("op {}", op.id()), || {
+                        self.apply(op, i, &mut new_sketches)
+                    })
+                });
+                result.map(|mut outcome| {
+                    outcome.warnings.extend(kernel_warnings);
+                    outcome
                 })
             });
             match result {
@@ -1952,15 +1960,22 @@ impl SessionCore<'_> {
                 let Some(target) = target else {
                     return Err(OpError::invalid("mode add/cut butuh 'target' (nama body)"));
                 };
-                let mut tool = geos
-                    .pop()
-                    .ok_or_else(|| {
-                        OpError::new(OpErrorCode::EmptyResult, "tidak ada solid untuk digabung")
-                    })?
-                    .shape;
-                for g in geos {
-                    tool = compute::boolean(&tool, &g.shape, BooleanKind::Union)?.shape;
+                if geos.is_empty() {
+                    return Err(OpError::new(
+                        OpErrorCode::EmptyResult,
+                        "tidak ada solid untuk digabung",
+                    ));
                 }
+                // Banyak pemotong → satu tool. Backend truck: tanpa boolean bila
+                // terpisah, selain itu union pohon paralel (PLAN_MIGRASI_TRUCK 5.4).
+                let tool = if geos.len() == 1 {
+                    geos.pop().map(|g| g.shape).unwrap_or_else(KernelShape::empty)
+                } else {
+                    let tool = ducad_kernel::union_all(geos.into_iter().map(|g| g.shape).collect())
+                        .map_err(|e| OpError::kernel("Union", e))?;
+                    compute::check_shape("Union", &tool)?;
+                    tool
+                };
                 let (tid, tgeo) = self.body(target)?;
                 let kind = if mode == BodyMode::Add {
                     BooleanKind::Union

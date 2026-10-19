@@ -23,9 +23,11 @@ pub mod advanced;
 pub mod assembly_solver;
 pub mod csg;
 pub mod detail;
+pub mod diagnostics;
 pub mod helix;
 pub mod hlr;
 pub mod hlr_exact;
+mod hlr_sheet;
 pub mod hole;
 pub mod interference;
 pub mod mass;
@@ -60,6 +62,20 @@ pub const BACKEND: &str = "truck";
 #[cfg(not(feature = "kernel-truck"))]
 pub const BACKEND: &str = "occt";
 
+/// Toleransi relatif [`KernelShape::volume`] backend aktif (PLAN_MIGRASI_TRUCK
+/// §3.1, F5.1). OCCT: `BRepGProp` eksak (0). Truck: `measure()` SolidCraft
+/// berbasis tesselasi halus, ±1e-4 — pembanding volume/massa memakai 5e-4.
+#[cfg(feature = "kernel-truck")]
+pub const VOLUME_REL_TOL: f64 = 5e-4;
+/// Toleransi relatif [`KernelShape::volume`] backend aktif — lihat versi truck.
+#[cfg(not(feature = "kernel-truck"))]
+pub const VOLUME_REL_TOL: f64 = 0.0;
+
+/// `true` bila [`KernelShape`] boleh dipakai dari banyak thread sekaligus
+/// (backend truck: `Send + Sync`, tanpa kunci global). OCCT: semua panggilan
+/// diserialkan `KERNEL_LOCK` dan shape tidak boleh pindah thread.
+pub const THREAD_SAFE: bool = cfg!(feature = "kernel-truck");
+
 /// Error bertipe: operasi ini belum didukung backend kernel yang aktif
 /// (PLAN_MIGRASI_TRUCK §0 butir 4 — op yang tidak didukung mengembalikan
 /// `Err`, tidak pernah panic). Engine memetakannya ke kode `unsupported`
@@ -84,6 +100,8 @@ impl std::error::Error for Unsupported {}
 /// thread-safe). Backend truck: no-op — `KernelShape` di sana `Send + Sync`.
 pub(crate) use backend::lock_kernel;
 
+pub use diagnostics::capture_kernel_warnings;
+
 // Re-exports for public API compatibility
 pub use advanced::{
     draft_faces_by_index, fillet_edges_variable_by_index, loft_sections, mirror_shape, LoftSection,
@@ -97,7 +115,7 @@ pub use assembly_solver::{
 pub use csg::{
     emboss_profiles_on_plane, extrude_profile, extrude_profile_extent, extrude_profile_on_plane,
     intersect, loft_profiles, EmptyIntersection, ExtrudeExtent,
-    revolve_profile, subtract, sweep_profile_along_path,
+    revolve_profile, subtract, sweep_profile_along_path, union_all,
     sweep_profile_on_plane_along_path, union,
 };
 /// Khusus OCCT: menerima `Wire` OCCT mentah (tidak ada padanan netral-backend).

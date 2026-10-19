@@ -18,7 +18,9 @@ use crate::error::{OpError, OpErrorCode, OpResult};
 use crate::session::{fingerprint, Session};
 
 /// Toleransi relatif volume body berkas vs hasil replay.
-const VOLUME_TOL: f64 = 1e-6;
+// OCCT: volume eksak (`BRepGProp`). Truck: volume dari tesselasi konvergen,
+// ±1e-4 relatif (PLAN_MIGRASI_TRUCK §3.1), juga untuk body STEP yang dibaca.
+const VOLUME_TOL: f64 = if cfg!(feature = "kernel-truck") { 1e-4 } else { 1e-6 };
 
 /// Satu body yang tetap membawa STEP, beserta alasannya.
 #[derive(Debug, Clone, Serialize, PartialEq)]

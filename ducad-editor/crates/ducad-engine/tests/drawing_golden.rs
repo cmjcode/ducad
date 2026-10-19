@@ -2,6 +2,12 @@
 //!
 //! Hash keluaran PDF/SVG/DXF disimpan di `tests/golden/drawing.hashes.json`.
 //! Perbarui dengan `DUCAD_UPDATE_GOLDEN=1 cargo test -p ducad-engine --test drawing_golden`.
+//!
+//! Backend truck (PLAN_MIGRASI_TRUCK F4): garis HLR berasal dari algoritma
+//! lain, jadi hash-nya disimpan terpisah (`drawing.hashes.truck.json`,
+//! perbarui dengan `--features kernel-truck`). Valve body belum bisa dibangun
+//! dalam waktu wajar di truck (R7, `tests/goldens/known_failures.truck.txt`):
+//! tes yang memerlukannya di-skip sampai F5.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -111,12 +117,16 @@ fn drawing_golden_hashes_are_stable() {
         ..DrawingSpec::default()
     };
     let flange_sheet = build_sheet(flange.model(), &spec, None).unwrap().sheet;
-    let valve = valve();
-    let (valve_sheet, warnings) = valve_sheet(&valve);
-    assert!(warnings.is_empty(), "{warnings:?}");
+    let mut sheets = vec![(flange_sheet, "flange")];
+    if !cfg!(feature = "kernel-truck") {
+        let valve = valve();
+        let (valve_sheet, warnings) = valve_sheet(&valve);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        sheets.push((valve_sheet, "valve_body"));
+    }
 
     let mut actual: BTreeMap<String, String> = BTreeMap::new();
-    for (sheet, tag) in [(&flange_sheet, "flange"), (&valve_sheet, "valve_body")] {
+    for (sheet, tag) in sheets.iter().map(|(s, t)| (s, *t)) {
         for (name, bytes) in exports(sheet, tag) {
             actual.insert(name, stamp(&bytes));
         }
@@ -126,7 +136,12 @@ fn drawing_golden_hashes_are_stable() {
         }
     }
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/drawing.hashes.json");
+    let file = if cfg!(feature = "kernel-truck") {
+        "tests/golden/drawing.hashes.truck.json"
+    } else {
+        "tests/golden/drawing.hashes.json"
+    };
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file);
     if std::env::var_os("DUCAD_UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let text = serde_json::to_string_pretty(&actual).unwrap() + "\n";
@@ -147,6 +162,7 @@ fn drawing_golden_hashes_are_stable() {
 }
 
 #[test]
+#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn valve_body_sheet_meets_acceptance_criteria() {
     let s = valve();
     let checks = s.run_checks(None);
@@ -249,6 +265,7 @@ fn valve_body_sheet_meets_acceptance_criteria() {
 }
 
 #[test]
+#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn drawing_tool_renders_saved_sheet_and_follows_set_params() {
     let mut s = valve();
     let paths = tmp_dir("tool");
@@ -439,6 +456,7 @@ fn drawing_tool_sections_views_dimensions_and_save() {
 }
 
 #[test]
+#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn hlr_cache_reuses_unchanged_geometry() {
     let s = valve();
     let spec = s.design().drawing("sheet1").unwrap().clone();

@@ -128,23 +128,7 @@ pub(crate) fn cut_bodies(input: &BrepCutInput<'_>) -> Result<Option<BrepCut>, St
         Some(mut lines) => {
             is_exact = true;
             // Siku potongan bertingkat tidak digambar di tampak potongan.
-            let t2 = vec2(frame.t.dot(right), frame.t.dot(up));
-            let base = vec2(frame.origin.dot(right), frame.origin.dot(up)).dot(t2);
-            let steps: Vec<f32> = frame
-                .pts
-                .windows(2)
-                .filter(|w| (w[0].0 - w[1].0).abs() < 1e-3 && (w[0].1 - w[1].1).abs() > 1e-3)
-                .map(|w| base + w[0].0)
-                .collect();
-            if !steps.is_empty() && t2.length_squared() > 0.5 {
-                lines.segments.retain(|s| {
-                    let a = Vec2::from_array(s.start).dot(t2);
-                    let b = Vec2::from_array(s.end).dot(t2);
-                    !steps
-                        .iter()
-                        .any(|st| (a - st).abs() < 2e-3 && (b - st).abs() < 2e-3)
-                });
-            }
+            crate::hlr_sheet::drop_section_steps(&mut lines, frame, right, up);
             let (f, c) = super::hlr_sheet::exact_features(&remain_refs, &lines, right, up, diag);
             features = f;
             centerlines = c;

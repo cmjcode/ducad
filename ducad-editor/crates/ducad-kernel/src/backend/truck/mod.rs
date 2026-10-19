@@ -7,7 +7,7 @@
 //! - Setiap panggilan ke SolidCraft lewat [`kernel`], yang memakai
 //!   `solidcraft_kernel::guard` (panic → `Err`) dan membungkus pesan galatnya
 //!   dalam bahasa DUCAD.
-//! - Operasi yang belum diporting (fase F4) mengembalikan
+//! - Operasi yang belum diporting mengembalikan
 //!   [`crate::Unsupported`] lewat [`unsupported`], tidak pernah panic.
 //! - Tidak ada kunci global: `KernelShape` di sini `Send + Sync`.
 
@@ -15,6 +15,7 @@ pub mod advanced;
 pub(crate) mod bridge;
 pub mod csg;
 pub mod helix;
+pub(crate) mod hlr_mesh;
 pub mod modify;
 pub mod picking_edge;
 pub mod picking_face;
@@ -22,11 +23,22 @@ pub mod picking_vertex;
 pub mod primitives;
 pub(crate) mod thread;
 pub mod query;
+pub mod section;
 pub mod shape;
 pub mod topo;
 pub(crate) mod topology;
 mod unported;
-pub use unported::{hlr, hlr_exact, mesh, profile, section, step};
+pub use unported::{mesh, profile, step};
+
+/// `crate::hlr` — hook HLR lembar gambar (hybrid B-rep + mesh, F4.2).
+pub mod hlr {
+    pub(crate) use super::hlr_mesh::exact_projected_view;
+}
+
+/// `crate::hlr_exact` — HLR satu shape (F4.2).
+pub mod hlr_exact {
+    pub use super::hlr_mesh::extract_exact_hlr;
+}
 
 /// Pengganti `MutexGuard` backend OCCT: SolidCraft thread-safe, jadi
 /// "mengunci" kernel tidak melakukan apa-apa. Ada supaya kode bersama

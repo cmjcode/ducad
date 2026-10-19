@@ -1,21 +1,17 @@
 //! Worker latar belakang untuk Import STEP (Fase 7 — "tessellation di
 //! thread terpisah" dari `docs/PLAN.md`). Import STEP adalah satu-satunya
 //! operasi kernel yang realistis blocking lama (file besar → `read_step` +
-//! `tessellate` bisa makan waktu berarti) yang juga punya jalur murah untuk
-//! di-background-kan tanpa memindahkan `KernelShape` lintas thread —
-//! `KernelShape` TERBUKTI TIDAK `Send` (lihat komentar `KERNEL_LOCK` di
-//! `ducad-kernel`), jadi worker di sini TIDAK PERNAH mengirim `KernelShape`
-//! lewat channel. Yang lewat cuma tipe `Send` murni: `PathBuf` masuk,
-//! `String` (teks STEP) + `KernelMesh` keluar — thread utama membangun
-//! `KernelShape` MILIKNYA SENDIRI dari string itu (`from_step_string`)
-//! untuk disimpan di `ModelDoc`, sesuai pola "raw types at the kernel
-//! boundary" yang sama dipakai `KernelMesh`/`Profile` sejak Fase 0/3.
+//! `tessellate` bisa makan waktu berarti). Worker membaca file lalu
+//! mengirim `KernelShape` + `KernelMesh` hasilnya lewat channel; UI thread
+//! mengambilnya tiap frame lewat [`ImportWorker::poll`].
 //!
-//! Aman dipanggil bersamaan dengan operasi kernel synchronous lain di UI
-//! thread (Extrude/Fillet/dst) karena `ducad-kernel::KERNEL_LOCK`
-//! menyerialkan SEMUA panggilan OCCT lintas thread — worker ini cuma
-//! membuat UI tidak *beku* menunggu, bukan membuat operasi kernel jalan
-//! paralel (OCCT memang tidak mendukung itu).
+//! Konkurensi bergantung backend (`ducad_kernel::THREAD_SAFE`):
+//! - OCCT: `KERNEL_LOCK` menyerialkan SEMUA panggilan kernel lintas thread —
+//!   worker ini hanya membuat UI tidak *beku*, operasi kernel lain di UI
+//!   thread (Extrude/Fillet/…) menunggu import selesai.
+//! - truck (PLAN_MIGRASI_TRUCK 5.4): tanpa kunci global; import berjalan
+//!   sungguh paralel dengan operasi di UI thread (diuji di
+//!   `ducad-kernel/tests/truck_concurrency.rs`).
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};

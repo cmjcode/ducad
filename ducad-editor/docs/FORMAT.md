@@ -111,7 +111,7 @@ cargo run -p ducad-cli -- migrate-file a.ducad b.ducad --in-place
 
 Sebuah body dimigrasi (STEP → cache) hanya bila: berkas punya `design`, replay **strict** berhasil
 tanpa peringatan (tidak basi), body itu dihasilkan oplog, dan volumenya sama dengan STEP berkas
-(toleransi relatif 1e-6). Hasil diverifikasi sebelum ditulis: replay ulang harus memberi sidik jari
+(toleransi relatif 1e-6 di backend OCCT, 1e-4 di truck — volume tesselasi). Hasil diverifikasi sebelum ditulis: replay ulang harus memberi sidik jari
 yang sama, dan pemuat GUI harus bisa membaca semua body dari cache. Berkas yang tidak memenuhi
 syarat dibiarkan byte-demi-byte (`changed: false`, alasan di `skipped` / `kept_step[].reason`:
 `no_oplog`, `replay_failed: …`, `not_replayable: oplog_stale`, `not_produced_by_oplog`,

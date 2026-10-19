@@ -6,6 +6,31 @@ use crate::shape::KernelShape;
 // Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
 pub use crate::backend::csg::*;
 
+/// Union banyak shape sekaligus (mis. pemotong pattern/hole sebelum satu
+/// boolean ke target). Kosong → shape kosong; satu → shape itu sendiri.
+///
+/// Backend truck (PLAN_MIGRASI_TRUCK 5.4): bila semua bbox saling terpisah
+/// digabung tanpa boolean (`union_apart`); selain itu union berpasangan
+/// berbentuk pohon, tiap tingkat paralel di thread pekerja. Backend OCCT:
+/// lipatan berurutan (kernel diserialkan `KERNEL_LOCK`).
+pub fn union_all(shapes: Vec<KernelShape>) -> Result<KernelShape> {
+    #[cfg(feature = "kernel-truck")]
+    {
+        crate::backend::csg::union_many(shapes)
+    }
+    #[cfg(not(feature = "kernel-truck"))]
+    {
+        let mut it = shapes.into_iter();
+        let Some(mut acc) = it.next() else {
+            return Ok(KernelShape::empty());
+        };
+        for s in it {
+            acc = union(&acc, &s)?;
+        }
+        Ok(acc)
+    }
+}
+
 /// Seberapa jauh sebuah profil di-extrude, dan ke arah mana.
 ///
 /// Sebelumnya hanya ada satu perilaku: maju sejauh `distance` dari bidang

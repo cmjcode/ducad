@@ -393,7 +393,7 @@ impl Ctx<'_> {
                         }
                         let dev = (v - e).abs() / e.abs() * 100.0;
                         (
-                            dev <= *tol_pct,
+                            dev <= *tol_pct + VOLUME_SLACK * 100.0,
                             json!({ "expect": e, "tol_pct": tol_pct }),
                             format!("volume {v:.3} mm³, diharapkan {e:.3} ± {tol_pct}% (selisih {dev:.3}%)"),
                         )
@@ -405,7 +405,7 @@ impl Ctx<'_> {
                             return Err("volume butuh expect atau min/max".into());
                         }
                         (
-                            lo.is_none_or(|l| v >= l) && hi.is_none_or(|h| v <= h),
+                            within(v, lo, hi),
                             json!({ "min": lo, "max": hi }),
                             format!("volume {v:.3} mm³, batas [{lo:?}, {hi:?}]"),
                         )
@@ -453,7 +453,7 @@ impl Ctx<'_> {
                 let grams = g.shape.volume().abs() / 1000.0 * density;
                 let lo = min_g.as_ref().map(|n| self.num(n)).transpose()?;
                 let hi = max_g.as_ref().map(|n| self.num(n)).transpose()?;
-                let pass = lo.is_none_or(|l| grams >= l) && hi.is_none_or(|h| grams <= h);
+                let pass = within(grams, lo, hi);
                 Ok(Outcome::new(
                     pass,
                     json!(round4(grams)),
@@ -887,6 +887,16 @@ impl Ctx<'_> {
             }
         }
     }
+}
+
+/// Kelonggaran relatif pembanding volume/massa = toleransi volume backend
+/// kernel (OCCT 0 → perilaku lama; truck 5e-4, PLAN_MIGRASI_TRUCK §3.1/F5.1).
+const VOLUME_SLACK: f64 = ducad_kernel::VOLUME_REL_TOL;
+
+/// `x` di dalam `[lo, hi]` dengan kelonggaran [`VOLUME_SLACK`] relatif.
+fn within(x: f64, lo: Option<f64>, hi: Option<f64>) -> bool {
+    let slack = |b: f64| b.abs() * VOLUME_SLACK;
+    lo.is_none_or(|l| x >= l - slack(l)) && hi.is_none_or(|h| x <= h + slack(h))
 }
 
 fn bbox_size(g: &BodyGeometry) -> Result<[f64; 3], String> {

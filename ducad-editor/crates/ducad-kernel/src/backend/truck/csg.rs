@@ -226,9 +226,25 @@ fn retry_factors(target: &KernelShape, tool: &KernelShape, grow: bool) -> Option
     Some(k)
 }
 
+/// `solidcraft_kernel::boolean` yang meneruskan percobaan ulang yang BISA
+/// mengubah hasil (geser pemotong, irisan tak terverifikasi) sebagai
+/// peringatan kernel (PLAN_MIGRASI_TRUCK 5.3). Percobaan ulang eksak
+/// (toleransi, pemisahan sementara, …) tidak dilaporkan: hasilnya tetap eksak.
+fn sc_boolean(what: &str, a: &Body, b: &Body, op: BoolOp) -> Result<Option<Body>> {
+    let (r, diag) = solidcraft_kernel::capture_boolean_diagnostics(|| {
+        kernel(what, || solidcraft_kernel::boolean(a, b, op))
+    });
+    if r.is_ok() {
+        if let Some(w) = diag.warning() {
+            crate::diagnostics::warn(format!("boolean_retry: {what}: {w}"));
+        }
+    }
+    r
+}
+
 fn boolean(a: &KernelShape, b: &KernelShape, op: BoolOp, what: &str) -> Result<Option<Body>> {
     let (ba, bb) = (a.require_body(what)?, b.require_body(what)?);
-    let first = match kernel(what, || solidcraft_kernel::boolean(ba, bb, op)) {
+    let first = match sc_boolean(what, ba, bb, op) {
         Ok(r) => return Ok(r),
         Err(e) => e,
     };
@@ -250,13 +266,15 @@ fn boolean(a: &KernelShape, b: &KernelShape, op: BoolOp, what: &str) -> Result<O
         [0.0, 0.0, k[2], 0.0],
         [c[0] * (1.0 - k[0]), c[1] * (1.0 - k[1]), c[2] * (1.0 - k[2]), 1.0],
     ];
-    let retried = kernel(what, || {
-        let b2 = solidcraft_kernel::transform_matrix(bb, m)?;
-        solidcraft_kernel::boolean(ba, &b2, op)
-    });
+    let retried = kernel(what, || solidcraft_kernel::transform_matrix(bb, m))
+        .and_then(|b2| sc_boolean(what, ba, &b2, op));
     match retried {
         Ok(r) => {
-            log::warn!("{what}: boolean diulang dengan pemotong diskalakan {k:?} (singgungan persis)");
+            let msg = format!(
+                "boolean_retry: {what}: pemotong diskalakan {k:?} terhadap pusat bbox-nya (singgungan persis)"
+            );
+            log::warn!("{msg}");
+            crate::diagnostics::warn(msg);
             Ok(r)
         }
         Err(_) => Err(first),
@@ -275,6 +293,49 @@ pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
         .context("gagal menggabungkan (union) dua shape")?
         .map(KernelShape::from_body)
         .ok_or_else(|| anyhow!("gagal menggabungkan (union) dua shape: hasil kosong"))
+}
+
+/// Backend `crate::csg::union_all`: tanpa boolean bila semua bbox terpisah,
+/// selain itu reduksi pohon berpasangan — tiap tingkat paralel lewat
+/// `map_with_local_pools` (satu pool rayon per thread pekerja, panic → `Err`).
+/// Peringatan kernel di thread pekerja dikumpulkan lalu dicatat ulang di
+/// thread pemanggil.
+pub(crate) fn union_many(shapes: Vec<KernelShape>) -> Result<KernelShape> {
+    let mut level: Vec<KernelShape> = shapes.into_iter().filter(|s| s.body().is_some()).collect();
+    match level.len() {
+        0 => return Ok(KernelShape::empty()),
+        1 => return level.pop().ok_or_else(|| anyhow!("union_all: kosong")),
+        _ => {}
+    }
+    let bodies: Vec<Body> = level.iter().filter_map(|s| s.body().cloned()).collect();
+    if let Some(b) = kernel("union_all", || solidcraft_kernel::union_apart(&bodies))? {
+        return Ok(KernelShape::from_body(b));
+    }
+    let threads = std::thread::available_parallelism().map(usize::from).unwrap_or(1);
+    while level.len() > 1 {
+        let odd = (level.len() % 2 == 1).then(|| level.pop()).flatten();
+        let pairs: Vec<(KernelShape, KernelShape)> = {
+            let mut it = level.into_iter();
+            let mut v = Vec::new();
+            while let (Some(a), Some(b)) = (it.next(), it.next()) {
+                v.push((a, b));
+            }
+            v
+        };
+        let results = solidcraft_kernel::map_with_local_pools(&pairs, threads, |(a, b)| {
+            Ok(crate::diagnostics::capture_kernel_warnings(|| union(a, b)))
+        });
+        level = Vec::with_capacity(pairs.len() + 1);
+        for r in results {
+            let (shape, warnings) = r.map_err(|e| anyhow!("union_all: {e}"))?;
+            for w in warnings {
+                crate::diagnostics::warn(w);
+            }
+            level.push(shape?);
+        }
+        level.extend(odd);
+    }
+    level.pop().ok_or_else(|| anyhow!("union_all: kosong"))
 }
 
 /// Subtract (`a` dikurangi `b`). Hasil kosong (b menelan a) = shape kosong.

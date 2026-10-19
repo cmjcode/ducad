@@ -295,6 +295,48 @@ Catatan untuk fase berikutnya:
 
 **Exit gate F3**: 31/31 op `golden check` hijau atau masuk `known_failures.txt` dengan alasan; `evals/` semua contoh `get_schema` lolos `run_checks`.
 
+**Status F3 (2026-10-19): selesai, dengan 1 contoh dilewati karena performa (R7 → F5).** Hasil gate:
+
+| Gate | Hasil |
+|---|---|
+| `golden check --known tests/goldens/known_failures.truck.txt` (truck vs golden OCCT, korpus penuh, semua op) | **20/21 lulus** (18 identik, 2 dengan perbedaan topologi yang diterima), 1 dilewati: `valve_body` (R7, lihat bawah). Semua vonis check — termasuk studi statik/frekuensi/termal `pillow_block` — sama dengan OCCT |
+| `golden check` penuh, backend OCCT | 21/21 (tidak berubah) |
+| `cargo test -p ducad-kernel --lib`, truck (tes modul `tests.rs` kini jalan di KEDUA backend) | 221 lulus, 0 gagal, 13 diabaikan beralasan: 10 F4 (HLR eksak / tampak potongan B-rep), R2 (chamfer sudut campuran cekung+cembung), klaim ukuran BREP OCCT, + 1 lama |
+| idem, OCCT | 259 lulus (tes yang menyentuh tipe OCCT dipindah ke `tests::occt_only`) |
+| `SEEDS=0..95 cargo test --test fuzz_boolean` (truck) | **96/96 identitas volume (100 %)**, target ≥ 80 %; tidak ada known failure |
+| `ducad-app` (truck): `rounding`, `lines`, `adapter_tests` | 49/49 |
+| `cargo test -p ducad-engine --features kernel-truck -- --skip valve --skip drawing_golden_hashes --skip drawing_tool_ --skip hlr_cache` | **223 lulus, 0 gagal** (akhir F2: 143/84). Yang dilewati = 6 tes yang membangun `valve_body` (R7) — semuanya tes gambar F4; termasuk 1 tes baru berkas lintas-backend di `session_file` |
+| idem tes engine yang tersentuh (`session_file`, `dfm`, `checks`, `compute`), OCCT | lulus |
+| clippy `ducad-kernel` truck `-D warnings` | bersih |
+
+Yang dibangun (`crates/ducad-kernel/src/backend/truck/`):
+
+- **3.1 `modify.rs`** fillet/chamfer semua varian (all, ray, by_index, vertex, variable). Indeks/ray DUCAD → face/edge logis → **satu titik per anggota SolidCraft** (`LEdge::member_mids`, `LFace::member_points` baru di `topology.rs`; titik face diproyeksikan ke permukaan analitiknya). Seam tidak ikut "semua tepi". Radius variabel: per tepi lurus (`fillet_variable`); tepi lengkung → `Unsupported`. Chamfer yang ditolak sekaligus dicoba per tepi.
+- **3.2** shell (`ShellOpening::{Indices,Rays,Farthest}`; kedalaman rongga = hollow + `half_space` + union), draft (`polyhedron::draft`), split body (`split_by_plane`, dipecah per lump) / dengan tool / split face. **Shell tebal variabel diimplementasikan** (bukan `Unsupported` seperti §4.3) untuk body konveks berface planar: rongga = polihedron konveks dengan offset per face; body lain → `Unsupported`.
+- **3.3** pattern linear/melingkar & mirror sudah jalan sejak F2 (murni transformasi); `advanced.rs`: loft lintas bidang, draft & fillet variabel by index.
+- **3.4 `helix.rs`** `sweep_helix` (gerak sekrup, dinding B-spline; ulir kiri = sumbu −k + pitch negatif); helix kerucut → `sweep_path` di sepanjang titik helix.
+- **3.5** hole: `hole.rs` netral-backend sudah jalan; tambahan `apply_holes` (di truck semua pemotong digabung lalu SATU boolean). Thread: **§4.2 pilihan A** — `thread.rs` (truck) = `sweep_helix_mesh` 48 stasiun/putaran + `faceted_boolean`; boolean B-rep alur B-spline tidak selesai dalam hitungan menit (R4). Standard part & sheet metal lulus (komposisi F2).
+- **3.6** rib = polihedron konveks dari setengah-ruang (juga prisma miring; draft = dua sisi panjang condong masuk); `extrude_face` = `copy_faces` + `thicken` + boolean (face lengkung: radius berubah); `revolve_face` (face planar; region dari edge logis, lingkaran eksak, `bridge::face_region`); `resize_shape_along_edge` (face di ujung AKHIR rusuk didahulukan); `make_filleted_box`. Emboss sudah jalan sejak F2.
+- **3.7** `crates/ducad-kernel/tests/fuzz_boolean.rs`: port `sc:fuzz.rs` lewat API publik DUCAD (RNG & generator identik → seed sama dengan SolidCraft); `BLESS=1` menulis `tests/fuzz_boolean_known_failures.<backend>.txt`; CI menjalankan 24 seed.
+
+Perbaikan di luar tabel yang ternyata perlu:
+
+- **Bug SolidCraft** `surfaces::nearest_face` (dipakai `copy_faces`) mengukur jarak ke pusat/vertex segitiga → titik di tengah face atas kotak memilih face samping. Diperbaiki di vendor (jarak titik–segitiga), bertanda `DUCAD:`, dicatat di `vendors/solidcraft/README.md` (perubahan 4).
+- **Boolean singgungan persis** (R1, `pillow_block`: silinder menyinggung sisi kotak + alas): truck gagal "no result". `csg::boolean` kini mengulang sekali dengan pemotong diskalakan 1e-5 **hanya pada sumbu tanpa face datar yang sebidang dengan target** (face berimpit tetap berimpit); sisa: 2 face serpihan 0,4 µm (dicatat di known failures).
+- **Topologi logis**: (a) seam tidak dihitung saat menyambung busur satu lingkaran (lingkaran bor ter-chamfer = 1 edge seperti OCCT); (b) dua face B-spline yang menyambung mulus di ≥ 2 edge = satu face cincin + seam (tabung pegas 3 face/3 edge seperti OCCT); (c) busur B-spline berbentuk lingkaran dikenali lewat lingkaran 3-titik; (d) `face_boundary` face periodik berjalan lingkaran A → seam → lingkaran B (rentang aksial lubang terukur → check DFM `hole_web`).
+- **Berkas lintas-backend** (penting untuk gate F1 "semua `.ducad` lama terbuka"): sidik jari `design` (hash volume 6 desimal) TIDAK PERNAH cocok antar-backend, sehingga di truck setiap berkas lama diam-diam kehilangan oplog-nya. Kini v4 menyimpan `design.geometry` (ringkasan nama/volume/bbox per body, `docs/FORMAT.md`); sidik jari beda tetapi ringkasan cocok dalam toleransi → replay dipakai. Berkas tanpa ringkasan: replay dibandingkan dengan body STEP-nya. `migrate-file`: toleransi volume 1e-4 di truck.
+- **Massa** truck: chord tesselasi relatif radius face terkecil (berlantai relatif ukuran body) dan di-cache per shape — momen inersia silinder ramping kini < 1e-4.
+- Check DFM `hole_web`: sinar radial yang lolos tepat di sambungan segitiga dilewati, tidak menggugurkan lubang.
+- `golden check`: progres per contoh ke stderr; `--known <berkas>` (`sumber<TAB>awalan-perbedaan<TAB>alasan`, `*skip*` = lewati); toleransi bbox + satu chord mesh bila membandingkan backend lain dengan golden OCCT (bbox golden OCCT diambil dari mesh, meleset ke dalam sampai satu chord). CI: langkah golden truck kini korpus penuh + `--known`.
+- Tes yang mengunci angka mesh/volume eksak OCCT dibuat netral-backend (volume, bukan jumlah vertex) atau bertoleransi per backend (§3.1: 1e-4 di truck). Chamfer semua tepi kubus: sudut dimitre di SolidCraft (7568) vs segitiga sudut di OCCT (7562,67) — keduanya sah, dikunci per backend.
+
+Known failures / catatan untuk fase berikutnya:
+
+- **`valve_body` (R7 → F5)**: tiap boolean lubang pada body berfillet ±1 menit (debug); replay penuh > 30 menit bahkan di build rilis. Waktu habis di tesselasi face berbatas kurva irisan (`presearch`, `double_projection`, trimming) yang diulang di `boolean_whole_with_refinement`. `encode_native_body` juga gagal untuk body ini ("intersection fit did not converge") → cache `brep` v4 terlewati (oplog tetap membangunnya). Tes engine yang membangun valve (`drawing_golden`, …) karenanya sangat lambat di truck.
+- Loft persegi→lingkaran: OCCT 7 face/15 edge, SolidCraft 6/12 (pembagian sisi berbeda; volume sama).
+- R2: chamfer sudut campuran cekung+cembung ditolak SolidCraft.
+- Extrude miring terhadap bidang sketsa tetap `Unsupported` (F2).
+
 ### F4 — I/O, HLR, drawing (2 minggu)
 
 | Task | File | Validasi |
@@ -317,6 +359,24 @@ Catatan untuk fase berikutnya:
 | 5.5 Proposal/diff/undo-redo (`diff.rs:458 clone_shape`) | verifikasi | tes `ducad-engine` |
 
 **Exit gate F5**: `cargo test --workspace --features kernel-truck` hijau; `golden check` hijau; benchmark ≤ 2× baseline OCCT untuk 90 % op (SolidCraft dikenal lambat pada pattern besar — ukur, jangan asumsikan).
+
+**Status F5 (2026-10-19): kode selesai, gate BELUM hijau** (dikerjakan paralel dengan F3/F4 yang belum selesai; gate bergantung keduanya).
+
+| Task | Hasil |
+|---|---|
+| 5.1 | `ducad_kernel::VOLUME_REL_TOL` (OCCT 0, truck 5e-4). Check `volume` (expect ± `tol_pct` dan min/max) dan `mass` memberi kelonggaran relatif sebesar itu → perilaku OCCT tidak berubah. `sim.rs` sudah memakai `face_ranges` terurut (bridge F2) dan `exact_volume_mm3 = volume()`; tidak perlu diubah. Tes engine yang membandingkan volume dengan rumus analitik (sheet metal ×3, ulir kosmetik, standard part M3) memakai `max(1e-6, VOLUME_REL_TOL)`; perbandingan replay-vs-replay tetap ketat (truck deterministik). |
+| 5.2 | Tanpa perubahan: `check_clearance` truck sudah `body_distance` eksak (F2), `detect_interference` memakai `intersect` backend. |
+| 5.3 | Modul baru `ducad_kernel::diagnostics` (`capture_kernel_warnings`, `warn`; lingkup per thread, bersarang, maks 32, tanpa duplikat). Boolean truck membungkus `capture_boolean_diagnostics` SolidCraft dan meneruskan `BooleanDiagnostics::warning()` (hanya strategi yang bisa mengubah hasil: `ToolNudge`, `UnverifiedShortcut`) + percobaan ulang skala 1e-5 milik DUCAD sebagai `boolean_retry: …`. `Session::run` membungkus tiap op → `outcomes[i].warnings`. Deskripsi tool MCP `run_ops` menjelaskan `boolean_retry`. |
+| 5.4 | `lock_kernel()` truck = no-op sejak F2 (tidak ada mutex); `ducad_kernel::THREAD_SAFE`. `ducad_kernel::union_all` (OCCT: lipatan berurutan; truck: `union_apart` tanpa boolean bila bbox terpisah, selain itu reduksi pohon berpasangan paralel lewat `map_with_local_pools` SolidCraft, peringatan pekerja dicatat ulang di thread pemanggil) dipakai `place_solids_with_material` mode add/cut. Tes `ducad-kernel/tests/truck_concurrency.rs`: 6 thread import STEP + boolean bersamaan pada shape bersama = hasil berurutan; `union_all` = lipatan biasa. Komentar `import_worker.rs` diperbarui. |
+| 5.5 | Tes `diff`, `edit` (undo/redo), `replay`, `session` hijau di truck. |
+
+Hasil gate saat ini:
+
+- `cargo test -p ducad-engine --features kernel-truck`: semua berkas tes hijau **kecuali** `drawing_golden` (tidak selesai > 30 menit: valve_body, lihat di bawah) dan `session_file` (sedang diubah sesi F3, belum kompil). `--lib` 81/81.
+- `cargo test -p ducad-kernel` (OCCT) 260/260; tes truck baru 2/2 + unit `diagnostics`.
+- `cargo clippy -D warnings` OCCT (kernel, engine, mcp, app): bersih. Clippy truck terhalang satu galat di `backend/truck/hlr_mesh.rs` (pekerjaan F4 yang sedang berjalan).
+- **Terbuka (R7, blocker gate F5)**: `valve_body` di truck — tiap boolean lubang pada body ber-fillet ±59 s (debug), replay golden > 30 menit (release). Waktu habis di tesselasi truck untuk face berbatas kurva irisan (`intersection_curve::double_projection`, `trimming_with_steps`) yang diulang di `boolean_whole_with_refinement` / `refined_with_cache`. Juga `encode_native_body` gagal pada body yang sama (cache v4 dilewati). Saat ini `*skip*` di `known_failures.truck.txt` (F3). Perlu perbaikan di vendor SolidCraft (cache tesselasi antar-percobaan atau toleransi kasar untuk klasifikasi) sebelum benchmark ≤ 2× bisa diukur.
+- Benchmark ≤ 2× OCCT belum diukur (`cargo bench -p ducad-kernel --features kernel-truck`), menunggu R7 di atas dan F3/F4 selesai.
 
 ### F6 — Platform, cutover, pembersihan (1 minggu + soak 2 minggu)
 

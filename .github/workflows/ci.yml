@@ -254,6 +254,16 @@ jobs:
           golden check --against tests/goldens/occt --tol 1e-3
           --known tests/goldens/known_failures.truck.txt
 
+      # Gate F4: lembar gambar (HLR hybrid, tampak potongan B-rep, ekspor
+      # PDF/SVG/DXF, STEP) di backend truck. Hash golden truck terpisah:
+      # `ducad-engine/tests/golden/drawing.hashes.truck.json`.
+      - name: drawing (backend truck)
+        if: runner.os == 'Linux'
+        run: >
+          cargo test --features kernel-truck -p ducad-io
+          && cargo test --features kernel-truck -p ducad-engine --test drawing_golden --test drawing_auto
+          && cargo test --features kernel-truck -p ducad-ui --test drawing_sheet_smoke
+
   # ---------------------------------------------------------------------
   # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:
   # backlog advisory/lisensi belum pernah dibereskan, dan gate merah sejak
