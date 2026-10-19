@@ -238,7 +238,7 @@ impl BodyToolsPopup {
             ui.end_row();
         });
         ui.add_space(4.0);
-        apply_button(ui, &t!("prim-create")).then(|| BodyToolEvent::CreatePrimitive {
+        apply_button(ui, &t!("prim-create")).then_some(BodyToolEvent::CreatePrimitive {
             kind: state.kind,
             dims: state.dims(),
             at: state.at,
@@ -267,7 +267,7 @@ impl BodyToolsPopup {
         }
         ui.checkbox(&mut state.keep_original, t!("body-tool-keep-original"));
         ui.add_space(4.0);
-        apply_button(ui, &t!("mirror-body-apply")).then(|| BodyToolEvent::MirrorBody {
+        apply_button(ui, &t!("mirror-body-apply")).then_some(BodyToolEvent::MirrorBody {
             plane: state.plane,
             through_center: state.through_center,
             keep_original: state.keep_original,
@@ -306,7 +306,7 @@ impl BodyToolsPopup {
             state.angle_deg = snap_angle_15(state.angle_deg);
         }
         ui.add_space(4.0);
-        apply_button(ui, &t!("rotate-body-apply")).then(|| BodyToolEvent::RotateBody {
+        apply_button(ui, &t!("rotate-body-apply")).then_some(BodyToolEvent::RotateBody {
             axis: state.axis,
             angle_deg: state.angle_deg,
             about_center: state.about_center,

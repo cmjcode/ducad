@@ -21,6 +21,7 @@ pub mod brief_studio_ui;
 pub mod chat_ui;
 pub mod checks_ui;
 pub mod closed_objects;
+pub mod design_tools;
 pub mod document;
 pub mod error_card_ui;
 pub mod file_io;
@@ -32,6 +33,7 @@ pub mod ink;
 pub mod input;
 pub mod live_tools;
 pub mod logging;
+pub mod loose_ends;
 pub mod mass_ui;
 /// Memori MNEMONIC tertaut langsung (P11.5); lihat fitur `memory`.
 #[cfg(feature = "memory")]
@@ -48,10 +50,13 @@ pub mod review_ui;
 pub mod sim_ui;
 pub mod sketch_constraints;
 pub mod sketch_dims;
+pub mod sketch_modes;
+pub mod text_edit;
 pub mod types;
 pub mod ui;
 pub mod update_ui;
 pub mod vector;
+pub mod view_tools;
 pub mod viewport;
 
 pub use app::DuCADApp;

@@ -1723,3 +1723,21 @@ fn text_glyphs_inherit_layer_of_text() {
         assert_eq!(sketch.origin.get(gid), Some(&Origin::Text { text: tid }));
     }
 }
+
+#[test]
+fn arc_from_center_uses_start_radius_and_end_direction() {
+    let arc = arc_from_center(DVec2::ZERO, DVec2::new(5.0, 0.0), DVec2::new(0.0, 20.0)).unwrap();
+    let Entity::Arc { radius, start_angle, end_angle, .. } = arc else { panic!("bukan busur") };
+    assert!((radius - 5.0).abs() < 1e-12);
+    assert!(start_angle.abs() < 1e-12);
+    assert!((end_angle - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+    assert!(arc_from_center(DVec2::ZERO, DVec2::ZERO, DVec2::X).is_none());
+    assert!(arc_from_center(DVec2::ZERO, DVec2::X, DVec2::new(2.0, 0.0)).is_none());
+    assert!(arc_from_center(DVec2::ZERO, DVec2::new(f64::NAN, 0.0), DVec2::Y).is_none());
+}
+
+#[test]
+fn rect_from_center_mirrors_corner() {
+    let c = rect_opposite_corner_from_center(DVec2::new(1.0, 1.0), DVec2::new(4.0, 3.0));
+    assert_eq!(c, DVec2::new(-2.0, -1.0));
+}

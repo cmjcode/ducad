@@ -213,26 +213,26 @@ pub fn build_constraints(sk: &Sketch, sel: &[EntityId], action: ConstraintAction
             )
             .map(|(point, curve)| Constraint::PointOnCurve { point, curve })
         })),
-        A::ToggleSnap | A::ApplyFixed | A::ApplySymmetric | A::AutoConstrain => Vec::new(),
+        A::ApplyFixed | A::ApplySymmetric | A::AutoConstrain => Vec::new(),
     }
 }
 
 impl DuCADApp {
-    fn selected_vec(&self) -> Vec<EntityId> {
+    /// Seleksi sketsa terurut (urutan stabil untuk `valid_actions`/`build_constraints`).
+    pub(crate) fn sorted_selection(&self) -> Vec<EntityId> {
         let mut v: Vec<EntityId> = self.selected.iter().copied().collect();
         v.sort();
         v
     }
 
-    /// Jalankan aksi strip constraint untuk seleksi sketsa saat ini.
+    /// Jalankan aksi baris constraint (context bar bawah) untuk seleksi sketsa saat ini.
     pub fn apply_sketch_strip_action(&mut self, action: ConstraintAction) {
         match action {
-            ConstraintAction::ToggleSnap => {}
             ConstraintAction::ApplyFixed => self.set_tool(ToolKind::FixedPick),
             ConstraintAction::ApplySymmetric => self.set_tool(ToolKind::SymmetricPick),
             ConstraintAction::AutoConstrain => self.auto_constrain(),
             _ => {
-                let sel = self.selected_vec();
+                let sel = self.sorted_selection();
                 let cs = build_constraints(self.sketch(), &sel, action);
                 if cs.is_empty() {
                     self.constraint_status = Some(ducad_i18n::t!("constraint-not-applicable"));
@@ -250,7 +250,7 @@ impl DuCADApp {
         let ids: Vec<EntityId> = if self.selected.is_empty() {
             self.sketch().entities.keys().collect()
         } else {
-            self.selected_vec()
+            self.sorted_selection()
         };
         if ids.is_empty() {
             self.constraint_status = Some(ducad_i18n::t!("constraint-auto-none"));
@@ -269,33 +269,6 @@ impl DuCADApp {
         }
         self.execute_sketch_command(Box::new(AddConstraints::new(inferred.accepted)));
         self.constraint_status = Some(ducad_i18n::t!("constraint-auto-done", count = n));
-    }
-
-    /// Strip constraint di kanan kanvas untuk seleksi sketsa (bukan Node Edit).
-    pub fn show_sketch_constraint_strip(&mut self, ctx: &egui::Context, screen_rect: egui::Rect) {
-        if !self.is_sketching
-            || self.tool != ToolKind::Select
-            || self.app_mode == crate::mode::AppMode::Vector
-            || self.drawing_sheet_state.is_open
-        {
-            return;
-        }
-        let sel = self.selected_vec();
-        let valid = valid_actions(self.sketch(), &sel);
-        let picked = egui::Area::new(egui::Id::new("ducad-sketch-constraint-strip"))
-            .fixed_pos(egui::pos2(
-                screen_rect.max.x - 40.0 - self.drawer_right_inset(),
-                screen_rect.center().y,
-            ))
-            .pivot(egui::Align2::RIGHT_CENTER)
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                ducad_ui::ConstraintStrip::default().show_with_valid(ui, sel.len(), Some(&valid))
-            })
-            .inner;
-        if let Some(action) = picked.filter(|a| *a != ConstraintAction::ToggleSnap) {
-            self.apply_sketch_strip_action(action);
-        }
     }
 }
 

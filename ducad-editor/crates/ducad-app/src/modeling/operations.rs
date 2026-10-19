@@ -135,7 +135,12 @@ impl DuCADApp {
                 self.model_status = None;
             }
             Err(e) => {
-                self.model_status = Some(op_status("Extrude", &e));
+                let loose = self.highlight_loose_ends();
+                self.model_status = Some(if loose > 0 {
+                    format!("{} — {}", op_status("Extrude", &e), ducad_i18n::t!("loose-ends-found", count = loose))
+                } else {
+                    op_status("Extrude", &e)
+                });
                 self.show_op_error(&e, Vec::new());
             }
         }

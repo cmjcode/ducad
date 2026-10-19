@@ -1,19 +1,24 @@
-//! Strip Ikon Constraint & Snap Bergaya Shapr3D dengan Material Icons.
+//! Baris ikon constraint sketsa untuk contextual action bar bawah.
 //!
-//! Menampilkan strip ikon vertikal mengambang di sebelah kanan kanvas
-//! untuk akses cepat pemasangan constraint geometris dan pengaturan snap.
+//! Dulu strip vertikal mengambang di kanan kanvas yang selalu menampilkan 16
+//! tombol (sebagian besar nonaktif). Sekarang: baris horizontal ringkas yang
+//! HANYA memuat constraint yang berlaku untuk seleksi saat ini, dipasang di
+//! context bar bawah (seleksi sketsa) atau bar node (Node Edit). Tidak ada
+//! seleksi → tidak ada baris. Lebar maksimum ≈ 9 ikon, jauh lebih sempit dari
+//! baris aksi pemodelan, sehingga aman di layar kecil.
 
-use egui::{RichText, Ui, Vec2};
 use ducad_i18n::t;
+use egui::{Button, RichText, Ui, Vec2};
 use egui_icons::icons::{
-    ICON_AUTO_FIX_HIGH, ICON_COMMIT, ICON_LINEAR_SCALE, ICON_LINK, ICON_LOCK, ICON_TRIP_ORIGIN,
+    ICON_AUTO_FIX_HIGH, ICON_CLOSE_FULLSCREEN, ICON_COMMIT, ICON_EQUAL, ICON_FLIP, ICON_HEIGHT,
+    ICON_HORIZONTAL_RULE, ICON_LINEAR_SCALE, ICON_LINE_CURVE, ICON_LOCK, ICON_PAUSE,
+    ICON_RADIO_BUTTON_CHECKED, ICON_SQUARE_FOOT, ICON_STRAIGHTEN, ICON_TRIP_ORIGIN,
     ICON_VERTICAL_ALIGN_CENTER,
 };
-use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
+use crate::theme::{ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstraintAction {
-    ToggleSnap,
     ApplyHorizontal,
     ApplyVertical,
     ApplyParallel,
@@ -37,92 +42,100 @@ pub enum ConstraintAction {
     AutoConstrain,
 }
 
-pub struct ConstraintStrip {
-    pub snap_enabled: bool,
-}
+impl ConstraintAction {
+    /// Urutan tampil tetap di baris, apa pun urutan daftar `valid`.
+    pub const DISPLAY_ORDER: [ConstraintAction; 16] = [
+        Self::ApplyHorizontal,
+        Self::ApplyVertical,
+        Self::ApplyParallel,
+        Self::ApplyPerpendicular,
+        Self::ApplyCollinear,
+        Self::ApplyEqualLength,
+        Self::ApplyEqualRadius,
+        Self::ApplyConcentric,
+        Self::ApplyTangent,
+        Self::ApplyCoincident,
+        Self::ApplyMidpoint,
+        Self::ApplyPointOnCurve,
+        Self::ApplySymmetric,
+        Self::ApplyDistance,
+        Self::ApplyFixed,
+        Self::AutoConstrain,
+    ];
 
-impl Default for ConstraintStrip {
-    fn default() -> Self {
-        Self { snap_enabled: true }
+    /// Ikon Material (bukan glyph Unicode mentah: lihat aturan "tofu").
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::ApplyHorizontal => ICON_HORIZONTAL_RULE.codepoint,
+            Self::ApplyVertical => ICON_HEIGHT.codepoint,
+            Self::ApplyParallel => ICON_PAUSE.codepoint,
+            Self::ApplyPerpendicular => ICON_SQUARE_FOOT.codepoint,
+            Self::ApplyCollinear => ICON_LINEAR_SCALE.codepoint,
+            Self::ApplyEqualLength => ICON_EQUAL.codepoint,
+            Self::ApplyEqualRadius => ICON_RADIO_BUTTON_CHECKED.codepoint,
+            Self::ApplyConcentric => ICON_TRIP_ORIGIN.codepoint,
+            Self::ApplyTangent => ICON_LINE_CURVE.codepoint,
+            Self::ApplyCoincident => ICON_CLOSE_FULLSCREEN.codepoint,
+            Self::ApplyMidpoint => ICON_VERTICAL_ALIGN_CENTER.codepoint,
+            Self::ApplyPointOnCurve => ICON_COMMIT.codepoint,
+            Self::ApplySymmetric => ICON_FLIP.codepoint,
+            Self::ApplyDistance => ICON_STRAIGHTEN.codepoint,
+            Self::ApplyFixed => ICON_LOCK.codepoint,
+            Self::AutoConstrain => ICON_AUTO_FIX_HIGH.codepoint,
+        }
+    }
+
+    pub fn tooltip(self) -> String {
+        match self {
+            Self::ApplyHorizontal => t!("constraint-horizontal-tip"),
+            Self::ApplyVertical => t!("constraint-vertical-tip"),
+            Self::ApplyParallel => t!("constraint-parallel-tip"),
+            Self::ApplyPerpendicular => t!("constraint-perpendicular-tip"),
+            Self::ApplyCollinear => t!("constraint-collinear-tip"),
+            Self::ApplyEqualLength => t!("constraint-equal-length-tip"),
+            Self::ApplyEqualRadius => t!("constraint-equal-radius-tip"),
+            Self::ApplyConcentric => t!("constraint-concentric-tip"),
+            Self::ApplyTangent => t!("constraint-tangent-tip"),
+            Self::ApplyCoincident => t!("constraint-coincident-tip"),
+            Self::ApplyMidpoint => t!("constraint-midpoint-tip"),
+            Self::ApplyPointOnCurve => t!("constraint-point-on-curve-tip"),
+            Self::ApplySymmetric => t!("constraint-symmetric-tip"),
+            Self::ApplyDistance => t!("constraint-distance-tip"),
+            Self::ApplyFixed => t!("constraint-fixed-tip"),
+            Self::AutoConstrain => t!("constraint-auto-tip"),
+        }
     }
 }
+
+const MIN_BTN: f32 = 26.0;
+
+/// Baris ikon constraint: hanya `valid` yang digambar, dalam `DISPLAY_ORDER`.
+/// Kosong → tidak menggambar apa pun. Mengembalikan aksi yang diklik.
+pub struct ConstraintStrip;
 
 impl ConstraintStrip {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Render strip ikon constraint vertikal. Mengembalikan `Option<ConstraintAction>`.
-    pub fn show(&mut self, ui: &mut Ui, selected_count: usize) -> Option<ConstraintAction> {
-        self.show_with_valid(ui, selected_count, None)
-    }
-
-    /// Render strip ikon constraint vertikal dengan daftar constraint yang valid/diaktifkan.
-    pub fn show_with_valid(
-        &mut self,
-        ui: &mut Ui,
-        selected_count: usize,
-        valid_actions: Option<&[ConstraintAction]>,
-    ) -> Option<ConstraintAction> {
+    pub fn show_row(ui: &mut Ui, valid: &[ConstraintAction], icon_size: f32) -> Option<ConstraintAction> {
+        if valid.is_empty() {
+            return None;
+        }
+        let icon_sz = icon_size.clamp(12.0, 18.0);
+        let side = (icon_sz + 12.0).max(MIN_BTN);
         let mut action = None;
 
-        glass_frame().show(ui, |ui| {
-            ui.set_width(32.0);
-            ui.spacing_mut().item_spacing = Vec2::new(0.0, 2.0);
-
-            // 1. Magnet / Pin Snap Toggle
-            let snap_color = if self.snap_enabled { ACCENT_BLUE } else { TEXT_SECONDARY };
-            let snap_btn = ui.add_sized(
-                Vec2::new(28.0, 26.0),
-                egui::Button::new(RichText::new(ICON_LINK).size(15.0).color(snap_color)),
-            );
-            if snap_btn.on_hover_text("Toggle Snapping (Grid & Endpoint)").clicked() {
-                self.snap_enabled = !self.snap_enabled;
-                action = Some(ConstraintAction::ToggleSnap);
-            }
-
-            ui.separator();
-
-            // 2. Constraint Icons
-            let constraints = [
-                (ConstraintAction::ApplyHorizontal, "—", "Horizontal (1 Garis / 2 Titik)"),
-                (ConstraintAction::ApplyVertical, "|", "Vertical (1 Garis / 2 Titik)"),
-                (ConstraintAction::ApplyParallel, "//", "Parallel / Sejajar (2 Garis)"),
-                (ConstraintAction::ApplyPerpendicular, "⟂", "Perpendicular / Tegak Lurus (2 Garis)"),
-                (ConstraintAction::ApplyEqualLength, "==", "Equal Length / Sama Panjang (2 Garis)"),
-                (ConstraintAction::ApplyEqualRadius, "=R", "Equal Radius (2 Lingkaran/Arc)"),
-                (ConstraintAction::ApplyTangent, "tan", "Tangent / Bersinggungan"),
-                (ConstraintAction::ApplyCoincident, "><", "Coincident / Berimpit (Titik)"),
-                (ConstraintAction::ApplyFixed, ICON_LOCK.codepoint, "Lock / Fixed (Titik)"),
-                (ConstraintAction::ApplyDistance, "dim", "Distance / Jarak (2 Titik)"),
-                (ConstraintAction::ApplySymmetric, "sym", "Symmetric / Simetris"),
-            ];
-
-            let midpoint_tip = t!("constraint-midpoint-tip");
-            let concentric_tip = t!("constraint-concentric-tip");
-            let collinear_tip = t!("constraint-collinear-tip");
-            let on_curve_tip = t!("constraint-point-on-curve-tip");
-            let auto_tip = t!("constraint-auto-tip");
-            let extra: [(ConstraintAction, &str, &str); 5] = [
-                (ConstraintAction::ApplyMidpoint, ICON_VERTICAL_ALIGN_CENTER.codepoint, &midpoint_tip),
-                (ConstraintAction::ApplyConcentric, ICON_TRIP_ORIGIN.codepoint, &concentric_tip),
-                (ConstraintAction::ApplyCollinear, ICON_LINEAR_SCALE.codepoint, &collinear_tip),
-                (ConstraintAction::ApplyPointOnCurve, ICON_COMMIT.codepoint, &on_curve_tip),
-                (ConstraintAction::AutoConstrain, ICON_AUTO_FIX_HIGH.codepoint, &auto_tip),
-            ];
-
-            for (act, icon, tooltip) in constraints.into_iter().chain(extra) {
-                let enabled = if let Some(valid) = valid_actions {
-                    valid.contains(&act)
-                } else {
-                    selected_count > 0
-                };
-
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
+            ui.label(RichText::new(t!("context-constraints-label")).size(11.0).color(TEXT_SECONDARY));
+            ui.add_space(4.0);
+            for act in ConstraintAction::DISPLAY_ORDER {
+                if !valid.contains(&act) {
+                    continue;
+                }
+                let color = if act == ConstraintAction::AutoConstrain { ACCENT_BLUE } else { TEXT_PRIMARY };
                 let btn = ui.add_sized(
-                    Vec2::new(28.0, 24.0),
-                    egui::Button::new(RichText::new(icon).size(11.0).strong().color(if enabled { TEXT_PRIMARY } else { TEXT_SECONDARY })),
+                    Vec2::new(side, side),
+                    Button::new(RichText::new(act.icon()).size(icon_sz).color(color)).frame(false),
                 );
-                if enabled && btn.on_hover_text(tooltip).clicked() {
+                if btn.on_hover_text(act.tooltip()).clicked() {
                     action = Some(act);
                 }
             }
@@ -131,4 +144,3 @@ impl ConstraintStrip {
         action
     }
 }
-

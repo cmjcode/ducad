@@ -365,6 +365,19 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
     let mut iterations = 0;
     let mut max_residual = 0.0;
 
+    // Grup kaku: anggota yang grup-nya memuat instance grounded ikut
+    // dianggap grounded, dan mate di dalam satu grup diabaikan.
+    let groups: Vec<Vec<AssemblyInstanceId>> = tree.rigid_groups.clone();
+    let group_of = |id: AssemblyInstanceId| groups.iter().position(|g| g.contains(&id));
+    let grounded_groups: Vec<bool> = groups
+        .iter()
+        .map(|g| g.iter().any(|id| tree.instances.get(id).is_some_and(|i| i.is_grounded)))
+        .collect();
+    let is_grounded = |tree: &AssemblyTree, id: AssemblyInstanceId| {
+        tree.instances.get(&id).is_some_and(|i| i.is_grounded)
+            || group_of(id).is_some_and(|g| grounded_groups[g])
+    };
+
     for iter in 0..MAX_ASSEMBLY_ITERS {
         iterations = iter + 1;
         // Koreksi dikumpulkan dulu untuk SEMUA mate dari keadaan yang sama,
@@ -379,8 +392,11 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
             };
             let id_a = mate.target_a.instance_id;
             let id_b = mate.target_b.instance_id;
-            let a_grounded = tree.instances.get(&id_a).is_some_and(|i| i.is_grounded);
-            let b_grounded = tree.instances.get(&id_b).is_some_and(|i| i.is_grounded);
+            if group_of(id_a).is_some() && group_of(id_a) == group_of(id_b) {
+                continue;
+            }
+            let a_grounded = is_grounded(tree, id_a);
+            let b_grounded = is_grounded(tree, id_b);
             if a_grounded && b_grounded {
                 continue;
             }
@@ -447,6 +463,48 @@ pub fn solve_assembly(tree: &mut AssemblyTree) -> AssemblySolveReport {
         max_residual = worst;
         if worst < ASSEMBLY_TOL_MM {
             break;
+        }
+
+        // Koreksi anggota grup kaku digabung menjadi SATU gerak rigid:
+        // translasi rata-rata + rotasi mengelilingi pusat anggota pertama
+        // yang terkena koreksi, diterapkan ke semua anggota.
+        for group in &groups {
+            let mut sum_t = DVec3::ZERO;
+            let mut sum_q = DQuat::IDENTITY;
+            let mut n = 0usize;
+            let mut pivot_id = None;
+            for id in group {
+                if let Some((t, q, c)) = accum.remove(id) {
+                    sum_t += t;
+                    sum_q = q * sum_q;
+                    n += c;
+                    pivot_id.get_or_insert(*id);
+                }
+            }
+            let Some(pivot_id) = pivot_id else { continue };
+            let Some((pivot, _)) = tree.instance_world_transform(pivot_id) else { continue };
+            let nf = n.max(1) as f64;
+            let avg_t = sum_t / nf * RELAXATION;
+            let step = if sum_q.length_squared() > 1e-12 {
+                DQuat::IDENTITY.slerp(sum_q.normalize(), RELAXATION / nf)
+            } else {
+                DQuat::IDENTITY
+            };
+            for id in group {
+                let Some((tw, _)) = tree.instance_world_transform(*id) else { continue };
+                let arm = tw - pivot;
+                let world_delta = avg_t + (step * arm - arm);
+                let (_, parent_q) = tree.instance_parent_transform(*id);
+                let Some(inst) = tree.instances.get_mut(id) else { continue };
+                let lt = parent_q.inverse() * world_delta;
+                inst.translation.0 += lt.x;
+                inst.translation.1 += lt.y;
+                inst.translation.2 += lt.z;
+                let step_local = parent_q.inverse() * step * parent_q;
+                let (_, cur_q) = instance_pose(inst);
+                let new_q = (step_local * cur_q).normalize();
+                inst.rotation_quat = (new_q.x, new_q.y, new_q.z, new_q.w);
+            }
         }
 
         for (inst_id, (sum_t, sum_q, count)) in accum {
@@ -759,6 +817,61 @@ mod simultaneous_tests {
 
     fn add_mate(tree: &mut AssemblyTree, mate: MateConstraint) {
         tree.mates.insert(mate.id, mate);
+    }
+
+    fn coincident_floor(tree: &mut AssemblyTree, base: AssemblyInstanceId, part: AssemblyInstanceId, z: f64) {
+        add_mate(
+            tree,
+            mate(
+                90,
+                MateKind::Coincident { opposite_normal: false },
+                (base, MateTargetKind::PlanarFace { origin: (0.0, 0.0, 0.0), normal: (0.0, 0.0, 1.0) }),
+                (part, MateTargetKind::PlanarFace { origin: (0.0, 0.0, z), normal: (0.0, 0.0, 1.0) }),
+            ),
+        );
+    }
+
+    #[test]
+    fn rigid_group_member_follows_mated_member() {
+        let (mut tree, base, part) = tree_with_two_parts();
+        let rider = tree.add_instance("Rider".to_string(), 3);
+        tree.instances.get_mut(&rider).unwrap().translation = (50.0, 0.0, 0.0);
+        assert!(tree.make_rigid_group(&[part, rider]));
+        coincident_floor(&mut tree, base, part, 12.0);
+        let report = solve_assembly(&mut tree);
+        assert!(report.converged, "{report:?}");
+        let p = tree.instances[&part].translation;
+        let r = tree.instances[&rider].translation;
+        assert!((p.2 + 12.0).abs() < 1e-3, "part {p:?}");
+        // Rider bergeser persis sama (tanpa mate sendiri).
+        assert!((r.2 - p.2).abs() < 1e-6 && (r.0 - 50.0).abs() < 1e-6, "rider {r:?}");
+    }
+
+    #[test]
+    fn rigid_group_with_grounded_member_does_not_move() {
+        let (mut tree, base, part) = tree_with_two_parts();
+        let anchor = tree.add_instance("Anchor".to_string(), 3);
+        tree.instances.get_mut(&base).unwrap().is_grounded = false;
+        tree.instances.get_mut(&anchor).unwrap().is_grounded = true;
+        assert!(tree.make_rigid_group(&[part, anchor]));
+        coincident_floor(&mut tree, base, part, 12.0);
+        solve_assembly(&mut tree);
+        assert_eq!(tree.instances[&part].translation, (0.0, 0.0, 0.0));
+        assert!(tree.instances[&base].translation.2.abs() > 1.0, "base yang bergerak");
+    }
+
+    #[test]
+    fn make_rigid_group_rejects_single_and_moves_members() {
+        let (mut tree, base, part) = tree_with_two_parts();
+        let c = tree.add_instance("C".to_string(), 3);
+        assert!(!tree.make_rigid_group(&[part]));
+        assert!(!tree.make_rigid_group(&[part, 999]));
+        assert!(tree.make_rigid_group(&[base, part]));
+        assert!(tree.make_rigid_group(&[part, c]));
+        // `base` tersisa sendirian → grup lamanya dibuang.
+        assert_eq!(tree.rigid_groups, vec![vec![part, c]]);
+        tree.dissolve_rigid_group(c);
+        assert!(tree.rigid_groups.is_empty());
     }
 
     fn mate(

@@ -44,13 +44,51 @@ pub fn primitive_shape(kind: PrimitiveKind, dims: [f64; 3], centered: bool) -> c
 
 impl DuCADApp {
     /// Jalankan perintah palette Fase 0 paritas.
-    pub fn run_parity_cmd(&mut self, cmd: crate::types::ParityCmd) {
+    pub fn run_parity_cmd(&mut self, cmd: crate::types::ParityCmd, ctx: &egui::Context) {
         use crate::types::ParityCmd;
         match cmd {
             ParityCmd::Primitive => self.open_body_tool(BodyToolPanel::Primitive),
             ParityCmd::MirrorBody => self.open_body_tool(BodyToolPanel::MirrorBody),
             ParityCmd::RotateBody => self.open_body_tool(BodyToolPanel::RotateBody),
+            ParityCmd::AutoConstrain => self.auto_constrain(),
+            ParityCmd::EditText => self.open_text_edit_from_selection(),
+            ParityCmd::ToggleDiameter => self.sketch_dims.show_diameter = !self.sketch_dims.show_diameter,
+            ParityCmd::LooseEnds => self.toggle_loose_ends(),
+            ParityCmd::Parameters => self.open_params_panel(),
+            ParityCmd::Inspect => self.design_tools.inspect_open = true,
+            ParityCmd::CopyOplog => self.copy_oplog_json(ctx),
+            ParityCmd::ExportPng => self.view_tools.png_open = true,
+            ParityCmd::Compare => self.view_tools.compare_open = true,
+            ParityCmd::RigidGroup => self.make_rigid_group_from_selection(),
+            ParityCmd::DissolveRigidGroup => self.dissolve_rigid_group_of_selection(),
         }
+    }
+
+    /// Jadikan body terpilih (≥ 2) satu grup kaku perakitan (Paritas 0.13).
+    pub fn make_rigid_group_from_selection(&mut self) {
+        self.sync_assembly_instances();
+        let ids: Vec<_> = self.selected_bodies.iter().filter_map(|b| self.instance_of_body(*b)).collect();
+        if self.assembly_tree.make_rigid_group(&ids) {
+            self.model.doc.dirty = true;
+            self.solve_and_apply_assembly();
+            self.model_status = Some(ducad_i18n::t!("rigid-group-made", count = ids.len()));
+        } else {
+            self.model_status = Some(ducad_i18n::t!("rigid-group-need-two"));
+        }
+    }
+
+    /// Lepas grup kaku dari body terpilih.
+    pub fn dissolve_rigid_group_of_selection(&mut self) {
+        let ids: Vec<_> = self.selected_bodies.iter().filter_map(|b| self.instance_of_body(*b)).collect();
+        let before = self.assembly_tree.rigid_groups.len();
+        for id in ids {
+            self.assembly_tree.dissolve_rigid_group(id);
+        }
+        let removed = before - self.assembly_tree.rigid_groups.len();
+        if removed > 0 {
+            self.model.doc.dirty = true;
+        }
+        self.model_status = Some(ducad_i18n::t!("rigid-group-dissolved", count = removed));
     }
 
     pub fn open_body_tool(&mut self, panel: BodyToolPanel) {
@@ -269,6 +307,21 @@ mod tests {
         assert_eq!(app.model.doc.bodies.len(), 1);
         let v = app.model.geometry[id].shape.volume();
         assert!((v - 6000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn rigid_group_from_selected_bodies() {
+        let mut app = DuCADApp::new_for_test();
+        app.create_primitive(PrimitiveKind::Box, [5.0; 3], [0.0; 3], false);
+        app.create_primitive(PrimitiveKind::Box, [5.0; 3], [20.0, 0.0, 0.0], false);
+        app.selected_bodies = app.model.doc.bodies.keys().take(1).collect();
+        app.make_rigid_group_from_selection();
+        assert!(app.assembly_tree.rigid_groups.is_empty(), "1 body tidak cukup");
+        app.selected_bodies = app.model.doc.bodies.keys().collect();
+        app.make_rigid_group_from_selection();
+        assert_eq!(app.assembly_tree.rigid_groups.len(), 1);
+        app.dissolve_rigid_group_of_selection();
+        assert!(app.assembly_tree.rigid_groups.is_empty());
     }
 
     #[test]

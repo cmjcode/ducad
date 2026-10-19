@@ -52,7 +52,7 @@ pub use style::{
     BlendMode, FillRule, LineCap, LineJoin, Paint, Rgba, StrokeStyle, Style,
 };
 pub use ops::{
-    arc_from_three_points, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
+    arc_from_center, arc_from_three_points, rect_opposite_corner_from_center, biarc_fit, circular_pattern_entities, circular_pattern_entities_with_radius,
     compute_chamfer_2d, compute_entities_centroid, compute_fillet_2d, extend_preview,
     extend_segment, find_all_corners, find_all_fillet_targets, find_corner_lines_at_point,
     line_intersection_params_in_sketch, linear_pattern_entities, mirror_entity,

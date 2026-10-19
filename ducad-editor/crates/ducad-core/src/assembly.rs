@@ -498,6 +498,10 @@ pub struct AssemblyTree {
     /// Langkah urai berurutan (*exploded view*); melengkapi `explode_offset`.
     #[serde(default)]
     pub explode_steps: Vec<crate::coupling::ExplodeStep>,
+    /// Grup kaku (*rigid group*): instance di satu grup bergerak sebagai
+    /// satu body saat solver mate berjalan.
+    #[serde(default)]
+    pub rigid_groups: Vec<Vec<AssemblyInstanceId>>,
     pub sub_assemblies: HashMap<SubAssemblyId, SubAssembly>,
     pub mates: HashMap<MateConstraintId, MateConstraint>,
     pub next_instance_id: AssemblyInstanceId,
@@ -513,6 +517,7 @@ impl Default for AssemblyTree {
             motion_studies: Vec::new(),
             couplings: Vec::new(),
             explode_steps: Vec::new(),
+            rigid_groups: Vec::new(),
             sub_assemblies: HashMap::new(),
             mates: HashMap::new(),
             next_instance_id: 1,
@@ -525,6 +530,35 @@ impl Default for AssemblyTree {
 impl AssemblyTree {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Jadikan `ids` satu grup kaku. Instance yang sudah ada di grup lain
+    /// dipindahkan; grup yang tersisa < 2 anggota dibuang. `false` bila
+    /// kurang dari 2 instance valid.
+    pub fn make_rigid_group(&mut self, ids: &[AssemblyInstanceId]) -> bool {
+        let mut members: Vec<AssemblyInstanceId> =
+            ids.iter().copied().filter(|id| self.instances.contains_key(id)).collect();
+        members.sort_unstable();
+        members.dedup();
+        if members.len() < 2 {
+            return false;
+        }
+        for g in &mut self.rigid_groups {
+            g.retain(|id| !members.contains(id));
+        }
+        self.rigid_groups.retain(|g| g.len() >= 2);
+        self.rigid_groups.push(members);
+        true
+    }
+
+    /// Lepas grup kaku yang memuat `id`.
+    pub fn dissolve_rigid_group(&mut self, id: AssemblyInstanceId) {
+        self.rigid_groups.retain(|g| !g.contains(&id));
+    }
+
+    /// Grup kaku tempat `id` berada.
+    pub fn rigid_group_of(&self, id: AssemblyInstanceId) -> Option<&[AssemblyInstanceId]> {
+        self.rigid_groups.iter().find(|g| g.contains(&id)).map(Vec::as_slice)
     }
 
     /// Tambahkan instance part baru ke perakitan.

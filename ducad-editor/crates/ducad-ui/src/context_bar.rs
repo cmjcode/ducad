@@ -13,6 +13,7 @@ use egui_icons::icons::{
     ICON_FLIP, ICON_GRID_VIEW, ICON_OPEN_IN_FULL, ICON_REFRESH, ICON_ROUTE, ICON_STRAIGHTEN,
     ICON_WARNING,
 };
+use crate::constraint_strip::{ConstraintAction, ConstraintStrip};
 use crate::theme::{pill_frame, ACCENT_BLUE, ACCENT_ORANGE, MIN_TOUCH_TARGET, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +70,8 @@ pub enum ContextAction {
     MirrorBody,
     /// Putar body 3D mengelilingi sumbu (Paritas 0.3).
     RotateBody,
+    /// Constraint sketsa dari baris constraint di bawah aksi pemodelan.
+    Constraint(ConstraintAction),
 }
 
 /// State kontrol ekstrusi vektor pada contextual action bar (M3.4).
@@ -267,19 +270,27 @@ impl ContextActionBar {
     }
 
     /// Render contextual action bar untuk seleksi 2D (Sketch Entities).
+    ///
+    /// Baris 1: aksi pemodelan; dibungkus (wrap) bila melebihi `max_width`
+    /// supaya tidak menumpuk di layar kecil. Baris 2: constraint yang berlaku
+    /// untuk seleksi (`constraints`, hanya yang valid) — selalu tampil bila
+    /// ada, tidak pernah lebih lebar dari baris 1.
     pub fn show_sketch_selection(
         ui: &mut Ui,
         selected_count: usize,
         has_closed_profile: bool,
+        constraints: &[ConstraintAction],
         icon_size: f32,
+        max_width: f32,
     ) -> Option<ContextAction> {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
         pill_frame().show(ui, |ui| {
+            ui.set_max_width(max_width.max(160.0));
             ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
-            ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+            ui.horizontal_wrapped(|ui| {
                 // Header ringkas info seleksi
                 ui.label(
                     RichText::new(format!("{} terpilih", selected_count))
@@ -391,6 +402,13 @@ impl ContextActionBar {
                     action = Some(ContextAction::ClearSelection);
                 }
             });
+
+            if !constraints.is_empty() {
+                ui.separator();
+                if let Some(c) = ConstraintStrip::show_row(ui, constraints, icon_size) {
+                    action = Some(ContextAction::Constraint(c));
+                }
+            }
         });
 
         action

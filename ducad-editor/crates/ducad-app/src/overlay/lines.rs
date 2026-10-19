@@ -1,6 +1,6 @@
 use ducad_render::{sketch as sketch_render, LineVertex};
 use ducad_sketch::{
-    all_snap_candidate_points_with_exclude_set, arc_from_three_points, mirror_entity,
+    all_snap_candidate_points_with_exclude_set, mirror_entity,
     offset_entity, Entity,
 };
 use glam::{DVec2, Vec3};
@@ -795,8 +795,8 @@ impl DuCADApp {
                     ));
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
-                    let first = self.pending_points[0];
                     let effective = self.snapped_or(raw);
+                    let first = self.rect_first_corner(self.pending_points[0], effective);
                     let min = first.min(effective);
                     let max = first.max(effective);
                     let corners = [
@@ -949,7 +949,7 @@ impl DuCADApp {
                             ));
                         }
                         2 => {
-                            if let Some(mut preview) = arc_from_three_points(
+                            if let Some(mut preview) = self.arc_from_clicks(
                                 self.pending_points[0],
                                 self.pending_points[1],
                                 effective,
@@ -1064,7 +1064,7 @@ impl DuCADApp {
                     if let Some(res) = chamfer_2d_preview(
                         self.sketch(),
                         raw,
-                        self.chamfer_2d_dist,
+                        (self.chamfer_2d_dist, self.chamfer_second_dist()),
                         tol,
                         self.fillet_chamfer_first_line,
                     ) {
@@ -1976,6 +1976,21 @@ impl DuCADApp {
             }
             for m in &p.removed {
                 push_ghost(m, crate::proposal_ui::GHOST_REMOVED);
+            }
+        }
+
+        // Compare Bodies (Paritas 0.10): warna sama dengan ghost proposal.
+        for (meshes, color) in [
+            (&self.view_tools.ghost_added, crate::proposal_ui::GHOST_ADDED),
+            (&self.view_tools.ghost_removed, crate::proposal_ui::GHOST_REMOVED),
+        ] {
+            for mesh in meshes {
+                let base_index = positions.len() as u32;
+                positions.extend(mesh.positions.iter().copied());
+                normals.extend(mesh.normals.iter().copied());
+                colors.extend(std::iter::repeat_n(color, mesh.positions.len()));
+                materials.extend(std::iter::repeat_n([0.40, 0.0, 0.0, PREVIEW_DEPTH_PULL], mesh.positions.len()));
+                indices.extend(mesh.indices.iter().map(|i| i + base_index));
             }
         }
 

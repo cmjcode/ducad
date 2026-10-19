@@ -160,6 +160,16 @@ pub struct DuCADApp {
     pub body_tools: crate::body_tools::BodyToolsState,
     /// Toggle R/Ø dan edit dimensi sudut sketsa (Paritas 0.4).
     pub sketch_dims: crate::sketch_dims::SketchDimState,
+    /// Mode gambar Arc (3 titik / pusat) dan Rectangle (sudut / pusat), Paritas 0.6.
+    pub sketch_modes: crate::sketch_modes::SketchModes,
+    /// Popup Edit Teks (Paritas 0.8).
+    pub text_edit: crate::text_edit::TextEditState,
+    /// Sorotan ujung terbuka sketsa (Paritas 0.16).
+    pub loose_ends: crate::loose_ends::LooseEndsState,
+    /// Panel Parameters dan Inspect (Paritas 0.9, 0.11).
+    pub design_tools: crate::design_tools::DesignToolsState,
+    /// Export PNG dan Compare Bodies (Paritas 0.15, 0.10).
+    pub view_tools: crate::view_tools::ViewToolsState,
     /// Studi simulasi (P17).
     pub sim: crate::sim_ui::SimState,
     /// Panel Fitur Industri (P18–P20).
@@ -600,6 +610,11 @@ impl DuCADApp {
             mass: crate::mass_ui::MassState::default(),
             body_tools: crate::body_tools::BodyToolsState::default(),
             sketch_dims: crate::sketch_dims::SketchDimState::default(),
+            sketch_modes: crate::sketch_modes::SketchModes::default(),
+            text_edit: crate::text_edit::TextEditState::default(),
+            loose_ends: crate::loose_ends::LooseEndsState::default(),
+            design_tools: crate::design_tools::DesignToolsState::default(),
+            view_tools: crate::view_tools::ViewToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -939,6 +954,11 @@ impl DuCADApp {
             mass: crate::mass_ui::MassState::default(),
             body_tools: crate::body_tools::BodyToolsState::default(),
             sketch_dims: crate::sketch_dims::SketchDimState::default(),
+            sketch_modes: crate::sketch_modes::SketchModes::default(),
+            text_edit: crate::text_edit::TextEditState::default(),
+            loose_ends: crate::loose_ends::LooseEndsState::default(),
+            design_tools: crate::design_tools::DesignToolsState::default(),
+            view_tools: crate::view_tools::ViewToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -3196,6 +3216,14 @@ impl eframe::App for DuCADApp {
                                 }
                                 ctx.request_repaint();
                             }
+                            AssemblyDrawerEvent::UpdateMateLimits { id, min, max } => {
+                                if let Some(mate) = self.assembly_tree.mates.get_mut(&id) {
+                                    mate.limits = ducad_core::assembly::MateLimits { min, max };
+                                    self.model.doc.dirty = true;
+                                    self.solve_and_apply_assembly();
+                                }
+                                ctx.request_repaint();
+                            }
                             AssemblyDrawerEvent::SolveAssembly => {
                                 self.solve_and_apply_assembly();
                                 self.model_status =
@@ -4349,27 +4377,14 @@ impl eframe::App for DuCADApp {
 
         self.show_transform_dialog(&ctx);
         self.show_body_tools(&ctx, screen_rect);
-        self.show_sketch_constraint_strip(&ctx, screen_rect);
-
-        // Constraint strip untuk seleksi node path (M2.6): muncul di tool
-        // Node Edit, hanya aksi yang berlaku untuk jumlah node terpilih aktif.
-        if self.tool == ToolKind::NodeEdit && !self.vector_state.node_selection.is_empty() {
-            let valid = self.node_constraint_actions();
-            let count = self.vector_state.node_selection.len();
-            let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-strip"))
-                .fixed_pos(egui::pos2(screen_rect.max.x - 40.0 - self.drawer_right_inset(), screen_rect.center().y))
-                .pivot(egui::Align2::RIGHT_CENTER)
-                .order(egui::Order::Foreground)
-                .show(&ctx, |ui| {
-                    ducad_ui::ConstraintStrip::default().show_with_valid(ui, count, Some(&valid))
-                })
-                .inner;
-            if let Some(action) = picked.filter(|a| *a != ducad_ui::ConstraintAction::ToggleSnap) {
-                self.apply_node_constraint(action);
-            }
-        }
-
+        self.show_text_edit(&ctx);
+        self.show_design_tools(&ctx);
+        self.show_view_tools(&ctx);
         self.show_sketch_hud(&ctx, screen_rect);
+
+        // Tepi atas bar paling bawah; bar node constraint ditumpuk di atasnya.
+        let mut bottom_stack_top = screen_rect.max.y - 18.0;
+        let context_bar_max_width = screen_rect.width() - 24.0;
 
         // Shapr3D-Style Floating Contextual Action Bar
         let has_sketch_sel = !self.selected.is_empty();
@@ -4403,11 +4418,19 @@ impl eframe::App for DuCADApp {
                                 self.icon_size,
                             )
                         } else {
+                            let sel = self.sorted_selection();
+                            let constraints = if self.is_sketching && self.tool == ToolKind::Select {
+                                crate::sketch_constraints::valid_actions(self.sketch(), &sel)
+                            } else {
+                                Vec::new()
+                            };
                             ContextActionBar::show_sketch_selection(
                                 ui,
                                 self.selected.len(),
                                 has_closed,
+                                &constraints,
                                 self.icon_size,
+                                context_bar_max_width,
                             )
                         };
                         if let Some(act) = maybe_act {
@@ -4461,6 +4484,7 @@ impl eframe::App for DuCADApp {
                                     }
                                 }
                                 ContextAction::ClearSelection => self.selected.clear(),
+                                ContextAction::Constraint(c) => self.apply_sketch_strip_action(c),
                                 ContextAction::VectorUnion => {
                                     self.apply_shape_builder_boolean(ducad_sketch::BoolOp::Union);
                                 }
@@ -4655,6 +4679,30 @@ impl eframe::App for DuCADApp {
                 ducad_ui::OnboardingTarget::ContextBar,
                 context_bar.response.rect,
             );
+            bottom_stack_top = context_bar.response.rect.min.y - 8.0;
+        }
+
+        // Baris constraint untuk seleksi node path (M2.6): di bawah-tengah,
+        // di atas context bar bila ada; hanya aksi yang berlaku untuk jumlah
+        // node terpilih yang digambar.
+        if !self.drawing_sheet_state.is_open
+            && self.tool == ToolKind::NodeEdit
+            && !self.vector_state.node_selection.is_empty()
+        {
+            let valid = self.node_constraint_actions();
+            let picked = egui::Area::new(egui::Id::new("ducad-node-constraint-bar"))
+                .fixed_pos(egui::pos2(screen_center_x, bottom_stack_top))
+                .pivot(egui::Align2::CENTER_BOTTOM)
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    ducad_ui::theme::pill_frame()
+                        .show(ui, |ui| ducad_ui::ConstraintStrip::show_row(ui, &valid, self.icon_size))
+                        .inner
+                })
+                .inner;
+            if let Some(action) = picked {
+                self.apply_node_constraint(action);
+            }
         }
 
         // =========================================================================

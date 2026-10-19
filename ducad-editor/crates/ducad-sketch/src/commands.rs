@@ -261,6 +261,7 @@ pub struct ReplaceEntities {
     insert_styles: Vec<Option<Style>>,
     insert_layers: Vec<Option<LayerId>>,
     inserted_ids: Vec<EntityId>,
+    insert_name: Option<String>,
 }
 
 impl ReplaceEntities {
@@ -274,7 +275,14 @@ impl ReplaceEntities {
             insert_styles: Vec::new(),
             insert_layers: Vec::new(),
             inserted_ids: Vec::new(),
+            insert_name: None,
         }
+    }
+
+    /// Beri nama grup (`entity_names`) pada semua entitas yang disisipkan.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.insert_name = Some(name.into());
+        self
     }
 
     pub fn with_styles(mut self, styles: Vec<Option<Style>>) -> Self {
@@ -343,6 +351,9 @@ impl Command<Sketch> for ReplaceEntities {
                 if let Some(Some(layer)) = self.insert_layers.get(i) {
                     sketch.entity_layer.insert(id, *layer);
                 }
+                if let Some(name) = &self.insert_name {
+                    sketch.entity_names.insert(id, name.clone());
+                }
                 sketch.touch(id);
                 id
             })
@@ -354,6 +365,7 @@ impl Command<Sketch> for ReplaceEntities {
             sketch.entities.remove(id);
             sketch.styles.remove(id);
             sketch.entity_layer.remove(id);
+            sketch.entity_names.remove(&id);
             sketch.touch(id);
         }
         let mut restored = Vec::new();

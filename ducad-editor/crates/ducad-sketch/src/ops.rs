@@ -59,6 +59,28 @@ pub fn arc_from_three_points(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<Entity> 
     })
 }
 
+/// Busur dari titik pusat: `start` menentukan radius dan sudut awal,
+/// `end` hanya menentukan sudut akhir (arah CCW dari `start`).
+pub fn arc_from_center(center: DVec2, start: DVec2, end: DVec2) -> Option<Entity> {
+    let radius = (start - center).length();
+    let to_end = end - center;
+    if !radius.is_finite() || radius < 1e-9 || to_end.length() < 1e-9 {
+        return None;
+    }
+    let start_angle = (start - center).y.atan2((start - center).x);
+    let end_angle = to_end.y.atan2(to_end.x);
+    if (end_angle - start_angle).abs() < 1e-9 {
+        return None;
+    }
+    Some(Entity::Arc { center, radius, start_angle, end_angle, is_construction: false })
+}
+
+/// Sudut berlawanan persegi panjang yang digambar dari pusat `center` ke
+/// sudut `corner`.
+pub fn rect_opposite_corner_from_center(center: DVec2, corner: DVec2) -> DVec2 {
+    center * 2.0 - corner
+}
+
 pub(crate) fn circumcenter(p1: DVec2, p2: DVec2, p3: DVec2) -> Option<DVec2> {
     let (ax, ay) = (p1.x, p1.y);
     let (bx, by) = (p2.x, p2.y);

@@ -615,7 +615,7 @@ impl DuCADApp {
             PaletteAction::StartTutorial => self.start_onboarding(),
             PaletteAction::CheckForUpdates => self.update.check_now(),
             PaletteAction::ExtrudeSelection => self.extrude_from_palette(),
-            PaletteAction::Parity(cmd) => self.run_parity_cmd(cmd),
+            PaletteAction::Parity(cmd) => self.run_parity_cmd(cmd, ctx),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection {
@@ -700,6 +700,12 @@ impl DuCADApp {
                 }
                 _ => ducad_i18n::t!("status-prompt-line-next"),
             },
+            ToolKind::Rectangle if self.sketch_modes.rect == crate::sketch_modes::RectDrawMode::Center => {
+                match self.pending_points.len() {
+                    0 => ducad_i18n::t!("status-prompt-rect-center-0"),
+                    _ => ducad_i18n::t!("status-prompt-rect-center-1"),
+                }
+            }
             ToolKind::Rectangle => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-rect-0"),
                 _ => ducad_i18n::t!("status-prompt-rect-opp"),
@@ -727,6 +733,13 @@ impl DuCADApp {
                 1 => "Klik titik berikutnya; saat menggeser, tahan diam sejenak untuk menaruh titik".to_string(),
                 _ => "Klik/geser-tahan titik berikutnya, klik titik awal untuk menutup, atau klik ulang titik akhir".to_string(),
             },
+            ToolKind::Arc if self.sketch_modes.arc == crate::sketch_modes::ArcDrawMode::Center => {
+                match self.pending_points.len() {
+                    0 => ducad_i18n::t!("status-prompt-arc-center-0"),
+                    1 => ducad_i18n::t!("status-prompt-arc-center-1"),
+                    _ => ducad_i18n::t!("status-prompt-arc-center-2"),
+                }
+            }
             ToolKind::Arc => match self.pending_points.len() {
                 0 => ducad_i18n::t!("status-prompt-arc-0"),
                 1 => ducad_i18n::t!("status-prompt-arc-1"),

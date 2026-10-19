@@ -65,7 +65,7 @@ impl DuCADApp {
     }
 
     /// Instance perakitan yang memegang `body`, bila ada.
-    fn instance_of_body(&self, body: BodyId) -> Option<AssemblyInstanceId> {
+    pub(crate) fn instance_of_body(&self, body: BodyId) -> Option<AssemblyInstanceId> {
         let raw = body.data().as_ffi();
         self.assembly_tree
             .instances

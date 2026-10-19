@@ -870,6 +870,34 @@ DUCAD_SKIP_ONBOARDING=1 DUCAD_OPEN_FILE=/tmp/part.ducad DUCAD_START_BRIEF=1 DUCA
 
 ---
 
+### A18. Paritas SolidCraft Fase 0 (`docs/PLAN_PARITAS_SOLIDCRAFT.md`)
+
+Semua perintah di bawah juga ada di command palette (Cmd+K).
+
+| # | Langkah | Hasil yang diharapkan | Status |
+|---|---|---|---|
+| 0.1 | Mode 3D → tombol **Primitif** di toolbar kiri → pilih Box/Silinder/Bola/Kerucut, isi ukuran, **Buat** | Body baru muncul di posisi X/Y/Z; Undo menghapusnya; ukuran 0/negatif ditolak dengan pesan | ☐ |
+| 0.2 | Pilih 1 body → context bar **Cermin Body** → bidang XY/XZ/YZ atau datum, opsi "lewat pusat body" | Salinan cermin muncul (atau body asli diganti bila "Pertahankan asli" mati) | ☐ |
+| 0.3 | Pilih 1 body → **Putar Body** → sumbu, sudut (snap 15°), tombol cepat ±15/45/90/180 | Body berputar presisi; gizmo rotasi lama tetap berfungsi | ☐ |
+| 0.4 | Sketsa: klik kanan pill radius lingkaran | Label berganti R ↔ Ø; edit nilai Ø mengubah diameter | ☐ |
+| 0.4 | Pilih 2 garis | Pill sudut muncul di perpotongan; klik → ketik 30 → Enter → sudut jadi 30° (constraint Angle) | ☐ |
+| 0.4 | Hotkey **D**: 1 lingkaran / 1 garis / 2 garis | Edit radius / kunci panjang / edit sudut | ☐ |
+| 0.5 | Pilih 2 lingkaran → constraint **Konsentris**; 2 garis → **Segaris**, **Midpoint**; garis + lingkaran → **Titik pada kurva** | Geometri ter-solve sesuai; Undo membatalkan | ☐ |
+| 0.6 | Tool Arc → HUD **Titik pusat**: klik pusat, awal, akhir | Busur CCW dengan radius dari klik kedua; preview cocok | ☐ |
+| 0.6 | Tool Rectangle → HUD **Pusat**: klik pusat lalu sudut | Persegi simetris terhadap pusat | ☐ |
+| 0.7 | Tool Chamfer 2D → HUD: matikan "Jarak sama", Jarak 1 = 4, Jarak 2 = 2; atau ketik `4,2` | Kaki chamfer 4 dan 2 mm | ☐ |
+| 0.8 | Buat teks dengan tool Text → double-click salah satu huruf → ubah isi → **Terapkan** | Teks diganti di posisi kiri-atas yang sama; satu Undo mengembalikan teks lama | ☐ |
+| 0.9 | Palette **Parameter** (part dengan oplog `$w`) → ubah nilai / rename `w` → `lebar` → **Terapkan** | Model di-replay; kolom "Dipakai oleh" menunjuk op; hapus parameter yang masih dipakai ditolak | ☐ |
+| 0.10 | Palette **Bandingkan Body** → Ambil snapshot → ubah model → Bandingkan | Volume bertambah hijau, hilang merah di viewport + tabel; Bersihkan menghapus ghost | ☐ |
+| 0.11 | Palette **Inspect** dan **Salin oplog JSON** | Tabel ukuran/volume/face; clipboard berisi oplog JSON | ☐ |
+| 0.12 | Drawer Assembly → edit mate Distance/Angle → isi Min/Maks → Terapkan | Solver menjepit nilai di dalam batas | ☐ |
+| 0.13 | Pilih ≥ 2 body → palette **Jadikan grup kaku** → solve perakitan | Anggota grup bergerak bersama; **Lepas grup kaku** mengembalikan perilaku lama | ☐ |
+| 0.14 | Constraint strip **Auto-constrain** (tanpa seleksi = seluruh sketsa) | Status "N constraint ditambahkan"; satu Undo menghapus semuanya | ☐ |
+| 0.15 | Palette **Export gambar PNG** → tampilan, resolusi → Export | Berkas PNG tersimpan dan bisa dibuka | ☐ |
+| 0.16 | Sketsa terbuka → Extrude (gagal) | Ujung terbuka disorot lingkaran merah; palette **Tampilkan ujung terbuka** menyalakan/mematikan | ☐ |
+
+---
+
 ## Bagian B — Regresi inti (sebelum rilis)
 
 ### B1. Sketsa 2D

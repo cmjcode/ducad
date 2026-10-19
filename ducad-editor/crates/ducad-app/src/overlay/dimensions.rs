@@ -952,6 +952,7 @@ impl DuCADApp {
         self.render_sketch_angle_dimension(ui, rect);
         self.paint_sim_overlay(ui, rect);
         self.paint_mass_marker(ui, rect);
+        self.paint_loose_ends(ui, rect);
 
         // Mate HUD sekarang di-render oleh show_mate_hud_ctx() di luar CentralPanel
         // agar klik tombol Apply tidak terblokir oleh Sense::click_and_drag canvas.
@@ -2201,6 +2202,9 @@ impl DuCADApp {
                 ui.input(|i| i.time),
             );
         } else {
+            if self.is_sketching {
+                self.render_draw_mode_hud(ui, rect);
+            }
             ToolGuides::render_tool_guide(
                 ui,
                 rect,
@@ -2235,7 +2239,7 @@ impl DuCADApp {
                     }
                 }
                 ToolKind::Rectangle if self.pending_points.len() == 1 => {
-                    let first = self.pending_points[0];
+                    let first = self.rect_first_corner(self.pending_points[0], effective);
                     let min = first.min(effective);
                     let max = first.max(effective);
                     let w = (max.x - min.x).abs();

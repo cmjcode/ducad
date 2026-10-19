@@ -317,22 +317,70 @@ pub enum ParityCmd {
     Primitive,
     MirrorBody,
     RotateBody,
+    AutoConstrain,
+    EditText,
+    ToggleDiameter,
+    LooseEnds,
+    Parameters,
+    Inspect,
+    CopyOplog,
+    ExportPng,
+    Compare,
+    RigidGroup,
+    DissolveRigidGroup,
 }
 
 impl ParityCmd {
-    pub const ALL: [ParityCmd; 3] = [ParityCmd::Primitive, ParityCmd::MirrorBody, ParityCmd::RotateBody];
+    pub const ALL: [ParityCmd; 14] = [
+        ParityCmd::RigidGroup,
+        ParityCmd::DissolveRigidGroup,
+        ParityCmd::ExportPng,
+        ParityCmd::Compare,
+        ParityCmd::Parameters,
+        ParityCmd::Inspect,
+        ParityCmd::CopyOplog,
+        ParityCmd::LooseEnds,
+        ParityCmd::Primitive,
+        ParityCmd::MirrorBody,
+        ParityCmd::RotateBody,
+        ParityCmd::AutoConstrain,
+        ParityCmd::EditText,
+        ParityCmd::ToggleDiameter,
+    ];
 
     pub fn label(self) -> String {
         match self {
             ParityCmd::Primitive => ducad_i18n::t!("prim-title"),
             ParityCmd::MirrorBody => ducad_i18n::t!("mirror-body-title"),
             ParityCmd::RotateBody => ducad_i18n::t!("rotate-body-title"),
+            ParityCmd::AutoConstrain => ducad_i18n::t!("cmd-auto-constrain"),
+            ParityCmd::EditText => ducad_i18n::t!("text-edit-title"),
+            ParityCmd::ToggleDiameter => ducad_i18n::t!("cmd-toggle-diameter"),
+            ParityCmd::LooseEnds => ducad_i18n::t!("cmd-loose-ends"),
+            ParityCmd::Parameters => ducad_i18n::t!("params-title"),
+            ParityCmd::Inspect => ducad_i18n::t!("inspect-title"),
+            ParityCmd::CopyOplog => ducad_i18n::t!("oplog-copy"),
+            ParityCmd::ExportPng => ducad_i18n::t!("png-title"),
+            ParityCmd::Compare => ducad_i18n::t!("compare-title"),
+            ParityCmd::RigidGroup => ducad_i18n::t!("rigid-group-make"),
+            ParityCmd::DissolveRigidGroup => ducad_i18n::t!("rigid-group-dissolve"),
         }
     }
 
     pub fn group(self) -> PaletteGroup {
         match self {
-            ParityCmd::Primitive | ParityCmd::MirrorBody | ParityCmd::RotateBody => PaletteGroup::Solid,
+            ParityCmd::Primitive
+            | ParityCmd::MirrorBody
+            | ParityCmd::RotateBody
+            | ParityCmd::RigidGroup
+            | ParityCmd::DissolveRigidGroup => PaletteGroup::Solid,
+            ParityCmd::AutoConstrain
+            | ParityCmd::EditText
+            | ParityCmd::ToggleDiameter
+            | ParityCmd::LooseEnds => PaletteGroup::Sketch,
+            ParityCmd::Parameters => PaletteGroup::Edit,
+            ParityCmd::Inspect | ParityCmd::CopyOplog | ParityCmd::Compare => PaletteGroup::Analysis,
+            ParityCmd::ExportPng => PaletteGroup::File,
         }
     }
 }

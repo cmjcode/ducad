@@ -51,22 +51,34 @@ Semua item di sini sudah ada di engine; pekerjaannya murni UI. Tidak ada perubah
 
 | # | Fungsi | Sudah ada | Pekerjaan | Status |
 |---|---|---|---|---|
-| 0.1 | Primitive Box/Cylinder/Sphere/Cone | `Op::Primitive` SPEC:105 | `ToolKind::Primitive{kind}` di T; grup "Primitif" di LT; popup dimensi (w/h/d, r/h) memakai pola `helix_popup.rs`; `OPS::apply_primitive` | [ ] |
-| 0.2 | Mirror body 3D | `Op::Mirror` SPEC:298 | `CB::MirrorBody`; pilih plane dari HUD `DatumPlaneMode` yang sudah ada atau face planar; preview ghost seperti `propose_ops` | [ ] |
-| 0.3 | Rotate body (gizmo) | `Op::Transform` punya rotasi | Handle rotasi di gizmo, snap 15°, field sudut di HUD; `SK::rotate_selected_body` paralel dengan `translate_selected_body` SK:841 | [ ] |
-| 0.4 | Dimensi Radius/Diameter/Angle di sketch | `ConstraintSpec::Radius`/`Angle` | Pill dimensi di `ducad-app/src/overlay/dimensions.rs` untuk lingkaran/busur (R/Ø toggle) dan dua garis (sudut); hotkey `D` memilih tipe dari seleksi | [ ] |
-| 0.5 | Constraint Midpoint/Concentric/Collinear/PointOnCurve | SKC `constraint/types.rs:62` | Tombol di CS dan FI `InspectorConstraintAction`; aturan pemilihan (2 lingkaran → concentric, titik+garis → midpoint/point-on-curve, 2 garis → collinear) di `app.rs:4280-4321` | [ ] |
-| 0.6 | Center Point Arc, Center Rectangle | `EntitySpec::Arc{center}`, `Rect{center}` | Mode di HUD Arc/Rect (pola `SlotMode`/`PolygonMode`) | [ ] |
-| 0.7 | Two-Distance Chamfer 2D | `compute_chamfer_2d(d1,d2)` SKC `ops.rs:548` | Field kedua di popup chamfer; GUI saat ini mengirim `dist,dist` (SK:90) | [ ] |
-| 0.8 | Edit Text | command `UpdateText` di SKC | Double-click entitas teks → popup; `CB::EditText` | [ ] |
-| 0.9 | Panel Parameters | `set_params`, ekspresi `$w/2-3` (`ops/num.rs:40`) | Drawer baru `parameters_drawer.rs`: tabel nama/ekspresi/nilai/komentar, tambah/hapus/rename, highlight op pemakai; field numerik di popup fitur menerima ekspresi | [ ] |
-| 0.10 | Compare Bodies (diff visual) | `render_diff_svg` `engine/src/render.rs:99` | Menu Inspect → "Bandingkan dengan snapshot…" memakai history snapshot FT; overlay merah/hijau di viewport | [ ] |
-| 0.11 | Export Command Script, Inspect Feature | `get_oplog`, `inspect` | Tombol di FT: "Salin oplog JSON", "Inspect" (bbox, volume, face count) | [ ] |
-| 0.12 | Joint Limits | `MateLimits` `ducad-core/src/assembly.rs:162` | Field min/max di `ASM::UpdateMateParam`; solver clamp di `OPS::solve_assembly` (OPS:2038) | [ ] |
-| 0.13 | Rigid Group | `JointKind::Rigid` `assembly.rs:91` | `ASM::MakeRigidGroup` dari multi-seleksi instance; solver memperlakukan grup sebagai satu body | [ ] |
-| 0.14 | AutoConstrain umum | SKC `infer.rs` (hanya dari Freehand) | Tombol "Auto-constrain" di CS yang memanggil `infer` pada seleksi/seluruh sketsa; tampilkan jumlah constraint yang ditambah, satu langkah undo | [ ] |
-| 0.15 | Render PNG dari GUI | `render_view` (MCP/CLI) | `FileOp::ExportPng` dengan pilihan resolusi dan preset studio | [ ] |
-| 0.16 | Loose Ends | SKC `gaps.rs` | Highlight ujung terbuka saat sketsa gagal membentuk region; tombol "Tampilkan ujung terbuka" di error card | [ ] |
+| 0.1 | Primitive Box/Cylinder/Sphere/Cone | `Op::Primitive` SPEC:105 | `ToolKind::Primitive{kind}` di T; grup "Primitif" di LT; popup dimensi (w/h/d, r/h) memakai pola `helix_popup.rs`; `OPS::apply_primitive` | [x] |
+| 0.2 | Mirror body 3D | `Op::Mirror` SPEC:298 | `CB::MirrorBody`; pilih plane dari HUD `DatumPlaneMode` yang sudah ada atau face planar; preview ghost seperti `propose_ops` | [x] |
+| 0.3 | Rotate body (gizmo) | `Op::Transform` punya rotasi | Handle rotasi di gizmo, snap 15°, field sudut di HUD; `SK::rotate_selected_body` paralel dengan `translate_selected_body` SK:841 | [x] |
+| 0.4 | Dimensi Radius/Diameter/Angle di sketch | `ConstraintSpec::Radius`/`Angle` | Pill dimensi di `ducad-app/src/overlay/dimensions.rs` untuk lingkaran/busur (R/Ø toggle) dan dua garis (sudut); hotkey `D` memilih tipe dari seleksi | [x] |
+| 0.5 | Constraint Midpoint/Concentric/Collinear/PointOnCurve | SKC `constraint/types.rs:62` | Tombol di CS dan FI `InspectorConstraintAction`; aturan pemilihan (2 lingkaran → concentric, titik+garis → midpoint/point-on-curve, 2 garis → collinear) di `app.rs:4280-4321` | [x] |
+| 0.6 | Center Point Arc, Center Rectangle | `EntitySpec::Arc{center}`, `Rect{center}` | Mode di HUD Arc/Rect (pola `SlotMode`/`PolygonMode`) | [x] |
+| 0.7 | Two-Distance Chamfer 2D | `compute_chamfer_2d(d1,d2)` SKC `ops.rs:548` | Field kedua di popup chamfer; GUI saat ini mengirim `dist,dist` (SK:90) | [x] |
+| 0.8 | Edit Text | command `UpdateText` di SKC | Double-click entitas teks → popup; `CB::EditText` | [x] |
+| 0.9 | Panel Parameters | `set_params`, ekspresi `$w/2-3` (`ops/num.rs:40`) | Drawer baru `parameters_drawer.rs`: tabel nama/ekspresi/nilai/komentar, tambah/hapus/rename, highlight op pemakai; field numerik di popup fitur menerima ekspresi | [~] |
+| 0.10 | Compare Bodies (diff visual) | `render_diff_svg` `engine/src/render.rs:99` | Menu Inspect → "Bandingkan dengan snapshot…" memakai history snapshot FT; overlay merah/hijau di viewport | [x] |
+| 0.11 | Export Command Script, Inspect Feature | `get_oplog`, `inspect` | Tombol di FT: "Salin oplog JSON", "Inspect" (bbox, volume, face count) | [x] |
+| 0.12 | Joint Limits | `MateLimits` `ducad-core/src/assembly.rs:162` | Field min/max di `ASM::UpdateMateParam`; solver clamp di `OPS::solve_assembly` (OPS:2038) | [x] |
+| 0.13 | Rigid Group | `JointKind::Rigid` `assembly.rs:91` | `ASM::MakeRigidGroup` dari multi-seleksi instance; solver memperlakukan grup sebagai satu body | [x] |
+| 0.14 | AutoConstrain umum | SKC `infer.rs` (hanya dari Freehand) | Tombol "Auto-constrain" di CS yang memanggil `infer` pada seleksi/seluruh sketsa; tampilkan jumlah constraint yang ditambah, satu langkah undo | [x] |
+| 0.15 | Render PNG dari GUI | `render_view` (MCP/CLI) | `FileOp::ExportPng` dengan pilihan resolusi dan preset studio | [~] |
+| 0.16 | Loose Ends | SKC `gaps.rs` | Highlight ujung terbuka saat sketsa gagal membentuk region; tombol "Tampilkan ujung terbuka" di error card | [x] |
+
+Catatan pengerjaan Fase 0 (2026-10-19):
+
+- 0.1–0.3: panel `ducad-app/src/body_tools.rs`; gizmo rotasi ternyata sudah ada (snap 5°, Shift = bebas), jadi 0.3 menambah input sudut presisi + snap 15° di panel, bukan gizmo baru.
+- 0.4 `sketch_dims.rs`; 0.5/0.14 `sketch_constraints.rs` (tombol di context bar sketsa); 0.6/0.7 `sketch_modes.rs`; 0.8 `text_edit.rs` (double-click glyph atau palette; teks dari tool Text kini bernama grup `Teks: …`); 0.16 `loose_ends.rs`.
+- 0.9 `design_tools.rs`: tabel nama/nilai/dipakai-oleh, tambah/hapus/rename (menulis ulang `$lama` di oplog), replay satu langkah undo. **Belum**: kolom komentar (tidak ada tempat simpan di `DesignDoc`) dan input ekspresi di popup fitur GUI (fitur GUI belum berupa `Op`).
+- 0.10 `view_tools.rs`: snapshot manual (bukan dari history FT) + API engine `diff::snapshot_model`/`diff_against_snapshot`; ghost hijau/merah memakai jalur ghost proposal.
+- 0.11: Inspect dan Salin oplog lewat command palette (bukan tombol di FT).
+- 0.12: solver sudah menjepit `MateLimits`; yang ditambah UI Min/Maks di drawer Assembly.
+- 0.13: `AssemblyTree::rigid_groups` (serde default, berkas lama tetap terbaca) + solver menggerakkan anggota grup sebagai satu body; perintah lewat palette.
+- 0.15: PNG dari renderer garis `render_view` (sama dengan MCP/CLI). **Belum**: preset studio berbayang — renderer saat ini hanya garis.
+- Semua perintah baru masuk command palette lewat `ParityCmd` (`types.rs`); butir uji manual di `CEKLIS_UJI_GUI.md` bagian A18.
 
 Kriteria selesai Fase 0: setiap item punya entri FTL en/id, ada di command palette, masuk
 `docs/CEKLIS_UJI_GUI.md`, dan `cargo test --workspace` hijau.
@@ -251,6 +263,6 @@ Total perkiraan: Fase 0–5 ≈ 20 minggu; Fase 6 ≈ 15 minggu tambahan.
 
 ## Perbaikan dokumentasi (kerjakan bersamaan dengan Fase 0)
 
-- Samakan lisensi: `LICENSE` (AGPL-3.0) vs `Cargo.toml` (`MIT OR Apache-2.0`).
-- README: jumlah tool MCP 27 → 37; bahasa "18+" → 2; Windows sudah di CI.
-- Landing page: banner "New in 0.2" → versi sekarang.
+- [ ] Samakan lisensi: `LICENSE` (AGPL-3.0) vs `Cargo.toml` (`MIT OR Apache-2.0`) — butuh keputusan pemilik proyek, belum diubah.
+- [x] README: jumlah tool MCP 27 → 37; bahasa "18+" → 2; Windows sudah di CI (clippy + test).
+- [ ] Landing page: banner "New in 0.2" → versi sekarang — sumber landing page tidak ada di repo ini.

@@ -114,7 +114,7 @@ same modeling code the application does.
   `or` / `and` / `except`.
 * **`ducad-cli`**: `run`, `replay`, `inspect`, `check`, `oplog`, `diff`, `select`,
   `render`, `sim`, `config`, `export`, `build`, `assist`, `chat`, `schema`.
-* **`ducad-mcp`**: a 27-tool **Model Context Protocol** server (JSON-RPC 2.0 over
+* **`ducad-mcp`**: a 37-tool **Model Context Protocol** server (JSON-RPC 2.0 over
   stdio) so an AI agent can model, inspect, render and verify a part.
 * **Design unit tests (`Check`)**: requirements written as data — `volume`,
   `bbox_size`, `hole_count`, `min_wall`, `mass`, `clearance`, `no_interference` —
@@ -186,11 +186,11 @@ DUCAD/
 │   │   ├── ducad-io/        # .ducad native format, STEP/STL/OBJ/GLB, SVG/PDF/DXF drawing sheets
 │   │   ├── ducad-engine/    # Headless modeling: compute, Op/oplog, selectors, Session, inspect, checks, diff
 │   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
-│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 27-tool MCP server over stdio (+ `--attach` live mode)
+│   │   ├── ducad-mcp/       # `ducad-mcp` binary: 37-tool MCP server over stdio (+ `--attach` live mode)
 │   │   ├── ducad-assist/    # On-device AI assistant: backend contract, prompts, proposal-only loop
 │   │   ├── ducad-render/    # wgpu rendering engine: 3D camera, PBR shaders, SSAO, grid, sketch overlay
 │   │   ├── ducad-ui/        # egui components: toolbar, context bar, HUD, drawers, checks/error/proposal cards
-│   │   ├── ducad-i18n/      # Localization system and 18+ language translation dictionaries
+│   │   ├── ducad-i18n/      # Localization system (English and Indonesian)
 │   │   ├── ducad-cloud/     # Account and cloud sync
 │   │   └── ducad-app/       # Main application (binary `ducad`), eframe loop, agent bridge, state integration
 │   ├── evals/               # Agent eval harness: ten reference tasks + stdlib Python runner
@@ -219,8 +219,9 @@ the `engine_has_no_gui_dependency` test.
     packaged from `ducad-editor/apple/` and exercised by hand.
   * **Linux** (X11 / Wayland) — built and tested on every CI run
     (`ubuntu-latest`) alongside macOS.
-  * **Windows 10/11** — a `build-windows` target exists in the `Makefile` but is
-    not covered by CI; treat it as untested.
+  * **Windows 10/11** — `cargo clippy` + `cargo test --workspace` run on
+    `windows-latest` in CI; packaging (`build-windows` in the `Makefile`) is not
+    exercised by CI yet.
 
 ### Running DuCAD
 

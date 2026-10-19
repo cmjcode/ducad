@@ -5,7 +5,7 @@
 //! - Outliner drawer pohon item (`items_drawer`)
 //! - Pohon fitur parametrik & inspektor 3D (`feature_inspector`)
 //! - Modular tool popups pojok kanan bawah (`tool_popups`)
-//! - Strip ikon constraint mengambang (`constraint_strip`)
+//! - Baris ikon constraint di context bar bawah (`constraint_strip`)
 //! - In-Canvas HUD & Dimension Pills (`canvas_hud`)
 //! - Modern top bar & title header (`top_bar`)
 //! - Command palette (`command_palette`)

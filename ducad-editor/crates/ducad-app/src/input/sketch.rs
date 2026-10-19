@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use ducad_core::{BodyId, Command};
 use ducad_sketch::constraint::Constraint;
 use ducad_sketch::{
-    arc_from_three_points, compute_chamfer_2d, compute_fillet_2d, extend_segment,
+    compute_chamfer_2d, compute_fillet_2d, extend_segment,
     find_corner_lines_at_point, find_region_at_point, find_region_containing_entity, find_snap,
     find_snap_with_extra, line_intersection_params_in_sketch, mirror_entity, offset_entity,
     project_t, trim_segments, Chamfer2DResult, ClosedRegion, DeleteEntities, Entity, EntityId,
@@ -76,7 +76,7 @@ pub fn fillet_2d_preview(
 pub fn chamfer_2d_preview(
     sketch: &Sketch,
     hover: DVec2,
-    dist: f64,
+    (dist, dist2): (f64, f64),
     tol: f64,
     first_selected: Option<EntityId>,
 ) -> Option<Chamfer2DResult> {
@@ -87,7 +87,7 @@ pub fn chamfer_2d_preview(
         let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(id2)?.clone() else {
             return None;
         };
-        compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+        compute_chamfer_2d((s1, e1), (s2, e2), dist, dist2)
     } else if let Some(id1) = first_selected {
         let Entity::Line { start: s1, end: e1, .. } = sketch.entities.get(id1)?.clone() else {
             return None;
@@ -97,7 +97,7 @@ pub fn chamfer_2d_preview(
             let Entity::Line { start: s2, end: e2, .. } = sketch.entities.get(hovered_id)?.clone() else {
                 return None;
             };
-            compute_chamfer_2d((s1, e1), (s2, e2), dist, dist)
+            compute_chamfer_2d((s1, e1), (s2, e2), dist, dist2)
         } else {
             None
         }
@@ -636,8 +636,9 @@ impl DuCADApp {
         let pts = std::mem::take(&mut self.pending_points);
         let cmd: Option<Box<dyn Command<Sketch>>> = match self.tool {
             ToolKind::Rectangle => {
-                let min = pts[0].min(pts[1]);
-                let max = pts[0].max(pts[1]);
+                let first = self.rect_first_corner(pts[0], pts[1]);
+                let min = first.min(pts[1]);
+                let max = first.max(pts[1]);
                 let corners = [
                     DVec2::new(min.x, min.y),
                     DVec2::new(max.x, min.y),
@@ -716,7 +717,11 @@ impl DuCADApp {
                 .ok()
                 .filter(|ents| !ents.is_empty())
                 .map(|entities| {
-                    Box::new(InsertEntities::new("Teks 2D", entities)) as Box<dyn Command<Sketch>>
+                    Box::new(InsertEntities::with_group(
+                        "Teks 2D",
+                        entities,
+                        crate::text_edit::text_group_name(&self.text_popup_state.text),
+                    )) as Box<dyn Command<Sketch>>
                 })
             }
             ToolKind::Spline => {
@@ -727,7 +732,7 @@ impl DuCADApp {
                     )) as Box<dyn Command<Sketch>>
                 })
             }
-            ToolKind::Arc => arc_from_three_points(pts[0], pts[1], pts[2]).map(|e| {
+            ToolKind::Arc => self.arc_from_clicks(pts[0], pts[1], pts[2]).map(|e| {
                 Box::new(InsertEntities::new(
                     "Arc",
                     vec![e.with_construction(self.construction_mode)],
@@ -1291,6 +1296,15 @@ impl DuCADApp {
         match self.tool {
             ToolKind::Select | ToolKind::Loft | ToolKind::Sweep | ToolKind::DatumPlane => {
                 self.last_snap = None;
+
+                // Double-click pada glyph teks → popup Edit Teks (Paritas 0.8).
+                if self.tool == ToolKind::Select && self.is_sketching && response.double_clicked() {
+                    if let Some(hit) = self.hit_test_hover(rect, response, tol) {
+                        if self.open_text_edit_for(hit) {
+                            return;
+                        }
+                    }
+                }
 
                 if self.extruding_from_gizmo {
                     return;
@@ -2359,10 +2373,9 @@ impl DuCADApp {
             }
             ToolKind::Chamfer2D => {
                 self.last_snap = None;
-                if let Ok(val) = self.dynamic_input.trim().parse::<f64>() {
-                    if val > 0.0 {
-                        self.chamfer_2d_dist = val;
-                    }
+                if let Some((d1, d2)) = crate::sketch_modes::parse_chamfer_input(&self.dynamic_input) {
+                    self.chamfer_2d_dist = d1;
+                    self.sketch_modes.chamfer_d2 = d2;
                 }
                 let corner_hit = find_corner_lines_at_point(self.sketch(), raw, tol * 2.0);
                 if let Some((id1, _id2, _corner)) = corner_hit {
@@ -2389,7 +2402,7 @@ impl DuCADApp {
                                 (s1, e1),
                                 (s2, e2),
                                 self.chamfer_2d_dist,
-                                self.chamfer_2d_dist,
+                                self.chamfer_second_dist(),
                             ) {
                                 self.execute_sketch_command(Box::new(ReplaceEntities::new(
                                     "Chamfer 2D",
@@ -2414,7 +2427,7 @@ impl DuCADApp {
                                         (s1, e1),
                                         (s2, e2),
                                         self.chamfer_2d_dist,
-                                        self.chamfer_2d_dist,
+                                        self.chamfer_second_dist(),
                                     ) {
                                         self.execute_sketch_command(Box::new(
                                             ReplaceEntities::new(
