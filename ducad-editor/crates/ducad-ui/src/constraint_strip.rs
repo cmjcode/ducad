@@ -4,7 +4,11 @@
 //! untuk akses cepat pemasangan constraint geometris dan pengaturan snap.
 
 use egui::{RichText, Ui, Vec2};
-use egui_icons::icons::{ICON_LINK, ICON_LOCK};
+use ducad_i18n::t;
+use egui_icons::icons::{
+    ICON_AUTO_FIX_HIGH, ICON_COMMIT, ICON_LINEAR_SCALE, ICON_LINK, ICON_LOCK, ICON_TRIP_ORIGIN,
+    ICON_VERTICAL_ALIGN_CENTER,
+};
 use crate::theme::{glass_frame, ACCENT_BLUE, TEXT_PRIMARY, TEXT_SECONDARY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +25,16 @@ pub enum ConstraintAction {
     ApplyFixed,
     ApplySymmetric,
     ApplyDistance,
+    /// Titik di tengah garis (Paritas 0.5).
+    ApplyMidpoint,
+    /// Pusat dua lingkaran/busur berimpit.
+    ApplyConcentric,
+    /// Dua garis segaris.
+    ApplyCollinear,
+    /// Titik menempel di kurva.
+    ApplyPointOnCurve,
+    /// Inferensi constraint otomatis untuk seleksi / seluruh sketsa (Paritas 0.14).
+    AutoConstrain,
 }
 
 pub struct ConstraintStrip {
@@ -84,7 +98,20 @@ impl ConstraintStrip {
                 (ConstraintAction::ApplySymmetric, "sym", "Symmetric / Simetris"),
             ];
 
-            for (act, icon, tooltip) in constraints {
+            let midpoint_tip = t!("constraint-midpoint-tip");
+            let concentric_tip = t!("constraint-concentric-tip");
+            let collinear_tip = t!("constraint-collinear-tip");
+            let on_curve_tip = t!("constraint-point-on-curve-tip");
+            let auto_tip = t!("constraint-auto-tip");
+            let extra: [(ConstraintAction, &str, &str); 5] = [
+                (ConstraintAction::ApplyMidpoint, ICON_VERTICAL_ALIGN_CENTER.codepoint, &midpoint_tip),
+                (ConstraintAction::ApplyConcentric, ICON_TRIP_ORIGIN.codepoint, &concentric_tip),
+                (ConstraintAction::ApplyCollinear, ICON_LINEAR_SCALE.codepoint, &collinear_tip),
+                (ConstraintAction::ApplyPointOnCurve, ICON_COMMIT.codepoint, &on_curve_tip),
+                (ConstraintAction::AutoConstrain, ICON_AUTO_FIX_HIGH.codepoint, &auto_tip),
+            ];
+
+            for (act, icon, tooltip) in constraints.into_iter().chain(extra) {
                 let enabled = if let Some(valid) = valid_actions {
                     valid.contains(&act)
                 } else {

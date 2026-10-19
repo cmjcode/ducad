@@ -5,7 +5,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub use commands::{AddConstraint, RemoveConstraint, UpdateConstraint};
+pub use commands::{AddConstraint, AddConstraints, RemoveConstraint, UpdateConstraint};
 pub use solver::{
     analyze_dof, constraint_is_resolvable, solve, ConstraintState, DofReport, SolveResult,
 };

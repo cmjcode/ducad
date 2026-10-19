@@ -44,6 +44,44 @@ impl Command<Sketch> for AddConstraint {
     }
 }
 
+/// Tambah beberapa constraint sekaligus sebagai SATU langkah undo, lalu
+/// solve sekali (dipakai Auto-constrain).
+pub struct AddConstraints {
+    constraints: Vec<Constraint>,
+    prior_geometry: Vec<(EntityId, Entity)>,
+}
+
+impl AddConstraints {
+    pub fn new(constraints: Vec<Constraint>) -> Self {
+        Self { constraints, prior_geometry: Vec::new() }
+    }
+}
+
+impl Command<Sketch> for AddConstraints {
+    fn name(&self) -> &str {
+        "Auto-constrain"
+    }
+    fn apply(&mut self, sketch: &mut Sketch) {
+        self.prior_geometry = involved_entities(&self.constraints)
+            .into_iter()
+            .filter_map(|id| sketch.entities.get(id).map(|e| (id, e.clone())))
+            .collect();
+        sketch.constraints.extend(self.constraints.iter().cloned());
+        let snapshot = sketch.constraints.clone();
+        solve(sketch, &snapshot);
+    }
+    fn revert(&mut self, sketch: &mut Sketch) {
+        let keep = sketch.constraints.len().saturating_sub(self.constraints.len());
+        sketch.constraints.truncate(keep);
+        for (id, entity) in &self.prior_geometry {
+            if let Some(slot) = sketch.entities.get_mut(*id) {
+                *slot = entity.clone();
+                sketch.touch(*id);
+            }
+        }
+    }
+}
+
 /// Hapus constraint pada indeks tertentu dan solve ulang sisanya.
 pub struct RemoveConstraint {
     index: usize,

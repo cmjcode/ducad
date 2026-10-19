@@ -307,6 +307,34 @@ pub enum PaletteAction {
     CheckForUpdates,
     /// Extrude profil sketsa terpilih, atau tarik sisi solid terpilih.
     ExtrudeSelection,
+    /// Perintah dari plan paritas SolidCraft (Fase 0).
+    Parity(ParityCmd),
+}
+
+/// Perintah Fase 0 plan paritas (`docs/PLAN_PARITAS_SOLIDCRAFT.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParityCmd {
+    Primitive,
+    MirrorBody,
+    RotateBody,
+}
+
+impl ParityCmd {
+    pub const ALL: [ParityCmd; 3] = [ParityCmd::Primitive, ParityCmd::MirrorBody, ParityCmd::RotateBody];
+
+    pub fn label(self) -> String {
+        match self {
+            ParityCmd::Primitive => ducad_i18n::t!("prim-title"),
+            ParityCmd::MirrorBody => ducad_i18n::t!("mirror-body-title"),
+            ParityCmd::RotateBody => ducad_i18n::t!("rotate-body-title"),
+        }
+    }
+
+    pub fn group(self) -> PaletteGroup {
+        match self {
+            ParityCmd::Primitive | ParityCmd::MirrorBody | ParityCmd::RotateBody => PaletteGroup::Solid,
+        }
+    }
 }
 
 /// Grup perintah di command palette dan burger menu; urutan varian =
@@ -415,6 +443,7 @@ impl PaletteAction {
             | PaletteAction::TogglePalmRejection
             | PaletteAction::StartTutorial
             | PaletteAction::CheckForUpdates => PaletteGroup::View,
+            PaletteAction::Parity(cmd) => cmd.group(),
         }
     }
 }

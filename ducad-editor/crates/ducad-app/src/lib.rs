@@ -14,6 +14,7 @@ pub mod apple;
 pub mod apple_ios;
 pub mod assist_ui;
 pub mod avatar;
+pub mod body_tools;
 pub mod chat_cli;
 pub mod chat_history;
 pub mod brief_studio_ui;

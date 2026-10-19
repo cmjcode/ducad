@@ -42,7 +42,7 @@ pub use commands::{
     SetLayerFlags, SetStyle, SetStyleField, SetZOrder, StyleField, ToggleConstruction,
     TranslateEntities, UndoStack, Ungroup, UpdateEntity, UpdateText, ZOrderAction,
 };
-pub use constraint::{AddConstraint, RemoveConstraint, UpdateConstraint};
+pub use constraint::{AddConstraint, AddConstraints, RemoveConstraint, UpdateConstraint};
 
 pub use document::{PlaneRef, SketchId, SketchSet, SketchSlot};
 pub use entity::{map_exact, Entity, EntityId, PathSeg, Subpath};

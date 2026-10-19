@@ -16,6 +16,7 @@ use egui_icons::icons::{
     ICON_COLORIZE, ICON_CROP_16_9, ICON_EDIT, ICON_ELLIPSE_OUTLINE, ICON_FOUNTAIN_PEN_TIP,
     ICON_GESTURE, ICON_GRADIENT, ICON_HEATING_COIL, ICON_HEXAGON, ICON_HORIZONTAL_RULE,
     ICON_LAYERS, ICON_LAYERS_OFF, ICON_ROUTE, ICON_STADIUM, ICON_TIMELINE, ICON_TITLE,
+    ICON_VIEW_IN_AR,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,6 +74,8 @@ pub enum ToolbarTool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolbarEvent {
     SelectTool(ToolbarTool),
+    /// Buka panel Primitif (Box/Silinder/Bola/Kerucut).
+    OpenPrimitive,
 }
 
 pub struct LeftToolbar {
@@ -427,6 +430,13 @@ impl LeftToolbar {
                     ),
                 ];
 
+                let prim_title = t!("prim-title");
+                let prim_desc = t!("prim-desc");
+                if square_btn(ui, ICON_VIEW_IN_AR.codepoint, icon_sz, false, &prim_title, None, Some(&prim_desc), None, None)
+                    .clicked()
+                {
+                    event = Some(ToolbarEvent::OpenPrimitive);
+                }
                 for (tool, icon, title, shortcut, subtitle) in tools_3d {
                     let is_active = current_tool == *tool;
                     let btn =

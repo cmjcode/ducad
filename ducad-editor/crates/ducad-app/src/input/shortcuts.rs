@@ -414,6 +414,9 @@ impl DuCADApp {
                 PaletteAction::StartTutorial,
             ),
         ];
+        for cmd in crate::types::ParityCmd::ALL {
+            actions.push((cmd.label(), String::new(), PaletteAction::Parity(cmd)));
+        }
         if self.update.enabled() {
             actions.push((
                 ducad_i18n::t!("palette-check-updates"),
@@ -612,6 +615,7 @@ impl DuCADApp {
             PaletteAction::StartTutorial => self.start_onboarding(),
             PaletteAction::CheckForUpdates => self.update.check_now(),
             PaletteAction::ExtrudeSelection => self.extrude_from_palette(),
+            PaletteAction::Parity(cmd) => self.run_parity_cmd(cmd),
             PaletteAction::TogglePalmRejection => {
                 self.touch_config.palm_rejection = !self.touch_config.palm_rejection;
                 let st = if self.touch_config.palm_rejection {

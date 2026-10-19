@@ -65,6 +65,10 @@ pub enum ContextAction {
     DistributeHorizontal,
     DistributeVertical,
     TransformPrecise,
+    /// Cermin body 3D terhadap bidang (Paritas 0.2).
+    MirrorBody,
+    /// Putar body 3D mengelilingi sumbu (Paritas 0.3).
+    RotateBody,
 }
 
 /// State kontrol ekstrusi vektor pada contextual action bar (M3.4).
@@ -592,6 +596,15 @@ impl ContextActionBar {
                 // Pattern Solid (1 or more bodies)
                 if context_action_btn(ui, ICON_GRID_VIEW.codepoint, "Pattern", TEXT_PRIMARY, icon_sz, "Duplikasi solid 3D dalam kisi Linier / Sirkular (P)").clicked() {
                     action = Some(ContextAction::Pattern);
+                }
+
+                if count == 1 {
+                    if context_action_btn(ui, ICON_FLIP.codepoint, &t!("mirror-body-title"), TEXT_PRIMARY, icon_sz, &t!("mirror-body-desc")).clicked() {
+                        action = Some(ContextAction::MirrorBody);
+                    }
+                    if context_action_btn(ui, egui_icons::icons::ICON_ROTATE_RIGHT.codepoint, &t!("rotate-body-title"), TEXT_PRIMARY, icon_sz, &t!("rotate-body-desc")).clicked() {
+                        action = Some(ContextAction::RotateBody);
+                    }
                 }
 
                 ui.add_space(2.0);

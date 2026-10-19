@@ -438,7 +438,34 @@ Perbaikan yang ternyata perlu (di luar tabel):
 - `expect()` di `hlr_mesh.rs` (lolos dulu karena clippy truck tidak memblokir) diganti `if let`.
 - Tes `external_part_lifecycle_add_poll_reload_detach` (ducad-app) memakai toleransi volume eksak OCCT; kini `VOLUME_REL_TOL`.
 
-<!-- F6-RESULTS -->
+Hasil verifikasi (macOS arm64, 2026-10-19):
+
+| Gate | Hasil |
+|---|---|
+| `cargo test --workspace --no-fail-fast` (truck, default) | 1512 lulus, 4 gagal → 1 diperbaiki (`external_parts`, toleransi volume); **3 sisanya sudah gagal sebelum F6** dan tidak terkait kernel: `ducad-core` `hole::iso_table_in_vault_template_matches_engine` (tabel vault basi, `DUCAD_UPDATE_VAULT=1`) dan `layering` ×2 (`ducad-update` belum ada di tabel layering) |
+| `cargo test --workspace --features kernel-occt` | 1539 lulus; gagal hanya 3 kasus `ducad-core` yang sama → OCCT tidak mundur |
+| `cargo clippy --workspace --all-targets -D warnings` truck & OCCT | bersih keduanya |
+| `golden check --known known_failures.truck.txt` (tanpa flag fitur) | 20/20 lulus, 1 dilewati (valve_body, R7) |
+| `./build_ipad.sh check` (truck) / `make android-check` (truck) | hijau / hijau — tanpa cmake/occt-sys |
+| wasm32 `cargo check -p ducad-kernel` | hijau |
+| `DUCAD_KERNEL=occt` pada biner rilis + `ducad-occt` uji | berpindah via `exec`, argumen diteruskan, `DUCAD_KERNEL_REEXEC=1`; nilai asing → peringatan di log + truck |
+| Cutover F6.4 (worktree terpisah, tanpa submodule & tanpa `vendors/opencascade-rs`) | resolve OK; `Cargo.lock` tanpa `opencascade`/`occt-sys`; clippy bersih; wasm32 hijau; tes 1506 lulus, gagal hanya 3 kasus `ducad-core` lama (+ aturan layering `only_the_kernel_links_opencascade` dibalik jadi `no_crate_links_opencascade`). `apply_f6_4.sh` direproduksi dari status F6 → pohon identik (selisih 0 baris). |
+
+Ukuran biner rilis macOS arm64 (`cargo build --release -p ducad-app --bin ducad`, profil rilis repo: thin LTO, `codegen-units = 1`, strip):
+
+| Backend | Ukuran `ducad` | Waktu build bersih* |
+|---|---|---|
+| truck | 43,3 MB | 5 m 44 s |
+| OCCT | 59,5 MB (+37 %) | 30 m 53 s (termasuk OCCT C++) |
+
+\* Build berjalan berdampingan dengan tes lain; angka waktu indikatif.
+
+Yang belum (dan alasannya):
+
+- **Soak 2 minggu (6.3)** belum mulai — butuh rilis beta: `scripts/release-tag.sh --no-push` dengan `VERSION` = `0.6.0-beta.1`, lalu push tag (keputusan pengguna). Gate soak: nol panik kernel `backend: truck` di `panics.jsonl` penguji.
+- **6.4/6.5** menunggu soak **dan** R7: `valve_body` masih `*skip*` di truck (gate §0 butir 2 belum 100 %), benchmark ≤ 2× (F5) belum diukur. Terapkan dengan `docs/cutover/apply_f6_4.sh` (periksa dulu `--check`; patch bisa basi bila kode berubah selama soak — buat ulang dari worktree bila gagal).
+- **Windows** belum dibangun/diuji di mesin Windows (skrip & CI diperbarui, lane CI Windows yang akan membuktikan).
+- Exit gate "`grep -ri occt` hanya di CHANGELOG" tidak realistis: dokumen riwayat (ADR, `PLAN.md`, `perf/occt-baseline.md`, `FORMAT.md` produser `ducad-occt/1` untuk berkas lama, rencana ini) dan golden `tests/goldens/occt` (referensi beku) tetap menyebut OCCT. Setelah cutover, kode/skrip/CI/manifest bebas OCCT kecuali komentar riwayat.
 
 ---
 

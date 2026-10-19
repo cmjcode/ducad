@@ -156,6 +156,8 @@ pub struct DuCADApp {
     pub checks: crate::checks_ui::ChecksState,
     /// Panel properti massa (P16).
     pub mass: crate::mass_ui::MassState,
+    /// Panel Primitif / Cermin Body / Putar Body (Paritas 0.1–0.3).
+    pub body_tools: crate::body_tools::BodyToolsState,
     /// Studi simulasi (P17).
     pub sim: crate::sim_ui::SimState,
     /// Panel Fitur Industri (P18–P20).
@@ -594,6 +596,7 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
+            body_tools: crate::body_tools::BodyToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -931,6 +934,7 @@ impl DuCADApp {
             pending_proposal: None,
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
+            body_tools: crate::body_tools::BodyToolsState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -2329,6 +2333,9 @@ impl eframe::App for DuCADApp {
                 .show(&ctx, |ui| {
                     if let Some(tb_ev) = self.left_toolbar.show(ui, self.tool.to_toolbar_tool()) {
                         match tb_ev {
+                            ToolbarEvent::OpenPrimitive => {
+                                self.open_body_tool(crate::body_tools::BodyToolPanel::Primitive);
+                            }
                             ToolbarEvent::SelectTool(ducad_ui::ToolbarTool::SectionView) => {
                                 self.section_enabled = !self.section_enabled;
                             }
@@ -4337,6 +4344,7 @@ impl eframe::App for DuCADApp {
         }
 
         self.show_transform_dialog(&ctx);
+        self.show_body_tools(&ctx, screen_rect);
 
         // Constraint strip untuk seleksi node path (M2.6): muncul di tool
         // Node Edit, hanya aksi yang berlaku untuk jumlah node terpilih aktif.
@@ -4607,6 +4615,12 @@ impl eframe::App for DuCADApp {
                                 ContextAction::CheckClash => {
                                     self.assembly_drawer_open = true;
                                     self.run_clash_detection(0.001);
+                                }
+                                ContextAction::MirrorBody => {
+                                    self.open_body_tool(crate::body_tools::BodyToolPanel::MirrorBody);
+                                }
+                                ContextAction::RotateBody => {
+                                    self.open_body_tool(crate::body_tools::BodyToolPanel::RotateBody);
                                 }
                                 ContextAction::Delete => {
                                     self.delete_selected_bodies();

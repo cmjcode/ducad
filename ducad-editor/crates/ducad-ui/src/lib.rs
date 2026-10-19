@@ -154,6 +154,10 @@ pub use tool_popups::{
     LoftPopupState, MeasurePopup, MeasurePopupState, RevolvePopup, RevolvePopupState, ShellPopup,
     ShellPopupState, TextPopup, TextPopupState, ToolPopupEvent,
 };
+pub use tool_popups::body_tools_popup::{
+    snap_angle_15, BodyToolEvent, BodyToolsPopup, MirrorBodyPopupState, MirrorPlaneChoice,
+    PrimitiveKind, PrimitivePopupState, RotateAxisChoice, RotateBodyPopupState,
+};
 pub use top_bar::{
     TopBar, TopBarCommand, TopBarCommandGroup, TopBarEvent, TopBarFileOp, TopBarState,
     TopBarZoom, ZOOM_PRESETS, ZOOM_STEP, format_zoom_percent,

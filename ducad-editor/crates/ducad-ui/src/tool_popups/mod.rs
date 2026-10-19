@@ -3,6 +3,7 @@
 //! Setiap tool memiliki dialog / window kecil tersendiri yang mengambang
 //! di pojok kanan bawah kanvas secara kontekstual hanya saat tool tersebut aktif.
 
+pub mod body_tools_popup;
 pub mod boolean_popup;
 pub mod draft_popup;
 pub mod entity_popup;
