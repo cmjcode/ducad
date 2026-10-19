@@ -5,9 +5,19 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+# Backend kernel geometri (PLAN_MIGRASI_TRUCK §3). Tepat satu harus aktif —
+# `compile_error!` di src/lib.rs menolak keduanya/tidak ada sama sekali.
+# Backend truck: `cargo test -p ducad-kernel --no-default-features --features kernel-truck`.
+[features]
+default = ["kernel-occt"]
+kernel-occt = ["dep:opencascade"]
+kernel-truck = ["dep:solidcraft-kernel", "dep:solidcraft-geom"]
+
 [dependencies]
 ducad-core = { workspace = true }
-opencascade = { workspace = true }
+opencascade = { workspace = true, optional = true }
+solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel", optional = true }
+solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom", optional = true }
 glam = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }
@@ -16,3 +26,11 @@ serde = { workspace = true }
 [[bin]]
 name = "smoke"
 path = "src/bin/smoke.rs"
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+# Baseline waktu op kernel untuk migrasi backend (PLAN_MIGRASI_TRUCK F0.3).
+[[bench]]
+name = "ops"
+harness = false

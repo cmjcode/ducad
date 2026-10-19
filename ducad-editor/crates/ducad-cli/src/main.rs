@@ -108,6 +108,10 @@ enum Command {
     Assist(cmd::assist::Args),
     /// Chat agent (Claude/OpenAI/Ollama) yang memodelkan lewat tool MCP.
     Chat(cmd::chat::Args),
+    /// Korpus golden migrasi kernel: rekam baseline / bandingkan (kode 1 bila beda).
+    Golden(cmd::golden::Args),
+    /// Migrasi berkas `.ducad` ke format v4 (body turunan oplog tanpa STEP).
+    MigrateFile(cmd::migrate::Args),
     /// Cetak JSON Schema OpFile.
     Schema,
 }
@@ -133,6 +137,8 @@ fn main() -> ExitCode {
         Command::Release(a) => cmd::release::exec(a),
         Command::Assist(a) => cmd::assist::exec(a),
         Command::Chat(a) => cmd::chat::exec(a),
+        Command::Golden(a) => cmd::golden::exec(a),
+        Command::MigrateFile(a) => cmd::migrate::exec(a),
         Command::Schema => cmd::print_json(&ducad_engine::ops::op_schema()).map(|_| Exit::Ok),
     };
     match result {

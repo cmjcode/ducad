@@ -17,6 +17,9 @@ path = "src/main.rs"
 
 [features]
 default = []
+# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
+# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+kernel-truck = ["ducad-kernel/kernel-truck"]
 # Asisten AI di perangkat (P11); mati secara default agar build biasa
 # dan build iOS tidak terpengaruh.
 apple-fm = ["ducad-assist/apple-fm"]

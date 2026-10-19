@@ -24,4 +24,7 @@ serde_json = { workspace = true }
 
 [features]
 default = []
+# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
+# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+kernel-truck = ["ducad-kernel/kernel-truck"]
 serde = ["dep:serde"]

@@ -73,6 +73,16 @@ impl KernelShape {
         self.0.volume()
     }
 
+    /// Bounding box geometris `(min, max)` dalam mm. Di OCCT = bbox mesh
+    /// tesselasinya (vertex OCCT jatuh tepat di titik ekstrem permukaan
+    /// analitik sejajar sumbu) — nilai yang selama ini dilaporkan `inspect`
+    /// dan direkam golden. `None` untuk shape tanpa segitiga.
+    pub fn bounding_box(&self) -> Option<([f64; 3], [f64; 3])> {
+        self.tessellate()
+            .bounding_box()
+            .map(|(a, b)| (a.map(f64::from), b.map(f64::from)))
+    }
+
     pub fn write_stl(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let _guard = lock_kernel();
         self.0.write_stl(path)?;
@@ -163,6 +173,25 @@ impl KernelShape {
         })();
         let _ = std::fs::remove_file(&path);
         result.map(KernelShape)
+    }
+
+    /// Identitas penulis cache B-rep native (field `brep.producer` di berkas
+    /// `.ducad` v4). Cache hanya dipakai bila produsennya SAMA persis dengan
+    /// backend yang sedang berjalan; selain itu dianggap *miss* dan geometri
+    /// dibangun ulang dari oplog/STEP. Naikkan angka versinya bila encoding
+    /// cache berubah. Backend truck (F2) memakai `"ducad-truck/1"`.
+    pub const NATIVE_CACHE_PRODUCER: &'static str = "ducad-occt/1";
+
+    /// Encode B-rep ini untuk cache native non-otoritatif. Di backend OCCT
+    /// isinya BREP biner (`to_brep_bytes`).
+    pub fn to_native_cache(&self) -> Result<Vec<u8>> {
+        self.to_brep_bytes()
+    }
+
+    /// Kebalikan [`KernelShape::to_native_cache`]. Pemanggil WAJIB sudah
+    /// memeriksa produsen cache sama dengan [`Self::NATIVE_CACHE_PRODUCER`].
+    pub fn from_native_cache(bytes: &[u8]) -> Result<Self> {
+        Self::from_brep_bytes(bytes)
     }
 
     /// Kebalikan `to_step_string`.

@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/valve_body.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 15,
+  "bodies": [
+    {
+      "name": "valve",
+      "valid": true,
+      "volume": 1613551.5117,
+      "area": 168384.6092,
+      "bbox": [
+        [
+          -83.0,
+          -82.9848,
+          -73.0
+        ],
+        [
+          83.0,
+          82.9848,
+          88.0
+        ]
+      ],
+      "faces": 36,
+      "edges": 90,
+      "mesh": {
+        "vertices": 19682,
+        "triangles": 27668,
+        "sha": "ca827999a80bdacb"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "one_body",
+      "status": "pass"
+    },
+    {
+      "label": "envelope",
+      "status": "pass"
+    },
+    {
+      "label": "flange_bolt_axes",
+      "status": "pass"
+    },
+    {
+      "label": "wall",
+      "status": "pass"
+    },
+    {
+      "label": "vol",
+      "status": "pass"
+    }
+  ]
+}

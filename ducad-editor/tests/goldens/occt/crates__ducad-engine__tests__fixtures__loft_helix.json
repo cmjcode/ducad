@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/loft_helix.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 5,
+  "bodies": [
+    {
+      "name": "funnel",
+      "valid": true,
+      "volume": 20442.8502,
+      "area": 4530.406,
+      "bbox": [
+        [
+          -15.0,
+          -15.0,
+          0.0
+        ],
+        [
+          15.0,
+          15.0,
+          40.0
+        ]
+      ],
+      "faces": 7,
+      "edges": 15,
+      "mesh": {
+        "vertices": 3438,
+        "triangles": 6586,
+        "sha": "7f3252cfacbcce60"
+      }
+    },
+    {
+      "name": "funnel_m",
+      "valid": true,
+      "volume": 20442.8502,
+      "area": 4530.406,
+      "bbox": [
+        [
+          45.0,
+          -15.0,
+          0.0
+        ],
+        [
+          75.0,
+          15.0,
+          40.0
+        ]
+      ],
+      "faces": 7,
+      "edges": 15,
+      "mesh": {
+        "vertices": 3428,
+        "triangles": 6566,
+        "sha": "33645f6170209592"
+      }
+    },
+    {
+      "name": "spring",
+      "valid": true,
+      "volume": 2673.3219,
+      "area": 3578.4209,
+      "bbox": [
+        [
+          46.5,
+          -13.4998,
+          -1.4951
+        ],
+        [
+          73.4999,
+          13.4998,
+          31.4954
+        ]
+      ],
+      "faces": 3,
+      "edges": 3,
+      "mesh": {
+        "vertices": 69503,
+        "triangles": 136838,
+        "sha": "e89dde5088a9adb3"
+      }
+    }
+  ],
+  "checks": null
+}

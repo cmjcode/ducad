@@ -98,14 +98,33 @@ impl DuCADApp {
         let stamp = ducad_core::external::SourceStamp::of(file)
             .map_err(|e| format!("gagal mencatat cap '{}': {e}", file.display()))?;
 
-        let mut created = Vec::with_capacity(doc.bodies.len());
+        // Semua geometri disiapkan dulu supaya kegagalan tidak meninggalkan
+        // sebagian body tersisip. Body turunan oplog (v4) tanpa cache yang
+        // cocok dibangun ulang lewat replay berkas sumber.
+        let mut warnings = Vec::new();
+        let mut shapes = Vec::with_capacity(doc.bodies.len());
         for body in &doc.bodies {
-            let shape = ducad_kernel::KernelShape::from_step_string(&body.step)
+            let shape = body
+                .resolve_shape(&mut warnings)
                 .map_err(|e| format!("geometri '{}' rusak: {e:#}", body.name))?;
+            shapes.push(shape.map(BodyGeometry::from_shape));
+        }
+        if shapes.iter().any(Option::is_none) {
+            let mut replayed =
+                crate::file_io::replay_derived_bodies(file).map_err(|e| format!("{e:#}"))?;
+            for (slot, body) in shapes.iter_mut().zip(&doc.bodies) {
+                if slot.is_none() {
+                    *slot = Some(replayed.remove(&body.name).ok_or_else(|| {
+                        format!("body '{}' tidak dihasilkan ulang oleh oplog", body.name)
+                    })?);
+                }
+            }
+        }
+
+        let mut created = Vec::with_capacity(doc.bodies.len());
+        for (body, geo) in doc.bodies.iter().zip(shapes.into_iter().flatten()) {
             let body_id = self.model.doc.add_body_with_material(&body.name, body.material);
-            self.model
-                .geometry
-                .insert(body_id, BodyGeometry::from_shape(shape));
+            self.model.geometry.insert(body_id, geo);
 
             let inst_id = self
                 .assembly_tree
@@ -384,6 +403,7 @@ mod tests {
             mechanical: None,
             shape: &shape,
             round_history: None,
+            derived: false,
         };
         save_multi_plane_detailed(&path, &[&Sketch::default()], &[body]).unwrap();
         (TempDir(dir), path)

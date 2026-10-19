@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
+# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+kernel-truck = ["ducad-kernel/kernel-truck"]
+
 [dependencies]
 ducad-core = { workspace = true }
 ducad-ink = { workspace = true }

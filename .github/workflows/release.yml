@@ -121,7 +121,7 @@ jobs:
           Write-Host "Generator CMake: $gen"
           "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.1
 
       - name: Resolusi revisi OCCT
         id: occt

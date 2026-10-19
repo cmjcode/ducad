@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "source": "examples/vector_logo.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 2,
+  "bodies": [
+    {
+      "name": "logo3d.logo",
+      "valid": true,
+      "volume": 9200.0,
+      "area": 3118.9314,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          47.5,
+          20.0,
+          10.0
+        ]
+      ],
+      "faces": 6,
+      "edges": 12,
+      "mesh": {
+        "vertices": 1215,
+        "triangles": 2070,
+        "sha": "931e7140eaf250fd"
+      }
+    }
+  ],
+  "checks": null
+}

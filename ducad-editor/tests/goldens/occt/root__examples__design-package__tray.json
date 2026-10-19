@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "source": "../examples/design-package/tray.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 5,
+  "bodies": [
+    {
+      "name": "tray",
+      "valid": true,
+      "volume": 27815.9289,
+      "area": 28851.3272,
+      "bbox": [
+        [
+          -4.0,
+          -4.0,
+          0.0
+        ],
+        [
+          104.0,
+          64.0,
+          24.0
+        ]
+      ],
+      "faces": 30,
+      "edges": 68,
+      "mesh": {
+        "vertices": 1128,
+        "triangles": 1068,
+        "sha": "574e9e03f0d8d3f9"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "one_body",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-sheet-metal/bend-radius",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-sheet-metal/flange-length",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-sheet-metal/hole-edge",
+      "status": "pass"
+    },
+    {
+      "label": "dfm-sheet-metal/general-tolerance",
+      "status": "pass"
+    }
+  ]
+}

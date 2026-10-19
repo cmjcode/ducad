@@ -1,14 +1,24 @@
-//! Wrapper DUCAD di atas kernel OpenCASCADE (via opencascade-rs).
+//! Kernel geometri DUCAD: API B-rep netral-backend di atas OpenCASCADE
+//! (fitur `kernel-occt`, default) atau SolidCraft/truck (fitur `kernel-truck`).
 //!
-//! Seluruh aplikasi hanya boleh menyentuh tipe dari crate ini, bukan
-//! `opencascade` langsung — agar detail FFI terisolasi dan kernel bisa
-//! ditambal/diganti tanpa merombak app. `Shape` OCCT sengaja tidak pernah
-//! `pub`: [`KernelShape`] membungkusnya sepenuhnya.
+//! Seluruh aplikasi hanya boleh menyentuh tipe dari crate ini, bukan crate
+//! kernel pihak ketiga langsung — agar detail backend terisolasi dan kernel
+//! bisa ditambal/diganti tanpa merombak app. Tipe backend sengaja tidak
+//! pernah `pub`: [`KernelShape`] membungkusnya sepenuhnya. Lihat
+//! `src/backend/mod.rs` dan docs/PLAN_MIGRASI_TRUCK.md.
 
 // Prinsip "jangan pernah crash" (ADR 0009): tidak ada unwrap/expect/panic di
 // kode produksi; modul tes dikecualikan.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+#[cfg(not(any(feature = "kernel-occt", feature = "kernel-truck")))]
+compile_error!(
+    "ducad-kernel butuh backend: aktifkan fitur `kernel-occt` (default) atau `kernel-truck`"
+);
+
+mod backend;
+
 pub mod advanced;
 pub mod assembly_solver;
 pub mod csg;
@@ -16,58 +26,62 @@ pub mod detail;
 pub mod helix;
 pub mod hlr;
 pub mod hlr_exact;
-mod hlr_sheet;
 pub mod hole;
 pub mod interference;
 pub mod mass;
 pub mod mesh;
 pub mod modify;
 pub mod picking;
-pub mod primitives;
+pub use backend::primitives;
 pub mod profile;
 pub mod projection;
 pub mod section;
-pub mod shape;
-pub mod step;
+pub use backend::shape;
+pub use backend::step;
 pub mod thickness;
 pub mod thread;
 pub mod topo;
 pub mod vector_snapshot;
 
-#[cfg(test)]
+// Tes lama berbasis OCCT (memakai `opencascade` langsung di beberapa tempat).
+#[cfg(all(test, feature = "kernel-occt", not(feature = "kernel-truck")))]
 mod tests;
+// Tes kontrak: hanya API publik, dijalankan di KEDUA backend.
+#[cfg(test)]
+mod contract_tests;
 
-use std::sync::Mutex;
+/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
+/// dicatat golden corpus dan laporan diagnostik.
+#[cfg(feature = "kernel-truck")]
+pub const BACKEND: &str = "truck";
+/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
+/// dicatat golden corpus dan laporan diagnostik.
+#[cfg(not(feature = "kernel-truck"))]
+pub const BACKEND: &str = "occt";
 
-/// Kunci global memaksa SEMUA pemanggilan ke kernel OCCT serial lintas
-/// thread mana pun. OCCT (setidaknya jalur transfer STEP — dibuktikan
-/// lewat crash `SIGABRT`/`Interface_InterfaceError` di test suite Fase 3,
-/// lihat `tests::TEST_LOCK`) TIDAK thread-safe untuk dipanggil BERSAMAAN
-/// dari >1 thread; juga dikonfirmasi lewat compile-time check bahwa
-/// `KernelShape` (dan `opencascade::Shape` di baliknya) TIDAK `Send` —
-/// `UniquePtr<TopoDS_Shape>` milik `cxx` tidak pernah diberi `unsafe impl
-/// Send` di binding ini, konsisten dengan OCCT yang memang tidak
-/// thread-safe. Sampai Fase 6, ini bukan masalah nyata karena
-/// `ducad-app` cuma pernah memanggil kernel dari UI thread tunggal.
-/// Fase 7 menambah `import_worker` di `ducad-app` (thread latar belakang
-/// untuk Import STEP, supaya UI tidak beku selama tessellation shape
-/// besar) — begitu ADA thread kedua yang bisa memanggil kernel, lock ini
-/// jadi wajib di setiap fungsi publik supaya tidak pernah ada 2
-/// panggilan OCCT jalan bersamaan, apa pun urutan aksi user (mis. klik
-/// Extrude persis saat import STEP di latar belakang masih berjalan).
-/// Dipegang HANYA di fungsi publik, bukan di helper privat seperti
-/// `deep_clone`/`tessellate_shape` yang selalu dipanggil dari dalam
-/// fungsi publik yang sudah memegang lock — `Mutex` std TIDAK reentrant,
-/// mengunci dua kali dari thread yang sama akan deadlock.
-static KERNEL_LOCK: Mutex<()> = Mutex::new(());
-
-/// Kunci `KERNEL_LOCK`, pulih dari poisoning (panic sebelumnya sambil
-/// memegang lock) alih-alih ikut panic — satu operasi kernel yang gagal
-/// tidak seharusnya mengunci permanen SEMUA operasi kernel berikutnya di
-/// aplikasi UI yang harus tetap responsif.
-pub(crate) fn lock_kernel() -> std::sync::MutexGuard<'static, ()> {
-    KERNEL_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+/// Error bertipe: operasi ini belum didukung backend kernel yang aktif
+/// (PLAN_MIGRASI_TRUCK §0 butir 4 — op yang tidak didukung mengembalikan
+/// `Err`, tidak pernah panic). Engine memetakannya ke kode `unsupported`
+/// lewat `downcast_ref`, bukan mencocokkan teks pesan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unsupported {
+    /// Nama operasi kernel, mis. `"fillet_edges"`.
+    pub operation: &'static str,
+    /// Backend yang menolak (`BACKEND`).
+    pub backend: &'static str,
 }
+
+impl std::fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} belum didukung backend kernel {}", self.operation, self.backend)
+    }
+}
+
+impl std::error::Error for Unsupported {}
+
+/// Kunci serialisasi panggilan kernel. Backend OCCT: mutex global (OCCT tidak
+/// thread-safe). Backend truck: no-op — `KernelShape` di sana `Send + Sync`.
+pub(crate) use backend::lock_kernel;
 
 // Re-exports for public API compatibility
 pub use advanced::{
@@ -82,19 +96,25 @@ pub use assembly_solver::{
 pub use csg::{
     emboss_profiles_on_plane, extrude_profile, extrude_profile_extent, extrude_profile_on_plane,
     intersect, loft_profiles, EmptyIntersection, ExtrudeExtent,
-    revolve_profile, subtract, sweep_profile_along_path, sweep_profile_along_wire,
+    revolve_profile, subtract, sweep_profile_along_path,
     sweep_profile_on_plane_along_path, union,
 };
+/// Khusus OCCT: menerima `Wire` OCCT mentah (tidak ada padanan netral-backend).
+#[cfg(all(feature = "kernel-occt", not(feature = "kernel-truck")))]
+pub use csg::sweep_profile_along_wire;
 pub use detail::{clip_segment_to_circle, DetailExtractor, DetailIndicator, DetailViewData};
 pub use helix::{
     create_helix_path_segments, create_helix_solid, create_helix_solid_with_custom_profile,
-    create_helix_wire, generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
+    generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
 };
+/// Khusus OCCT: mengembalikan `Wire` OCCT mentah.
+#[cfg(all(feature = "kernel-occt", not(feature = "kernel-truck")))]
+pub use helix::create_helix_wire;
 pub use hlr::{
     DrawingOptions, HlrArc2D, HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind,
     HlrSegment2D, ProjectedView, ProjectedViewKind,
 };
-pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactHlrView, ExactLineKind};
+pub use hlr_exact::{extract_exact_hlr, ExactCurve2D, ExactCurveType, ExactHlrView, ExactLineKind};
 pub use projection::{
     clip_segment_to_halfspace, clip_segment_to_rect, Projector, DEFAULT_DEPTH_TOLERANCE_MM,
 };

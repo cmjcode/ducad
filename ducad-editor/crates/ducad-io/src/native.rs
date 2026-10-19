@@ -12,6 +12,13 @@
 //! ADANYA berkat fitur "serde" `slotmap` (index+versi internal disimpan),
 //! jadi tidak perlu remapping id manual.
 //!
+//! Format v4 (migrasi kernel F1, `docs/FORMAT.md`): body yang geometrinya
+//! bisa direproduksi dari oplog `design` ("body turunan") TIDAK lagi membawa
+//! STEP — oplog adalah sumber kebenaran. Sebagai gantinya ia membawa cache
+//! B-rep native opsional (`brep`) berlabel produsen; cache dari backend lain
+//! dianggap *miss*. STEP hanya dipertahankan untuk body tanpa oplog
+//! (buatan GUI, impor, berkas lama).
+//!
 //! Body TIDAK menyimpan `BodyId` — beda dengan `EntityId` yang jadi
 //! rujukan silang lewat constraint, tidak ada apa pun di file ini yang
 //! merujuk `BodyId` lintas body, jadi body cukup direkonstruksi sebagai
@@ -19,6 +26,7 @@
 //! pemanggil lewat `Document::add_body`).
 
 use anyhow::{bail, Context, Result};
+use base64::Engine as _;
 use ducad_kernel::KernelShape;
 use ducad_sketch::Sketch;
 use serde::{Deserialize, Serialize};
@@ -36,7 +44,17 @@ use std::path::Path;
 /// Versi 3 menambah fitur vektor lanjutan (`Entity::Path`, `styles`, `layers`,
 /// `groups`, `texts`, `origin`). Penulis memakai 3 HANYA bila dokumen
 /// memakai salah satu fitur vektor baru tersebut.
-pub const FORMAT_VERSION: u32 = 3;
+///
+/// Versi 4 membuat `bodies[].step` opsional (body turunan oplog tanpa STEP)
+/// dan menambah cache `bodies[].brep`. Penulis memakai 4 HANYA bila ada body
+/// turunan atau cache — berkas buatan GUI tetap v1–v3.
+pub const FORMAT_VERSION: u32 = 4;
+
+/// Versi format dengan body turunan oplog (tanpa STEP) / cache B-rep.
+pub const FORMAT_VERSION_DERIVED: u32 = 4;
+
+/// Versi format dengan fitur vektor lanjutan / tinta.
+pub const FORMAT_VERSION_VECTOR: u32 = 3;
 
 /// Versi format berkas dengan oplog parametrik (`design`) tanpa fitur vektor v3.
 pub const FORMAT_VERSION_DESIGN: u32 = 2;
@@ -101,6 +119,55 @@ pub struct NativeRoundHistory {
     pub features: Vec<NativeRoundFeature>,
 }
 
+/// Cache B-rep native non-otoritatif (format v4). Boleh dibuang kapan saja:
+/// geometri selalu bisa dibangun ulang dari oplog `design`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeBrepCache {
+    /// Penulis cache, mis. `"ducad-occt/1"` — lihat
+    /// [`KernelShape::NATIVE_CACHE_PRODUCER`]. Beda produsen = *miss*.
+    pub producer: String,
+    /// Isi cache: base64 standar dari aliran zlib (deflate) byte encoding
+    /// backend. Dikompresi karena BREP biner OCCT jauh lebih besar dari STEP.
+    pub data: String,
+}
+
+/// Batas ukuran cache setelah dekompresi — melindungi dari berkas jahat
+/// (zip bomb); body nyata jauh di bawah ini.
+const BREP_CACHE_MAX_BYTES: usize = 512 * 1024 * 1024;
+
+impl NativeBrepCache {
+    /// Cache dari `shape` untuk backend kernel yang sedang berjalan.
+    pub fn of(shape: &KernelShape) -> Result<Self> {
+        let bytes = shape.to_native_cache()?;
+        Ok(Self {
+            producer: KernelShape::NATIVE_CACHE_PRODUCER.to_string(),
+            data: base64::engine::general_purpose::STANDARD
+                .encode(miniz_oxide::deflate::compress_to_vec_zlib(&bytes, 6)),
+        })
+    }
+
+    /// `true` bila cache ini ditulis backend yang sedang berjalan.
+    pub fn is_usable(&self) -> bool {
+        self.producer == KernelShape::NATIVE_CACHE_PRODUCER
+    }
+
+    /// Dekode cache. `Ok(None)` = produsen lain (*miss*, bukan error).
+    pub fn decode(&self) -> Result<Option<KernelShape>> {
+        if !self.is_usable() {
+            return Ok(None);
+        }
+        let packed = base64::engine::general_purpose::STANDARD
+            .decode(self.data.as_bytes())
+            .context("cache brep bukan base64 yang sah")?;
+        let bytes = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(
+            &packed,
+            BREP_CACHE_MAX_BYTES,
+        )
+        .map_err(|e| anyhow::anyhow!("cache brep bukan aliran zlib yang sah: {e:?}"))?;
+        KernelShape::from_native_cache(&bytes).map(Some)
+    }
+}
+
 /// Satu body 3D dalam file native — nama, visibilitas, material PBR, geometri B-rep,
 /// dan riwayat fitur rounding (fillet/chamfer).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,9 +190,73 @@ pub struct NativeBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mechanical: Option<ducad_core::MaterialSource>,
     /// Teks STEP AP214 lengkap (bukan mesh) — lihat catatan modul.
-    pub step: String,
+    /// `None` (v4) = body turunan oplog `design`: geometrinya dibangun ulang
+    /// lewat replay, atau diambil dari `brep` bila produsennya cocok.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    /// Cache B-rep native opsional (v4), lihat [`NativeBrepCache`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brep: Option<NativeBrepCache>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round_history: Option<NativeRoundHistory>,
+}
+
+impl NativeBody {
+    /// Body dengan geometri STEP otoritatif (tanpa oplog: GUI/impor).
+    pub fn from_step(name: impl Into<String>, step: String) -> Self {
+        Self {
+            name: name.into(),
+            uuid: ducad_core::new_part_uuid(),
+            visible: true,
+            material: ducad_core::Material::default(),
+            mechanical: None,
+            step: Some(step),
+            brep: None,
+            round_history: None,
+        }
+    }
+
+    /// Geometri body tanpa replay: cache (bila produsennya backend ini)
+    /// lalu STEP. `Ok(None)` = body turunan yang harus dibangun ulang dari
+    /// oplog. Cache yang rusak tidak fatal — dicatat di `warnings` lalu
+    /// jatuh ke STEP/replay. STEP yang rusak adalah error: pemanggil yang
+    /// punya oplog boleh mengubahnya jadi peringatan + replay.
+    pub fn resolve_shape(&self, warnings: &mut Vec<String>) -> Result<Option<KernelShape>> {
+        if let Some(cache) = &self.brep {
+            match cache.decode() {
+                Ok(Some(shape)) => return Ok(Some(shape)),
+                Ok(None) => warnings.push(format!(
+                    "body '{}': cache brep dari '{}' diabaikan (backend ini '{}')",
+                    self.name,
+                    cache.producer,
+                    KernelShape::NATIVE_CACHE_PRODUCER
+                )),
+                Err(e) => warnings.push(format!(
+                    "body '{}': cache brep rusak, diabaikan: {e:#}",
+                    self.name
+                )),
+            }
+        }
+        match &self.step {
+            Some(step) => KernelShape::from_step_string(step)
+                .map(Some)
+                .with_context(|| format!("gagal baca geometri body '{}' dari STEP", self.name)),
+            None => Ok(None),
+        }
+    }
+
+    /// Pastikan body membawa STEP otoritatif (dipakai saat body turunan
+    /// diadopsi jadi body dasar tanpa oplog).
+    pub fn ensure_step(&mut self, shape: &KernelShape) -> Result<()> {
+        if self.step.is_none() {
+            self.step = Some(
+                shape
+                    .to_step_string()
+                    .with_context(|| format!("gagal serialize body '{}' ke STEP", self.name))?,
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Struktur data referensi untuk ekspor body lengkap dengan riwayat fitur.
@@ -140,6 +271,10 @@ pub struct ExportBody<'a> {
     pub mechanical: Option<ducad_core::MaterialSource>,
     pub shape: &'a KernelShape,
     pub round_history: Option<(&'a KernelShape, Vec<NativeRoundFeature>)>,
+    /// `true` = geometri body ini hasil replay oplog `design` yang ikut
+    /// disimpan: STEP tidak ditulis, hanya cache `brep` (format v4).
+    /// Hanya `Session::save` di `ducad-engine` yang boleh memakai `true`.
+    pub derived: bool,
 }
 
 /// Isi lengkap satu dokumen DUCAD, siap ditulis/dibaca sebagai JSON.
@@ -172,7 +307,9 @@ pub struct LoadedBody {
     pub material: ducad_core::Material,
     /// Material mekanik (P16), bila tersimpan di berkas.
     pub mechanical: Option<ducad_core::MaterialSource>,
-    pub shape: KernelShape,
+    /// `None` = body turunan oplog tanpa cache yang cocok: pemanggil wajib
+    /// membangunnya ulang lewat replay `design` (`ducad_engine::Session`).
+    pub shape: Option<KernelShape>,
     pub round_history: Option<(KernelShape, Vec<NativeRoundFeature>)>,
 }
 
@@ -186,9 +323,17 @@ pub struct LoadedDocument {
     pub design: Option<serde_json::Value>,
     /// Dokumen tinta bebas (Fase M4).
     pub ink: Option<ducad_ink::InkDoc>,
+    /// Masalah yang tidak fatal saat memuat (cache miss/rusak, STEP rusak
+    /// yang akan dibangun ulang dari oplog).
+    pub warnings: Vec<String>,
 }
 
 impl LoadedDocument {
+    /// `true` bila ada body yang geometrinya harus dibangun ulang dari oplog.
+    pub fn needs_replay(&self) -> bool {
+        self.bodies.iter().any(|b| b.shape.is_none())
+    }
+
     /// Mengembalikan seluruh sketch per bidang sebagai array `[Top, Front, Right]`.
     pub fn into_sketches(self) -> [Sketch; 3] {
         [self.sketch, self.front_sketch, self.right_sketch]
@@ -217,6 +362,9 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
     design: Option<&serde_json::Value>,
     ink: Option<&ducad_ink::InkDoc>,
 ) -> Result<String> {
+    if design.is_none() && bodies.iter().any(|b| b.derived) {
+        bail!("body turunan oplog (derived) butuh field design — tanpa oplog geometrinya hilang");
+    }
     let bodies = bodies
         .iter()
         .map(|b| {
@@ -239,17 +387,32 @@ pub fn serialize_detailed_to_json_with_design_and_ink(
                 visible: b.visible,
                 material: b.material,
                 mechanical: b.mechanical.clone(),
-                step: b
-                    .shape
-                    .to_step_string()
-                    .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
+                step: if b.derived {
+                    None
+                } else {
+                    Some(
+                        b.shape
+                            .to_step_string()
+                            .with_context(|| format!("gagal serialize body '{}' ke STEP", b.name))?,
+                    )
+                },
+                brep: if b.derived {
+                    Some(
+                        NativeBrepCache::of(b.shape)
+                            .with_context(|| format!("gagal encode cache brep body '{}'", b.name))?,
+                    )
+                } else {
+                    None
+                },
                 round_history,
             })
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let format_version = if sketches.iter().any(|s| needs_v3(s)) || ink.is_some() {
-        FORMAT_VERSION
+    let format_version = if bodies.iter().any(|b| b.step.is_none() || b.brep.is_some()) {
+        FORMAT_VERSION_DERIVED
+    } else if sketches.iter().any(|s| needs_v3(s)) || ink.is_some() {
+        FORMAT_VERSION_VECTOR
     } else if design.is_some() {
         FORMAT_VERSION_DESIGN
     } else {
@@ -283,6 +446,7 @@ pub fn serialize_to_json(
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         })
         .collect();
     serialize_detailed_to_json(sketches, &export_bodies)
@@ -298,13 +462,22 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         );
     }
 
+    let has_design = file.design.is_some();
+    let mut warnings = Vec::new();
     let bodies = file
         .bodies
         .into_iter()
         .map(|b| {
-            let shape = KernelShape::from_step_string(&b.step).with_context(|| {
-                format!("gagal baca geometri body '{}' dari STEP snapshot", b.name)
-            })?;
+            let shape = match b.resolve_shape(&mut warnings) {
+                Ok(shape) => shape,
+                // Ada oplog → body masih bisa dibangun ulang: jangan
+                // gagalkan seluruh berkas karena satu STEP rusak.
+                Err(e) if has_design => {
+                    warnings.push(format!("{e:#} — dibangun ulang dari oplog"));
+                    None
+                }
+                Err(e) => return Err(e),
+            };
             let round_history = if let Some(rh) = b.round_history {
                 match KernelShape::from_step_string(&rh.base_step) {
                     Ok(base_shape) => Some((base_shape, rh.features)),
@@ -338,6 +511,7 @@ pub fn deserialize_from_json(json: &str) -> Result<LoadedDocument> {
         bodies,
         design: file.design,
         ink: file.ink,
+        warnings,
     })
 }
 
@@ -389,6 +563,7 @@ pub fn save_multi_plane(
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         })
         .collect();
     save_multi_plane_detailed(path, sketches, &export_bodies)
@@ -501,7 +676,7 @@ mod tests {
             ducad_core::MaterialPreset::AnodizedAluminum
         );
         assert_eq!(
-            loaded.bodies[0].shape.tessellate().positions.len(),
+            loaded.bodies[0].shape.as_ref().unwrap().tessellate().positions.len(),
             shape.tessellate().positions.len()
         );
     }
@@ -519,6 +694,7 @@ mod tests {
             mechanical: None,
             shape,
             round_history: None,
+            derived: false,
         }
     }
 
@@ -565,7 +741,7 @@ mod tests {
         let loaded = deserialize_from_json(&first).unwrap();
         let uuid = loaded.bodies[0].uuid.clone();
         let second =
-            serialize_detailed_to_json(&[], &[export(&loaded.bodies[0].shape, Some(uuid.clone()))])
+            serialize_detailed_to_json(&[], &[export(loaded.bodies[0].shape.as_ref().unwrap(), Some(uuid.clone()))])
                 .unwrap();
         let again = deserialize_from_json(&second).unwrap();
         assert_eq!(again.bodies[0].uuid, uuid);
@@ -696,6 +872,7 @@ mod tests {
             mechanical: None,
             shape: &filleted_shape,
             round_history: Some((&base_shape, vec![feature])),
+            derived: false,
         };
 
         save_multi_plane_detailed(&path, &[&sketch], &[export_body]).unwrap();
@@ -712,6 +889,74 @@ mod tests {
         assert_eq!(rh.1[0].style, NativeRoundStyle::Fillet);
         assert_eq!(rh.1[0].radius, 10.0);
         assert_eq!(rh.1[0].anchor, (20.0, 10.0, 5.0));
+    }
+
+    fn derived<'a>(shape: &'a KernelShape) -> ExportBody<'a> {
+        ExportBody {
+            derived: true,
+            ..export(shape, None)
+        }
+    }
+
+    #[test]
+    fn derived_body_writes_v4_without_step_and_reloads_from_cache() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json =
+            serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["format_version"], FORMAT_VERSION_DERIVED);
+        assert!(v["bodies"][0].get("step").is_none(), "body turunan tidak boleh membawa STEP");
+        assert_eq!(
+            v["bodies"][0]["brep"]["producer"],
+            KernelShape::NATIVE_CACHE_PRODUCER
+        );
+
+        let loaded = deserialize_from_json(&json).unwrap();
+        assert!(!loaded.needs_replay());
+        assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+        let got = loaded.bodies[0].shape.as_ref().unwrap();
+        assert!((got.volume() - shape.volume()).abs() < 1e-6 * shape.volume());
+    }
+
+    #[test]
+    fn foreign_cache_is_a_miss_not_an_error() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json =
+            serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v["bodies"][0]["brep"]["producer"] = "ducad-truck/1".into();
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert!(loaded.needs_replay(), "cache backend lain harus jatuh ke replay");
+        assert!(loaded.warnings.iter().any(|w| w.contains("ducad-truck/1")));
+    }
+
+    #[test]
+    fn corrupt_step_with_design_degrades_to_replay() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        let design = serde_json::json!({"schema": 1, "oplog": []});
+        let json = serialize_detailed_to_json_with_design(&[], &[export(&shape, None)], Some(&design))
+            .unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v["bodies"][0]["step"] = "ISO-10303-21;\nrusak".into();
+        let loaded = deserialize_from_json(&v.to_string()).unwrap();
+        assert!(loaded.needs_replay());
+        assert_eq!(loaded.warnings.len(), 1);
+
+        // Tanpa oplog, STEP rusak tetap error (body tidak boleh hilang diam-diam).
+        v.as_object_mut().unwrap().remove("design");
+        assert!(deserialize_from_json(&v.to_string()).is_err());
+    }
+
+    #[test]
+    fn derived_body_without_design_is_rejected() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let shape = box_shape();
+        assert!(serialize_detailed_to_json_with_design(&[], &[derived(&shape)], None).is_err());
     }
 
     /// Regresi REVIEW-2026-09-24 #3: `bbox` tidak disimpan, jadi harus

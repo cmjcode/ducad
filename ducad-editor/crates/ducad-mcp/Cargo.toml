@@ -9,6 +9,11 @@ authors.workspace = true
 name = "ducad-mcp"
 path = "src/main.rs"
 
+[features]
+# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
+# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+kernel-truck = ["ducad-kernel/kernel-truck"]
+
 [dependencies]
 ducad-engine = { workspace = true, features = ["raster"] }
 ducad-kernel = { workspace = true }

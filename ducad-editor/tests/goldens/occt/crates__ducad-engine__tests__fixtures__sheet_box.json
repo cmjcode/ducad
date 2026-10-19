@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/sheet_box.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 5,
+  "bodies": [
+    {
+      "name": "blank",
+      "valid": true,
+      "volume": 27695.2918,
+      "area": 28727.6741,
+      "bbox": [
+        [
+          -24.5239,
+          -24.5239,
+          0.0
+        ],
+        [
+          124.5239,
+          84.5239,
+          2.0
+        ]
+      ],
+      "faces": 14,
+      "edges": 36,
+      "mesh": {
+        "vertices": 72,
+        "triangles": 44,
+        "sha": "604e8b926ba8cf78"
+      }
+    },
+    {
+      "name": "tray",
+      "valid": true,
+      "volume": 27815.9289,
+      "area": 28851.3272,
+      "bbox": [
+        [
+          -4.0,
+          -4.0,
+          0.0
+        ],
+        [
+          104.0,
+          64.0,
+          24.0
+        ]
+      ],
+      "faces": 30,
+      "edges": 68,
+      "mesh": {
+        "vertices": 1128,
+        "triangles": 1068,
+        "sha": "574e9e03f0d8d3f9"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "bend_ok",
+      "status": "pass"
+    },
+    {
+      "label": "grip_ok",
+      "status": "pass"
+    },
+    {
+      "label": "two_bodies",
+      "status": "pass"
+    }
+  ]
+}

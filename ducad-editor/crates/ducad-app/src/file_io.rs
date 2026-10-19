@@ -121,8 +121,31 @@ impl DuCADApp {
     /// Buka berkas `.ducad` pada `path` — seluruh tumpukan undo diganti baru,
     /// sehingga urutan undo global (turunan stempel tiap tumpukan) ikut bersih.
     pub fn open_native_path(&mut self, path: PathBuf) {
-        match ducad_io::native::load(&path) {
-            Ok(loaded) => {
+        // Geometri disiapkan SEBELUM state lama dibuang: body turunan oplog
+        // (format v4) tanpa cache yang cocok dibangun ulang lewat replay.
+        let prepared = ducad_io::native::load(&path).and_then(|mut loaded| {
+            for w in &loaded.warnings {
+                log::warn!("{}: {w}", path.display());
+            }
+            let mut replayed = if loaded.needs_replay() {
+                replay_derived_bodies(&path)?
+            } else {
+                std::collections::HashMap::new()
+            };
+            let mut geos = Vec::with_capacity(loaded.bodies.len());
+            for nb in &mut loaded.bodies {
+                let geo = match nb.shape.take() {
+                    Some(shape) => BodyGeometry::from_shape(shape),
+                    None => replayed.remove(&nb.name).ok_or_else(|| {
+                        anyhow::anyhow!("body '{}' tidak dihasilkan ulang oleh oplog", nb.name)
+                    })?,
+                };
+                geos.push(geo);
+            }
+            Ok((loaded, geos))
+        });
+        match prepared {
+            Ok((loaded, geos)) => {
                 self.load_standard_plane_sketches(
                     loaded.sketch,
                     loaded.front_sketch,
@@ -155,8 +178,7 @@ impl DuCADApp {
                 // Brief, checks, status rilis ikut ke state agent/panel review.
                 self.adopt_loaded_design();
                 let mut new_model = ModelDoc::default();
-                for nb in loaded.bodies {
-                    let geo = BodyGeometry::from_shape(nb.shape);
+                for (nb, geo) in loaded.bodies.into_iter().zip(geos) {
                     let id = new_model.doc.add_body_with_material(&nb.name, nb.material);
                     new_model.geometry.insert(id, geo);
                     if let Some(meta) = new_model.doc.bodies.get_mut(id) {
@@ -1308,4 +1330,24 @@ impl DuCADApp {
             orthographic: false,
         }
     }
+}
+
+/// Bangun ulang geometri body turunan oplog (format v4) dengan me-replay
+/// `design` berkas lewat `ducad-engine`. Kunci = nama body.
+pub(crate) fn replay_derived_bodies(
+    path: &std::path::Path,
+) -> anyhow::Result<std::collections::HashMap<String, BodyGeometry>> {
+    let session = ducad_engine::Session::from_file(path)
+        .map_err(|e| anyhow::anyhow!("gagal me-replay oplog {}: {}", path.display(), e.message))?;
+    let mut model = session.into_model();
+    let names: Vec<_> = model
+        .doc
+        .bodies
+        .iter()
+        .map(|(id, b)| (id, b.name.clone()))
+        .collect();
+    Ok(names
+        .into_iter()
+        .filter_map(|(id, name)| Some((name, model.geometry.remove(id)?)))
+        .collect())
 }

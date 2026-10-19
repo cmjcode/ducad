@@ -2619,7 +2619,7 @@ fn exact_hlr_keeps_a_circle_as_a_circle() {
     assert!(
         view.curves
             .iter()
-            .any(|c| matches!(c.curve, opencascade::primitives::EdgeType::Circle)),
+            .any(|c| matches!(c.curve, crate::hlr_exact::ExactCurveType::Circle)),
         "tutup silinder harus muncul sebagai LINGKARAN, bukan rantai garis; \
          jenis kurva yang didapat: {:?}",
         view.curves.iter().map(|c| c.curve).collect::<Vec<_>>()

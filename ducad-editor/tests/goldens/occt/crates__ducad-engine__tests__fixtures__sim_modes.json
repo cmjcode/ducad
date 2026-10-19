@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/sim_modes.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 6,
+  "bodies": [
+    {
+      "name": "beam",
+      "valid": true,
+      "volume": 5000.0,
+      "area": 3100.0,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          100.0,
+          10.0,
+          5.0
+        ]
+      ],
+      "faces": 6,
+      "edges": 12,
+      "mesh": {
+        "vertices": 24,
+        "triangles": 12,
+        "sha": "fad637bfeeff4939"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "above_motor",
+      "status": "error"
+    },
+    {
+      "label": "no_buckling",
+      "status": "error"
+    },
+    {
+      "label": "not_too_hot",
+      "status": "error"
+    },
+    {
+      "label": "thermal_stress_ok",
+      "status": "error"
+    }
+  ]
+}

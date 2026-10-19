@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "source": "../examples/vector_logo.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 1,
+  "bodies": [],
+  "checks": null
+}

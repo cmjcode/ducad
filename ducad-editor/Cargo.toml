@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# SolidCraft kernel (backend truck, PLAN_MIGRASI_TRUCK F2) di-vendor dengan
+# manifest sendiri; sengaja BUKAN anggota workspace supaya `cargo test/clippy
+# --workspace` tidak ikut menjalankan ~800 tes & lint kode pihak ketiga itu.
+# Tetap ikut ter-build lewat dependensi path `ducad-kernel` (fitur kernel-truck).
+exclude = ["vendors/solidcraft"]
 
 [workspace.package]
 version = "0.5.6"
@@ -186,6 +191,33 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 2
 
+# truck: assert khusus debug-nya menolak geometri yang sah (edge seam, edge
+# tertutup) — SolidCraft sendiri mematikannya di semua profil tesnya (lihat
+# vendors/solidcraft/README.md). Tanpa ini hasil kernel-truck di build dev/tes
+# berbeda dari rilis.
+[profile.dev.package.truck-base]
+debug-assertions = false
+[profile.dev.package.truck-geotrait]
+debug-assertions = false
+[profile.dev.package.truck-geometry]
+debug-assertions = false
+[profile.dev.package.truck-topology]
+debug-assertions = false
+[profile.dev.package.truck-polymesh]
+debug-assertions = false
+[profile.dev.package.truck-modeling]
+debug-assertions = false
+[profile.dev.package.truck-meshalgo]
+debug-assertions = false
+[profile.dev.package.truck-shapeops]
+debug-assertions = false
+[profile.dev.package.truck-stepio]
+debug-assertions = false
+[profile.dev.package.solidcraft-kernel]
+debug-assertions = false
+[profile.dev.package.solidcraft-geom]
+debug-assertions = false
+
 [profile.release]
 opt-level = 3
 # `lto = "thin"`, bukan "fat": graf dependensi ini menarik OCCT (C++,
@@ -232,3 +264,13 @@ debug = "line-tables-only"
 [patch.crates-io]
 opencascade = { path = "vendors/opencascade-rs/crates/opencascade" }
 opencascade-sys = { path = "vendors/opencascade-rs/crates/opencascade-sys" }
+
+# Backend truck (PLAN_MIGRASI_TRUCK F2): truck dengan perbaikan SolidCraft
+# (boolean deterministik, tanpa panic pada kurva irisan degenerate, history
+# face/edge). WAJIB ikut bersama `solidcraft-kernel`; daftar perubahan per
+# crate ada di vendors/solidcraft/vendor/README.md (marker `SolidCraft:`).
+truck-geometry = { path = "vendors/solidcraft/vendor/truck-geometry" }
+truck-shapeops = { path = "vendors/solidcraft/vendor/truck-shapeops" }
+truck-stepio = { path = "vendors/solidcraft/vendor/truck-stepio" }
+truck-meshalgo = { path = "vendors/solidcraft/vendor/truck-meshalgo" }
+matext4cgmath = { path = "vendors/solidcraft/vendor/matext4cgmath" }

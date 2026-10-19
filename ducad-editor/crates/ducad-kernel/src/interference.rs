@@ -196,13 +196,13 @@ pub fn check_clearance(
     required_mm: f64,
 ) -> Result<ClearanceResult> {
     let _guard = crate::lock_kernel();
-    let Some((distance, pa, pb)) = a.inner().min_distance_to(b.inner()) else {
+    let Some((distance, pa, pb)) = crate::backend::query::min_distance(a, b) else {
         anyhow::bail!("perhitungan jarak minimum gagal untuk pasangan bodi ini");
     };
     Ok(ClearanceResult {
         distance,
-        point_a: (pa.x, pa.y, pa.z),
-        point_b: (pb.x, pb.y, pb.z),
+        point_a: (pa[0], pa[1], pa[2]),
+        point_b: (pb[0], pb[1], pb[2]),
         passes: distance >= required_mm,
     })
 }

@@ -1283,7 +1283,8 @@ fn import_step_tool(core: &mut SessionCore, a: Value, paths: &dyn ToolPaths) -> 
             visible: true,
             material: ducad_core::Material::default(),
             mechanical: None,
-            step,
+            step: Some(step),
+            brep: None,
             round_history: None,
         });
     core.meta.design.fingerprint = crate::session::fingerprint(core.model);

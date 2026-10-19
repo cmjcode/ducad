@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "source": "../examples/industrial-demo/mounting_bracket.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 24,
+  "bodies": [
+    {
+      "name": "bolt_a",
+      "valid": true,
+      "volume": 971.7737,
+      "area": 774.5278,
+      "bbox": [
+        [
+          15.0,
+          30.0016,
+          -12.4
+        ],
+        [
+          25.0,
+          39.9984,
+          13.6
+        ]
+      ],
+      "faces": 12,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1028,
+        "sha": "40b1a171dabd2702"
+      }
+    },
+    {
+      "name": "bolt_b",
+      "valid": true,
+      "volume": 971.7737,
+      "area": 774.5278,
+      "bbox": [
+        [
+          55.0,
+          30.0016,
+          -12.4
+        ],
+        [
+          65.0,
+          39.9984,
+          13.6
+        ]
+      ],
+      "faces": 12,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1028,
+        "sha": "806c4a3336cb70ba"
+      }
+    },
+    {
+      "name": "bracket",
+      "valid": true,
+      "volume": 49509.4567,
+      "area": 18959.9664,
+      "bbox": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          80.0,
+          50.0,
+          60.0
+        ]
+      ],
+      "faces": 10,
+      "edges": 24,
+      "mesh": {
+        "vertices": 1048,
+        "triangles": 1036,
+        "sha": "bc275e092c57f81c"
+      }
+    },
+    {
+      "name": "tray",
+      "valid": true,
+      "volume": 11922.345,
+      "area": 16478.8715,
+      "bbox": [
+        [
+          107.0,
+          -3.0,
+          0.0
+        ],
+        [
+          183.0,
+          53.0,
+          18.0
+        ]
+      ],
+      "faces": 30,
+      "edges": 68,
+      "mesh": {
+        "vertices": 1128,
+        "triangles": 1068,
+        "sha": "4e48139a9ec68b28"
+      }
+    },
+    {
+      "name": "washer_a",
+      "valid": true,
+      "volume": 129.4839,
+      "area": 254.3433,
+      "bbox": [
+        [
+          14.0,
+          29.0019,
+          6.0
+        ],
+        [
+          26.0,
+          40.9981,
+          7.6
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "823f0f86fbfe5006"
+      }
+    },
+    {
+      "name": "washer_b",
+      "valid": true,
+      "volume": 129.4839,
+      "area": 254.3433,
+      "bbox": [
+        [
+          54.0,
+          29.0019,
+          6.0
+        ],
+        [
+          66.0,
+          40.9981,
+          7.6
+        ]
+      ],
+      "faces": 4,
+      "edges": 6,
+      "mesh": {
+        "vertices": 1012,
+        "triangles": 1008,
+        "sha": "1c53d33e5867ba17"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "bracket_light",
+      "status": "pass"
+    },
+    {
+      "label": "bolts_clear",
+      "status": "pass"
+    },
+    {
+      "label": "stress_ok",
+      "status": "error"
+    },
+    {
+      "label": "stiff",
+      "status": "error"
+    },
+    {
+      "label": "safe",
+      "status": "error"
+    },
+    {
+      "label": "above_200hz",
+      "status": "error"
+    },
+    {
+      "label": "no_buckling",
+      "status": "error"
+    },
+    {
+      "label": "not_too_hot",
+      "status": "error"
+    },
+    {
+      "label": "tray_bend_ok",
+      "status": "pass"
+    },
+    {
+      "label": "tray_grip_ok",
+      "status": "pass"
+    },
+    {
+      "label": "bolt_fit",
+      "status": "pass"
+    }
+  ]
+}

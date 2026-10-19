@@ -2,7 +2,7 @@
 //! CADCraft). Peta crate di `CLAUDE.md` adalah kontrak: setiap crate hanya
 //! boleh bergantung pada crate DUCAD yang tercantum di tabel ini, crate UI
 //! (egui/eframe/wgpu/winit/rfd) hanya boleh muncul di lapisan GUI, dan
-//! `opencascade` hanya di `ducad-kernel`. Menambah panah baru = ubah tabel
+//! `opencascade` maupun `solidcraft-*`/`truck-*` hanya di `ducad-kernel`. Menambah panah baru = ubah tabel
 //! ini DAN peta di `CLAUDE.md`.
 //!
 //! Dijalankan dari `ducad-core` karena crate ini paling bawah dan paling
@@ -234,6 +234,22 @@ fn only_the_kernel_links_opencascade() {
             uses,
             name == "ducad-kernel",
             "`{name}`: hanya ducad-kernel yang boleh bergantung pada opencascade"
+        );
+    }
+}
+
+/// Backend truck (PLAN_MIGRASI_TRUCK F2): SolidCraft & truck sama
+/// terkurungnya dengan OCCT — tipe mereka tidak boleh bocor ke crate lain.
+#[test]
+fn only_the_kernel_links_solidcraft_or_truck() {
+    for (name, text) in manifests() {
+        let uses = dependency_names(&text)
+            .iter()
+            .any(|d| d.starts_with("solidcraft") || d.starts_with("truck-"));
+        assert_eq!(
+            uses,
+            name == "ducad-kernel",
+            "`{name}`: hanya ducad-kernel yang boleh bergantung pada solidcraft/truck"
         );
     }
 }

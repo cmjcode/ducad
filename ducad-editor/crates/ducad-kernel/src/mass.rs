@@ -36,12 +36,12 @@ impl KernelShape {
     pub fn mass_properties(&self) -> MassProperties {
         let (volume, centroid, inertia) = {
             let _guard = lock_kernel();
-            self.inner().volume_properties()
+            crate::backend::query::volume_properties(self)
         };
         let sign = if volume < 0.0 { -1.0 } else { 1.0 };
         MassProperties {
             volume_mm3: volume * sign,
-            centroid: [centroid.x, centroid.y, centroid.z],
+            centroid,
             inertia_origin: inertia.map(|row| row.map(|v| v * sign)),
         }
     }

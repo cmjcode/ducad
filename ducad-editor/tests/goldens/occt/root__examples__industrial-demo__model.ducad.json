@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "source": "../examples/industrial-demo/model.ducad",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 0,
+  "bodies": [
+    {
+      "name": "Extrude",
+      "valid": true,
+      "volume": 468580.9839,
+      "area": 36784.676,
+      "bbox": [
+        [
+          -27.0527,
+          -33.617,
+          0.0
+        ],
+        [
+          40.0,
+          80.0,
+          63.5877
+        ]
+      ],
+      "faces": 7,
+      "edges": 15,
+      "mesh": {
+        "vertices": 154,
+        "triangles": 140,
+        "sha": "d63c1bbfd90ca761"
+      }
+    }
+  ],
+  "checks": null
+}

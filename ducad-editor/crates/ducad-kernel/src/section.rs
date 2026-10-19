@@ -14,15 +14,12 @@
 //! Seluruhnya berjalan di bawah satu guard `lock_kernel()` lewat helper
 //! `pub(crate)` — tidak ada fungsi publik kernel yang dipanggil di dalamnya.
 
-use glam::{dvec3, vec2, vec3, DVec3, Vec2, Vec3};
-use opencascade::primitives::{IntoShape, Shape};
+use glam::{vec2, vec3, Vec2, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::hlr::{HlrLineKind, HlrSegment2D, ProjectedView, ProjectedViewKind};
 use crate::lock_kernel;
 use crate::mesh::KernelMesh;
-use crate::picking::face::SurfaceKind;
-use crate::profile::{Profile, ProfileSegment};
 use crate::shape::KernelShape;
 
 /// Sumbu dunia untuk [`SectionPlaneConfig::from_axis`].
@@ -366,14 +363,14 @@ impl SectionView {
 }
 
 /// Kerangka potong 3D hasil penguraian [`SectionPath`].
-struct CutFrame {
-    origin: Vec3,
+pub(crate) struct CutFrame {
+    pub(crate) origin: Vec3,
     /// Arah jalan garis potong.
-    t: Vec3,
+    pub(crate) t: Vec3,
     /// Arah pandang (pemirsa → objek).
-    d: Vec3,
+    pub(crate) d: Vec3,
     /// Titik garis potong dalam koordinat (t, d) relatif `origin`.
-    pts: Vec<(f32, f32)>,
+    pub(crate) pts: Vec<(f32, f32)>,
 }
 
 fn resolve_path(path: &SectionPath) -> Result<CutFrame, String> {
@@ -421,6 +418,35 @@ fn resolve_path(path: &SectionPath) -> Result<CutFrame, String> {
 }
 
 /// Mesin ekstraksi Tampak Potongan.
+/// Masukan cabang B-rep [`SectionExtractor::extract_internal`] untuk backend
+/// (`crate::backend::section::cut_bodies`).
+#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+pub(crate) struct BrepCutInput<'a> {
+    pub shapes: &'a [&'a KernelShape],
+    pub frame: &'a CutFrame,
+    pub request: &'a SectionRequest,
+    pub right: Vec3,
+    pub up: Vec3,
+    /// Ukuran prisma pemotong (mm), jauh melampaui model.
+    pub big: f64,
+    pub diag: f32,
+    pub exact: bool,
+    pub label: &'a str,
+}
+
+/// Hasil cabang B-rep: garis, arsir, fitur, dan ukuran potongan.
+#[derive(Default)]
+pub(crate) struct BrepCut {
+    pub segments: Vec<HlrSegment2D>,
+    pub arcs: Vec<crate::hlr::HlrArc2D>,
+    pub features: Vec<crate::hlr::HlrGeometricFeature>,
+    pub centerlines: Vec<HlrSegment2D>,
+    pub cut_area: f64,
+    pub cut_length: f64,
+    pub is_exact: bool,
+    pub warnings: Vec<String>,
+}
+
 pub struct SectionExtractor;
 
 impl SectionExtractor {
@@ -492,130 +518,26 @@ impl SectionExtractor {
         let mut cut_length = 0.0f64;
         let mut is_exact = false;
 
-        let occ: Vec<&Shape> = shapes.iter().map(|s| s.inner()).collect();
-        let cutter = if occ.is_empty() { None } else { build_cutter(&frame, big).ok() };
-
-        if let Some(cutter) = cutter {
-            // Potong tiap body sendiri-sendiri supaya arsirnya bisa berselang.
-            let mut remains: Vec<Shape> = Vec::new();
-            let mut hatched_bodies = 0usize;
-            for shape in &occ {
-                let cut = match shape.subtract(&cutter) {
-                    Ok(result) => result.shape,
-                    Err(_) => {
-                        warnings.push(format!(
-                            "DRAWING_SECTION_FALLBACK: boolean cut failed for one body in section {label}; body drawn uncut"
-                        ));
-                        remains.push(crate::shape::deep_clone(shape).map_err(|e| e.to_string())?);
-                        continue;
-                    }
-                };
-                // Arsir dihitung PER FACE potong: pada potongan bertingkat dua
-                // face bertemu di garis siku, dan menggabung konturnya akan
-                // merusak paritas even-odd di sepanjang garis itu.
-                // ISO 128-50: body bersebelahan diarsir berselang 45°/135°.
-                let angle = request.hatch_angle_deg + 90.0 * (hatched_bodies % 2) as f32;
-                let mut body_hatched = false;
-                for face in cut.faces() {
-                    if SurfaceKind::from(face.surface_kind().as_str()) != SurfaceKind::Plane {
-                        continue;
-                    }
-                    let n = face.normal_at_center();
-                    let n = vec3(n.x as f32, n.y as f32, n.z as f32).normalize_or_zero();
-                    // Face potong menghadap pemirsa.
-                    if n.dot(frame.d) > -0.999 {
-                        continue;
-                    }
-                    let c = face.center_of_mass();
-                    let rel = vec3(c.x as f32, c.y as f32, c.z as f32) - frame.origin;
-                    let (ct, cd) = (rel.dot(frame.t), rel.dot(frame.d));
-                    if !on_cut_plane(&frame, ct, cd) {
-                        continue;
-                    }
-                    cut_area += face.surface_area();
-                    let mut loops: Vec<[Vec2; 2]> = Vec::new();
-                    for edge in face.edges() {
-                        let pts: Vec<Vec2> = edge
-                            .approximation_segments()
-                            .map(|p| {
-                                let q = vec3(p.x as f32, p.y as f32, p.z as f32);
-                                vec2(q.dot(right), q.dot(up))
-                            })
-                            .collect();
-                        for w in pts.windows(2) {
-                            let len = (w[0] - w[1]).length();
-                            if len > 1e-4 {
-                                cut_length += len as f64;
-                                loops.push([w[0], w[1]]);
-                            }
-                        }
-                    }
-                    if !loops.is_empty() {
-                        body_hatched = true;
-                        let (lo, hi) = loops_bounds(&loops);
-                        segments.extend(generate_iso_hatch_pattern(
-                            &loops,
-                            lo,
-                            hi,
-                            request.hatch_spacing,
-                            angle,
-                        ));
-                    }
-                }
-                if body_hatched {
-                    hatched_bodies += 1;
-                }
-                if cut.faces().next().is_some() {
-                    remains.push(cut);
-                }
-            }
-
-            let remain_refs: Vec<&Shape> = remains.iter().collect();
-            let lines = if exact {
-                // Garis tersembunyi ikut dihitung dulu: fitur lingkaran yang
-                // sebagian tertutup butuh busur tersembunyinya. Dibuang lagi
-                // sebelum digambar (tampak potongan tidak memuat garis putus).
-                crate::hlr_sheet::exact_lines(&remain_refs, right, up, true, None)
-            } else {
-                None
-            };
-            match lines {
-                Some(mut lines) => {
-                    is_exact = true;
-                    // Siku potongan bertingkat tidak digambar di tampak potongan.
-                    let t2 = vec2(frame.t.dot(right), frame.t.dot(up));
-                    let base = vec2(frame.origin.dot(right), frame.origin.dot(up)).dot(t2);
-                    let steps: Vec<f32> = frame
-                        .pts
-                        .windows(2)
-                        .filter(|w| (w[0].0 - w[1].0).abs() < 1e-3 && (w[0].1 - w[1].1).abs() > 1e-3)
-                        .map(|w| base + w[0].0)
-                        .collect();
-                    if !steps.is_empty() && t2.length_squared() > 0.5 {
-                        lines.segments.retain(|s| {
-                            let a = Vec2::from_array(s.start).dot(t2);
-                            let b = Vec2::from_array(s.end).dot(t2);
-                            !steps
-                                .iter()
-                                .any(|st| (a - st).abs() < 2e-3 && (b - st).abs() < 2e-3)
-                        });
-                    }
-                    let (f, c) = crate::hlr_sheet::exact_features(&remain_refs, &lines, right, up, diag);
-                    features = f;
-                    centerlines = c;
-                    lines.segments.retain(|s| s.kind != HlrLineKind::Hidden);
-                    lines.arcs.retain(|a| a.kind != HlrLineKind::Hidden);
-                    segments.extend(lines.segments);
-                    arcs = lines.arcs;
-                }
-                None => {
-                    if exact && !remain_refs.is_empty() {
-                        warnings.push(format!(
-                            "HLR_EXACT_FALLBACK: exact hidden-line removal failed for SECTION {label}-{label}; only the cut outline is drawn"
-                        ));
-                    }
-                }
-            }
+        let brep = crate::backend::section::cut_bodies(&BrepCutInput {
+            shapes,
+            frame: &frame,
+            request,
+            right,
+            up,
+            big,
+            diag,
+            exact,
+            label: &label,
+        })?;
+        if let Some(cut) = brep {
+            segments = cut.segments;
+            arcs = cut.arcs;
+            features = cut.features;
+            centerlines = cut.centerlines;
+            cut_area = cut.cut_area;
+            cut_length = cut.cut_length;
+            is_exact = cut.is_exact;
+            warnings.extend(cut.warnings);
         } else {
             // Tanpa B-rep: iris mesh dengan bidang ruas pertama.
             let merged = KernelMesh::merge(meshes);
@@ -708,7 +630,8 @@ impl SectionExtractor {
 }
 
 /// Apakah titik (t, d) berada pada salah satu ruas potong (bukan ruas siku).
-fn on_cut_plane(frame: &CutFrame, t: f32, d: f32) -> bool {
+#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+pub(crate) fn on_cut_plane(frame: &CutFrame, t: f32, d: f32) -> bool {
     let n = frame.pts.len();
     let mut i = 0;
     while i + 1 < n {
@@ -726,7 +649,7 @@ fn on_cut_plane(frame: &CutFrame, t: f32, d: f32) -> bool {
     false
 }
 
-fn loops_bounds(loops: &[[Vec2; 2]]) -> (Vec2, Vec2) {
+pub(crate) fn loops_bounds(loops: &[[Vec2; 2]]) -> (Vec2, Vec2) {
     let mut lo = vec2(f32::MAX, f32::MAX);
     let mut hi = vec2(f32::MIN, f32::MIN);
     for l in loops {
@@ -738,42 +661,6 @@ fn loops_bounds(loops: &[[Vec2; 2]]) -> (Vec2, Vec2) {
     (lo, hi)
 }
 
-/// Prisma pemotong: seluruh ruang di sisi pemirsa garis potong.
-fn build_cutter(frame: &CutFrame, big: f64) -> anyhow::Result<Shape> {
-    let first = frame.pts[0];
-    let last = frame.pts[frame.pts.len() - 1];
-    let d_min = frame.pts.iter().map(|p| p.1 as f64).fold(f64::MAX, f64::min) - big;
-    let mut poly: Vec<(f64, f64)> = Vec::new();
-    poly.push((first.0 as f64 - big, first.1 as f64));
-    for p in &frame.pts {
-        poly.push((p.0 as f64, p.1 as f64));
-    }
-    poly.push((last.0 as f64 + big, last.1 as f64));
-    poly.push((last.0 as f64 + big, d_min));
-    poly.push((first.0 as f64 - big, d_min));
-    // Buang titik berimpit berurutan.
-    poly.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9);
-
-    let mut segs = Vec::with_capacity(poly.len());
-    for i in 0..poly.len() {
-        segs.push(ProfileSegment::Line {
-            start: poly[i],
-            end: poly[(i + 1) % poly.len()],
-        });
-    }
-    let to_d = |v: Vec3| dvec3(v.x as f64, v.y as f64, v.z as f64);
-    let (t, d) = (to_d(frame.t), to_d(frame.d));
-    let n = t.cross(d).normalize();
-    let origin: DVec3 = to_d(frame.origin) - n * big;
-    let face = crate::profile::build_face_on_plane(
-        &Profile::Loop(segs),
-        origin.to_array(),
-        t.to_array(),
-        d.to_array(),
-        n.to_array(),
-    )?;
-    Ok(face.extrude(n * (2.0 * big)).into_shape())
-}
 
 /// Garis potong berpanah di tampak induk. `frame = None` → garis lurus dari
 /// dua titik pertama permintaan.

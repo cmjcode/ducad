@@ -1227,7 +1227,12 @@ impl DuCADApp {
 
         let mut new_model = crate::model::ModelDoc::default();
         for nb in loaded.bodies {
-            let geo = crate::model::BodyGeometry::from_shape(nb.shape);
+            // Snapshot ditulis `serialize_to_json` (selalu dengan STEP), jadi
+            // body turunan tanpa geometri berarti snapshot rusak.
+            let shape = nb.shape.ok_or_else(|| {
+                anyhow::anyhow!("snapshot body '{}' tidak membawa geometri", nb.name)
+            })?;
+            let geo = crate::model::BodyGeometry::from_shape(shape);
             let id = new_model.doc.add_body(&nb.name);
             new_model.geometry.insert(id, geo);
             if let Some(meta) = new_model.doc.bodies.get_mut(id) {

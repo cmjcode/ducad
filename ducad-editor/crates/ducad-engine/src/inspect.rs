@@ -383,9 +383,18 @@ pub(crate) fn body_report(
             .entry(crate::select::eval::face_kind_name(f.kind).to_string())
             .or_default() += 1;
     }
-    let (min, max) = geo.mesh.bounding_box().unwrap_or(([0.0; 3], [0.0; 3]));
-    let min = min.map(|v| v as f64);
-    let max = max.map(|v| v as f64);
+    // Bbox geometris dari kernel (OCCT: = bbox mesh; truck: tesselasi halus,
+    // karena vertex mesh tampilannya tidak selalu di titik ekstrem). Body
+    // mesh murni (STL, shape kosong) memakai mesh-nya.
+    let (min, max) = geo
+        .shape
+        .bounding_box()
+        .or_else(|| {
+            geo.mesh
+                .bounding_box()
+                .map(|(a, b)| (a.map(f64::from), b.map(f64::from)))
+        })
+        .unwrap_or(([0.0; 3], [0.0; 3]));
     let (n_faces, n_edges) = (faces.len(), edges.len());
     let topology = topology.then(|| Topology {
         truncated: n_faces > limit || n_edges > limit,

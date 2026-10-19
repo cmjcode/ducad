@@ -1,4 +1,7 @@
-use opencascade::primitives::Shape;
+
+// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+#[allow(unused_imports)]
+pub(crate) use crate::backend::mesh::*;
 
 /// Mesh hasil tessellation, siap di-upload ke GPU (f32, indexed).
 #[derive(Debug, Clone, Default)]
@@ -78,30 +81,3 @@ impl KernelMesh {
     }
 }
 
-pub(crate) fn tessellate_shape(shape: &Shape) -> KernelMesh {
-    let Ok(mesh) = shape.mesh() else {
-        return KernelMesh::default();
-    };
-    let positions = mesh
-        .vertices
-        .iter()
-        .map(|v| [v.x as f32, v.y as f32, v.z as f32])
-        .collect();
-    let normals = mesh
-        .normals
-        .iter()
-        .map(|n| [n.x as f32, n.y as f32, n.z as f32])
-        .collect();
-    let indices = mesh.indices.iter().map(|i| *i as u32).collect();
-    let face_ranges = mesh
-        .face_ranges
-        .iter()
-        .map(|r| (r.start as u32)..(r.end as u32))
-        .collect();
-    KernelMesh {
-        positions,
-        normals,
-        indices,
-        face_ranges,
-    }
-}

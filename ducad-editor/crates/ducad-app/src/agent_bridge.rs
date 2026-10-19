@@ -411,7 +411,8 @@ impl DuCADApp {
                     visible: meta.visible,
                     material: meta.material,
                     mechanical: meta.mechanical.clone(),
-                    step: shape.to_step_string().ok()?,
+                    step: Some(shape.to_step_string().ok()?),
+                    brep: None,
                     round_history: None,
                 })
             })

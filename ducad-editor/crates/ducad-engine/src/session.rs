@@ -278,6 +278,28 @@ impl Default for Session {
 // Pencarian nama.
 // ---------------------------------------------------------------------
 
+/// Geometri satu body dasar (`design.base_bodies`).
+fn base_body_shape(nb: &NativeBody) -> OpResult<KernelShape> {
+    let mut warnings = Vec::new();
+    nb.resolve_shape(&mut warnings)
+        .map_err(|e| {
+            OpError::new(
+                OpErrorCode::Io,
+                format!("gagal membaca body dasar '{}': {e:#}", nb.name),
+            )
+        })?
+        .ok_or_else(|| {
+            OpError::new(
+                OpErrorCode::Io,
+                format!(
+                    "body dasar '{}' tidak membawa STEP maupun cache yang cocok ({})",
+                    nb.name,
+                    warnings.join("; ")
+                ),
+            )
+        })
+}
+
 fn find_body(model: &ModelDoc, name: &str) -> Option<BodyId> {
     model
         .doc
@@ -2340,14 +2362,22 @@ impl Session {
     /// Bangun sesi dari `base_bodies` + seluruh oplog. Tidak memeriksa
     /// sidik jari.
     fn rebuild(design: DesignDoc) -> OpResult<(Self, BatchReport)> {
+        Self::rebuild_with(design, Vec::new())
+    }
+
+    /// Seperti [`Session::rebuild`]; `preloaded[i]` (bila ada) dipakai
+    /// sebagai geometri `base_bodies[i]` alih-alih membaca STEP-nya lagi.
+    fn rebuild_with(
+        design: DesignDoc,
+        mut preloaded: Vec<Option<KernelShape>>,
+    ) -> OpResult<(Self, BatchReport)> {
         let mut s = Self::new();
-        for nb in &design.base_bodies {
-            let shape = KernelShape::from_step_string(&nb.step).map_err(|e| {
-                OpError::new(
-                    OpErrorCode::Io,
-                    format!("gagal membaca body dasar '{}': {e:#}", nb.name),
-                )
-            })?;
+        preloaded.resize_with(design.base_bodies.len(), || None);
+        for (nb, pre) in design.base_bodies.iter().zip(preloaded) {
+            let shape = match pre {
+                Some(shape) => shape,
+                None => base_body_shape(nb)?,
+            };
             let id = s
                 .model
                 .doc
@@ -2422,11 +2452,22 @@ impl Session {
                 format!("gagal membaca {}: {e}", path.display()),
             )
         })?;
-        let file = ducad_io::native::deserialize_raw(&json).map_err(|e| {
-            OpError::new(
-                OpErrorCode::Io,
-                format!("berkas {} tidak valid: {e:#}", path.display()),
-            )
+        Self::load_json(&json, &path.display().to_string(), strict)
+    }
+
+    /// Seperti [`Session::from_file`], dari isi berkas `.ducad` di memori.
+    pub fn from_json(json: &str) -> OpResult<Self> {
+        Self::load_json(json, "<memori>", false)
+    }
+
+    /// Seperti [`Session::from_file_strict`], dari isi berkas di memori.
+    pub fn from_json_strict(json: &str) -> OpResult<Self> {
+        Self::load_json(json, "<memori>", true)
+    }
+
+    fn load_json(json: &str, label: &str, strict: bool) -> OpResult<Self> {
+        let file = ducad_io::native::deserialize_raw(json).map_err(|e| {
+            OpError::new(OpErrorCode::Io, format!("berkas {label} tidak valid: {e:#}"))
         })?;
         let design = file
             .design
@@ -2449,7 +2490,42 @@ impl Session {
                     ..DesignDoc::default()
                 };
                 let stale_warning = || vec!["oplog_stale".to_string()];
-                let adopted = Self::adopt(file.bodies.clone(), keep.clone(), stale_warning())?;
+                // Format v4: body turunan tidak membawa STEP — oplog adalah
+                // sumber kebenaran. Replay; cache `brep` hanya jaring
+                // pengaman bila replay gagal (non-strict).
+                if file.bodies.iter().any(|b| b.step.is_none()) {
+                    return match Self::replay(design) {
+                        Ok(mut s) => {
+                            s.adopt_uuids(&file.bodies);
+                            Ok(s)
+                        }
+                        Err(e) if !strict => {
+                            let mut w = stale_warning();
+                            w.push(format!("replay_failed: {}", e.message));
+                            match Self::adopt(file.bodies, keep, w) {
+                                Ok(adopted) => {
+                                    log::warn!("replay {label} gagal, body diambil dari cache: {}", e.message);
+                                    Ok(adopted)
+                                }
+                                Err(_) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    };
+                }
+                // Body berkas (STEP) dibuat lebih dulu untuk deteksi berkas
+                // basi. STEP rusak tidak fatal selama oplog masih bisa
+                // me-replay (pembaca toleran, F1.4).
+                let adopted = match Self::adopt(file.bodies.clone(), keep.clone(), stale_warning()) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        log::warn!("body STEP {label} tidak terbaca ({}), replay oplog", e.message);
+                        let mut s = Self::replay(design)?;
+                        s.adopt_uuids(&file.bodies);
+                        s.meta.warnings.push(format!("step_unreadable: {}", e.message));
+                        return Ok(s);
+                    }
+                };
                 if adopted.meta.design.fingerprint != design.fingerprint {
                     log::warn!(
                         "oplog basi: sidik jari berkas {} != design {}",
@@ -2494,36 +2570,66 @@ impl Session {
     }
 
     /// Mode adopsi: body berkas menjadi `base_bodies`, oplog kosong.
-    fn adopt(bodies: Vec<NativeBody>, base: DesignDoc, warnings: Vec<String>) -> OpResult<Self> {
+    fn adopt(bodies: Vec<NativeBody>, base: DesignDoc, mut warnings: Vec<String>) -> OpResult<Self> {
         let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-        let base_bodies = bodies
-            .into_iter()
-            .map(|mut nb| {
-                let n = seen.entry(nb.name.clone()).or_insert(0);
-                *n += 1;
-                if *n > 1 {
-                    nb.name = format!("{}#{n}", nb.name);
-                }
-                nb
-            })
-            .collect();
+        let mut shapes = Vec::with_capacity(bodies.len());
+        let mut base_bodies = Vec::with_capacity(bodies.len());
+        for mut nb in bodies {
+            let n = seen.entry(nb.name.clone()).or_insert(0);
+            *n += 1;
+            if *n > 1 {
+                nb.name = format!("{}#{n}", nb.name);
+            }
+            let shape = nb
+                .resolve_shape(&mut warnings)
+                .map_err(|e| OpError::new(OpErrorCode::Io, format!("{e:#}")))?
+                .ok_or_else(|| {
+                    OpError::new(
+                        OpErrorCode::Io,
+                        format!(
+                            "body '{}' hanya tersimpan sebagai oplog (tanpa STEP/cache yang cocok) \
+                             dan oplog tidak bisa di-replay",
+                            nb.name
+                        ),
+                    )
+                })?;
+            // Body dasar tanpa oplog wajib membawa STEP otoritatif; cache
+            // backend tidak boleh jadi satu-satunya salinan geometri.
+            nb.ensure_step(&shape)
+                .map_err(|e| OpError::new(OpErrorCode::Io, format!("{e:#}")))?;
+            nb.brep = None;
+            shapes.push(Some(shape));
+            base_bodies.push(nb);
+        }
         let design = DesignDoc {
             oplog: Vec::new(),
             fingerprint: String::new(),
             base_bodies,
             ..base
         };
-        let (mut s, _) = Self::rebuild(design)?;
+        let (mut s, _) = Self::rebuild_with(design, shapes)?;
         s.meta.design.fingerprint = fingerprint(&s.model);
         s.meta.warnings = warnings;
         Ok(s)
     }
 
-    /// Simpan ke `.ducad` v2. Field `sketch`/`front_sketch`/`right_sketch`
+    /// Simpan ke `.ducad` v4. Field `sketch`/`front_sketch`/`right_sketch`
     /// hanya untuk tampilan di GUI: gabungan entitas semua sketch pada
     /// bidang standar itu (sketch pada datum/face tidak ditulis). Sumber
-    /// kebenaran tetap `design`.
+    /// kebenaran tetap `design`: semua body sesi adalah hasil replay
+    /// `base_bodies` + oplog, jadi ditulis sebagai body turunan (tanpa
+    /// STEP, dengan cache `brep`). `base_bodies` membawa STEP-nya sendiri.
     pub fn save(&mut self, path: &std::path::Path) -> OpResult<()> {
+        self.save_as(path, true)
+    }
+
+    /// Simpan dengan STEP di setiap body (format v2, tanpa cache) supaya
+    /// berkas tetap bisa dibuka DUCAD ≤ 0.5.6, yang menolak format v4.
+    pub fn save_legacy(&mut self, path: &std::path::Path) -> OpResult<()> {
+        self.save_as(path, false)
+    }
+
+    fn save_as(&mut self, path: &std::path::Path, derived: bool) -> OpResult<()> {
         self.meta.design.fingerprint = fingerprint(&self.model);
         let design = serde_json::to_value(&self.meta.design)
             .map_err(|e| OpError::new(OpErrorCode::Io, format!("gagal serialisasi design: {e}")))?;
@@ -2548,6 +2654,7 @@ impl Session {
                 mechanical: b.mechanical.clone(),
                 shape,
                 round_history: None,
+                derived,
             })
             .collect();
         ducad_io::native::save_multi_plane_detailed_with_design(

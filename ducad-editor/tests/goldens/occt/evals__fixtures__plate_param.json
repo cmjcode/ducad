@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "source": "evals/fixtures/plate_param.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 4,
+  "bodies": [
+    {
+      "name": "plate",
+      "valid": true,
+      "volume": 18377.9292,
+      "area": 6706.1991,
+      "bbox": [
+        [
+          -30.0,
+          -20.0,
+          0.0
+        ],
+        [
+          30.0,
+          20.0,
+          8.0
+        ]
+      ],
+      "faces": 14,
+      "edges": 36,
+      "mesh": {
+        "vertices": 2568,
+        "triangles": 2556,
+        "sha": "fa4a6c2fd1613089"
+      }
+    }
+  ],
+  "checks": null
+}

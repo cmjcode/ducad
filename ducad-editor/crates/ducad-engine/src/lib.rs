@@ -27,6 +27,7 @@ pub mod export;
 pub mod firm;
 pub mod guard;
 pub mod inspect;
+pub mod migrate;
 pub mod model;
 pub mod oplog;
 pub mod package;

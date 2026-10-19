@@ -77,8 +77,23 @@ pub fn load_part_from_file(
         }
     };
 
-    let shape = KernelShape::from_step_string(&body.step)
-        .with_context(|| format!("geometri part '{}' rusak", body.name))?;
+    let mut warnings = Vec::new();
+    let shape = body
+        .resolve_shape(&mut warnings)
+        .with_context(|| format!("geometri part '{}' rusak", body.name))?
+        .with_context(|| {
+            // Body turunan oplog (format v4) tanpa cache untuk backend ini:
+            // `ducad-io` tidak bisa me-replay oplog (tak bergantung pada
+            // `ducad-engine`). Buka & simpan ulang berkas sumber agar cache
+            // ditulis ulang.
+            format!(
+                "part '{}' di '{}' hanya tersimpan sebagai oplog tanpa cache untuk backend ini \
+                 ({}) — buka lalu simpan ulang berkas sumbernya",
+                body.name,
+                path.display(),
+                warnings.join("; ")
+            )
+        })?;
     let stamp = SourceStamp::of(path)
         .with_context(|| format!("gagal mencatat cap berkas '{}'", path.display()))?;
 
@@ -184,6 +199,7 @@ mod tests {
             mechanical: None,
             shape: &shape,
             round_history: None,
+            derived: false,
         };
         save_multi_plane_detailed(&path, &[&sketch], &[body]).unwrap();
         PartFile { dir, path }

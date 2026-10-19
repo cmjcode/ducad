@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "source": "crates/ducad-engine/tests/fixtures/flange.ops.json",
+  "backend": "occt",
+  "error": null,
+  "oplog_len": 6,
+  "bodies": [
+    {
+      "name": "part",
+      "valid": true,
+      "volume": 51984.8133,
+      "area": 15616.7717,
+      "bbox": [
+        [
+          -40.0,
+          -39.9876,
+          0.0
+        ],
+        [
+          40.0,
+          39.9876,
+          25.0
+        ]
+      ],
+      "faces": 14,
+      "edges": 31,
+      "mesh": {
+        "vertices": 5126,
+        "triangles": 5190,
+        "sha": "86d0933c5cfaa8fb"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "label": "body_count#0",
+      "status": "pass"
+    },
+    {
+      "label": "bbox_size#1",
+      "status": "pass"
+    }
+  ]
+}
