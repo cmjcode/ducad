@@ -1,21 +1,12 @@
 //! Ulir fisik metrik ISO (P20): alur ulir profil dasar ISO 68-1 (60°)
 //! dipotong dari silinder luar dengan sapuan helix.
 //!
-//! Fungsi di sini TIDAK memegang `KERNEL_LOCK` sendiri — ia hanya merangkai
-//! fungsi publik kernel lain (yang masing-masing mengunci), sesuai aturan
-//! "Mutex tidak reentrant".
+//! Backend truck memotong ulir facet (PLAN_MIGRASI_TRUCK §4.2 pilihan A).
 
 use anyhow::{bail, Result};
 
-use crate::csg::subtract;
-use crate::helix::{create_helix_solid_with_custom_profile, HelixHandedness, HelixParams};
-use crate::profile::{Profile, ProfileSegment};
 use crate::shape::KernelShape;
 
-/// Titik sampel spline helix per putaran.
-const SAMPLES_PER_TURN: usize = 36;
-/// Putaran penuh per potongan pemotong (lihat `cut_iso_thread`).
-const TURNS_PER_CHUNK: f64 = 2.0;
 
 /// Geometri alur ulir luar profil dasar ISO 68-1 untuk kisar `pitch`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,8 +55,6 @@ impl IsoThreadProfile {
 /// Potong ulir luar ISO pada `shape`: silinder berdiameter mayor `major_d`
 /// dengan sumbu lewat `axis_origin` searah `axis_dir`; ulir mulai di
 /// `axis_origin` dan berjalan sejauh `length`.
-// Truck keluar lebih awal ke `backend::thread` (ulir facet).
-#[cfg_attr(backend_truck, allow(unreachable_code, unused_variables))]
 pub fn cut_iso_thread(
     shape: &KernelShape,
     axis_origin: [f64; 3],
@@ -101,18 +90,9 @@ pub fn cut_iso_thread(
         (-p.depth, root),
         (-p.depth, -root),
     ];
-    let profile = Profile::Loop(
-        (0..4)
-            .map(|i| ProfileSegment::Line {
-                start: pts[i],
-                end: pts[(i + 1) % 4],
-            })
-            .collect(),
-    );
-    // Backend truck: boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK
-    // R4) — pakai ulir facet (§4.2 pilihan A).
-    #[cfg(backend_truck)]
-    return crate::backend::thread::cut_faceted(
+    // Boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK R4) — ulir
+    // facet (§4.2 pilihan A).
+    crate::backend::thread::cut_faceted(
         shape,
         axis_origin,
         axis_dir,
@@ -121,51 +101,5 @@ pub fn cut_iso_thread(
         length,
         left_handed,
         &pts,
-    );
-    // Satu spline helix panjang membuat `MakePipe` menghasilkan solid rusak
-    // (terbukti pada 13 putaran: tidak valid, volume ≈ 0), jadi pemotong
-    // dibuat per potongan `TURNS_PER_CHUNK` putaran PENUH — awal tiap
-    // potongan jatuh di sudut yang sama sehingga alurnya menyambung.
-    let norm = (axis_dir[0].powi(2) + axis_dir[1].powi(2) + axis_dir[2].powi(2)).sqrt();
-    if norm < 1e-9 {
-        bail!("arah sumbu ulir nol");
-    }
-    let axis = axis_dir.map(|c| c / norm);
-    let total_turns = length / pitch;
-    let mut result: Option<KernelShape> = None;
-    let mut done = 0.0;
-    while total_turns - done > 1e-6 {
-        let mut turns = (total_turns - done).min(TURNS_PER_CHUNK);
-        // Sisa yang sangat pendek digabung ke potongan ini.
-        if total_turns - done - turns < 0.25 {
-            turns = total_turns - done;
-        }
-        let shift = done * pitch;
-        let params = HelixParams {
-            radius: major_d / 2.0,
-            end_radius: None,
-            pitch,
-            turns,
-            handedness: if left_handed {
-                HelixHandedness::LeftHand
-            } else {
-                HelixHandedness::RightHand
-            },
-            origin: [
-                axis_origin[0] + axis[0] * shift,
-                axis_origin[1] + axis[1] * shift,
-                axis_origin[2] + axis[2] * shift,
-            ],
-            axis,
-            ..HelixParams::default()
-        };
-        let cutter = create_helix_solid_with_custom_profile(&params, &profile, SAMPLES_PER_TURN)?;
-        if !cutter.is_valid() {
-            bail!("pemotong ulir tidak valid pada putaran {done:.2}");
-        }
-        let base = result.as_ref().unwrap_or(shape);
-        result = Some(subtract(base, &cutter)?);
-        done += turns;
-    }
-    result.ok_or_else(|| anyhow::anyhow!("ulir tanpa putaran"))
+    )
 }

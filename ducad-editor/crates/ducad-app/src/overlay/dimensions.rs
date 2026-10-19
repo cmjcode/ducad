@@ -93,6 +93,8 @@ impl DuCADApp {
                     Entity::line(start, new_end).with_construction(is_construction),
                 )));
             }
+            Entity::Circle { .. } | Entity::Arc { .. }
+                if self.commit_radius_via_constraint(id, new_value_mm) => {}
             Entity::Circle { center, is_construction, .. } => {
                 self.execute_sketch_command(Box::new(UpdateEntity::new(
                     "Ubah Radius Lingkaran",
@@ -307,7 +309,9 @@ impl DuCADApp {
             };
             let angle = self.screen_line_angle(rect, center, edge);
 
-            let text = format!("R {}", self.unit.format_precise(radius));
+            let diameter = self.sketch_dims.show_diameter;
+            let shown = if diameter { radius * 2.0 } else { radius };
+            let text = format!("{} {}", if diameter { "Ø" } else { "R" }, self.unit.format_precise(shown));
             let is_editing = self.editing_dimension_entity == Some(id);
             let resp = ui
                 .push_id(("ducad-dim-pill-circle-radius", id.data().as_ffi()), |ui| {
@@ -315,17 +319,23 @@ impl DuCADApp {
                         ui, pos_2d, angle, &text, is_editing,
                     )
                 })
-                .inner;
+                .inner
+                .on_hover_text(t!("dim-toggle-diameter-tip"));
+            // Klik kanan: ganti tampilan R ↔ Ø untuk semua lingkaran.
+            if resp.secondary_clicked() {
+                self.sketch_dims.show_diameter = !diameter;
+            }
             if resp.clicked() && !is_editing {
                 self.editing_dimension_entity = Some(id);
-                self.editing_dimension_input = format!("{:.2}", self.unit.to_display_val(radius));
+                self.editing_dimension_input = format!("{:.2}", self.unit.to_display_val(shown));
             }
             if is_editing {
                 self.show_dimension_pill_edit_popup(ui, id, pos_2d, &mut commit);
             }
         }
 
-        if let Some((id, radius_mm)) = commit {
+        if let Some((id, value_mm)) = commit {
+            let radius_mm = if self.sketch_dims.show_diameter { value_mm * 0.5 } else { value_mm };
             self.commit_dimension_pill_edit(id, radius_mm);
         }
     }
@@ -939,6 +949,7 @@ impl DuCADApp {
         }
         // Lingkaran: garis + ukuran radius selalu tampil saat sketching.
         self.render_circle_radius_dimensions(ui, rect);
+        self.render_sketch_angle_dimension(ui, rect);
         self.paint_sim_overlay(ui, rect);
         self.paint_mass_marker(ui, rect);
 

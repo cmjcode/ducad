@@ -291,7 +291,7 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
 | Dokumen kemajuan | `ROADMAP.md` + `gaps.md` + `*-parity.md` (angka paritas terukur) | `PLAN.md`, `STATUS_FASE_A_B.md`, rencana harness agent | Pola "angka paritas" tidak relevan tanpa produk acuan |
 | i18n | 13 bahasa, font CJK/Arab opsional, RTL/shaping | 2 bahasa (en/id), tes cakupan glyph | Belum perlu |
 | Aksesibilitas | Kursor sistem opsional, hormati *reduce motion* | Belum ada | Kandidat lanjutan (kecil) |
-| Web (WASM) | Ya (`trunk`) | Tidak (OCCT) | Tidak mungkin tanpa kernel WASM |
+| Web (WASM) | Ya (`trunk`) | Kernel lolos `cargo check --target wasm32-unknown-unknown` sejak 0.6.0 (kernel Rust murni); aplikasi web belum ada | Terbuka — fase terpisah (PLAN_MIGRASI_TRUCK R10: panik = abort di wasm) |
 
 ### 5.2 Yang diterapkan di DUCAD (lihat ADR 0009)
 

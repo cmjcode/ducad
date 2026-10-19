@@ -95,9 +95,9 @@ impl Write for Tee {
     }
 }
 
-/// Jurnal panik untuk soak 0.6.0-beta (PLAN_MIGRASI_TRUCK F6.3): satu baris
-/// JSON per panik di [`log_dir`], TIDAK ikut dirotasi tiap start sehingga
-/// bisa dihitung per backend sepanjang masa soak. Hanya lokal — tidak pernah
+/// Jurnal panik (diperkenalkan untuk soak 0.6.0-beta, PLAN_MIGRASI_TRUCK
+/// F6.3): satu baris JSON per panik di [`log_dir`], TIDAK ikut dirotasi tiap
+/// start sehingga bisa dihitung per versi. Hanya lokal — tidak pernah
 /// dikirim ke mana pun; pengguna beta melampirkannya ke laporan bila diminta.
 pub const PANIC_JOURNAL: &str = "panics.jsonl";
 /// Jurnal berhenti tumbuh setelah ukuran ini.

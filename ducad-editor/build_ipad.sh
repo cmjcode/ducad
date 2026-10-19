@@ -17,7 +17,6 @@
 #
 # Options:
 #   --debug           - Build debug configuration (default: release)
-#   --kernel <K>      - Backend kernel: truck (default, tanpa OCCT/cmake) atau occt
 #   --bundle-id <ID>  - Custom bundle ID (default: $APPLE_BUNDLE_ID or id.jayuda.ducad.ios)
 #   --sim-name <NAME> - Target simulator name (default: auto-detect booted or iPad Pro / Air)
 #   --identity <ID>   - Code signing identity
@@ -122,14 +121,9 @@ CARGO_BUILD_FLAG="--release"
 BUILD_SUBDIR="release"
 
 DIST_IOS_DIR="$EDITOR_DIR/dist/ios"
-TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
 ENTITLEMENTS_FILE="$EDITOR_DIR/crates/ducad-app/ios/DUCAD-iOS.entitlements"
 
 ACTION="device"
-# Backend kernel (PLAN_MIGRASI_TRUCK F6.1): truck = Rust murni, tidak ada
-# langkah OCCT/cmake sama sekali. `--kernel occt` hanya untuk pembanding
-# selama soak 0.6.0-beta (dihapus di F6.4).
-KERNEL="${DUCAD_KERNEL_BUILD:-truck}"
 CUSTOM_SIM_NAME=""
 CUSTOM_IDENTITY="${APPLE_IDENTITY:-}"
 PROVISIONING_PROFILE="${PROVISIONING_PROFILE:-}"
@@ -156,7 +150,6 @@ show_help() {
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --debug          - Compile in debug mode instead of release"
-    echo "  --kernel <K>     - Kernel backend: truck (default, no OCCT/cmake) or occt"
     echo "  --bundle-id <ID> - Override Apple Bundle Identifier"
     echo "  --sim-name <NAME>- Specify Simulator device name (e.g., 'iPad Pro 11-inch (M4)')"
     echo "  --identity <ID>  - Signing identity (e.g., 'Apple Development: ...')"
@@ -219,10 +212,6 @@ while [[ $# -gt 0 ]]; do
             APPLE_BUNDLE_ID="$2"
             shift 2
             ;;
-        --kernel)
-            KERNEL="$2"
-            shift 2
-            ;;
         --sim-name)
             CUSTOM_SIM_NAME="$2"
             shift 2
@@ -247,91 +236,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-case "$KERNEL" in
-    truck) KERNEL_FEATURES=() ;;
-    occt) KERNEL_FEATURES=(--features kernel-occt) ;;
-    *)
-        print_error "Unknown kernel backend: $KERNEL (truck|occt)"
-        exit 1
-        ;;
-esac
-
 # --- 5. Environment & Toolchain Setup ---
-ensure_occt_built() {
-    local target="${1:-$IOS_ARM_TARGET}"
-    local occt_target_dir="$EDITOR_DIR/target/$target/OCCT"
-    local occt_lib_step="$occt_target_dir/lib/libTKDESTEP.a"
-    local occt_src_dir="$HOME/.cargo/registry/src"
-    local occt_version
-    occt_version=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
-    local occt_sys_dir
-    occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -path "*/occt-sys-${occt_version}/OCCT" 2>/dev/null | head -n1 || true)
-    if [ -z "$occt_sys_dir" ] || [ ! -d "$occt_sys_dir" ]; then
-        occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
-    fi
-    
-    if [ ! -f "$occt_lib_step" ] && [ -n "$occt_sys_dir" ] && [ -d "$occt_sys_dir" ]; then
-        print_status "Pre-building OCCT for target $target (version: $occt_version, serial install to avoid CMake APFS race condition)..."
-        local build_dir="$occt_target_dir/build"
-        
-        # Clean build directory if CMakeCache was generated with a different source directory
-        if [ -f "$build_dir/CMakeCache.txt" ]; then
-            local cache_src
-            cache_src=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$build_dir/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
-            if [ -n "$cache_src" ] && [ "$cache_src" != "$occt_sys_dir" ]; then
-                print_warning "CMake cache source mismatch ($cache_src != $occt_sys_dir). Resetting build directory..."
-                rm -rf "$build_dir"
-                rm -rf "$occt_target_dir/lib"
-                rm -rf "$occt_target_dir/include"
-            fi
-        fi
-
-        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
-        if [ -f "$occt_target_dir/lib/libTKSTEP.a" ] && [ ! -f "$occt_lib_step" ]; then
-            print_status "Removing legacy/incompatible OCCT libraries from $occt_target_dir/lib..."
-            rm -rf "$occt_target_dir/lib"
-            rm -rf "$occt_target_dir/include"
-        fi
-
-        mkdir -p "$build_dir"
-        local toolchain_flag=""
-        if [ -f "$TOOLCHAIN_FILE" ]; then
-            toolchain_flag="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE"
-        fi
-        local patch_dir
-        patch_dir="$(dirname "$occt_sys_dir")/patch"
-        cmake "$occt_sys_dir" -B "$build_dir" \
-            -DBUILD_PATCH="$patch_dir" \
-            -DBUILD_LIBRARY_TYPE=Static \
-            -DBUILD_MODULE_ApplicationFramework=FALSE \
-            -DBUILD_MODULE_Draw=FALSE \
-            -DUSE_D3D=FALSE -DUSE_DRACO=FALSE -DUSE_EIGEN=FALSE -DUSE_FFMPEG=FALSE \
-            -DUSE_FREEIMAGE=FALSE -DUSE_FREETYPE=FALSE -DUSE_GLES2=FALSE -DUSE_OPENGL=FALSE \
-            -DUSE_OPENVR=FALSE -DUSE_RAPIDJSON=FALSE -DUSE_TBB=FALSE -DUSE_TCL=FALSE \
-            -DUSE_TK=FALSE -DUSE_VTK=FALSE -DUSE_XLIB=FALSE \
-            -DINSTALL_DIR_LIB=lib -DINSTALL_DIR_INCLUDE=include \
-            $toolchain_flag \
-            -DCMAKE_INSTALL_PREFIX="$occt_target_dir" \
-            -DCMAKE_BUILD_TYPE=Release
-        
-        local ncpus
-        ncpus=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
-        cmake --build "$build_dir" --config Release --parallel "$ncpus"
-        cmake --install "$build_dir"
-        print_success "OCCT pre-build complete for $target!"
-    fi
-}
-
 setup_toolchain() {
     local target="${1:-$IOS_ARM_TARGET}"
-    print_status "Configuring iOS CMake & Cargo toolchain..."
-    
-    export CMAKE_POLICY_VERSION_MINIMUM="3.5"
-    if [ -f "$TOOLCHAIN_FILE" ]; then
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$TOOLCHAIN_FILE"
-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$TOOLCHAIN_FILE"
-        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$TOOLCHAIN_FILE"
-    fi
+    print_status "Configuring iOS Cargo toolchain (kernel truck: Rust murni, tanpa cmake)..."
     
     # Check developer SDK
     if command -v xcrun &>/dev/null; then
@@ -346,12 +254,6 @@ setup_toolchain() {
     unset LDFLAGS
     unset CC
     unset CXX
-
-    if [ "$KERNEL" = "occt" ]; then
-        ensure_occt_built "$target"
-    else
-        print_status "Kernel backend: truck (Rust murni) — langkah OCCT/cmake dilewati"
-    fi
 }
 
 install_dependencies() {
@@ -535,7 +437,7 @@ codesign_bundle() {
 do_check() {
     print_status "Running cargo check for iOS target ($IOS_ARM_TARGET)..."
     setup_toolchain
-    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME" "${KERNEL_FEATURES[@]}"
+    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME"
     print_success "cargo check passed for iOS target!"
 }
 
@@ -560,7 +462,7 @@ build_app_bundle() {
     print_status "Building $PKG_NAME for target $target ($BUILD_MODE)..."
     setup_toolchain "$target"
     
-    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target" "${KERNEL_FEATURES[@]}"
+    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target"
     
     local bin_source="$EDITOR_DIR/target/$target/$BUILD_SUBDIR/$BIN_NAME"
     if [ ! -f "$bin_source" ]; then

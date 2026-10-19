@@ -158,6 +158,8 @@ pub struct DuCADApp {
     pub mass: crate::mass_ui::MassState,
     /// Panel Primitif / Cermin Body / Putar Body (Paritas 0.1–0.3).
     pub body_tools: crate::body_tools::BodyToolsState,
+    /// Toggle R/Ø dan edit dimensi sudut sketsa (Paritas 0.4).
+    pub sketch_dims: crate::sketch_dims::SketchDimState,
     /// Studi simulasi (P17).
     pub sim: crate::sim_ui::SimState,
     /// Panel Fitur Industri (P18–P20).
@@ -597,6 +599,7 @@ impl DuCADApp {
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
             body_tools: crate::body_tools::BodyToolsState::default(),
+            sketch_dims: crate::sketch_dims::SketchDimState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -935,6 +938,7 @@ impl DuCADApp {
             checks: crate::checks_ui::ChecksState::default(),
             mass: crate::mass_ui::MassState::default(),
             body_tools: crate::body_tools::BodyToolsState::default(),
+            sketch_dims: crate::sketch_dims::SketchDimState::default(),
             sim: crate::sim_ui::SimState::default(),
             industry: crate::industry_ui::IndustryState::default(),
             review: crate::review_ui::ReviewState::default(),
@@ -4345,6 +4349,7 @@ impl eframe::App for DuCADApp {
 
         self.show_transform_dialog(&ctx);
         self.show_body_tools(&ctx, screen_rect);
+        self.show_sketch_constraint_strip(&ctx, screen_rect);
 
         // Constraint strip untuk seleksi node path (M2.6): muncul di tool
         // Node Edit, hanya aksi yang berlaku untuk jumlah node terpilih aktif.

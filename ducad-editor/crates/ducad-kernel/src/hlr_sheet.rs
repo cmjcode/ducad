@@ -62,20 +62,6 @@ pub(crate) fn circumcenter3(a: DVec3, b: DVec3, c: DVec3) -> Option<(DVec3, DVec
     Some((center, n.normalize()))
 }
 
-fn circumcenter2(a: DVec2, b: DVec2, c: DVec2) -> Option<DVec2> {
-    let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-    if d.abs() < 1e-12 {
-        return None;
-    }
-    let a2 = a.length_squared();
-    let b2 = b.length_squared();
-    let c2 = c.length_squared();
-    Some(DVec2::new(
-        (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
-        (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d,
-    ))
-}
-
 pub(crate) fn seg(a: DVec2, b: DVec2, kind: HlrLineKind) -> HlrSegment2D {
     HlrSegment2D {
         start: [a.x as f32, a.y as f32],
@@ -142,20 +128,6 @@ pub(crate) fn arc_about(
         kind,
         edge: None,
     })
-}
-
-/// Cocokkan titik sampel sebuah edge lingkaran (pusat belum diketahui) ke
-/// busur 2D.
-#[cfg_attr(backend_truck, allow(dead_code))] // truck tahu pusatnya dari B-rep
-pub(crate) fn fit_arc(pts: &[DVec2], kind: HlrLineKind) -> Option<HlrArc2D> {
-    let n = pts.len();
-    if n < 3 {
-        return None;
-    }
-    let center = circumcenter2(pts[0], pts[n / 3], pts[(2 * n) / 3])
-        .or_else(|| circumcenter2(pts[0], pts[n / 2], pts[n - 1]))?;
-    let radius = (pts[0] - center).length();
-    arc_about(center, radius, pts, kind)
 }
 
 /// Cakupan sudut gabungan (derajat, maks 360) dari rentang busur yang boleh

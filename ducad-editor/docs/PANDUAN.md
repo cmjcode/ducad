@@ -1,6 +1,6 @@
 # Panduan Pemakaian DuCAD
 
-Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep OpenCASCADE, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
+Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
 
 ---
 
@@ -10,7 +10,7 @@ Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dar
 cargo run -p ducad-app
 ```
 
-> **Kernel geometri**: sejak 0.6.0-beta kernel bawaan adalah SolidCraft/truck (Rust murni, tanpa kompilasi C++). Backend OpenCASCADE (OCCT) masih tersedia selama masa uji beta: build dengan `cargo run -p ducad-app --features kernel-occt` (build pertama mengompilasi OCCT, ~8-15 menit), atau — pada paket beta yang membawa `ducad-occt` — jalankan aplikasi dengan variabel lingkungan `DUCAD_KERNEL=occt`. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah beta.
+> **Kernel geometri**: DuCAD memakai kernel B-rep SolidCraft/truck (Rust murni, tanpa kompilasi C++), sehingga build pertama hanya mengompilasi kode Rust. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah.
 
 ---
 
@@ -108,7 +108,7 @@ Memungkinkan pembuatan sketsa dan geometri pada sudut atau posisi sembarang di r
 
 ---
 
-## 🧊 Pemodelan Solid 3D (OpenCASCADE B-Rep)
+## 🧊 Pemodelan Solid 3D (B-Rep)
 
 ### 1. Extrude (Ekstrusi)
 * Pilih profil tertutup di sketsa $\rightarrow$ Klik **Extrude** di panel atau Bottom Context Bar $\rightarrow$ Tentukan jarak (mm) dan arah (Satu arah, Simetris dua arah).

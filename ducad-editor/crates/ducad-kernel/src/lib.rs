@@ -1,5 +1,5 @@
-//! Kernel geometri DUCAD: API B-rep netral-backend di atas OpenCASCADE
-//! (fitur `kernel-occt`, default) atau SolidCraft/truck (fitur `kernel-truck`).
+//! Kernel geometri DUCAD: API B-rep di atas SolidCraft/truck (Rust murni).
+//! Backend OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4).
 //!
 //! Seluruh aplikasi hanya boleh menyentuh tipe dari crate ini, bukan crate
 //! kernel pihak ketiga langsung — agar detail backend terisolasi dan kernel
@@ -11,11 +11,6 @@
 // kode produksi; modul tes dikecualikan.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-
-#[cfg(not(any(feature = "kernel-occt", feature = "kernel-truck")))]
-compile_error!(
-    "ducad-kernel butuh backend: aktifkan fitur `kernel-occt` (default) atau `kernel-truck`"
-);
 
 mod backend;
 
@@ -45,42 +40,29 @@ pub mod thread;
 pub mod topo;
 pub mod vector_snapshot;
 
-// Tes modul kernel, dijalankan di KEDUA backend (yang menyentuh tipe OCCT
-// ada di submodul `tests::occt_only`).
+// Tes modul kernel.
 #[cfg(test)]
 mod tests;
-// Tes kontrak: hanya API publik, dijalankan di KEDUA backend.
+// Tes kontrak: hanya API publik.
 #[cfg(test)]
 mod contract_tests;
 
-/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
-/// dicatat golden corpus dan laporan diagnostik.
-#[cfg(backend_truck)]
+/// Nama backend kernel (`"truck"`) — dicatat golden corpus, jurnal panik,
+/// dan berkas cache lintas-versi.
 pub const BACKEND: &str = "truck";
-/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
-/// dicatat golden corpus dan laporan diagnostik.
-#[cfg(backend_occt)]
-pub const BACKEND: &str = "occt";
 
-/// `true` bila backend aktif adalah truck. Crate hilir memakai konstanta ini
-/// (bukan `cfg!(feature = "kernel-truck")` milik crate itu sendiri), karena
-/// fitur crate hilir tidak mencerminkan backend yang benar-benar terpilih —
-/// lihat build.rs crate ini.
-pub const IS_TRUCK: bool = cfg!(backend_truck);
+/// Selalu `true` sejak OCCT dihapus (0.6.0); dipertahankan untuk kode yang
+/// membedakan perilaku per backend.
+pub const IS_TRUCK: bool = true;
 
-/// Toleransi relatif [`KernelShape::volume`] backend aktif (PLAN_MIGRASI_TRUCK
-/// §3.1, F5.1). OCCT: `BRepGProp` eksak (0). Truck: `measure()` SolidCraft
-/// berbasis tesselasi halus, ±1e-4 — pembanding volume/massa memakai 5e-4.
-#[cfg(backend_truck)]
+/// Toleransi relatif [`KernelShape::volume`] (PLAN_MIGRASI_TRUCK §3.1, F5.1):
+/// `measure()` SolidCraft berbasis tesselasi halus, ±1e-4 — pembanding
+/// volume/massa memakai 5e-4.
 pub const VOLUME_REL_TOL: f64 = 5e-4;
-/// Toleransi relatif [`KernelShape::volume`] backend aktif — lihat versi truck.
-#[cfg(backend_occt)]
-pub const VOLUME_REL_TOL: f64 = 0.0;
 
-/// `true` bila [`KernelShape`] boleh dipakai dari banyak thread sekaligus
-/// (backend truck: `Send + Sync`, tanpa kunci global). OCCT: semua panggilan
-/// diserialkan `KERNEL_LOCK` dan shape tidak boleh pindah thread.
-pub const THREAD_SAFE: bool = cfg!(backend_truck);
+/// [`KernelShape`] boleh dipakai dari banyak thread sekaligus (`Send + Sync`,
+/// tanpa kunci global).
+pub const THREAD_SAFE: bool = true;
 
 /// Error bertipe: operasi ini belum didukung backend kernel yang aktif
 /// (PLAN_MIGRASI_TRUCK §0 butir 4 — op yang tidak didukung mengembalikan
@@ -102,8 +84,8 @@ impl std::fmt::Display for Unsupported {
 
 impl std::error::Error for Unsupported {}
 
-/// Kunci serialisasi panggilan kernel. Backend OCCT: mutex global (OCCT tidak
-/// thread-safe). Backend truck: no-op — `KernelShape` di sana `Send + Sync`.
+/// Kunci serialisasi panggilan kernel: no-op (`KernelShape` `Send + Sync`);
+/// sisa API lama backend OCCT yang tidak thread-safe.
 pub(crate) use backend::lock_kernel;
 
 pub use diagnostics::capture_kernel_warnings;
@@ -124,17 +106,11 @@ pub use csg::{
     revolve_profile, subtract, sweep_profile_along_path, union_all,
     sweep_profile_on_plane_along_path, union,
 };
-/// Khusus OCCT: menerima `Wire` OCCT mentah (tidak ada padanan netral-backend).
-#[cfg(backend_occt)]
-pub use csg::sweep_profile_along_wire;
 pub use detail::{clip_segment_to_circle, DetailExtractor, DetailIndicator, DetailViewData};
 pub use helix::{
     create_helix_path_segments, create_helix_solid, create_helix_solid_with_custom_profile,
     generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
 };
-/// Khusus OCCT: mengembalikan `Wire` OCCT mentah.
-#[cfg(backend_occt)]
-pub use helix::create_helix_wire;
 pub use hlr::{
     DrawingOptions, HlrArc2D, HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind,
     HlrSegment2D, ProjectedView, ProjectedViewKind,

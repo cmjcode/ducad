@@ -139,9 +139,9 @@ fn cases() -> Vec<(&'static str, KernelShape)> {
     ]
 }
 
-const VOL_TOL: f64 = if cfg!(backend_truck) { 2e-4 } else { 1e-5 };
+const VOL_TOL: f64 = 2e-4;
 // Truck: volume dari tesselasi (poligon tersirat), ±5e-4 seperti checks (PLAN §3.1, R5).
-const EXACT_TOL: f64 = if cfg!(backend_truck) { 5e-4 } else { 1e-6 };
+const EXACT_TOL: f64 = 5e-4;
 
 /// Volume analitik bentuk yang punya rumus tertutup.
 fn exact_volume(name: &str) -> Option<f64> {

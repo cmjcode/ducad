@@ -37,31 +37,11 @@ yang di luar lingkup kerja agent ini). `.app` akan pakai ikon generik
 sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
 /icon.icns"]`.
 
-## Paket beta 0.6.0 (soak backend kernel)
-
-Selama soak (PLAN_MIGRASI_TRUCK F6.3) paket desktop pra-rilis membawa DUA
-executable: `ducad` (backend truck, default) dan `ducad-occt` (backend
-OpenCASCADE). `DUCAD_KERNEL=occt` membuat `ducad` berpindah ke `ducad-occt`
-(Unix: `exec`, Windows: proses anak); `DUCAD_KERNEL=truck` sebaliknya. Bila
-executable tujuan tidak ada, aplikasi tetap memakai backend bawaannya dan
-mencatat alasannya di log.
-
-- macOS: `make bundle-macos OCCT_FALLBACK=1` → `DUCAD.app/Contents/MacOS/ducad-occt`
-  (setiap executable di `Contents/MacOS` ditandatangani).
-- Linux: `make bundle-linux OCCT_FALLBACK=1`.
-- Windows: `.\build_windows.ps1 bundle -OcctFallback`.
-- CI (`release.yml`): otomatis untuk tag pra-rilis (`vX.Y.Z-beta.N`).
-- iPad/Android: satu backend per build (`--kernel occt` / `KERNEL=occt`).
-
-Jurnal panik `~/.ducad/logs/panics.jsonl` (satu baris JSON per panik: waktu,
-versi, backend, lokasi, pesan; berhenti di 1 MB) adalah bahan laporan soak.
-Tidak dikirim otomatis — updater tidak punya kanal telemetri.
-
 ## Windows / Linux
 
 `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
 yang jalan langsung tanpa bundling — DUCAD tidak punya dependensi native
-selain yang sudah di-static-link OCCT/wgpu saat build. Installer
+selain yang sudah di-static-link saat build (kernel Rust murni, wgpu). Installer
 (`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
 Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 
@@ -69,9 +49,9 @@ Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 
 Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
 dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
-GitHub lewat sumber `git+` — bukan tarball — karena binding OCCT ada di
-submodule `ducad-editor/vendors/opencascade-rs` yang tidak ikut tarball.
-OCCT dipakai dari paket sistem Arch `opencascade` (>= 7.8), dilink dinamis.
+GitHub lewat sumber `git+`. Sejak 0.6.0 kernel geometri (SolidCraft/truck)
+adalah Rust murni yang di-vendor di repo — tanpa submodule, tanpa paket
+sistem `opencascade`, tanpa cmake.
 Terpasang: `ducad`, `ducad-cli`, `ducad-mcp`, entri desktop, ikon, lisensi.
 
 Alur rilis:
@@ -110,7 +90,7 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
 - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar
   lingkup kerja kode.
 - **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
-  (backend truck: tanpa pre-build OCCT; `--kernel occt` melakukannya otomatis). Lihat `docs/TABLET.md`.
+  (tanpa pre-build C++). Lihat `docs/TABLET.md`.
 - **Android** — `make android-apk` menghasilkan APK debug (lihat
   `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
   alasannya dengan macOS.

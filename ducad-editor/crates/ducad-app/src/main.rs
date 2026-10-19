@@ -66,15 +66,8 @@ fn load_icon() -> IconData {
 }
 
 fn main() -> eframe::Result {
-    // `DUCAD_KERNEL=occt|truck` (soak 0.6.0-beta, PLAN_MIGRASI_TRUCK F6.3):
-    // pindah ke executable backend lain SEBELUM log dirotasi. Hanya kembali
-    // bila tetap memakai backend bawaan.
-    let kernel_note = ducad_app::kernel_select::switch_if_requested();
     // Log ke stderr + ~/.ducad/logs/ducad.log, dan catat panik (ADR 0009).
     ducad_app::logging::init();
-    if let Some(note) = kernel_note {
-        log::warn!("{note}");
-    }
 
     let icon = (!ducad_app::platform::is_mobile()).then(load_icon);
     eframe::run_native(

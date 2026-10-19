@@ -115,7 +115,6 @@ hex = "0.4"
 # Keduanya sudah ada di pohon dependensi lewat crate lain.
 sha2 = "0.10"
 zip = { version = "8", default-features = false, features = ["deflate"] }
-opencascade = "0.3"
 # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
 # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
 rfd = "0.17"
@@ -220,23 +219,16 @@ debug-assertions = false
 
 [profile.release]
 opt-level = 3
-# `lto = "thin"`, bukan "fat": graf dependensi ini menarik OCCT (C++,
-# ratusan objek lewat `occt-sys`) di samping wgpu/egui. Fat LTO pada
-# gabungan itu menaikkan waktu link rilis jadi puluhan menit dengan
-# kebutuhan RAM yang gampang menghabiskan runner CI, sementara selisih
-# performanya terhadap thin LTO tidak terasa pada beban kerja DUCAD yang
-# didominasi waktu di dalam kernel C++ (yang TIDAK ikut ter-LTO dari sisi
-# Rust sama sekali). Naikkan ke "fat" hanya kalau profiling membuktikan
-# ada yang bisa diambil.
+# `lto = "thin"`, bukan "fat": fat LTO pada graf wgpu/egui + SolidCraft
+# menaikkan waktu link rilis dan kebutuhan RAM runner CI. Sejak kernel
+# Rust murni (0.6.0) fat LTO MUNGKIN memberi sesuatu pada boolean/tesselasi —
+# naikkan hanya kalau benchmark (`cargo bench -p ducad-kernel`) membuktikannya.
 lto = "thin"
 codegen-units = 1
-# `panic` SENGAJA "unwind", bukan "abort" — `ducad_kernel::lock_kernel()`
-# memang dirancang PULIH dari `KERNEL_LOCK` yang ter-poison akibat panic
-# di operasi kernel sebelumnya (lihat komentarnya di
-# crates/ducad-kernel/src/lib.rs), supaya satu operasi gagal tidak
-# mengunci permanen seluruh aplikasi. Mekanisme itu hanya berfungsi kalau
-# panic bisa di-unwind; "abort" akan mematikan aplikasi CAD berisi
-# pekerjaan pengguna yang belum tersimpan.
+# `panic` SENGAJA "unwind", bukan "abort": pagar `catch_op_panic`
+# (ducad-engine/src/guard.rs) dan `guard` SolidCraft mengubah panik di dalam
+# op kernel menjadi error yang bisa di-rollback. "abort" akan mematikan
+# aplikasi CAD berisi pekerjaan pengguna yang belum tersimpan.
 panic = "unwind"
 strip = "symbols"
 
@@ -247,23 +239,7 @@ inherits = "release"
 strip = "none"
 debug = "line-tables-only"
 
-# `faces_along_ray` upstream meng-hardcode toleransi geometris OCCT ke
-# 0.0001 — terlalu ketat utk ray oblique kamera 3D nyata, bikin face-pick
-# selalu None utk sisi samping. `Shape`/`Face` upstream simpan handle FFI
-# `pub(crate)` (tidak bisa ditembus dari luar crate), jadi satu-satunya
-# jalan adalah vendor + patch minimal (tambah method baru bertoleransi
-# custom, TIDAK mengubah method lama) — lihat vendor/README.md.
-#
-# `opencascade-sys` (DUCAD Fase 2) di-vendor terpisah dari `opencascade`
-# di atas: binding baru (BRepAdaptor_Surface, BRepOffset_MakeOffset) butuh
-# akses langsung ke cxx bridge mentah (src/lib.rs + include/wrapper.hxx) —
-# level yang berada SATU LAPIS DI BAWAH `opencascade`, dan `opencascade`
-# vendored di sini otomatis memakai copy lokal ini lewat resolusi
-# `[patch.crates-io]` yang sama (dependensinya "opencascade-sys = \"0.2\""
-# tak berubah). Lihat vendor/README.md.
 [patch.crates-io]
-opencascade = { path = "vendors/opencascade-rs/crates/opencascade" }
-opencascade-sys = { path = "vendors/opencascade-rs/crates/opencascade-sys" }
 
 # Backend truck (PLAN_MIGRASI_TRUCK F2): truck dengan perbaikan SolidCraft
 # (boolean deterministik, tanpa panic pada kurva irisan degenerate, history

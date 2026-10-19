@@ -5,21 +5,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# Backend kernel geometri (PLAN_MIGRASI_TRUCK §3, F6). Default: truck
-# (SolidCraft, Rust murni — tanpa OCCT/cmake). OCCT tetap bisa dipilih selama
-# masa soak: `--features kernel-occt` (dari crate mana pun di graf) MENANG
-# atas default truck; lihat build.rs. Tanpa backend sama sekali =
-# `compile_error!` di src/lib.rs.
-[features]
-default = ["kernel-truck"]
-kernel-occt = ["dep:opencascade"]
-kernel-truck = ["dep:solidcraft-kernel", "dep:solidcraft-geom"]
-
 [dependencies]
 ducad-core = { workspace = true }
-opencascade = { workspace = true, optional = true }
-solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel", optional = true }
-solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom", optional = true }
+# Kernel geometri: SolidCraft di atas truck (PLAN_MIGRASI_TRUCK; OCCT dihapus di F6.4).
+solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel" }
+solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom" }
 glam = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }

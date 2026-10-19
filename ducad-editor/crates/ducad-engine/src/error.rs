@@ -206,8 +206,7 @@ impl OpError {
             return Self::new(OpErrorCode::Unsupported, format!("{op} gagal: {u}")).with_hint(
                 format!(
                     "operasi `{}` belum tersedia di backend kernel `{}`; ubah model agar \
-                     tidak memakai operasi ini, atau — selama beta 0.6.0 — jalankan backend \
-                     OCCT (`DUCAD_KERNEL=occt` pada paket beta, atau build `--features kernel-occt`)",
+                     tidak memakai operasi ini (alternatif per op: `get_schema`)",
                     u.operation, u.backend
                 ),
             );

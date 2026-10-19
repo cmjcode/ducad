@@ -1,8 +1,6 @@
 //! PLAN_MIGRASI_TRUCK 5.4 — backend truck tanpa kunci global: import STEP
 //! dan extrude/boolean berjalan bersamaan di thread berbeda, hasilnya sama
 //! dengan versi berurutan; `union_all` paralel sama dengan lipatan biasa.
-//! Hanya backend truck (OCCT tidak thread-safe).
-#![cfg(backend_truck)]
 
 use std::sync::Arc;
 

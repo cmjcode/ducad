@@ -112,32 +112,6 @@ pub(crate) fn bezier_is_degenerate(
     (p0 - p1).length() <= EPS && (p0 - p2).length() <= EPS && (p0 - p3).length() <= EPS
 }
 
-/// Tukar arah satu segmen profil.
-#[cfg_attr(backend_truck, allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
-pub(crate) fn reverse_profile_segment(seg: ProfileSegment) -> ProfileSegment {
-    match seg {
-        ProfileSegment::Line { start, end } => ProfileSegment::Line {
-            start: end,
-            end: start,
-        },
-        // `via` adalah titik DI atas busur, bukan ujung — ia tetap di
-        // tempatnya saat arah dibalik.
-        ProfileSegment::Arc { start, via, end } => ProfileSegment::Arc {
-            start: end,
-            via,
-            end: start,
-        },
-        // Titik kontrol Bézier terikat pada ujung terdekatnya, jadi keduanya
-        // ikut bertukar: `c1` milik `start`, `c2` milik `end`.
-        ProfileSegment::Bezier { start, c1, c2, end } => ProfileSegment::Bezier {
-            start: end,
-            c1: c2,
-            c2: c1,
-            end: start,
-        },
-    }
-}
-
 /// Satu segmen kurva jalur pemandu 3D (spine path) untuk operasi Sweep.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathSegment {

@@ -1,22 +1,3 @@
-[env]
-# occt-sys (dependensi ducad-kernel) membawa CMakeLists.txt bawaan OCCT
-# yang pakai `cmake_minimum_required` versi lama; CMake >= 4.0 (terinstal di
-# banyak mesin dev sekarang) menghapus dukungan untuk itu dan build gagal di
-# langkah konfigurasi. Override ini bikin CMake tetap menerima project lama
-# tanpa menambal source OCCT sendiri — build script `cmake` crate membaca
-# env var ini otomatis. Kalau OCCT naik versi dan ini sudah tidak perlu,
-# aman dihapus (bukan bagian dari API DUCAD).
-CMAKE_POLICY_VERSION_MINIMUM = "3.5"
-
-# Fase 6 (port iPad): paksa occt-sys memakai SDK/arsitektur iOS saat cross-
-# compile ke aarch64-apple-ios, bukan diam-diam jatuh ke SDK macOS host.
-# Nama var `CMAKE_TOOLCHAIN_FILE_<target_dengan_garis_bawah>` adalah
-# konvensi yang dibaca crate `cmake` (dipakai occt-sys) lewat
-# `getenv_target_os` — lihat komentar penuh di
-# crates/ducad-kernel/ios/ios-toolchain.cmake. `relative = true` supaya
-# path selalu benar tak peduli dari direktori mana `cargo` dipanggil.
-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "ducad-editor/crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
-
 [target.aarch64-apple-ios]
 rustflags = [
     "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.ios.a",

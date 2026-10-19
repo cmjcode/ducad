@@ -13,10 +13,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # OCCT membawa CMakeLists dengan `cmake_minimum_required` di bawah batas
-  # yang diterima CMake 4.x. Nilai ini mencerminkan
-  # `ducad-editor/.cargo/config.toml` supaya CI identik dengan build lokal.
-  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
 
 defaults:
   run:
@@ -26,7 +22,7 @@ defaults:
 
 jobs:
   # ---------------------------------------------------------------------
-  # Lane cepat (< 2 menit): tidak menyentuh OCCT sama sekali.
+  # Lane cepat (< 2 menit): crate tanpa kernel.
   # ---------------------------------------------------------------------
   # Basis kode belum pernah dilewatkan rustfmt: `cargo fmt --all --check`
   # saat ini melaporkan ~1.628 selisih yang tersebar di hampir seluruh
@@ -52,7 +48,6 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      # Tanpa submodule: rustfmt hanya mem-parse berkas, tidak pernah build.
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
@@ -72,8 +67,8 @@ jobs:
           workspaces: ducad-editor
           key: quick
       # `ducad-core`/`-sketch`/`-render`/`-i18n`/`-cloud`/`-update` tidak
-      # bergantung pada `ducad-kernel`, jadi tidak butuh OCCT dan memberi sinyal gagal
-      # dalam hitungan menit alih-alih belasan menit.
+      # bergantung pada `ducad-kernel`, jadi memberi sinyal gagal dalam
+      # hitungan menit.
       - name: clippy
         run: >
           cargo clippy
@@ -86,22 +81,13 @@ jobs:
           -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
           -p ducad-update
 
-  # Backend kernel truck (PLAN_MIGRASI_TRUCK F2–F6, default sejak F6):
-  # `ducad-kernel` tanpa OCCT, jadi cukup beberapa menit. Tes modul (`tests`)
-  # dan kontrak (`contract_tests`) identik dengan yang dijalankan backend
-  # OCCT di lane penuh — lulus di keduanya = paritas. `tests/fuzz_boolean.rs`
-  # ikut (24 seed; gate F3 penuh: `SEEDS=0..95`).
-  #
-  # Submodule tetap di-checkout walau OCCT tidak dikompilasi: Cargo memuat
-  # setiap entri `[patch.crates-io]` (vendors/opencascade-rs) saat resolusi
-  # dependensi, dan gagal bila path-nya tidak ada. Hilang di F6.4.
+  # Kernel (SolidCraft/truck): clippy + tes modul/kontrak + fuzz boolean
+  # (`tests/fuzz_boolean.rs`, 24 seed; gate penuh: `SEEDS=0..95`) + wasm32.
   truck:
-    name: kernel truck (clippy + test + wasm32)
+    name: kernel (clippy + test + wasm32)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: clippy
@@ -112,20 +98,17 @@ jobs:
           key: truck
       - name: clippy
         run: >
-          cargo clippy -p ducad-kernel --no-default-features --features kernel-truck
-          --all-targets -- -D warnings
+          cargo clippy -p ducad-kernel --all-targets -- -D warnings
       - name: test
-        run: cargo test -p ducad-kernel --no-default-features --features kernel-truck
-      # F6.2: kernel truck terkompilasi untuk web (rayon dipagari
+        run: cargo test -p ducad-kernel
+      # F6.2: kernel terkompilasi untuk web (rayon dipagari
       # `target_arch = "wasm32"` di SolidCraft `par.rs`; tanpa thread pool).
       - name: check wasm32
-        run: >
-          cargo check -p ducad-kernel --no-default-features --features kernel-truck
-          --target wasm32-unknown-unknown
+        run: cargo check -p ducad-kernel --target wasm32-unknown-unknown
 
   # Updater aplikasi punya jalur khusus per OS (`cfg(target_os)`: hdiutil/
   # codesign/lipo di macOS, zip di Windows, tar di Linux). Lane penuh tidak
-  # menjalankan macOS, jadi crate ini (tanpa OCCT, < 2 menit) dicek di
+  # menjalankan macOS, jadi crate ini (< 2 menit) dicek di
   # ketiga OS di sini.
   update:
     name: ducad-update (${{ matrix.os }})
@@ -147,14 +130,11 @@ jobs:
       - run: cargo test -p ducad-update
 
   # ---------------------------------------------------------------------
-  # Lane penuh. Backend default = truck (PLAN_MIGRASI_TRUCK F6). Selama soak
-  # 0.6.0-beta backend OCCT tetap diuji di sini lewat `--features kernel-occt`
-  # (membangun OCCT, ~10-15 menit tanpa cache) — langkah cmake & OCCT hilang
-  # di F6.4.
+  # Lane penuh: seluruh workspace, Linux + Windows (Rust murni, tanpa cmake).
   #
-  # Hanya Linux + Windows. Paket macOS hanya dibangun di mesin lokal
-  # (Developer ID + notarisasi: `make bundle-macos` + `./notarize.sh`);
-  # jalankan `cargo test --workspace` di macOS sebelum rilis.
+  # Paket macOS hanya dibangun di mesin lokal (Developer ID + notarisasi:
+  # `make bundle-macos` + `./notarize.sh`); jalankan `cargo test --workspace`
+  # di macOS sebelum rilis.
   # ---------------------------------------------------------------------
   full:
     name: clippy + test (workspace, ${{ matrix.os }})
@@ -164,15 +144,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      # Pohon sumber OCCT punya path yang melewati batas MAX_PATH Windows.
-      - name: Izinkan path panjang (Windows)
-        if: runner.os == 'Windows'
-        working-directory: .
-        run: git config --global core.longpaths true
-
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Pasang dependensi sistem Linux
         if: runner.os == 'Linux'
@@ -180,62 +152,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
             libgl1-mesa-dev
 
-      # ducad-editor/.cargo/config.toml mengunci generator ke VS 2022 (untuk
-      # mesin dev), padahal image runner bisa membawa VS versi lain. Env proses
-      # menang atas [env] Cargo, jadi pilih generator sesuai VS yang terpasang.
-      - name: Pilih generator CMake sesuai Visual Studio runner
-        if: runner.os == 'Windows'
-        working-directory: .
-        shell: pwsh
-        run: |
-          # Generator bertanda `*` di `cmake --help` = VS terbaru yang terpasang.
-          # (Jangan merakit nama dari vswhere: VS 2026 melaporkan
-          # catalog_productLineVersion "18", bukan "2026".)
-          $line = cmake --help | Select-String '^\*\s+(Visual Studio \d+ \d{4})' | Select-Object -First 1
-          if (-not $line) { throw 'Generator Visual Studio default tidak ditemukan di cmake --help' }
-          $gen = $line.Matches[0].Groups[1].Value
-          Write-Host "Generator CMake: $gen"
-          "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
-
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
           components: clippy
-
-      # Revisi submodule adalah satu-satunya masukan yang menentukan hasil
-      # build OCCT, jadi dipakai sebagai kunci cache.
-      - name: Resolusi revisi OCCT
-        id: occt
-        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache artefak build OCCT
-        uses: actions/cache@v4
-        with:
-          path: ducad-editor/target/debug/build
-          key: occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
-          restore-keys: |
-            occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ducad-editor
           key: full-${{ matrix.os }}
-          # Jangan biarkan rust-cache memangkas direktori build: di situlah
-          # hasil kompilasi OCCT disimpan (lihat langkah cache di atas).
-          cache-directories: ducad-editor/target/debug/build
 
       - name: clippy
         if: runner.os == 'Linux'
         run: cargo clippy --workspace --all-targets -- -D warnings
-
-      - name: clippy (backend OCCT)
-        if: runner.os == 'Linux'
-        run: cargo clippy --workspace --all-targets --features kernel-occt -- -D warnings
 
       # Windows baru masuk CI: kode produksi sudah memagari API Unix
       # (`agent_bridge`, `attach`) dengan `cfg(unix)`, tetapi sebagian tes
@@ -251,40 +184,22 @@ jobs:
         continue-on-error: true
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Backend truck (default). Tes yang membangun valve body dilewati saat
-      # runtime di truck (R7, known_failures.truck.txt).
+      # Tes yang membangun valve body dilewati saat runtime (R7,
+      # known_failures.truck.txt) sampai performanya diperbaiki.
       - name: test
         continue-on-error: ${{ runner.os == 'Windows' }}
         run: cargo test --workspace
 
-      - name: test (backend OCCT)
-        if: runner.os == 'Linux'
-        run: cargo test --workspace --features kernel-occt
-
-      # Gate migrasi kernel (PLAN_MIGRASI_TRUCK F0): replay korpus contoh dan
-      # bandingkan volume/luas/bbox/face/tepi/vonis check dengan golden OCCT.
-      # Golden direkam di macOS; sidik jari mesh boleh beda antar-OS (hanya
-      # dicatat). Contoh baru → `cargo run -p ducad-cli -- golden capture`.
-      - name: golden
-        if: runner.os == 'Linux'
-        run: >
-          cargo run -p ducad-cli --features kernel-occt --
-          golden check --against tests/goldens/occt --tol 1e-3
-
-      # Gate F3: backend truck terhadap golden OCCT yang SAMA, seluruh korpus.
-      # Perbedaan yang sudah diterima (beserta alasannya) ada di
+      # Gate kernel: replay korpus contoh terhadap golden yang direkam dengan
+      # OCCT sebelum migrasi (tests/goldens/occt, referensi beku). Perbedaan
+      # yang diterima (beserta alasannya) ada di
       # `tests/goldens/known_failures.truck.txt`; perbedaan lain = gagal.
-      - name: golden (backend truck)
+      - name: golden
         if: runner.os == 'Linux'
         run: >
           cargo run -p ducad-cli --
           golden check --against tests/goldens/occt --tol 1e-3
           --known tests/goldens/known_failures.truck.txt
-
-      # Gate F4 (lembar gambar di truck: `drawing_golden`, `drawing_auto`,
-      # `drawing_sheet_smoke`, `ducad-io`) kini bagian dari langkah `test`
-      # di atas, karena truck adalah backend default. Hash golden truck:
-      # `ducad-engine/tests/golden/drawing.hashes.truck.json`.
 
   # ---------------------------------------------------------------------
   # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:

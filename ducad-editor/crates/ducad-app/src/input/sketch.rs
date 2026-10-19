@@ -1188,6 +1188,11 @@ impl DuCADApp {
                 self.set_tool(ToolKind::Pattern);
             }
             if self.is_sketching {
+                if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::D))
+                    && self.tool == ToolKind::Select
+                {
+                    self.dimension_hotkey();
+                }
                 if ui.input(|i| !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && i.key_pressed(egui::Key::L)) {
                     self.set_tool(ToolKind::Line);
                 }

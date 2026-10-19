@@ -5,13 +5,9 @@
 //! mengirim `KernelShape` + `KernelMesh` hasilnya lewat channel; UI thread
 //! mengambilnya tiap frame lewat [`ImportWorker::poll`].
 //!
-//! Konkurensi bergantung backend (`ducad_kernel::THREAD_SAFE`):
-//! - OCCT: `KERNEL_LOCK` menyerialkan SEMUA panggilan kernel lintas thread —
-//!   worker ini hanya membuat UI tidak *beku*, operasi kernel lain di UI
-//!   thread (Extrude/Fillet/…) menunggu import selesai.
-//! - truck (PLAN_MIGRASI_TRUCK 5.4): tanpa kunci global; import berjalan
-//!   sungguh paralel dengan operasi di UI thread (diuji di
-//!   `ducad-kernel/tests/truck_concurrency.rs`).
+//! Kernel tanpa kunci global (`ducad_kernel::THREAD_SAFE`, PLAN_MIGRASI_TRUCK
+//! 5.4): import berjalan sungguh paralel dengan operasi di UI thread (diuji di
+//! `ducad-kernel/tests/truck_concurrency.rs`).
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};

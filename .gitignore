@@ -18,5 +18,4 @@ vendor/
 build_apple.sh
 ducad-editor/notarize.sh
 .env
-ducad-editor/.occt_clean_backup_76295/*
 ducad-editor/.ducad

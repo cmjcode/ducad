@@ -24,10 +24,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
-# lama tetap jalan.
-kernel-truck = ["ducad-kernel/kernel-truck"]
-kernel-occt = ["ducad-kernel/kernel-occt"]
 serde = ["dep:serde"]

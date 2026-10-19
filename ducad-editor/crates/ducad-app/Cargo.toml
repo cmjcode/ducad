@@ -17,12 +17,6 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
-# lama tetap jalan.
-kernel-truck = ["ducad-kernel/kernel-truck"]
-kernel-occt = ["ducad-kernel/kernel-occt"]
 # Asisten AI di perangkat (P11); mati secara default agar build biasa
 # dan build iOS tidak terpengaruh.
 apple-fm = ["ducad-assist/apple-fm"]
@@ -110,9 +104,9 @@ icon = ["assets/icon.png"]
 version = "0.4.5"
 copyright = "Copyright (c) 2026 Yulius Jayuda"
 category = "public.app-category.developer-tools"
-short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel OpenCASCADE"
+short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel SolidCraft/truck"
 long_description = """
 DUCAD adalah aplikasi CAD gaya AutoCAD (drafting 2D presisi) yang \
 berevolusi ke pemodelan 3D gaya Shapr3D (sketch -> extrude, direct \
-modeling), dibangun di atas kernel geometri OpenCASCADE.
+modeling), dibangun di atas kernel geometri B-rep SolidCraft/truck (Rust murni).
 """

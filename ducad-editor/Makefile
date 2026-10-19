@@ -4,7 +4,7 @@
 # Includes macOS codesign, notarization, App Store pkg
 ############################################
 
-.PHONY: all help install-deps clean clean-no-occt create-dirs \
+.PHONY: all help install-deps clean create-dirs \
         build-macos build-linux build-windows \
         bundle-macos bundle-linux bundle-windows pkg-macos-store \
         build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
@@ -19,22 +19,6 @@ PKG_NAME = ducad-app
 VERSION ?= $(shell if [ -f ../VERSION ]; then tr -d ' \r\n' < ../VERSION; elif [ -f VERSION ]; then tr -d ' \r\n' < VERSION; else grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2; fi)
 BUILD_NUMBER ?= $(shell echo "$(VERSION)" | tr -d '.' | sed 's/^0*//' | awk '{print ($$0 == "" ? "1" : $$0)}')
 RUST_VERSION = stable
-
-# Backend kernel (PLAN_MIGRASI_TRUCK F6): `truck` (default; Rust murni, tanpa
-# OCCT/cmake) atau `occt` (pembanding selama soak 0.6.0-beta).
-# `OCCT_FALLBACK=1` pada bundle-* ikut membangun varian OCCT sebagai
-# executable `ducad-occt` di samping `ducad`; pengguna beta beralih dengan
-# `DUCAD_KERNEL=occt` (crates/ducad-app/src/kernel_select.rs).
-KERNEL ?= truck
-ifeq ($(KERNEL),occt)
-KERNEL_FEATURES = --features kernel-occt
-else ifeq ($(KERNEL),truck)
-KERNEL_FEATURES =
-else
-$(error KERNEL harus truck atau occt, bukan '$(KERNEL)')
-endif
-OCCT_FALLBACK ?=
-OCCT_TARGET_DIR = target/kernel-occt
 
 # Targets
 MACOS_X86_TARGET = x86_64-apple-darwin
@@ -66,7 +50,7 @@ help:
 	@echo "  bundle-macos       Create .app & .dmg (codesign/notarize optional)"
 	@echo "  pkg-macos-store    Create signed .pkg (App Store / distribution)"
 	@echo "  build-ipad         Build iPadOS target / XCFramework"
-	@echo "  android-check      cargo check untuk aarch64-linux-android (KERNEL=occt: OCCT via NDK)"
+	@echo "  android-check      cargo check untuk aarch64-linux-android"
 	@echo "  android-so         Build libducad_android.so ke android/app/src/main/jniLibs"
 	@echo "  android-apk        android-so + gradle assembleDebug (APK tablet)"
 	@echo "  build-linux        Build Linux binaries"
@@ -77,10 +61,7 @@ help:
 	@echo "  notarize           Notarize existing .app and .dmg"
 	@echo "  notarize-check     Check notarization status"
 	@echo "Dev Helpers:"
-	@echo "  run / dev / test / check / fmt / info / clean-no-occt"
-	@echo "Kernel backend (default truck):"
-	@echo "  KERNEL=occt        Build dengan OpenCASCADE (pembanding soak 0.6.0-beta)"
-	@echo "  OCCT_FALLBACK=1    bundle-*: sertakan executable ducad-occt (DUCAD_KERNEL=occt)"
+	@echo "  run / dev / test / check / fmt / info"
 	@echo "Environment (macOS signing/notarization):"
 	@echo "  APPLE_IDENTITY='Developer ID Application: Name (TEAMID)'"
 	@echo "  APPLE_IDENTITY_INS='Developer ID Installer: Name (TEAMID)'"
@@ -107,15 +88,12 @@ clean:
 	rm -rf $(BUILD_DIR)/$(MACOS_X86_TARGET)/release/bundle
 	@echo "✅ Clean done."
 
-clean-no-occt:
-	@./clean_no_occt.sh $(ARGS)
-
 create-dirs:
 	@mkdir -p $(MACOS_DIR) $(LINUX_DIR) $(WINDOWS_DIR) $(IOS_DIR)
 
 build-macos: create-dirs
 	@echo "🍎 Build macOS binary (-p $(PKG_NAME))"
-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
+	cargo build --release -p $(PKG_NAME)
 	@mkdir -p $(MACOS_DIR)
 	@if [ -f $(BUILD_DIR)/release/$(BIN_NAME) ]; then \
 		cp $(BUILD_DIR)/release/$(BIN_NAME) $(MACOS_DIR)/$(BIN_NAME); \
@@ -124,7 +102,7 @@ build-macos: create-dirs
 
 bundle-macos: create-dirs
 	@echo "📱 Create macOS .app bundle"
-	TERM=xterm cargo bundle --release --bin $(BIN_NAME) $(KERNEL_FEATURES)
+	TERM=xterm cargo bundle --release --bin $(BIN_NAME)
 	@mkdir -p $(MACOS_DIR)
 	@if [ -d "$(BUILD_DIR)/release/bundle/osx/$(APP_NAME).app" ]; then \
 		rm -rf "$(MACOS_DIR)/$(APP_NAME).app"; \
@@ -151,12 +129,6 @@ bundle-macos: create-dirs
 	@if [ -f "assets/DUCAD.icns" ]; then \
 		mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"; \
 		cp "assets/DUCAD.icns" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources/"; \
-	fi
-	@if [ -n "$(OCCT_FALLBACK)" ] && [ "$(KERNEL)" = "truck" ]; then \
-		echo "🧱 OCCT_FALLBACK: build varian OCCT → Contents/MacOS/$(BIN_NAME)-occt"; \
-		cargo build --release -p $(PKG_NAME) --bin $(BIN_NAME) --features kernel-occt --target-dir $(OCCT_TARGET_DIR) && \
-		cp "$(OCCT_TARGET_DIR)/release/$(BIN_NAME)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)-occt" && \
-		chmod 755 "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)-occt"; \
 	fi
 	@if [ -f "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)" ]; then \
 		chmod 755 "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)"; \
@@ -255,11 +227,7 @@ pkg-macos-store: bundle-macos
 
 build-linux: create-dirs
 	@echo "🐧 Build Linux"
-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES) --target $(LINUX_X86_TARGET) || cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
-	@if [ -n "$(OCCT_FALLBACK)" ] && [ "$(KERNEL)" = "truck" ]; then \
-		cargo build --release -p $(PKG_NAME) --bin $(BIN_NAME) --features kernel-occt --target-dir $(OCCT_TARGET_DIR) && \
-		cp $(OCCT_TARGET_DIR)/release/$(BIN_NAME) $(LINUX_DIR)/$(BIN_NAME)-occt; \
-	fi
+	cargo build --release -p $(PKG_NAME) --target $(LINUX_X86_TARGET) || cargo build --release -p $(PKG_NAME)
 	@if [ -f $(BUILD_DIR)/$(LINUX_X86_TARGET)/release/$(BIN_NAME) ]; then \
 		cp $(BUILD_DIR)/$(LINUX_X86_TARGET)/release/$(BIN_NAME) $(LINUX_DIR)/$(BIN_NAME)-x86_64; \
 	elif [ -f $(BUILD_DIR)/release/$(BIN_NAME) ]; then \
@@ -269,12 +237,12 @@ build-linux: create-dirs
 
 bundle-linux: build-linux
 	@echo "📦 Package Linux"
-	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 $$( [ -f $(BIN_NAME)-occt ] && echo $(BIN_NAME)-occt ) 2>/dev/null || true
+	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 2>/dev/null || true
 	@echo "✅ Linux packaging done."
 
 build-windows: create-dirs
 	@echo "🪟 Build Windows"
-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES) --target $(WINDOWS_X86_TARGET) || true
+	cargo build --release -p $(PKG_NAME) --target $(WINDOWS_X86_TARGET) || true
 	@if [ -f $(BUILD_DIR)/$(WINDOWS_X86_TARGET)/release/$(BIN_NAME).exe ]; then \
 		cp $(BUILD_DIR)/$(WINDOWS_X86_TARGET)/release/$(BIN_NAME).exe $(WINDOWS_DIR)/$(BIN_NAME)-x86_64.exe; \
 	fi
@@ -312,14 +280,13 @@ export ANDROID_NDK_HOME
 
 android-check:
 	@echo "🤖 cargo check aarch64-linux-android (NDK: $(ANDROID_NDK_HOME))"
-	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) check -p ducad-android $(KERNEL_FEATURES)
+	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) check -p ducad-android
 
 android-so:
 	@echo "🤖 build libducad_android.so (release)"
-	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android $(KERNEL_FEATURES)
-	@# libc++_shared.so: OCCT ditautkan ke STL bersama (android-toolchain.cmake);
-	@# backend truck tidak membutuhkannya, tetapi tetap disalin agar crate C++
-	@# lain yang menautkannya tidak gagal saat dimuat.
+	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android
+	@# libc++_shared.so: dulu untuk OCCT; tetap disalin agar crate C++ lain
+	@# yang menautkannya tidak gagal saat dimuat.
 	@cp "$$(ls -d $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/*)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" $(ANDROID_JNI_DIR)/arm64-v8a/
 
 android-apk: android-so
@@ -332,19 +299,19 @@ release: clean install-deps bundle-macos
 	@find $(MACOS_DIR) -maxdepth 1 -name '*.dmg' -o -name '*.pkg' -o -name '*.app' 2>/dev/null | sed 's/^/  /' || true
 
 build:
-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
+	cargo build --release -p $(PKG_NAME)
 
 run:
-	cargo run -p $(PKG_NAME) $(KERNEL_FEATURES)
+	cargo run -p $(PKG_NAME)
 
 dev:
-	cargo build -p $(PKG_NAME) $(KERNEL_FEATURES)
+	cargo build -p $(PKG_NAME)
 
 test:
-	cargo test --workspace $(KERNEL_FEATURES)
+	cargo test --workspace
 
 check:
-	cargo check -p $(PKG_NAME) $(KERNEL_FEATURES)
+	cargo check -p $(PKG_NAME)
 
 fmt:
 	cargo fmt

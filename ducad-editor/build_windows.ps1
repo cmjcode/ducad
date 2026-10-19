@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Automates building, version syncing, packaging, and cleaning of the DUCAD CAD editor
-    on Windows (x86_64 MSVC). Supports preserving precompiled OpenCASCADE (OCCT)
-    artifacts to prevent long recompilations.
+    on Windows (x86_64 MSVC). The geometry kernel (SolidCraft/truck) is pure
+    Rust: no CMake or C++ kernel build is needed.
 
 .PARAMETER Target
     Build target:
@@ -16,20 +16,17 @@
       - 'check'     : Run cargo check across the workspace
       - 'test'      : Run cargo test across workspace crates
       - 'run'       : Build (if needed) and run ducad.exe immediately
-      - 'clean'     : Clean build artifacts while preserving target/OCCT
-      - 'clean-all' : Deep clean entire target/ directory (including OCCT)
+      - 'clean'     : Clean build artifacts (cargo clean + dist/windows)
+      - 'clean-all' : Deep clean entire target/ and dist/ directories
 
 .PARAMETER Profile
     Cargo build profile: 'release' (default) or 'debug'.
 
 .PARAMETER Clean
-    Clean build artifacts before building (preserves target/OCCT).
+    Clean build artifacts before building.
 
 .PARAMETER CleanAll
-    Deep clean everything (including target/OCCT) before building.
-
-.PARAMETER CleanNoOcct
-    Explicit clean of target/ artifacts while strictly preserving target/OCCT.
+    Deep clean everything before building.
 
 .PARAMETER Zip
     Compress build output and assets into a ZIP file in dist/windows.
@@ -46,15 +43,6 @@
 .PARAMETER Features
     Optional extra features to pass to cargo build (e.g. "local-gguf").
 
-.PARAMETER Kernel
-    Geometry kernel backend: 'truck' (default; pure Rust, no CMake/OCCT) or
-    'occt' (OpenCASCADE, needs CMake; kept only for the 0.6.0-beta soak,
-    PLAN_MIGRASI_TRUCK F6).
-
-.PARAMETER OcctFallback
-    Also build an OCCT variant of the app as ducad-occt.exe next to ducad.exe
-    (soak 0.6.0-beta). Users switch with DUCAD_KERNEL=occt.
-
 .EXAMPLE
     .\build_windows.ps1
     # Builds DUCAD app in release mode.
@@ -69,7 +57,7 @@
 
 .EXAMPLE
     .\build_windows.ps1 clean
-    # Safely cleans cargo target cache while preserving OpenCASCADE C++ compilation.
+    # Cleans the cargo target cache and dist/windows.
 #>
 
 [CmdletBinding()]
@@ -83,15 +71,11 @@ param(
 
     [switch]$Clean,
     [switch]$CleanAll,
-    [switch]$CleanNoOcct,
     [switch]$Zip,
     [switch]$Run,
     [switch]$Deps,
     [switch]$SyncVersion,
     [string]$Features = "",
-    [ValidateSet("truck", "occt")]
-    [string]$Kernel = "truck",
-    [switch]$OcctFallback,
     [Alias("h")]
     [switch]$Help
 )
@@ -191,33 +175,10 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DUCAD Editor Windows Build System (v$Version)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Status "Direktori Kerja : $EditorDir"
-Write-Status "Target          : $Target | Profil: $Profile | Kernel: $Kernel"
-$NeedsOcct = ($Kernel -eq "occt") -or $OcctFallback
+Write-Status "Target          : $Target | Profil: $Profile"
 
 # --- Setup Visual Studio / MSVC Build Environment ---
 function Initialize-MsvcEnvironment {
-    # Pastikan default CMAKE_GENERATOR kompatibel jika belum diset
-    if (-not $env:CMAKE_GENERATOR) {
-        $env:CMAKE_GENERATOR = "Visual Studio 17 2022"
-    }
-
-    # Sinkronkan cache CMake di target/OCCT/build jika ada perbedaan generator sebelumnya
-    $occtCache = Join-Path $TargetDir "OCCT\build\CMakeCache.txt"
-    $occtCMakeFiles = Join-Path $TargetDir "OCCT\build\CMakeFiles"
-    if (Test-Path $occtCache) {
-        $cacheContent = Get-Content $occtCache -Raw -ErrorAction SilentlyContinue
-        if ($cacheContent -and ($cacheContent -match "CMAKE_GENERATOR:INTERNAL=(.*)")) {
-            $prevGen = $matches[1].Trim()
-            if ($prevGen -and ($prevGen -ne $env:CMAKE_GENERATOR)) {
-                Write-Status "Menyelaraskan generator CMake ($prevGen -> $($env:CMAKE_GENERATOR))..."
-                Remove-Item -Force $occtCache -ErrorAction SilentlyContinue
-                if (Test-Path $occtCMakeFiles) {
-                    Remove-Item -Recurse -Force $occtCMakeFiles -ErrorAction SilentlyContinue
-                }
-            }
-        }
-    }
-
     if (Get-Command cl.exe -ErrorAction SilentlyContinue) {
         return
     }
@@ -250,10 +211,6 @@ function Check-Prerequisites {
         exit 1
     }
 
-    # Backend truck (default) adalah Rust murni: CMake hanya perlu untuk OCCT.
-    if ($NeedsOcct -and -not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        Write-Warning "CMake tidak ditemukan di PATH. Backend OCCT (-Kernel occt / -OcctFallback) membutuhkan CMake."
-    }
 
     Initialize-MsvcEnvironment
     Write-Success "Dependensi dasar siap."
@@ -308,8 +265,6 @@ function Clean-Build([bool]$deepClean) {
     }
 
     if ($deepClean) {
-        Write-Warning "PERINGATAN: Membersihkan SELURUH target/ termasuk OpenCASCADE C++ kernel!"
-        Write-Warning "Kompilasi ulang OpenCASCADE dapat memakan waktu 10-30 menit."
         Remove-Item -Recurse -Force $TargetDir -ErrorAction SilentlyContinue
         if (Test-Path $DistDir) {
             Remove-Item -Recurse -Force $DistDir -ErrorAction SilentlyContinue
@@ -318,38 +273,12 @@ function Clean-Build([bool]$deepClean) {
         return
     }
 
-    Write-Guard "Menjalankan pembersihan aman (melindungi target/OCCT)..."
-    
-    # 1. Bersihkan dist/windows
     if (Test-Path $WindowsDistDir) {
         Remove-Item -Recurse -Force $WindowsDistDir -ErrorAction SilentlyContinue
     }
-
-    # 2. Bersihkan target profil tertentu atau workspace
-    $occtBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("ducad_occt_backup_" + [System.IO.Path]::GetRandomFileName())
-    $occtPath = Join-Path $TargetDir "OCCT"
-    $hasOcct = Test-Path $occtPath
-
-    if ($hasOcct) {
-        Write-Status "Mengamankan target/OCCT ke $occtBackup..."
-        Move-Item -Path $occtPath -Destination $occtBackup -Force
-    }
-
-    try {
-        Write-Status "Membersihkan cache build Rust via cargo clean..."
-        cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
-    } finally {
-        if ($hasOcct -and (Test-Path $occtBackup)) {
-            if (-not (Test-Path $TargetDir)) {
-                New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-            }
-            Write-Status "Mengembalikan target/OCCT..."
-            Move-Item -Path $occtBackup -Destination $occtPath -Force
-            Write-Success "target/OCCT berhasil dipertahankan!"
-        }
-    }
-
-    Write-Success "Pembersihan aman selesai."
+    Write-Status "Membersihkan cache build Rust via cargo clean..."
+    cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
+    Write-Success "Pembersihan selesai."
 }
 
 # --- Format File Size ---
@@ -361,26 +290,15 @@ function Format-FileSize([long]$bytes) {
 }
 
 # --- Build Execution ---
-function Invoke-DucadBuild([string]$packageName, [string]$binaryName, [string]$kernel = $Kernel) {
+function Invoke-DucadBuild([string]$packageName, [string]$binaryName) {
     $cargoArgs = @("build")
     if ($Profile -eq "release") {
         $cargoArgs += "--release"
     }
     $cargoArgs += @("-p", $packageName)
 
-    $featureList = @()
-    if ($Features) { $featureList += $Features }
-    $buildTargetDir = $TargetDir
-    if ($kernel -eq "occt") {
-        $featureList += "kernel-occt"
-        # Direktori target terpisah (bukan "occt": bentrok dengan target\OCCT di NTFS) agar build OCCT tidak menimpa hasil build truck.
-        if ($kernel -ne $Kernel) {
-            $buildTargetDir = Join-Path $TargetDir "kernel-occt"
-            $cargoArgs += @("--target-dir", $buildTargetDir)
-        }
-    }
-    if ($featureList.Count -gt 0) {
-        $cargoArgs += @("--features", ($featureList -join ","))
+    if ($Features) {
+        $cargoArgs += @("--features", $Features)
     }
 
     Write-Status "Menjalankan: cargo $($cargoArgs -join ' ')"
@@ -392,7 +310,7 @@ function Invoke-DucadBuild([string]$packageName, [string]$binaryName, [string]$k
 
     # Lokasi binary hasil build
     $binSubDir = if ($Profile -eq "release") { "release" } else { "debug" }
-    $builtExe = Join-Path $buildTargetDir "$binSubDir\$binaryName.exe"
+    $builtExe = Join-Path $TargetDir "$binSubDir\$binaryName.exe"
 
     if (-not (Test-Path $builtExe)) {
         Write-ErrorMsg "Binary hasil kompilasi tidak ditemukan di $builtExe"
@@ -474,7 +392,7 @@ if ($SyncVersion) {
 if ($CleanAll -or ($Target -eq "clean-all")) {
     Clean-Build -deepClean $true
     if ($Target -eq "clean" -or $Target -eq "clean-all") { exit 0 }
-} elseif ($Clean -or $CleanNoOcct -or ($Target -eq "clean")) {
+} elseif ($Clean -or ($Target -eq "clean")) {
     Clean-Build -deepClean $false
     if ($Target -eq "clean") { exit 0 }
 }
@@ -510,15 +428,6 @@ switch ($Target) {
 
     "bundle" {
         $exe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad"
-        if ($OcctFallback -and $Kernel -eq "truck") {
-            # Soak 0.6.0-beta: ducad-occt.exe di samping ducad.exe; DUCAD_KERNEL=occt
-            # membuat ducad.exe menjalankannya (crates/ducad-app/src/kernel_select.rs).
-            $occtExe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad" -kernel "occt"
-            if (-not (Test-Path $WindowsDistDir)) {
-                New-Item -ItemType Directory -Path $WindowsDistDir -Force | Out-Null
-            }
-            Copy-Item -Path $occtExe -Destination (Join-Path $WindowsDistDir "ducad-occt.exe") -Force
-        }
         Package-Windows -exePath $exe -createZip $true
         $builtExes += $exe
     }

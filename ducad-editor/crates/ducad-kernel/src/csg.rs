@@ -11,24 +11,9 @@ pub use crate::backend::csg::*;
 ///
 /// Backend truck (PLAN_MIGRASI_TRUCK 5.4): bila semua bbox saling terpisah
 /// digabung tanpa boolean (`union_apart`); selain itu union berpasangan
-/// berbentuk pohon, tiap tingkat paralel di thread pekerja. Backend OCCT:
-/// lipatan berurutan (kernel diserialkan `KERNEL_LOCK`).
+/// berbentuk pohon, tiap tingkat paralel di thread pekerja.
 pub fn union_all(shapes: Vec<KernelShape>) -> Result<KernelShape> {
-    #[cfg(backend_truck)]
-    {
-        crate::backend::csg::union_many(shapes)
-    }
-    #[cfg(backend_occt)]
-    {
-        let mut it = shapes.into_iter();
-        let Some(mut acc) = it.next() else {
-            return Ok(KernelShape::empty());
-        };
-        for s in it {
-            acc = union(&acc, &s)?;
-        }
-        Ok(acc)
-    }
+    crate::backend::csg::union_many(shapes)
 }
 
 /// Seberapa jauh sebuah profil di-extrude, dan ke arah mana.
