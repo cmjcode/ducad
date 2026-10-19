@@ -64,7 +64,7 @@ impl KernelShape {
         }
     }
 
-    /// Topologi logis (face/edge setara OCCT) + mesh tampilan, dihitung sekali.
+    /// Topologi logis (face/edge setara backend lama (≤ 0.5.x)) + mesh tampilan, dihitung sekali.
     pub(crate) fn topology(&self) -> &Topology {
         self.cache.topology.get_or_init(|| match &self.body {
             Some(b) => Topology::build(b),
@@ -153,9 +153,9 @@ impl KernelShape {
         std::fs::write(path, text).context("write_step: gagal menulis berkas")
     }
 
-    /// Baca shape B-rep dari file STEP (AP203/214/242, termasuk keluaran
-    /// OCCT) lewat pembaca Part 21 SolidCraft. Beberapa solid digabung jadi
-    /// satu body ber-banyak-shell (padanan compound OCCT).
+    /// Baca shape B-rep dari file STEP (AP203/214/242, termasuk berkas
+    /// `.ducad` ≤ 0.5.x) lewat pembaca Part 21 SolidCraft. Beberapa solid
+    /// digabung jadi satu body ber-banyak-shell (compound).
     pub fn read_step(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let text = std::fs::read_to_string(path).context("read_step: gagal membaca STEP")?;
         Self::from_step_string(&text).context("read_step: gagal membaca STEP")
@@ -180,7 +180,7 @@ impl KernelShape {
     }
 
     /// Serialize B-rep ini ke format biner native SolidCraft
-    /// (`encode_native_body`). Padanan BREP biner OCCT: untuk penyimpanan
+    /// (`encode_native_body`): untuk penyimpanan
     /// internal, bukan pertukaran data.
     pub fn to_brep_bytes(&self) -> Result<Vec<u8>> {
         let body = self.require_body("to_brep_bytes")?;
@@ -337,8 +337,8 @@ pub fn transform_shape(
     .map(KernelShape::from_body)
 }
 
-/// Gabungkan beberapa shape jadi SATU shape ber-banyak-solid (padanan
-/// `TopoDS_Compound` OCCT): tiap solid tetap terpisah, tanpa boolean.
+/// Gabungkan beberapa shape jadi SATU shape ber-banyak-solid (compound):
+/// tiap solid tetap terpisah, tanpa boolean.
 pub fn make_compound(shapes: &[&KernelShape]) -> Result<KernelShape> {
     if shapes.is_empty() {
         bail!("tidak ada shape untuk digabungkan menjadi compound");

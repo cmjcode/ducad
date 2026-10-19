@@ -6,7 +6,7 @@ use glam::{dvec3, DVec3};
 use crate::profile::Profile;
 use crate::shape::KernelShape;
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::advanced::*;
 
 /// Satu penampang loft: profil 2D pada bidang (origin, u, v, normal).

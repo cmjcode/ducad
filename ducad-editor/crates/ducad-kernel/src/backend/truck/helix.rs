@@ -20,7 +20,7 @@ pub fn create_helix_solid_with_custom_profile(
     profile: &Profile,
     samples_per_turn: usize,
 ) -> Result<KernelShape> {
-    // Validasi parameter sama dengan backend OCCT (lewat titik helix).
+    // Validasi parameter sama dengan backend lama (≤ 0.5.x) (lewat titik helix).
     let pts = generate_helix_points(params, samples_per_turn)?;
     let (origin, u_axis, v_axis, _normal) = compute_start_profile_plane(params)?;
     let (plane, scale) = sketch_plane(origin, u_axis, v_axis)?;

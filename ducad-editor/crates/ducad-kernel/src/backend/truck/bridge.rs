@@ -1,7 +1,7 @@
 //! Jembatan tipe DUCAD ↔ SolidCraft (PLAN_MIGRASI_TRUCK 2.3): vektor,
 //! bingkai sketsa, `Profile` → `Region2`, dan jalur sweep.
 //!
-//! Aturan konversi profil meniru `backend/occt/profile.rs` sejauh yang
+//! Aturan konversi profil meniru backend lama (≤ 0.5.x) sejauh yang
 //! berpengaruh ke geometri: titik 2D dipetakan `origin + u·x + v·y` (jadi
 //! ikut panjang `u`/`v`), radius lingkaran/elips TIDAK diskalakan, dan
 //! segmen yang lebih pendek dari 1e-4 mm dibuang dengan pesan galat yang
@@ -14,7 +14,7 @@ use solidcraft_kernel::PathSeg;
 
 use crate::profile::{bezier_is_degenerate, PathSegment, Profile, ProfileSegment};
 
-/// Segmen lebih pendek dari ini dibuang (sama dengan backend OCCT).
+/// Segmen lebih pendek dari ini dibuang (sama dengan backend lama (≤ 0.5.x)).
 const MIN_SEGMENT_MM: f64 = 1e-4;
 /// Celah antar-segmen yang disambung otomatis setelah segmen degenerate
 /// dibuang. SolidCraft menuntut tiap sambungan loop rapat dalam 1e-6 mm.
@@ -36,7 +36,7 @@ pub(crate) fn to_dv(v: Vec3) -> DVec3 {
 ///
 /// SolidCraft hanya menerima bingkai ortonormal. Sumbu DUCAD boleh
 /// berpanjang sama tapi bukan satu (koordinat 2D lalu diskalakan, persis
-/// seperti `origin + u·x + v·y` di backend OCCT); sumbu yang tidak tegak
+/// seperti `origin + u·x + v·y` di backend lama (≤ 0.5.x)); sumbu yang tidak tegak
 /// lurus atau berbeda panjang (pemetaan afin umum) ditolak.
 pub(crate) fn sketch_plane(origin: [f64; 3], u: [f64; 3], v: [f64; 3]) -> Result<(Plane, f64)> {
     let (u, v) = (v3(u), v3(v));
@@ -136,7 +136,7 @@ pub(crate) fn loop2(profile: &Profile, scale: f64) -> Result<Loop2> {
 }
 
 /// Elips eksak: empat busur konik (Bézier kuadratik rasional, bobot √2/2),
-/// sumbu sejajar x/y sketsa — sama dengan `Edge::ellipse` OCCT.
+/// sumbu sejajar x/y sketsa — sama dengan elips backend lama (≤ 0.5.x).
 fn ellipse(c: Vec2, rx: f64, ry: f64) -> Loop2 {
     let w = std::f64::consts::FRAC_1_SQRT_2;
     let at = |x: f64, y: f64| Vec2::new(c.x + x, c.y + y);

@@ -5,7 +5,7 @@
 # `scripts/update-aur.sh`; edit everything else here by hand.
 #
 # Since 0.6.0 the geometry kernel (SolidCraft on truck) is pure Rust and
-# vendored in-tree: no submodule, no system OpenCASCADE, no CMake.
+# vendored in-tree: no submodule, no system CAD library, no CMake.
 
 pkgname=ducad
 pkgver=0.4.0

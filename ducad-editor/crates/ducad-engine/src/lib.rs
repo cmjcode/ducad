@@ -6,7 +6,7 @@
 
 // `OpError` sengaja "gemuk" (pesan, hint, id op, context JSON): bentuknya
 // adalah kontrak JSON CLI/MCP (P0.6) dan jalur error jarang dilalui, jadi
-// biaya memindahkannya lewat `Result` tidak berarti dibanding operasi OCCT
+// biaya memindahkannya lewat `Result` tidak berarti dibanding operasi kernel
 // di baliknya. Membungkusnya dalam `Box` hanya demi lint ini akan mengubah
 // tipe publik kontrak.
 #![allow(clippy::result_large_err)]

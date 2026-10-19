@@ -4,7 +4,7 @@ members = ["crates/*"]
 # SolidCraft kernel (backend truck, PLAN_MIGRASI_TRUCK F2) di-vendor dengan
 # manifest sendiri; sengaja BUKAN anggota workspace supaya `cargo test/clippy
 # --workspace` tidak ikut menjalankan ~800 tes & lint kode pihak ketiga itu.
-# Tetap ikut ter-build lewat dependensi path `ducad-kernel` (fitur kernel-truck).
+# Tetap ikut ter-build lewat dependensi path `ducad-kernel`.
 exclude = ["vendors/solidcraft"]
 
 [workspace.package]

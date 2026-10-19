@@ -175,7 +175,7 @@ pub fn apply_hole(
 /// Backend truck: semua pemotong digabung (tanpa boolean — mereka terpisah)
 /// lalu dikurangkan SEKALI; boolean truck pada body kompleks (blend fillet)
 /// mahal per panggilan (PLAN_MIGRASI_TRUCK R7). Pemotong yang saling
-/// bersentuhan, dan backend OCCT, memotong satu per satu.
+/// bersentuhan memotong satu per satu.
 pub fn apply_holes(
     target_shape: &KernelShape,
     spec: &HoleSpec,

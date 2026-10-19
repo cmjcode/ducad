@@ -1,13 +1,10 @@
 //! Gold test lembar gambar (P21.0/P21.8) + kriteria penerimaan valve body.
 //!
-//! Hash keluaran PDF/SVG/DXF disimpan di `tests/golden/drawing.hashes.json`.
+//! Hash keluaran PDF/SVG/DXF disimpan di `tests/golden/drawing.hashes.truck.json`.
 //! Perbarui dengan `DUCAD_UPDATE_GOLDEN=1 cargo test -p ducad-engine --test drawing_golden`.
 //!
-//! Backend truck (PLAN_MIGRASI_TRUCK F4): garis HLR berasal dari algoritma
-//! lain, jadi hash-nya disimpan terpisah (`drawing.hashes.truck.json`,
-//! perbarui dengan `--features kernel-truck`). Valve body belum bisa dibangun
-//! dalam waktu wajar di truck (R7, `tests/goldens/known_failures.truck.txt`):
-//! tes yang memerlukannya di-skip sampai F5.
+//! Valve body belum bisa dibangun dalam waktu wajar (R7,
+//! `tests/goldens/known_failures.truck.txt`): tes yang memerlukannya di-skip.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -101,14 +98,15 @@ fn dim_texts(sheet: &DrawingSheet) -> Vec<String> {
         .collect()
 }
 
-/// R7 (known_failures.truck.txt, F5): membangun valve body > 30 menit di
-/// backend truck. Backend dipilih ducad-kernel (bukan fitur crate ini), jadi
-/// dilewati saat runtime, bukan lewat `#[ignore]`.
-fn skip_valve_on_truck() -> bool {
-    if ducad_kernel::IS_TRUCK {
-        eprintln!("dilewati di backend truck: R7 valve body (known_failures.truck.txt)");
+/// R7 (known_failures.truck.txt): membangun valve body > 30 menit. Satu
+/// tempat untuk mengaktifkan kembali tes valve setelah R7 diperbaiki.
+const SKIP_VALVE: bool = true;
+
+fn skip_valve() -> bool {
+    if SKIP_VALVE {
+        eprintln!("dilewati: R7 valve body (known_failures.truck.txt)");
     }
-    ducad_kernel::IS_TRUCK
+    SKIP_VALVE
 }
 
 #[test]
@@ -128,7 +126,7 @@ fn drawing_golden_hashes_are_stable() {
     };
     let flange_sheet = build_sheet(flange.model(), &spec, None).unwrap().sheet;
     let mut sheets = vec![(flange_sheet, "flange")];
-    if !ducad_kernel::IS_TRUCK {
+    if !skip_valve() {
         let valve = valve();
         let (valve_sheet, warnings) = valve_sheet(&valve);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -146,11 +144,7 @@ fn drawing_golden_hashes_are_stable() {
         }
     }
 
-    let file = if ducad_kernel::IS_TRUCK {
-        "tests/golden/drawing.hashes.truck.json"
-    } else {
-        "tests/golden/drawing.hashes.json"
-    };
+    let file = "tests/golden/drawing.hashes.truck.json";
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file);
     if std::env::var_os("DUCAD_UPDATE_GOLDEN").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -173,7 +167,7 @@ fn drawing_golden_hashes_are_stable() {
 
 #[test]
 fn valve_body_sheet_meets_acceptance_criteria() {
-    if skip_valve_on_truck() {
+    if skip_valve() {
         return;
     }
     let s = valve();
@@ -278,7 +272,7 @@ fn valve_body_sheet_meets_acceptance_criteria() {
 
 #[test]
 fn drawing_tool_renders_saved_sheet_and_follows_set_params() {
-    if skip_valve_on_truck() {
+    if skip_valve() {
         return;
     }
     let mut s = valve();
@@ -471,7 +465,7 @@ fn drawing_tool_sections_views_dimensions_and_save() {
 
 #[test]
 fn hlr_cache_reuses_unchanged_geometry() {
-    if skip_valve_on_truck() {
+    if skip_valve() {
         return;
     }
     let s = valve();

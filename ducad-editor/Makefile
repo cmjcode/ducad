@@ -285,8 +285,8 @@ android-check:
 android-so:
 	@echo "🤖 build libducad_android.so (release)"
 	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android
-	@# libc++_shared.so: dulu untuk OCCT; tetap disalin agar crate C++ lain
-	@# yang menautkannya tidak gagal saat dimuat.
+	@# libc++_shared.so: disalin agar dependensi native yang menautkan runtime
+	@# C++ NDK tidak gagal saat dimuat.
 	@cp "$$(ls -d $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/*)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" $(ANDROID_JNI_DIR)/arm64-v8a/
 
 android-apk: android-so

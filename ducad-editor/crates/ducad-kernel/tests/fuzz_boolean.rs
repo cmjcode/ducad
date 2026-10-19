@@ -17,8 +17,8 @@
 //! daftar dengan `BLESS=1`.
 //!
 //! ```text
-//! cargo test -p ducad-kernel --no-default-features --features kernel-truck --test fuzz_boolean
-//! SEEDS=0..95 cargo test -p ducad-kernel --no-default-features --features kernel-truck --test fuzz_boolean
+//! cargo test -p ducad-kernel --test fuzz_boolean
+//! SEEDS=0..95 cargo test -p ducad-kernel --test fuzz_boolean
 //! ```
 //! Bawaan `SEEDS=0..23` (cepat untuk CI); `0..95` (inklusif, 96 seed) untuk gate F3.
 

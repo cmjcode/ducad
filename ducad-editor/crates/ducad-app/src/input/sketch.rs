@@ -934,7 +934,7 @@ impl DuCADApp {
     /// bikin nilai non-proporsional yg diam-diam ditolak & terkesan "tidak ngapa-ngapain").
     /// Faktor SELALU dihitung dari 1 sumbu yg diedit itu (`new_length_mm` / panjang sumbu
     /// itu sekarang) lalu diterapkan uniform ke X/Y/Z sekaligus — `ducad_kernel::scale_shape`
-    /// memakai uniform scaling murni OpenCASCADE `BRepBuilderAPI_Transform` yang stabil &
+    /// memakai uniform scaling murni (transformasi affine B-rep) yang stabil &
     /// tidak merusak geometri.
     pub fn scale_selected_body_by_axis(&mut self, axis: usize, new_length_mm: f64) {
         let Some((target_id, center)) = self.selected_single_body_center() else {

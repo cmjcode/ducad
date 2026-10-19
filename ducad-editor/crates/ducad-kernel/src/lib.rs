@@ -1,5 +1,4 @@
 //! Kernel geometri DUCAD: API B-rep di atas SolidCraft/truck (Rust murni).
-//! Backend OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4).
 //!
 //! Seluruh aplikasi hanya boleh menyentuh tipe dari crate ini, bukan crate
 //! kernel pihak ketiga langsung — agar detail backend terisolasi dan kernel
@@ -50,10 +49,6 @@ mod contract_tests;
 /// Nama backend kernel (`"truck"`) — dicatat golden corpus, jurnal panik,
 /// dan berkas cache lintas-versi.
 pub const BACKEND: &str = "truck";
-
-/// Selalu `true` sejak OCCT dihapus (0.6.0); dipertahankan untuk kode yang
-/// membedakan perilaku per backend.
-pub const IS_TRUCK: bool = true;
 
 /// Toleransi relatif [`KernelShape::volume`] (PLAN_MIGRASI_TRUCK §3.1, F5.1):
 /// `measure()` SolidCraft berbasis tesselasi halus, ±1e-4 — pembanding

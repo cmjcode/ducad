@@ -2604,7 +2604,7 @@ impl Session {
                 };
                 if adopted.meta.design.fingerprint != design.fingerprint {
                     // Sidik jari memuat volume 6 desimal & bbox mesh: berkas
-                    // yang disimpan backend kernel LAIN (mis. OCCT → truck)
+                    // yang disimpan backend kernel LAIN (mis. berkas ≤ 0.5.x)
                     // tidak pernah sama persis. Sebelum membuang oplog,
                     // replay dan bandingkan body dengan toleransi.
                     // Berkas lama tanpa ringkasan geometri: bandingkan replay

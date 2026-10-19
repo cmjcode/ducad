@@ -1,17 +1,16 @@
-//! Topologi LOGIS sebuah body truck: face dan edge sebagaimana DUCAD (dan
-//! OCCT) melihatnya.
+//! Topologi LOGIS sebuah body truck: face dan edge sebagaimana DUCAD
+//! melihatnya (kontrak backend lama (≤ 0.5.x)).
 //!
 //! SolidCraft memecah permukaan periodik: sisi silinder penuh jadi dua face,
-//! lingkaran jadi dua busur. OCCT menyimpannya sebagai satu face (dengan satu
-//! edge seam) dan satu edge, dan setiap boolean DUCAD di OCCT diakhiri
-//! `clean()` (UnifySameDomain) yang menggabung face/edge sebidang. Supaya
-//! indeks `enumerate_faces/edges`, selector engine, dan hitungan golden
-//! bermakna sama di kedua backend, lapisan ini:
+//! lingkaran jadi dua busur. Kontrak DUCAD (backend lama (≤ 0.5.x)): satu face (dengan
+//! satu edge seam) dan satu edge, dan setiap boolean menggabung face/edge
+//! sebidang. Supaya indeks `enumerate_faces/edges`, selector engine, dan
+//! hitungan golden tetap bermakna sama, lapisan ini:
 //!
 //! 1. menggabung face bertetangga yang terletak pada permukaan analitik yang
 //!    SAMA (bidang, silinder, kerucut, bola, torus);
 //! 2. membuang edge di antara potongan face yang digabung — kecuali satu
-//!    "seam" bila potongan-potongannya membentuk cincin penuh (seperti OCCT);
+//!    "seam" bila potongan-potongannya membentuk cincin penuh;
 //! 3. menyambung rantai edge yang merupakan potongan kurva yang sama
 //!    (busur satu lingkaran, garis segaris) di vertex yang hanya
 //!    menghubungkan keduanya.
@@ -28,7 +27,7 @@ use crate::mesh::KernelMesh;
 use crate::picking::face::SurfaceKind;
 use crate::topo::EdgeKind;
 
-/// Toleransi chord tesselasi tampilan — sama dengan `Shape::mesh()` OCCT
+/// Toleransi chord tesselasi tampilan — sama dengan backend lama (≤ 0.5.x)
 /// (`clamp(diag·3e-4, 0.005, 0.05)` mm, sudut 0,1 rad).
 pub(crate) fn display_tolerance(size: f64) -> f64 {
     (size * 3e-4).clamp(0.005, 0.05)
@@ -310,7 +309,7 @@ impl Topology {
         // Face non-analitik (B-spline) yang berbagi ≥ 2 edge dan menyambung
         // mulus di semua edge itu = satu permukaan yang dipotong jadi cincin
         // (mis. tabung pegas: satu dinding per busur profil lingkaran).
-        // OCCT menyimpannya sebagai satu face + seam.
+        // Kontrak DUCAD: satu face + seam.
         let mut shared: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         for (e, faces) in edge_faces.iter().enumerate() {
             if let [a, b] = faces[..] {
@@ -454,7 +453,7 @@ impl Topology {
         let mut incident: HashMap<Key, Vec<usize>> = HashMap::new();
         // Seam (edge yang disisakan di dalam satu face logis) tidak dihitung:
         // seam kerucut chamfer boleh berujung di sambungan dua busur satu
-        // lingkaran — OCCT tetap punya satu edge lingkaran di sana.
+        // lingkaran — kontrak DUCAD: satu edge lingkaran di sana.
         let seam = |e: usize| lfaces_of(e).len() == 1 && edge_faces[e].len() >= 2;
         for e in (0..ne).filter(|&e| keep[e] && !closed_edge(e) && !seam(e)) {
             incident.entry(q(to_dv(ends[e].0))).or_default().push(e);
@@ -494,7 +493,7 @@ impl Topology {
         let mut logical_of_edge: Vec<Option<usize>> = vec![None; ne];
         let mut edges: Vec<LEdge> = Vec::with_capacity(chains.len());
         // Vertex yang disentuh rantai lain: rantai TERTUTUP (lingkaran dari
-        // dua busur) dimulai di sana, seperti vertex seam satu-satunya di OCCT.
+        // dua busur) dimulai di sana, seperti vertex seam satu-satunya pada lingkaran utuh.
         let mut touch: HashMap<Key, Vec<usize>> = HashMap::new();
         for (c, chain) in chains.iter().enumerate() {
             for &e in chain {
@@ -520,7 +519,7 @@ impl Topology {
                 _ if straight_dir(&points, lin).is_some() => (EdgeKind::Line, None),
                 _ => (EdgeKind::Other, None),
             };
-            // Garis cukup dua titik (aproksimasi garis OCCT juga dua titik);
+            // Garis cukup dua titik (aproksimasi garis 0.5.x juga dua titik);
             // mesh tampilan SolidCraft membagi edge lurus jadi beberapa node.
             if kind == EdgeKind::Line && points.len() > 2 {
                 points = vec![points[0], points[points.len() - 1]];
@@ -656,7 +655,7 @@ impl Topology {
             });
         }
 
-        // --- 6. Vertex logis: ujung edge logis (dedup 1e-6 seperti OCCT). ---
+        // --- 6. Vertex logis: ujung edge logis (dedup 1e-6, seperti 0.5.x). ---
         let mut vertices: Vec<DVec3> = Vec::new();
         for e in &edges {
             for p in [e.start(), e.end()] {
@@ -706,10 +705,10 @@ impl Topology {
             .map(|(_, n)| n)
     }
 
-    /// Loop batas terluar face `f` (port `chain_face_boundary_points` OCCT).
+    /// Loop batas terluar face `f` (port `chain_face_boundary_points` backend lama (≤ 0.5.x)).
     ///
     /// Face periodik dengan satu seam (sisi silinder/kerucut penuh): seperti
-    /// wire OCCT, loop berjalan lingkaran A → seam → lingkaran B → seam
+    /// wire 0.5.x, loop berjalan lingkaran A → seam → lingkaran B → seam
     /// balik, jadi kedua ujung face ikut (rentang aksial lubang terukur).
     pub fn face_boundary(&self, f: usize) -> Vec<DVec3> {
         let Some(lf) = self.faces.get(f) else {
@@ -1002,7 +1001,7 @@ pub(crate) fn chain_loops(lists: Vec<Vec<DVec3>>) -> Vec<Vec<DVec3>> {
 }
 
 /// Loop tersambung dengan bbox terbesar (loop luar) — port
-/// `chain_face_boundary_points` OCCT.
+/// `chain_face_boundary_points` backend lama (≤ 0.5.x).
 pub(crate) fn chain_outer_loop(lists: Vec<Vec<DVec3>>) -> Vec<DVec3> {
     let diag = |pts: &[DVec3]| {
         let mut it = pts.iter();

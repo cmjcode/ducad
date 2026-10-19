@@ -1,6 +1,6 @@
 //! Primitif solid (box, silinder, bola, kerucut) backend truck. Semua dibuat
-//! di sekitar origin dengan ukuran & pesan galat yang sama dengan backend
-//! OCCT; penempatan dilakukan pemanggil lewat `translate_shape`/`transform_shape`.
+//! di sekitar origin dengan ukuran & pesan galat yang sama dengan
+//! backend lama (≤ 0.5.x); penempatan dilakukan pemanggil lewat `translate_shape`/`transform_shape`.
 
 use anyhow::{bail, Result};
 use solidcraft_geom::{Loop2, Plane, Region2, Vec2, Vec3};

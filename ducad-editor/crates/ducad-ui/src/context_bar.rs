@@ -286,11 +286,26 @@ impl ContextActionBar {
         let mut action = None;
         let icon_sz = icon_size.clamp(12.0, 18.0);
 
+        // `horizontal_wrapped` selalu memakan seluruh lebar yang tersedia, jadi
+        // ia hanya dipakai bila lebar alami baris (diukur frame sebelumnya)
+        // memang melebihi `max_width`; selain itu pil tetap sekecil isinya.
+        let max_width = max_width.max(160.0);
+        // Kunci ukuran ke komposisi baris: bila tombol berubah (Ekstrusi,
+        // grup boolean ≥2), lebar diukur ulang dalam mode tak-membungkus.
+        let width_id = ui
+            .id()
+            .with("sketch-context-row-width")
+            .with((has_closed_profile, selected_count >= 2, icon_sz as i32));
+        let natural_width: f32 = ui.ctx().data(|d| d.get_temp(width_id)).unwrap_or(0.0);
+        let wrap = natural_width > max_width;
+
         pill_frame().show(ui, |ui| {
-            ui.set_max_width(max_width.max(160.0));
+            if wrap {
+                ui.set_max_width(max_width);
+            }
             ui.spacing_mut().interact_size.y = MIN_TOUCH_TARGET;
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
-            ui.horizontal_wrapped(|ui| {
+            let row = |ui: &mut Ui| {
                 // Header ringkas info seleksi
                 ui.label(
                     RichText::new(format!("{} terpilih", selected_count))
@@ -401,7 +416,13 @@ impl ContextActionBar {
                 if context_action_btn(ui, ICON_CLOSE.codepoint, "", TEXT_SECONDARY, icon_sz, "Batalkan Seleksi (Esc)").clicked() {
                     action = Some(ContextAction::ClearSelection);
                 }
-            });
+            };
+            if wrap {
+                ui.horizontal_wrapped(row);
+            } else {
+                let resp = ui.horizontal(row);
+                ui.ctx().data_mut(|d| d.insert_temp(width_id, resp.response.rect.width()));
+            }
 
             if !constraints.is_empty() {
                 ui.separator();

@@ -1,9 +1,8 @@
 //! Format native `.ducad` (Fase 5): satu file JSON versi-ed berisi seluruh
 //! sketch (entitas+constraint) dan semua body 3D. Geometri B-rep tiap body
-//! disematkan sebagai teks STEP (lewat `KernelShape::to_step_string`) —
-//! satu-satunya cara persis menyalin B-rep lewat binding `opencascade-rs`
-//! ini (lihat catatan `deep_clone` di `ducad-kernel`), jadi dipakai ulang
-//! di sini alih-alih menulis serializer B-rep sendiri.
+//! disematkan sebagai teks STEP (lewat `KernelShape::to_step_string`) untuk
+//! body tanpa oplog (import/legacy); body lain dibangun ulang dari oplog
+//! `design`, dengan cache B-rep native opsional (`NativeBrepCache`).
 //!
 //! `Sketch` (dan `Entity`/`Constraint`/`PointRef` di dalamnya) di-derive
 //! `Serialize`/`Deserialize` LANGSUNG di `ducad-sketch` — bukan struct
@@ -123,11 +122,11 @@ pub struct NativeRoundHistory {
 /// geometri selalu bisa dibangun ulang dari oplog `design`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeBrepCache {
-    /// Penulis cache, mis. `"ducad-occt/1"` — lihat
+    /// Penulis cache, mis. `"ducad-truck/1"` — lihat
     /// [`KernelShape::NATIVE_CACHE_PRODUCER`]. Beda produsen = *miss*.
     pub producer: String,
     /// Isi cache: base64 standar dari aliran zlib (deflate) byte encoding
-    /// backend. Dikompresi karena BREP biner OCCT jauh lebih besar dari STEP.
+    /// backend. Dikompresi karena B-rep biner jauh lebih besar dari STEP.
     pub data: String,
 }
 
@@ -609,7 +608,7 @@ pub fn load(path: impl AsRef<Path>) -> Result<LoadedDocument> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::occt_test_lock::LOCK as TEST_LOCK;
+    use crate::test_lock::LOCK as TEST_LOCK;
     use ducad_kernel::{extrude_profile, Profile, ProfileSegment};
     use ducad_sketch::Entity;
     use glam::DVec2;
@@ -928,12 +927,9 @@ mod tests {
         let json =
             serialize_detailed_to_json_with_design(&[], &[derived(&shape)], Some(&design)).unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        // Produsen backend LAWAN dari yang sedang aktif.
-        let foreign = if KernelShape::NATIVE_CACHE_PRODUCER == "ducad-truck/1" {
-            "ducad-occt/1"
-        } else {
-            "ducad-truck/1"
-        };
+        // Produsen cache asing (nilai yang ditulis berkas 0.5.x).
+        let foreign = "ducad-occt/1";
+        assert_ne!(foreign, KernelShape::NATIVE_CACHE_PRODUCER);
         v["bodies"][0]["brep"]["producer"] = foreign.into();
         let loaded = deserialize_from_json(&v.to_string()).unwrap();
         assert!(loaded.needs_replay(), "cache backend lain harus jatuh ke replay");

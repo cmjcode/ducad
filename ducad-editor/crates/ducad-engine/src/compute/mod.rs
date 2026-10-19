@@ -65,17 +65,16 @@ pub(crate) fn check_shape(op: &str, shape: &KernelShape) -> OpResult<()> {
     Ok(())
 }
 
-/// Panjang terbesar yang diterima (1 km). OCCT gagal membangun shape dengan
-/// ukuran absurd dan melempar exception C++ yang tidak bisa ditangkap
-/// `catch_unwind` (proses abort), jadi angka seperti itu harus berhenti di
-/// sini (ADR 0009).
+/// Panjang terbesar yang diterima (1 km). Ukuran absurd membuat kernel
+/// kehilangan presisi (toleransi relatif) atau bekerja tanpa batas, dan di
+/// wasm panic = abort, jadi angka seperti itu harus berhenti di sini
+/// (ADR 0009).
 pub(crate) const MAX_LENGTH_MM: f64 = 1.0e6;
 /// Nilai absolut terbesar untuk angka apa pun di dalam op (koordinat,
-/// jarak, gaya, …): di atasnya OCCT/solver kehilangan presisi atau abort.
+/// jarak, gaya, …): di atasnya kernel/solver kehilangan presisi atau abort.
 pub(crate) const MAX_ABS_VALUE: f64 = 1.0e9;
-/// Panjang terkecil yang diterima (1 nm): di bawah toleransi OCCT
-/// (`Precision::Confusion` = 1e-7 mm) pembuat shape melempar
-/// `Standard_DomainError` yang juga membuat proses abort.
+/// Panjang terkecil yang diterima (1 nm): di bawah toleransi titik kernel
+/// (1e-7 mm) edge/face runtuh menjadi degenerate dan pembuat shape gagal.
 pub(crate) const MIN_LENGTH_MM: f64 = 1.0e-6;
 
 pub(crate) fn require_positive(name: &str, value: f64) -> OpResult<()> {

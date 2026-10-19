@@ -29,7 +29,7 @@ menolak berkas v4 dengan pesan "versi format".
   "mechanical": { … },        // opsional, material mekanik (P16)
   "step": "ISO-10303-21; …",  // opsional sejak v4 — STEP AP214 otoritatif
   "brep": {                    // opsional sejak v4 — cache non-otoritatif
-    "producer": "ducad-occt/1",
+    "producer": "ducad-truck/1",
     "data": "<base64(zlib(bytes))>"
   },
   "round_history": { … }      // opsional, riwayat fillet/chamfer GUI
@@ -52,7 +52,8 @@ sendiri. Cache backend tidak pernah jadi satu-satunya salinan geometri yang tida
 ### Cache `brep`
 
 * `producer` mengidentifikasi backend kernel + versi encoding (`KernelShape::NATIVE_CACHE_PRODUCER`):
-  `ducad-occt/1` = BREP biner OCCT (`BinTools`); `ducad-truck/1` = `encode_native_body` SolidCraft.
+  `ducad-truck/1` = `encode_native_body` SolidCraft. Berkas dari build lain (mis. 0.6.0-beta)
+  bisa membawa produsen berbeda; itu selalu *miss*.
 * `data` = base64 standar dari aliran zlib. Batas dekompresi 512 MB.
 * Produsen beda = *miss* (bukan error): geometri dibangun ulang lewat replay. Cache rusak = peringatan,
   lalu jatuh ke STEP/replay.
@@ -62,8 +63,8 @@ sendiri. Cache backend tidak pernah jadi satu-satunya salinan geometri yang tida
 ### Ringkasan geometri `design.geometry` (v4, PLAN_MIGRASI_TRUCK F3)
 
 `design.fingerprint` adalah hash FNV atas volume (6 desimal), bbox mesh (4 desimal) dan jumlah face
-tiap body — tidak pernah cocok persis bila berkas dibuka backend kernel LAIN (volume eksak OCCT vs
-tesselasi truck). `Session::save` karena itu juga menulis ringkasan per body:
+tiap body — tidak pernah cocok persis bila berkas dibuka backend kernel LAIN (berkas ≤ 0.5.x
+menyimpan volume eksak, kini volume tesselasi). `Session::save` karena itu juga menulis ringkasan per body:
 
 ```json
 "geometry": [ { "name": "bracket", "volume": 18230.51, "bbox": [[0,0,0],[60,40,12]] } ]
@@ -111,7 +112,7 @@ cargo run -p ducad-cli -- migrate-file a.ducad b.ducad --in-place
 
 Sebuah body dimigrasi (STEP → cache) hanya bila: berkas punya `design`, replay **strict** berhasil
 tanpa peringatan (tidak basi), body itu dihasilkan oplog, dan volumenya sama dengan STEP berkas
-(toleransi relatif 1e-6 di backend OCCT, 1e-4 di truck — volume tesselasi). Hasil diverifikasi sebelum ditulis: replay ulang harus memberi sidik jari
+(toleransi relatif 1e-4 — volume tesselasi). Hasil diverifikasi sebelum ditulis: replay ulang harus memberi sidik jari
 yang sama, dan pemuat GUI harus bisa membaca semua body dari cache. Berkas yang tidak memenuhi
 syarat dibiarkan byte-demi-byte (`changed: false`, alasan di `skipped` / `kept_step[].reason`:
 `no_oplog`, `replay_failed: …`, `not_replayable: oplog_stale`, `not_produced_by_oplog`,
@@ -123,4 +124,4 @@ Untuk menyimpan part parametrik yang masih harus dibuka DUCAD ≤ 0.5.6, pakai
 ## Ukuran
 
 Contoh `examples/industrial-demo/mounting_bracket.ducad` (6 body parametrik): v2 224 KB → v4
-155 KB. Tanpa kompresi zlib, BREP biner OCCT dalam base64 justru 4,3× lebih besar dari STEP.
+155 KB.

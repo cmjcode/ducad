@@ -33,7 +33,8 @@ const DEFAULT_CORPUS: &[&str] = &[
     "../examples",
 ];
 
-/// Backend kernel yang sedang dikompilasi (`occt` / `truck`).
+/// Backend kernel yang sedang dikompilasi (`truck`). Golden baseline di
+/// `tests/goldens/occt` bertanda `occt` (direkam 0.5.x, referensi beku).
 const BACKEND: &str = ducad_kernel::BACKEND;
 
 #[derive(clap::Args)]
@@ -649,7 +650,7 @@ fn compare(want: &Golden, got: &Golden, a: &CheckArgs) -> (Vec<String>, Vec<Stri
             .flat_map(|i| (0..3).map(move |k| (i, k)))
             .map(|(i, k)| (w.bbox[i][k] - g.bbox[i][k]).abs())
             .fold(0.0, f64::max);
-        // Bbox golden OCCT diambil dari mesh tampilan, yang di lingkaran
+        // Bbox golden baseline 0.5.x diambil dari mesh tampilan, yang di lingkaran
         // jatuh DI DALAM kotak sejati sampai satu toleransi chord
         // (`clamp(diag·3e-4, 0.005, 0.05)`); backend lain melaporkan kotak
         // geometris. Selisih itu bukan regresi.

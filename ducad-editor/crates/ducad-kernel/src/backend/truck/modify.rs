@@ -29,7 +29,7 @@ pub(crate) fn sc(p: DVec3) -> Vec3 {
 // ---------------------------------------------------------------------------
 
 /// Edge seam (antara dua potongan face periodik yang sama): bukan tepi
-/// fisik, tidak bisa di-fillet. OCCT juga melewatinya.
+/// fisik, tidak bisa di-fillet. Backend lama (≤ 0.5.x) juga melewatinya.
 fn is_seam(topo: &Topology, e: usize) -> bool {
     topo.edges.get(e).is_some_and(|edge| edge.faces.len() == 1)
 }
@@ -127,7 +127,7 @@ fn ray_faces(shape: &KernelShape, rays: &[PickRay], what: &str) -> Result<Vec<us
     Ok(out)
 }
 
-/// Face logis terjauh ke arah `dir` (pusat massa, seperti `try_farthest` OCCT).
+/// Face logis terjauh ke arah `dir` (pusat massa, seperti `try_farthest` backend lama (≤ 0.5.x)).
 fn farthest_face(shape: &KernelShape, dir: Direction) -> Result<usize> {
     let d = match dir {
         Direction::PosX => DVec3::X,
@@ -141,7 +141,7 @@ fn farthest_face(shape: &KernelShape, dir: Direction) -> Result<usize> {
     let mut best: Option<(f64, usize)> = None;
     for (i, f) in topo.faces.iter().enumerate() {
         let s = f.centroid.dot(d);
-        // `max_by` OCCT: seri → face terakhir.
+        // `max_by`: seri → face terakhir (perilaku 0.5.x).
         if best.is_none_or(|(b, _)| s >= b) {
             best = Some((s, i));
         }
@@ -171,7 +171,7 @@ pub(crate) fn plane_of_face(shape: &KernelShape, f: usize) -> Option<(DVec3, DVe
 }
 
 /// Hasil kernel → shape; body yang tidak valid ditolak (padanan
-/// `validate_or_heal` OCCT — SolidCraft sudah menyembuhkan sendiri).
+/// `validate_or_heal` backend lama (≤ 0.5.x) — SolidCraft sudah menyembuhkan sendiri).
 pub(crate) fn checked(body: Body, what: &str) -> Result<KernelShape> {
     let shape = KernelShape::from_body(body);
     if !shape.is_valid() {
@@ -427,7 +427,7 @@ fn resolve_shell_faces(shape: &KernelShape, opening: ShellOpening) -> Result<Vec
     }
 }
 
-/// Inti shell — lihat `hollow_open` backend OCCT: `depth > 0` = hollow
+/// Inti shell — `depth > 0` = hollow
 /// penuh lalu bagian body asli di belakang bidang kedalaman digabung kembali.
 fn hollow_open(
     shape: &KernelShape,
@@ -789,7 +789,7 @@ pub fn make_filleted_box(
 
 /// Ubah ukuran solid sepanjang rusuk: face planar di ujung rusuk yang tegak
 /// lurus terhadapnya di-extrude sejauh selisih panjang; selain itu skala
-/// seragam (sama dengan backend OCCT).
+/// seragam (sama dengan backend lama (≤ 0.5.x)).
 pub fn resize_shape_along_edge(
     shape: &KernelShape,
     edge_start: (f64, f64, f64),
@@ -812,7 +812,7 @@ pub fn resize_shape_along_edge(
     }
     let dir = edge_vec / old_length;
     // Face di ujung AKHIR rusuk dulu, baru ujung awal: hasilnya tidak
-    // bergantung urutan face (OCCT kebetulan menemukan face atas dulu).
+    // bergantung urutan face (backend lama (≤ 0.5.x) kebetulan menemukan face atas dulu).
     let n_faces = shape.topology().faces.len();
     let find = |at: DVec3, outward: DVec3| -> Option<PickRay> {
         (0..n_faces).find_map(|f| {
@@ -880,7 +880,7 @@ pub fn split_body(
         bail!("bidang pemotong tidak membagi objek menjadi bagian valid");
     }
     // Satu sisi bidang bisa berisi beberapa solid (bidang memotong dua kaki
-    // huruf U): dipecah per solid, seperti hasil split OCCT.
+    // huruf U): dipecah per solid, seperti hasil split backend lama (≤ 0.5.x).
     Ok(per_lump(parts))
 }
 
@@ -931,7 +931,7 @@ pub fn split_face(
 /// (engsel di alas).
 ///
 /// Dibangun sebagai polihedron konveks dari setengah-ruang — juga bila garis
-/// rib tidak tegak lurus `normal_dir` (prisma miring seperti OCCT).
+/// rib tidak tegak lurus `normal_dir` (prisma miring seperti backend lama (≤ 0.5.x)).
 pub fn create_rib_solid(
     start_pt: DVec3,
     end_pt: DVec3,
@@ -960,7 +960,7 @@ pub fn create_rib_solid(
     let mut side = dir.cross(up);
     if side.length() < 1e-4 {
         // Garis rib sejajar arah kedalaman: prisma tidak terdefinisi di
-        // OCCT juga; pakai sumbu cadangan seperti backend OCCT.
+        // Backend lama (≤ 0.5.x) juga; pakai sumbu cadangan yang sama.
         let fallback = if dir.z.abs() < 0.9 { DVec3::Z } else { DVec3::Y };
         side = dir.cross(fallback);
         up = side.cross(dir).normalize();

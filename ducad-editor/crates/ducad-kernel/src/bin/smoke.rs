@@ -1,6 +1,5 @@
 //! Smoke test kernel: buktikan backend kernel ter-link dan operasi inti jalan.
-//! Jalankan: `cargo run -p ducad-kernel --bin smoke` (OCCT) atau
-//! `cargo run -p ducad-kernel --no-default-features --features kernel-truck --bin smoke`.
+//! Jalankan: `cargo run -p ducad-kernel --bin smoke`.
 
 fn main() -> anyhow::Result<()> {
     // Backend yang belum punya fillet (truck sebelum F3) memakai box polos.

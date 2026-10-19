@@ -4,7 +4,7 @@
 //! dijalankan ulang pada backend lain untuk dibandingkan:
 //!
 //! ```bash
-//! cargo bench -p ducad-kernel --bench ops -- --save-baseline occt
+//! cargo bench -p ducad-kernel --bench ops -- --save-baseline truck
 //! ```
 //!
 //! Hasil dicatat di `docs/perf/occt-baseline.md`.

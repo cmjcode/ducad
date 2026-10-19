@@ -16,9 +16,8 @@ use crate::app::DuCADApp;
 use crate::model::BooleanKind;
 use crate::types::{PickMode, ToolKind};
 
-/// OCCT: volume eksak. Truck: volume dari tesselasi konvergen, ±1e-4
-/// relatif (PLAN_MIGRASI_TRUCK §3.1).
-const REL_TOL: f64 = if ducad_kernel::IS_TRUCK { 1e-4 } else { 1e-6 };
+/// Volume dari tesselasi konvergen, ±1e-4 relatif (PLAN_MIGRASI_TRUCK §3.1).
+const REL_TOL: f64 = 1e-4;
 
 fn assert_volume(label: &str, got: f64, want: f64) {
     println!("{label}: {got:.9}");
@@ -84,13 +83,8 @@ const REVOLVE_VOLUME: f64 = 1963.495408494;
 const UNION_VOLUME: f64 = 1500.0;
 const FILLET_VOLUME: f64 = 7804.696111128;
 /// Chamfer 2 mm semua tepi kubus 20 mm. Sudut tempat tiga chamfer bertemu
-/// beda gaya antar-kernel: OCCT menambah segitiga sudut, SolidCraft memitre
-/// (`blend::chamfer`) → 8000 − 12·(2²/2)·18 = 7568.
-const CHAMFER_VOLUME: f64 = if ducad_kernel::IS_TRUCK {
-    7568.0
-} else {
-    7562.666666667
-};
+/// dimitre (`blend::chamfer` SolidCraft) → 8000 − 12·(2²/2)·18 = 7568.
+const CHAMFER_VOLUME: f64 = 7568.0;
 const SHELL_VOLUME: f64 = 3392.0;
 const HOLE_VOLUME: f64 = 19009.933644458;
 const PATTERN_VOLUME: f64 = 6000.0;

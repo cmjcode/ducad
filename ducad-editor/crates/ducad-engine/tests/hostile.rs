@@ -94,7 +94,7 @@ fn assert_not_internal(label: &str, report: &ducad_engine::BatchReport) {
 }
 
 /// Fixture untuk sapuan default (cepat, ±10 s). `enclosure` dan
-/// `toolbox_joint` ikut karena keduanya pernah membuat OCCT melempar
+/// `toolbox_joint` ikut karena keduanya pernah membuat kernel lama melempar
 /// exception C++ (hole Ø1e308, box 1e-300) yang meng-abort proses.
 const QUICK: &[&str] = &["plate", "bracket", "enclosure", "toolbox_joint"];
 
@@ -111,7 +111,7 @@ fn mutated_fixture_ops_never_panic() {
 /// Sapuan penuh atas SEMUA fixture (±90 s). Jalankan setelah mengubah
 /// validasi op atau kernel:
 /// `cargo test -p ducad-engine --test hostile -- --ignored`.
-/// Abort C++ dari OCCT mematikan seluruh biner tes tanpa nama kasus; set
+/// Abort proses mematikan seluruh biner tes tanpa nama kasus; set
 /// `DUCAD_HOSTILE_TRACE=1` dan `-- --nocapture` untuk melihat mutasi terakhir.
 #[test]
 #[ignore = "lambat (±90 s); dijalankan eksplisit, lihat doc"]
@@ -204,7 +204,7 @@ fn hostile_params_and_edits_never_panic() {
     }
 }
 
-/// Regresi: kedua kasus ini dulu membuat OCCT melempar exception C++
+/// Regresi: kedua kasus ini dulu membuat kernel lama melempar exception C++
 /// (`StdFail_NotDone`, `Standard_DomainError`) yang meng-abort proses.
 /// Sekarang ditolak engine sebagai `invalid_param` sebelum menyentuh kernel.
 #[test]

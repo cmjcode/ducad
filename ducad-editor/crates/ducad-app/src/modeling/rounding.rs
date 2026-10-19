@@ -151,7 +151,7 @@ impl DuCADApp {
             return Some((id, ray, hit));
         }
 
-        // 2. Fallback: Ray-cast kernel OCCT
+        // 2. Fallback: Ray-cast kernel
         let tolerance = pixel_tolerance_to_world(&self.camera, rect) * 24.0;
         let mut closest: Option<(BodyId, PickRay, (f64, f64, f64), f64)> = None;
         for (id, geo) in self.model.geometry.iter() {
@@ -339,8 +339,8 @@ impl DuCADApp {
         while i < features.len() {
             let f = &features[i];
 
-            // Batch operasi rusuk yang memiliki style dan radius sama agar OpenCASCADE
-            // menghitung transisi sudut bersama (corner blend) dalam satu langkah BRep API.
+            // Batch operasi rusuk yang memiliki style dan radius sama agar kernel
+            // menghitung transisi sudut bersama (corner blend) dalam satu langkah.
             if f.kind == RoundKind::Edge && f.radius_end.is_none() {
                 let mut batch_rays = vec![f.ray];
                 let mut j = i + 1;

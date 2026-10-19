@@ -14,7 +14,7 @@ use ducad_kernel::{
     KernelShape, ProjectedViewKind, SectionAxis, SectionRequest,
 };
 
-/// OCCT tidak aman dipakai paralel dari beberapa tes sekaligus.
+/// Tes lembar berat (boolean + HLR): dijalankan serial agar waktunya stabil.
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// Flange Ø100 × 10 dengan bore Ø30 dan `n` lubang Ø`hole_d` pada PCD Ø70.

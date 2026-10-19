@@ -9,8 +9,7 @@
 # edition 2024.
 #
 # Menaikkan versi = PR tersendiri: ubah `channel` di sini DAN semua
-# `dtolnay/rust-toolchain@<versi>` di `.github/workflows/*.yml`. Mengganti
-# toolchain memaksa OCCT dikompilasi ulang dari nol (~10-15 menit).
+# `dtolnay/rust-toolchain@<versi>` di `.github/workflows/*.yml`.
 [toolchain]
 channel = "1.96.1"
 components = ["rustfmt", "clippy"]

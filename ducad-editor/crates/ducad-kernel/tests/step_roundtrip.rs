@@ -1,10 +1,9 @@
 //! PLAN_MIGRASI_TRUCK F4.1 — roundtrip STEP: 20 bentuk khas DUCAD (primitif,
 //! boolean, revolve, loft, fillet/chamfer, transformasi, multi-lump) ditulis
 //! ke STEP lalu dibaca kembali. Volume harus sama dan jumlah face logis
-//! tidak berubah. Hanya API publik → jalan di kedua backend.
+//! tidak berubah. Hanya API publik.
 //!
-//! Toleransi volume: OCCT menghitung volume eksak (`BRepGProp`); truck dari
-//! tesselasi halus, ±1e-4 per pengukuran (PLAN §3.1), jadi selisih dua
+//! Toleransi volume: volume dihitung dari tesselasi halus, ±1e-4 per pengukuran (PLAN §3.1), jadi selisih dua
 //! pengukuran dibatasi 2e-4. Bentuk dengan volume analitik juga dicek
 //! terhadap nilai sebenarnya, supaya galat geometri tidak tersamar.
 

@@ -1,13 +1,10 @@
 
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::picking_face::*;
 
-/// Tipe permukaan geometris analitik OCCT di balik sebuah `Face`, hasil
-/// klasifikasi `Face::surface_kind()` (nama kelas dinamis C++ `Geom_*`).
-/// Fase 1: sekadar deteksi/label — belum dipakai fitur apa pun, disiapkan
-/// utk fitur mendatang yang berperilaku beda tergantung tipe face (mis.
-/// deteksi smart boolean, hint UI khusus silinder/bola).
+/// Tipe permukaan geometris analitik di balik sebuah face (bidang,
+/// silinder, kerucut, bola, torus), atau `Other` untuk permukaan bebas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
@@ -19,23 +16,6 @@ pub enum SurfaceKind {
     /// Permukaan analitik lain (mis. torus non-standar) atau permukaan
     /// bebas/non-analitik (mis. B-Spline, hasil loft/sweep).
     Other,
-}
-
-impl From<&str> for SurfaceKind {
-    /// Petakan nama kelas dinamis OCCT (keluaran `Face::surface_kind()`)
-    /// ke varian enum. Nama yang tidak dikenali (termasuk permukaan
-    /// bebas/non-analitik) jatuh ke `Other`, bukan error — klasifikasi ini
-    /// sifatnya informasional, tidak boleh gagal.
-    fn from(dynamic_type_name: &str) -> Self {
-        match dynamic_type_name {
-            "Geom_Plane" => SurfaceKind::Plane,
-            "Geom_CylindricalSurface" => SurfaceKind::Cylinder,
-            "Geom_ConicalSurface" => SurfaceKind::Cone,
-            "Geom_SphericalSurface" => SurfaceKind::Sphere,
-            "Geom_ToroidalSurface" => SurfaceKind::Torus,
-            _ => SurfaceKind::Other,
-        }
-    }
 }
 
 /// Informasi hit face hasil picking 3D (titik hit, titik pusat centroid, normal keluar, dan loop poligon batas face).

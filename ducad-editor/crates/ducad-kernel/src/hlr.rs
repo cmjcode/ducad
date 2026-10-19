@@ -258,7 +258,7 @@ pub struct ProjectedView {
     /// Kosong pada jalur mesh dan tampak potongan.
     #[serde(default)]
     pub edge_refs: Vec<Option<u32>>,
-    /// `true` bila tampak ini berasal dari HLR eksak OCCT.
+    /// `true` bila tampak ini berasal dari HLR eksak (kurva analitik B-rep).
     #[serde(default)]
     pub exact: bool,
 }
@@ -340,7 +340,7 @@ pub struct DrawingOptions {
     /// model (perilaku lama).
     pub sections: Vec<crate::section::SectionRequest>,
     pub default_section: bool,
-    /// Pakai HLR eksak OCCT (jatuh ke HLR mesh bila gagal).
+    /// Pakai HLR eksak B-rep (jatuh ke HLR mesh bila gagal).
     pub exact: bool,
 }
 

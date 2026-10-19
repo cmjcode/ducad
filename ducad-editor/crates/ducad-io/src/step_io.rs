@@ -34,7 +34,7 @@ pub fn import(path: impl AsRef<Path>) -> Result<KernelShape> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::occt_test_lock::LOCK as TEST_LOCK;
+    use crate::test_lock::LOCK as TEST_LOCK;
     use ducad_kernel::{extrude_profile, Profile, ProfileSegment};
 
     fn rect_profile(w: f64, h: f64) -> Profile {

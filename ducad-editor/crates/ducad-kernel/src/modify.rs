@@ -4,7 +4,7 @@ use glam::DVec3;
 use crate::picking::ray::PickRay;
 use crate::shape::KernelShape;
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::modify::*;
 
 /// Arah pemilihan face yang dihilangkan untuk `shell_hollow` — face

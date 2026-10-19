@@ -1,6 +1,6 @@
 //! Bagian backend truck dari `crate::picking::edge` (PLAN_MIGRASI_TRUCK 2.6):
 //! picking di atas polyline edge logis, dengan aturan pemilihan kandidat
-//! (prioritas depan, presisi ke ray) yang sama dengan backend OCCT.
+//! (prioritas depan, presisi ke ray) yang sama dengan backend lama (≤ 0.5.x).
 
 use glam::DVec3;
 
@@ -111,7 +111,7 @@ pub fn edge_outward_normal(
 }
 
 /// Panjang + titik tengah semua edge (fitur "Tampilkan Semua Ukuran").
-/// Edge berujung sama dengan edge sebelumnya dilewati, seperti di OCCT.
+/// Edge berujung sama dengan edge sebelumnya dilewati, seperti di backend lama (≤ 0.5.x).
 pub fn edge_dimensions(shape: &KernelShape) -> Vec<EdgeDimension> {
     const MAX_EDGES_TO_EVALUATE: usize = 2000;
     let quantize = |p: DVec3| -> (i64, i64, i64) {

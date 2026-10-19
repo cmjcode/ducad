@@ -1,6 +1,6 @@
 //! Bagian backend truck dari `crate::topo` (PLAN_MIGRASI_TRUCK 2.6):
 //! enumerasi face & edge dari topologi logis (`super::topology`), dengan
-//! arti tiap field sama dengan backend OCCT.
+//! arti tiap field sama dengan backend lama (≤ 0.5.x).
 
 use glam::DVec3;
 use solidcraft_kernel::FaceSurface;
@@ -11,7 +11,7 @@ use crate::picking::face::SurfaceKind;
 use crate::shape::KernelShape;
 use crate::topo::{EdgeInfo, EdgeKind, FaceInfo};
 
-/// Arah satuan dengan komponen non-nol pertama positif (sama dengan OCCT).
+/// Arah satuan dengan komponen non-nol pertama positif (sama dengan backend lama (≤ 0.5.x)).
 fn canonical_dir(d: DVec3) -> DVec3 {
     let d = d.normalize_or_zero();
     for c in d.to_array() {
@@ -56,7 +56,7 @@ pub(crate) fn face_axis(face: &LFace) -> Option<(DVec3, DVec3)> {
 }
 
 /// Radius permukaan analitik face. Kerucut: radius terbesar di batasnya
-/// (OCCT melaporkan radius referensi, yang untuk kerucut DUCAD = alasnya).
+/// (backend lama (≤ 0.5.x) melaporkan radius referensi, yang untuk kerucut DUCAD = alasnya).
 pub(crate) fn face_radius(topo: &Topology, f: usize) -> Option<f64> {
     let face = topo.faces.get(f)?;
     match face.surface? {

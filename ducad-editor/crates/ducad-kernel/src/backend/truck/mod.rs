@@ -1,8 +1,8 @@
-//! Backend truck (`kernel-truck`): SolidCraft kernel di atas truck, di-vendor
+//! Backend truck: SolidCraft kernel di atas truck, di-vendor
 //! di `vendors/solidcraft` (PLAN_MIGRASI_TRUCK F2).
 //!
 //! Prinsip:
-//! - API publik sama persis dengan backend OCCT; tipe SolidCraft tidak pernah
+//! - API publik sama persis dengan backend lama (≤ 0.5.x); tipe SolidCraft tidak pernah
 //!   bocor keluar crate.
 //! - Setiap panggilan ke SolidCraft lewat [`kernel`], yang memakai
 //!   `solidcraft_kernel::guard` (panic → `Err`) dan membungkus pesan galatnya

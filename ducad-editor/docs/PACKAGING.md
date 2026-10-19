@@ -50,8 +50,8 @@ Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
 Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
 dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
 GitHub lewat sumber `git+`. Sejak 0.6.0 kernel geometri (SolidCraft/truck)
-adalah Rust murni yang di-vendor di repo — tanpa submodule, tanpa paket
-sistem `opencascade`, tanpa cmake.
+adalah Rust murni yang di-vendor di repo — tanpa submodule, tanpa pustaka
+CAD sistem, tanpa cmake.
 Terpasang: `ducad`, `ducad-cli`, `ducad-mcp`, entri desktop, ikon, lisensi.
 
 Alur rilis:

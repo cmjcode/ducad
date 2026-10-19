@@ -19,8 +19,8 @@ pub fn primitive(shape: &PrimitiveShape, at: [f64; 3]) -> OpResult<BodyGeometry>
             "Posisi primitif tidak valid ({at:?})"
         )));
     }
-    // Dimensi divalidasi di sini, bukan di OCCT: nilai absurd (1e-300,
-    // 1e308) membuat pembuat shape melempar exception C++ (ADR 0009).
+    // Dimensi divalidasi di sini, bukan di kernel: nilai absurd (1e-300,
+    // 1e308) tidak boleh sampai ke pembuat shape (ADR 0009).
     let non_negative = |name: &str, v: f64| -> OpResult<()> {
         if v == 0.0 { Ok(()) } else { require_positive(name, v) }
     };

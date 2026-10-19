@@ -995,7 +995,7 @@ Build: `make android-apk` lalu `adb install android/app/build/outputs/apk/debug/
 | B7.4 | Simpan → berkas di `Android/data/id.ducad.studio/files` terlihat lewat aplikasi Files | ☐ |
 | B7.5 | Tekan Home lalu matikan dari Recent → buka lagi → dipulihkan dari autosave | ☐ |
 | B7.6 | Putar layar → tidak ada restart aplikasi (configChanges) | ☐ |
-| B7.7 | Extrude/boolean berjalan (OCCT via NDK) dan STEP terekspor | ☐ |
+| B7.7 | Extrude/boolean berjalan (kernel Rust murni) dan STEP terekspor | ☐ |
 
 ---
 

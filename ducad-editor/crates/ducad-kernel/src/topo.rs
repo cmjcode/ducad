@@ -15,7 +15,7 @@
 
 use crate::picking::face::SurfaceKind;
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::topo::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

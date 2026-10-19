@@ -1,5 +1,5 @@
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 #[allow(unused_imports)]
 pub(crate) use crate::backend::profile::*;
 
@@ -101,7 +101,7 @@ impl Profile {
 }
 
 /// `true` bila keempat titik kendali Bézier menumpuk di satu tempat, sehingga
-/// kurvanya tak punya panjang dan OCCT akan menolak membuat edge untuknya.
+/// kurvanya tak punya panjang dan kernel akan menolak membuat edge untuknya.
 pub(crate) fn bezier_is_degenerate(
     p0: glam::DVec3,
     p1: glam::DVec3,

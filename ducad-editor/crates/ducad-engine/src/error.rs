@@ -25,7 +25,7 @@ pub enum OpErrorCode {
     ConstraintUnsolved,
     /// `analyze_dof` melaporkan redundant/konflik.
     OverConstrained,
-    /// OCCT mengembalikan error / shape tidak valid.
+    /// Kernel geometri mengembalikan error / shape tidak valid.
     KernelFailed,
     /// Operasi sukses tapi volume hasil ≈ 0.
     EmptyResult,

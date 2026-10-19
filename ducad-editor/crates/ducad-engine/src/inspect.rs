@@ -383,7 +383,7 @@ pub(crate) fn body_report(
             .entry(crate::select::eval::face_kind_name(f.kind).to_string())
             .or_default() += 1;
     }
-    // Bbox geometris dari kernel (OCCT: = bbox mesh; truck: tesselasi halus,
+    // Bbox geometris dari kernel (tesselasi halus,
     // karena vertex mesh tampilannya tidak selalu di titik ekstrem). Body
     // mesh murni (STL, shape kosong) memakai mesh-nya.
     let (min, max) = geo

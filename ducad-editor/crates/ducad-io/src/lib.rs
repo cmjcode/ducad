@@ -1,5 +1,5 @@
 //! I/O DUCAD (Fase 5): format native `.ducad` (JSON versi-ed, lihat
-//! `native`), STEP via kernel OCCT (`step_io`), DXF minimal R12 untuk
+//! `native`), STEP via `ducad-kernel` (`step_io`), DXF minimal R12 untuk
 //! interop AutoCAD (`dxf`), export STL biner/OBJ (`mesh_export`).
 //!
 //! Prinsip yang sama di semua modul: crate ini TIDAK punya struct
@@ -43,14 +43,10 @@ pub use svg::{
 pub use native::needs_v3;
 
 /// Lock test SATU-SATUNYA untuk seluruh binary test crate ini — dipakai
-/// `native`/`step_io`, dua modul yang sama-sama menyentuh jalur transfer
-/// STEP OCCT (lewat `ducad_kernel::KernelShape`). Sama alasan dengan
-/// `ducad-kernel::tests::TEST_LOCK`: jalur itu TIDAK thread-safe, dan
-/// `cargo test` menjalankan semua test SATU binary (semua modul di crate
-/// ini) di banyak thread sekaligus — lock per-modul sendiri-sendiri TIDAK
-/// cukup (ditemukan lewat test yang gagal acak: pola bug yang sama persis
-/// ditemukan lagi, kali ini lintas modul bukan lintas file).
+/// tes yang membangun B-rep sungguhan (`native`, `step_io`, `external`,
+/// `svg`) supaya tes berat (boolean, STEP) jalan serial dan waktunya
+/// stabil di runner CI.
 #[cfg(test)]
-pub(crate) mod occt_test_lock {
+pub(crate) mod test_lock {
     pub static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }

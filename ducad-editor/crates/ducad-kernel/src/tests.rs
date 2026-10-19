@@ -2,13 +2,9 @@ use super::*;
 use glam::{dvec3, DVec3};
 use std::sync::Mutex;
 
-/// OCCT (setidaknya jalur transfer STEP yang dipakai `deep_clone`) TIDAK
-/// thread-safe di binding ini — ditemukan lewat test, bukan teori: jalan
-/// sendiri-sendiri semua lulus, tapi `cargo test` default (multi-thread)
-/// crash `SIGABRT`/`Interface_InterfaceError` karena beberapa test
-/// menyentuh working-session STEP OCCT yang sama secara bersamaan. Lock
-/// global ini memaksa seluruh test modul jalan serial. Tidak mempengaruhi
-/// `ducad-app` (single-threaded, kernel selalu dipanggil dari UI thread).
+/// Lock global: seluruh test modul ini jalan serial. Kernel sendiri
+/// thread-safe (`tests/truck_concurrency.rs`); serialisasi menjaga waktu
+/// dan memori tes berat (boolean, STEP) tetap stabil di runner CI.
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn lock_test() -> std::sync::MutexGuard<'static, ()> {
@@ -309,7 +305,7 @@ fn revolve_profile_axis_crossing_profile_returns_err_safely_without_abort() {
     let _guard = lock_test();
     // Profil membentang dari X=10 sampai X=20, Y=0 sampai Y=5
     let profile = offset_rect_profile(10.0, 0.0, 20.0, 5.0);
-    // Sumbu X=15 membelah tengah persegi panjang -> memicu self-intersection di OCCT
+    // Sumbu X=15 membelah tengah persegi panjang -> memicu self-intersection
     let result = revolve_profile(&profile, (15.0, 0.0), (0.0, 1.0), None);
     assert!(result.is_err(), "Revolve dengan sumbu membelah profil harus return Err, bukan abort/crash!");
 }
@@ -2940,8 +2936,8 @@ fn test_pick_face_index_maps_to_exact_mesh_triangles() {
 
 // ── P16: properti massa ────────────────────────────────────────────────
 
-/// Toleransi relatif properti massa body lengkung: OCCT eksak (`BRepGProp`),
-/// truck dari tesselasi halus (PLAN_MIGRASI_TRUCK §3.1).
+/// Toleransi relatif properti massa body lengkung: dihitung dari tesselasi
+/// halus (PLAN_MIGRASI_TRUCK §3.1).
 const CURVED_MASS_TOL: f64 = 1e-4;
 
 fn assert_rel(actual: f64, expected: f64, tol: f64, what: &str) {
@@ -3037,8 +3033,7 @@ fn thread_iso_m10_removes_profile_volume() {
     assert!(cut_iso_thread(&rod, [0.0; 3], [0.0, 0.0, 1.0], -1.0, pitch, 5.0, false).is_err());
 }
 
-/// `is_valid` pada compound kosong tidak boleh melempar exception OCCT
-/// (jalur `BRepCheck_Analyzer_ctor` kini `Result`, exception → `false`).
+/// `is_valid` pada compound kosong tidak boleh panic/abort (→ `false`).
 #[test]
 fn is_valid_on_empty_compound_does_not_abort() {
     let _guard = lock_test();

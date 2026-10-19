@@ -4,7 +4,7 @@
 //! 1. Tiap body dipotong sendiri-sendiri: potongan lurus lewat
 //!    `solidcraft_kernel::half_space` (bidang eksak, tahan face yang
 //!    berimpit dengan bidang potong); potongan bertingkat lewat prisma
-//!    pemotong + subtract, sama seperti backend OCCT.
+//!    pemotong + subtract, sama seperti backend lama (≤ 0.5.x).
 //! 2. Face potong (bidang menghadap pemirsa di garis potong) diarsir per
 //!    face; body bersebelahan berselang 45°/135° (ISO 128-50).
 //! 3. Sisa solid digambar dengan HLR hybrid ([`super::hlr_mesh`]).

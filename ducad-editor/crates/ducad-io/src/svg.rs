@@ -975,7 +975,7 @@ mod tests {
         assert!(!svg.contains(r#"id="snapshot_hidden""#));
     }
 
-    /// Jalur penuh: solid B-rep asli dari kernel OCCT, berlubang, ditangkap
+    /// Jalur penuh: solid B-rep asli dari kernel, berlubang, ditangkap
     /// dari kamera serong, lalu ditulis sebagai SVG.
     ///
     /// Tes unit di `ducad_kernel::vector_snapshot` memakai mesh buatan tangan;
@@ -983,7 +983,7 @@ mod tests {
     /// termasuk bahwa lubang menghasilkan garis tersembunyi.
     #[test]
     fn test_vector_snapshot_end_to_end_from_real_solid() {
-        let _guard = crate::occt_test_lock::LOCK
+        let _guard = crate::test_lock::LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
 

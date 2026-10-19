@@ -890,7 +890,7 @@ impl Ctx<'_> {
 }
 
 /// Kelonggaran relatif pembanding volume/massa = toleransi volume backend
-/// kernel (OCCT 0 → perilaku lama; truck 5e-4, PLAN_MIGRASI_TRUCK §3.1/F5.1).
+/// kernel (5e-4, PLAN_MIGRASI_TRUCK §3.1/F5.1).
 const VOLUME_SLACK: f64 = ducad_kernel::VOLUME_REL_TOL;
 
 /// `x` di dalam `[lo, hi]` dengan kelonggaran [`VOLUME_SLACK`] relatif.
@@ -923,7 +923,7 @@ pub fn resolve_min_wall(
     Some((name, ctx.num(min).ok()?))
 }
 
-/// Evaluasi `min_wall` langsung dari mesh. Tidak menyentuh OCCT, jadi aman
+/// Evaluasi `min_wall` langsung dari mesh. Tidak menyentuh B-rep, jadi aman
 /// di thread latar. `index`/`id` hasil diisi pemanggil.
 pub fn evaluate_min_wall(mesh: &ducad_kernel::KernelMesh, body: &str, min: f64) -> CheckResult {
     let base = CheckResult {

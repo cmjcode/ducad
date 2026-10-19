@@ -13,9 +13,9 @@
 //!
 //! # Kenapa berbasis mesh, bukan [`crate::hlr_exact`]
 //!
-//! `hlr_exact` memakai `HLRBRep_Algo` milik OCCT dan menghasilkan kurva
-//! analitik yang jauh lebih rapi — tapi bindingnya ortografis, memproses
-//! SATU shape per panggilan, dan tidak menerima transformasi penempatan.
+//! `hlr_exact` menghasilkan kurva analitik yang jauh lebih rapi — tapi
+//! ortografis, memproses SATU shape per panggilan, dan tidak menerima
+//! transformasi penempatan.
 //! Tangkapan viewport harus perspektif, mencakup SEMUA body sekaligus, dan
 //! menghormati pergeseran explode. Jalur berbasis mesh memenuhi ketiganya
 //! dan — yang penting untuk tangkapan — memakai geometri yang sama persis
@@ -23,8 +23,7 @@
 //! pengguna. Konsekuensi yang diterima: busur keluar sebagai polyline.
 //!
 //! Seluruh modul ini murni aritmetika pada mesh dan rusuk yang SUDAH
-//! diekstrak, jadi tidak ada panggilan OCCT sama sekali dan tidak perlu
-//! memegang [`crate::lock_kernel`].
+//! diekstrak, jadi tidak ada panggilan kernel B-rep sama sekali.
 
 use glam::{Mat4, Vec3};
 

@@ -7,7 +7,7 @@ authors.workspace = true
 
 [dependencies]
 ducad-core = { workspace = true }
-# Kernel geometri: SolidCraft di atas truck (PLAN_MIGRASI_TRUCK; OCCT dihapus di F6.4).
+# Kernel geometri: SolidCraft di atas truck (PLAN_MIGRASI_TRUCK).
 solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel" }
 solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom" }
 glam = { workspace = true }

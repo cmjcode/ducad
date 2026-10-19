@@ -1,5 +1,5 @@
 //! Kueri geometri kecil untuk modul bersama (`hlr`, `mass`, `interference`)
-//! — padanan `backend/occt/query.rs` di atas SolidCraft.
+//! di atas SolidCraft.
 
 use glam::{vec3, DVec3, Vec3};
 use solidcraft_kernel::DistanceShape;

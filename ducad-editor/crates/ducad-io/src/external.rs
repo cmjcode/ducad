@@ -155,7 +155,7 @@ pub fn poll_external_source(
 mod tests {
     use super::*;
     use crate::native::{save_multi_plane_detailed, ExportBody};
-    use crate::occt_test_lock::LOCK as TEST_LOCK;
+    use crate::test_lock::LOCK as TEST_LOCK;
     use ducad_kernel::{extrude_profile, Profile, ProfileSegment};
     use ducad_sketch::Sketch;
 

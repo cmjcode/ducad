@@ -56,7 +56,7 @@ sendiri, dua render berbayang) dibutuhkan tiga hal sekaligus:
   field `design` (dengan `base_bodies` bila belum ada oplog) agar spec ikut.
 - Keluaran PDF/SVG lembar berubah total (hitam-putih ISO, teks dimensi tanpa
   " mm", catatan di atas kepala gambar); hash dasar di `gdt_pdf.rs` direkam
-  ulang dan gold baru ada di `ducad-engine/tests/golden/drawing.hashes.json`.
+  ulang dan gold baru ada di `ducad-engine/tests/golden/drawing.hashes.truck.json`.
 - Dimensi otomatis yang DIHAPUS pengguna di editor tidak dipersistenkan: ia
   muncul lagi saat lembar dibangun ulang. Matikan lewat `dimensions`.
 

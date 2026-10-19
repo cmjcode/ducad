@@ -1,6 +1,6 @@
 //! Bagian backend truck dari `crate::picking::vertex` (PLAN_MIGRASI_TRUCK
 //! 2.6): vertex = ujung edge logis (titik sambung potongan busur yang
-//! digabung tidak ikut, sama seperti OCCT yang hanya punya satu vertex
+//! digabung tidak ikut, sama seperti backend lama (≤ 0.5.x) yang hanya punya satu vertex
 //! per lingkaran).
 
 use glam::DVec3;

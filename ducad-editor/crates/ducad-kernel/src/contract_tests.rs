@@ -1,11 +1,9 @@
-//! Tes kontrak backend (PLAN_MIGRASI_TRUCK F2): HANYA API publik, dijalankan
-//! apa adanya di kedua backend. Angka yang diharapkan adalah geometri eksak
-//! (volume analitik, jumlah face/edge seperti OCCT setelah `clean()`), jadi
-//! lulus di dua backend = paritas.
+//! Tes kontrak kernel (PLAN_MIGRASI_TRUCK F2): HANYA API publik. Angka yang
+//! diharapkan adalah geometri eksak (volume analitik, jumlah face/edge logis
+//! dengan face periodik digabung) — kontrak yang sama dengan golden 0.5.x.
 //!
 //! ```text
-//! cargo test -p ducad-kernel -- contract_tests                                         # OCCT
-//! cargo test -p ducad-kernel --no-default-features --features kernel-truck -- contract  # truck
+//! cargo test -p ducad-kernel -- contract_tests
 //! ```
 //!
 //! Modul dinamai sesuai modul kernel (`primitives`, `csg`, `shape`, `topo`,
@@ -15,8 +13,7 @@ use std::f64::consts::PI;
 
 use crate::*;
 
-/// Kunci tes: backend OCCT tidak thread-safe (lihat `KERNEL_LOCK`); di truck
-/// tidak perlu, tapi tes tetap serial agar hasil kedua backend sebanding.
+/// Kunci tes: tes kontrak jalan serial agar waktu per tes stabil.
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|p| p.into_inner())
@@ -88,11 +85,11 @@ mod primitives {
     }
 
     #[test]
-    fn cylinder_counts_like_occt() {
+    fn cylinder_counts_merge_periodic_faces() {
         let _g = serial();
         let c = make_cylinder(5.0, 10.0).unwrap();
         close(c.volume().abs(), PI * 25.0 * 10.0, 1e-3, "volume silinder");
-        // OCCT: 2 tutup + 1 selimut periodik; 2 lingkaran + 1 seam.
+        // 2 tutup + 1 selimut periodik; 2 lingkaran + 1 seam.
         assert_eq!(counts(&c), (3, 3));
         assert_bbox(&c, [-5.0, -5.0, 0.0], [5.0, 5.0, 10.0], 0.06);
     }
@@ -114,7 +111,7 @@ mod primitives {
             "kerucut",
         );
         assert_eq!(enumerate_faces(&cone).len(), 3);
-        // Bola = satu face periodik di OCCT; potongan patch SolidCraft digabung.
+        // Bola = satu face periodik logis; potongan patch SolidCraft digabung.
         let ball = make_sphere(5.0).unwrap();
         assert_eq!(enumerate_faces(&ball).len(), 1);
         assert_eq!(enumerate_faces(&ball)[0].kind, SurfaceKind::Sphere);
@@ -259,7 +256,7 @@ mod csg {
         let b = translate_shape(&a, 5.0, 0.0, 0.0).unwrap();
         let u = union(&a, &b).unwrap();
         close(u.volume().abs(), 1500.0, 1e-4, "union");
-        // Face sebidang di sambungan digabung (`clean()` OCCT / topologi logis truck).
+        // Face sebidang di sambungan digabung (topologi logis).
         assert_eq!(counts(&u), (6, 12));
         let i = intersect(&a, &b).unwrap();
         close(i.volume().abs(), 500.0, 1e-4, "intersect");

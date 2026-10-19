@@ -1,5 +1,5 @@
-//! Properti massa (P16): volume, pusat massa, dan tensor inersia eksak dari
-//! B-rep, plus momen/sumbu utama. Semua nilai di sini GEOMETRIS (densitas
+//! Properti massa (P16): volume, pusat massa, dan tensor inersia dari
+//! tesselasi B-rep yang konvergen (±`VOLUME_REL_TOL`), plus momen/sumbu utama. Semua nilai di sini GEOMETRIS (densitas
 //! 1) — pemanggil mengalikan densitas material sendiri.
 
 use crate::shape::KernelShape;

@@ -1,9 +1,9 @@
 //! HLR lembar gambar backend truck (PLAN_MIGRASI_TRUCK §4.1, F4.2): hybrid
-//! B-rep + mesh, pengganti `HLRBRep_Algo` OCCT.
+//! B-rep + mesh.
 //!
 //! - **Garis kandidat** = edge logis B-rep (`super::topology`), bukan rusuk
 //!   segitiga. Seam dan edge mulus (tangen, mis. batas fillet) tidak
-//!   digambar, sama seperti keluaran "sharp" HLR OCCT.
+//!   digambar (keluaran "sharp", ISO 128).
 //! - **Siluet** permukaan lengkung dicari di mesh tampilan (rusuk dalam satu
 //!   face yang memisahkan segitiga menghadap/membelakangi pemirsa), lalu
 //!   di-*snap* ke generatris/lingkaran analitik silinder, kerucut, dan bola
@@ -379,7 +379,7 @@ fn normal_at(topo: &Topology, f: usize, p: DVec3) -> Option<DVec3> {
 }
 
 /// Edge di antara dua face yang bersinggungan (tangen) — tidak digambar,
-/// seperti garis "smooth" yang tidak termasuk keluaran sharp HLR OCCT.
+/// garis "smooth" tidak termasuk keluaran sharp.
 fn is_smooth(topo: &Topology, faces: &[usize], mid: DVec3) -> bool {
     let [f0, f1] = faces else {
         return false;
@@ -869,8 +869,8 @@ pub(crate) fn exact_projected_view(
     })
 }
 
-/// `crate::hlr_exact::extract_exact_hlr` — konvensi sama dengan OCCT
-/// (`gp_Ax2(asal, N, Vx)`): `view_dir` = normal bidang proyeksi (menuju
+/// `crate::hlr_exact::extract_exact_hlr` — konvensi sistem sumbu kanan
+/// `(asal, N, Vx)`: `view_dir` = normal bidang proyeksi (menuju
 /// pemirsa), `up` = sumbu X gambar.
 pub fn extract_exact_hlr(
     shape: &KernelShape,

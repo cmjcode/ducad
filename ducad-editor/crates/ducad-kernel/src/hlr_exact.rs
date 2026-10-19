@@ -1,4 +1,4 @@
-//! Hidden Line Removal EKSAK di atas `HLRBRep_Algo` (P4.1).
+//! Hidden Line Removal EKSAK di atas topologi B-rep (P4.1).
 //!
 //! # Kenapa ada, padahal `hlr.rs` sudah ada
 //!
@@ -14,10 +14,11 @@
 //!   toleransi mesh mengubah gambar tekniknya.
 //! - Rusuk yang berimpit dengan permukaan sering salah diklasifikasi.
 //!
-//! Modul ini memakai algoritma HLR sungguhan milik OCCT, yang bekerja pada
-//! topologi B-rep. Hasilnya kurva analitik: lingkaran tetap lingkaran.
+//! Modul ini bekerja pada topologi B-rep (`backend::hlr_mesh`): garis
+//! kandidat = edge logis, posisi siluet di-snap ke permukaan analitik.
+//! Hasilnya kurva analitik: lingkaran tetap lingkaran.
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::hlr_exact::*;
 
 /// Jenis garis hasil HLR, sesuai penggambaran ISO 128.
@@ -43,8 +44,7 @@ impl ExactLineKind {
     }
 }
 
-/// Jenis kurva asal sebuah [`ExactCurve2D`]. Cermin `EdgeType` OCCT, tapi
-/// milik DUCAD supaya API publik tidak membocorkan tipe backend mana pun
+/// Jenis kurva asal sebuah [`ExactCurve2D`]. Milik DUCAD supaya API publik tidak membocorkan tipe backend mana pun
 /// (PLAN_MIGRASI_TRUCK §3: API publik beku dan netral-backend).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExactCurveType {

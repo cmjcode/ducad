@@ -223,7 +223,7 @@ fn closest_in(root: &Node, all: &[[V3; 3]], origin: V3, dir: V3, skip: u32) -> O
 
 /// Penembak sinar atas satu mesh yang BVH-nya dibangun sekali lalu dipakai
 /// untuk banyak sinar (check DFM menembakkan puluhan sinar per lubang;
-/// [`ray_hit_distance`] membangun ulang BVH tiap panggilan). Tanpa OCCT.
+/// [`ray_hit_distance`] membangun ulang BVH tiap panggilan).
 pub struct MeshRaycaster {
     tris: Vec<[V3; 3]>,
     root: Node,
@@ -309,7 +309,7 @@ pub fn min_wall_thickness(mesh: &KernelMesh, max_samples: usize) -> Option<WallR
             continue;
         }
         // Normal keluar = normal geometri dari urutan (winding) segitiga.
-        // Mesher `opencascade-rs` membalik urutan segitiga untuk face
+        // Mesher kernel lama membalik urutan segitiga untuk face
         // `Reversed`, tetapi TIDAK membalik normal vertex hasil
         // `ComputeNormals` — pada dinding lubang normal vertex menunjuk ke
         // dalam material. Aturan awal rencana ("balik bila berlawanan dengan

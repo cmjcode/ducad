@@ -366,7 +366,7 @@ impl DuCADApp {
             _ => &name,
         };
 
-        // Pagar panik (ADR 0009): command yang panik (OCCT, index di luar
+        // Pagar panik (ADR 0009): command yang panik (kernel, index di luar
         // batas) tidak boleh menutup aplikasi bersama pekerjaan pengguna.
         // Panik lazim terjadi saat menghitung shape, sebelum body disentuh,
         // jadi model biasanya utuh; pengguna diberi tahu dan bisa menyimpan.

@@ -5,9 +5,9 @@ use ducad_engine::inspect::{summarize, DEFAULT_TOPOLOGY_LIMIT};
 use ducad_engine::ops::{Op, OpFile};
 use ducad_engine::{OpErrorCode, Session};
 
-/// Volume vs rumus analitik: 1e-6 di OCCT (eksak), toleransi volume backend
-/// di truck (berbasis tesselasi, PLAN_MIGRASI_TRUCK F5.1).
-const VOL_TOL: f64 = if ducad_kernel::VOLUME_REL_TOL > 1e-6 { ducad_kernel::VOLUME_REL_TOL } else { 1e-6 };
+/// Volume vs rumus analitik: toleransi volume kernel (berbasis tesselasi,
+/// PLAN_MIGRASI_TRUCK F5.1).
+const VOL_TOL: f64 = ducad_kernel::VOLUME_REL_TOL;
 
 fn ops(json: &str) -> Vec<Op> {
     serde_json::from_str(json).unwrap()

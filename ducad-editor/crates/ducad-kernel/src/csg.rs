@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crate::profile::Profile;
 use crate::shape::KernelShape;
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::csg::*;
 
 /// Union banyak shape sekaligus (mis. pemotong pattern/hole sebelum satu

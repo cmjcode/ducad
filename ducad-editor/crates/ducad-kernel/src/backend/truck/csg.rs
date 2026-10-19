@@ -30,7 +30,7 @@ pub(crate) fn one_body(mut bodies: Vec<Body>, what: &str) -> Result<KernelShape>
 ///
 /// SolidCraft hanya meng-extrude tegak lurus bidang sketsa; `normal` yang
 /// miring terhadap bidang `u×v` ditolak (`Unsupported`), sedangkan `normal`
-/// yang berlawanan arah `u×v` membalik arah extrude seperti di OCCT.
+/// yang berlawanan arah `u×v` membalik arah extrude seperti di backend lama (≤ 0.5.x).
 pub fn extrude_profile_on_plane(
     profile: &Profile,
     origin: [f64; 3],
@@ -77,10 +77,10 @@ pub fn revolve_profile(
     let region = region(profile, 1.0)?;
     let origin = Vec2::new(axis_origin.0, axis_origin.1);
     let dir = Vec2::new(axis_dir.0, axis_dir.1);
-    // OCCT memutar tangan-kanan terhadap `axis_dir` apa adanya. SolidCraft
+    // Kontrak DUCAD: revolve tangan-kanan terhadap `axis_dir` apa adanya. SolidCraft
     // membalik tanda sudut parsial bila `axis × radial` berlawanan dengan
     // normal sketsa (radial = dari sumbu ke centroid profil) — kompensasi di
-    // sini dengan aturan yang sama supaya hasil kedua backend berimpit.
+    // sini dengan aturan yang sama supaya hasilnya cocok dengan golden 0.5.x.
     let angle = match angle_degrees {
         None => std::f64::consts::TAU,
         Some(deg) => {
@@ -282,7 +282,7 @@ fn boolean(a: &KernelShape, b: &KernelShape, op: BoolOp, what: &str) -> Result<O
 }
 
 /// Union (gabung material) dua shape. Face sebidang di sambungan tetap
-/// tampil sebagai satu face lewat topologi logis (padanan `clean()` OCCT).
+/// tampil sebagai satu face lewat topologi logis (face sebidang digabung).
 pub fn union(a: &KernelShape, b: &KernelShape) -> Result<KernelShape> {
     match (a.body(), b.body()) {
         (Some(_), Some(_)) => {}

@@ -4,7 +4,7 @@
 //!   x(t) = R(t) * cos(θ(t))
 //!   y(t) = R(t) * sin(θ(t))
 //!   z(t) = pitch * turns * t
-//! dan pembuat Wire serta Solid B-Rep dengan operasi Sweep / Pipe OpenCASCADE.
+//! dan pembuat Wire serta Solid B-Rep dengan operasi sweep helix kernel.
 
 use anyhow::{bail, Result};
 use glam::{dvec3, DVec3};
@@ -12,7 +12,7 @@ use glam::{dvec3, DVec3};
 use crate::profile::{PathSegment, Profile, ProfileSegment};
 use crate::shape::KernelShape;
 
-// Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+// Implementasi backend — lihat `crate::backend`.
 pub use crate::backend::helix::*;
 
 /// Arah putaran ulir / spiral (Handedness).

@@ -1,6 +1,6 @@
 //! Modul backend truck yang belum (sepenuhnya) diporting.
 //!
-//! Signature-nya sama persis dengan backend OCCT; yang belum ada
+//! Signature-nya sama persis dengan API publik; yang belum ada
 //! mengembalikan [`crate::Unsupported`] (engine memetakannya ke kode
 //! `unsupported` + hint), tidak pernah panic.
 

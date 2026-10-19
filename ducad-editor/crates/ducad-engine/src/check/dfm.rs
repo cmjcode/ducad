@@ -1,5 +1,5 @@
 //! Check DFM (design for manufacturing) dan standar (W1): pengukuran murni di
-//! atas `FaceInfo`/`EdgeInfo`/mesh. Tidak ada yang menyentuh OCCT selain
+//! atas `FaceInfo`/`EdgeInfo`/mesh. Tidak ada yang menyentuh kernel B-rep selain
 //! pemanggil yang sudah meng-enumerasi face, jadi semuanya deterministik.
 //!
 //! Batas angka (rasio kedalaman bor, sudut draft, …) TIDAK ditanam di sini:

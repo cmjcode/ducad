@@ -2,7 +2,7 @@
 //! garis/busur 2D hasil HLR sebuah backend ([`ExactLines`]) diubah menjadi
 //! fitur geometris (lingkaran, busur, chamfer, sisi silinder) dan garis
 //! sumbu. Face B-rep yang relevan datang dari backend sebagai
-//! [`SheetFace`], jadi logika ini sama persis untuk OCCT dan truck.
+//! [`SheetFace`], jadi logika ini tidak bergantung pada backend kernel.
 //!
 //! # Konvensi koordinat
 //!
