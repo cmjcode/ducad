@@ -11,7 +11,7 @@ tidak ada UI Swift/Kotlin selain shell minimal.
 |---|---|---|
 | Entry point | binary `ducad` (winit memanggil `UIApplicationMain` sendiri) | `crates/ducad-android` → `libducad_android.so`, dimuat `GameActivity` (`android/app`) |
 | Rendering | wgpu → Metal | wgpu → Vulkan (fallback GLES) |
-| Kernel OCCT | pre-build via `build_ipad.sh` (`crates/ducad-kernel/ios/ios-toolchain.cmake`) | crate `cmake` + `crates/ducad-kernel/android/android-toolchain.cmake` (NDK, `c++_shared`) |
+| Kernel | truck (default, Rust murni — tanpa cmake/NDK C++). OCCT hanya dengan `./build_ipad.sh --kernel occt` (pre-build `crates/ducad-kernel/ios/ios-toolchain.cmake`) | truck (default). OCCT hanya dengan `make android-check KERNEL=occt` (crate `cmake` + `crates/ducad-kernel/android/android-toolchain.cmake`, NDK, `c++_shared`) |
 | Integrasi OS | `ducad-app/src/apple_ios.rs` (objc2) | `android/app/.../MainActivity.kt` (refresh rate, edge-to-edge) |
 | Keputusan platform | `ducad-app/src/platform.rs` (`is_mobile`, `touch_first`, `data_dir`, `documents_dir`, `autosave_path`) | sama |
 | Perilaku tablet | `ducad-app/src/mobile.rs` (autosave, picker asinkron, Pencil, peringatan memori) | sama |
@@ -49,7 +49,7 @@ make android-check | android-so | android-apk       # Android (cargo-ndk + Gradl
 ## Verifikasi
 
 - Desktop: `cargo test -p ducad-app -- mobile:: platform::`, `cargo clippy --workspace --all-targets -- -D warnings`.
-- iPad: `./build_ipad.sh check` (type-check + link OCCT iOS), lalu ceklis B6 di
+- iPad: `./build_ipad.sh check` (type-check; backend truck, tanpa langkah OCCT), lalu ceklis B6 di
   `docs/CEKLIS_UJI_GUI.md` di perangkat/simulator.
 - Android: `make android-check`, lalu ceklis B7.
 

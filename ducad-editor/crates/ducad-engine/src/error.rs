@@ -205,8 +205,9 @@ impl OpError {
         if let Some(u) = err.downcast_ref::<ducad_kernel::Unsupported>() {
             return Self::new(OpErrorCode::Unsupported, format!("{op} gagal: {u}")).with_hint(
                 format!(
-                    "operasi `{}` belum tersedia di backend kernel `{}`; \
-                     pakai build backend OCCT (fitur default) untuk model ini",
+                    "operasi `{}` belum tersedia di backend kernel `{}`; ubah model agar \
+                     tidak memakai operasi ini, atau — selama beta 0.6.0 — jalankan backend \
+                     OCCT (`DUCAD_KERNEL=occt` pada paket beta, atau build `--features kernel-occt`)",
                     u.operation, u.backend
                 ),
             );

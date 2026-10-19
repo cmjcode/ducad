@@ -11,9 +11,12 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
-# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+# lama tetap jalan.
 kernel-truck = ["ducad-kernel/kernel-truck"]
+kernel-occt = ["ducad-kernel/kernel-occt"]
 # Backend AI di perangkat untuk `ducad-cli assist` (P11); mati secara default.
 apple-fm = ["ducad-assist/apple-fm"]
 local-gguf = ["ducad-assist/local-gguf"]

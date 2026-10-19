@@ -37,6 +37,26 @@ yang di luar lingkup kerja agent ini). `.app` akan pakai ikon generik
 sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
 /icon.icns"]`.
 
+## Paket beta 0.6.0 (soak backend kernel)
+
+Selama soak (PLAN_MIGRASI_TRUCK F6.3) paket desktop pra-rilis membawa DUA
+executable: `ducad` (backend truck, default) dan `ducad-occt` (backend
+OpenCASCADE). `DUCAD_KERNEL=occt` membuat `ducad` berpindah ke `ducad-occt`
+(Unix: `exec`, Windows: proses anak); `DUCAD_KERNEL=truck` sebaliknya. Bila
+executable tujuan tidak ada, aplikasi tetap memakai backend bawaannya dan
+mencatat alasannya di log.
+
+- macOS: `make bundle-macos OCCT_FALLBACK=1` → `DUCAD.app/Contents/MacOS/ducad-occt`
+  (setiap executable di `Contents/MacOS` ditandatangani).
+- Linux: `make bundle-linux OCCT_FALLBACK=1`.
+- Windows: `.\build_windows.ps1 bundle -OcctFallback`.
+- CI (`release.yml`): otomatis untuk tag pra-rilis (`vX.Y.Z-beta.N`).
+- iPad/Android: satu backend per build (`--kernel occt` / `KERNEL=occt`).
+
+Jurnal panik `~/.ducad/logs/panics.jsonl` (satu baris JSON per panik: waktu,
+versi, backend, lokasi, pesan; berhenti di 1 MB) adalah bahan laporan soak.
+Tidak dikirim otomatis — updater tidak punya kanal telemetri.
+
 ## Windows / Linux
 
 `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
@@ -90,7 +110,7 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
 - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar
   lingkup kerja kode.
 - **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
-  (pre-build OCCT untuk iOS otomatis). Lihat `docs/TABLET.md`.
+  (backend truck: tanpa pre-build OCCT; `--kernel occt` melakukannya otomatis). Lihat `docs/TABLET.md`.
 - **Android** — `make android-apk` menghasilkan APK debug (lihat
   `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
   alasannya dengan macOS.

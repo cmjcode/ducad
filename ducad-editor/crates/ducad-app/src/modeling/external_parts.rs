@@ -447,7 +447,9 @@ mod tests {
         app.reload_external_part(id).expect("muat ulang harus berhasil");
         let vol = app.model.geometry.get(body).unwrap().shape.volume().abs();
         let expected = std::f64::consts::PI * 25.0 * 30.0;
-        assert!((vol - expected).abs() / expected < 1e-6, "volume {vol}");
+        // Truck: volume dari tesselasi, ±1e-4 (PLAN_MIGRASI_TRUCK §3.1).
+        let tol = ducad_kernel::VOLUME_REL_TOL.max(1e-6);
+        assert!((vol - expected).abs() / expected < tol, "volume {vol}");
         assert!(app.poll_external_sources().is_empty(), "setelah muat ulang tidak lagi basi");
 
         // Lepas tautan.

@@ -14,11 +14,11 @@ pub use crate::backend::csg::*;
 /// berbentuk pohon, tiap tingkat paralel di thread pekerja. Backend OCCT:
 /// lipatan berurutan (kernel diserialkan `KERNEL_LOCK`).
 pub fn union_all(shapes: Vec<KernelShape>) -> Result<KernelShape> {
-    #[cfg(feature = "kernel-truck")]
+    #[cfg(backend_truck)]
     {
         crate::backend::csg::union_many(shapes)
     }
-    #[cfg(not(feature = "kernel-truck"))]
+    #[cfg(backend_occt)]
     {
         let mut it = shapes.into_iter();
         let Some(mut acc) = it.next() else {

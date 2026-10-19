@@ -212,7 +212,9 @@ the `engine_has_no_gui_dependency` test.
 * **Rust Toolchain**: stable, installed by `rustup` from the pinned
   `rust-toolchain.toml` (which also guarantees `rustfmt` and `clippy`, so the
   quality gates run anywhere without extra setup).
-* **C/C++ Compiler & CMake**: CMake ≥ 3.16 and a C++17 compiler (Clang/GCC/MSVC) to compile the OpenCASCADE (OCCT) kernel.
+* **C/C++ Compiler & CMake**: only for the optional OpenCASCADE (OCCT)
+  backend (`--features kernel-occt`, kept during the 0.6.0-beta soak). The
+  default geometry kernel (SolidCraft on truck) is pure Rust and needs neither.
 * **Operating System**:
   * **macOS** (Apple Silicon) and **iPadOS** — the primary targets; both are
     packaged from `ducad-editor/apple/` and exercised by hand.
@@ -237,11 +239,18 @@ cd ducad/ducad-editor
 # Already cloned without the flag? Fetch the submodule now:
 #   git submodule update --init --recursive
 
-# Run the application (the first compilation builds the OCCT kernel, ~8-15 minutes)
+# Run the application (default kernel: SolidCraft/truck, pure Rust)
 cargo run -p ducad-app
+
+# Optional during the 0.6.0-beta soak: the OpenCASCADE backend instead
+# (the first compilation builds the OCCT C++ library, ~8-15 minutes)
+cargo run -p ducad-app --features kernel-occt
 ```
 
-> **First-Time Compilation Tip**: The initial compilation of `occt-sys` from source takes several minutes to build the entire OpenCASCADE C++ library. The build output is cached in the `target/` directory so subsequent compilations run instantly.
+> **Kernel backend**: the default build compiles no C++ at all. The submodule is
+> still required for now because Cargo resolves every `[patch.crates-io]` entry,
+> even for an optional dependency; it goes away when OCCT is removed
+> (`ducad-editor/docs/PLAN_MIGRASI_TRUCK.md`, F6.4).
 
 > **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
 

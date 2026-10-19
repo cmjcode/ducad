@@ -185,7 +185,7 @@ pub fn apply_holes(
     if positions.is_empty() {
         bail!("posisi lubang tidak boleh kosong");
     }
-    if cfg!(feature = "kernel-truck") && positions.len() > 1 {
+    if cfg!(backend_truck) && positions.len() > 1 {
         let cutters = positions
             .iter()
             .map(|p| create_hole_cutter(spec, *p, normal))

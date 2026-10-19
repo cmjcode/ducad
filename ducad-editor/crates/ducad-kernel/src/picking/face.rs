@@ -9,7 +9,7 @@ pub use crate::backend::picking_face::*;
 /// utk kasus ray oblique pada wajah sweep/samping (root cause BUKAN
 /// toleransi — lihat `resolve_planar_face_along_ray_fallback` di bawah)
 /// tapi tetap dipertahankan sebagai margin aman kecil, tidak merugikan.
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+#[cfg_attr(backend_truck, allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 pub(crate) const FACE_PICK_TOLERANCE_MM: f64 = 0.01;
 
 /// Tipe permukaan geometris analitik OCCT di balik sebuah `Face`, hasil

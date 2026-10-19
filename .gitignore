@@ -10,6 +10,10 @@ dist/
 node_modules/
 **/node_modules/
 vendor/
+# Crate truck hasil tambalan SolidCraft adalah SUMBER yang wajib ikut repo:
+# `[patch.crates-io]` di ducad-editor/Cargo.toml menunjuk ke sini, dan tanpa
+# folder ini Cargo gagal me-resolve dependensi (PLAN_MIGRASI_TRUCK F6).
+!ducad-editor/vendors/solidcraft/vendor/
 .env
 build_apple.sh
 ducad-editor/notarize.sh

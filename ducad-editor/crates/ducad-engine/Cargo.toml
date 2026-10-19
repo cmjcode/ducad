@@ -25,7 +25,10 @@ usvg = { version = "0.48", optional = true, default-features = false }
 
 [features]
 default = []
-# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
-# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+# lama tetap jalan.
 kernel-truck = ["ducad-kernel/kernel-truck"]
+kernel-occt = ["ducad-kernel/kernel-occt"]
 raster = ["dep:resvg", "dep:usvg"]

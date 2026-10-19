@@ -10,7 +10,7 @@ Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dar
 cargo run -p ducad-app
 ```
 
-> **Catatan Kompilasi Pertama**: Build pertama kali akan mengompilasi pustaka OpenCASCADE (OCCT) dari *source* (~8-15 menit). Kompilasi selanjutnya di-cache di folder `target/` sehingga aplikasi akan langsung terbuka secara instan.
+> **Kernel geometri**: sejak 0.6.0-beta kernel bawaan adalah SolidCraft/truck (Rust murni, tanpa kompilasi C++). Backend OpenCASCADE (OCCT) masih tersedia selama masa uji beta: build dengan `cargo run -p ducad-app --features kernel-occt` (build pertama mengompilasi OCCT, ~8-15 menit), atau — pada paket beta yang membawa `ducad-occt` — jalankan aplikasi dengan variabel lingkungan `DUCAD_KERNEL=occt`. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah beta.
 
 ---
 

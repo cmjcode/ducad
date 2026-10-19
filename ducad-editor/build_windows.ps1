@@ -46,6 +46,15 @@
 .PARAMETER Features
     Optional extra features to pass to cargo build (e.g. "local-gguf").
 
+.PARAMETER Kernel
+    Geometry kernel backend: 'truck' (default; pure Rust, no CMake/OCCT) or
+    'occt' (OpenCASCADE, needs CMake; kept only for the 0.6.0-beta soak,
+    PLAN_MIGRASI_TRUCK F6).
+
+.PARAMETER OcctFallback
+    Also build an OCCT variant of the app as ducad-occt.exe next to ducad.exe
+    (soak 0.6.0-beta). Users switch with DUCAD_KERNEL=occt.
+
 .EXAMPLE
     .\build_windows.ps1
     # Builds DUCAD app in release mode.
@@ -80,6 +89,9 @@ param(
     [switch]$Deps,
     [switch]$SyncVersion,
     [string]$Features = "",
+    [ValidateSet("truck", "occt")]
+    [string]$Kernel = "truck",
+    [switch]$OcctFallback,
     [Alias("h")]
     [switch]$Help
 )
@@ -179,7 +191,8 @@ Write-Host "==========================================================" -Foregro
 Write-Host "  DUCAD Editor Windows Build System (v$Version)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Status "Direktori Kerja : $EditorDir"
-Write-Status "Target          : $Target | Profil: $Profile"
+Write-Status "Target          : $Target | Profil: $Profile | Kernel: $Kernel"
+$NeedsOcct = ($Kernel -eq "occt") -or $OcctFallback
 
 # --- Setup Visual Studio / MSVC Build Environment ---
 function Initialize-MsvcEnvironment {
@@ -237,8 +250,9 @@ function Check-Prerequisites {
         exit 1
     }
 
-    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-        Write-Warning "CMake tidak ditemukan di PATH. Crate native seperti OpenCASCADE membutuhkan CMake."
+    # Backend truck (default) adalah Rust murni: CMake hanya perlu untuk OCCT.
+    if ($NeedsOcct -and -not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        Write-Warning "CMake tidak ditemukan di PATH. Backend OCCT (-Kernel occt / -OcctFallback) membutuhkan CMake."
     }
 
     Initialize-MsvcEnvironment
@@ -347,15 +361,26 @@ function Format-FileSize([long]$bytes) {
 }
 
 # --- Build Execution ---
-function Invoke-DucadBuild([string]$packageName, [string]$binaryName) {
+function Invoke-DucadBuild([string]$packageName, [string]$binaryName, [string]$kernel = $Kernel) {
     $cargoArgs = @("build")
     if ($Profile -eq "release") {
         $cargoArgs += "--release"
     }
     $cargoArgs += @("-p", $packageName)
 
-    if ($Features) {
-        $cargoArgs += @("--features", $Features)
+    $featureList = @()
+    if ($Features) { $featureList += $Features }
+    $buildTargetDir = $TargetDir
+    if ($kernel -eq "occt") {
+        $featureList += "kernel-occt"
+        # Direktori target terpisah (bukan "occt": bentrok dengan target\OCCT di NTFS) agar build OCCT tidak menimpa hasil build truck.
+        if ($kernel -ne $Kernel) {
+            $buildTargetDir = Join-Path $TargetDir "kernel-occt"
+            $cargoArgs += @("--target-dir", $buildTargetDir)
+        }
+    }
+    if ($featureList.Count -gt 0) {
+        $cargoArgs += @("--features", ($featureList -join ","))
     }
 
     Write-Status "Menjalankan: cargo $($cargoArgs -join ' ')"
@@ -367,7 +392,7 @@ function Invoke-DucadBuild([string]$packageName, [string]$binaryName) {
 
     # Lokasi binary hasil build
     $binSubDir = if ($Profile -eq "release") { "release" } else { "debug" }
-    $builtExe = Join-Path $TargetDir "$binSubDir\$binaryName.exe"
+    $builtExe = Join-Path $buildTargetDir "$binSubDir\$binaryName.exe"
 
     if (-not (Test-Path $builtExe)) {
         Write-ErrorMsg "Binary hasil kompilasi tidak ditemukan di $builtExe"
@@ -485,6 +510,15 @@ switch ($Target) {
 
     "bundle" {
         $exe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad"
+        if ($OcctFallback -and $Kernel -eq "truck") {
+            # Soak 0.6.0-beta: ducad-occt.exe di samping ducad.exe; DUCAD_KERNEL=occt
+            # membuat ducad.exe menjalankannya (crates/ducad-app/src/kernel_select.rs).
+            $occtExe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad" -kernel "occt"
+            if (-not (Test-Path $WindowsDistDir)) {
+                New-Item -ItemType Directory -Path $WindowsDistDir -Force | Out-Null
+            }
+            Copy-Item -Path $occtExe -Destination (Join-Path $WindowsDistDir "ducad-occt.exe") -Force
+        }
         Package-Windows -exePath $exe -createZip $true
         $builtExes += $exe
     }

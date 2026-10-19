@@ -17,6 +17,7 @@
 #
 # Options:
 #   --debug           - Build debug configuration (default: release)
+#   --kernel <K>      - Backend kernel: truck (default, tanpa OCCT/cmake) atau occt
 #   --bundle-id <ID>  - Custom bundle ID (default: $APPLE_BUNDLE_ID or id.jayuda.ducad.ios)
 #   --sim-name <NAME> - Target simulator name (default: auto-detect booted or iPad Pro / Air)
 #   --identity <ID>   - Code signing identity
@@ -125,6 +126,10 @@ TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
 ENTITLEMENTS_FILE="$EDITOR_DIR/crates/ducad-app/ios/DUCAD-iOS.entitlements"
 
 ACTION="device"
+# Backend kernel (PLAN_MIGRASI_TRUCK F6.1): truck = Rust murni, tidak ada
+# langkah OCCT/cmake sama sekali. `--kernel occt` hanya untuk pembanding
+# selama soak 0.6.0-beta (dihapus di F6.4).
+KERNEL="${DUCAD_KERNEL_BUILD:-truck}"
 CUSTOM_SIM_NAME=""
 CUSTOM_IDENTITY="${APPLE_IDENTITY:-}"
 PROVISIONING_PROFILE="${PROVISIONING_PROFILE:-}"
@@ -151,6 +156,7 @@ show_help() {
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --debug          - Compile in debug mode instead of release"
+    echo "  --kernel <K>     - Kernel backend: truck (default, no OCCT/cmake) or occt"
     echo "  --bundle-id <ID> - Override Apple Bundle Identifier"
     echo "  --sim-name <NAME>- Specify Simulator device name (e.g., 'iPad Pro 11-inch (M4)')"
     echo "  --identity <ID>  - Signing identity (e.g., 'Apple Development: ...')"
@@ -213,6 +219,10 @@ while [[ $# -gt 0 ]]; do
             APPLE_BUNDLE_ID="$2"
             shift 2
             ;;
+        --kernel)
+            KERNEL="$2"
+            shift 2
+            ;;
         --sim-name)
             CUSTOM_SIM_NAME="$2"
             shift 2
@@ -236,6 +246,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+case "$KERNEL" in
+    truck) KERNEL_FEATURES=() ;;
+    occt) KERNEL_FEATURES=(--features kernel-occt) ;;
+    *)
+        print_error "Unknown kernel backend: $KERNEL (truck|occt)"
+        exit 1
+        ;;
+esac
 
 # --- 5. Environment & Toolchain Setup ---
 ensure_occt_built() {
@@ -328,7 +347,11 @@ setup_toolchain() {
     unset CC
     unset CXX
 
-    ensure_occt_built "$target"
+    if [ "$KERNEL" = "occt" ]; then
+        ensure_occt_built "$target"
+    else
+        print_status "Kernel backend: truck (Rust murni) — langkah OCCT/cmake dilewati"
+    fi
 }
 
 install_dependencies() {
@@ -512,7 +535,7 @@ codesign_bundle() {
 do_check() {
     print_status "Running cargo check for iOS target ($IOS_ARM_TARGET)..."
     setup_toolchain
-    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME"
+    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME" "${KERNEL_FEATURES[@]}"
     print_success "cargo check passed for iOS target!"
 }
 
@@ -537,7 +560,7 @@ build_app_bundle() {
     print_status "Building $PKG_NAME for target $target ($BUILD_MODE)..."
     setup_toolchain "$target"
     
-    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target"
+    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target" "${KERNEL_FEATURES[@]}"
     
     local bin_source="$EDITOR_DIR/target/$target/$BUILD_SUBDIR/$BIN_NAME"
     if [ ! -f "$bin_source" ]; then

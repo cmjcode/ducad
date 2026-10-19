@@ -661,7 +661,7 @@ fn fillet_concave_inner_vertex_succeeds() {
 
 #[test]
 #[cfg_attr(
-    feature = "kernel-truck",
+    backend_truck,
     ignore = "R2: SolidCraft menolak chamfer sudut campuran cekung+cembung (blend lebih besar dari face tetangga)"
 )]
 fn chamfer_concave_inner_vertex_succeeds() {
@@ -941,7 +941,7 @@ fn test_extrude_face_cylinder_top() {
     assert!(taller_cylinder.tessellate().triangle_count() > 0);
 }
 
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // hanya tes `occt_only`
+#[cfg_attr(backend_truck, allow(dead_code))] // hanya tes `occt_only`
 fn assert_close(actual: f64, expected: f64, label: &str) {
     let rel_diff = (actual - expected).abs() / expected.abs().max(1e-9);
     assert!(
@@ -1793,7 +1793,7 @@ fn test_extract_shape_edges_for_box() {
 
 #[test]
 #[cfg_attr(
-    feature = "kernel-truck",
+    backend_truck,
     ignore = "klaim format OCCT (BREP biner vs STEP); cache native truck bukan BREP OCCT"
 )]
 fn brep_bytes_are_much_smaller_than_step_text() {
@@ -2980,7 +2980,7 @@ fn test_pick_face_index_maps_to_exact_mesh_triangles() {
 
 /// Toleransi relatif properti massa body lengkung: OCCT eksak (`BRepGProp`),
 /// truck dari tesselasi halus (PLAN_MIGRASI_TRUCK §3.1).
-const CURVED_MASS_TOL: f64 = if cfg!(feature = "kernel-truck") { 1e-4 } else { 1e-6 };
+const CURVED_MASS_TOL: f64 = if cfg!(backend_truck) { 1e-4 } else { 1e-6 };
 
 fn assert_rel(actual: f64, expected: f64, tol: f64, what: &str) {
     let denom = expected.abs().max(1e-12);
@@ -3379,7 +3379,7 @@ fn exact_sheet_detects_chamfer_and_fillet_in_section() {
 }
 
 /// Tes yang menyentuh tipe/helper OCCT (`inner()`, `deep_clone`, `opencascade::…`).
-#[cfg(not(feature = "kernel-truck"))]
+#[cfg(backend_occt)]
 mod occt_only {
     use super::*;
     use opencascade::adhoc::AdHocShape;

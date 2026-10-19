@@ -146,7 +146,7 @@ pub(crate) fn arc_about(
 
 /// Cocokkan titik sampel sebuah edge lingkaran (pusat belum diketahui) ke
 /// busur 2D.
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // truck tahu pusatnya dari B-rep
+#[cfg_attr(backend_truck, allow(dead_code))] // truck tahu pusatnya dari B-rep
 pub(crate) fn fit_arc(pts: &[DVec2], kind: HlrLineKind) -> Option<HlrArc2D> {
     let n = pts.len();
     if n < 3 {

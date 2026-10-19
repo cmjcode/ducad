@@ -65,7 +65,7 @@ impl IsoThreadProfile {
 /// dengan sumbu lewat `axis_origin` searah `axis_dir`; ulir mulai di
 /// `axis_origin` dan berjalan sejauh `length`.
 // Truck keluar lebih awal ke `backend::thread` (ulir facet).
-#[cfg_attr(feature = "kernel-truck", allow(unreachable_code, unused_variables))]
+#[cfg_attr(backend_truck, allow(unreachable_code, unused_variables))]
 pub fn cut_iso_thread(
     shape: &KernelShape,
     axis_origin: [f64; 3],
@@ -111,7 +111,7 @@ pub fn cut_iso_thread(
     );
     // Backend truck: boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK
     // R4) — pakai ulir facet (§4.2 pilihan A).
-    #[cfg(feature = "kernel-truck")]
+    #[cfg(backend_truck)]
     return crate::backend::thread::cut_faceted(
         shape,
         axis_origin,

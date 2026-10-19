@@ -1,9 +1,14 @@
 name: release
 
 # Paket rilis Windows + Linux: aplikasi GUI (`ducad`) beserta binary
-# headless (`ducad-cli` + `ducad-mcp`). Kompilasi OCCT ±15 menit membuat
-# `cargo install` di runner pengguna tidak layak, jadi tarball `ducad-tools-*`
-# juga dipakai templat `ducad-editor/docs/ci/ducad-build.yml`.
+# headless (`ducad-cli` + `ducad-mcp`). Tarball `ducad-tools-*` juga dipakai
+# templat `ducad-editor/docs/ci/ducad-build.yml`.
+#
+# Backend kernel (PLAN_MIGRASI_TRUCK F6): semua binary memakai backend truck
+# (default, Rust murni). Untuk versi PRA-RILIS (`X.Y.Z-beta.N`, soak 0.6.0)
+# paket aplikasi juga membawa `ducad-occt<exe>` — aplikasi yang sama dengan
+# backend OpenCASCADE; penguji beralih dengan `DUCAD_KERNEL=occt`
+# (crates/ducad-app/src/kernel_select.rs). Rilis final tidak membawanya.
 #
 # Pembaruan otomatis di aplikasi (`crates/ducad-update`) membaca rilis
 # `latest` dan mencocokkan NAMA aset — ubah pola nama di sini = ubah juga
@@ -128,15 +133,25 @@ jobs:
         run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache artefak build OCCT
+        if: contains(needs.version.outputs.version, '-')
         uses: actions/cache@v4
         with:
-          path: ducad-editor/target/release/build
+          path: ducad-editor/target/kernel-occt/release/build
           key: occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
           restore-keys: |
             occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
 
       - name: Build
         run: cargo build --release -p ducad-app -p ducad-cli -p ducad-mcp
+
+      # Soak 0.6.0-beta: varian OCCT aplikasi sebagai cadangan. Direktori
+      # target terpisah ("kernel-occt", bukan "occt": bentrok dengan
+      # target/OCCT di NTFS) supaya tidak menimpa binary truck di atas.
+      - name: Build varian OCCT (pra-rilis)
+        if: contains(needs.version.outputs.version, '-')
+        run: >
+          cargo build --release -p ducad-app --bin ducad --features kernel-occt
+          --target-dir target/kernel-occt
 
       - name: Uji asap
         run: |
@@ -156,6 +171,9 @@ jobs:
           TOOLS="ducad-tools-$PLATFORM"
           mkdir -p "dist/ci/$APP" "dist/ci/$TOOLS"
           for b in ducad ducad-cli ducad-mcp; do cp "target/release/$b$EXE" "dist/ci/$APP/"; done
+          if [ -f "target/kernel-occt/release/ducad$EXE" ]; then
+            cp "target/kernel-occt/release/ducad$EXE" "dist/ci/$APP/ducad-occt$EXE"
+          fi
           cp assets/icon.png "dist/ci/$APP/"
           printf '%s\n' "$VERSION" > "dist/ci/$APP/VERSION"
           cp "target/release/ducad-cli$EXE" "target/release/ducad-mcp$EXE" "dist/ci/$TOOLS/"

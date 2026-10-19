@@ -8,9 +8,12 @@ description = "Asisten AI lokal/offline DUCAD: model mengusulkan aksi, hasilnya 
 
 [features]
 default = []
-# Backend kernel truck (PLAN_MIGRASI_TRUCK F2): `--features kernel-truck`
-# mengalihkan seluruh graf ke SolidCraft/truck (menang atas OCCT default).
+# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+# lama tetap jalan.
 kernel-truck = ["ducad-engine/kernel-truck"]
+kernel-occt = ["ducad-engine/kernel-occt"]
 # Backend GGUF lokal di CPU (candle). Model tidak dibundel: lihat docs/adr/0002-ai-lokal.md.
 local-gguf = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers"]
 # Backend Apple Foundation Models lewat pustaka Swift statis (macOS 26+).

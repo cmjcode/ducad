@@ -272,8 +272,9 @@ fn visibility_runs(
     let closed = (poly[0] - poly[poly.len() - 1]).length() < 1e-9 * (1.0 + total);
     if closed && out.len() > 1 && out[0].1 == out[out.len() - 1].1 {
         let (first, _) = out.remove(0);
-        let last = out.last_mut().expect("len > 1");
-        last.0.extend(first.into_iter().skip(1));
+        if let Some(last) = out.last_mut() {
+            last.0.extend(first.into_iter().skip(1));
+        }
     }
     out
 }

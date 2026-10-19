@@ -27,6 +27,7 @@ pub mod freehand;
 pub mod history_db;
 pub mod import_worker;
 pub mod industry_ui;
+pub mod kernel_select;
 pub mod ink;
 pub mod input;
 pub mod live_tools;

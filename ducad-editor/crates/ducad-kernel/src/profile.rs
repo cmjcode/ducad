@@ -113,7 +113,7 @@ pub(crate) fn bezier_is_degenerate(
 }
 
 /// Tukar arah satu segmen profil.
-#[cfg_attr(feature = "kernel-truck", allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+#[cfg_attr(backend_truck, allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
 pub(crate) fn reverse_profile_segment(seg: ProfileSegment) -> ProfileSegment {
     match seg {
         ProfileSegment::Line { start, end } => ProfileSegment::Line {

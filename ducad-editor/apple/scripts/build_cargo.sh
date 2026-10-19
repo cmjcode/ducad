@@ -61,6 +61,17 @@ esac
 
 echo "🎯 Selected Rust Target: $RUST_TARGET"
 
+# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck (default, Rust murni — tanpa
+# langkah OCCT/cmake) atau occt (pembanding selama soak 0.6.0-beta). Xcode:
+# set DUCAD_KERNEL_BUILD=occt di environment build scheme bila perlu.
+KERNEL="${DUCAD_KERNEL_BUILD:-truck}"
+case "$KERNEL" in
+    truck) KERNEL_FLAGS="" ;;
+    occt) KERNEL_FLAGS="--features kernel-occt" ;;
+    *) echo "error: DUCAD_KERNEL_BUILD harus truck atau occt, bukan '$KERNEL'" >&2; exit 1 ;;
+esac
+echo "🧱 Kernel backend: $KERNEL"
+
 # 3. Configure iOS toolchain & OCCT if compiling for iOS/iPadOS
 TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
 if [[ "$RUST_TARGET" == *"apple-ios-sim"* ]] || [ "${PLATFORM_NAME:-}" = "iphonesimulator" ]; then
@@ -87,7 +98,7 @@ unset LDFLAGS
 unset CC
 unset CXX
 
-if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
+if [[ "$RUST_TARGET" == *"apple-ios"* ]] && [ "$KERNEL" = "occt" ]; then
     export CMAKE_POLICY_VERSION_MINIMUM="3.5"
     if [ -f "$TOOLCHAIN_FILE" ]; then
         export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
@@ -155,7 +166,7 @@ if [[ "$RUST_TARGET" == *"apple-ios"* ]]; then
 fi
 
 # 4. Run Cargo Build
-CARGO_FLAGS="--target $RUST_TARGET -p ducad-app"
+CARGO_FLAGS="--target $RUST_TARGET -p ducad-app $KERNEL_FLAGS"
 BUILD_SUBDIR="release"
 
 if [ "${CONFIGURATION}" = "Debug" ] && [ "${ACTION}" != "install" ]; then

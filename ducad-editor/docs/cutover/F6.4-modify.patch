@@ -1,0 +1,3218 @@
+diff --git a/.cargo/config.toml b/.cargo/config.toml
+index 00f0e023..dd2a54b4 100644
+--- a/.cargo/config.toml
++++ b/.cargo/config.toml
+@@ -1,22 +1,3 @@
+-[env]
+-# occt-sys (dependensi ducad-kernel) membawa CMakeLists.txt bawaan OCCT
+-# yang pakai `cmake_minimum_required` versi lama; CMake >= 4.0 (terinstal di
+-# banyak mesin dev sekarang) menghapus dukungan untuk itu dan build gagal di
+-# langkah konfigurasi. Override ini bikin CMake tetap menerima project lama
+-# tanpa menambal source OCCT sendiri — build script `cmake` crate membaca
+-# env var ini otomatis. Kalau OCCT naik versi dan ini sudah tidak perlu,
+-# aman dihapus (bukan bagian dari API DUCAD).
+-CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+-
+-# Fase 6 (port iPad): paksa occt-sys memakai SDK/arsitektur iOS saat cross-
+-# compile ke aarch64-apple-ios, bukan diam-diam jatuh ke SDK macOS host.
+-# Nama var `CMAKE_TOOLCHAIN_FILE_<target_dengan_garis_bawah>` adalah
+-# konvensi yang dibaca crate `cmake` (dipakai occt-sys) lewat
+-# `getenv_target_os` — lihat komentar penuh di
+-# crates/ducad-kernel/ios/ios-toolchain.cmake. `relative = true` supaya
+-# path selalu benar tak peduli dari direktori mana `cargo` dipanggil.
+-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "ducad-editor/crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+-
+ [target.aarch64-apple-ios]
+ rustflags = [
+     "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.ios.a",
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 0da72a08..7f2604a4 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -13,10 +13,6 @@ concurrency:
+ env:
+   CARGO_TERM_COLOR: always
+   RUST_BACKTRACE: 1
+-  # OCCT membawa CMakeLists dengan `cmake_minimum_required` di bawah batas
+-  # yang diterima CMake 4.x. Nilai ini mencerminkan
+-  # `ducad-editor/.cargo/config.toml` supaya CI identik dengan build lokal.
+-  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+ 
+ defaults:
+   run:
+@@ -26,7 +22,7 @@ defaults:
+ 
+ jobs:
+   # ---------------------------------------------------------------------
+-  # Lane cepat (< 2 menit): tidak menyentuh OCCT sama sekali.
++  # Lane cepat (< 2 menit): crate tanpa kernel.
+   # ---------------------------------------------------------------------
+   # Basis kode belum pernah dilewatkan rustfmt: `cargo fmt --all --check`
+   # saat ini melaporkan ~1.628 selisih yang tersebar di hampir seluruh
+@@ -52,7 +48,6 @@ jobs:
+     runs-on: ubuntu-latest
+     continue-on-error: true
+     steps:
+-      # Tanpa submodule: rustfmt hanya mem-parse berkas, tidak pernah build.
+       - uses: actions/checkout@v4
+       - uses: dtolnay/rust-toolchain@1.96.1
+         with:
+@@ -72,8 +67,8 @@ jobs:
+           workspaces: ducad-editor
+           key: quick
+       # `ducad-core`/`-sketch`/`-render`/`-i18n`/`-cloud`/`-update` tidak
+-      # bergantung pada `ducad-kernel`, jadi tidak butuh OCCT dan memberi sinyal gagal
+-      # dalam hitungan menit alih-alih belasan menit.
++      # bergantung pada `ducad-kernel`, jadi memberi sinyal gagal dalam
++      # hitungan menit.
+       - name: clippy
+         run: >
+           cargo clippy
+@@ -86,22 +81,13 @@ jobs:
+           -p ducad-core -p ducad-sketch -p ducad-render -p ducad-i18n -p ducad-cloud
+           -p ducad-update
+ 
+-  # Backend kernel truck (PLAN_MIGRASI_TRUCK F2–F6, default sejak F6):
+-  # `ducad-kernel` tanpa OCCT, jadi cukup beberapa menit. Tes modul (`tests`)
+-  # dan kontrak (`contract_tests`) identik dengan yang dijalankan backend
+-  # OCCT di lane penuh — lulus di keduanya = paritas. `tests/fuzz_boolean.rs`
+-  # ikut (24 seed; gate F3 penuh: `SEEDS=0..95`).
+-  #
+-  # Submodule tetap di-checkout walau OCCT tidak dikompilasi: Cargo memuat
+-  # setiap entri `[patch.crates-io]` (vendors/opencascade-rs) saat resolusi
+-  # dependensi, dan gagal bila path-nya tidak ada. Hilang di F6.4.
++  # Kernel (SolidCraft/truck): clippy + tes modul/kontrak + fuzz boolean
++  # (`tests/fuzz_boolean.rs`, 24 seed; gate penuh: `SEEDS=0..95`) + wasm32.
+   truck:
+-    name: kernel truck (clippy + test + wasm32)
++    name: kernel (clippy + test + wasm32)
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@v4
+-        with:
+-          submodules: recursive
+       - uses: dtolnay/rust-toolchain@1.96.1
+         with:
+           components: clippy
+@@ -112,20 +98,17 @@ jobs:
+           key: truck
+       - name: clippy
+         run: >
+-          cargo clippy -p ducad-kernel --no-default-features --features kernel-truck
+-          --all-targets -- -D warnings
++          cargo clippy -p ducad-kernel --all-targets -- -D warnings
+       - name: test
+-        run: cargo test -p ducad-kernel --no-default-features --features kernel-truck
+-      # F6.2: kernel truck terkompilasi untuk web (rayon dipagari
++        run: cargo test -p ducad-kernel
++      # F6.2: kernel terkompilasi untuk web (rayon dipagari
+       # `target_arch = "wasm32"` di SolidCraft `par.rs`; tanpa thread pool).
+       - name: check wasm32
+-        run: >
+-          cargo check -p ducad-kernel --no-default-features --features kernel-truck
+-          --target wasm32-unknown-unknown
++        run: cargo check -p ducad-kernel --target wasm32-unknown-unknown
+ 
+   # Updater aplikasi punya jalur khusus per OS (`cfg(target_os)`: hdiutil/
+   # codesign/lipo di macOS, zip di Windows, tar di Linux). Lane penuh tidak
+-  # menjalankan macOS, jadi crate ini (tanpa OCCT, < 2 menit) dicek di
++  # menjalankan macOS, jadi crate ini (< 2 menit) dicek di
+   # ketiga OS di sini.
+   update:
+     name: ducad-update (${{ matrix.os }})
+@@ -147,14 +130,11 @@ jobs:
+       - run: cargo test -p ducad-update
+ 
+   # ---------------------------------------------------------------------
+-  # Lane penuh. Backend default = truck (PLAN_MIGRASI_TRUCK F6). Selama soak
+-  # 0.6.0-beta backend OCCT tetap diuji di sini lewat `--features kernel-occt`
+-  # (membangun OCCT, ~10-15 menit tanpa cache) — langkah cmake & OCCT hilang
+-  # di F6.4.
++  # Lane penuh: seluruh workspace, Linux + Windows (Rust murni, tanpa cmake).
+   #
+-  # Hanya Linux + Windows. Paket macOS hanya dibangun di mesin lokal
+-  # (Developer ID + notarisasi: `make bundle-macos` + `./notarize.sh`);
+-  # jalankan `cargo test --workspace` di macOS sebelum rilis.
++  # Paket macOS hanya dibangun di mesin lokal (Developer ID + notarisasi:
++  # `make bundle-macos` + `./notarize.sh`); jalankan `cargo test --workspace`
++  # di macOS sebelum rilis.
+   # ---------------------------------------------------------------------
+   full:
+     name: clippy + test (workspace, ${{ matrix.os }})
+@@ -164,15 +144,7 @@ jobs:
+         os: [ubuntu-latest, windows-latest]
+     runs-on: ${{ matrix.os }}
+     steps:
+-      # Pohon sumber OCCT punya path yang melewati batas MAX_PATH Windows.
+-      - name: Izinkan path panjang (Windows)
+-        if: runner.os == 'Windows'
+-        working-directory: .
+-        run: git config --global core.longpaths true
+-
+       - uses: actions/checkout@v4
+-        with:
+-          submodules: recursive
+ 
+       - name: Pasang dependensi sistem Linux
+         if: runner.os == 'Linux'
+@@ -180,63 +152,24 @@ jobs:
+         run: |
+           sudo apt-get update
+           sudo apt-get install -y --no-install-recommends \
+-            cmake ninja-build \
+             libgtk-3-dev \
+             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+             libxkbcommon-dev libwayland-dev \
+             libgl1-mesa-dev
+ 
+-      # ducad-editor/.cargo/config.toml mengunci generator ke VS 2022 (untuk
+-      # mesin dev), padahal image runner bisa membawa VS versi lain. Env proses
+-      # menang atas [env] Cargo, jadi pilih generator sesuai VS yang terpasang.
+-      - name: Pilih generator CMake sesuai Visual Studio runner
+-        if: runner.os == 'Windows'
+-        working-directory: .
+-        shell: pwsh
+-        run: |
+-          # Generator bertanda `*` di `cmake --help` = VS terbaru yang terpasang.
+-          # (Jangan merakit nama dari vswhere: VS 2026 melaporkan
+-          # catalog_productLineVersion "18", bukan "2026".)
+-          $line = cmake --help | Select-String '^\*\s+(Visual Studio \d+ \d{4})' | Select-Object -First 1
+-          if (-not $line) { throw 'Generator Visual Studio default tidak ditemukan di cmake --help' }
+-          $gen = $line.Matches[0].Groups[1].Value
+-          Write-Host "Generator CMake: $gen"
+-          "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
+-
+       - uses: dtolnay/rust-toolchain@1.96.1
+         with:
+           components: clippy
+ 
+-      # Revisi submodule adalah satu-satunya masukan yang menentukan hasil
+-      # build OCCT, jadi dipakai sebagai kunci cache.
+-      - name: Resolusi revisi OCCT
+-        id: occt
+-        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+-
+-      - name: Cache artefak build OCCT
+-        uses: actions/cache@v4
+-        with:
+-          path: ducad-editor/target/debug/build
+-          key: occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
+-          restore-keys: |
+-            occt-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
+-
+       - uses: Swatinem/rust-cache@v2
+         with:
+           workspaces: ducad-editor
+           key: full-${{ matrix.os }}
+-          # Jangan biarkan rust-cache memangkas direktori build: di situlah
+-          # hasil kompilasi OCCT disimpan (lihat langkah cache di atas).
+-          cache-directories: ducad-editor/target/debug/build
+ 
+       - name: clippy
+         if: runner.os == 'Linux'
+         run: cargo clippy --workspace --all-targets -- -D warnings
+ 
+-      - name: clippy (backend OCCT)
+-        if: runner.os == 'Linux'
+-        run: cargo clippy --workspace --all-targets --features kernel-occt -- -D warnings
+-
+       # Windows baru masuk CI: kode produksi sudah memagari API Unix
+       # (`agent_bridge`, `attach`) dengan `cfg(unix)`, tetapi sebagian tes
+       # masih memakai `std::os::unix` + skrip `/bin/sh` tanpa pagar. Jadi di
+@@ -251,41 +184,23 @@ jobs:
+         continue-on-error: true
+         run: cargo clippy --workspace --all-targets -- -D warnings
+ 
+-      # Backend truck (default). Tes yang membangun valve body dilewati saat
+-      # runtime di truck (R7, known_failures.truck.txt).
++      # Tes yang membangun valve body dilewati saat runtime (R7,
++      # known_failures.truck.txt) sampai performanya diperbaiki.
+       - name: test
+         continue-on-error: ${{ runner.os == 'Windows' }}
+         run: cargo test --workspace
+ 
+-      - name: test (backend OCCT)
+-        if: runner.os == 'Linux'
+-        run: cargo test --workspace --features kernel-occt
+-
+-      # Gate migrasi kernel (PLAN_MIGRASI_TRUCK F0): replay korpus contoh dan
+-      # bandingkan volume/luas/bbox/face/tepi/vonis check dengan golden OCCT.
+-      # Golden direkam di macOS; sidik jari mesh boleh beda antar-OS (hanya
+-      # dicatat). Contoh baru → `cargo run -p ducad-cli -- golden capture`.
+-      - name: golden
+-        if: runner.os == 'Linux'
+-        run: >
+-          cargo run -p ducad-cli --features kernel-occt --
+-          golden check --against tests/goldens/occt --tol 1e-3
+-
+-      # Gate F3: backend truck terhadap golden OCCT yang SAMA, seluruh korpus.
+-      # Perbedaan yang sudah diterima (beserta alasannya) ada di
++      # Gate kernel: replay korpus contoh terhadap golden yang direkam dengan
++      # OCCT sebelum migrasi (tests/goldens/occt, referensi beku). Perbedaan
++      # yang diterima (beserta alasannya) ada di
+       # `tests/goldens/known_failures.truck.txt`; perbedaan lain = gagal.
+-      - name: golden (backend truck)
++      - name: golden
+         if: runner.os == 'Linux'
+         run: >
+           cargo run -p ducad-cli --
+           golden check --against tests/goldens/occt --tol 1e-3
+           --known tests/goldens/known_failures.truck.txt
+ 
+-      # Gate F4 (lembar gambar di truck: `drawing_golden`, `drawing_auto`,
+-      # `drawing_sheet_smoke`, `ducad-io`) kini bagian dari langkah `test`
+-      # di atas, karena truck adalah backend default. Hash golden truck:
+-      # `ducad-engine/tests/golden/drawing.hashes.truck.json`.
+-
+   # ---------------------------------------------------------------------
+   # Audit dependensi. Sengaja TIDAK memblokir merge untuk sekarang:
+   # backlog advisory/lisensi belum pernah dibereskan, dan gate merah sejak
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 4d5788f5..8f1459f8 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -4,11 +4,8 @@ name: release
+ # headless (`ducad-cli` + `ducad-mcp`). Tarball `ducad-tools-*` juga dipakai
+ # templat `ducad-editor/docs/ci/ducad-build.yml`.
+ #
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): semua binary memakai backend truck
+-# (default, Rust murni). Untuk versi PRA-RILIS (`X.Y.Z-beta.N`, soak 0.6.0)
+-# paket aplikasi juga membawa `ducad-occt<exe>` — aplikasi yang sama dengan
+-# backend OpenCASCADE; penguji beralih dengan `DUCAD_KERNEL=occt`
+-# (crates/ducad-app/src/kernel_select.rs). Rilis final tidak membawanya.
++# Kernel geometri SolidCraft/truck adalah Rust murni: tidak ada cmake,
++# submodule, atau kompilasi C++ (PLAN_MIGRASI_TRUCK F6.4).
+ #
+ # Pembaruan otomatis di aplikasi (`crates/ducad-update`) membaca rilis
+ # `latest` dan mencocokkan NAMA aset — ubah pola nama di sini = ubah juga
+@@ -38,7 +35,6 @@ permissions:
+ 
+ env:
+   CARGO_TERM_COLOR: always
+-  CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+ 
+ defaults:
+   run:
+@@ -87,15 +83,7 @@ jobs:
+             exe: ".exe"
+     runs-on: ${{ matrix.os }}
+     steps:
+-      # Pohon sumber OCCT punya path yang melewati batas MAX_PATH Windows.
+-      - name: Izinkan path panjang (Windows)
+-        if: runner.os == 'Windows'
+-        working-directory: .
+-        run: git config --global core.longpaths true
+-
+       - uses: actions/checkout@v4
+-        with:
+-          submodules: recursive
+ 
+       - name: Pasang dependensi sistem Linux
+         if: runner.os == 'Linux'
+@@ -103,56 +91,21 @@ jobs:
+         run: |
+           sudo apt-get update
+           sudo apt-get install -y --no-install-recommends \
+-            cmake ninja-build \
+             libgtk-3-dev \
+             libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+             libxkbcommon-dev libwayland-dev \
+             libgl1-mesa-dev
+ 
+-      # ducad-editor/.cargo/config.toml mengunci generator ke VS 2022 (untuk
+-      # mesin dev), padahal image runner bisa membawa VS versi lain. Env proses
+-      # menang atas [env] Cargo, jadi pilih generator sesuai VS yang terpasang.
+-      - name: Pilih generator CMake sesuai Visual Studio runner
+-        if: runner.os == 'Windows'
+-        working-directory: .
+-        shell: pwsh
+-        run: |
+-          # Generator bertanda `*` di `cmake --help` = VS terbaru yang terpasang.
+-          # (Jangan merakit nama dari vswhere: VS 2026 melaporkan
+-          # catalog_productLineVersion "18", bukan "2026".)
+-          $line = cmake --help | Select-String '^\*\s+(Visual Studio \d+ \d{4})' | Select-Object -First 1
+-          if (-not $line) { throw 'Generator Visual Studio default tidak ditemukan di cmake --help' }
+-          $gen = $line.Matches[0].Groups[1].Value
+-          Write-Host "Generator CMake: $gen"
+-          "CMAKE_GENERATOR_x86_64_pc_windows_msvc=$gen" >> $env:GITHUB_ENV
+-
+       - uses: dtolnay/rust-toolchain@1.96.1
+ 
+-      - name: Resolusi revisi OCCT
+-        id: occt
+-        run: echo "sha=$(git -C vendors/opencascade-rs rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+-
+-      - name: Cache artefak build OCCT
+-        if: contains(needs.version.outputs.version, '-')
+-        uses: actions/cache@v4
++      - uses: Swatinem/rust-cache@v2
+         with:
+-          path: ducad-editor/target/kernel-occt/release/build
+-          key: occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-${{ hashFiles('ducad-editor/Cargo.lock') }}
+-          restore-keys: |
+-            occt-release-${{ runner.os }}-${{ steps.occt.outputs.sha }}-
++          workspaces: ducad-editor
++          key: release-${{ matrix.platform }}
+ 
+       - name: Build
+         run: cargo build --release -p ducad-app -p ducad-cli -p ducad-mcp
+ 
+-      # Soak 0.6.0-beta: varian OCCT aplikasi sebagai cadangan. Direktori
+-      # target terpisah ("kernel-occt", bukan "occt": bentrok dengan
+-      # target/OCCT di NTFS) supaya tidak menimpa binary truck di atas.
+-      - name: Build varian OCCT (pra-rilis)
+-        if: contains(needs.version.outputs.version, '-')
+-        run: >
+-          cargo build --release -p ducad-app --bin ducad --features kernel-occt
+-          --target-dir target/kernel-occt
+-
+       - name: Uji asap
+         run: |
+           ./target/release/ducad-cli${{ matrix.exe }} build crates/ducad-engine/tests/fixtures/plate.ops.json \
+@@ -171,9 +124,6 @@ jobs:
+           TOOLS="ducad-tools-$PLATFORM"
+           mkdir -p "dist/ci/$APP" "dist/ci/$TOOLS"
+           for b in ducad ducad-cli ducad-mcp; do cp "target/release/$b$EXE" "dist/ci/$APP/"; done
+-          if [ -f "target/kernel-occt/release/ducad$EXE" ]; then
+-            cp "target/kernel-occt/release/ducad$EXE" "dist/ci/$APP/ducad-occt$EXE"
+-          fi
+           cp assets/icon.png "dist/ci/$APP/"
+           printf '%s\n' "$VERSION" > "dist/ci/$APP/VERSION"
+           cp "target/release/ducad-cli$EXE" "target/release/ducad-mcp$EXE" "dist/ci/$TOOLS/"
+diff --git a/.gitignore b/.gitignore
+index 9118569b..7e468031 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -18,5 +18,4 @@ vendor/
+ build_apple.sh
+ ducad-editor/notarize.sh
+ .env
+-ducad-editor/.occt_clean_backup_76295/*
+ ducad-editor/.ducad
+diff --git a/Makefile b/Makefile
+index 6cee3651..2bd354e0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,4 +1,4 @@
+-TARGETS = all help install-deps clean clean-no-occt build-macos bundle-macos pkg-macos-store \
++TARGETS = all help install-deps clean build-macos bundle-macos pkg-macos-store \
+           build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
+           build-linux bundle-linux build-windows bundle-windows \
+           release build run dev test check fmt info notarize notarize-check
+diff --git a/README.md b/README.md
+index 1edc3a8b..2bab81be 100644
+--- a/README.md
++++ b/README.md
+@@ -1,13 +1,13 @@
+ # DuCAD (Design Universe CAD)
+ 
+ [![Rust](https://img.shields.io/badge/rust-2021_edition-orange.svg)](https://www.rust-lang.org)
+-[![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-OpenCASCADE%20(OCCT)-blue.svg)](https://dev.opencascade.org)
++[![Kernel](https://img.shields.io/badge/B--Rep%20Kernel-SolidCraft%20%2F%20truck-blue.svg)](https://github.com/tangency-labs/solidcraft)
+ [![Graphics](https://img.shields.io/badge/Renderer-wgpu%20/%20WebGPU-green.svg)](https://wgpu.rs)
+ [![UI](https://img.shields.io/badge/UI-egui%20/%20eframe-purple.svg)](https://github.com/emilk/egui)
+ [![Agent](https://img.shields.io/badge/Agent-MCP%20%2B%20CLI%20headless-black.svg)](#9--headless-engine-agent-tooling--on-device-ai)
+ [![License](https://img.shields.io/badge/license-AGPL--3.0-lightgrey.svg)](LICENSE)
+ 
+-**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by the industry-grade solid modeling kernel **OpenCASCADE (OCCT)** via https://github.com/bschwind/opencascade-rs and modern **WebGPU (wgpu)** graphics acceleration.
++**DuCAD** is a modern, parametric, and high-performance 2D/3D Computer-Aided Design (CAD) software written entirely in **Rust**. DuCAD combines **AutoCAD**-style 2D technical drafting precision with **Shapr3D**-style intuitive direct modeling, powered by a pure-Rust B-rep solid modeling kernel (**SolidCraft** on **truck**, vendored in-tree) and modern **WebGPU (wgpu)** graphics acceleration.
+ 
+ ---
+ 
+@@ -22,7 +22,7 @@
+ * **Sketch Curve Modification**: Interactive Trim with red highlighting, Extend curve to nearest boundary, parallel Offset (multi-tangent bi-arc), and symmetric Mirror reflection.
+ * **Freehand (Apple Pencil / mouse)**: a single stroke is recognized as a line, circle, arc, ellipse, rectangle, polyline or spline, then constraints are inferred and committed as **one undo step** — no manual gap patching before extruding.
+ 
+-### 2. 🧊 Industry-Grade 3D B-Rep Solid Modeling (OpenCASCADE)
++### 2. 🧊 3D B-Rep Solid Modeling (SolidCraft / truck)
+ * **Extrude & Revolve Operations**: Extrude (Blind, Symmetric, Up to Face), Revolve with custom 3D axis, multi-profile Loft, and Sweep along a guide curve.
+ * **Spiral Geometry (*Helix / Spring / Coil*)**: Parametric 3D curve generator for creating springs, bolt threads, and auger blades.
+ * **Solid Boolean Operations**: Boolean Union, Cut, and Intersect.
+@@ -106,7 +106,7 @@ Everything below runs **without the GUI**, so scripts, CI and AI agents drive th
+ same modeling code the application does.
+ 
+ * **`ducad-engine` (headless modeling layer)**: pure `compute` functions over the
+-  OCCT kernel plus an atomic, replayable **oplog** (`Op` + `params`). Bodies are
++  B-rep kernel plus an atomic, replayable **oplog** (`Op` + `params`). Bodies are
+   referenced by *name* (the id of the op that created them), never by an internal
+   id that shifts on undo/redo.
+ * **Semantic selectors**: pick faces and edges by meaning instead of index —
+@@ -182,7 +182,7 @@ DUCAD/
+ │   ├── crates/
+ │   │   ├── ducad-core/      # Document data model, undo/redo history, assembly tree, mates, units, materials
+ │   │   ├── ducad-sketch/    # 2D entities, constraint solver, snapping, regions, stroke recognition + inference
+-│   │   ├── ducad-kernel/    # The ONLY OpenCASCADE (OCCT) wrapper: boolean, fillet, hole, helix, section, mesh
++│   │   ├── ducad-kernel/    # The ONLY geometry-kernel wrapper (SolidCraft/truck): boolean, fillet, hole, helix, section, mesh
+ │   │   ├── ducad-io/        # .ducad native format, STEP/STL/OBJ/GLB, SVG/PDF/DXF drawing sheets
+ │   │   ├── ducad-engine/    # Headless modeling: compute, Op/oplog, selectors, Session, inspect, checks, diff
+ │   │   ├── ducad-cli/       # `ducad-cli` binary: run/replay/inspect/check/oplog/diff/render/export/build/assist
+@@ -200,7 +200,7 @@ DUCAD/
+ └── .mcp.json                # MCP server registration (ducad + mnemonic) for agent harnesses
+ ```
+ 
+-**Hard rule**: only `ducad-kernel` may `use opencascade::…`, and `ducad-engine`
++**Hard rule**: only `ducad-kernel` may use `solidcraft_*`/`truck_*`, and `ducad-engine`
+ must never depend on egui/eframe/wgpu/`ducad-render`/`ducad-ui`/rfd — enforced by
+ the `engine_has_no_gui_dependency` test.
+ 
+@@ -212,9 +212,8 @@ the `engine_has_no_gui_dependency` test.
+ * **Rust Toolchain**: stable, installed by `rustup` from the pinned
+   `rust-toolchain.toml` (which also guarantees `rustfmt` and `clippy`, so the
+   quality gates run anywhere without extra setup).
+-* **C/C++ Compiler & CMake**: only for the optional OpenCASCADE (OCCT)
+-  backend (`--features kernel-occt`, kept during the 0.6.0-beta soak). The
+-  default geometry kernel (SolidCraft on truck) is pure Rust and needs neither.
++* **No C/C++ toolchain or CMake**: the geometry kernel (SolidCraft on truck)
++  is pure Rust and vendored under `ducad-editor/vendors/solidcraft`.
+ * **Operating System**:
+   * **macOS** (Apple Silicon) and **iPadOS** — the primary targets; both are
+     packaged from `ducad-editor/apple/` and exercised by hand.
+@@ -228,30 +227,13 @@ the `engine_has_no_gui_dependency` test.
+ Clone the repository and run it via Cargo:
+ 
+ ```bash
+-# Clone the repository. `--recurse-submodules` is REQUIRED: the OCCT kernel
+-# is consumed through a patched fork pinned as a submodule under
+-# `ducad-editor/vendors/opencascade-rs`, and `[patch.crates-io]` in the
+-# workspace manifest points into it. Without the submodule, `cargo` fails
+-# while resolving dependencies — before compiling a single line.
+-git clone --recurse-submodules https://github.com/cmjcode/ducad.git
++git clone https://github.com/cmjcode/ducad.git
+ cd ducad/ducad-editor
+ 
+-# Already cloned without the flag? Fetch the submodule now:
+-#   git submodule update --init --recursive
+-
+-# Run the application (default kernel: SolidCraft/truck, pure Rust)
++# Run the application
+ cargo run -p ducad-app
+-
+-# Optional during the 0.6.0-beta soak: the OpenCASCADE backend instead
+-# (the first compilation builds the OCCT C++ library, ~8-15 minutes)
+-cargo run -p ducad-app --features kernel-occt
+ ```
+ 
+-> **Kernel backend**: the default build compiles no C++ at all. The submodule is
+-> still required for now because Cargo resolves every `[patch.crates-io]` entry,
+-> even for an optional dependency; it goes away when OCCT is removed
+-> (`ducad-editor/docs/PLAN_MIGRASI_TRUCK.md`, F6.4).
+-
+ > **Note on paths**: the Cargo workspace lives in `ducad-editor/`, not at the repository root. Run every `cargo` command from there.
+ 
+ ### Running the Agent Tooling (CLI & MCP)
+@@ -620,18 +602,17 @@ checklist yet. Details per phase: [PLAN.md](ducad-editor/docs/PLAN.md).
+ ## 📄 License
+ 
+ Licensed under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+-The OpenCASCADE kernel it links against is LGPL-2.1 with a linking exception,
+-consumed through the pinned fork in `ducad-editor/vendors/opencascade-rs`.
++The vendored SolidCraft kernel and truck crates are MIT OR Apache-2.0 /
++Apache-2.0; see [ATTRIBUTION.md](ducad-editor/docs/ATTRIBUTION.md) and
++`ducad-editor/vendors/solidcraft/NOTICE`.
+ 
+ ## 🤝 Contributing
+ 
+ * Read [CLAUDE.md](CLAUDE.md) first — it holds the hard rules: only
+-  `ducad-kernel` may touch OpenCASCADE, every public kernel function takes
+-  `lock_kernel()` and must not call another public kernel function while holding
+-  it, `ducad-engine` stays free of GUI dependencies, and comments plus
++  `ducad-kernel` may touch the geometry kernel crates, `ducad-engine` stays free of GUI dependencies, and comments plus
+   user-facing strings are written in Indonesian while identifiers stay English.
+-* Do not touch `rust-toolchain.toml`, the `opencascade` version/features, or the
+-  `[patch.crates-io]` block unless you intend to rebuild OCCT (10–15 minutes).
++* Do not touch `rust-toolchain.toml` or the `[patch.crates-io]` block (truck
++  crates patched by SolidCraft, `vendors/solidcraft/vendor/README.md`).
+ * Before opening a PR: `cargo clippy --workspace --all-targets -- -D warnings`
+   and `cargo test --workspace` must be green, plus the relevant part of the
+   [GUI test checklist](ducad-editor/docs/CEKLIS_UJI_GUI.md) for anything visual.
+diff --git a/VERSION b/VERSION
+index f473bc3e..a918a2aa 100644
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-0.6.0-beta.1
++0.6.0
+diff --git a/aur/ducad/.SRCINFO b/aur/ducad/.SRCINFO
+index b4be095a..5a95638f 100644
+--- a/aur/ducad/.SRCINFO
++++ b/aur/ducad/.SRCINFO
+@@ -1,5 +1,5 @@
+ pkgbase = ducad
+-	pkgdesc = Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling on OpenCASCADE, with a headless CLI and MCP server
++	pkgdesc = Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling, with a headless CLI and MCP server
+ 	pkgver = 0.4.0
+ 	pkgrel = 1
+ 	url = https://github.com/cmjcode/ducad
+@@ -7,11 +7,9 @@ pkgbase = ducad
+ 	arch = aarch64
+ 	license = AGPL-3.0-only
+ 	makedepends = cargo
+-	makedepends = cmake
+ 	makedepends = git
+ 	depends = gcc-libs
+ 	depends = glibc
+-	depends = opencascade
+ 	depends = libxkbcommon
+ 	depends = libxkbcommon-x11
+ 	depends = libxcb
+@@ -25,10 +23,8 @@ pkgbase = ducad
+ 	optdepends = xdg-desktop-portal: native file open/save dialogs
+ 	optdepends = vulkan-driver: GPU rendering backend (e.g. vulkan-radeon, vulkan-intel, nvidia-utils)
+ 	source = ducad::git+https://github.com/cmjcode/ducad.git#tag=v0.4.0
+-	source = opencascade-rs::git+https://github.com/cmjcode/opencascade-rs.git
+ 	source = ducad.desktop
+ 	sha256sums = SKIP
+-	sha256sums = SKIP
+-	sha256sums = 00583e812954846985aba944e89e0f98b4ab999b12661df6993724e86ffd4a39
++	sha256sums = f0f59e0333a13b1f96dab4a85651255ee7273ebe99eaaeeb03d17e9c4485bad5
+ 
+ pkgname = ducad
+diff --git a/aur/ducad/PKGBUILD b/aur/ducad/PKGBUILD
+index a380355a..7874d3c2 100644
+--- a/aur/ducad/PKGBUILD
++++ b/aur/ducad/PKGBUILD
+@@ -4,23 +4,20 @@
+ # `pkgver`, `pkgrel`, and the local-file checksums are maintained by
+ # `scripts/update-aur.sh`; edit everything else here by hand.
+ #
+-# The OpenCASCADE bindings live in a git SUBMODULE (ducad-editor/vendors/
+-# opencascade-rs), so the GitHub tarball is NOT buildable. The submodule is
+-# fetched as a second git source and wired in during prepare().
++# Since 0.6.0 the geometry kernel (SolidCraft on truck) is pure Rust and
++# vendored in-tree: no submodule, no system OpenCASCADE, no CMake.
+ 
+ pkgname=ducad
+ pkgver=0.4.0
+ pkgrel=1
+-pkgdesc="Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling on OpenCASCADE, with a headless CLI and MCP server"
++pkgdesc="Parametric 2D/3D CAD: constraint-based sketching and B-rep solid modeling, with a headless CLI and MCP server"
+ arch=('x86_64' 'aarch64')
+ url="https://github.com/cmjcode/ducad"
+ license=('AGPL-3.0-only')
+-# OCCT is linked dynamically from the system package (>= 7.8 required by
+-# opencascade-sys). winit/wgpu need xkbcommon + xcb/x11 + wayland + Vulkan.
++# winit/wgpu need xkbcommon + xcb/x11 + wayland + Vulkan.
+ depends=(
+   gcc-libs
+   glibc
+-  opencascade
+   libxkbcommon
+   libxkbcommon-x11
+   libxcb
+@@ -32,28 +29,20 @@ depends=(
+   vulkan-icd-loader
+   hicolor-icon-theme
+ )
+-makedepends=(cargo cmake git)
++makedepends=(cargo git)
+ optdepends=(
+   'xdg-desktop-portal: native file open/save dialogs'
+   'vulkan-driver: GPU rendering backend (e.g. vulkan-radeon, vulkan-intel, nvidia-utils)'
+ )
+ source=(
+   "$pkgname::git+$url.git#tag=v$pkgver"
+-  "opencascade-rs::git+https://github.com/cmjcode/opencascade-rs.git"
+   "ducad.desktop"
+ )
+ sha256sums=('SKIP'
+-            'SKIP'
+-            '00583e812954846985aba944e89e0f98b4ab999b12661df6993724e86ffd4a39')
++            'f0f59e0333a13b1f96dab4a85651255ee7273ebe99eaaeeb03d17e9c4485bad5')
+ 
+ prepare() {
+-  cd "$srcdir/$pkgname"
+-  # Point the submodule at the locally cloned mirror instead of the network.
+-  git submodule init
+-  git config submodule.ducad-editor/vendors/opencascade-rs.url "$srcdir/opencascade-rs"
+-  git -c protocol.file.allow=always submodule update
+-
+-  cd ducad-editor
++  cd "$srcdir/$pkgname/ducad-editor"
+   export CARGO_HOME="$srcdir/cargo"
+   export RUSTUP_TOOLCHAIN=stable
+   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+@@ -73,8 +62,8 @@ check() {
+   export CARGO_HOME="$srcdir/cargo"
+   export CARGO_TARGET_DIR="$srcdir/target"
+   export RUSTUP_TOOLCHAIN=stable
+-  # Only the kernel-free crates: the OCCT-backed suites take very long and
+-  # the GUI suites need a display.
++  # Only the kernel-free crates: the kernel suites take long and the GUI
++  # suites need a display.
+   cargo test --release --frozen -p ducad-core -p ducad-sketch
+ }
+ 
+diff --git a/aur/ducad/ducad.desktop b/aur/ducad/ducad.desktop
+index e9b1e36f..e3efadcd 100644
+--- a/aur/ducad/ducad.desktop
++++ b/aur/ducad/ducad.desktop
+@@ -2,7 +2,7 @@
+ Type=Application
+ Name=DUCAD
+ GenericName=CAD
+-Comment=Parametric 2D/3D CAD on the OpenCASCADE kernel
++Comment=Parametric 2D/3D B-rep CAD
+ TryExec=ducad
+ Exec=ducad
+ Icon=ducad
+diff --git a/ducad-editor/.cargo/config.toml b/ducad-editor/.cargo/config.toml
+index 47c1ccd8..aa5379e4 100644
+--- a/ducad-editor/.cargo/config.toml
++++ b/ducad-editor/.cargo/config.toml
+@@ -1,14 +1,3 @@
+-[env]
+-CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+-CMAKE_GENERATOR_x86_64_pc_windows_msvc = "Visual Studio 17 2022"
+-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+-CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim = { value = "crates/ducad-kernel/ios/ios-toolchain.cmake", relative = true }
+-# Android (lihat crates/ducad-kernel/android/android-toolchain.cmake).
+-# `force = true`: cargo-ndk juga mengekspor variabel ini (langsung ke
+-# toolchain NDK, tanpa ABI/STL) — pembungkus kita yang harus menang.
+-CMAKE_TOOLCHAIN_FILE_aarch64_linux_android = { value = "crates/ducad-kernel/android/android-toolchain.cmake", relative = true, force = true }
+-CMAKE_TOOLCHAIN_FILE_x86_64_linux_android = { value = "crates/ducad-kernel/android/android-toolchain.cmake", relative = true, force = true }
+-
+ [target.aarch64-apple-ios]
+ rustflags = [
+     "-C", "link-arg=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/lib/darwin/libclang_rt.ios.a",
+diff --git a/ducad-editor/Cargo.lock b/ducad-editor/Cargo.lock
+index 4894a862..3e5294a7 100644
+--- a/ducad-editor/Cargo.lock
++++ b/ducad-editor/Cargo.lock
+@@ -1126,15 +1126,6 @@ dependencies = [
+  "error-code",
+ ]
+ 
+-[[package]]
+-name = "cmake"
+-version = "0.1.58"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+-dependencies = [
+- "cc",
+-]
+-
+ [[package]]
+ name = "codepage"
+ version = "0.1.3"
+@@ -1403,68 +1394,6 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+ 
+-[[package]]
+-name = "cxx"
+-version = "1.0.199"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "824894a4a85dca76d4c95c2b9098c036f5a29f627b30c12780774f6654e60974"
+-dependencies = [
+- "cc",
+- "cxx-build",
+- "cxxbridge-cmd",
+- "cxxbridge-flags",
+- "cxxbridge-macro",
+- "foldhash",
+- "link-cplusplus",
+-]
+-
+-[[package]]
+-name = "cxx-build"
+-version = "1.0.199"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f1ae0b651ea5b0000b19513aef5a03f194d7e3486f2d9258b658da8677fe9036"
+-dependencies = [
+- "cc",
+- "codespan-reporting",
+- "indexmap",
+- "proc-macro2",
+- "quote",
+- "scratch",
+- "syn 3.0.3",
+-]
+-
+-[[package]]
+-name = "cxxbridge-cmd"
+-version = "1.0.199"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "fb05f91d3fb8435d9bab6ac5ce6ac1868be774325fb7fb2a91be39393b21388e"
+-dependencies = [
+- "clap",
+- "codespan-reporting",
+- "indexmap",
+- "proc-macro2",
+- "quote",
+- "syn 3.0.3",
+-]
+-
+-[[package]]
+-name = "cxxbridge-flags"
+-version = "1.0.199"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bf293202e0e3e98495785745389e8d0755b217e66f19194a5c695c25e03282ef"
+-
+-[[package]]
+-name = "cxxbridge-macro"
+-version = "1.0.199"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ca001d746947c7249ed9d332a10f7a59daedbafeb0ec68c5c18a7db7a93f6ccc"
+-dependencies = [
+- "indexmap",
+- "proc-macro2",
+- "quote",
+- "syn 3.0.3",
+-]
+-
+ [[package]]
+ name = "daachorse"
+ version = "3.0.3"
+@@ -1919,7 +1848,6 @@ dependencies = [
+  "ducad-core",
+  "glam",
+  "log",
+- "opencascade",
+  "serde",
+  "solidcraft-geom",
+  "solidcraft-kernel",
+@@ -3739,15 +3667,6 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
+ 
+-[[package]]
+-name = "link-cplusplus"
+-version = "1.0.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7f78c730aaa7d0b9336a299029ea49f9ee53b0ed06e9202e8cb7db9bae7b8c82"
+-dependencies = [
+- "cc",
+-]
+-
+ [[package]]
+ name = "linux-raw-sys"
+ version = "0.4.15"
+@@ -4713,15 +4632,6 @@ dependencies = [
+  "objc2-foundation 0.3.2",
+ ]
+ 
+-[[package]]
+-name = "occt-sys"
+-version = "7.8.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c3d2199ccf5331d261cf293abbc6b6b6ca1eb7187ef2113c181c49f9365cd9ae"
+-dependencies = [
+- "cmake",
+-]
+-
+ [[package]]
+ name = "once_cell"
+ version = "1.21.4"
+@@ -4762,35 +4672,6 @@ version = "11.1.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
+ 
+-[[package]]
+-name = "opencascade"
+-version = "0.3.0"
+-dependencies = [
+- "cxx",
+- "glam",
+- "opencascade-kicad-parser",
+- "opencascade-sys",
+- "thiserror 2.0.20",
+-]
+-
+-[[package]]
+-name = "opencascade-kicad-parser"
+-version = "0.3.0"
+-dependencies = [
+- "sexp",
+- "thiserror 1.0.69",
+-]
+-
+-[[package]]
+-name = "opencascade-sys"
+-version = "0.3.0"
+-dependencies = [
+- "cmake",
+- "cxx",
+- "cxx-build",
+- "occt-sys",
+-]
+-
+ [[package]]
+ name = "option-ext"
+ version = "0.2.0"
+@@ -5951,12 +5832,6 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+ 
+-[[package]]
+-name = "scratch"
+-version = "1.0.9"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2"
+-
+ [[package]]
+ name = "security-framework"
+ version = "3.7.0"
+@@ -6094,12 +5969,6 @@ dependencies = [
+  "unsafe-libyaml",
+ ]
+ 
+-[[package]]
+-name = "sexp"
+-version = "1.1.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9c8fa7ac9df84000b0238cf497cb2d3056bac2ff2a7d8cf179d2803b4b58571f"
+-
+ [[package]]
+ name = "sha1_smol"
+ version = "1.0.1"
+diff --git a/ducad-editor/Cargo.toml b/ducad-editor/Cargo.toml
+index dfef79f5..584a67f1 100644
+--- a/ducad-editor/Cargo.toml
++++ b/ducad-editor/Cargo.toml
+@@ -115,7 +115,6 @@ hex = "0.4"
+ # Keduanya sudah ada di pohon dependensi lewat crate lain.
+ sha2 = "0.10"
+ zip = { version = "8", default-features = false, features = ["deflate"] }
+-opencascade = "0.3"
+ # Dialog file native (Fase 5) — dipakai `ducad-app` untuk Buka/Simpan/
+ # Import/Export lewat picker OS asli (NSOpenPanel/NSSavePanel di macOS).
+ rfd = "0.17"
+@@ -220,23 +219,16 @@ debug-assertions = false
+ 
+ [profile.release]
+ opt-level = 3
+-# `lto = "thin"`, bukan "fat": graf dependensi ini menarik OCCT (C++,
+-# ratusan objek lewat `occt-sys`) di samping wgpu/egui. Fat LTO pada
+-# gabungan itu menaikkan waktu link rilis jadi puluhan menit dengan
+-# kebutuhan RAM yang gampang menghabiskan runner CI, sementara selisih
+-# performanya terhadap thin LTO tidak terasa pada beban kerja DUCAD yang
+-# didominasi waktu di dalam kernel C++ (yang TIDAK ikut ter-LTO dari sisi
+-# Rust sama sekali). Naikkan ke "fat" hanya kalau profiling membuktikan
+-# ada yang bisa diambil.
++# `lto = "thin"`, bukan "fat": fat LTO pada graf wgpu/egui + SolidCraft
++# menaikkan waktu link rilis dan kebutuhan RAM runner CI. Sejak kernel
++# Rust murni (0.6.0) fat LTO MUNGKIN memberi sesuatu pada boolean/tesselasi —
++# naikkan hanya kalau benchmark (`cargo bench -p ducad-kernel`) membuktikannya.
+ lto = "thin"
+ codegen-units = 1
+-# `panic` SENGAJA "unwind", bukan "abort" — `ducad_kernel::lock_kernel()`
+-# memang dirancang PULIH dari `KERNEL_LOCK` yang ter-poison akibat panic
+-# di operasi kernel sebelumnya (lihat komentarnya di
+-# crates/ducad-kernel/src/lib.rs), supaya satu operasi gagal tidak
+-# mengunci permanen seluruh aplikasi. Mekanisme itu hanya berfungsi kalau
+-# panic bisa di-unwind; "abort" akan mematikan aplikasi CAD berisi
+-# pekerjaan pengguna yang belum tersimpan.
++# `panic` SENGAJA "unwind", bukan "abort": pagar `catch_op_panic`
++# (ducad-engine/src/guard.rs) dan `guard` SolidCraft mengubah panik di dalam
++# op kernel menjadi error yang bisa di-rollback. "abort" akan mematikan
++# aplikasi CAD berisi pekerjaan pengguna yang belum tersimpan.
+ panic = "unwind"
+ strip = "symbols"
+ 
+@@ -247,23 +239,7 @@ inherits = "release"
+ strip = "none"
+ debug = "line-tables-only"
+ 
+-# `faces_along_ray` upstream meng-hardcode toleransi geometris OCCT ke
+-# 0.0001 — terlalu ketat utk ray oblique kamera 3D nyata, bikin face-pick
+-# selalu None utk sisi samping. `Shape`/`Face` upstream simpan handle FFI
+-# `pub(crate)` (tidak bisa ditembus dari luar crate), jadi satu-satunya
+-# jalan adalah vendor + patch minimal (tambah method baru bertoleransi
+-# custom, TIDAK mengubah method lama) — lihat vendor/README.md.
+-#
+-# `opencascade-sys` (DUCAD Fase 2) di-vendor terpisah dari `opencascade`
+-# di atas: binding baru (BRepAdaptor_Surface, BRepOffset_MakeOffset) butuh
+-# akses langsung ke cxx bridge mentah (src/lib.rs + include/wrapper.hxx) —
+-# level yang berada SATU LAPIS DI BAWAH `opencascade`, dan `opencascade`
+-# vendored di sini otomatis memakai copy lokal ini lewat resolusi
+-# `[patch.crates-io]` yang sama (dependensinya "opencascade-sys = \"0.2\""
+-# tak berubah). Lihat vendor/README.md.
+ [patch.crates-io]
+-opencascade = { path = "vendors/opencascade-rs/crates/opencascade" }
+-opencascade-sys = { path = "vendors/opencascade-rs/crates/opencascade-sys" }
+ 
+ # Backend truck (PLAN_MIGRASI_TRUCK F2): truck dengan perbaikan SolidCraft
+ # (boolean deterministik, tanpa panic pada kurva irisan degenerate, history
+diff --git a/ducad-editor/Makefile b/ducad-editor/Makefile
+index 24bca10c..840058e6 100644
+--- a/ducad-editor/Makefile
++++ b/ducad-editor/Makefile
+@@ -4,7 +4,7 @@
+ # Includes macOS codesign, notarization, App Store pkg
+ ############################################
+ 
+-.PHONY: all help install-deps clean clean-no-occt create-dirs \
++.PHONY: all help install-deps clean create-dirs \
+         build-macos build-linux build-windows \
+         bundle-macos bundle-linux bundle-windows pkg-macos-store \
+         build-ipad archive-ipad ipa-ipad publish-ipad publish-all publish-apple-all \
+@@ -20,22 +20,6 @@ VERSION ?= $(shell if [ -f ../VERSION ]; then tr -d ' \r\n' < ../VERSION; elif [
+ BUILD_NUMBER ?= $(shell echo "$(VERSION)" | tr -d '.' | sed 's/^0*//' | awk '{print ($$0 == "" ? "1" : $$0)}')
+ RUST_VERSION = stable
+ 
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): `truck` (default; Rust murni, tanpa
+-# OCCT/cmake) atau `occt` (pembanding selama soak 0.6.0-beta).
+-# `OCCT_FALLBACK=1` pada bundle-* ikut membangun varian OCCT sebagai
+-# executable `ducad-occt` di samping `ducad`; pengguna beta beralih dengan
+-# `DUCAD_KERNEL=occt` (crates/ducad-app/src/kernel_select.rs).
+-KERNEL ?= truck
+-ifeq ($(KERNEL),occt)
+-KERNEL_FEATURES = --features kernel-occt
+-else ifeq ($(KERNEL),truck)
+-KERNEL_FEATURES =
+-else
+-$(error KERNEL harus truck atau occt, bukan '$(KERNEL)')
+-endif
+-OCCT_FALLBACK ?=
+-OCCT_TARGET_DIR = target/kernel-occt
+-
+ # Targets
+ MACOS_X86_TARGET = x86_64-apple-darwin
+ MACOS_ARM_TARGET = aarch64-apple-darwin
+@@ -66,7 +50,7 @@ help:
+ 	@echo "  bundle-macos       Create .app & .dmg (codesign/notarize optional)"
+ 	@echo "  pkg-macos-store    Create signed .pkg (App Store / distribution)"
+ 	@echo "  build-ipad         Build iPadOS target / XCFramework"
+-	@echo "  android-check      cargo check untuk aarch64-linux-android (KERNEL=occt: OCCT via NDK)"
++	@echo "  android-check      cargo check untuk aarch64-linux-android"
+ 	@echo "  android-so         Build libducad_android.so ke android/app/src/main/jniLibs"
+ 	@echo "  android-apk        android-so + gradle assembleDebug (APK tablet)"
+ 	@echo "  build-linux        Build Linux binaries"
+@@ -77,10 +61,7 @@ help:
+ 	@echo "  notarize           Notarize existing .app and .dmg"
+ 	@echo "  notarize-check     Check notarization status"
+ 	@echo "Dev Helpers:"
+-	@echo "  run / dev / test / check / fmt / info / clean-no-occt"
+-	@echo "Kernel backend (default truck):"
+-	@echo "  KERNEL=occt        Build dengan OpenCASCADE (pembanding soak 0.6.0-beta)"
+-	@echo "  OCCT_FALLBACK=1    bundle-*: sertakan executable ducad-occt (DUCAD_KERNEL=occt)"
++	@echo "  run / dev / test / check / fmt / info"
+ 	@echo "Environment (macOS signing/notarization):"
+ 	@echo "  APPLE_IDENTITY='Developer ID Application: Name (TEAMID)'"
+ 	@echo "  APPLE_IDENTITY_INS='Developer ID Installer: Name (TEAMID)'"
+@@ -107,15 +88,12 @@ clean:
+ 	rm -rf $(BUILD_DIR)/$(MACOS_X86_TARGET)/release/bundle
+ 	@echo "✅ Clean done."
+ 
+-clean-no-occt:
+-	@./clean_no_occt.sh $(ARGS)
+-
+ create-dirs:
+ 	@mkdir -p $(MACOS_DIR) $(LINUX_DIR) $(WINDOWS_DIR) $(IOS_DIR)
+ 
+ build-macos: create-dirs
+ 	@echo "🍎 Build macOS binary (-p $(PKG_NAME))"
+-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
++	cargo build --release -p $(PKG_NAME)
+ 	@mkdir -p $(MACOS_DIR)
+ 	@if [ -f $(BUILD_DIR)/release/$(BIN_NAME) ]; then \
+ 		cp $(BUILD_DIR)/release/$(BIN_NAME) $(MACOS_DIR)/$(BIN_NAME); \
+@@ -124,7 +102,7 @@ build-macos: create-dirs
+ 
+ bundle-macos: create-dirs
+ 	@echo "📱 Create macOS .app bundle"
+-	TERM=xterm cargo bundle --release --bin $(BIN_NAME) $(KERNEL_FEATURES)
++	TERM=xterm cargo bundle --release --bin $(BIN_NAME)
+ 	@mkdir -p $(MACOS_DIR)
+ 	@if [ -d "$(BUILD_DIR)/release/bundle/osx/$(APP_NAME).app" ]; then \
+ 		rm -rf "$(MACOS_DIR)/$(APP_NAME).app"; \
+@@ -152,12 +130,6 @@ bundle-macos: create-dirs
+ 		mkdir -p "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources"; \
+ 		cp "assets/DUCAD.icns" "$(MACOS_DIR)/$(APP_NAME).app/Contents/Resources/"; \
+ 	fi
+-	@if [ -n "$(OCCT_FALLBACK)" ] && [ "$(KERNEL)" = "truck" ]; then \
+-		echo "🧱 OCCT_FALLBACK: build varian OCCT → Contents/MacOS/$(BIN_NAME)-occt"; \
+-		cargo build --release -p $(PKG_NAME) --bin $(BIN_NAME) --features kernel-occt --target-dir $(OCCT_TARGET_DIR) && \
+-		cp "$(OCCT_TARGET_DIR)/release/$(BIN_NAME)" "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)-occt" && \
+-		chmod 755 "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)-occt"; \
+-	fi
+ 	@if [ -f "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)" ]; then \
+ 		chmod 755 "$(MACOS_DIR)/$(APP_NAME).app/Contents/MacOS/$(BIN_NAME)"; \
+ 	fi
+@@ -255,11 +227,7 @@ pkg-macos-store: bundle-macos
+ 
+ build-linux: create-dirs
+ 	@echo "🐧 Build Linux"
+-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES) --target $(LINUX_X86_TARGET) || cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
+-	@if [ -n "$(OCCT_FALLBACK)" ] && [ "$(KERNEL)" = "truck" ]; then \
+-		cargo build --release -p $(PKG_NAME) --bin $(BIN_NAME) --features kernel-occt --target-dir $(OCCT_TARGET_DIR) && \
+-		cp $(OCCT_TARGET_DIR)/release/$(BIN_NAME) $(LINUX_DIR)/$(BIN_NAME)-occt; \
+-	fi
++	cargo build --release -p $(PKG_NAME) --target $(LINUX_X86_TARGET) || cargo build --release -p $(PKG_NAME)
+ 	@if [ -f $(BUILD_DIR)/$(LINUX_X86_TARGET)/release/$(BIN_NAME) ]; then \
+ 		cp $(BUILD_DIR)/$(LINUX_X86_TARGET)/release/$(BIN_NAME) $(LINUX_DIR)/$(BIN_NAME)-x86_64; \
+ 	elif [ -f $(BUILD_DIR)/release/$(BIN_NAME) ]; then \
+@@ -269,12 +237,12 @@ build-linux: create-dirs
+ 
+ bundle-linux: build-linux
+ 	@echo "📦 Package Linux"
+-	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 $$( [ -f $(BIN_NAME)-occt ] && echo $(BIN_NAME)-occt ) 2>/dev/null || true
++	cd $(LINUX_DIR) && tar -czf ducad-$(VERSION)-linux-x86_64.tar.gz $(BIN_NAME)-x86_64 2>/dev/null || true
+ 	@echo "✅ Linux packaging done."
+ 
+ build-windows: create-dirs
+ 	@echo "🪟 Build Windows"
+-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES) --target $(WINDOWS_X86_TARGET) || true
++	cargo build --release -p $(PKG_NAME) --target $(WINDOWS_X86_TARGET) || true
+ 	@if [ -f $(BUILD_DIR)/$(WINDOWS_X86_TARGET)/release/$(BIN_NAME).exe ]; then \
+ 		cp $(BUILD_DIR)/$(WINDOWS_X86_TARGET)/release/$(BIN_NAME).exe $(WINDOWS_DIR)/$(BIN_NAME)-x86_64.exe; \
+ 	fi
+@@ -312,14 +280,13 @@ export ANDROID_NDK_HOME
+ 
+ android-check:
+ 	@echo "🤖 cargo check aarch64-linux-android (NDK: $(ANDROID_NDK_HOME))"
+-	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) check -p ducad-android $(KERNEL_FEATURES)
++	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) check -p ducad-android
+ 
+ android-so:
+ 	@echo "🤖 build libducad_android.so (release)"
+-	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android $(KERNEL_FEATURES)
+-	@# libc++_shared.so: OCCT ditautkan ke STL bersama (android-toolchain.cmake);
+-	@# backend truck tidak membutuhkannya, tetapi tetap disalin agar crate C++
+-	@# lain yang menautkannya tidak gagal saat dimuat.
++	@cargo ndk -t arm64-v8a --platform $(ANDROID_API) -o $(ANDROID_JNI_DIR) build --release -p ducad-android
++	@# libc++_shared.so: dulu untuk OCCT; tetap disalin agar crate C++ lain
++	@# yang menautkannya tidak gagal saat dimuat.
+ 	@cp "$$(ls -d $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/*)/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" $(ANDROID_JNI_DIR)/arm64-v8a/
+ 
+ android-apk: android-so
+@@ -332,19 +299,19 @@ release: clean install-deps bundle-macos
+ 	@find $(MACOS_DIR) -maxdepth 1 -name '*.dmg' -o -name '*.pkg' -o -name '*.app' 2>/dev/null | sed 's/^/  /' || true
+ 
+ build:
+-	cargo build --release -p $(PKG_NAME) $(KERNEL_FEATURES)
++	cargo build --release -p $(PKG_NAME)
+ 
+ run:
+-	cargo run -p $(PKG_NAME) $(KERNEL_FEATURES)
++	cargo run -p $(PKG_NAME)
+ 
+ dev:
+-	cargo build -p $(PKG_NAME) $(KERNEL_FEATURES)
++	cargo build -p $(PKG_NAME)
+ 
+ test:
+-	cargo test --workspace $(KERNEL_FEATURES)
++	cargo test --workspace
+ 
+ check:
+-	cargo check -p $(PKG_NAME) $(KERNEL_FEATURES)
++	cargo check -p $(PKG_NAME)
+ 
+ fmt:
+ 	cargo fmt
+diff --git a/ducad-editor/apple/scripts/build_cargo.sh b/ducad-editor/apple/scripts/build_cargo.sh
+index afbc3dfb..f65b0651 100755
+--- a/ducad-editor/apple/scripts/build_cargo.sh
++++ b/ducad-editor/apple/scripts/build_cargo.sh
+@@ -61,23 +61,8 @@ esac
+ 
+ echo "🎯 Selected Rust Target: $RUST_TARGET"
+ 
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck (default, Rust murni — tanpa
+-# langkah OCCT/cmake) atau occt (pembanding selama soak 0.6.0-beta). Xcode:
+-# set DUCAD_KERNEL_BUILD=occt di environment build scheme bila perlu.
+-KERNEL="${DUCAD_KERNEL_BUILD:-truck}"
+-case "$KERNEL" in
+-    truck) KERNEL_FLAGS="" ;;
+-    occt) KERNEL_FLAGS="--features kernel-occt" ;;
+-    *) echo "error: DUCAD_KERNEL_BUILD harus truck atau occt, bukan '$KERNEL'" >&2; exit 1 ;;
+-esac
+-echo "🧱 Kernel backend: $KERNEL"
+-
+-# 3. Configure iOS toolchain & OCCT if compiling for iOS/iPadOS
+-TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
+-if [[ "$RUST_TARGET" == *"apple-ios-sim"* ]] || [ "${PLATFORM_NAME:-}" = "iphonesimulator" ]; then
+-    TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
+-fi
+ 
++# 3. iOS SDK (kernel truck: Rust murni, tanpa pre-build C++/cmake)
+ # Detect & export iOS SDK paths for toolchain files before unsetting Xcode variables
+ export SDK_IPHONEOS="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "${SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk}")"
+ export SDK_SIMULATOR="$(xcrun --sdk iphonesimulator --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk")"
+@@ -98,75 +83,8 @@ unset LDFLAGS
+ unset CC
+ unset CXX
+ 
+-if [[ "$RUST_TARGET" == *"apple-ios"* ]] && [ "$KERNEL" = "occt" ]; then
+-    export CMAKE_POLICY_VERSION_MINIMUM="3.5"
+-    if [ -f "$TOOLCHAIN_FILE" ]; then
+-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
+-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
+-        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$EDITOR_DIR/crates/ducad-kernel/ios/ios-sim-toolchain.cmake"
+-    fi
+-
+-    # Pre-build OCCT if needed (same serial install safety as build_ipad.sh)
+-    OCCT_TARGET_DIR="$EDITOR_DIR/target/$RUST_TARGET/OCCT"
+-    OCCT_LIB_STEP="$OCCT_TARGET_DIR/lib/libTKDESTEP.a"
+-    OCCT_SRC_DIR="$HOME/.cargo/registry/src"
+-    OCCT_VERSION=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
+-    OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -path "*/occt-sys-${OCCT_VERSION}/OCCT" 2>/dev/null | head -n1 || true)
+-    if [ -z "$OCCT_SYS_DIR" ] || [ ! -d "$OCCT_SYS_DIR" ]; then
+-        OCCT_SYS_DIR=$(find "$OCCT_SRC_DIR" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
+-    fi
+-    
+-    if [ ! -f "$OCCT_LIB_STEP" ] && [ -n "$OCCT_SYS_DIR" ] && [ -d "$OCCT_SYS_DIR" ]; then
+-        echo "⚙️ Pre-building OCCT for target $RUST_TARGET (version: $OCCT_VERSION)..."
+-        BUILD_DIR="$OCCT_TARGET_DIR/build"
+-        
+-        # Clean build directory if CMakeCache was generated with a different source directory
+-        if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+-            CACHE_SRC=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
+-            if [ -n "$CACHE_SRC" ] && [ "$CACHE_SRC" != "$OCCT_SYS_DIR" ]; then
+-                echo "⚠️ CMake cache source mismatch ($CACHE_SRC != $OCCT_SYS_DIR). Resetting build directory..."
+-                rm -rf "$BUILD_DIR"
+-                rm -rf "$OCCT_TARGET_DIR/lib"
+-                rm -rf "$OCCT_TARGET_DIR/include"
+-            fi
+-        fi
+-
+-        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
+-        if [ -f "$OCCT_TARGET_DIR/lib/libTKSTEP.a" ] && [ ! -f "$OCCT_LIB_STEP" ]; then
+-            echo "🧹 Removing legacy/incompatible OCCT libraries from $OCCT_TARGET_DIR/lib..."
+-            rm -rf "$OCCT_TARGET_DIR/lib"
+-            rm -rf "$OCCT_TARGET_DIR/include"
+-        fi
+-
+-        mkdir -p "$BUILD_DIR"
+-        TOOLCHAIN_FLAG=""
+-        if [ -f "$TOOLCHAIN_FILE" ]; then
+-            TOOLCHAIN_FLAG="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE"
+-        fi
+-        PATCH_DIR="$(dirname "$OCCT_SYS_DIR")/patch"
+-        cmake "$OCCT_SYS_DIR" -B "$BUILD_DIR" \
+-            -DBUILD_PATCH="$PATCH_DIR" \
+-            -DBUILD_LIBRARY_TYPE=Static \
+-            -DBUILD_MODULE_ApplicationFramework=FALSE \
+-            -DBUILD_MODULE_Draw=FALSE \
+-            -DUSE_D3D=FALSE -DUSE_DRACO=FALSE -DUSE_EIGEN=FALSE -DUSE_FFMPEG=FALSE \
+-            -DUSE_FREEIMAGE=FALSE -DUSE_FREETYPE=FALSE -DUSE_GLES2=FALSE -DUSE_OPENGL=FALSE \
+-            -DUSE_OPENVR=FALSE -DUSE_RAPIDJSON=FALSE -DUSE_TBB=FALSE -DUSE_TCL=FALSE \
+-            -DUSE_TK=FALSE -DUSE_VTK=FALSE -DUSE_XLIB=FALSE \
+-            -DINSTALL_DIR_LIB=lib -DINSTALL_DIR_INCLUDE=include \
+-            $TOOLCHAIN_FLAG \
+-            -DCMAKE_INSTALL_PREFIX="$OCCT_TARGET_DIR" \
+-            -DCMAKE_BUILD_TYPE=Release
+-        
+-        NCPUS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+-        cmake --build "$BUILD_DIR" --config Release --parallel "$NCPUS"
+-        cmake --install "$BUILD_DIR"
+-        echo "✅ OCCT pre-build complete for $RUST_TARGET"
+-    fi
+-fi
+-
+ # 4. Run Cargo Build
+-CARGO_FLAGS="--target $RUST_TARGET -p ducad-app $KERNEL_FLAGS"
++CARGO_FLAGS="--target $RUST_TARGET -p ducad-app"
+ BUILD_SUBDIR="release"
+ 
+ if [ "${CONFIGURATION}" = "Debug" ] && [ "${ACTION}" != "install" ]; then
+diff --git a/ducad-editor/build_ipad.sh b/ducad-editor/build_ipad.sh
+index b97d334f..17efa40c 100755
+--- a/ducad-editor/build_ipad.sh
++++ b/ducad-editor/build_ipad.sh
+@@ -17,7 +17,6 @@
+ #
+ # Options:
+ #   --debug           - Build debug configuration (default: release)
+-#   --kernel <K>      - Backend kernel: truck (default, tanpa OCCT/cmake) atau occt
+ #   --bundle-id <ID>  - Custom bundle ID (default: $APPLE_BUNDLE_ID or id.jayuda.ducad.ios)
+ #   --sim-name <NAME> - Target simulator name (default: auto-detect booted or iPad Pro / Air)
+ #   --identity <ID>   - Code signing identity
+@@ -122,14 +121,9 @@ CARGO_BUILD_FLAG="--release"
+ BUILD_SUBDIR="release"
+ 
+ DIST_IOS_DIR="$EDITOR_DIR/dist/ios"
+-TOOLCHAIN_FILE="$EDITOR_DIR/crates/ducad-kernel/ios/ios-toolchain.cmake"
+ ENTITLEMENTS_FILE="$EDITOR_DIR/crates/ducad-app/ios/DUCAD-iOS.entitlements"
+ 
+ ACTION="device"
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6.1): truck = Rust murni, tidak ada
+-# langkah OCCT/cmake sama sekali. `--kernel occt` hanya untuk pembanding
+-# selama soak 0.6.0-beta (dihapus di F6.4).
+-KERNEL="${DUCAD_KERNEL_BUILD:-truck}"
+ CUSTOM_SIM_NAME=""
+ CUSTOM_IDENTITY="${APPLE_IDENTITY:-}"
+ PROVISIONING_PROFILE="${PROVISIONING_PROFILE:-}"
+@@ -156,7 +150,6 @@ show_help() {
+     echo ""
+     echo -e "${BOLD}Options:${NC}"
+     echo "  --debug          - Compile in debug mode instead of release"
+-    echo "  --kernel <K>     - Kernel backend: truck (default, no OCCT/cmake) or occt"
+     echo "  --bundle-id <ID> - Override Apple Bundle Identifier"
+     echo "  --sim-name <NAME>- Specify Simulator device name (e.g., 'iPad Pro 11-inch (M4)')"
+     echo "  --identity <ID>  - Signing identity (e.g., 'Apple Development: ...')"
+@@ -219,10 +212,6 @@ while [[ $# -gt 0 ]]; do
+             APPLE_BUNDLE_ID="$2"
+             shift 2
+             ;;
+-        --kernel)
+-            KERNEL="$2"
+-            shift 2
+-            ;;
+         --sim-name)
+             CUSTOM_SIM_NAME="$2"
+             shift 2
+@@ -247,91 +236,10 @@ while [[ $# -gt 0 ]]; do
+     esac
+ done
+ 
+-case "$KERNEL" in
+-    truck) KERNEL_FEATURES=() ;;
+-    occt) KERNEL_FEATURES=(--features kernel-occt) ;;
+-    *)
+-        print_error "Unknown kernel backend: $KERNEL (truck|occt)"
+-        exit 1
+-        ;;
+-esac
+-
+ # --- 5. Environment & Toolchain Setup ---
+-ensure_occt_built() {
+-    local target="${1:-$IOS_ARM_TARGET}"
+-    local occt_target_dir="$EDITOR_DIR/target/$target/OCCT"
+-    local occt_lib_step="$occt_target_dir/lib/libTKDESTEP.a"
+-    local occt_src_dir="$HOME/.cargo/registry/src"
+-    local occt_version
+-    occt_version=$(grep -A 2 'name = "occt-sys"' "$EDITOR_DIR/Cargo.lock" 2>/dev/null | grep 'version =' | head -n1 | cut -d '"' -f2 || echo "7.8.1")
+-    local occt_sys_dir
+-    occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -path "*/occt-sys-${occt_version}/OCCT" 2>/dev/null | head -n1 || true)
+-    if [ -z "$occt_sys_dir" ] || [ ! -d "$occt_sys_dir" ]; then
+-        occt_sys_dir=$(find "$occt_src_dir" -maxdepth 3 -type d -name "OCCT" 2>/dev/null | grep "occt-sys" | sort -V | tail -n1 || true)
+-    fi
+-    
+-    if [ ! -f "$occt_lib_step" ] && [ -n "$occt_sys_dir" ] && [ -d "$occt_sys_dir" ]; then
+-        print_status "Pre-building OCCT for target $target (version: $occt_version, serial install to avoid CMake APFS race condition)..."
+-        local build_dir="$occt_target_dir/build"
+-        
+-        # Clean build directory if CMakeCache was generated with a different source directory
+-        if [ -f "$build_dir/CMakeCache.txt" ]; then
+-            local cache_src
+-            cache_src=$(grep -i "CMAKE_HOME_DIRECTORY:INTERNAL=" "$build_dir/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 || true)
+-            if [ -n "$cache_src" ] && [ "$cache_src" != "$occt_sys_dir" ]; then
+-                print_warning "CMake cache source mismatch ($cache_src != $occt_sys_dir). Resetting build directory..."
+-                rm -rf "$build_dir"
+-                rm -rf "$occt_target_dir/lib"
+-                rm -rf "$occt_target_dir/include"
+-            fi
+-        fi
+-
+-        # Remove stale/conflicting legacy libraries (e.g. pre-7.8 libTKSTEP.a) if present
+-        if [ -f "$occt_target_dir/lib/libTKSTEP.a" ] && [ ! -f "$occt_lib_step" ]; then
+-            print_status "Removing legacy/incompatible OCCT libraries from $occt_target_dir/lib..."
+-            rm -rf "$occt_target_dir/lib"
+-            rm -rf "$occt_target_dir/include"
+-        fi
+-
+-        mkdir -p "$build_dir"
+-        local toolchain_flag=""
+-        if [ -f "$TOOLCHAIN_FILE" ]; then
+-            toolchain_flag="-DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_FILE"
+-        fi
+-        local patch_dir
+-        patch_dir="$(dirname "$occt_sys_dir")/patch"
+-        cmake "$occt_sys_dir" -B "$build_dir" \
+-            -DBUILD_PATCH="$patch_dir" \
+-            -DBUILD_LIBRARY_TYPE=Static \
+-            -DBUILD_MODULE_ApplicationFramework=FALSE \
+-            -DBUILD_MODULE_Draw=FALSE \
+-            -DUSE_D3D=FALSE -DUSE_DRACO=FALSE -DUSE_EIGEN=FALSE -DUSE_FFMPEG=FALSE \
+-            -DUSE_FREEIMAGE=FALSE -DUSE_FREETYPE=FALSE -DUSE_GLES2=FALSE -DUSE_OPENGL=FALSE \
+-            -DUSE_OPENVR=FALSE -DUSE_RAPIDJSON=FALSE -DUSE_TBB=FALSE -DUSE_TCL=FALSE \
+-            -DUSE_TK=FALSE -DUSE_VTK=FALSE -DUSE_XLIB=FALSE \
+-            -DINSTALL_DIR_LIB=lib -DINSTALL_DIR_INCLUDE=include \
+-            $toolchain_flag \
+-            -DCMAKE_INSTALL_PREFIX="$occt_target_dir" \
+-            -DCMAKE_BUILD_TYPE=Release
+-        
+-        local ncpus
+-        ncpus=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+-        cmake --build "$build_dir" --config Release --parallel "$ncpus"
+-        cmake --install "$build_dir"
+-        print_success "OCCT pre-build complete for $target!"
+-    fi
+-}
+-
+ setup_toolchain() {
+     local target="${1:-$IOS_ARM_TARGET}"
+-    print_status "Configuring iOS CMake & Cargo toolchain..."
+-    
+-    export CMAKE_POLICY_VERSION_MINIMUM="3.5"
+-    if [ -f "$TOOLCHAIN_FILE" ]; then
+-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios="$TOOLCHAIN_FILE"
+-        export CMAKE_TOOLCHAIN_FILE_aarch64_apple_ios_sim="$TOOLCHAIN_FILE"
+-        export CMAKE_TOOLCHAIN_FILE_x86_64_apple_ios="$TOOLCHAIN_FILE"
+-    fi
++    print_status "Configuring iOS Cargo toolchain (kernel truck: Rust murni, tanpa cmake)..."
+     
+     # Check developer SDK
+     if command -v xcrun &>/dev/null; then
+@@ -346,12 +254,6 @@ setup_toolchain() {
+     unset LDFLAGS
+     unset CC
+     unset CXX
+-
+-    if [ "$KERNEL" = "occt" ]; then
+-        ensure_occt_built "$target"
+-    else
+-        print_status "Kernel backend: truck (Rust murni) — langkah OCCT/cmake dilewati"
+-    fi
+ }
+ 
+ install_dependencies() {
+@@ -535,7 +437,7 @@ codesign_bundle() {
+ do_check() {
+     print_status "Running cargo check for iOS target ($IOS_ARM_TARGET)..."
+     setup_toolchain
+-    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME" "${KERNEL_FEATURES[@]}"
++    cargo check --target "$IOS_ARM_TARGET" -p "$PKG_NAME"
+     print_success "cargo check passed for iOS target!"
+ }
+ 
+@@ -560,7 +462,7 @@ build_app_bundle() {
+     print_status "Building $PKG_NAME for target $target ($BUILD_MODE)..."
+     setup_toolchain "$target"
+     
+-    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target" "${KERNEL_FEATURES[@]}"
++    cargo build $CARGO_BUILD_FLAG -p "$PKG_NAME" --target "$target"
+     
+     local bin_source="$EDITOR_DIR/target/$target/$BUILD_SUBDIR/$BIN_NAME"
+     if [ ! -f "$bin_source" ]; then
+diff --git a/ducad-editor/build_windows.ps1 b/ducad-editor/build_windows.ps1
+index 7ade83a6..06abf21f 100644
+--- a/ducad-editor/build_windows.ps1
++++ b/ducad-editor/build_windows.ps1
+@@ -4,8 +4,8 @@
+ 
+ .DESCRIPTION
+     Automates building, version syncing, packaging, and cleaning of the DUCAD CAD editor
+-    on Windows (x86_64 MSVC). Supports preserving precompiled OpenCASCADE (OCCT)
+-    artifacts to prevent long recompilations.
++    on Windows (x86_64 MSVC). The geometry kernel (SolidCraft/truck) is pure
++    Rust: no CMake or C++ kernel build is needed.
+ 
+ .PARAMETER Target
+     Build target:
+@@ -16,20 +16,17 @@
+       - 'check'     : Run cargo check across the workspace
+       - 'test'      : Run cargo test across workspace crates
+       - 'run'       : Build (if needed) and run ducad.exe immediately
+-      - 'clean'     : Clean build artifacts while preserving target/OCCT
+-      - 'clean-all' : Deep clean entire target/ directory (including OCCT)
++      - 'clean'     : Clean build artifacts (cargo clean + dist/windows)
++      - 'clean-all' : Deep clean entire target/ and dist/ directories
+ 
+ .PARAMETER Profile
+     Cargo build profile: 'release' (default) or 'debug'.
+ 
+ .PARAMETER Clean
+-    Clean build artifacts before building (preserves target/OCCT).
++    Clean build artifacts before building.
+ 
+ .PARAMETER CleanAll
+-    Deep clean everything (including target/OCCT) before building.
+-
+-.PARAMETER CleanNoOcct
+-    Explicit clean of target/ artifacts while strictly preserving target/OCCT.
++    Deep clean everything before building.
+ 
+ .PARAMETER Zip
+     Compress build output and assets into a ZIP file in dist/windows.
+@@ -46,15 +43,6 @@
+ .PARAMETER Features
+     Optional extra features to pass to cargo build (e.g. "local-gguf").
+ 
+-.PARAMETER Kernel
+-    Geometry kernel backend: 'truck' (default; pure Rust, no CMake/OCCT) or
+-    'occt' (OpenCASCADE, needs CMake; kept only for the 0.6.0-beta soak,
+-    PLAN_MIGRASI_TRUCK F6).
+-
+-.PARAMETER OcctFallback
+-    Also build an OCCT variant of the app as ducad-occt.exe next to ducad.exe
+-    (soak 0.6.0-beta). Users switch with DUCAD_KERNEL=occt.
+-
+ .EXAMPLE
+     .\build_windows.ps1
+     # Builds DUCAD app in release mode.
+@@ -69,7 +57,7 @@
+ 
+ .EXAMPLE
+     .\build_windows.ps1 clean
+-    # Safely cleans cargo target cache while preserving OpenCASCADE C++ compilation.
++    # Cleans the cargo target cache and dist/windows.
+ #>
+ 
+ [CmdletBinding()]
+@@ -83,15 +71,11 @@ param(
+ 
+     [switch]$Clean,
+     [switch]$CleanAll,
+-    [switch]$CleanNoOcct,
+     [switch]$Zip,
+     [switch]$Run,
+     [switch]$Deps,
+     [switch]$SyncVersion,
+     [string]$Features = "",
+-    [ValidateSet("truck", "occt")]
+-    [string]$Kernel = "truck",
+-    [switch]$OcctFallback,
+     [Alias("h")]
+     [switch]$Help
+ )
+@@ -191,33 +175,10 @@ Write-Host "==========================================================" -Foregro
+ Write-Host "  DUCAD Editor Windows Build System (v$Version)" -ForegroundColor Cyan
+ Write-Host "==========================================================" -ForegroundColor Cyan
+ Write-Status "Direktori Kerja : $EditorDir"
+-Write-Status "Target          : $Target | Profil: $Profile | Kernel: $Kernel"
+-$NeedsOcct = ($Kernel -eq "occt") -or $OcctFallback
++Write-Status "Target          : $Target | Profil: $Profile"
+ 
+ # --- Setup Visual Studio / MSVC Build Environment ---
+ function Initialize-MsvcEnvironment {
+-    # Pastikan default CMAKE_GENERATOR kompatibel jika belum diset
+-    if (-not $env:CMAKE_GENERATOR) {
+-        $env:CMAKE_GENERATOR = "Visual Studio 17 2022"
+-    }
+-
+-    # Sinkronkan cache CMake di target/OCCT/build jika ada perbedaan generator sebelumnya
+-    $occtCache = Join-Path $TargetDir "OCCT\build\CMakeCache.txt"
+-    $occtCMakeFiles = Join-Path $TargetDir "OCCT\build\CMakeFiles"
+-    if (Test-Path $occtCache) {
+-        $cacheContent = Get-Content $occtCache -Raw -ErrorAction SilentlyContinue
+-        if ($cacheContent -and ($cacheContent -match "CMAKE_GENERATOR:INTERNAL=(.*)")) {
+-            $prevGen = $matches[1].Trim()
+-            if ($prevGen -and ($prevGen -ne $env:CMAKE_GENERATOR)) {
+-                Write-Status "Menyelaraskan generator CMake ($prevGen -> $($env:CMAKE_GENERATOR))..."
+-                Remove-Item -Force $occtCache -ErrorAction SilentlyContinue
+-                if (Test-Path $occtCMakeFiles) {
+-                    Remove-Item -Recurse -Force $occtCMakeFiles -ErrorAction SilentlyContinue
+-                }
+-            }
+-        }
+-    }
+-
+     if (Get-Command cl.exe -ErrorAction SilentlyContinue) {
+         return
+     }
+@@ -250,10 +211,6 @@ function Check-Prerequisites {
+         exit 1
+     }
+ 
+-    # Backend truck (default) adalah Rust murni: CMake hanya perlu untuk OCCT.
+-    if ($NeedsOcct -and -not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+-        Write-Warning "CMake tidak ditemukan di PATH. Backend OCCT (-Kernel occt / -OcctFallback) membutuhkan CMake."
+-    }
+ 
+     Initialize-MsvcEnvironment
+     Write-Success "Dependensi dasar siap."
+@@ -308,8 +265,6 @@ function Clean-Build([bool]$deepClean) {
+     }
+ 
+     if ($deepClean) {
+-        Write-Warning "PERINGATAN: Membersihkan SELURUH target/ termasuk OpenCASCADE C++ kernel!"
+-        Write-Warning "Kompilasi ulang OpenCASCADE dapat memakan waktu 10-30 menit."
+         Remove-Item -Recurse -Force $TargetDir -ErrorAction SilentlyContinue
+         if (Test-Path $DistDir) {
+             Remove-Item -Recurse -Force $DistDir -ErrorAction SilentlyContinue
+@@ -318,38 +273,12 @@ function Clean-Build([bool]$deepClean) {
+         return
+     }
+ 
+-    Write-Guard "Menjalankan pembersihan aman (melindungi target/OCCT)..."
+-    
+-    # 1. Bersihkan dist/windows
+     if (Test-Path $WindowsDistDir) {
+         Remove-Item -Recurse -Force $WindowsDistDir -ErrorAction SilentlyContinue
+     }
+-
+-    # 2. Bersihkan target profil tertentu atau workspace
+-    $occtBackup = Join-Path ([System.IO.Path]::GetTempPath()) ("ducad_occt_backup_" + [System.IO.Path]::GetRandomFileName())
+-    $occtPath = Join-Path $TargetDir "OCCT"
+-    $hasOcct = Test-Path $occtPath
+-
+-    if ($hasOcct) {
+-        Write-Status "Mengamankan target/OCCT ke $occtBackup..."
+-        Move-Item -Path $occtPath -Destination $occtBackup -Force
+-    }
+-
+-    try {
+-        Write-Status "Membersihkan cache build Rust via cargo clean..."
+-        cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
+-    } finally {
+-        if ($hasOcct -and (Test-Path $occtBackup)) {
+-            if (-not (Test-Path $TargetDir)) {
+-                New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
+-            }
+-            Write-Status "Mengembalikan target/OCCT..."
+-            Move-Item -Path $occtBackup -Destination $occtPath -Force
+-            Write-Success "target/OCCT berhasil dipertahankan!"
+-        }
+-    }
+-
+-    Write-Success "Pembersihan aman selesai."
++    Write-Status "Membersihkan cache build Rust via cargo clean..."
++    cargo clean --manifest-path (Join-Path $EditorDir "Cargo.toml")
++    Write-Success "Pembersihan selesai."
+ }
+ 
+ # --- Format File Size ---
+@@ -361,26 +290,15 @@ function Format-FileSize([long]$bytes) {
+ }
+ 
+ # --- Build Execution ---
+-function Invoke-DucadBuild([string]$packageName, [string]$binaryName, [string]$kernel = $Kernel) {
++function Invoke-DucadBuild([string]$packageName, [string]$binaryName) {
+     $cargoArgs = @("build")
+     if ($Profile -eq "release") {
+         $cargoArgs += "--release"
+     }
+     $cargoArgs += @("-p", $packageName)
+ 
+-    $featureList = @()
+-    if ($Features) { $featureList += $Features }
+-    $buildTargetDir = $TargetDir
+-    if ($kernel -eq "occt") {
+-        $featureList += "kernel-occt"
+-        # Direktori target terpisah (bukan "occt": bentrok dengan target\OCCT di NTFS) agar build OCCT tidak menimpa hasil build truck.
+-        if ($kernel -ne $Kernel) {
+-            $buildTargetDir = Join-Path $TargetDir "kernel-occt"
+-            $cargoArgs += @("--target-dir", $buildTargetDir)
+-        }
+-    }
+-    if ($featureList.Count -gt 0) {
+-        $cargoArgs += @("--features", ($featureList -join ","))
++    if ($Features) {
++        $cargoArgs += @("--features", $Features)
+     }
+ 
+     Write-Status "Menjalankan: cargo $($cargoArgs -join ' ')"
+@@ -392,7 +310,7 @@ function Invoke-DucadBuild([string]$packageName, [string]$binaryName, [string]$k
+ 
+     # Lokasi binary hasil build
+     $binSubDir = if ($Profile -eq "release") { "release" } else { "debug" }
+-    $builtExe = Join-Path $buildTargetDir "$binSubDir\$binaryName.exe"
++    $builtExe = Join-Path $TargetDir "$binSubDir\$binaryName.exe"
+ 
+     if (-not (Test-Path $builtExe)) {
+         Write-ErrorMsg "Binary hasil kompilasi tidak ditemukan di $builtExe"
+@@ -474,7 +392,7 @@ if ($SyncVersion) {
+ if ($CleanAll -or ($Target -eq "clean-all")) {
+     Clean-Build -deepClean $true
+     if ($Target -eq "clean" -or $Target -eq "clean-all") { exit 0 }
+-} elseif ($Clean -or $CleanNoOcct -or ($Target -eq "clean")) {
++} elseif ($Clean -or ($Target -eq "clean")) {
+     Clean-Build -deepClean $false
+     if ($Target -eq "clean") { exit 0 }
+ }
+@@ -510,15 +428,6 @@ switch ($Target) {
+ 
+     "bundle" {
+         $exe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad"
+-        if ($OcctFallback -and $Kernel -eq "truck") {
+-            # Soak 0.6.0-beta: ducad-occt.exe di samping ducad.exe; DUCAD_KERNEL=occt
+-            # membuat ducad.exe menjalankannya (crates/ducad-app/src/kernel_select.rs).
+-            $occtExe = Invoke-DucadBuild -packageName "ducad-app" -binaryName "ducad" -kernel "occt"
+-            if (-not (Test-Path $WindowsDistDir)) {
+-                New-Item -ItemType Directory -Path $WindowsDistDir -Force | Out-Null
+-            }
+-            Copy-Item -Path $occtExe -Destination (Join-Path $WindowsDistDir "ducad-occt.exe") -Force
+-        }
+         Package-Windows -exePath $exe -createZip $true
+         $builtExes += $exe
+     }
+diff --git a/ducad-editor/crates/ducad-android/Cargo.toml b/ducad-editor/crates/ducad-android/Cargo.toml
+index 043671f6..7fb8b50b 100644
+--- a/ducad-editor/crates/ducad-android/Cargo.toml
++++ b/ducad-editor/crates/ducad-android/Cargo.toml
+@@ -8,7 +8,7 @@ publish = false
+ 
+ # `cdylib` dimuat `GameActivity` (android/app). Di platform lain crate ini
+ # kosong (tanpa dependensi) sehingga `cargo build --workspace` desktop
+-# tidak ikut menautkan OCCT dua kali.
++# tidak ikut menautkan aplikasi dua kali.
+ [lib]
+ name = "ducad_android"
+ crate-type = ["cdylib", "rlib"]
+diff --git a/ducad-editor/crates/ducad-app/Cargo.toml b/ducad-editor/crates/ducad-app/Cargo.toml
+index 9103898a..7d9883df 100644
+--- a/ducad-editor/crates/ducad-app/Cargo.toml
++++ b/ducad-editor/crates/ducad-app/Cargo.toml
+@@ -17,12 +17,6 @@ path = "src/main.rs"
+ 
+ [features]
+ default = []
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+ # Asisten AI di perangkat (P11); mati secara default agar build biasa
+ # dan build iOS tidak terpengaruh.
+ apple-fm = ["ducad-assist/apple-fm"]
+@@ -110,9 +104,9 @@ icon = ["assets/icon.png"]
+ version = "0.4.5"
+ copyright = "Copyright (c) 2026 Yulius Jayuda"
+ category = "public.app-category.developer-tools"
+-short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel OpenCASCADE"
++short_description = "CAD 2D/3D — sketch, constraint, direct modeling, kernel SolidCraft/truck"
+ long_description = """
+ DUCAD adalah aplikasi CAD gaya AutoCAD (drafting 2D presisi) yang \
+ berevolusi ke pemodelan 3D gaya Shapr3D (sketch -> extrude, direct \
+-modeling), dibangun di atas kernel geometri OpenCASCADE.
++modeling), dibangun di atas kernel geometri B-rep SolidCraft/truck (Rust murni).
+ """
+diff --git a/ducad-editor/crates/ducad-app/src/import_worker.rs b/ducad-editor/crates/ducad-app/src/import_worker.rs
+index 5c731dd3..854c8be0 100644
+--- a/ducad-editor/crates/ducad-app/src/import_worker.rs
++++ b/ducad-editor/crates/ducad-app/src/import_worker.rs
+@@ -5,13 +5,9 @@
+ //! mengirim `KernelShape` + `KernelMesh` hasilnya lewat channel; UI thread
+ //! mengambilnya tiap frame lewat [`ImportWorker::poll`].
+ //!
+-//! Konkurensi bergantung backend (`ducad_kernel::THREAD_SAFE`):
+-//! - OCCT: `KERNEL_LOCK` menyerialkan SEMUA panggilan kernel lintas thread —
+-//!   worker ini hanya membuat UI tidak *beku*, operasi kernel lain di UI
+-//!   thread (Extrude/Fillet/…) menunggu import selesai.
+-//! - truck (PLAN_MIGRASI_TRUCK 5.4): tanpa kunci global; import berjalan
+-//!   sungguh paralel dengan operasi di UI thread (diuji di
+-//!   `ducad-kernel/tests/truck_concurrency.rs`).
++//! Kernel tanpa kunci global (`ducad_kernel::THREAD_SAFE`, PLAN_MIGRASI_TRUCK
++//! 5.4): import berjalan sungguh paralel dengan operasi di UI thread (diuji di
++//! `ducad-kernel/tests/truck_concurrency.rs`).
+ 
+ use std::path::PathBuf;
+ use std::sync::mpsc::{self, Receiver, Sender};
+diff --git a/ducad-editor/crates/ducad-app/src/lib.rs b/ducad-editor/crates/ducad-app/src/lib.rs
+index c5f1d36a..15595e34 100644
+--- a/ducad-editor/crates/ducad-app/src/lib.rs
++++ b/ducad-editor/crates/ducad-app/src/lib.rs
+@@ -27,7 +27,6 @@ pub mod freehand;
+ pub mod history_db;
+ pub mod import_worker;
+ pub mod industry_ui;
+-pub mod kernel_select;
+ pub mod ink;
+ pub mod input;
+ pub mod live_tools;
+diff --git a/ducad-editor/crates/ducad-app/src/logging.rs b/ducad-editor/crates/ducad-app/src/logging.rs
+index 382aa812..e718b6ed 100644
+--- a/ducad-editor/crates/ducad-app/src/logging.rs
++++ b/ducad-editor/crates/ducad-app/src/logging.rs
+@@ -95,9 +95,9 @@ impl Write for Tee {
+     }
+ }
+ 
+-/// Jurnal panik untuk soak 0.6.0-beta (PLAN_MIGRASI_TRUCK F6.3): satu baris
+-/// JSON per panik di [`log_dir`], TIDAK ikut dirotasi tiap start sehingga
+-/// bisa dihitung per backend sepanjang masa soak. Hanya lokal — tidak pernah
++/// Jurnal panik (diperkenalkan untuk soak 0.6.0-beta, PLAN_MIGRASI_TRUCK
++/// F6.3): satu baris JSON per panik di [`log_dir`], TIDAK ikut dirotasi tiap
++/// start sehingga bisa dihitung per versi. Hanya lokal — tidak pernah
+ /// dikirim ke mana pun; pengguna beta melampirkannya ke laporan bila diminta.
+ pub const PANIC_JOURNAL: &str = "panics.jsonl";
+ /// Jurnal berhenti tumbuh setelah ukuran ini.
+diff --git a/ducad-editor/crates/ducad-app/src/main.rs b/ducad-editor/crates/ducad-app/src/main.rs
+index 735d2a45..f8911214 100644
+--- a/ducad-editor/crates/ducad-app/src/main.rs
++++ b/ducad-editor/crates/ducad-app/src/main.rs
+@@ -66,15 +66,8 @@ fn load_icon() -> IconData {
+ }
+ 
+ fn main() -> eframe::Result {
+-    // `DUCAD_KERNEL=occt|truck` (soak 0.6.0-beta, PLAN_MIGRASI_TRUCK F6.3):
+-    // pindah ke executable backend lain SEBELUM log dirotasi. Hanya kembali
+-    // bila tetap memakai backend bawaan.
+-    let kernel_note = ducad_app::kernel_select::switch_if_requested();
+     // Log ke stderr + ~/.ducad/logs/ducad.log, dan catat panik (ADR 0009).
+     ducad_app::logging::init();
+-    if let Some(note) = kernel_note {
+-        log::warn!("{note}");
+-    }
+ 
+     let icon = (!ducad_app::platform::is_mobile()).then(load_icon);
+     eframe::run_native(
+diff --git a/ducad-editor/crates/ducad-assist/Cargo.toml b/ducad-editor/crates/ducad-assist/Cargo.toml
+index c565bbb8..452ab798 100644
+--- a/ducad-editor/crates/ducad-assist/Cargo.toml
++++ b/ducad-editor/crates/ducad-assist/Cargo.toml
+@@ -8,12 +8,6 @@ description = "Asisten AI lokal/offline DUCAD: model mengusulkan aksi, hasilnya
+ 
+ [features]
+ default = []
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-engine/kernel-truck"]
+-kernel-occt = ["ducad-engine/kernel-occt"]
+ # Backend GGUF lokal di CPU (candle). Model tidak dibundel: lihat docs/adr/0002-ai-lokal.md.
+ local-gguf = ["dep:candle-core", "dep:candle-transformers", "dep:tokenizers"]
+ # Backend Apple Foundation Models lewat pustaka Swift statis (macOS 26+).
+diff --git a/ducad-editor/crates/ducad-cli/Cargo.toml b/ducad-editor/crates/ducad-cli/Cargo.toml
+index 809ba423..60a74378 100644
+--- a/ducad-editor/crates/ducad-cli/Cargo.toml
++++ b/ducad-editor/crates/ducad-cli/Cargo.toml
+@@ -11,12 +11,6 @@ path = "src/main.rs"
+ 
+ [features]
+ default = []
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+ # Backend AI di perangkat untuk `ducad-cli assist` (P11); mati secara default.
+ apple-fm = ["ducad-assist/apple-fm"]
+ local-gguf = ["ducad-assist/local-gguf"]
+diff --git a/ducad-editor/crates/ducad-core/tests/layering.rs b/ducad-editor/crates/ducad-core/tests/layering.rs
+index 9428dccd..2e1d99dd 100644
+--- a/ducad-editor/crates/ducad-core/tests/layering.rs
++++ b/ducad-editor/crates/ducad-core/tests/layering.rs
+@@ -2,7 +2,7 @@
+ //! CADCraft). Peta crate di `CLAUDE.md` adalah kontrak: setiap crate hanya
+ //! boleh bergantung pada crate DUCAD yang tercantum di tabel ini, crate UI
+ //! (egui/eframe/wgpu/winit/rfd) hanya boleh muncul di lapisan GUI, dan
+-//! `opencascade` maupun `solidcraft-*`/`truck-*` hanya di `ducad-kernel`. Menambah panah baru = ubah tabel
++//! `solidcraft-*`/`truck-*` hanya di `ducad-kernel` (OpenCASCADE dilarang sejak 0.6.0). Menambah panah baru = ubah tabel
+ //! ini DAN peta di `CLAUDE.md`.
+ //!
+ //! Dijalankan dari `ducad-core` karena crate ini paling bawah dan paling
+@@ -224,22 +224,20 @@ fn ui_toolkits_stay_in_the_gui_layer() {
+     }
+ }
+ 
++/// OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4): tidak ada crate
++/// yang boleh menariknya kembali.
+ #[test]
+-fn only_the_kernel_links_opencascade() {
++fn no_crate_links_opencascade() {
+     for (name, text) in manifests() {
+         let uses = dependency_names(&text)
+             .iter()
+-            .any(|d| d.starts_with("opencascade"));
+-        assert_eq!(
+-            uses,
+-            name == "ducad-kernel",
+-            "`{name}`: hanya ducad-kernel yang boleh bergantung pada opencascade"
+-        );
++            .any(|d| d.starts_with("opencascade") || d.starts_with("occt"));
++        assert!(!uses, "`{name}`: OpenCASCADE sudah dihapus (F6.4)");
+     }
+ }
+ 
+-/// Backend truck (PLAN_MIGRASI_TRUCK F2): SolidCraft & truck sama
+-/// terkurungnya dengan OCCT — tipe mereka tidak boleh bocor ke crate lain.
++/// SolidCraft & truck terkurung di ducad-kernel — tipe mereka tidak boleh
++/// bocor ke crate lain.
+ #[test]
+ fn only_the_kernel_links_solidcraft_or_truck() {
+     for (name, text) in manifests() {
+diff --git a/ducad-editor/crates/ducad-engine/Cargo.toml b/ducad-editor/crates/ducad-engine/Cargo.toml
+index 54bc7b8f..85554ab5 100644
+--- a/ducad-editor/crates/ducad-engine/Cargo.toml
++++ b/ducad-editor/crates/ducad-engine/Cargo.toml
+@@ -25,10 +25,4 @@ usvg = { version = "0.48", optional = true, default-features = false }
+ 
+ [features]
+ default = []
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+ raster = ["dep:resvg", "dep:usvg"]
+diff --git a/ducad-editor/crates/ducad-engine/src/error.rs b/ducad-editor/crates/ducad-engine/src/error.rs
+index dd6859e0..7b1d94f9 100644
+--- a/ducad-editor/crates/ducad-engine/src/error.rs
++++ b/ducad-editor/crates/ducad-engine/src/error.rs
+@@ -206,8 +206,7 @@ impl OpError {
+             return Self::new(OpErrorCode::Unsupported, format!("{op} gagal: {u}")).with_hint(
+                 format!(
+                     "operasi `{}` belum tersedia di backend kernel `{}`; ubah model agar \
+-                     tidak memakai operasi ini, atau — selama beta 0.6.0 — jalankan backend \
+-                     OCCT (`DUCAD_KERNEL=occt` pada paket beta, atau build `--features kernel-occt`)",
++                     tidak memakai operasi ini (alternatif per op: `get_schema`)",
+                     u.operation, u.backend
+                 ),
+             );
+diff --git a/ducad-editor/crates/ducad-io/Cargo.toml b/ducad-editor/crates/ducad-io/Cargo.toml
+index 8e08a643..11114f7e 100644
+--- a/ducad-editor/crates/ducad-io/Cargo.toml
++++ b/ducad-editor/crates/ducad-io/Cargo.toml
+@@ -5,14 +5,6 @@ edition.workspace = true
+ license.workspace = true
+ authors.workspace = true
+ 
+-[features]
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+-
+ [dependencies]
+ ducad-core = { workspace = true }
+ ducad-ink = { workspace = true }
+diff --git a/ducad-editor/crates/ducad-kernel/Cargo.toml b/ducad-editor/crates/ducad-kernel/Cargo.toml
+index 3d86ffcc..dc9cdee0 100644
+--- a/ducad-editor/crates/ducad-kernel/Cargo.toml
++++ b/ducad-editor/crates/ducad-kernel/Cargo.toml
+@@ -5,21 +5,11 @@ edition.workspace = true
+ license.workspace = true
+ authors.workspace = true
+ 
+-# Backend kernel geometri (PLAN_MIGRASI_TRUCK §3, F6). Default: truck
+-# (SolidCraft, Rust murni — tanpa OCCT/cmake). OCCT tetap bisa dipilih selama
+-# masa soak: `--features kernel-occt` (dari crate mana pun di graf) MENANG
+-# atas default truck; lihat build.rs. Tanpa backend sama sekali =
+-# `compile_error!` di src/lib.rs.
+-[features]
+-default = ["kernel-truck"]
+-kernel-occt = ["dep:opencascade"]
+-kernel-truck = ["dep:solidcraft-kernel", "dep:solidcraft-geom"]
+-
+ [dependencies]
+ ducad-core = { workspace = true }
+-opencascade = { workspace = true, optional = true }
+-solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel", optional = true }
+-solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom", optional = true }
++# Kernel geometri: SolidCraft di atas truck (PLAN_MIGRASI_TRUCK; OCCT dihapus di F6.4).
++solidcraft-kernel = { path = "../../vendors/solidcraft/crates/kernel" }
++solidcraft-geom = { path = "../../vendors/solidcraft/crates/geom" }
+ glam = { workspace = true }
+ anyhow = { workspace = true }
+ log = { workspace = true }
+diff --git a/ducad-editor/crates/ducad-kernel/src/backend/mod.rs b/ducad-editor/crates/ducad-kernel/src/backend/mod.rs
+index 20563b35..3efcb023 100644
+--- a/ducad-editor/crates/ducad-kernel/src/backend/mod.rs
++++ b/ducad-editor/crates/ducad-kernel/src/backend/mod.rs
+@@ -1,24 +1,10 @@
+-//! Pemilihan backend kernel geometri (PLAN_MIGRASI_TRUCK §3).
++//! Backend kernel geometri: SolidCraft kernel di atas truck (`truck/`).
+ //!
+-//! API publik crate ini (modul `csg`, `modify`, `shape`, …) TIDAK berubah
+-//! antar-backend. Tiap modul publik menyimpan tipe & logika netral-backend,
+-//! lalu me-re-export fungsi khusus backend dari `crate::backend::<modul>`:
+-//!
+-//! - `truck/` — SolidCraft kernel di atas truck (fitur `kernel-truck`, default sejak F6).
+-//! - `occt/`  — OpenCASCADE lewat `opencascade-rs` (fitur `kernel-occt`, opt-in
+-//!   selama soak 0.6.0-beta; dihapus di F6.4).
+-//!
+-//! Bila kedua fitur aktif, **OCCT yang dipakai** (fitur default truck selalu
+-//! ikut aktif, jadi permintaan eksplisit `kernel-occt` harus menang). Aturan
+-//! itu ada di `build.rs` → `cfg(backend_occt)` / `cfg(backend_truck)`.
+-//! `src/lib.rs` menolak build tanpa backend.
++//! API publik crate ini (modul `csg`, `modify`, `shape`, …) menyimpan tipe &
++//! logika netral, lalu me-re-export fungsi khusus backend dari
++//! `crate::backend::<modul>`. Lapisan ini dipertahankan setelah backend
++//! OpenCASCADE dihapus (PLAN_MIGRASI_TRUCK F6.4) supaya penggantian kernel
++//! berikutnya tetap terisolasi di sini.
+ 
+-#[cfg(backend_truck)]
+ mod truck;
+-#[cfg(backend_truck)]
+ pub use truck::*;
+-
+-#[cfg(backend_occt)]
+-mod occt;
+-#[cfg(backend_occt)]
+-pub use occt::*;
+diff --git a/ducad-editor/crates/ducad-kernel/src/csg.rs b/ducad-editor/crates/ducad-kernel/src/csg.rs
+index 604a68d3..6195ef67 100644
+--- a/ducad-editor/crates/ducad-kernel/src/csg.rs
++++ b/ducad-editor/crates/ducad-kernel/src/csg.rs
+@@ -11,24 +11,9 @@ pub use crate::backend::csg::*;
+ ///
+ /// Backend truck (PLAN_MIGRASI_TRUCK 5.4): bila semua bbox saling terpisah
+ /// digabung tanpa boolean (`union_apart`); selain itu union berpasangan
+-/// berbentuk pohon, tiap tingkat paralel di thread pekerja. Backend OCCT:
+-/// lipatan berurutan (kernel diserialkan `KERNEL_LOCK`).
++/// berbentuk pohon, tiap tingkat paralel di thread pekerja.
+ pub fn union_all(shapes: Vec<KernelShape>) -> Result<KernelShape> {
+-    #[cfg(backend_truck)]
+-    {
+-        crate::backend::csg::union_many(shapes)
+-    }
+-    #[cfg(backend_occt)]
+-    {
+-        let mut it = shapes.into_iter();
+-        let Some(mut acc) = it.next() else {
+-            return Ok(KernelShape::empty());
+-        };
+-        for s in it {
+-            acc = union(&acc, &s)?;
+-        }
+-        Ok(acc)
+-    }
++    crate::backend::csg::union_many(shapes)
+ }
+ 
+ /// Seberapa jauh sebuah profil di-extrude, dan ke arah mana.
+diff --git a/ducad-editor/crates/ducad-kernel/src/hlr_sheet.rs b/ducad-editor/crates/ducad-kernel/src/hlr_sheet.rs
+index bdecf8fa..d1ba6cf7 100644
+--- a/ducad-editor/crates/ducad-kernel/src/hlr_sheet.rs
++++ b/ducad-editor/crates/ducad-kernel/src/hlr_sheet.rs
+@@ -62,20 +62,6 @@ pub(crate) fn circumcenter3(a: DVec3, b: DVec3, c: DVec3) -> Option<(DVec3, DVec
+     Some((center, n.normalize()))
+ }
+ 
+-fn circumcenter2(a: DVec2, b: DVec2, c: DVec2) -> Option<DVec2> {
+-    let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+-    if d.abs() < 1e-12 {
+-        return None;
+-    }
+-    let a2 = a.length_squared();
+-    let b2 = b.length_squared();
+-    let c2 = c.length_squared();
+-    Some(DVec2::new(
+-        (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
+-        (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d,
+-    ))
+-}
+-
+ pub(crate) fn seg(a: DVec2, b: DVec2, kind: HlrLineKind) -> HlrSegment2D {
+     HlrSegment2D {
+         start: [a.x as f32, a.y as f32],
+@@ -144,20 +130,6 @@ pub(crate) fn arc_about(
+     })
+ }
+ 
+-/// Cocokkan titik sampel sebuah edge lingkaran (pusat belum diketahui) ke
+-/// busur 2D.
+-#[cfg_attr(backend_truck, allow(dead_code))] // truck tahu pusatnya dari B-rep
+-pub(crate) fn fit_arc(pts: &[DVec2], kind: HlrLineKind) -> Option<HlrArc2D> {
+-    let n = pts.len();
+-    if n < 3 {
+-        return None;
+-    }
+-    let center = circumcenter2(pts[0], pts[n / 3], pts[(2 * n) / 3])
+-        .or_else(|| circumcenter2(pts[0], pts[n / 2], pts[n - 1]))?;
+-    let radius = (pts[0] - center).length();
+-    arc_about(center, radius, pts, kind)
+-}
+-
+ /// Cakupan sudut gabungan (derajat, maks 360) dari rentang busur yang boleh
+ /// tumpang-tindih — dua busur 180° yang berimpit BUKAN lingkaran penuh.
+ fn coverage_deg(spans: &[(f32, f32)]) -> f32 {
+diff --git a/ducad-editor/crates/ducad-kernel/src/hole.rs b/ducad-editor/crates/ducad-kernel/src/hole.rs
+index e1411103..b19ae436 100644
+--- a/ducad-editor/crates/ducad-kernel/src/hole.rs
++++ b/ducad-editor/crates/ducad-kernel/src/hole.rs
+@@ -185,7 +185,7 @@ pub fn apply_holes(
+     if positions.is_empty() {
+         bail!("posisi lubang tidak boleh kosong");
+     }
+-    if cfg!(backend_truck) && positions.len() > 1 {
++    if positions.len() > 1 {
+         let cutters = positions
+             .iter()
+             .map(|p| create_hole_cutter(spec, *p, normal))
+diff --git a/ducad-editor/crates/ducad-kernel/src/lib.rs b/ducad-editor/crates/ducad-kernel/src/lib.rs
+index f5bd88c1..a00bc97f 100644
+--- a/ducad-editor/crates/ducad-kernel/src/lib.rs
++++ b/ducad-editor/crates/ducad-kernel/src/lib.rs
+@@ -1,5 +1,5 @@
+-//! Kernel geometri DUCAD: API B-rep netral-backend di atas OpenCASCADE
+-//! (fitur `kernel-occt`, default) atau SolidCraft/truck (fitur `kernel-truck`).
++//! Kernel geometri DUCAD: API B-rep di atas SolidCraft/truck (Rust murni).
++//! Backend OpenCASCADE dihapus di 0.6.0 (PLAN_MIGRASI_TRUCK F6.4).
+ //!
+ //! Seluruh aplikasi hanya boleh menyentuh tipe dari crate ini, bukan crate
+ //! kernel pihak ketiga langsung — agar detail backend terisolasi dan kernel
+@@ -12,11 +12,6 @@
+ #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::todo, clippy::unimplemented)]
+ #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+ 
+-#[cfg(not(any(feature = "kernel-occt", feature = "kernel-truck")))]
+-compile_error!(
+-    "ducad-kernel butuh backend: aktifkan fitur `kernel-occt` (default) atau `kernel-truck`"
+-);
+-
+ mod backend;
+ 
+ pub mod advanced;
+@@ -45,42 +40,29 @@ pub mod thread;
+ pub mod topo;
+ pub mod vector_snapshot;
+ 
+-// Tes modul kernel, dijalankan di KEDUA backend (yang menyentuh tipe OCCT
+-// ada di submodul `tests::occt_only`).
++// Tes modul kernel.
+ #[cfg(test)]
+ mod tests;
+-// Tes kontrak: hanya API publik, dijalankan di KEDUA backend.
++// Tes kontrak: hanya API publik.
+ #[cfg(test)]
+ mod contract_tests;
+ 
+-/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
+-/// dicatat golden corpus dan laporan diagnostik.
+-#[cfg(backend_truck)]
++/// Nama backend kernel (`"truck"`) — dicatat golden corpus, jurnal panik,
++/// dan berkas cache lintas-versi.
+ pub const BACKEND: &str = "truck";
+-/// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
+-/// dicatat golden corpus dan laporan diagnostik.
+-#[cfg(backend_occt)]
+-pub const BACKEND: &str = "occt";
+ 
+-/// `true` bila backend aktif adalah truck. Crate hilir memakai konstanta ini
+-/// (bukan `cfg!(feature = "kernel-truck")` milik crate itu sendiri), karena
+-/// fitur crate hilir tidak mencerminkan backend yang benar-benar terpilih —
+-/// lihat build.rs crate ini.
+-pub const IS_TRUCK: bool = cfg!(backend_truck);
++/// Selalu `true` sejak OCCT dihapus (0.6.0); dipertahankan untuk kode yang
++/// membedakan perilaku per backend.
++pub const IS_TRUCK: bool = true;
+ 
+-/// Toleransi relatif [`KernelShape::volume`] backend aktif (PLAN_MIGRASI_TRUCK
+-/// §3.1, F5.1). OCCT: `BRepGProp` eksak (0). Truck: `measure()` SolidCraft
+-/// berbasis tesselasi halus, ±1e-4 — pembanding volume/massa memakai 5e-4.
+-#[cfg(backend_truck)]
++/// Toleransi relatif [`KernelShape::volume`] (PLAN_MIGRASI_TRUCK §3.1, F5.1):
++/// `measure()` SolidCraft berbasis tesselasi halus, ±1e-4 — pembanding
++/// volume/massa memakai 5e-4.
+ pub const VOLUME_REL_TOL: f64 = 5e-4;
+-/// Toleransi relatif [`KernelShape::volume`] backend aktif — lihat versi truck.
+-#[cfg(backend_occt)]
+-pub const VOLUME_REL_TOL: f64 = 0.0;
+ 
+-/// `true` bila [`KernelShape`] boleh dipakai dari banyak thread sekaligus
+-/// (backend truck: `Send + Sync`, tanpa kunci global). OCCT: semua panggilan
+-/// diserialkan `KERNEL_LOCK` dan shape tidak boleh pindah thread.
+-pub const THREAD_SAFE: bool = cfg!(backend_truck);
++/// [`KernelShape`] boleh dipakai dari banyak thread sekaligus (`Send + Sync`,
++/// tanpa kunci global).
++pub const THREAD_SAFE: bool = true;
+ 
+ /// Error bertipe: operasi ini belum didukung backend kernel yang aktif
+ /// (PLAN_MIGRASI_TRUCK §0 butir 4 — op yang tidak didukung mengembalikan
+@@ -102,8 +84,8 @@ impl std::fmt::Display for Unsupported {
+ 
+ impl std::error::Error for Unsupported {}
+ 
+-/// Kunci serialisasi panggilan kernel. Backend OCCT: mutex global (OCCT tidak
+-/// thread-safe). Backend truck: no-op — `KernelShape` di sana `Send + Sync`.
++/// Kunci serialisasi panggilan kernel: no-op (`KernelShape` `Send + Sync`);
++/// sisa API lama backend OCCT yang tidak thread-safe.
+ pub(crate) use backend::lock_kernel;
+ 
+ pub use diagnostics::capture_kernel_warnings;
+@@ -124,17 +106,11 @@ pub use csg::{
+     revolve_profile, subtract, sweep_profile_along_path, union_all,
+     sweep_profile_on_plane_along_path, union,
+ };
+-/// Khusus OCCT: menerima `Wire` OCCT mentah (tidak ada padanan netral-backend).
+-#[cfg(backend_occt)]
+-pub use csg::sweep_profile_along_wire;
+ pub use detail::{clip_segment_to_circle, DetailExtractor, DetailIndicator, DetailViewData};
+ pub use helix::{
+     create_helix_path_segments, create_helix_solid, create_helix_solid_with_custom_profile,
+     generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
+ };
+-/// Khusus OCCT: mengembalikan `Wire` OCCT mentah.
+-#[cfg(backend_occt)]
+-pub use helix::create_helix_wire;
+ pub use hlr::{
+     DrawingOptions, HlrArc2D, HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind,
+     HlrSegment2D, ProjectedView, ProjectedViewKind,
+diff --git a/ducad-editor/crates/ducad-kernel/src/picking/face.rs b/ducad-editor/crates/ducad-kernel/src/picking/face.rs
+index a07f3db3..19c5965d 100644
+--- a/ducad-editor/crates/ducad-kernel/src/picking/face.rs
++++ b/ducad-editor/crates/ducad-kernel/src/picking/face.rs
+@@ -3,15 +3,6 @@
+ // Implementasi khusus backend (OCCT/truck) — lihat `crate::backend`.
+ pub use crate::backend::picking_face::*;
+ 
+-/// Toleransi geometris `BRepIntCurveSurface_Inter` untuk face-picking
+-/// interaktif — lebih longgar dari default upstream (`0.0001`, lihat
+-/// `vendor/README.md`). TERBUKTI (test terisolasi) TIDAK CUKUP sendirian
+-/// utk kasus ray oblique pada wajah sweep/samping (root cause BUKAN
+-/// toleransi — lihat `resolve_planar_face_along_ray_fallback` di bawah)
+-/// tapi tetap dipertahankan sebagai margin aman kecil, tidak merugikan.
+-#[cfg_attr(backend_truck, allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+-pub(crate) const FACE_PICK_TOLERANCE_MM: f64 = 0.01;
+-
+ /// Tipe permukaan geometris analitik OCCT di balik sebuah `Face`, hasil
+ /// klasifikasi `Face::surface_kind()` (nama kelas dinamis C++ `Geom_*`).
+ /// Fase 1: sekadar deteksi/label — belum dipakai fitur apa pun, disiapkan
+@@ -102,4 +93,3 @@ impl FaceHit {
+     }
+ }
+ 
+-
+diff --git a/ducad-editor/crates/ducad-kernel/src/profile.rs b/ducad-editor/crates/ducad-kernel/src/profile.rs
+index b279d8ff..15d72079 100644
+--- a/ducad-editor/crates/ducad-kernel/src/profile.rs
++++ b/ducad-editor/crates/ducad-kernel/src/profile.rs
+@@ -112,32 +112,6 @@ pub(crate) fn bezier_is_degenerate(
+     (p0 - p1).length() <= EPS && (p0 - p2).length() <= EPS && (p0 - p3).length() <= EPS
+ }
+ 
+-/// Tukar arah satu segmen profil.
+-#[cfg_attr(backend_truck, allow(dead_code))] // dipakai backend OCCT; truck menyusul (F3/F4)
+-pub(crate) fn reverse_profile_segment(seg: ProfileSegment) -> ProfileSegment {
+-    match seg {
+-        ProfileSegment::Line { start, end } => ProfileSegment::Line {
+-            start: end,
+-            end: start,
+-        },
+-        // `via` adalah titik DI atas busur, bukan ujung — ia tetap di
+-        // tempatnya saat arah dibalik.
+-        ProfileSegment::Arc { start, via, end } => ProfileSegment::Arc {
+-            start: end,
+-            via,
+-            end: start,
+-        },
+-        // Titik kontrol Bézier terikat pada ujung terdekatnya, jadi keduanya
+-        // ikut bertukar: `c1` milik `start`, `c2` milik `end`.
+-        ProfileSegment::Bezier { start, c1, c2, end } => ProfileSegment::Bezier {
+-            start: end,
+-            c1: c2,
+-            c2: c1,
+-            end: start,
+-        },
+-    }
+-}
+-
+ /// Satu segmen kurva jalur pemandu 3D (spine path) untuk operasi Sweep.
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum PathSegment {
+diff --git a/ducad-editor/crates/ducad-kernel/src/tests.rs b/ducad-editor/crates/ducad-kernel/src/tests.rs
+index cb82c388..6caffa0b 100644
+--- a/ducad-editor/crates/ducad-kernel/src/tests.rs
++++ b/ducad-editor/crates/ducad-kernel/src/tests.rs
+@@ -660,10 +660,7 @@ fn fillet_concave_inner_vertex_succeeds() {
+ }
+ 
+ #[test]
+-#[cfg_attr(
+-    backend_truck,
+-    ignore = "R2: SolidCraft menolak chamfer sudut campuran cekung+cembung (blend lebih besar dari face tetangga)"
+-)]
++#[ignore = "R2: SolidCraft menolak chamfer sudut campuran cekung+cembung (blend lebih besar dari face tetangga)"]
+ fn chamfer_concave_inner_vertex_succeeds() {
+     let _guard = lock_test();
+     let shape = l_shape_solid();
+@@ -941,15 +938,6 @@ fn test_extrude_face_cylinder_top() {
+     assert!(taller_cylinder.tessellate().triangle_count() > 0);
+ }
+ 
+-#[cfg_attr(backend_truck, allow(dead_code))] // hanya tes `occt_only`
+-fn assert_close(actual: f64, expected: f64, label: &str) {
+-    let rel_diff = (actual - expected).abs() / expected.abs().max(1e-9);
+-    assert!(
+-        rel_diff < 1e-6,
+-        "{label}: actual={actual}, expected={expected}, rel_diff={rel_diff}"
+-    );
+-}
+-
+ #[test]
+ fn extrude_face_adjacent_to_fillet_does_not_crash() {
+     let _guard = lock_test();
+@@ -1791,32 +1779,6 @@ fn test_extract_shape_edges_for_box() {
+     assert_eq!(edges.len(), 12, "Kotak harus menghasilkan tepat 12 garis tepi, dapat {}", edges.len());
+ }
+ 
+-#[test]
+-#[cfg_attr(
+-    backend_truck,
+-    ignore = "klaim format OCCT (BREP biner vs STEP); cache native truck bukan BREP OCCT"
+-)]
+-fn brep_bytes_are_much_smaller_than_step_text() {
+-    let _guard = lock_test();
+-    let profile = rect_profile(40.0, 30.0);
+-    let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+-    let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+-
+-    let brep = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+-    let step = rounded.to_step_string().expect("to_step_string harus berhasil");
+-
+-    // Angka persisnya tidak dikunci (bisa bergeser antar versi OCCT); yang
+-    // dikunci adalah KLAIM yang mendasari keputusan format file: BREP biner
+-    // secara substansial lebih kecil daripada teks STEP AP214.
+-    println!("BREP {} byte vs STEP {} byte", brep.len(), step.len());
+-    assert!(
+-        brep.len() * 2 < step.len(),
+-        "BREP ({} byte) seharusnya < separuh STEP ({} byte)",
+-        brep.len(),
+-        step.len()
+-    );
+-}
+-
+ #[test]
+ fn profile_with_empty_holes_is_unchanged() {
+     // `with_holes(vec![])` mengembalikan profil apa adanya supaya pemanggil
+@@ -2980,7 +2942,7 @@ fn test_pick_face_index_maps_to_exact_mesh_triangles() {
+ 
+ /// Toleransi relatif properti massa body lengkung: OCCT eksak (`BRepGProp`),
+ /// truck dari tesselasi halus (PLAN_MIGRASI_TRUCK §3.1).
+-const CURVED_MASS_TOL: f64 = if cfg!(backend_truck) { 1e-4 } else { 1e-6 };
++const CURVED_MASS_TOL: f64 = 1e-4;
+ 
+ fn assert_rel(actual: f64, expected: f64, tol: f64, what: &str) {
+     let denom = expected.abs().max(1e-12);
+@@ -3377,618 +3339,3 @@ fn exact_sheet_detects_chamfer_and_fillet_in_section() {
+     radii.sort();
+     assert_eq!(radii, vec![18, 20]);
+ }
+-
+-/// Tes yang menyentuh tipe/helper OCCT (`inner()`, `deep_clone`, `opencascade::…`).
+-#[cfg(backend_occt)]
+-mod occt_only {
+-    use super::*;
+-    use opencascade::adhoc::AdHocShape;
+-
+-    #[test]
+-    fn deep_clone_preserves_mesh_vertex_count() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(25.0, 15.0), 10.0).unwrap();
+-        let cloned = crate::shape::deep_clone(shape.inner()).unwrap();
+-        let original_mesh = shape.tessellate();
+-        let cloned_mesh = crate::mesh::tessellate_shape(&cloned);
+-        assert_eq!(original_mesh.positions.len(), cloned_mesh.positions.len());
+-    }
+-
+-    // ---- Fase 8: Picking 3D (edge/face) ----
+-
+-    #[test]
+-    fn pick_face_consistent_across_deep_clone() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+-        let ray = PickRay {
+-            origin: (15.0, 10.0, 100.0),
+-            dir: (0.0, 0.0, -1.0),
+-        };
+-        let hit_original = pick_face(&shape, ray).expect("harus kena face top shape asli");
+-        let cloned = crate::shape::deep_clone(shape.inner()).unwrap();
+-        let hit_cloned = crate::picking::face::resolve_face_along_ray(&cloned, ray)
+-            .map(|(_, p)| (p.x, p.y, p.z))
+-            .expect("harus kena face top shape hasil deep_clone");
+-        assert!((hit_original.0 - hit_cloned.0).abs() < 1e-6);
+-        assert!((hit_original.1 - hit_cloned.1).abs() < 1e-6);
+-        assert!((hit_original.2 - hit_cloned.2).abs() < 1e-6);
+-    }
+-
+-    #[test]
+-    fn pick_edge_consistent_across_deep_clone() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+-        let ray = PickRay {
+-            origin: (-5.0, -5.0, 7.5),
+-            dir: (1.0, 1.0, 0.0),
+-        };
+-        let tolerance = 1.0;
+-        let (hit_original, _) = pick_edge(&shape, ray, tolerance).expect("harus kena rusuk shape asli");
+-        let cloned = crate::shape::deep_clone(shape.inner()).unwrap();
+-        let (_, hit_cloned, _) =
+-            crate::picking::edge::resolve_edge_along_ray(&cloned, ray, tolerance).expect("harus kena rusuk shape hasil deep_clone");
+-        assert!((hit_original.0 - hit_cloned.x).abs() < 1e-3);
+-        assert!((hit_original.1 - hit_cloned.y).abs() < 1e-3);
+-        assert!((hit_original.2 - hit_cloned.z).abs() < 1e-3);
+-    }
+-
+-    #[test]
+-    fn pick_vertex_consistent_across_deep_clone() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+-        let ray = PickRay {
+-            origin: (-5.0, -5.0, -5.0),
+-            dir: (1.0, 1.0, 1.0),
+-        };
+-        let tolerance = 1.0;
+-        let hit_original = pick_vertex(&shape, ray, tolerance).expect("harus kena sudut shape asli");
+-        let cloned = crate::shape::deep_clone(shape.inner()).unwrap();
+-        let hit_cloned = crate::picking::vertex::resolve_vertex_along_ray(&cloned, ray, tolerance)
+-            .map(|p| (p.x, p.y, p.z))
+-            .expect("harus kena sudut shape hasil deep_clone");
+-        assert!((hit_original.0 - hit_cloned.0).abs() < 1e-6);
+-        assert!((hit_original.1 - hit_cloned.1).abs() < 1e-6);
+-        assert!((hit_original.2 - hit_cloned.2).abs() < 1e-6);
+-    }
+-
+-    // ---- Vertex Fillet Gizmo: fillet SEMUA tepi yang bertemu di 1 sudut ----
+-
+-    #[test]
+-    fn fillet_vertex_rounds_box_corner() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+-        let ray = PickRay {
+-            origin: (-5.0, -5.0, -5.0),
+-            dir: (1.0, 1.0, 1.0),
+-        };
+-        let base_volume = shape.inner().volume();
+-        let filleted = fillet_vertex(&shape, 2.0, ray, 1.0).unwrap();
+-        assert!(
+-            filleted.inner().volume() < base_volume,
+-            "membulatkan sudut harus memotong material (volume berkurang)"
+-        );
+-        assert!(filleted.tessellate().triangle_count() > 0);
+-        assert!((shape.inner().volume() - base_volume).abs() < 1e-6);
+-    }
+-
+-    // ---- Vertex Chamfer Gizmo: chamfer SEMUA tepi yang bertemu di 1 sudut ----
+-
+-    #[test]
+-    fn chamfer_vertex_flattens_box_corner() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 20.0), 15.0).unwrap();
+-        let ray = PickRay {
+-            origin: (-5.0, -5.0, -5.0),
+-            dir: (1.0, 1.0, 1.0),
+-        };
+-        let base_volume = shape.inner().volume();
+-        let chamfered = chamfer_vertex(&shape, 2.0, ray, 1.0).unwrap();
+-        assert!(
+-            chamfered.inner().volume() < base_volume,
+-            "memangkas sudut harus memotong material (volume berkurang)"
+-        );
+-        assert!(chamfered.tessellate().triangle_count() > 0);
+-        assert!((shape.inner().volume() - base_volume).abs() < 1e-6);
+-    }
+-
+-    #[test]
+-    fn fillet_concave_inner_edge_adds_material_and_succeeds() {
+-        let _guard = lock_test();
+-        let shape = l_shape_solid();
+-        let base_volume = shape.inner().volume();
+-
+-        // Ray diarahkan ke rusuk dalam (x=10, y=10, z=0..20)
+-        let ray = PickRay {
+-            origin: (25.0, 25.0, 10.0),
+-            dir: (-1.0, -1.0, 0.0),
+-        };
+-        let filleted = fillet_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+-        assert!(
+-            filleted.inner().volume() > base_volume,
+-            "Fillet pada sudut/rusuk dalam harus menambahkan material (volume membesar)"
+-        );
+-        assert!(filleted.tessellate().triangle_count() > 0);
+-    }
+-
+-    #[test]
+-    fn chamfer_concave_inner_edge_adds_material_and_succeeds() {
+-        let _guard = lock_test();
+-        let shape = l_shape_solid();
+-        let base_volume = shape.inner().volume();
+-
+-        let ray = PickRay {
+-            origin: (25.0, 25.0, 10.0),
+-            dir: (-1.0, -1.0, 0.0),
+-        };
+-        let chamfered = chamfer_edges(&shape, 2.0, &[ray], 1.0).unwrap();
+-        assert!(
+-            chamfered.inner().volume() > base_volume,
+-            "Chamfer pada sudut/rusuk dalam harus menambahkan material bevel (volume membesar)"
+-        );
+-        assert!(chamfered.tessellate().triangle_count() > 0);
+-    }
+-
+-    #[test]
+-    fn shell_hollow_faces_multi_face_differs_from_single() {
+-        let _guard = lock_test();
+-        let shape = extrude_profile(&rect_profile(30.0, 30.0), 20.0).unwrap();
+-        let ray_top = PickRay {
+-            origin: (15.0, 15.0, 100.0),
+-            dir: (0.0, 0.0, -1.0),
+-        };
+-        let ray_bottom = PickRay {
+-            origin: (15.0, 15.0, -100.0),
+-            dir: (0.0, 0.0, 1.0),
+-        };
+-        let hollow_two = shell_hollow_faces(&shape, 2.0, &[ray_top, ray_bottom]).unwrap();
+-        let hollow_one = shell_hollow(&shape, 2.0, Direction::PosZ).unwrap();
+-        assert!(hollow_two.tessellate().triangle_count() > 0);
+-        assert_ne!(hollow_two.inner().faces().count(), hollow_one.inner().faces().count());
+-        assert_ne!(hollow_two.tessellate().triangle_count(), hollow_one.tessellate().triangle_count());
+-    }
+-
+-    #[test]
+-    fn surface_kind_detects_plane_faces_on_cube() {
+-        let _guard = lock_test();
+-        let cube = AdHocShape::make_box(10.0, 10.0, 10.0);
+-        let faces: Vec<_> = cube.faces().collect();
+-        assert_eq!(faces.len(), 6, "kubus harus punya 6 face");
+-        for face in &faces {
+-            assert_eq!(SurfaceKind::from(face.surface_kind().as_str()), SurfaceKind::Plane);
+-        }
+-    }
+-
+-    #[test]
+-    fn surface_kind_detects_plane_and_cylinder_faces_on_cylinder() {
+-        let _guard = lock_test();
+-        let cylinder = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), 5.0, 12.0);
+-        let mut plane_count = 0;
+-        let mut cylinder_count = 0;
+-        for face in cylinder.faces() {
+-            match SurfaceKind::from(face.surface_kind().as_str()) {
+-                SurfaceKind::Plane => plane_count += 1,
+-                SurfaceKind::Cylinder => cylinder_count += 1,
+-                other => panic!("face silinder tak terduga: {other:?}"),
+-            }
+-        }
+-        assert_eq!(plane_count, 2, "silinder harus punya 2 face Plane (tutup atas & bawah)");
+-        assert_eq!(cylinder_count, 1, "silinder harus punya 1 face Cylinder (selimut)");
+-    }
+-
+-    #[test]
+-    fn surface_kind_detects_sphere_face() {
+-        let _guard = lock_test();
+-        let sphere = AdHocShape::make_sphere(7.0);
+-        let faces: Vec<_> = sphere.faces().collect();
+-        assert_eq!(faces.len(), 1, "bola harus punya 1 face");
+-        assert_eq!(SurfaceKind::from(faces[0].surface_kind().as_str()), SurfaceKind::Sphere);
+-    }
+-
+-    #[test]
+-    fn extrude_face_cylinder_outer_wall_grows_radius_when_pulled_out() {
+-        let _guard = lock_test();
+-        const R: f64 = 10.0;
+-        const H: f64 = 20.0;
+-        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+-        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&cylinder, ray).expect("harus kena selimut silinder");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+-
+-        let grown = extrude_face(&cylinder, ray, 2.0).expect("pull +2 pada selimut silinder harus berhasil");
+-        assert_close(grown.inner().volume(), std::f64::consts::PI * 12.0 * 12.0 * H, "volume silinder R=12,h=20");
+-    }
+-
+-    #[test]
+-    fn extrude_face_cylinder_outer_wall_shrinks_radius_when_pulled_in() {
+-        let _guard = lock_test();
+-        const R: f64 = 10.0;
+-        const H: f64 = 20.0;
+-        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+-        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+-
+-        let shrunk = extrude_face(&cylinder, ray, -3.0).expect("push -3 pada selimut silinder harus berhasil");
+-        assert_close(shrunk.inner().volume(), std::f64::consts::PI * 7.0 * 7.0 * H, "volume silinder R=7,h=20");
+-    }
+-
+-    #[test]
+-    fn extrude_face_cylinder_outer_wall_rejects_offset_making_radius_non_positive() {
+-        let _guard = lock_test();
+-        const R: f64 = 10.0;
+-        const H: f64 = 20.0;
+-        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+-        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+-
+-        match extrude_face(&cylinder, ray, -10.0) {
+-            Ok(_) => panic!("radius jadi 0 harus ditolak"),
+-            Err(err) => assert!(err.to_string().contains("radius"), "pesan error harus jelas soal radius: {err}"),
+-        }
+-    }
+-
+-    #[test]
+-    fn extrude_face_hollow_cylinder_inner_wall_shrinks_hole_when_pushed_radially_inward() {
+-        let _guard = lock_test();
+-        const R_OUT: f64 = 20.0;
+-        const R_IN: f64 = 8.0;
+-        const H: f64 = 20.0;
+-        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+-        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+-        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
+-        tube_shape = tube_shape.clean();
+-        let tube = KernelShape(tube_shape);
+-
+-        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+-
+-        let shrunk_hole = extrude_face(&tube, hole_ray, 2.0).expect("offset dinding lubang harus berhasil");
+-        let expect_vol = std::f64::consts::PI * (R_OUT * R_OUT - 6.0 * 6.0) * H;
+-        assert_close(shrunk_hole.inner().volume(), expect_vol, "volume tabung dgn lubang R=6 (mengecil dari R=8)");
+-    }
+-
+-    #[test]
+-    fn extrude_face_hollow_cylinder_inner_wall_enlarges_past_original_radius_when_pulled_radially_outward() {
+-        let _guard = lock_test();
+-        const R_OUT: f64 = 20.0;
+-        const R_IN: f64 = 8.0;
+-        const H: f64 = 20.0;
+-        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+-        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+-        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
+-        tube_shape = tube_shape.clean();
+-        let tube = KernelShape(tube_shape);
+-
+-        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+-
+-        let enlarged_hole =
+-            extrude_face(&tube, hole_ray, -5.0).expect("offset dinding lubang (memperbesar) harus berhasil");
+-        let expect_vol = std::f64::consts::PI * (R_OUT * R_OUT - 13.0 * 13.0) * H;
+-        assert_close(enlarged_hole.inner().volume(), expect_vol, "volume tabung dgn lubang R=13 (membesar dari R=8)");
+-    }
+-
+-    #[test]
+-    fn extrude_face_hollow_cylinder_inner_wall_rejects_offset_that_closes_hole_completely() {
+-        let _guard = lock_test();
+-        const R_OUT: f64 = 20.0;
+-        const R_IN: f64 = 8.0;
+-        const H: f64 = 20.0;
+-        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+-        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+-        let mut tube_shape = outer.0.subtract(&inner.0).unwrap().shape;
+-        tube_shape = tube_shape.clean();
+-        let tube = KernelShape(tube_shape);
+-
+-        let hole_ray = PickRay { origin: (0.0, 0.0, H / 2.0), dir: (1.0, 0.0, 0.0) };
+-        pick_face_details(&tube, hole_ray).expect("harus kena dinding lubang");
+-
+-        match extrude_face(&tube, hole_ray, R_IN) {
+-            Ok(_) => panic!("lubang menutup penuh (radius jadi 0) harus ditolak"),
+-            Err(err) => assert!(err.to_string().contains("radius"), "pesan error harus jelas soal radius: {err}"),
+-        }
+-    }
+-
+-    #[test]
+-    fn extrude_face_sphere_grows_radius_when_pulled_out() {
+-        let _guard = lock_test();
+-        const R: f64 = 7.0;
+-        let sphere = KernelShape(AdHocShape::make_sphere(R).0);
+-        let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+-
+-        let (face, _) = crate::picking::face::resolve_face_along_ray(sphere.inner(), ray).expect("harus kena permukaan bola");
+-        assert_eq!(SurfaceKind::from(face.surface_kind().as_str()), SurfaceKind::Sphere);
+-
+-        let grown = extrude_face(&sphere, ray, 1.5).expect("pull +1.5 pada bola harus berhasil");
+-        let expect_vol = 4.0 / 3.0 * std::f64::consts::PI * (R + 1.5) * (R + 1.5) * (R + 1.5);
+-        assert_close(grown.inner().volume(), expect_vol, "volume bola R=8.5");
+-    }
+-
+-    #[test]
+-    fn extrude_face_cone_lateral_face_changes_volume_in_pull_direction() {
+-        let _guard = lock_test();
+-        const CONE_R: f64 = 6.0;
+-        const CONE_H: f64 = 14.0;
+-        let cone_profile = Profile::Loop(vec![
+-            ProfileSegment::Line { start: (0.0, 0.0), end: (CONE_R, 0.0) },
+-            ProfileSegment::Line { start: (CONE_R, 0.0), end: (0.0, CONE_H) },
+-            ProfileSegment::Line { start: (0.0, CONE_H), end: (0.0, 0.0) },
+-        ]);
+-        let cone = revolve_profile(&cone_profile, (0.0, 0.0), (0.0, 1.0), None).unwrap();
+-        let base_vol = cone.inner().volume();
+-        assert_close(base_vol, std::f64::consts::PI * CONE_R * CONE_R * CONE_H / 3.0, "volume kerucut awal");
+-
+-        let ray = PickRay { origin: (50.0, CONE_H / 2.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&cone, ray).expect("harus kena selimut kerucut");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cone);
+-
+-        let grown = extrude_face(&cone, ray, 1.0).expect("pull +1.0 pada selimut kerucut harus berhasil");
+-        assert!(grown.inner().volume() > base_vol, "menarik selimut kerucut keluar harus menambah volume");
+-        assert!(grown.tessellate().triangle_count() > 0);
+-
+-        let shrunk = extrude_face(&cone, ray, -1.0).expect("push -1.0 pada selimut kerucut harus berhasil");
+-        assert!(shrunk.inner().volume() < base_vol, "menekan selimut kerucut masuk harus mengurangi volume");
+-        assert!(shrunk.tessellate().triangle_count() > 0);
+-    }
+-
+-    #[test]
+-    fn extrude_face_planar_regression_still_uses_extrude_and_boolean_path() {
+-        let _guard = lock_test();
+-        let circle_profile = Profile::Circle { center: (0.0, 0.0), radius: 12.0 };
+-        let cylinder = extrude_profile(&circle_profile, 25.0).unwrap();
+-        let ray_top = PickRay { origin: (0.0, 0.0, 100.0), dir: (0.0, 0.0, -1.0) };
+-        let hit_top = pick_face_details(&cylinder, ray_top).expect("harus kena top cap silinder");
+-        assert_eq!(hit_top.surface_kind, SurfaceKind::Plane);
+-
+-        let taller = extrude_face(&cylinder, ray_top, 15.0).expect("extrude top cap silinder berhasil");
+-        let expect_vol = std::f64::consts::PI * 12.0 * 12.0 * 40.0;
+-        assert_close(taller.inner().volume(), expect_vol, "volume silinder tinggi 40 (25+15) hasil jalur planar lama");
+-    }
+-
+-    #[test]
+-    fn pull_dir_is_radial_on_cylinder_wall() {
+-        let _guard = lock_test();
+-        const R: f64 = 10.0;
+-        const H: f64 = 20.0;
+-        let cylinder = KernelShape(AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R, H).0);
+-        let ray = PickRay { origin: (R + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&cylinder, ray).expect("harus kena selimut silinder");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+-        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.1.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.2.abs() < 1e-6, "pull_dir salah: {:?}", hit.pull_dir);
+-    }
+-
+-    #[test]
+-    fn pick_face_details_works_on_full_sphere_with_radial_pull_dir() {
+-        let _guard = lock_test();
+-        const R: f64 = 7.0;
+-        let sphere = KernelShape(AdHocShape::make_sphere(R).0);
+-        let ray = PickRay { origin: (50.0, 0.0, 0.0), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&sphere, ray)
+-            .expect("Fase 4: pick_face_details harus berhasil utk bola penuh (fallback GProp)");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Sphere);
+-        assert!(
+-            hit.centroid.0.abs() < 1e-4 && hit.centroid.1.abs() < 1e-4 && hit.centroid.2.abs() < 1e-4,
+-            "centroid GProp bola penuh berpusat di origin, actual={:?}",
+-            hit.centroid
+-        );
+-        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.1.abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.2.abs() < 1e-4, "pull_dir salah: {:?}", hit.pull_dir);
+-    }
+-
+-    #[test]
+-    fn pull_dir_is_radial_on_partial_sphere_octant_face() {
+-        let _guard = lock_test();
+-        const R: f64 = 10.0;
+-        let sphere = AdHocShape::make_sphere(R);
+-        let octant_box =
+-            AdHocShape::make_box_point_point(dvec3(0.0, 0.0, 0.0), dvec3(R + 5.0, R + 5.0, R + 5.0));
+-        let octant = intersect(&KernelShape(sphere.0), &KernelShape(octant_box.0))
+-            .expect("irisan bola dgn box oktan harus berhasil");
+-
+-        let ray = PickRay { origin: (R + 50.0, 0.001, 0.001), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&octant, ray).expect("harus kena permukaan bola oktan");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Sphere);
+-        assert!(
+-            hit.centroid.0 > 1.0 && hit.centroid.1 > 1.0 && hit.centroid.2 > 1.0,
+-            "fixture salah: centroid loop harus condong ke oktan (+,+,+), BUKAN pusat bola: {:?}",
+-            hit.centroid
+-        );
+-        assert!((hit.pull_dir.0 - 1.0).abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.1.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
+-        assert!(hit.pull_dir.2.abs() < 1e-3, "pull_dir salah (bukan radial dari pusat bola): {:?}", hit.pull_dir);
+-    }
+-
+-    #[test]
+-    fn split_face_on_box() {
+-        let _guard = lock_test();
+-        let profile = rect_profile(20.0, 20.0);
+-        let shape = extrude_profile(&profile, 20.0).expect("extrude box harus berhasil");
+-
+-        let split = split_face(
+-            &shape,
+-            glam::DVec3::new(0.0, 0.0, 10.0),
+-            glam::DVec3::new(0.0, 0.0, 1.0),
+-        )
+-        .expect("split_face harus berhasil");
+-
+-        let orig_faces = shape.inner().faces().count();
+-        let new_faces = split.inner().faces().count();
+-
+-        let mesh = split.tessellate();
+-        assert!(mesh.triangle_count() > 0);
+-        assert_eq!(orig_faces, 6, "Box sebelum split harus punya 6 face");
+-        assert!(
+-            new_faces > orig_faces,
+-            "split_face harus MENAMBAH jumlah face (6 -> {new_faces}), bukan menyisakannya apa adanya"
+-        );
+-        assert_eq!(new_faces, 10, "Box 6 face saat di-split di tengah harus memiliki 10 face terpisah");
+-    }
+-
+-    #[test]
+-    fn helix_points_and_wire_generation() {
+-        let params = HelixParams {
+-            radius: 15.0,
+-            end_radius: None,
+-            pitch: 8.0,
+-            turns: 3.0,
+-            handedness: HelixHandedness::RightHand,
+-            origin: [0.0, 0.0, 0.0],
+-            axis: [0.0, 0.0, 1.0],
+-            start_dir: [1.0, 0.0, 0.0],
+-        };
+-
+-        let pts = generate_helix_points(&params, 32).expect("generate helix points");
+-        assert!(pts.len() >= 32 * 3);
+-
+-        // Titik awal harus di (15, 0, 0)
+-        assert!((pts[0][0] - 15.0).abs() < 1e-4);
+-        assert!(pts[0][1].abs() < 1e-4);
+-        assert!(pts[0][2].abs() < 1e-4);
+-
+-        // Titik akhir harus di Z = pitch * turns = 24.0
+-        let last = pts.last().unwrap();
+-        assert!((last[2] - 24.0).abs() < 1e-3);
+-
+-        let _wire = create_helix_wire(&params, 32).expect("create helix wire");
+-    }
+-
+-    /// BREP biner adalah jalur penyimpanan internal yang diusulkan menggantikan
+-    /// teks STEP di file native `.ducad`. Test ini membuktikan dua hal yang
+-    /// harus benar sebelum penggantian itu layak: roundtrip-nya menjaga
+-    /// geometri, dan ukurannya memang jauh lebih kecil.
+-    #[test]
+-    fn brep_bytes_roundtrip_preserves_geometry() {
+-        let _guard = lock_test();
+-        let profile = rect_profile(40.0, 30.0);
+-        let shape = extrude_profile(&profile, 20.0).expect("extrude harus berhasil");
+-        let rounded = fillet_all(&shape, 3.0).expect("fillet harus berhasil");
+-
+-        let bytes = rounded.to_brep_bytes().expect("to_brep_bytes harus berhasil");
+-        assert!(!bytes.is_empty(), "BREP tidak boleh kosong");
+-
+-        let restored =
+-            KernelShape::from_brep_bytes(&bytes).expect("from_brep_bytes harus berhasil");
+-
+-        let before = rounded.tessellate();
+-        let after = restored.tessellate();
+-        assert_eq!(
+-            before.positions.len(),
+-            after.positions.len(),
+-            "jumlah vertex harus identik setelah roundtrip"
+-        );
+-        assert_eq!(
+-            before.triangle_count(),
+-            after.triangle_count(),
+-            "jumlah segitiga harus identik setelah roundtrip"
+-        );
+-        assert_eq!(
+-            rounded.inner().faces().count(),
+-            restored.inner().faces().count(),
+-            "jumlah face harus identik setelah roundtrip"
+-        );
+-    }
+-
+-    /// P1.4 — profil berlubang jadi solid dalam SATU operasi extrude, bukan
+-    /// extrude lalu boolean subtract per lubang.
+-    #[test]
+-    fn extrude_profile_with_holes_produces_hollow_solid() {
+-        let _guard = lock_test();
+-        let plate = rect_profile(40.0, 40.0);
+-        // `rect_profile` membentang (0,0)..(w,h), jadi pusatnya (20,20) —
+-        // bukan titik asal.
+-        let hole = Profile::Circle {
+-            center: (20.0, 20.0),
+-            radius: 5.0,
+-        };
+-        let profile = plate.with_holes(vec![hole]);
+-        assert!(profile.has_holes());
+-
+-        let solid = extrude_profile(&profile, 10.0).expect("extrude berlubang harus berhasil");
+-        let mesh = solid.tessellate();
+-        assert!(mesh.triangle_count() > 0);
+-
+-        // Volume = (40x40 - pi*5^2) * 10, dicek terhadap volume B-rep EKSAK —
+-        // bukan volume mesh, yang menyimpang mengikuti kerapatan tesselasi
+-        // dinding lubang.
+-        let expected = (40.0 * 40.0 - std::f64::consts::PI * 25.0) * 10.0;
+-        let actual = solid.volume().abs();
+-        let rel_err = (actual - expected).abs() / expected;
+-        assert!(
+-            rel_err < 1e-6,
+-            "volume {actual:.3} mm^3 menyimpang {:.4}% dari {expected:.3} mm^3",
+-            rel_err * 100.0
+-        );
+-
+-        // Solid tanpa lubang: 6 face. Dengan satu lubang silindris tembus:
+-        // 6 + dinding lubang. Jumlahnya harus BERTAMBAH — kalau lubangnya
+-        // diabaikan diam-diam, angka ini akan tetap 6.
+-        let solid_faces = extrude_profile(&rect_profile(40.0, 40.0), 10.0)
+-            .unwrap()
+-            .inner()
+-            .faces()
+-            .count();
+-        assert!(
+-            solid.inner().faces().count() > solid_faces,
+-            "lubang harus menambah face, bukan diabaikan"
+-        );
+-    }
+-
+-    #[test]
+-    fn extents_are_built_as_one_prism_without_internal_seam() {
+-        // Simetris diselesaikan dengan menggeser titik awal lalu satu extrude,
+-        // BUKAN dua extrude + union. Kalau ia memakai boolean, solid hasilnya
+-        // akan punya face sambungan di bidang sketsa sehingga jumlah face-nya
+-        // melebihi prisma biasa.
+-        let _guard = lock_test();
+-        let plain = extrude_profile(&rect_profile(10.0, 10.0), 20.0).unwrap();
+-        let symmetric = extrude_profile_extent(
+-            &rect_profile(10.0, 10.0),
+-            [0.0, 0.0, 0.0],
+-            [1.0, 0.0, 0.0],
+-            [0.0, 1.0, 0.0],
+-            [0.0, 0.0, 1.0],
+-            ExtrudeExtent::Symmetric(20.0),
+-        )
+-        .unwrap();
+-        assert_eq!(
+-            symmetric.inner().faces().count(),
+-            plain.inner().faces().count(),
+-            "extrude simetris tidak boleh menyisakan face sambungan"
+-        );
+-    }
+-
+-    /// Regresi: tabung berlubang, selimut LUAR didorong ke dalam sampai melewati
+-    /// dinding lubang (radius luar baru < radius lubang). Dulu offset OCCT
+-    /// mengembalikan shape rusak, lalu `BRepCheck_Analyzer` melempar exception
+-    /// C++ yang lolos jembatan cxx → `std::terminate` → aplikasi tertutup saat
+-    /// pratinjau cut digambar. Sekarang harus berujung `Err`, bukan abort.
+-    #[test]
+-    fn extrude_face_outer_wall_pushed_through_center_hole_fails_gracefully() {
+-        let _guard = lock_test();
+-        const R_OUT: f64 = 20.0;
+-        const R_IN: f64 = 8.0;
+-        const H: f64 = 20.0;
+-        let outer = AdHocShape::make_cylinder(dvec3(0.0, 0.0, 0.0), R_OUT, H);
+-        let inner = AdHocShape::make_cylinder(dvec3(0.0, 0.0, -1.0), R_IN, H + 2.0);
+-        let tube = KernelShape(outer.0.subtract(&inner.0).unwrap().shape.clean());
+-
+-        let outer_ray = PickRay { origin: (R_OUT + 50.0, 0.0, H / 2.0), dir: (-1.0, 0.0, 0.0) };
+-        let hit = pick_face_details(&tube, outer_ray).expect("harus kena selimut luar");
+-        assert_eq!(hit.surface_kind, SurfaceKind::Cylinder);
+-
+-        // Beberapa jarak: tepat menyentuh dinding lubang, menembusnya, dan jauh
+-        // melewatinya. Semua harus Ok (geometri valid) atau Err — tidak boleh abort.
+-        for d in [-(R_OUT - R_IN), -(R_OUT - R_IN) - 1.0, -15.0, -19.0] {
+-            match extrude_face(&tube, outer_ray, d) {
+-                Ok(remaining) => {
+-                    assert!(remaining.is_valid(), "hasil extrude_face d={d} harus valid bila Ok");
+-                    // Pratinjau GUI: bagian yang terbuang = body asal − sisa.
+-                    let _ = subtract(&tube, &remaining);
+-                }
+-                Err(err) => assert!(!err.to_string().is_empty(), "pesan error d={d} tidak boleh kosong"),
+-            }
+-        }
+-    }
+-}
+diff --git a/ducad-editor/crates/ducad-kernel/src/thread.rs b/ducad-editor/crates/ducad-kernel/src/thread.rs
+index 6249b9ed..e9b03897 100644
+--- a/ducad-editor/crates/ducad-kernel/src/thread.rs
++++ b/ducad-editor/crates/ducad-kernel/src/thread.rs
+@@ -1,21 +1,12 @@
+ //! Ulir fisik metrik ISO (P20): alur ulir profil dasar ISO 68-1 (60°)
+ //! dipotong dari silinder luar dengan sapuan helix.
+ //!
+-//! Fungsi di sini TIDAK memegang `KERNEL_LOCK` sendiri — ia hanya merangkai
+-//! fungsi publik kernel lain (yang masing-masing mengunci), sesuai aturan
+-//! "Mutex tidak reentrant".
++//! Backend truck memotong ulir facet (PLAN_MIGRASI_TRUCK §4.2 pilihan A).
+ 
+ use anyhow::{bail, Result};
+ 
+-use crate::csg::subtract;
+-use crate::helix::{create_helix_solid_with_custom_profile, HelixHandedness, HelixParams};
+-use crate::profile::{Profile, ProfileSegment};
+ use crate::shape::KernelShape;
+ 
+-/// Titik sampel spline helix per putaran.
+-const SAMPLES_PER_TURN: usize = 36;
+-/// Putaran penuh per potongan pemotong (lihat `cut_iso_thread`).
+-const TURNS_PER_CHUNK: f64 = 2.0;
+ 
+ /// Geometri alur ulir luar profil dasar ISO 68-1 untuk kisar `pitch`.
+ #[derive(Debug, Clone, Copy, PartialEq)]
+@@ -64,8 +55,6 @@ impl IsoThreadProfile {
+ /// Potong ulir luar ISO pada `shape`: silinder berdiameter mayor `major_d`
+ /// dengan sumbu lewat `axis_origin` searah `axis_dir`; ulir mulai di
+ /// `axis_origin` dan berjalan sejauh `length`.
+-// Truck keluar lebih awal ke `backend::thread` (ulir facet).
+-#[cfg_attr(backend_truck, allow(unreachable_code, unused_variables))]
+ pub fn cut_iso_thread(
+     shape: &KernelShape,
+     axis_origin: [f64; 3],
+@@ -101,18 +90,9 @@ pub fn cut_iso_thread(
+         (-p.depth, root),
+         (-p.depth, -root),
+     ];
+-    let profile = Profile::Loop(
+-        (0..4)
+-            .map(|i| ProfileSegment::Line {
+-                start: pts[i],
+-                end: pts[(i + 1) % 4],
+-            })
+-            .collect(),
+-    );
+-    // Backend truck: boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK
+-    // R4) — pakai ulir facet (§4.2 pilihan A).
+-    #[cfg(backend_truck)]
+-    return crate::backend::thread::cut_faceted(
++    // Boolean B-rep alur helix sangat lambat (PLAN_MIGRASI_TRUCK R4) — ulir
++    // facet (§4.2 pilihan A).
++    crate::backend::thread::cut_faceted(
+         shape,
+         axis_origin,
+         axis_dir,
+@@ -121,51 +101,5 @@ pub fn cut_iso_thread(
+         length,
+         left_handed,
+         &pts,
+-    );
+-    // Satu spline helix panjang membuat `MakePipe` menghasilkan solid rusak
+-    // (terbukti pada 13 putaran: tidak valid, volume ≈ 0), jadi pemotong
+-    // dibuat per potongan `TURNS_PER_CHUNK` putaran PENUH — awal tiap
+-    // potongan jatuh di sudut yang sama sehingga alurnya menyambung.
+-    let norm = (axis_dir[0].powi(2) + axis_dir[1].powi(2) + axis_dir[2].powi(2)).sqrt();
+-    if norm < 1e-9 {
+-        bail!("arah sumbu ulir nol");
+-    }
+-    let axis = axis_dir.map(|c| c / norm);
+-    let total_turns = length / pitch;
+-    let mut result: Option<KernelShape> = None;
+-    let mut done = 0.0;
+-    while total_turns - done > 1e-6 {
+-        let mut turns = (total_turns - done).min(TURNS_PER_CHUNK);
+-        // Sisa yang sangat pendek digabung ke potongan ini.
+-        if total_turns - done - turns < 0.25 {
+-            turns = total_turns - done;
+-        }
+-        let shift = done * pitch;
+-        let params = HelixParams {
+-            radius: major_d / 2.0,
+-            end_radius: None,
+-            pitch,
+-            turns,
+-            handedness: if left_handed {
+-                HelixHandedness::LeftHand
+-            } else {
+-                HelixHandedness::RightHand
+-            },
+-            origin: [
+-                axis_origin[0] + axis[0] * shift,
+-                axis_origin[1] + axis[1] * shift,
+-                axis_origin[2] + axis[2] * shift,
+-            ],
+-            axis,
+-            ..HelixParams::default()
+-        };
+-        let cutter = create_helix_solid_with_custom_profile(&params, &profile, SAMPLES_PER_TURN)?;
+-        if !cutter.is_valid() {
+-            bail!("pemotong ulir tidak valid pada putaran {done:.2}");
+-        }
+-        let base = result.as_ref().unwrap_or(shape);
+-        result = Some(subtract(base, &cutter)?);
+-        done += turns;
+-    }
+-    result.ok_or_else(|| anyhow::anyhow!("ulir tanpa putaran"))
++    )
+ }
+diff --git a/ducad-editor/crates/ducad-kernel/tests/step_roundtrip.rs b/ducad-editor/crates/ducad-kernel/tests/step_roundtrip.rs
+index 8faf9088..7450c7c2 100644
+--- a/ducad-editor/crates/ducad-kernel/tests/step_roundtrip.rs
++++ b/ducad-editor/crates/ducad-kernel/tests/step_roundtrip.rs
+@@ -139,9 +139,9 @@ fn cases() -> Vec<(&'static str, KernelShape)> {
+     ]
+ }
+ 
+-const VOL_TOL: f64 = if cfg!(backend_truck) { 2e-4 } else { 1e-5 };
++const VOL_TOL: f64 = 2e-4;
+ // Truck: volume dari tesselasi (poligon tersirat), ±5e-4 seperti checks (PLAN §3.1, R5).
+-const EXACT_TOL: f64 = if cfg!(backend_truck) { 5e-4 } else { 1e-6 };
++const EXACT_TOL: f64 = 5e-4;
+ 
+ /// Volume analitik bentuk yang punya rumus tertutup.
+ fn exact_volume(name: &str) -> Option<f64> {
+diff --git a/ducad-editor/crates/ducad-kernel/tests/truck_concurrency.rs b/ducad-editor/crates/ducad-kernel/tests/truck_concurrency.rs
+index 5a547d8a..0538ae5e 100644
+--- a/ducad-editor/crates/ducad-kernel/tests/truck_concurrency.rs
++++ b/ducad-editor/crates/ducad-kernel/tests/truck_concurrency.rs
+@@ -1,8 +1,6 @@
+ //! PLAN_MIGRASI_TRUCK 5.4 — backend truck tanpa kunci global: import STEP
+ //! dan extrude/boolean berjalan bersamaan di thread berbeda, hasilnya sama
+ //! dengan versi berurutan; `union_all` paralel sama dengan lipatan biasa.
+-//! Hanya backend truck (OCCT tidak thread-safe).
+-#![cfg(backend_truck)]
+ 
+ use std::sync::Arc;
+ 
+diff --git a/ducad-editor/crates/ducad-mcp/Cargo.toml b/ducad-editor/crates/ducad-mcp/Cargo.toml
+index 053b8652..8b465341 100644
+--- a/ducad-editor/crates/ducad-mcp/Cargo.toml
++++ b/ducad-editor/crates/ducad-mcp/Cargo.toml
+@@ -9,14 +9,6 @@ authors.workspace = true
+ name = "ducad-mcp"
+ path = "src/main.rs"
+ 
+-[features]
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+-
+ [dependencies]
+ ducad-engine = { workspace = true, features = ["raster"] }
+ ducad-kernel = { workspace = true }
+diff --git a/ducad-editor/crates/ducad-ui/Cargo.toml b/ducad-editor/crates/ducad-ui/Cargo.toml
+index 443a0cdc..10132bed 100644
+--- a/ducad-editor/crates/ducad-ui/Cargo.toml
++++ b/ducad-editor/crates/ducad-ui/Cargo.toml
+@@ -24,10 +24,4 @@ serde_json = { workspace = true }
+ 
+ [features]
+ default = []
+-# Backend kernel (PLAN_MIGRASI_TRUCK F6): truck adalah default ducad-kernel.
+-# `--features kernel-occt` memilih OCCT untuk seluruh graf selama soak
+-# 0.6.0-beta (menang atas truck); `kernel-truck` dipertahankan agar perintah
+-# lama tetap jalan.
+-kernel-truck = ["ducad-kernel/kernel-truck"]
+-kernel-occt = ["ducad-kernel/kernel-occt"]
+ serde = ["dep:serde"]
+diff --git a/ducad-editor/deny.toml b/ducad-editor/deny.toml
+index 35894d3c..bb49f92c 100644
+--- a/ducad-editor/deny.toml
++++ b/ducad-editor/deny.toml
+@@ -43,14 +43,6 @@ allow = [
+ ]
+ confidence-threshold = 0.9
+ 
+-[[licenses.clarify]]
+-# OCCT dilisensikan LGPL-2.1 dengan pengecualian tautan (lihat LICENSE di
+-# root). Crate -sys hanya membungkusnya; pemeriksa lisensi tidak bisa
+-# menyimpulkan ini sendiri.
+-name = "occt-sys"
+-expression = "LGPL-2.1-only WITH OCCT-exception-1.0"
+-license-files = []
+-
+ [bans]
+ multiple-versions = "warn"
+ wildcards = "deny"
+diff --git a/ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md b/ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md
+index 90a7c29e..89e1b134 100644
+--- a/ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md
++++ b/ducad-editor/docs/ANALISIS_KOMPARATIF_CAD.md
+@@ -291,7 +291,7 @@ Perbandingan ini dipakai sebagai dasar ADR 0009.
+ | Dokumen kemajuan | `ROADMAP.md` + `gaps.md` + `*-parity.md` (angka paritas terukur) | `PLAN.md`, `STATUS_FASE_A_B.md`, rencana harness agent | Pola "angka paritas" tidak relevan tanpa produk acuan |
+ | i18n | 13 bahasa, font CJK/Arab opsional, RTL/shaping | 2 bahasa (en/id), tes cakupan glyph | Belum perlu |
+ | Aksesibilitas | Kursor sistem opsional, hormati *reduce motion* | Belum ada | Kandidat lanjutan (kecil) |
+-| Web (WASM) | Ya (`trunk`) | Tidak (OCCT) | Tidak mungkin tanpa kernel WASM |
++| Web (WASM) | Ya (`trunk`) | Kernel lolos `cargo check --target wasm32-unknown-unknown` sejak 0.6.0 (kernel Rust murni); aplikasi web belum ada | Terbuka — fase terpisah (PLAN_MIGRASI_TRUCK R10: panik = abort di wasm) |
+ 
+ ### 5.2 Yang diterapkan di DUCAD (lihat ADR 0009)
+ 
+diff --git a/ducad-editor/docs/ATTRIBUTION.md b/ducad-editor/docs/ATTRIBUTION.md
+index 6d073306..14406615 100644
+--- a/ducad-editor/docs/ATTRIBUTION.md
++++ b/ducad-editor/docs/ATTRIBUTION.md
+@@ -8,7 +8,6 @@ crates.io di `Cargo.lock`). Dependensi biasa diaudit `cargo deny check`
+ 
+ | Path | Asal | Lisensi | Diubah DUCAD? |
+ |---|---|---|---|
+-| `vendors/opencascade-rs/` (submodule) | fork https://github.com/cmjcode/opencascade-rs cabang `ducad-patches` (hulu: bschwind/opencascade-rs) | LGPL-2.1 (binding), OCCT: LGPL-2.1 + OCCT exception | Ya — riwayat cabang `ducad-patches`. Dihapus di PLAN_MIGRASI_TRUCK F6. |
+ | `vendors/solidcraft/crates/kernel`, `vendors/solidcraft/crates/geom` | SolidCraft 0.16.2 `c66e332`, https://github.com/tangency-labs/solidcraft | MIT OR Apache-2.0 | Ya — manifest ditulis ulang, `ducad_ext.rs` ditambah (lihat `vendors/solidcraft/README.md`, marker `DUCAD:`). |
+ | `vendors/solidcraft/vendor/truck-{geometry,meshalgo,shapeops,stepio}` | truck, © RICOS Co. Ltd., https://github.com/ricosjp/truck, dengan perbaikan SolidCraft | Apache-2.0 | Tidak oleh DUCAD; perubahan SolidCraft tercatat di `vendors/solidcraft/vendor/README.md` (marker `SolidCraft:`). |
+ | `vendors/solidcraft/vendor/matext4cgmath` | matext4cgmath 0.1.0, © RICOS Co. Ltd. | Apache-2.0 | Tidak oleh DUCAD (perbaikan SolidCraft: batas 100 langkah Newton). |
+@@ -18,7 +17,8 @@ Teks lisensi dan berkas `NOTICE` SolidCraft ikut di `vendors/solidcraft/`
+ 
+ ## Saat mendistribusikan biner
+ 
+-Biner yang dibangun dengan fitur `kernel-truck` memuat kode SolidCraft dan
+-truck: sertakan `vendors/solidcraft/NOTICE` beserta teks Apache-2.0 di
+-paket/“Tentang” aplikasi, sama seperti pemberitahuan OCCT untuk build
+-`kernel-occt`.
++Setiap biner DUCAD memuat kode SolidCraft dan truck: sertakan
++`vendors/solidcraft/NOTICE` beserta teks Apache-2.0 di paket/“Tentang”
++aplikasi. (Backend OpenCASCADE dan submodule `vendors/opencascade-rs`
++dihapus di 0.6.0, PLAN_MIGRASI_TRUCK F6.4; rilis ≤ 0.6.0-beta masih
++memuatnya, LGPL-2.1 + OCCT exception.)
+diff --git a/ducad-editor/docs/PACKAGING.md b/ducad-editor/docs/PACKAGING.md
+index 4a9222d0..cbcc64a0 100644
+--- a/ducad-editor/docs/PACKAGING.md
++++ b/ducad-editor/docs/PACKAGING.md
+@@ -37,31 +37,11 @@ yang di luar lingkup kerja agent ini). `.app` akan pakai ikon generik
+ sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
+ /icon.icns"]`.
+ 
+-## Paket beta 0.6.0 (soak backend kernel)
+-
+-Selama soak (PLAN_MIGRASI_TRUCK F6.3) paket desktop pra-rilis membawa DUA
+-executable: `ducad` (backend truck, default) dan `ducad-occt` (backend
+-OpenCASCADE). `DUCAD_KERNEL=occt` membuat `ducad` berpindah ke `ducad-occt`
+-(Unix: `exec`, Windows: proses anak); `DUCAD_KERNEL=truck` sebaliknya. Bila
+-executable tujuan tidak ada, aplikasi tetap memakai backend bawaannya dan
+-mencatat alasannya di log.
+-
+-- macOS: `make bundle-macos OCCT_FALLBACK=1` → `DUCAD.app/Contents/MacOS/ducad-occt`
+-  (setiap executable di `Contents/MacOS` ditandatangani).
+-- Linux: `make bundle-linux OCCT_FALLBACK=1`.
+-- Windows: `.\build_windows.ps1 bundle -OcctFallback`.
+-- CI (`release.yml`): otomatis untuk tag pra-rilis (`vX.Y.Z-beta.N`).
+-- iPad/Android: satu backend per build (`--kernel occt` / `KERNEL=occt`).
+-
+-Jurnal panik `~/.ducad/logs/panics.jsonl` (satu baris JSON per panik: waktu,
+-versi, backend, lokasi, pesan; berhenti di 1 MB) adalah bahan laporan soak.
+-Tidak dikirim otomatis — updater tidak punya kanal telemetri.
+-
+ ## Windows / Linux
+ 
+ `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
+ yang jalan langsung tanpa bundling — DUCAD tidak punya dependensi native
+-selain yang sudah di-static-link OCCT/wgpu saat build. Installer
++selain yang sudah di-static-link saat build (kernel Rust murni, wgpu). Installer
+ (`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
+ Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
+ 
+@@ -69,9 +49,9 @@ Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
+ 
+ Metadata paket ada di `aur/ducad/` (root repo): `PKGBUILD`, `ducad.desktop`,
+ dan `.SRCINFO` hasil generate. PKGBUILD membangun dari tag `v<versi>` di
+-GitHub lewat sumber `git+` — bukan tarball — karena binding OCCT ada di
+-submodule `ducad-editor/vendors/opencascade-rs` yang tidak ikut tarball.
+-OCCT dipakai dari paket sistem Arch `opencascade` (>= 7.8), dilink dinamis.
++GitHub lewat sumber `git+`. Sejak 0.6.0 kernel geometri (SolidCraft/truck)
++adalah Rust murni yang di-vendor di repo — tanpa submodule, tanpa paket
++sistem `opencascade`, tanpa cmake.
+ Terpasang: `ducad`, `ducad-cli`, `ducad-mcp`, entri desktop, ikon, lisensi.
+ 
+ Alur rilis:
+@@ -110,7 +90,7 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
+ - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar
+   lingkup kerja kode.
+ - **iOS packaging** (`.ipa`, TestFlight) — `./build_ipad.sh ipa|publish`
+-  (backend truck: tanpa pre-build OCCT; `--kernel occt` melakukannya otomatis). Lihat `docs/TABLET.md`.
++  (tanpa pre-build C++). Lihat `docs/TABLET.md`.
+ - **Android** — `make android-apk` menghasilkan APK debug (lihat
+   `docs/TABLET.md`); signing rilis (keystore) di luar sandbox agent, sama
+   alasannya dengan macOS.
+diff --git a/ducad-editor/docs/PANDUAN.md b/ducad-editor/docs/PANDUAN.md
+index 5b9edba5..a4c84c1e 100644
+--- a/ducad-editor/docs/PANDUAN.md
++++ b/ducad-editor/docs/PANDUAN.md
+@@ -1,6 +1,6 @@
+ # Panduan Pemakaian DuCAD
+ 
+-Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep OpenCASCADE, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
++Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dari pemodelan dasar hingga fitur lanjutan (Fase 1 hingga Fase 12): sketsa 2D parametrik, *datum workplanes*, pemodelan solid 3D B-Rep, *fastener hole wizard*, kurva spiral/pegas, gambar kerja teknik 2D (*engineering drawing sheet* & potongan *section view*), perakitan (*assembly*) & deteksi tabrakan (*clash detection*), *parametric history timeline*, hingga ekspor berbagai format industri (STEP, GLB/GLTF, SVG, PDF, DXF, STL, OBJ).
+ 
+ ---
+ 
+@@ -10,7 +10,7 @@ Panduan komprehensif ini menjelaskan cara penggunaan seluruh fitur **DuCAD** dar
+ cargo run -p ducad-app
+ ```
+ 
+-> **Kernel geometri**: sejak 0.6.0-beta kernel bawaan adalah SolidCraft/truck (Rust murni, tanpa kompilasi C++). Backend OpenCASCADE (OCCT) masih tersedia selama masa uji beta: build dengan `cargo run -p ducad-app --features kernel-occt` (build pertama mengompilasi OCCT, ~8-15 menit), atau — pada paket beta yang membawa `ducad-occt` — jalankan aplikasi dengan variabel lingkungan `DUCAD_KERNEL=occt`. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah beta.
++> **Kernel geometri**: DuCAD memakai kernel B-rep SolidCraft/truck (Rust murni, tanpa kompilasi C++), sehingga build pertama hanya mengompilasi kode Rust. Setiap panik kernel dicatat di `~/.ducad/logs/panics.jsonl` (lokal saja, tidak dikirim ke mana pun); lampirkan berkas itu saat melaporkan masalah.
+ 
+ ---
+ 
+@@ -108,7 +108,7 @@ Memungkinkan pembuatan sketsa dan geometri pada sudut atau posisi sembarang di r
+ 
+ ---
+ 
+-## 🧊 Pemodelan Solid 3D (OpenCASCADE B-Rep)
++## 🧊 Pemodelan Solid 3D (B-Rep)
+ 
+ ### 1. Extrude (Ekstrusi)
+ * Pilih profil tertutup di sketsa $\rightarrow$ Klik **Extrude** di panel atau Bottom Context Bar $\rightarrow$ Tentukan jarak (mm) dan arah (Satu arah, Simetris dua arah).
+diff --git a/ducad-editor/docs/TABLET.md b/ducad-editor/docs/TABLET.md
+index 5bf4fcd5..f24ee5fe 100644
+--- a/ducad-editor/docs/TABLET.md
++++ b/ducad-editor/docs/TABLET.md
+@@ -11,7 +11,7 @@ tidak ada UI Swift/Kotlin selain shell minimal.
+ |---|---|---|
+ | Entry point | binary `ducad` (winit memanggil `UIApplicationMain` sendiri) | `crates/ducad-android` → `libducad_android.so`, dimuat `GameActivity` (`android/app`) |
+ | Rendering | wgpu → Metal | wgpu → Vulkan (fallback GLES) |
+-| Kernel | truck (default, Rust murni — tanpa cmake/NDK C++). OCCT hanya dengan `./build_ipad.sh --kernel occt` (pre-build `crates/ducad-kernel/ios/ios-toolchain.cmake`) | truck (default). OCCT hanya dengan `make android-check KERNEL=occt` (crate `cmake` + `crates/ducad-kernel/android/android-toolchain.cmake`, NDK, `c++_shared`) |
++| Kernel | SolidCraft/truck (Rust murni — tanpa cmake/pre-build C++) | sama (tanpa NDK C++) |
+ | Integrasi OS | `ducad-app/src/apple_ios.rs` (objc2) | `android/app/.../MainActivity.kt` (refresh rate, edge-to-edge) |
+ | Keputusan platform | `ducad-app/src/platform.rs` (`is_mobile`, `touch_first`, `data_dir`, `documents_dir`, `autosave_path`) | sama |
+ | Perilaku tablet | `ducad-app/src/mobile.rs` (autosave, picker asinkron, Pencil, peringatan memori) | sama |
+@@ -49,7 +49,7 @@ make android-check | android-so | android-apk       # Android (cargo-ndk + Gradl
+ ## Verifikasi
+ 
+ - Desktop: `cargo test -p ducad-app -- mobile:: platform::`, `cargo clippy --workspace --all-targets -- -D warnings`.
+-- iPad: `./build_ipad.sh check` (type-check; backend truck, tanpa langkah OCCT), lalu ceklis B6 di
++- iPad: `./build_ipad.sh check` (type-check), lalu ceklis B6 di
+   `docs/CEKLIS_UJI_GUI.md` di perangkat/simulator.
+ - Android: `make android-check`, lalu ceklis B7.
+ 

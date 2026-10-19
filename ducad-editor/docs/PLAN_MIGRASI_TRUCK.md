@@ -348,6 +348,25 @@ Known failures / catatan untuk fase berikutnya:
 
 **Exit gate F4**: seluruh Drawing Sheet (48 perintah) berfungsi di backend truck; export PDF/SVG/DXF dari `examples/` identik secara visual (golden hash dengan toleransi).
 
+**Status F4 (2026-10-19): selesai**, dengan satu pengecualian tercatat (valve body, R7). Hasil gate:
+
+| Gate | Hasil |
+|---|---|
+| `cargo test -p ducad-kernel --no-default-features --features kernel-truck --lib` | 232 lulus; ke-10 tes yang dulu `ignore = "F4: …"` (busur analitik, rusuk tersembunyi, konvensi proyeksi, potongan A-A analitik, potongan bertingkat, arsir berselang, chamfer di potongan, `extract_exact_hlr`) kini aktif dan hijau |
+| `cargo test -p ducad-kernel --lib` (OCCT, setelah refactor `hlr_sheet`) | 260 lulus; clippy `-D warnings` bersih di kedua backend (kode F4) |
+| `tests/step_roundtrip.rs` (20 bentuk + compound file) | hijau di kedua backend |
+| `cargo test --features kernel-truck -p ducad-io` (termasuk `sheet_p21`, `gdt_pdf`, `exploded_drawing`) | semua hijau |
+| `ducad-engine --test drawing_golden --test drawing_auto` (truck) | 4 lulus, 3 di-skip (valve body, lihat di bawah) |
+
+Catatan pelaksanaan:
+
+- **4.1 STEP**: baca/tulis sudah ada sejak F1/F2 (`step_import`/`step_export`); F4 menambah tes roundtrip 20 bentuk. Toleransi volume truck 2e-4 antar dua pengukuran (±1e-4 per pengukuran, §3.1) dan 5e-4 terhadap volume analitik — `make_cylinder` truck sendiri sudah meleset 1,1e-4 dari π·r²·h (volume tesselasi), diteruskan ke F5.1. Warna/nama STEP **tidak** dipertahankan: API DUCAD tidak mengeksposnya di backend mana pun (di luar lingkup API beku). `import_worker` tanpa `KERNEL_LOCK` dikerjakan di F5.4.
+- **4.2 HLR** (`backend/truck/hlr_mesh.rs`): garis kandidat = edge logis B-rep (seam & edge tangen tidak digambar, setara keluaran "sharp" OCCT); siluet dari mesh lalu di-snap ke silinder/kerucut/bola analitik; oklusi lewat grid segitiga + bisection titik peralihan. Lingkaran sejajar bidang gambar → `HlrArc2D` eksak (pusat/radius dari B-rep, `edge` terisi); lingkaran tegak lurus bidang gambar → ruas garis eksak `pusat ± r`; kurva lain → polyline. Logika fitur (lingkaran, busur, chamfer, sisi silinder, garis sumbu) dipindah ke modul bersama `src/hlr_sheet.rs`; OCCT memakainya tanpa perubahan perilaku. Garis tersembunyi yang berimpit garis tampak tetap dikeluarkan (paritas OCCT).
+- **4.3 Potongan** (`backend/truck/section.rs`): potongan lurus lewat `half_space` (bidang eksak), bertingkat lewat prisma + subtract; arsir per face potong.
+- **4.4**: dua tes `ducad-io` yang berasumsi OCCT dibuat netral-backend (jumlah vertex mesh → volume; produsen cache "asing" = backend lawan).
+- **Golden lembar**: hash per backend — `ducad-engine/tests/golden/drawing.hashes.truck.json` (flange). **Valve body di-skip di truck** (3 tes `drawing_golden`): membangun modelnya > 30 menit karena boolean lubang pada body berfillet (R7, sudah di `known_failures.truck.txt` sejak F3) — bukan HLR. Aktifkan kembali setelah F5.
+- CI: langkah "drawing (backend truck)" di job `full` Linux.
+
 ### F5 — Sim, checks, MCP, assembly, paralel (1–2 minggu)
 
 | Task | File | Validasi |
@@ -389,6 +408,37 @@ Hasil gate saat ini:
 | 6.5 Rilis `0.6.0`; bump pointer submodule sebelum tag (lihat memori "release tag vs submodule pointer") | `scripts/release` | tag + build |
 
 **Exit gate F6**: semua gate §0 hijau; `vendors/opencascade-rs` tidak ada; CI tanpa langkah cmake.
+
+**Status F6 (2026-10-19): F6.1–F6.3 selesai di kode; F6.4–F6.5 disiapkan dan diverifikasi, menunggu soak.** Soak dua minggu belum bisa dimulai sebelum beta dirilis, dan R7 (valve_body) masih terbuka, jadi OCCT belum dihapus dari branch ini.
+
+Pemilihan backend (dasar semua tugas F6):
+
+- `ducad-kernel` default = `kernel-truck`. `--features kernel-occt` dari crate mana pun **menang** atas default (fitur Cargo aditif). Aturannya satu tempat: `crates/ducad-kernel/build.rs` → `cfg(backend_truck)` / `cfg(backend_occt)`; kode kernel tidak lagi memakai `cfg(feature = …)`.
+- Crate hilir punya fitur penerus `kernel-occt` (dan `kernel-truck` lama tetap ada sebagai no-op). Kode hilir membaca `ducad_kernel::IS_TRUCK`, bukan fiturnya sendiri; tiga tes valve body di `drawing_golden` dilewati saat runtime di truck (R7).
+- Build default tidak menarik `opencascade`/`occt-sys` sama sekali (`cargo tree -i opencascade` kosong).
+
+| Task | Hasil |
+|---|---|
+| 6.1 macOS | `make build`/`bundle-macos` default truck; `KERNEL=occt` untuk pembanding. Ukuran biner: lihat tabel di bawah. |
+| 6.1 iPad | `build_ipad.sh --kernel truck\|occt` (default truck: langkah pre-build OCCT/cmake dilewati). `./build_ipad.sh check` **hijau** tanpa OCCT. Jembatan Xcode (`apple/scripts/build_cargo.sh`) ikut: `DUCAD_KERNEL_BUILD=occt` untuk OCCT. |
+| 6.1 Android | `make android-check` **hijau** tanpa cmake/occt-sys (NDK 29). `android-toolchain.cmake` baru dihapus di F6.4 (masih dipakai `KERNEL=occt`). |
+| 6.1 Windows | `build_windows.ps1 -Kernel truck\|occt -OcctFallback`; CMake hanya diperiksa untuk OCCT. Belum dijalankan di Windows (tidak ada mesin Windows di sesi ini). |
+| 6.2 wasm32 | `cargo check -p ducad-kernel --no-default-features --features kernel-truck --target wasm32-unknown-unknown` **hijau tanpa perubahan kode** (rayon sudah dipagari `target_arch = "wasm32"` di SolidCraft `par.rs`). Jadi langkah di job CI `truck` (bukan job manual — < 1 menit). |
+| 6.3 flag runtime | `DUCAD_KERNEL=occt\|truck` (`ducad-app/src/kernel_select.rs`): satu executable = satu backend, jadi paket beta desktop membawa `ducad` (truck) + `ducad-occt`; `ducad` berpindah ke saudaranya (Unix `exec`, Windows proses anak), penanda `DUCAD_KERNEL_REEXEC` mencegah loop, executable hilang/nilai asing → backend bawaan + peringatan di log. Paket: `make bundle-{macos,linux} OCCT_FALLBACK=1`, `build_windows.ps1 bundle -OcctFallback`, `release.yml` otomatis untuk tag pra-rilis. Tablet: satu backend per build. `VERSION` = `0.6.0-beta.1`. |
+| 6.3 laporan crash | **Tidak ada kanal telemetri** di `ducad-update` (hanya membaca rilis GitHub; pra-rilis malah diabaikan), dan mengirim data tanpa persetujuan/endpoint bukan pilihan. Gantinya jurnal lokal `~/.ducad/logs/panics.jsonl`: setiap panik (termasuk yang tertangkap `catch_op_panic`) = satu baris JSON `{ts, version, backend, thread, location, message}`, tidak dirotasi, berhenti di 1 MB. Penguji beta melampirkannya; gate soak = nol baris `backend: truck` yang berasal dari kernel. Log start kini mencatat backend. |
+| 6.4 cutover | **Disiapkan, tidak diterapkan**: `docs/cutover/apply_f6_4.sh` + `F6.4-delete.txt` + `F6.4-modify.patch`. Diverifikasi di worktree terpisah (hasil di bawah). |
+| 6.5 rilis | Tidak dilakukan (tag/push = keputusan pengguna). Patch cutover menyetel `VERSION` = `0.6.0`; `release-tag.sh` menghitung build number 60 untuk beta DAN final → set `BUILD=61` untuk 0.6.0. |
+
+Perbaikan yang ternyata perlu (di luar tabel):
+
+- **`.gitignore` root berisi `vendor/`**, sehingga `vendors/solidcraft/vendor/` (truck-geometry/-meshalgo/-shapeops/-stepio + matext4cgmath, target `[patch.crates-io]`) **tidak pernah ter-commit sejak F2**. Clone baru/CI gagal di resolusi dependensi, di backend mana pun. Kini dikecualikan (`!ducad-editor/vendors/solidcraft/vendor/`); 95 berkas itu harus ikut commit.
+- **Lane CI `truck` lama tidak pernah bisa jalan**: checkout tanpa submodule, padahal Cargo memuat setiap entri `[patch.crates-io]` (termasuk `vendors/opencascade-rs`) walau OCCT tidak dikompilasi — dibuktikan di salinan tanpa submodule. Lane kini `submodules: recursive` sampai F6.4.
+- CI lane penuh: `test`/`clippy` default = truck; langkah baru `clippy`/`test (backend OCCT)` dengan `--features kernel-occt`; golden OCCT memakai `--features kernel-occt`; langkah "drawing (backend truck)" terlebur ke `test`.
+- Hint error `unsupported` menyebut OCCT sebagai "fitur default" — kini menjelaskan `DUCAD_KERNEL=occt` / `--features kernel-occt`.
+- `expect()` di `hlr_mesh.rs` (lolos dulu karena clippy truck tidak memblokir) diganti `if let`.
+- Tes `external_part_lifecycle_add_poll_reload_detach` (ducad-app) memakai toleransi volume eksak OCCT; kini `VOLUME_REL_TOL`.
+
+<!-- F6-RESULTS -->
 
 ---
 

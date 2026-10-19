@@ -55,26 +55,32 @@ mod contract_tests;
 
 /// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
 /// dicatat golden corpus dan laporan diagnostik.
-#[cfg(feature = "kernel-truck")]
+#[cfg(backend_truck)]
 pub const BACKEND: &str = "truck";
 /// Nama backend kernel yang aktif di build ini (`"occt"` atau `"truck"`) —
 /// dicatat golden corpus dan laporan diagnostik.
-#[cfg(not(feature = "kernel-truck"))]
+#[cfg(backend_occt)]
 pub const BACKEND: &str = "occt";
+
+/// `true` bila backend aktif adalah truck. Crate hilir memakai konstanta ini
+/// (bukan `cfg!(feature = "kernel-truck")` milik crate itu sendiri), karena
+/// fitur crate hilir tidak mencerminkan backend yang benar-benar terpilih —
+/// lihat build.rs crate ini.
+pub const IS_TRUCK: bool = cfg!(backend_truck);
 
 /// Toleransi relatif [`KernelShape::volume`] backend aktif (PLAN_MIGRASI_TRUCK
 /// §3.1, F5.1). OCCT: `BRepGProp` eksak (0). Truck: `measure()` SolidCraft
 /// berbasis tesselasi halus, ±1e-4 — pembanding volume/massa memakai 5e-4.
-#[cfg(feature = "kernel-truck")]
+#[cfg(backend_truck)]
 pub const VOLUME_REL_TOL: f64 = 5e-4;
 /// Toleransi relatif [`KernelShape::volume`] backend aktif — lihat versi truck.
-#[cfg(not(feature = "kernel-truck"))]
+#[cfg(backend_occt)]
 pub const VOLUME_REL_TOL: f64 = 0.0;
 
 /// `true` bila [`KernelShape`] boleh dipakai dari banyak thread sekaligus
 /// (backend truck: `Send + Sync`, tanpa kunci global). OCCT: semua panggilan
 /// diserialkan `KERNEL_LOCK` dan shape tidak boleh pindah thread.
-pub const THREAD_SAFE: bool = cfg!(feature = "kernel-truck");
+pub const THREAD_SAFE: bool = cfg!(backend_truck);
 
 /// Error bertipe: operasi ini belum didukung backend kernel yang aktif
 /// (PLAN_MIGRASI_TRUCK §0 butir 4 — op yang tidak didukung mengembalikan
@@ -119,7 +125,7 @@ pub use csg::{
     sweep_profile_on_plane_along_path, union,
 };
 /// Khusus OCCT: menerima `Wire` OCCT mentah (tidak ada padanan netral-backend).
-#[cfg(all(feature = "kernel-occt", not(feature = "kernel-truck")))]
+#[cfg(backend_occt)]
 pub use csg::sweep_profile_along_wire;
 pub use detail::{clip_segment_to_circle, DetailExtractor, DetailIndicator, DetailViewData};
 pub use helix::{
@@ -127,7 +133,7 @@ pub use helix::{
     generate_helix_points, HelixHandedness, HelixParams, HelixProfileKind,
 };
 /// Khusus OCCT: mengembalikan `Wire` OCCT mentah.
-#[cfg(all(feature = "kernel-occt", not(feature = "kernel-truck")))]
+#[cfg(backend_occt)]
 pub use helix::create_helix_wire;
 pub use hlr::{
     DrawingOptions, HlrArc2D, HlrDrawing, HlrExtractor, HlrGeometricFeature, HlrLineKind,

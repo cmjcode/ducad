@@ -101,6 +101,16 @@ fn dim_texts(sheet: &DrawingSheet) -> Vec<String> {
         .collect()
 }
 
+/// R7 (known_failures.truck.txt, F5): membangun valve body > 30 menit di
+/// backend truck. Backend dipilih ducad-kernel (bukan fitur crate ini), jadi
+/// dilewati saat runtime, bukan lewat `#[ignore]`.
+fn skip_valve_on_truck() -> bool {
+    if ducad_kernel::IS_TRUCK {
+        eprintln!("dilewati di backend truck: R7 valve body (known_failures.truck.txt)");
+    }
+    ducad_kernel::IS_TRUCK
+}
+
 #[test]
 fn drawing_golden_hashes_are_stable() {
     let flange = load(include_str!("fixtures/flange.ops.json"));
@@ -118,7 +128,7 @@ fn drawing_golden_hashes_are_stable() {
     };
     let flange_sheet = build_sheet(flange.model(), &spec, None).unwrap().sheet;
     let mut sheets = vec![(flange_sheet, "flange")];
-    if !cfg!(feature = "kernel-truck") {
+    if !ducad_kernel::IS_TRUCK {
         let valve = valve();
         let (valve_sheet, warnings) = valve_sheet(&valve);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -136,7 +146,7 @@ fn drawing_golden_hashes_are_stable() {
         }
     }
 
-    let file = if cfg!(feature = "kernel-truck") {
+    let file = if ducad_kernel::IS_TRUCK {
         "tests/golden/drawing.hashes.truck.json"
     } else {
         "tests/golden/drawing.hashes.json"
@@ -162,8 +172,10 @@ fn drawing_golden_hashes_are_stable() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn valve_body_sheet_meets_acceptance_criteria() {
+    if skip_valve_on_truck() {
+        return;
+    }
     let s = valve();
     let checks = s.run_checks(None);
     assert_eq!(checks.fail + checks.error, 0, "{checks:?}");
@@ -265,8 +277,10 @@ fn valve_body_sheet_meets_acceptance_criteria() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn drawing_tool_renders_saved_sheet_and_follows_set_params() {
+    if skip_valve_on_truck() {
+        return;
+    }
     let mut s = valve();
     let paths = tmp_dir("tool");
 
@@ -456,8 +470,10 @@ fn drawing_tool_sections_views_dimensions_and_save() {
 }
 
 #[test]
-#[cfg_attr(feature = "kernel-truck", ignore = "R7: valve body >30 menit di truck (known_failures.truck.txt, F5)")]
 fn hlr_cache_reuses_unchanged_geometry() {
+    if skip_valve_on_truck() {
+        return;
+    }
     let s = valve();
     let spec = s.design().drawing("sheet1").unwrap().clone();
     let key = format!("{}-cache-test", s.design().fingerprint);
