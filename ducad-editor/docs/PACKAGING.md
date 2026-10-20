@@ -41,9 +41,24 @@ sampai file `.icns` disediakan dan didaftarkan lewat `icon = ["path/ke
 
 `cargo build --release` menghasilkan `.exe` (Windows) / binary ELF (Linux)
 yang jalan langsung tanpa bundling — DUCAD tidak punya dependensi native
-selain yang sudah di-static-link saat build (kernel Rust murni, wgpu). Installer
-(`.msi`/`.exe` installer Windows lewat `cargo-wix`, `.AppImage`/`.deb`
-Linux) belum dibuat — di luar lingkup putaran ini, lihat di bawah.
+selain yang sudah di-static-link saat build (kernel Rust murni, wgpu).
+`.AppImage`/`.deb` Linux belum dibuat — lihat di bawah.
+
+## Windows: installer `.msi`
+
+`release.yml` membangun `ducad-<versi>-windows-x86_64.msi` (+ `.sha256`)
+dari `packaging/windows/ducad.wxs` dengan WiX Toolset v5, memvalidasinya
+(ICE), lalu menguji pasang → jalankan `ducad-cli` → copot di runner.
+
+- Instalasi **per-user** ke `%LOCALAPPDATA%\Programs\DUCAD`, tanpa hak admin.
+  Disengaja: updater bawaan menimpa folder executable dari paket `.zip`, dan
+  itu tidak mungkin di Program Files.
+- Membuat shortcut Start Menu + Desktop, menambah folder instalasi ke `PATH`
+  user (untuk `ducad-cli`/`ducad-mcp`), dan tercantum di "Apps & features".
+- MSI versi baru menggantikan versi lama (MajorUpgrade, `UpgradeCode` tetap).
+- Ikon: `assets/icon.ico` (dibuat dari `assets/icon.png`).
+- Belum ditandatangani: Windows SmartScreen akan menampilkan peringatan
+  "unknown publisher" sampai ada sertifikat code signing.
 
 ## Linux: paket AUR `ducad`
 
@@ -81,10 +96,8 @@ tersedia di sandbox agent — sama alasan dengan TestFlight iOS di Fase 6:
 - **Code signing + notarization macOS** — butuh Apple Developer ID
   (berbayar) + `xcrun notarytool`, yang butuh kredensial Apple ID
   interaktif.
-- **Installer Windows** (`cargo-wix` → `.msi`) — belum dicoba; secara
-  prinsip tidak butuh kredensial, jadi lebih mungkin dikerjakan agent di
-  putaran berikutnya kalau dibutuhkan, tapi belum diverifikasi build-nya
-  bersih di platform ini (agent jalan di macOS).
+- **Code signing Windows** (`.exe`/`.msi`) — butuh sertifikat code signing
+  berbayar; installer `.msi` sendiri sudah dibuat CI (lihat di atas).
 - **AppImage/`.deb` Linux** — sama alasan dengan Windows, belum dicoba di
   putaran ini.
 - **Ikon aplikasi** (`.icns`/`.ico`/PNG) — butuh aset visual, di luar

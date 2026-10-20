@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Installer MSI Windows untuk DUCAD (WiX Toolset v5). Dibangun oleh
+  `.github/workflows/release.yml` (langkah "Pasang WiX" + "Installer MSI");
+  perintah yang sama bisa dijalankan lokal di Windows dari ducad-editor/.
+  Variabel: Version, BinDir, AssetsDir, VersionFile.
+
+  Instalasi PER-USER ke %LOCALAPPDATA%\Programs\DUCAD (tanpa hak admin).
+  Ini disengaja: pembaruan otomatis (`crates/ducad-update`) menimpa isi
+  folder executable dan menolak folder yang tidak bisa ditulis — di
+  Program Files updater tidak akan jalan.
+
+  Isi folder harus sama dengan isi paket .zip (lihat langkah "Paket" di
+  release.yml), karena updater menyalin isi .zip ke folder ini.
+
+  UpgradeCode JANGAN diubah: itu yang membuat MSI versi baru mengganti
+  versi lama, bukan terpasang berdampingan.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="DUCAD"
+           Manufacturer="Yulius Jayuda"
+           Version="$(Version)"
+           UpgradeCode="AF39B5A3-0E79-49CD-B8B5-CCF2B9964A15"
+           Scope="perUser"
+           Language="1033"
+           Compressed="yes">
+
+    <SummaryInformation Description="DUCAD - CAD 2D/3D" />
+
+    <!-- Versi sama boleh dipasang ulang (mis. memperbaiki instalasi rusak). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="Versi DUCAD yang lebih baru sudah terpasang. Copot dulu bila ingin memasang versi lama." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="DucadIcon" SourceFile="$(AssetsDir)\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="DucadIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/cmjcode/ducad" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="DUCAD" />
+      </Directory>
+    </StandardDirectory>
+
+    <!--
+      Komponen di profil user wajib punya KeyPath registri HKCU (ICE38) dan
+      RemoveFolder untuk folder yang dibuatnya (ICE64).
+    -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AppFiles" Guid="88D3026F-2AE5-406E-BBAF-2FEC365EF08D">
+        <RegistryValue Root="HKCU" Key="Software\DUCAD" Name="InstallDir"
+                       Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+
+        <File Id="DucadExe" Source="$(BinDir)\ducad.exe" />
+        <File Id="DucadCliExe" Source="$(BinDir)\ducad-cli.exe" />
+        <File Id="DucadMcpExe" Source="$(BinDir)\ducad-mcp.exe" />
+        <File Id="IconPng" Source="$(AssetsDir)\icon.png" />
+        <File Id="VersionFile" Source="$(VersionFile)" Name="VERSION" />
+
+        <!-- `ducad-cli` / `ducad-mcp` bisa dipanggil dari terminal. -->
+        <Environment Id="PathAppend" Name="PATH" Value="[INSTALLFOLDER]"
+                     Part="last" Action="set" System="no" Permanent="no" />
+
+        <!-- Sisa berkas pembaruan otomatis (`.<nama>.ducad-old/new`). -->
+        <RemoveFile Id="UpdaterOld" Name="*.ducad-old" On="uninstall" />
+        <RemoveFile Id="UpdaterNew" Name="*.ducad-new" On="uninstall" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="30BE4F8F-8578-4D40-BD0C-A3957D4F923C">
+        <Shortcut Id="DucadStartMenu" Name="DUCAD" Description="CAD 2D/3D"
+                  Target="[INSTALLFOLDER]ducad.exe" WorkingDirectory="INSTALLFOLDER"
+                  Icon="DucadIcon" />
+        <RegistryValue Root="HKCU" Key="Software\DUCAD" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="20159EBF-8ED1-4380-895C-BC7C3B57BBEF">
+        <Shortcut Id="DucadDesktop" Name="DUCAD" Description="CAD 2D/3D"
+                  Target="[INSTALLFOLDER]ducad.exe" WorkingDirectory="INSTALLFOLDER"
+                  Icon="DucadIcon" />
+        <RegistryValue Root="HKCU" Key="Software\DUCAD" Name="DesktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="DUCAD" Level="1">
+      <ComponentRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+  </Package>
+</Wix>

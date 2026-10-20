@@ -15,6 +15,10 @@ name: release
 #   ducad-<versi>-windows-x86_64.zip     + .sha256
 #   DUCAD-<versi>-macos-arm64.dmg        + .sha256   (unggah manual, lihat bawah)
 #
+# Plus installer `ducad-<versi>-windows-x86_64.msi` (+ .sha256) untuk
+# instalasi pertama. Updater TIDAK memakainya (ia hanya memilih .zip); MSI
+# memasang per-user ke folder yang sama-sama bisa ditimpa updater.
+#
 # macOS TIDAK dibangun di CI: DMG harus ditandatangani Developer ID dan
 # dinotarisasi, dan itu dilakukan di mesin lokal. Karena itu workflow ini
 # hanya mengisi rilis DRAFT; updater (yang membaca `latest`) tidak melihat
@@ -140,11 +144,57 @@ jobs:
           done
           ls -l
 
+      # Installer .msi (WiX v5, sumber: packaging/windows/ducad.wxs) untuk
+      # instalasi pertama yang mudah. Per-user ke %LOCALAPPDATA%\Programs\DUCAD
+      # supaya updater bawaan (yang memakai .zip) tetap bisa menimpa folder.
+      - name: Pasang WiX
+        if: runner.os == 'Windows'
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          echo "$USERPROFILE\\.dotnet\\tools" >> "$GITHUB_PATH"
+
+      - name: Installer MSI
+        if: runner.os == 'Windows'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          MSI="ducad-$VERSION-windows-x86_64.msi"
+          wix build packaging/windows/ducad.wxs -arch x64 \
+            -d Version="$VERSION" \
+            -d BinDir=target/release \
+            -d AssetsDir=assets \
+            -d VersionFile="dist/ci/ducad-$VERSION-windows-x86_64/VERSION" \
+            -o "dist/ci/$MSI"
+          wix msi validate "dist/ci/$MSI"
+          (cd dist/ci && sha256sum "$MSI" > "$MSI.sha256")
+          ls -l dist/ci/*.msi
+
+      - name: Uji pasang/copot MSI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $msi = (Resolve-Path "dist/ci/ducad-$env:VERSION-windows-x86_64.msi").Path
+          $dir = Join-Path $env:LOCALAPPDATA "Programs\DUCAD"
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v `"$env:RUNNER_TEMP\msi-install.log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 60; throw "msiexec /i gagal: $($p.ExitCode)" }
+          foreach ($f in "ducad.exe", "ducad-cli.exe", "ducad-mcp.exe", "icon.png", "VERSION") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "berkas tidak terpasang: $f" }
+          }
+          if ((Get-Content (Join-Path $dir "VERSION")).Trim() -ne $env:VERSION) { throw "VERSION terpasang tidak cocok" }
+          & (Join-Path $dir "ducad-cli.exe") build crates/ducad-engine/tests/fixtures/plate.ops.json --out "$env:RUNNER_TEMP\smoke-msi" --date 2026-01-01
+          if ($LASTEXITCODE -ne 0) { throw "ducad-cli terpasang gagal jalan" }
+          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "msiexec /x gagal: $($p.ExitCode)" }
+          if (Test-Path (Join-Path $dir "ducad.exe")) { throw "copot tidak membersihkan folder instalasi" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: ducad-${{ matrix.platform }}
           if-no-files-found: error
           path: |
+            ducad-editor/dist/ci/*.msi
             ducad-editor/dist/ci/*.zip
             ducad-editor/dist/ci/*.tar.gz
             ducad-editor/dist/ci/*.sha256
@@ -173,6 +223,7 @@ jobs:
           required=(
             "ducad-$VERSION-linux-x86_64.tar.gz"
             "ducad-$VERSION-windows-x86_64.zip"
+            "ducad-$VERSION-windows-x86_64.msi"
             "ducad-tools-linux-x86_64.tar.gz"
             "ducad-tools-windows-x86_64.zip"
           )
