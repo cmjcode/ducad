@@ -53,6 +53,10 @@ pub struct MobileState {
     pub touch_pointer_active: bool,
     /// Sentuhan yang berlangsung berasal dari Apple Pencil (ada tekanan).
     pub pencil_touch_active: bool,
+    /// Keypad ringkas pengganti keyboard sistem (hanya aktif di iPad).
+    pub keyboard: ducad_ui::CompactKeyboard,
+    /// Keyboard sistem sedang diminta tampil (bukan keypad ringkas).
+    pub system_keyboard: bool,
 }
 
 impl MobileState {
@@ -131,6 +135,9 @@ impl DuCADApp {
             if crate::apple_ios::install_pencil_bridge(cc, cc.egui_ctx.clone(), tx) {
                 self.mobile.pencil_rx = Some(rx);
             }
+            // Keyboard sistem iPad menutupi kotak teks; ganti dengan keypad
+            // ringkas di dekat kotak (keyboard sistem tetap bisa dipilih).
+            self.mobile.keyboard.enabled = crate::apple_ios::install_compact_keyboard(cc);
         }
         #[cfg(not(target_os = "ios"))]
         let _ = cc;
@@ -314,6 +321,17 @@ impl DuCADApp {
         self.touch_config.single_finger_navigates()
             && self.mobile.touch_pointer_active
             && !self.mobile.pencil_touch_active
+    }
+
+    /// Gambar keypad ringkas di akhir frame (setelah semua `TextEdit`) dan
+    /// selaraskan keyboard sistem dengan pilihan pengguna.
+    pub fn compact_keyboard_frame(&mut self, ctx: &egui::Context) {
+        let out = self.mobile.keyboard.show(ctx);
+        if out.system_keyboard != self.mobile.system_keyboard {
+            self.mobile.system_keyboard = out.system_keyboard;
+            #[cfg(target_os = "ios")]
+            crate::apple_ios::set_system_keyboard(out.system_keyboard);
+        }
     }
 
     /// Ketuk ganda Pencil: bolak-balik antara tool aktif dan Pilih.

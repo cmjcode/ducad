@@ -5037,6 +5037,14 @@ impl eframe::App for DuCADApp {
         self.proposal_frame(&ctx);
         self.onboarding_frame(&ctx, screen_rect);
         self.freehand_tick();
+        // Paling akhir: keypad perlu kotak teks fokus dari frame ini.
+        self.compact_keyboard_frame(&ctx);
+    }
+
+    /// Ketukan pada keypad ringkas (iPad) diubah jadi ketikan sebelum egui
+    /// melihatnya, supaya `TextEdit` yang fokus tidak kehilangan fokus.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.mobile.keyboard.filter_input(raw_input);
     }
 }
 

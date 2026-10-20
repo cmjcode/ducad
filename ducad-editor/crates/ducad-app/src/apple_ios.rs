@@ -27,10 +27,11 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
+use objc2::runtime::{AnyClass, AnyObject, Imp, ProtocolObject, Sel};
 use objc2::{
     define_class, msg_send, sel, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
@@ -452,6 +453,15 @@ pub fn install_pencil_bridge(
             Some(sel!(onHover:)),
         )
     };
+    // Recognizer ini hanya MENGAMATI hover. Default UIKit-nya
+    // (`cancelsTouchesInView`/`delaysTouchesEnded` = YES) membatalkan
+    // sentuhan Pencil yang mendarat saat hover masih dikenali: ketukan
+    // singkat sampai ke egui sebagai `Cancelled` (tanpa "lepas"), sehingga
+    // tombol sidebar baru bereaksi bila Pencil ditahan. Matikan semuanya
+    // supaya ketukan Pencil sama responsifnya dengan jari.
+    hover.setCancelsTouchesInView(false);
+    hover.setDelaysTouchesBegan(false);
+    hover.setDelaysTouchesEnded(false);
     view.addGestureRecognizer(&hover);
 
     PENCIL.with(|p| {
@@ -462,6 +472,84 @@ pub fn install_pencil_bridge(
         })
     });
     true
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard: keypad ringkas egui menggantikan keyboard sistem
+// ---------------------------------------------------------------------------
+
+/// `true` = pengguna memilih keyboard sistem untuk kotak teks yang fokus.
+static SYSTEM_KEYBOARD: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    /// `inputView` kosong (tinggi 0): view winit tetap first responder
+    /// (keyboard fisik & `insertText:` tetap jalan) tanpa keyboard di layar.
+    static EMPTY_INPUT_VIEW: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+}
+
+/// Implementasi `-[WinitView inputView]`. UIKit memanggilnya di thread
+/// utama; nilai kembali +0 (view dipegang `EMPTY_INPUT_VIEW`).
+extern "C-unwind" fn input_view_imp(_this: *mut AnyObject, _cmd: Sel) -> *mut AnyObject {
+    if SYSTEM_KEYBOARD.load(Ordering::Relaxed) {
+        return std::ptr::null_mut();
+    }
+    EMPTY_INPUT_VIEW.with(|v| {
+        v.borrow()
+            .as_ref()
+            .map_or(std::ptr::null_mut(), |view| Retained::as_ptr(view).cast_mut().cast())
+    })
+}
+
+/// Sembunyikan keyboard sistem iPad agar keypad ringkas egui
+/// (`ducad_ui::CompactKeyboard`) yang dipakai. winit 0.30 tidak memberi
+/// kendali `inputView`, jadi metode itu ditambahkan ke kelas view winit
+/// saat runtime. Mengembalikan `false` bila gagal (keyboard sistem tetap
+/// dipakai seperti sebelumnya).
+pub fn install_compact_keyboard(cc: &eframe::CreationContext<'_>) -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let Some(view) = ui_view_from(cc) else {
+        return false;
+    };
+    let empty = UIView::initWithFrame(UIView::alloc(mtm), CGRect::ZERO);
+    EMPTY_INPUT_VIEW.with(|v| *v.borrow_mut() = Some(empty));
+
+    let cls: *const AnyClass = view.class();
+    let imp: extern "C-unwind" fn(*mut AnyObject, Sel) -> *mut AnyObject = input_view_imp;
+    // SAFETY: `cls` kelas view winit yang hidup selama proses; tanda tangan
+    // IMP (`id self, SEL _cmd) -> id`) cocok dengan encoding "@@:".
+    // `class_replaceMethod` menambah metode bila kelas belum punya sendiri
+    // (WinitView mewarisi `inputView` dari UIResponder).
+    unsafe {
+        let imp: Imp = std::mem::transmute(imp);
+        objc2::ffi::class_replaceMethod(cls.cast_mut(), sel!(inputView), imp, c"@@:".as_ptr());
+    }
+
+    // Bilah pintasan iPad (undo/redo/tempel) ikut tampil walau keyboard
+    // disembunyikan; kosongkan supaya tidak ada sisa bilah di bawah layar.
+    let item = view.inputAssistantItem();
+    let none = NSArray::<AnyObject>::new();
+    // SAFETY: setter properti `UITextInputAssistantItem` dengan array kosong.
+    unsafe {
+        let _: () = msg_send![&*item, setLeadingBarButtonGroups: &*none];
+        let _: () = msg_send![&*item, setTrailingBarButtonGroups: &*none];
+    }
+    true
+}
+
+/// Beralih antara keyboard sistem (`true`) dan keypad ringkas (`false`).
+/// `reloadInputViews` membuat UIKit membaca ulang `inputView` saat view
+/// sudah menjadi first responder.
+pub fn set_system_keyboard(on: bool) {
+    if SYSTEM_KEYBOARD.swap(on, Ordering::Relaxed) == on || MainThreadMarker::new().is_none() {
+        return;
+    }
+    ROOT_VIEW.with(|v| {
+        if let Some(view) = v.borrow().as_ref() {
+            view.reloadInputViews();
+        }
+    });
 }
 
 /// Haptik "pilihan berubah" (tool berganti lewat Pencil).

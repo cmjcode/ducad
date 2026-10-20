@@ -28,6 +28,7 @@ pub mod sim_panel;
 pub mod cmf_drawer;
 pub mod command_palette;
 pub mod constraint_strip;
+pub mod compact_keyboard;
 pub mod context_bar;
 pub mod datum_hud;
 pub mod drawing_sheet_view;
@@ -98,6 +99,7 @@ pub use mass_properties_panel::{
 };
 pub use cmf_drawer::{CmfDrawer, CmfDrawerEvent};
 pub use command_palette::{CommandPalette, PaletteEntry};
+pub use compact_keyboard::{CompactKeyboard, CompactKeyboardOutput, KeyboardLayout};
 pub use constraint_strip::{ConstraintAction, ConstraintStrip};
 pub use context_bar::{ContextAction, ContextActionBar, VectorExtrudeBarState};
 pub use sketch_hud::{InkHudState, InkHudTool, SketchHud, SketchHudEvent};
