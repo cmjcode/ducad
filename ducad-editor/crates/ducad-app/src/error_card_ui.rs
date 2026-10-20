@@ -35,6 +35,48 @@ fn candidates(value: f64) -> Vec<f64> {
     out.into_iter().take(MAX_VERIFY).collect()
 }
 
+/// Kandidat perbaikan shell yang terbukti berhasil pada pilihan sisi yang
+/// sama: kedalaman lebih dangkal / rongga penuh bila kedalamannya yang
+/// salah, selain itu tebal dinding yang lebih tipis. Compute murni —
+/// dipanggil dari thread shell (`shell_worker`), bukan dari UI.
+pub(crate) fn shell_fix_values(
+    shape: &ducad_kernel::KernelShape,
+    err: &OpError,
+    thickness: f64,
+    depth: f64,
+    faces: &FacePick,
+) -> Vec<GuiFix> {
+    if err.code == OpErrorCode::ShellDepthTooDeep {
+        let max = err.context.get("max_depth").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let half = (max * 0.5 * 10.0).floor() / 10.0;
+        let mut depths = vec![0.0];
+        if half > 0.0 {
+            depths.insert(0, half);
+        }
+        return depths
+            .into_iter()
+            .filter(|d| compute::shell(shape, faces, thickness, *d).is_ok())
+            .map(GuiFix::ShellDepth)
+            .collect();
+    }
+    candidates(thickness)
+        .into_iter()
+        .filter(|v| compute::shell(shape, faces, *v, depth).is_ok())
+        .map(GuiFix::ShellThickness)
+        .collect()
+}
+
+/// Label tombol kartu error untuk fix shell (dibuat di UI thread).
+pub(crate) fn shell_fix_label(fix: &GuiFix) -> String {
+    match fix {
+        GuiFix::ShellDepth(d) if *d > 0.0 => ducad_i18n::t!("fix-use-depth", value = format!("{d}")),
+        GuiFix::ShellDepth(_) => ducad_i18n::t!("fix-use-full-cavity"),
+        GuiFix::ShellThickness(v) => ducad_i18n::t!("fix-use-thickness", value = format!("{v}")),
+        GuiFix::FilletRadius(v) => ducad_i18n::t!("fix-use-radius", value = format!("{v}")),
+        GuiFix::ChamferDistance(v) => ducad_i18n::t!("fix-use-distance", value = format!("{v}")),
+    }
+}
+
 impl DuCADApp {
     /// Tampilkan kartu error untuk `e`. Judul dari kunci i18n
     /// `error-<kode_snake_case>`; pesan `OpError.message` menjadi penyebab
@@ -96,52 +138,6 @@ impl DuCADApp {
                         GuiFix::ChamferDistance(v),
                     )
                 }
-            })
-            .collect()
-    }
-
-    /// Kandidat perbaikan shell yang terbukti berhasil pada pilihan sisi yang
-    /// sama: kedalaman lebih dangkal / rongga penuh bila kedalamannya yang
-    /// salah, selain itu tebal dinding yang lebih tipis.
-    pub fn shell_fix_candidates(
-        &self,
-        id: BodyId,
-        err: &OpError,
-        thickness: f64,
-        depth: f64,
-        faces: &FacePick,
-    ) -> Vec<(String, GuiFix)> {
-        let Some(geo) = self.model.geometry.get(id) else {
-            return Vec::new();
-        };
-        if err.code == OpErrorCode::ShellDepthTooDeep {
-            let max = err.context.get("max_depth").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let half = (max * 0.5 * 10.0).floor() / 10.0;
-            let mut depths = vec![0.0];
-            if half > 0.0 {
-                depths.insert(0, half);
-            }
-            return depths
-                .into_iter()
-                .filter(|d| compute::shell(&geo.shape, faces, thickness, *d).is_ok())
-                .map(|d| {
-                    let label = if d > 0.0 {
-                        ducad_i18n::t!("fix-use-depth", value = format!("{d}"))
-                    } else {
-                        ducad_i18n::t!("fix-use-full-cavity")
-                    };
-                    (label, GuiFix::ShellDepth(d))
-                })
-                .collect();
-        }
-        candidates(thickness)
-            .into_iter()
-            .filter(|v| compute::shell(&geo.shape, faces, *v, depth).is_ok())
-            .map(|v| {
-                (
-                    ducad_i18n::t!("fix-use-thickness", value = format!("{v}")),
-                    GuiFix::ShellThickness(v),
-                )
             })
             .collect()
     }

@@ -564,9 +564,15 @@ fn shell_opened(b: &Body, healed: &Body, open: &[Vec3], opened: &[usize], thickn
     let cavity = match opening_overreach(healed, &cavity, opened, thickness, margin) {
         Ok(Some(trimmed)) => trimmed,
         Ok(None) => cavity,
+        // The untrimmed cavity would cut a strip through the wall next to the open face:
+        // open the face by sweeping instead, and fail rather than return a damaged shell.
         Err(e) => {
-            log::warn!("shell: could not trim the opening to the open faces ({e}); the wall next to it may be cut");
-            cavity
+            log::warn!("shell: could not trim the opening to the open faces ({e}); opening it by sweep instead");
+            return shell_by_opening(healed, opened, thickness, margin).map_err(|e2| {
+                KernelError::Failed(format!(
+                    "shell: the opening cannot be trimmed to the open face ({e}) nor swept through the body ({e2}); open a face whose edges are all convex, or shell each body before joining them"
+                ))
+            });
         }
     };
     let r = crate::ops::boolean(healed, &cavity, crate::BoolOp::Cut);

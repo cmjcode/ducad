@@ -220,6 +220,11 @@ pub struct DuCADApp {
     /// Kartu error operasi + fix terverifikasi (P9.3).
     pub error_card: ducad_ui::ErrorCardState,
     pub error_fixes: Vec<crate::error_card_ui::GuiFix>,
+    /// Shell yang sedang dihitung di thread latar (`modeling::shell_worker`).
+    pub shell_job: Option<crate::modeling::shell_worker::PendingShell>,
+    /// Jalankan operasi kernel berat di tempat, bukan di thread latar
+    /// (tes: hasil langsung tersedia setelah pemanggilan).
+    pub sync_kernel_ops: bool,
     pub file_status: Option<String>,
 
     pub language: ducad_i18n::Language,
@@ -669,6 +674,8 @@ impl DuCADApp {
             closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
+            shell_job: None,
+            sync_kernel_ops: false,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -1027,6 +1034,8 @@ impl DuCADApp {
             closed_objects: Default::default(),
             error_card: ducad_ui::ErrorCardState::default(),
             error_fixes: Vec::new(),
+            shell_job: None,
+            sync_kernel_ops: true,
             file_status: None,
 
             language: ducad_i18n::Language::default(),
@@ -1924,6 +1933,7 @@ impl eframe::App for DuCADApp {
         // diproses, supaya perubahan langsung ikut tergambar frame ini.
         self.poll_agent_bridge(&ctx);
         self.poll_import_worker();
+        self.poll_shell_job(&ctx);
         if self.pending_imports > 0 {
             ctx.request_repaint();
         }

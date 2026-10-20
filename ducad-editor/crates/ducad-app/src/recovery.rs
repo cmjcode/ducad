@@ -241,6 +241,8 @@ impl crate::app::DuCADApp {
             .collapsible(false)
             .resizable(true)
             .default_width(460.0)
+            // Tengah layar: tanpa posisi, egui menaruhnya di (0,0) di bawah toolbar.
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new(ducad_i18n::t!("recovery-help")).small());
                 if self.recovery.entries.is_empty() {
